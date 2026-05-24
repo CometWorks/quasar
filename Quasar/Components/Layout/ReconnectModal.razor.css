@@ -21,11 +21,12 @@
 
 
 #components-reconnect-modal {
-    background-color: white;
+    background-color: var(--mud-palette-surface);
+    color: var(--mud-palette-text-primary);
     width: 20rem;
     margin: 20vh auto;
     padding: 2rem;
-    border: 0;
+    border: 1px solid var(--mud-palette-lines-default);
     border-radius: 0.5rem;
     box-shadow: 0 3px 6px 2px rgba(0, 0, 0, 0.3);
     opacity: 0;
@@ -86,22 +87,23 @@
 #components-reconnect-modal p {
     margin: 0;
     text-align: center;
+    color: inherit;
 }
 
 #components-reconnect-modal button {
     border: 0;
-    background-color: #6b9ed2;
-    color: white;
+    background-color: var(--mud-palette-primary);
+    color: var(--mud-palette-primary-text);
     padding: 4px 24px;
     border-radius: 4px;
 }
 
     #components-reconnect-modal button:hover {
-        background-color: #3b6ea2;
+        filter: brightness(1.08);
     }
 
     #components-reconnect-modal button:active {
-        background-color: #6b9ed2;
+        filter: brightness(0.98);
     }
 
 .components-rejoining-animation {

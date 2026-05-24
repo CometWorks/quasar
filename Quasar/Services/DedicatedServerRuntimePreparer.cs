@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -18,13 +19,16 @@ public sealed class DedicatedServerRuntimePreparer
 
     private readonly ILogger<DedicatedServerRuntimePreparer> _logger;
     private readonly WebServiceOptions _options;
+    private readonly QuasarConfigProfileCatalog _configProfiles;
 
     public DedicatedServerRuntimePreparer(
         ILogger<DedicatedServerRuntimePreparer> logger,
-        WebServiceOptions options)
+        WebServiceOptions options,
+        QuasarConfigProfileCatalog configProfiles)
     {
         _logger = logger;
         _options = options;
+        _configProfiles = configProfiles;
     }
 
     public async Task<PreparedDedicatedServerLaunch> PrepareAsync(
@@ -38,12 +42,14 @@ public sealed class DedicatedServerRuntimePreparer
         var worldPath = ResolveWorldPath(definition.WorldPath);
         var runtimeConfigPath = Path.Combine(dedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg");
         var lastSessionPath = Path.Combine(dedicatedServerAppDataPath, "Saves", "LastSession.sbl");
+        var configProfile = ResolveConfigProfile(definition);
 
         Directory.CreateDirectory(dedicatedServerAppDataPath);
         Directory.CreateDirectory(magnetarAppDataPath);
         Directory.CreateDirectory(Path.Combine(dedicatedServerAppDataPath, "Saves"));
 
-        await PrepareRuntimeConfigAsync(definition, runtimeConfigPath, cancellationToken);
+        await PrepareRuntimeConfigAsync(definition, configProfile, runtimeConfigPath, cancellationToken);
+        await PrepareMagnetarConfigAsync(configProfile, magnetarAppDataPath, cancellationToken);
         await WriteLastSessionAsync(definition, worldPath, dedicatedServerAppDataPath, lastSessionPath, cancellationToken);
 
         var arguments = BuildLaunchArguments(
@@ -65,6 +71,7 @@ public sealed class DedicatedServerRuntimePreparer
 
     private async Task PrepareRuntimeConfigAsync(
         DedicatedServerInstanceDefinition definition,
+        QuasarConfigProfile? configProfile,
         string runtimeConfigPath,
         CancellationToken cancellationToken)
     {
@@ -78,21 +85,27 @@ public sealed class DedicatedServerRuntimePreparer
                 ? runtimeConfigPath
                 : null;
 
-        if (string.IsNullOrWhiteSpace(sourcePath))
-            return;
-
         XDocument document;
-        try
+        if (string.IsNullOrWhiteSpace(sourcePath))
         {
-            document = XDocument.Load(sourcePath, LoadOptions.PreserveWhitespace);
+            document = CreateEmptyDedicatedConfigDocument();
         }
-        catch (Exception exception)
+        else
         {
-            throw new InvalidOperationException($"Failed to load DS config '{sourcePath}'.", exception);
+            try
+            {
+                document = XDocument.Load(sourcePath, LoadOptions.PreserveWhitespace);
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException($"Failed to load DS config '{sourcePath}'.", exception);
+            }
         }
 
-        var root = document.Root ?? throw new InvalidOperationException($"DS config '{sourcePath}' has no root element.");
+        var root = document.Root ?? throw new InvalidOperationException($"DS config '{sourcePath ?? runtimeConfigPath}' has no root element.");
         UpsertElement(root, "IgnoreLastSession", "false");
+        if (configProfile is not null)
+            ApplyConfigProfile(root, configProfile);
 
         var content = SerializeXml(document);
         await AtomicFileWriter.WriteTextAsync(runtimeConfigPath, content, cancellationToken);
@@ -126,6 +139,129 @@ public sealed class DedicatedServerRuntimePreparer
 
         await AtomicFileWriter.WriteTextAsync(lastSessionPath, SerializeXml(document), cancellationToken);
         _logger.LogInformation("Prepared LastSession.sbl for instance {InstanceId} at {Path}.", definition.InstanceId, lastSessionPath);
+    }
+
+    private async Task PrepareMagnetarConfigAsync(
+        QuasarConfigProfile? configProfile,
+        string magnetarAppDataPath,
+        CancellationToken cancellationToken)
+    {
+        var sourcesDirectory = Path.Combine(magnetarAppDataPath, "Sources");
+        var profilesDirectory = Path.Combine(magnetarAppDataPath, "Profiles");
+        Directory.CreateDirectory(sourcesDirectory);
+        Directory.CreateDirectory(profilesDirectory);
+
+        var currentProfileName = string.IsNullOrWhiteSpace(configProfile?.Name)
+            ? "Quasar Current"
+            : configProfile.Name.Trim();
+
+        var sourcesDocument = new XDocument(
+            new XDeclaration("1.0", "utf-8", null),
+            new XElement(
+                "SourcesConfig",
+                new XElement("ShowWarning", "true"),
+                new XElement("MaxSourceAge", "2"),
+                new XElement("LocalHubSources"),
+                new XElement(
+                    "RemoteHubSources",
+                    new XElement(
+                        "RemoteHub",
+                        new XElement("Name", QuasarPluginCatalogService.DefaultHubName),
+                        new XElement("Repo", QuasarPluginCatalogService.DefaultHubRepo),
+                        new XElement("Branch", QuasarPluginCatalogService.DefaultHubBranch),
+                        new XElement("Enabled", "true"),
+                        new XElement("Trusted", "true"))),
+                new XElement("RemotePluginSources"),
+                new XElement("LocalPluginSources"),
+                new XElement(
+                    "ModSources",
+                    (configProfile?.Mods ?? [])
+                    .Select(mod => new XElement(
+                        "Mod",
+                        new XElement("Name", string.IsNullOrWhiteSpace(mod.DisplayName) ? mod.WorkshopId.ToString(CultureInfo.InvariantCulture) : mod.DisplayName),
+                        new XElement("ID", mod.WorkshopId.ToString(CultureInfo.InvariantCulture)),
+                        new XElement("Enabled", "true"))))));
+
+        var currentProfileDocument = new XDocument(
+            new XDeclaration("1.0", "utf-8", null),
+            new XElement(
+                "Profile",
+                new XElement("Name", currentProfileName),
+                new XElement(
+                    "GitHub",
+                    (configProfile?.Plugins ?? [])
+                    .Where(plugin => QuasarPluginCatalogService.IsManualSelectionAllowed(plugin.PluginId))
+                    .Select(plugin => new XElement(
+                        "GitHubPluginConfig",
+                        new XElement("Id", plugin.PluginId),
+                        new XElement("SelectedVersion", plugin.SelectedVersion)))),
+                new XElement("DevFolder"),
+                new XElement("Local"),
+                new XElement(
+                    "Mods",
+                    (configProfile?.Mods ?? [])
+                    .Select(mod => new XElement("unsignedLong", mod.WorkshopId.ToString(CultureInfo.InvariantCulture))))));
+
+        await AtomicFileWriter.WriteTextAsync(
+            Path.Combine(sourcesDirectory, "sources.xml"),
+            SerializeXml(sourcesDocument),
+            cancellationToken);
+
+        await AtomicFileWriter.WriteTextAsync(
+            Path.Combine(profilesDirectory, "Current.xml"),
+            SerializeXml(currentProfileDocument),
+            cancellationToken);
+    }
+
+    private QuasarConfigProfile? ResolveConfigProfile(DedicatedServerInstanceDefinition definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition.ConfigProfileId))
+            return null;
+
+        var profile = _configProfiles.GetProfile(definition.ConfigProfileId);
+        if (profile is null)
+            throw new InvalidOperationException($"Unknown Quasar config profile '{definition.ConfigProfileId}' for instance '{definition.InstanceId}'.");
+
+        return profile;
+    }
+
+    private static XDocument CreateEmptyDedicatedConfigDocument()
+    {
+        return new XDocument(
+            new XDeclaration("1.0", "utf-8", null),
+            new XElement(
+                "MyConfigDedicated",
+                new XAttribute(XNamespace.Xmlns + "xsd", XsdNamespace),
+                new XAttribute(XNamespace.Xmlns + "xsi", XsiNamespace),
+                new XElement("SessionSettings")));
+    }
+
+    private static void ApplyConfigProfile(XElement root, QuasarConfigProfile configProfile)
+    {
+        var sessionSettings = root.Element("SessionSettings");
+        if (sessionSettings is null)
+        {
+            sessionSettings = new XElement("SessionSettings");
+            root.AddFirst(sessionSettings);
+        }
+
+        foreach (var option in QuasarConfigMetadata.Options)
+        {
+            var target = option.Scope == QuasarConfigOptionScope.Root
+                ? (object)configProfile.RootSettings
+                : configProfile.SessionSettings;
+            var value = QuasarConfigMetadata.FormatValue(option, target);
+
+            if (option.Scope == QuasarConfigOptionScope.Root)
+                UpsertElement(root, option.ElementName, value);
+            else
+                UpsertElement(sessionSettings, option.ElementName, value);
+        }
+
+        UpsertElement(root, "GroupID", configProfile.RootSettings.GroupId.ToString(CultureInfo.InvariantCulture));
+        UpsertArray(root, "Administrators", "unsignedLong", configProfile.RootSettings.Administrators);
+        UpsertArray(root, "Reserved", "unsignedLong", configProfile.RootSettings.Reserved.Select(value => value.ToString(CultureInfo.InvariantCulture)));
+        UpsertArray(root, "Banned", "unsignedLong", configProfile.RootSettings.Banned.Select(value => value.ToString(CultureInfo.InvariantCulture)));
     }
 
     private static string BuildLaunchArguments(
@@ -173,7 +309,7 @@ public sealed class DedicatedServerRuntimePreparer
         string runtimeConfigPath,
         WebServiceOptions options)
     {
-        return (definition.LaunchArguments ?? string.Empty)
+        return definition.LaunchArguments
             .Trim()
             .Replace("{instanceId}", definition.InstanceId, StringComparison.OrdinalIgnoreCase)
             .Replace("{configPath}", QuoteArgument(runtimeConfigPath), StringComparison.OrdinalIgnoreCase)
@@ -264,6 +400,23 @@ public sealed class DedicatedServerRuntimePreparer
         }
 
         element.Value = value;
+    }
+
+    private static void UpsertArray(XElement root, string name, string itemName, IEnumerable<string> values)
+    {
+        var element = root.Element(name);
+        if (element is null)
+        {
+            element = new XElement(name);
+            root.Add(element);
+        }
+        else
+        {
+            element.RemoveNodes();
+        }
+
+        foreach (var value in values.Where(value => !string.IsNullOrWhiteSpace(value)))
+            element.Add(new XElement(itemName, value));
     }
 
     private static string QuoteArgument(string value) => $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";

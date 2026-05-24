@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject DedicatedServerInstanceCatalog InstanceCatalog
 @inject DedicatedServerSupervisor Supervisor
+@inject QuasarConfigProfileCatalog ConfigProfiles
 @inject ISnackbar Snackbar
 
 <PageTitle>Instances</PageTitle>
@@ -26,6 +27,13 @@
                 <MudTextField @bind-Value="_editor.MagnetarAppDataPath" Label="Magnetar app-data path" Variant="Variant.Outlined" />
                 <MudTextField @bind-Value="_editor.WorldPath" Label="World path" Variant="Variant.Outlined" />
                 <MudTextField @bind-Value="_editor.ConfigFilePath" Label="Rendered DS config path" Variant="Variant.Outlined" />
+                <MudSelect T="string" @bind-Value="_editor.ConfigProfileId" Label="Config profile" Variant="Variant.Outlined" HelperText="Reusable world, plugin, and mod preset from Configs page.">
+                    <MudSelectItem T="string" Value="@string.Empty">(No config profile)</MudSelectItem>
+                    @foreach (var profile in ConfigProfiles.GetProfiles())
+                    {
+                        <MudSelectItem T="string" Value="@profile.ConfigProfileId">@profile.Name</MudSelectItem>
+                    }
+                </MudSelect>
                 <MudTextField
                     @bind-Value="_editor.LaunchArguments"
                     Label="Launch arguments"
@@ -66,6 +74,7 @@
                     <HeaderContent>
                         <MudTh>Name</MudTh>
                         <MudTh>Instance Id</MudTh>
+                        <MudTh>Config</MudTh>
                         <MudTh>Goal</MudTh>
                         <MudTh>Process</MudTh>
                         <MudTh>Agent</MudTh>
@@ -76,6 +85,7 @@
                     <RowTemplate>
                         <MudTd DataLabel="Name">@context.Name</MudTd>
                         <MudTd DataLabel="Instance Id" Class="mono">@context.InstanceId</MudTd>
+                        <MudTd DataLabel="Config">@GetConfigProfileName(context.ConfigProfileId)</MudTd>
                         <MudTd DataLabel="Goal">@GetGoalStateText(context.InstanceId)</MudTd>
                         <MudTd DataLabel="Process" Class="mono">@GetProcessDisplay(context.InstanceId)</MudTd>
                         <MudTd DataLabel="Agent">@GetAttachmentStatus(context.InstanceId)</MudTd>
@@ -128,12 +138,14 @@
     {
         InstanceCatalog.Changed += HandleChanged;
         Supervisor.Changed += HandleChanged;
+        ConfigProfiles.Changed += HandleChanged;
     }
 
     public void Dispose()
     {
         InstanceCatalog.Changed -= HandleChanged;
         Supervisor.Changed -= HandleChanged;
+        ConfigProfiles.Changed -= HandleChanged;
     }
 
     private async Task SaveAsync()
@@ -222,6 +234,7 @@
             MagnetarAppDataPath = definition.MagnetarAppDataPath,
             WorldPath = definition.WorldPath,
             ConfigFilePath = definition.ConfigFilePath,
+            ConfigProfileId = definition.ConfigProfileId,
             LaunchArguments = definition.LaunchArguments,
             AutoStart = definition.AutoStart,
             EnableHealthMonitoring = definition.EnableHealthMonitoring,
@@ -269,6 +282,14 @@
             ?.GoalState
             .ToString()
             .ToLowerInvariant() ?? "off";
+    }
+
+    private string GetConfigProfileName(string configProfileId)
+    {
+        if (string.IsNullOrWhiteSpace(configProfileId))
+            return "-";
+
+        return ConfigProfiles.GetProfile(configProfileId)?.Name ?? $"Missing: {configProfileId}";
     }
 
     private string GetStateText(string instanceId)

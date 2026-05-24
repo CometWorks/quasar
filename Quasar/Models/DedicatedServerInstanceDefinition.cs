@@ -20,6 +20,8 @@ public sealed class DedicatedServerInstanceDefinition
 
     public string ConfigFilePath { get; set; } = string.Empty;
 
+    public string ConfigProfileId { get; set; } = string.Empty;
+
     public string LaunchArguments { get; set; } = string.Empty;
 
     public bool AutoStart { get; set; }

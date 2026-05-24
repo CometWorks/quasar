@@ -7,20 +7,27 @@
 <MudText Typo="Typo.h4" GutterBottom="true">Nodes</MudText>
 <MudText Typo="Typo.body2" Class="mb-4">Each node can host many server and plugin instances behind one shared Quasar supervisor endpoint.</MudText>
 
-<MudTable T="NodeRow" Dense="true" Hover="true" Items="NodeRows">
-    <HeaderContent>
-        <MudTh>Node</MudTh>
-        <MudTh>Servers</MudTh>
-        <MudTh>Connected Agents</MudTh>
-        <MudTh>Players</MudTh>
-    </HeaderContent>
-    <RowTemplate>
-        <MudTd DataLabel="Node">@context.NodeName</MudTd>
-        <MudTd DataLabel="Servers">@context.ServerCount</MudTd>
-        <MudTd DataLabel="Connected Agents">@context.ConnectedAgents</MudTd>
-        <MudTd DataLabel="Players">@context.PlayersOnline</MudTd>
-    </RowTemplate>
-</MudTable>
+<MudPaper Class="server-card">
+    <MudTable T="NodeRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="NodeRows">
+        <HeaderContent>
+            <MudTh>Node</MudTh>
+            <MudTh>Servers</MudTh>
+            <MudTh>Connected Agents</MudTh>
+            <MudTh>Players</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Node">@context.NodeName</MudTd>
+            <MudTd DataLabel="Servers">@context.ServerCount</MudTd>
+            <MudTd DataLabel="Connected Agents">@context.ConnectedAgents</MudTd>
+            <MudTd DataLabel="Players">@context.PlayersOnline</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                No node data yet.
+            </MudAlert>
+        </NoRecordsContent>
+    </MudTable>
+</MudPaper>
 
 @code
 {

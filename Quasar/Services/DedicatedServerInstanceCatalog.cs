@@ -232,6 +232,7 @@ public sealed class DedicatedServerInstanceCatalog
         instance.ConfigFilePath = string.IsNullOrWhiteSpace(instance.ConfigFilePath)
             ? Path.Combine(instance.DedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg")
             : instance.ConfigFilePath.Trim();
+        instance.ConfigProfileId = instance.ConfigProfileId?.Trim() ?? string.Empty;
         instance.LaunchArguments = instance.LaunchArguments?.Trim() ?? string.Empty;
         instance.AutoStart = instance.GoalState == DedicatedServerInstanceGoalState.On || instance.AutoStart;
         instance.GoalState = instance.AutoStart ? DedicatedServerInstanceGoalState.On : DedicatedServerInstanceGoalState.Off;
@@ -281,6 +282,7 @@ public sealed class DedicatedServerInstanceCatalog
             MagnetarAppDataPath = instance.MagnetarAppDataPath,
             WorldPath = instance.WorldPath,
             ConfigFilePath = instance.ConfigFilePath,
+            ConfigProfileId = instance.ConfigProfileId,
             LaunchArguments = instance.LaunchArguments,
             AutoStart = instance.AutoStart,
             EnableHealthMonitoring = instance.EnableHealthMonitoring,

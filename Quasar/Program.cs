@@ -13,6 +13,9 @@ public class Program
         try
         {
             var builder = WebApplication.CreateBuilder(args);
+            if (ShouldUseSourceStaticWebAssets())
+                builder.WebHost.UseStaticWebAssets();
+
             var webServiceOptions = WebServiceOptions.Create(builder.Configuration);
 
             QuasarLoggingConfigurator.Configure(builder, webServiceOptions);
@@ -22,10 +25,14 @@ public class Program
 
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents();
+            builder.Services.AddHttpClient();
             builder.Services.AddLocalStorageServices();
             builder.Services.AddMudServices();
             builder.Services.AddSingleton(webServiceOptions);
             builder.Services.AddSingleton<AgentRegistry>();
+            builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
+            builder.Services.AddSingleton<QuasarPluginCatalogService>();
+            builder.Services.AddSingleton<QuasarWorkshopModResolver>();
             builder.Services.AddSingleton<DedicatedServerInstanceCatalog>();
             builder.Services.AddSingleton<DedicatedServerSupervisor>();
             builder.Services.AddSingleton<DedicatedServerRuntimePreparer>();
@@ -95,5 +102,17 @@ public class Program
         {
             LogManager.Shutdown();
         }
+    }
+
+    private static bool ShouldUseSourceStaticWebAssets()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var depth = 0; directory is not null && depth < 6; depth++, directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "Quasar.csproj")))
+                return true;
+        }
+
+        return false;
     }
 }

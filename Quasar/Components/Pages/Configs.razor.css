@@ -1,0 +1,91 @@
+.configs-sidebar {
+    height: 100%;
+}
+
+.config-profile-tile {
+    background: var(--mud-palette-background-gray);
+    border-radius: calc(var(--mud-default-borderradius) + 2px);
+    transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.config-profile-selected {
+    background: var(--mud-palette-primary);
+    color: var(--mud-palette-primary-text);
+}
+
+.config-profile-row {
+    flex-wrap: nowrap;
+}
+
+.config-profile-button {
+    border-radius: inherit;
+    color: inherit;
+    flex: 1 1 auto;
+    height: 100%;
+    justify-content: flex-start;
+    min-width: 0;
+    padding: 0;
+    text-align: left;
+    text-transform: none;
+    width: auto;
+}
+
+.config-profile-button-selected {
+    box-shadow: inset 4px 0 0 currentColor;
+}
+
+.config-profile-button ::deep .mud-button-label {
+    justify-content: flex-start;
+    width: 100%;
+}
+
+.config-profile-delete {
+    flex: 0 0 auto;
+}
+
+.config-secondary {
+    opacity: 0.78;
+}
+
+.configs-search-field {
+    flex: 1 1 20rem;
+    min-width: min(22rem, 100%);
+}
+
+.configs-add-button {
+    height: 56px;
+}
+
+.config-option-card {
+    height: 100%;
+    scroll-margin-top: 6rem;
+    background: var(--mud-palette-background-gray);
+    border-radius: calc(var(--mud-default-borderradius) + 2px);
+    transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.config-option-highlight {
+    background: rgba(250, 204, 21, 0.08);
+    box-shadow: inset 3px 0 0 rgba(250, 204, 21, 0.55);
+}
+
+.config-option-first {
+    box-shadow: inset 4px 0 0 var(--mud-palette-primary);
+}
+
+.config-option-focus {
+    box-shadow: 0 0 0 3px rgba(89, 74, 226, 0.22);
+}
+
+.config-selection-row {
+    background: var(--mud-palette-background-gray);
+    border-radius: calc(var(--mud-default-borderradius) + 2px);
+    transition: background-color 0.15s ease;
+}
+
+@media (min-width: 1280px) {
+    .configs-sidebar {
+        position: sticky;
+        top: 1rem;
+    }
+}

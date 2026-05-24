@@ -2,6 +2,9 @@ html,
 body {
     margin: 0;
     min-height: 100%;
+}
+
+body {
     font-family: "Roboto", "Helvetica", "Arial", sans-serif;
     background: var(--mud-palette-background);
     color: var(--mud-palette-text-primary);
@@ -11,10 +14,32 @@ h1:focus {
     outline: none;
 }
 
+.magnetar-appbar {
+    border-bottom: 1px solid var(--mud-palette-lines-default);
+}
+
+.magnetar-appbar-subtitle,
+.magnetar-nav-section {
+    color: var(--mud-palette-text-secondary);
+}
+
 .magnetar-body {
     min-height: calc(100vh - 64px);
-    padding: 1.5rem;
     background: var(--mud-palette-background);
+    padding-inline: clamp(0.75rem, 2vw, 1.5rem);
+}
+
+.magnetar-shell-content {
+    padding-block: clamp(1rem, 2vw, 1.5rem);
+}
+
+.magnetar-nav-menu .mud-nav-link {
+    border-radius: var(--mud-default-borderradius);
+    margin-bottom: 0.35rem;
+}
+
+.magnetar-nav-menu .mud-nav-link.active {
+    background: var(--mud-palette-action-default-hover);
 }
 
 .summary-card {
@@ -22,6 +47,8 @@ h1:focus {
     background: var(--mud-palette-surface);
     border: 1px solid var(--mud-palette-lines-default);
     box-shadow: none;
+    border-radius: calc(var(--mud-default-borderradius) + 2px);
+    transition: border-color 120ms ease;
 }
 
 .server-card {
@@ -29,15 +56,21 @@ h1:focus {
     background: var(--mud-palette-surface);
     border: 1px solid var(--mud-palette-lines-default);
     box-shadow: none;
+    border-radius: calc(var(--mud-default-borderradius) + 2px);
+    overflow: hidden;
 }
 
 .chat-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
     max-height: 18rem;
     overflow-y: auto;
+    padding-right: 0.25rem;
 }
 
 .chat-row {
-    padding: 0.4rem 0;
+    padding: 0.6rem 0;
     border-bottom: 1px solid var(--mud-palette-lines-default);
 }
 
@@ -49,8 +82,29 @@ h1:focus {
     background: var(--mud-palette-background);
 }
 
-.mud-drawer {
+.mud-drawer,
+.magnetar-drawer {
     border-right: 1px solid var(--mud-palette-lines-default);
+    background: var(--mud-palette-drawer-background);
+}
+
+.summary-card:hover,
+.server-card:hover {
+    border-color: var(--mud-palette-text-secondary);
+}
+
+.server-card .mud-table-container {
+    border-radius: inherit;
+}
+
+@media (max-width: 959.98px) {
+    .magnetar-body {
+        padding-inline: 0.5rem;
+    }
+
+    .magnetar-shell-content {
+        padding-block: 0.75rem;
+    }
 }
 
 .blazor-error-boundary {

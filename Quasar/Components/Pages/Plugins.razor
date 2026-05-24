@@ -7,22 +7,29 @@
 <MudText Typo="Typo.h4" GutterBottom="true">Plugins</MudText>
 <MudText Typo="Typo.body2" Class="mb-4">Plugin inventory across all connected servers.</MudText>
 
-<MudTable T="PluginRow" Dense="true" Hover="true" Items="PluginRows">
-    <HeaderContent>
-        <MudTh>Plugin</MudTh>
-        <MudTh>Version</MudTh>
-        <MudTh>Server</MudTh>
-        <MudTh>Node</MudTh>
-        <MudTh>Status</MudTh>
-    </HeaderContent>
-    <RowTemplate>
-        <MudTd DataLabel="Plugin">@context.DisplayName</MudTd>
-        <MudTd DataLabel="Version">@context.Version</MudTd>
-        <MudTd DataLabel="Server">@context.ServerName</MudTd>
-        <MudTd DataLabel="Node">@context.NodeName</MudTd>
-        <MudTd DataLabel="Status">@(context.IsLoaded ? "loaded" : "declared")</MudTd>
-    </RowTemplate>
-</MudTable>
+<MudPaper Class="server-card">
+    <MudTable T="PluginRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="PluginRows">
+        <HeaderContent>
+            <MudTh>Plugin</MudTh>
+            <MudTh>Version</MudTh>
+            <MudTh>Server</MudTh>
+            <MudTh>Node</MudTh>
+            <MudTh>Status</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Plugin">@context.DisplayName</MudTd>
+            <MudTd DataLabel="Version">@context.Version</MudTd>
+            <MudTd DataLabel="Server">@context.ServerName</MudTd>
+            <MudTd DataLabel="Node">@context.NodeName</MudTd>
+            <MudTd DataLabel="Status">@(context.IsLoaded ? "loaded" : "declared")</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                No plugin inventory yet.
+            </MudAlert>
+        </NoRecordsContent>
+    </MudTable>
+</MudPaper>
 
 @code
 {

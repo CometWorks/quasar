@@ -13,7 +13,9 @@ public static class QuasarTheme
         PaletteLight = new PaletteLight
         {
             Primary = "#111111",
+            PrimaryContrastText = "#f5f5f5",
             Secondary = "#6b7280",
+            SecondaryContrastText = "#ffffff",
             Background = "#f5f5f5",
             BackgroundGray = "#ebebeb",
             Surface = "#ffffff",
@@ -30,14 +32,20 @@ public static class QuasarTheme
             Divider = "#d4d4d8",
             DividerLight = "#e4e4e7",
             Info = "#6b7280",
+            InfoContrastText = "#ffffff",
             Success = "#166534",
+            SuccessContrastText = "#ffffff",
             Warning = "#a16207",
+            WarningContrastText = "#ffffff",
             Error = "#b91c1c",
+            ErrorContrastText = "#ffffff",
         },
         PaletteDark = new PaletteDark
         {
             Primary = "#f5f5f5",
+            PrimaryContrastText = "#111111",
             Secondary = "#9ca3af",
+            SecondaryContrastText = "#111111",
             Background = "#0a0a0a",
             BackgroundGray = "#171717",
             Surface = "#121212",
@@ -54,9 +62,13 @@ public static class QuasarTheme
             Divider = "#2f2f2f",
             DividerLight = "#262626",
             Info = "#a3a3a3",
+            InfoContrastText = "#111111",
             Success = "#86efac",
+            SuccessContrastText = "#111111",
             Warning = "#facc15",
+            WarningContrastText = "#111111",
             Error = "#fca5a5",
+            ErrorContrastText = "#111111",
         },
     };
 }
