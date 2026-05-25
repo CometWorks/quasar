@@ -255,6 +255,12 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
             instance.AgentStartupGraceSeconds = 0;
         if (instance.AgentHeartbeatTimeoutSeconds < 1)
             instance.AgentHeartbeatTimeoutSeconds = 1;
+        if (instance.SimulationProgressWindowSeconds < 1)
+            instance.SimulationProgressWindowSeconds = 1;
+        if (instance.MinimumSimulationProgressScore < 0f)
+            instance.MinimumSimulationProgressScore = 0f;
+        else if (instance.MinimumSimulationProgressScore > 1f)
+            instance.MinimumSimulationProgressScore = 1f;
         if (instance.WarnAfterUptimeHours < 0)
             instance.WarnAfterUptimeHours = 0;
         if (instance.RecycleAfterUptimeHours < 0)
@@ -304,6 +310,8 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
             AutoRestartOnUnhealthy = instance.AutoRestartOnUnhealthy,
             AgentStartupGraceSeconds = instance.AgentStartupGraceSeconds,
             AgentHeartbeatTimeoutSeconds = instance.AgentHeartbeatTimeoutSeconds,
+            SimulationProgressWindowSeconds = instance.SimulationProgressWindowSeconds,
+            MinimumSimulationProgressScore = instance.MinimumSimulationProgressScore,
             WarnAfterUptimeHours = instance.WarnAfterUptimeHours,
             RecycleAfterUptimeHours = instance.RecycleAfterUptimeHours,
             RestartOnCrash = instance.RestartOnCrash,

@@ -59,16 +59,31 @@
             <MudText Typo="Typo.subtitle2" Class="mb-2">Players</MudText>
             <MudTable T="PlayerSnapshot" Dense="true" Hover="true" Items="Agent.Snapshot.Players">
                 <HeaderContent>
+                    <MudTh>Service</MudTh>
                     <MudTh>Name</MudTh>
+                    <MudTh>Steam ID</MudTh>
                     <MudTh>Faction</MudTh>
-                    <MudTh>Admin</MudTh>
+                    <MudTh>Role</MudTh>
                     <MudTh>Ping</MudTh>
                     <MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+                    <MudTd DataLabel="Service">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.ServiceName)</MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Name">
+                        <MudText Typo="Typo.body2">@context.DisplayName</MudText>
+                        @if (!string.IsNullOrWhiteSpace(context.PlatformDisplayName) &&
+                             !string.Equals(context.PlatformDisplayName, context.DisplayName, StringComparison.Ordinal))
+                        {
+                            <MudText Typo="Typo.caption">@context.PlatformDisplayName</MudText>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Steam ID">
+                        <MudText Typo="Typo.body2" Class="mono">@context.SteamId</MudText>
+                    </MudTd>
                     <MudTd DataLabel="Faction">@context.FactionTag</MudTd>
-                    <MudTd DataLabel="Admin">@(context.IsAdmin ? "yes" : "no")</MudTd>
+                    <MudTd DataLabel="Role">@GetRoleLabel(context)</MudTd>
                     <MudTd DataLabel="Ping">@context.PingMs</MudTd>
                     <MudTd Style="text-align: right;">
                         <MudMenu Dense="true" Icon="@Icons.Material.Filled.MoreVert">
@@ -189,5 +204,22 @@
             return string.Empty;
 
         return new DateTime(ticksUtc, DateTimeKind.Utc).ToLocalTime().ToString("HH:mm:ss");
+    }
+
+    private static string GetServiceLabel(string? serviceName)
+    {
+        return string.IsNullOrWhiteSpace(serviceName) ? "Unknown" : serviceName.Trim();
+    }
+
+    private static string GetRoleLabel(PlayerSnapshot player)
+    {
+        var promoteLevel = player.PromoteLevel?.Trim();
+        if (!string.IsNullOrWhiteSpace(promoteLevel) &&
+            !string.Equals(promoteLevel, "None", StringComparison.OrdinalIgnoreCase))
+        {
+            return promoteLevel;
+        }
+
+        return player.IsAdmin ? "Admin" : "Player";
     }
 }

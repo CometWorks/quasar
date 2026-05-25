@@ -316,6 +316,18 @@ This should be treated more like Terraform or other IaC reconciliation than like
 
 Space Engineers dedicated servers are known to degrade over long uptimes. Health monitoring is therefore not optional polish. It is part of the core reconciliation loop.
 
+For simulation-health checks, Quasar should mirror the dedicated server's own watcher logic rather than inventing a separate heuristic. The dedicated server computes a minimum acceptable frame advance over a time window from:
+
+- `WatcherInterval`
+- `WatcherSimulationSpeedMinimum`
+- `requiredFrames = windowSeconds * 60 * minimumSimulationSpeed`
+
+Quasar should therefore track total simulation frames reported by `Quasar.Agent`, compare frame deltas against elapsed wall-clock time, and derive a frame-progress score:
+
+- `frameProgressScore = deltaFrames / (elapsedSeconds * 60)`
+
+That score should be compared against a configurable minimum threshold, and save-in-progress windows should reset the baseline instead of being treated as a stall.
+
 Each launched DS process should receive:
 
 - stable instance id
@@ -652,6 +664,7 @@ Required for the first meaningful delivery:
 - goal-state reconciliation (`On` / `Off`)
 - DS process start/stop/restart supervision
 - strong instance health monitoring with agent attach grace, heartbeat freshness, uptime policy, and automated recovery
+- simulation-frame progress scoring aligned with the dedicated server watcher formula (`deltaFrames / (elapsedSeconds * 60)` versus a configurable minimum threshold)
 - `LastSession.sbl` preparation by Quasar
 - JSON file-backed authoritative config store
 - atomic config writes
@@ -711,6 +724,7 @@ The protocol and IDs should remain compatible with those later additions.
 - add crash monitoring and restart backoff
 - add instance health monitoring and health-state surfacing
 - detect missing/stale `Quasar.Agent` attachment with configurable grace/timeout thresholds
+- add simulation-frame progress scoring using the same threshold model as the dedicated server watcher
 - add long-uptime warning and recycle policy
 - trigger automated recovery when health policy marks an instance unhealthy
 - pass supervisor endpoint and instance identity into launched DS processes
@@ -773,7 +787,7 @@ As of this document:
 - atomic config history/versioning groundwork exists for instance definitions
 - first desired goal-state reconciliation exists
 - first process supervision exists for start/stop/restart and per-instance logs
-- first health-monitoring and auto-recovery pass exists for agent attach grace, heartbeat freshness, and uptime-based warning/recycle policy
+- first health-monitoring and auto-recovery pass exists for agent attach grace, heartbeat freshness, simulation-frame progress scoring aligned with the DS watcher, and uptime-based warning/recycle policy
 - initial runtime launch preparation now exists for isolated app-data roots, runtime config sync, `LastSession.sbl`, and enforced headless launch shaping
 - neutral light/dark theming exists with local-storage persistence
 - config editing is now migrated out of Python into Quasar-managed JSON profiles and rendered runtime artifacts

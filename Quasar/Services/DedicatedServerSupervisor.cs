@@ -97,7 +97,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         lock (_sync)
         {
             snapshots = _states.Values
-                .Select(state => CloneSnapshot(state, agents.TryGetValue(state.InstanceId, out var agent) ? agent : null, now))
+                .Select(state => CloneSnapshot(
+                    state,
+                    agents.TryGetValue(state.InstanceId, out var agent) ? agent : null,
+                    now,
+                    _options.DisableInstanceHealthMonitoring))
                 .OrderBy(snapshot => snapshot.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(snapshot => snapshot.InstanceId, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -248,6 +252,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         List<(string InstanceId, ReconcileAction Action, string Reason)> actions = new();
         var agents = BuildAgentLookup();
         var now = DateTimeOffset.UtcNow;
+        var healthChanged = false;
 
         lock (_sync)
         {
@@ -255,7 +260,23 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             {
                 var processActive = IsProcessActive(state.Process);
                 var goalState = state.Definition.GoalState;
-                var health = EvaluateHealth(state, agents.TryGetValue(state.InstanceId, out var agent) ? agent : null, now);
+                var health = EvaluateHealth(
+                    state,
+                    agents.TryGetValue(state.InstanceId, out var agent) ? agent : null,
+                    now,
+                    _options.DisableInstanceHealthMonitoring);
+
+                if (state.HealthState != health.State ||
+                    !string.Equals(state.HealthSummary, health.Summary, StringComparison.Ordinal))
+                {
+                    state.HealthState = health.State;
+                    state.HealthSummary = health.Summary;
+                    healthChanged = true;
+                }
+
+                state.SimulationProgressScore = health.SimulationProgressScore;
+                state.SimulationProgressWindowSeconds = health.SimulationProgressWindowSeconds;
+                state.SimulationFramesAdvanced = health.SimulationFramesAdvanced;
 
                 if (goalState == DedicatedServerInstanceGoalState.On)
                 {
@@ -282,6 +303,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 }
             }
         }
+
+        if (healthChanged)
+            NotifyChanged();
 
         foreach (var (instanceId, action, reason) in actions)
         {
@@ -402,6 +426,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             current.StandardErrorLogPath = stderrPath;
             current.IsRestartPending = false;
             current.StopRequested = false;
+            ResetHealthTracking(current);
         }
 
         _logger.LogInformation("Started instance {InstanceId} with pid {Pid}.", state.InstanceId, process.Id);
@@ -439,6 +464,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             state.LastExitCode = exitCode;
             state.StoppedAtUtc = now;
             state.StartedAtUtc = null;
+            ResetHealthTracking(state);
 
             if (!stopRequested &&
                 definition.GoalState == DedicatedServerInstanceGoalState.On &&
@@ -655,6 +681,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             state.IsRestartPending = false;
             state.LastMessage = message;
             state.StoppedAtUtc = DateTimeOffset.UtcNow;
+            ResetHealthTracking(state);
         }
 
         _logger.LogWarning("Instance {InstanceId} faulted: {Message}", instanceId, message);
@@ -704,7 +731,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private static InstanceHealthAssessment EvaluateHealth(
         ManagedInstanceState state,
         AgentRuntimeState? agent,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        bool disableHealthMonitoring)
     {
         var processActive = IsProcessActive(state.Process);
         var goalState = state.Definition.GoalState;
@@ -726,6 +754,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     ? "Process is starting."
                     : "Goal state is on but the process is not running.");
         }
+
+        if (disableHealthMonitoring)
+            return new InstanceHealthAssessment(DedicatedServerInstanceHealthState.Unknown, "Health monitoring disabled for local/dev launch.");
 
         if (!state.Definition.EnableHealthMonitoring)
             return new InstanceHealthAssessment(DedicatedServerInstanceHealthState.Unknown, "Health monitoring disabled.");
@@ -751,7 +782,18 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         {
             return new InstanceHealthAssessment(
                 DedicatedServerInstanceHealthState.Unhealthy,
-                $"Quasar.Agent heartbeat stale for {Math.Round(silence.TotalSeconds)}s.");
+                $"Quasar.Agent heartbeat stale beyond {state.Definition.AgentHeartbeatTimeoutSeconds}s timeout.");
+        }
+
+        var simulationProgress = EvaluateSimulationProgress(state, agent, uptime);
+        if (simulationProgress.State != DedicatedServerInstanceHealthState.Healthy)
+            return simulationProgress;
+
+        if (simulationProgress.SimulationProgressScore.HasValue &&
+            simulationProgress.SimulationProgressWindowSeconds.HasValue &&
+            simulationProgress.SimulationProgressWindowSeconds.Value > 0)
+        {
+            state.LastHealthySummary = $"Instance healthy. Frame progress score {simulationProgress.SimulationProgressScore.Value:0.00} over {simulationProgress.SimulationProgressWindowSeconds.Value}s.";
         }
 
         if (state.Definition.RecycleAfterUptimeHours > 0 &&
@@ -770,7 +812,120 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 $"Process uptime exceeded warning threshold of {state.Definition.WarnAfterUptimeHours}h.");
         }
 
-        return new InstanceHealthAssessment(DedicatedServerInstanceHealthState.Healthy, "Instance healthy.");
+        return new InstanceHealthAssessment(
+            DedicatedServerInstanceHealthState.Healthy,
+            string.IsNullOrWhiteSpace(state.LastHealthySummary) ? "Instance healthy." : state.LastHealthySummary,
+            state.SimulationProgressScore,
+            state.SimulationProgressWindowSeconds,
+            state.SimulationFramesAdvanced);
+    }
+
+    private static InstanceHealthAssessment EvaluateSimulationProgress(
+        ManagedInstanceState state,
+        AgentRuntimeState agent,
+        TimeSpan uptime)
+    {
+        var snapshot = agent.Snapshot;
+        var metrics = snapshot?.Metrics;
+        if (snapshot is null || metrics is null)
+            return BuildExistingSimulationAssessment(state, "Waiting for Quasar.Agent snapshot.");
+
+        var capturedAt = snapshot.CapturedAtUtc == default ? agent.LastSeenUtc : snapshot.CapturedAtUtc;
+        if (capturedAt == default || metrics.SimulationFrameCounter == 0)
+            return BuildExistingSimulationAssessment(state, "Collecting simulation progress baseline.");
+
+        if (!state.LastSimulationFrameCounter.HasValue ||
+            !state.LastSimulationFrameObservedAtUtc.HasValue ||
+            capturedAt <= state.LastSimulationFrameObservedAtUtc.Value ||
+            metrics.SimulationFrameCounter < state.LastSimulationFrameCounter.Value)
+        {
+            SetSimulationBaseline(state, capturedAt, metrics.SimulationFrameCounter);
+            return BuildExistingSimulationAssessment(state, "Collecting simulation progress baseline.");
+        }
+
+        if (metrics.IsSaveInProgress)
+        {
+            SetSimulationBaseline(state, capturedAt, metrics.SimulationFrameCounter);
+            return BuildExistingSimulationAssessment(state, "Collecting simulation progress baseline.");
+        }
+
+        var requiredWindow = TimeSpan.FromSeconds(Math.Max(1, state.Definition.SimulationProgressWindowSeconds));
+        var elapsed = capturedAt - state.LastSimulationFrameObservedAtUtc.Value;
+        if (elapsed < requiredWindow)
+            return BuildExistingSimulationAssessment(state, "Collecting simulation progress baseline.");
+
+        var frameDelta = metrics.SimulationFrameCounter - state.LastSimulationFrameCounter.Value;
+        var score = (float)(frameDelta / (elapsed.TotalSeconds * 60d));
+
+        state.SimulationProgressScore = score;
+        state.SimulationProgressWindowSeconds = (int)Math.Round(elapsed.TotalSeconds);
+        state.SimulationFramesAdvanced = frameDelta;
+        state.LastSimulationProgressEvaluatedAtUtc = capturedAt;
+
+        SetSimulationBaseline(state, capturedAt, metrics.SimulationFrameCounter);
+
+        if (score < state.Definition.MinimumSimulationProgressScore)
+        {
+            return new InstanceHealthAssessment(
+                DedicatedServerInstanceHealthState.Unhealthy,
+                $"Simulation frame progress score {score:0.00} is below minimum {state.Definition.MinimumSimulationProgressScore:0.00} over {elapsed.TotalSeconds:0.#}s ({frameDelta} frames advanced).",
+                score,
+                state.SimulationProgressWindowSeconds,
+                frameDelta);
+        }
+
+        return new InstanceHealthAssessment(
+            DedicatedServerInstanceHealthState.Healthy,
+            "Instance healthy.",
+            score,
+            state.SimulationProgressWindowSeconds,
+            frameDelta);
+    }
+
+    private static InstanceHealthAssessment BuildExistingSimulationAssessment(ManagedInstanceState state, string waitingSummary)
+    {
+        if (!state.SimulationProgressScore.HasValue ||
+            !state.SimulationProgressWindowSeconds.HasValue ||
+            !state.SimulationFramesAdvanced.HasValue)
+        {
+            return new InstanceHealthAssessment(DedicatedServerInstanceHealthState.Warning, waitingSummary);
+        }
+
+        if (state.SimulationProgressScore.Value < state.Definition.MinimumSimulationProgressScore)
+        {
+            return new InstanceHealthAssessment(
+                DedicatedServerInstanceHealthState.Unhealthy,
+                $"Simulation frame progress score {state.SimulationProgressScore.Value:0.00} is below minimum {state.Definition.MinimumSimulationProgressScore:0.00} over {state.SimulationProgressWindowSeconds.Value}s ({state.SimulationFramesAdvanced.Value} frames advanced).",
+                state.SimulationProgressScore,
+                state.SimulationProgressWindowSeconds,
+                state.SimulationFramesAdvanced);
+        }
+
+        return new InstanceHealthAssessment(
+            DedicatedServerInstanceHealthState.Healthy,
+            "Instance healthy.",
+            state.SimulationProgressScore,
+            state.SimulationProgressWindowSeconds,
+            state.SimulationFramesAdvanced);
+    }
+
+    private static void SetSimulationBaseline(ManagedInstanceState state, DateTimeOffset observedAtUtc, ulong simulationFrameCounter)
+    {
+        state.LastSimulationFrameObservedAtUtc = observedAtUtc;
+        state.LastSimulationFrameCounter = simulationFrameCounter;
+    }
+
+    private static void ResetHealthTracking(ManagedInstanceState state)
+    {
+        state.HealthState = DedicatedServerInstanceHealthState.Unknown;
+        state.HealthSummary = string.Empty;
+        state.LastSimulationFrameCounter = null;
+        state.LastSimulationFrameObservedAtUtc = null;
+        state.SimulationProgressScore = null;
+        state.SimulationProgressWindowSeconds = null;
+        state.SimulationFramesAdvanced = null;
+        state.LastSimulationProgressEvaluatedAtUtc = null;
+        state.LastHealthySummary = string.Empty;
     }
 
     private static bool CanScheduleHealthRestart(ManagedInstanceState state, DateTimeOffset now)
@@ -873,6 +1028,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             AutoRestartOnUnhealthy = definition.AutoRestartOnUnhealthy,
             AgentStartupGraceSeconds = definition.AgentStartupGraceSeconds,
             AgentHeartbeatTimeoutSeconds = definition.AgentHeartbeatTimeoutSeconds,
+            SimulationProgressWindowSeconds = definition.SimulationProgressWindowSeconds,
+            MinimumSimulationProgressScore = definition.MinimumSimulationProgressScore,
             WarnAfterUptimeHours = definition.WarnAfterUptimeHours,
             RecycleAfterUptimeHours = definition.RecycleAfterUptimeHours,
             RestartOnCrash = definition.RestartOnCrash,
@@ -906,17 +1063,20 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private static DedicatedServerInstanceRuntimeSnapshot CloneSnapshot(
         ManagedInstanceState state,
         AgentRuntimeState? agent,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        bool disableHealthMonitoring)
     {
-        var health = EvaluateHealth(state, agent, now);
         return new DedicatedServerInstanceRuntimeSnapshot
         {
             InstanceId = state.InstanceId,
             Name = state.Definition.Name,
             GoalState = state.Definition.GoalState,
             State = state.State,
-            HealthState = health.State,
-            HealthSummary = health.Summary,
+            HealthState = state.HealthState,
+            HealthSummary = state.HealthSummary,
+            SimulationProgressScore = state.SimulationProgressScore,
+            SimulationProgressWindowSeconds = state.SimulationProgressWindowSeconds,
+            SimulationFramesAdvanced = state.SimulationFramesAdvanced,
             RestartAttempts = state.RestartAttempts,
             ProcessId = state.ProcessId,
             LastExitCode = state.LastExitCode,
@@ -937,6 +1097,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public DedicatedServerInstanceDefinition Definition { get; set; } = new();
 
         public DedicatedServerInstanceProcessState State { get; set; } = DedicatedServerInstanceProcessState.Stopped;
+
+        public DedicatedServerInstanceHealthState HealthState { get; set; } = DedicatedServerInstanceHealthState.Unknown;
+
+        public string HealthSummary { get; set; } = string.Empty;
 
         public Process? Process { get; set; }
 
@@ -961,6 +1125,20 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public string StandardErrorLogPath { get; set; } = string.Empty;
 
         public DateTimeOffset? LastHealthRecoveryActionUtc { get; set; }
+
+        public ulong? LastSimulationFrameCounter { get; set; }
+
+        public DateTimeOffset? LastSimulationFrameObservedAtUtc { get; set; }
+
+        public float? SimulationProgressScore { get; set; }
+
+        public int? SimulationProgressWindowSeconds { get; set; }
+
+        public ulong? SimulationFramesAdvanced { get; set; }
+
+        public DateTimeOffset? LastSimulationProgressEvaluatedAtUtc { get; set; }
+
+        public string LastHealthySummary { get; set; } = string.Empty;
     }
 
     private enum ReconcileAction
@@ -972,7 +1150,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private readonly record struct InstanceHealthAssessment(
         DedicatedServerInstanceHealthState State,
-        string Summary);
+        string Summary,
+        float? SimulationProgressScore = null,
+        int? SimulationProgressWindowSeconds = null,
+        ulong? SimulationFramesAdvanced = null);
 
     private sealed class PersistedSupervisorState
     {

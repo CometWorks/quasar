@@ -33,6 +33,10 @@ public sealed class WebServiceOptions
 
     public string LoggingMinimumLevel { get; init; } = "Info";
 
+    public bool IsDevelopment { get; init; }
+
+    public bool DisableInstanceHealthMonitoring { get; init; }
+
     public bool OwnManifest { get; init; } = true;
 
     public bool PreserveManagedInstancesOnShutdown { get; init; }
@@ -92,6 +96,16 @@ public sealed class WebServiceOptions
         if (string.IsNullOrWhiteSpace(loggingMinimumLevel))
             loggingMinimumLevel = "Info";
 
+        var environmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+                              ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+                              ?? "Production";
+        var isDevelopment = string.Equals(environmentName, "Development", StringComparison.OrdinalIgnoreCase);
+
+        var disableInstanceHealthMonitoringValue = Environment.GetEnvironmentVariable("QUASAR_DISABLE_INSTANCE_HEALTH_MONITORING")
+                                                  ?? section["DisableInstanceHealthMonitoring"];
+        if (!bool.TryParse(disableInstanceHealthMonitoringValue, out var disableInstanceHealthMonitoring))
+            disableInstanceHealthMonitoring = isDevelopment;
+
         var advertisedHost = host switch
         {
             "0.0.0.0" => "127.0.0.1",
@@ -126,6 +140,8 @@ public sealed class WebServiceOptions
             LoggingDirectory = loggingDirectory,
             LoggingFormat = loggingFormat,
             LoggingMinimumLevel = loggingMinimumLevel,
+            IsDevelopment = isDevelopment,
+            DisableInstanceHealthMonitoring = disableInstanceHealthMonitoring,
             BaseUrl = baseUrl,
             ListenUrl = $"http://{host}:{port}",
             OwnManifest = ownManifest,

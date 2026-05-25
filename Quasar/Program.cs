@@ -33,6 +33,7 @@ public class Program
                 configuration.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomRight;
             });
             builder.Services.AddSingleton(webServiceOptions);
+            builder.Services.AddSingleton<KnownPlayerCatalog>();
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarPluginCatalogService>();

@@ -7,6 +7,13 @@ public sealed class AgentRegistry
 {
     private readonly object _sync = new();
     private readonly Dictionary<string, AgentRuntimeState> _agents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ServerCommandEnvelope> _pendingCommands = new(StringComparer.OrdinalIgnoreCase);
+    private readonly KnownPlayerCatalog _knownPlayers;
+
+    public AgentRegistry(KnownPlayerCatalog knownPlayers)
+    {
+        _knownPlayers = knownPlayers;
+    }
 
     public event Action? Changed;
 
@@ -42,6 +49,8 @@ public sealed class AgentRegistry
 
     public void UpdateSnapshot(AgentSnapshot snapshot, string connectionId)
     {
+        AgentSnapshot latestSnapshot;
+
         lock (_sync)
         {
             var state = GetOrCreateState(ResolveAgentId(snapshot.AgentId, connectionId));
@@ -49,13 +58,17 @@ public sealed class AgentRegistry
             state.IsConnected = true;
             state.LastSeenUtc = DateTimeOffset.UtcNow;
             state.Snapshot = snapshot;
+            latestSnapshot = state.Snapshot;
         }
 
+        _knownPlayers.ObserveSnapshot(latestSnapshot);
         NotifyChanged();
     }
 
     public void UpdateCommandResult(ServerCommandResult result)
     {
+        ServerCommandEnvelope? command = null;
+
         lock (_sync)
         {
             var state = GetOrCreateState(result.AgentId);
@@ -63,7 +76,16 @@ public sealed class AgentRegistry
             state.CommandResults.Insert(0, result);
             if (state.CommandResults.Count > 20)
                 state.CommandResults.RemoveRange(20, state.CommandResults.Count - 20);
+
+            if (!string.IsNullOrWhiteSpace(result.CommandId))
+            {
+                _pendingCommands.TryGetValue(result.CommandId, out command);
+                _pendingCommands.Remove(result.CommandId);
+            }
         }
+
+        if (command is not null)
+            _knownPlayers.ApplyCommandOutcome(command, result);
 
         NotifyChanged();
     }
@@ -71,6 +93,7 @@ public sealed class AgentRegistry
     public void MarkDisconnected(string connectionId)
     {
         var changed = false;
+        var disconnectedAgentIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         lock (_sync)
         {
@@ -80,7 +103,19 @@ public sealed class AgentRegistry
                 state.IsConnected = false;
                 state.LastSeenUtc = DateTimeOffset.UtcNow;
                 state.Sender = null;
+                disconnectedAgentIds.Add(state.AgentId);
                 changed = true;
+            }
+
+            if (disconnectedAgentIds.Count > 0)
+            {
+                foreach (var commandId in _pendingCommands
+                             .Where(entry => disconnectedAgentIds.Contains(entry.Value.AgentId))
+                             .Select(entry => entry.Key)
+                             .ToList())
+                {
+                    _pendingCommands.Remove(commandId);
+                }
             }
         }
 
@@ -98,13 +133,26 @@ public sealed class AgentRegistry
                 throw new InvalidOperationException($"Agent '{command.AgentId}' is not connected.");
 
             sender = state.Sender;
+            _pendingCommands[command.CommandId] = CloneCommand(command);
         }
 
-        await sender(new AgentWireMessage
+        try
         {
-            Kind = WireMessageKind.Command,
-            Command = command,
-        }, cancellationToken);
+            await sender(new AgentWireMessage
+            {
+                Kind = WireMessageKind.Command,
+                Command = command,
+            }, cancellationToken);
+        }
+        catch
+        {
+            lock (_sync)
+            {
+                _pendingCommands.Remove(command.CommandId);
+            }
+
+            throw;
+        }
     }
 
     private AgentRuntimeState GetOrCreateState(string agentId)
@@ -137,6 +185,21 @@ public sealed class AgentRegistry
     private void NotifyChanged()
     {
         Changed?.Invoke();
+    }
+
+    private static ServerCommandEnvelope CloneCommand(ServerCommandEnvelope command)
+    {
+        return new ServerCommandEnvelope
+        {
+            CommandId = command.CommandId,
+            InstanceId = command.InstanceId,
+            AgentId = command.AgentId,
+            ServerId = command.ServerId,
+            CommandType = command.CommandType,
+            Text = command.Text,
+            SteamId = command.SteamId,
+            IssuedAtUtc = command.IssuedAtUtc,
+        };
     }
 }
 

@@ -34,6 +34,10 @@ public sealed class DedicatedServerInstanceDefinition
 
     public int AgentHeartbeatTimeoutSeconds { get; set; } = 20;
 
+    public int SimulationProgressWindowSeconds { get; set; } = 30;
+
+    public float MinimumSimulationProgressScore { get; set; } = 0.05f;
+
     public int WarnAfterUptimeHours { get; set; } = 12;
 
     public int RecycleAfterUptimeHours { get; set; }

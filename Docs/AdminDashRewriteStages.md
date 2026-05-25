@@ -18,7 +18,7 @@ Complete:
 - `Quasar.Bootstrap` ensure-running helper
 - per-instance JSON-backed instance definitions with atomic history groundwork
 - first goal-state reconciliation and DS process supervision
-- first health-monitoring and auto-recovery pass in the supervisor
+- first health-monitoring and auto-recovery pass in the supervisor, now including DS-style simulation-frame progress scoring
 - initial runtime launch preparation with isolated app-data roots, runtime config sync, `LastSession.sbl`, and enforced headless launch shaping
 - neutral MudBlazor light/dark theming with local-storage persistence
 - file watching/reload for manual config edits
