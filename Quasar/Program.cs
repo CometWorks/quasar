@@ -1,6 +1,7 @@
 using Quasar.Components;
 using Quasar.Models;
 using Quasar.Services;
+using MudBlazor;
 using MudBlazor.Services;
 using NLog;
 
@@ -27,7 +28,10 @@ public class Program
                 .AddInteractiveServerComponents();
             builder.Services.AddHttpClient();
             builder.Services.AddLocalStorageServices();
-            builder.Services.AddMudServices();
+            builder.Services.AddMudServices(configuration =>
+            {
+                configuration.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomRight;
+            });
             builder.Services.AddSingleton(webServiceOptions);
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();

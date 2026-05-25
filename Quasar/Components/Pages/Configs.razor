@@ -52,10 +52,13 @@
                             var profileButtonClass = isSelected
                                 ? "config-profile-button config-profile-button-selected"
                                 : "config-profile-button";
+                            var profileContentClass = isSelected
+                                ? "config-profile-content config-profile-content-selected"
+                                : "config-profile-content";
                             <MudPaper Class="@profileTileClass" @key="profile.ConfigProfileId">
                                 <MudStack Row="true" AlignItems="AlignItems.Start" Justify="Justify.SpaceBetween" Spacing="1" Class="config-profile-row">
                                     <MudButton Variant="Variant.Text" Color="Color.Inherit" Class="@profileButtonClass" Style="flex: 1 1 auto; min-width: 0;" OnClick="@(() => SelectProfile(profile.ConfigProfileId))">
-                                        <MudStack AlignItems="AlignItems.Start" Spacing="0">
+                                        <MudStack AlignItems="AlignItems.Start" Spacing="0" Class="@profileContentClass">
                                             <MudText Typo="Typo.subtitle2">@profile.Name</MudText>
                                             <MudText Typo="Typo.caption" Class="config-secondary">
                                                 @GetProfileSummary(profile)
@@ -148,7 +151,7 @@
                             }
                             else
                             {
-                                <MudExpansionPanels MultiExpansion="true" Elevation="0" Outlined="true" Dense="true">
+                                <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true">
                                     @if (IsAccessSectionVisible)
                                     {
                                         <MudExpansionPanel Expanded="@IsCategoryExpanded(AccessCategoryKey)" ExpandedChanged="@(expanded => SetCategoryExpanded(AccessCategoryKey, expanded))" @key="AccessCategoryKey">
@@ -424,7 +427,8 @@
     private long _newModWorkshopId;
     private bool _catalogRefreshing;
     private bool _modResolving;
-    private readonly Dictionary<string, bool> _expandedCategories = new(StringComparer.OrdinalIgnoreCase);
+    private string? _expandedCategoryKey;
+    private bool _hasExplicitCategoryExpansion;
 
     private IReadOnlyList<QuasarConfigProfile> Profiles => ConfigProfiles.GetProfiles();
     private IReadOnlyList<QuasarPluginCatalogEntry> CatalogEntries => PluginCatalog.GetEntries();
@@ -590,20 +594,49 @@
 
     private bool IsCategoryExpanded(string categoryKey)
     {
-        if (!string.IsNullOrWhiteSpace(_worldSearch))
-            return true;
-
-        if (_expandedCategories.TryGetValue(categoryKey, out var expanded))
-            return expanded;
-
-        return string.Equals(categoryKey, "general", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(categoryKey, AccessCategoryKey, StringComparison.OrdinalIgnoreCase);
+        var expandedCategoryKey = GetExpandedCategoryKey();
+        return !string.IsNullOrWhiteSpace(expandedCategoryKey)
+            && string.Equals(categoryKey, expandedCategoryKey, StringComparison.OrdinalIgnoreCase);
     }
 
     private Task SetCategoryExpanded(string categoryKey, bool expanded)
     {
-        _expandedCategories[categoryKey] = expanded;
+        _hasExplicitCategoryExpansion = true;
+        _expandedCategoryKey = expanded
+            ? categoryKey
+            : null;
         return Task.CompletedTask;
+    }
+
+    private string? GetExpandedCategoryKey()
+    {
+        if (_hasExplicitCategoryExpansion)
+        {
+            if (string.IsNullOrWhiteSpace(_expandedCategoryKey))
+                return null;
+
+            if (IsCategoryVisible(_expandedCategoryKey))
+                return _expandedCategoryKey;
+        }
+
+        return GetDefaultExpandedCategoryKey();
+    }
+
+    private string? GetDefaultExpandedCategoryKey()
+    {
+        if (IsAccessSectionVisible)
+            return AccessCategoryKey;
+
+        var firstVisibleCategory = VisibleCategories.FirstOrDefault();
+        return firstVisibleCategory?.Key;
+    }
+
+    private bool IsCategoryVisible(string categoryKey)
+    {
+        if (string.Equals(categoryKey, AccessCategoryKey, StringComparison.OrdinalIgnoreCase))
+            return IsAccessSectionVisible;
+
+        return GetCategoryOptions(categoryKey).Count > 0;
     }
 
     private string GetOptionAnchorId(QuasarConfigOptionDefinition option) =>
