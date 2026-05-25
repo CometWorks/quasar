@@ -1,0 +1,193 @@
+@inject AgentRegistry Registry
+@inject ISnackbar Snackbar
+
+<MudCard Class="server-card">
+    <MudCardHeader>
+        <CardHeaderContent>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudText Typo="Typo.h6">@Agent.ServerDisplayName</MudText>
+                <MudChip T="string" Size="Size.Small" Color="@(Agent.IsConnected ? Color.Success : Color.Error)">
+                    @(Agent.IsConnected ? "connected" : "disconnected")
+                </MudChip>
+            </MudStack>
+            <MudText Typo="Typo.caption">@Agent.NodeDisplayName · @Agent.WorldDisplayName</MudText>
+            <MudText Typo="Typo.caption" Class="mono">@Agent.InstanceKey</MudText>
+        </CardHeaderContent>
+    </MudCardHeader>
+
+    <MudCardContent>
+        @if (Agent.Snapshot is null)
+        {
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                Waiting for snapshot from agent.
+            </MudAlert>
+        }
+        else
+        {
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-4">
+                <MudChip T="string" Variant="Variant.Outlined">Players @Agent.Snapshot.Metrics.PlayersOnline/@Agent.Snapshot.Metrics.MaxPlayers</MudChip>
+                <MudChip T="string" Variant="Variant.Outlined">Sim @Agent.Snapshot.Metrics.SimSpeed.ToString("0.00")</MudChip>
+                <MudChip T="string" Variant="Variant.Outlined">CPU @Agent.Snapshot.Metrics.ServerCpuLoadPercent.ToString("0.0")%</MudChip>
+                <MudChip T="string" Variant="Variant.Outlined">PCU @Agent.Snapshot.Metrics.UsedPcu/@Agent.Snapshot.Metrics.TotalPcu</MudChip>
+                <MudChip T="string" Variant="Variant.Outlined">Mods @Agent.Snapshot.Metrics.ModsLoaded</MudChip>
+                <MudChip T="string" Variant="Variant.Outlined">Plugins @Agent.Snapshot.Metrics.PluginsLoaded</MudChip>
+                <MudChip T="string" Variant="Variant.Outlined">Uptime @FormatDuration(Agent.Snapshot.Metrics.UptimeSeconds)</MudChip>
+            </MudStack>
+
+            <MudStack Row="true" Spacing="1" Class="mb-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SendCommandAsync(ServerCommandType.Refresh))" Disabled="@(!Agent.IsConnected)">
+                    Refresh
+                </MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Info" OnClick="@(() => SendCommandAsync(ServerCommandType.SaveWorld))" Disabled="@(!Agent.IsConnected)">
+                    Save
+                </MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="@(() => SendCommandAsync(ServerCommandType.StopServer))" Disabled="@(!Agent.IsConnected)">
+                    Stop
+                </MudButton>
+            </MudStack>
+
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Send Chat</MudText>
+            <MudStack Row="true" AlignItems="AlignItems.End" Spacing="1" Class="mb-4">
+                <MudTextField @bind-Value="_chatText" Label="Broadcast message" Variant="Variant.Outlined" FullWidth="true" Disabled="@(!Agent.IsConnected)" />
+                <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="SendChatAsync" Disabled="@(!Agent.IsConnected || string.IsNullOrWhiteSpace(_chatText))">
+                    Send
+                </MudButton>
+            </MudStack>
+
+            <MudDivider Class="mb-3" />
+
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Players</MudText>
+            <MudTable T="PlayerSnapshot" Dense="true" Hover="true" Items="Agent.Snapshot.Players">
+                <HeaderContent>
+                    <MudTh>Name</MudTh>
+                    <MudTh>Faction</MudTh>
+                    <MudTh>Admin</MudTh>
+                    <MudTh>Ping</MudTh>
+                    <MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+                    <MudTd DataLabel="Faction">@context.FactionTag</MudTd>
+                    <MudTd DataLabel="Admin">@(context.IsAdmin ? "yes" : "no")</MudTd>
+                    <MudTd DataLabel="Ping">@context.PingMs</MudTd>
+                    <MudTd Style="text-align: right;">
+                        <MudMenu Dense="true" Icon="@Icons.Material.Filled.MoreVert">
+                            <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.KickPlayer, context.SteamId))">Kick</MudMenuItem>
+                            <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.BanPlayer, context.SteamId))">Ban</MudMenuItem>
+                            <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.PromotePlayer, context.SteamId))">Promote</MudMenuItem>
+                            <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.DemotePlayer, context.SteamId))">Demote</MudMenuItem>
+                        </MudMenu>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+
+            <MudDivider Class="my-3" />
+
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Recent Chat</MudText>
+            <div class="chat-list">
+                @foreach (var message in Agent.Snapshot.RecentChat.OrderByDescending(item => item.TimestampTicksUtc).Take(12))
+                {
+                    <div class="chat-row">
+                        <MudText Typo="Typo.caption" Class="mono">@FormatTimestamp(message.TimestampTicksUtc)</MudText>
+                        <MudText Typo="Typo.body2"><strong>@message.AuthorName</strong>: @message.Content</MudText>
+                    </div>
+                }
+            </div>
+
+            <MudDivider Class="my-3" />
+
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Plugins</MudText>
+            <MudTable T="PluginRuntimeInfo" Dense="true" Items="Agent.Snapshot.Plugins">
+                <HeaderContent>
+                    <MudTh>Plugin</MudTh>
+                    <MudTh>Version</MudTh>
+                    <MudTh>Status</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Plugin">@context.DisplayName</MudTd>
+                    <MudTd DataLabel="Version">@context.Version</MudTd>
+                    <MudTd DataLabel="Status">@(context.IsLoaded ? "loaded" : "declared")</MudTd>
+                </RowTemplate>
+            </MudTable>
+
+            @if (Agent.CommandResults.Count > 0)
+            {
+                <MudDivider Class="my-3" />
+                <MudText Typo="Typo.subtitle2" Class="mb-2">Recent Command Results</MudText>
+                @foreach (var result in Agent.CommandResults.Take(6))
+                {
+                    <MudAlert Dense="true" Severity="@(result.Success ? Severity.Success : Severity.Error)" Variant="Variant.Outlined" Class="mb-2">
+                        @result.Message
+                    </MudAlert>
+                }
+            }
+        }
+    </MudCardContent>
+</MudCard>
+
+@code
+{
+    [Parameter, EditorRequired]
+    public AgentRuntimeState Agent { get; set; } = default!;
+
+    private string _chatText = string.Empty;
+
+    private async Task SendChatAsync()
+    {
+        var text = _chatText.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        await SendCommandAsync(ServerCommandType.SendChat, text);
+        _chatText = string.Empty;
+    }
+
+    private Task SendPlayerCommandAsync(ServerCommandType commandType, long steamId)
+    {
+        return SendCommandAsync(commandType, steamId: steamId);
+    }
+
+    private async Task SendCommandAsync(ServerCommandType commandType, string text = "", long? steamId = null)
+    {
+        try
+        {
+            await Registry.SendCommandAsync(new ServerCommandEnvelope
+            {
+                InstanceId = Agent.InstanceKey,
+                AgentId = Agent.AgentId,
+                ServerId = Agent.ServerKey,
+                CommandType = commandType,
+                Text = text,
+                SteamId = steamId,
+            });
+
+            Snackbar.Add($"{commandType} sent to {Agent.ServerDisplayName}.", Severity.Info);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private static string FormatDuration(int totalSeconds)
+    {
+        if (totalSeconds <= 0)
+            return "0s";
+
+        var duration = TimeSpan.FromSeconds(totalSeconds);
+        if (duration.TotalHours >= 1)
+            return $"{(int)duration.TotalHours}h {duration.Minutes}m";
+        if (duration.TotalMinutes >= 1)
+            return $"{duration.Minutes}m {duration.Seconds}s";
+
+        return $"{duration.Seconds}s";
+    }
+
+    private static string FormatTimestamp(long ticksUtc)
+    {
+        if (ticksUtc <= 0)
+            return string.Empty;
+
+        return new DateTime(ticksUtc, DateTimeKind.Utc).ToLocalTime().ToString("HH:mm:ss");
+    }
+}

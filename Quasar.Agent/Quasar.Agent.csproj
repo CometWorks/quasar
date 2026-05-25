@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <Product>Quasar Agent</Product>
+    <Copyright>© 2025 SpaceGT</Copyright>
+    <AssemblyTitle>Quasar.Agent</AssemblyTitle>
+    <Description>Quasar raw WebSocket agent plugin for Space Engineers 1 Dedicated Server</Description>
+  </PropertyGroup>
+  <PropertyGroup>
+    <RootNamespace>Quasar.Agent</RootNamespace>
+    <AssemblyName>Quasar.Agent</AssemblyName>
+    <PackageId>Quasar.Agent</PackageId>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <PropertyGroup>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Configurations>Debug;Release</Configurations>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
+    <DebugSymbols>true</DebugSymbols>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <DebugType>full</DebugType>
+    <ErrorReport>prompt</ErrorReport>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <Optimize>true</Optimize>
+    <DebugType>pdbonly</DebugType>
+    <ErrorReport>prompt</ErrorReport>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Sandbox.Game" HintPath="$(DS64)\Sandbox.Game.dll" Private="False" />
+    <Reference Include="SpaceEngineersDedicated" HintPath="$(DS64)\SpaceEngineersDedicated.exe" Private="False" />
+    <Reference Include="SpaceEngineers.Game" HintPath="$(DS64)\SpaceEngineers.Game.dll" Private="False" />
+    <Reference Include="VRage" HintPath="$(DS64)\VRage.dll" Private="False" />
+    <Reference Include="VRage.Dedicated" HintPath="$(DS64)\VRage.Dedicated.dll" Private="False" />
+    <Reference Include="VRage.Game" HintPath="$(DS64)\VRage.Game.dll" Private="False" />
+    <Reference Include="VRage.Library" HintPath="$(DS64)\VRage.Library.dll" Private="False" />
+    <Reference Include="VRage.Math" HintPath="$(DS64)\VRage.Math.dll" Private="False" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Magnetar.Protocol\Magnetar.Protocol.csproj" />
+  </ItemGroup>
+</Project>

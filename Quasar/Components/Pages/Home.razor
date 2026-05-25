@@ -1,0 +1,133 @@
+﻿@page "/"
+@implements IDisposable
+@inject AgentRegistry Registry
+@inject DedicatedServerInstanceCatalog InstanceCatalog
+@inject DedicatedServerSupervisor Supervisor
+
+<PageTitle>Dashboard</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Dashboard</MudText>
+<MudText Typo="Typo.body2" Class="mb-6">Multi-node, multi-server, multi-plugin control over Blazor Server UI and raw WebSocket agents.</MudText>
+
+<MudGrid Class="mb-4">
+    <MudItem xs="12" sm="6" lg="3">
+        <MudPaper Class="pa-4 summary-card">
+            <MudText Typo="Typo.overline">Nodes</MudText>
+            <MudText Typo="Typo.h4">@NodeCount</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" sm="6" lg="3">
+        <MudPaper Class="pa-4 summary-card">
+            <MudText Typo="Typo.overline">Servers</MudText>
+            <MudText Typo="Typo.h4">@ServerCount</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" sm="6" lg="3">
+        <MudPaper Class="pa-4 summary-card">
+            <MudText Typo="Typo.overline">Connected Agents</MudText>
+            <MudText Typo="Typo.h4">@ConnectedAgentCount</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" sm="6" lg="3">
+        <MudPaper Class="pa-4 summary-card">
+            <MudText Typo="Typo.overline">Players Online</MudText>
+            <MudText Typo="Typo.h4">@PlayersOnline</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" sm="6" lg="3">
+        <MudPaper Class="pa-4 summary-card">
+            <MudText Typo="Typo.overline">Configured Instances</MudText>
+            <MudText Typo="Typo.h4">@ConfiguredInstanceCount</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" sm="6" lg="3">
+        <MudPaper Class="pa-4 summary-card">
+            <MudText Typo="Typo.overline">Running Instances</MudText>
+            <MudText Typo="Typo.h4">@RunningInstanceCount</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" sm="6" lg="3">
+        <MudPaper Class="pa-4 summary-card">
+            <MudText Typo="Typo.overline">Health Warnings</MudText>
+            <MudText Typo="Typo.h4">@WarningInstanceCount</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" sm="6" lg="3">
+        <MudPaper Class="pa-4 summary-card">
+            <MudText Typo="Typo.overline">Unhealthy Instances</MudText>
+            <MudText Typo="Typo.h4">@UnhealthyInstanceCount</MudText>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@if (Agents.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        No agents connected yet. Start a dedicated server instance with the Quasar.Agent plugin loaded.
+    </MudAlert>
+}
+else
+{
+    <MudGrid>
+        @foreach (var agent in Agents)
+        {
+            <MudItem xs="12" xl="6">
+                <ServerCard Agent="@agent" />
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code
+{
+    private IReadOnlyList<AgentRuntimeState> Agents => Registry.GetAgents();
+
+    private int NodeCount => Agents
+        .Select(agent => agent.NodeKey)
+        .Where(value => !string.IsNullOrWhiteSpace(value))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Count();
+
+    private int ServerCount => Agents
+        .Select(agent => agent.ServerKey)
+        .Where(value => !string.IsNullOrWhiteSpace(value))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Count();
+
+    private int ConnectedAgentCount => Agents.Count(agent => agent.IsConnected);
+
+    private int PlayersOnline => Agents.Sum(agent => agent.Snapshot?.Metrics.PlayersOnline ?? 0);
+
+    private int ConfiguredInstanceCount => InstanceCatalog.GetInstances().Count;
+
+    private int RunningInstanceCount => Supervisor.GetSnapshots().Count(snapshot =>
+        snapshot.State is DedicatedServerInstanceProcessState.Starting
+            or DedicatedServerInstanceProcessState.Running
+            or DedicatedServerInstanceProcessState.Restarting
+            or DedicatedServerInstanceProcessState.Stopping);
+
+    private int WarningInstanceCount => Supervisor.GetSnapshots().Count(snapshot =>
+        snapshot.HealthState == DedicatedServerInstanceHealthState.Warning);
+
+    private int UnhealthyInstanceCount => Supervisor.GetSnapshots().Count(snapshot =>
+        snapshot.HealthState == DedicatedServerInstanceHealthState.Unhealthy);
+
+    protected override void OnInitialized()
+    {
+        Registry.Changed += HandleRegistryChanged;
+        InstanceCatalog.Changed += HandleRegistryChanged;
+        Supervisor.Changed += HandleRegistryChanged;
+    }
+
+    public void Dispose()
+    {
+        Registry.Changed -= HandleRegistryChanged;
+        InstanceCatalog.Changed -= HandleRegistryChanged;
+        Supervisor.Changed -= HandleRegistryChanged;
+    }
+
+    private void HandleRegistryChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+}

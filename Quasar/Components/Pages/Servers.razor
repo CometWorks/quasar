@@ -1,0 +1,44 @@
+@page "/servers"
+@implements IDisposable
+@inject AgentRegistry Registry
+
+<PageTitle>Servers</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Servers</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Connected dedicated server instances across all nodes.</MudText>
+
+@if (Agents.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No server agents connected.</MudAlert>
+}
+else
+{
+    <MudGrid>
+        @foreach (var agent in Agents)
+        {
+            <MudItem xs="12" xl="6">
+                <ServerCard Agent="@agent" />
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code
+{
+    private IReadOnlyList<AgentRuntimeState> Agents => Registry.GetAgents();
+
+    protected override void OnInitialized()
+    {
+        Registry.Changed += HandleRegistryChanged;
+    }
+
+    public void Dispose()
+    {
+        Registry.Changed -= HandleRegistryChanged;
+    }
+
+    private void HandleRegistryChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+}

@@ -1,0 +1,373 @@
+@page "/instances"
+@implements IDisposable
+@inject DedicatedServerInstanceCatalog InstanceCatalog
+@inject DedicatedServerSupervisor Supervisor
+@inject QuasarConfigProfileCatalog ConfigProfiles
+@inject ISnackbar Snackbar
+
+<PageTitle>Instances</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Instances</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Persistent headless DS instance definitions owned by Quasar. Quasar now uses these definitions to launch, stop, and restart processes, while Quasar.Agent attaches after the server comes up.</MudText>
+
+<MudGrid>
+    <MudItem xs="12" xl="5">
+        <MudPaper Class="pa-4 summary-card">
+            <MudText Typo="Typo.h6" GutterBottom="true">@(_isEditing ? "Edit Instance" : "Add Instance")</MudText>
+
+            <MudStack Spacing="2">
+                <MudTextField @bind-Value="_editor.Name" Label="Display name" Variant="Variant.Outlined" />
+                <MudSelect T="DedicatedServerInstanceGoalState" @bind-Value="_editor.GoalState" Label="Goal state" Variant="Variant.Outlined">
+                    <MudSelectItem Value="DedicatedServerInstanceGoalState.Off">Off</MudSelectItem>
+                    <MudSelectItem Value="DedicatedServerInstanceGoalState.On">On</MudSelectItem>
+                </MudSelect>
+                <MudTextField @bind-Value="_editor.ExecutablePath" Label="Dedicated server executable path" Variant="Variant.Outlined" />
+                <MudTextField @bind-Value="_editor.WorkingDirectory" Label="Working directory" Variant="Variant.Outlined" />
+                <MudTextField @bind-Value="_editor.DedicatedServerAppDataPath" Label="DS app-data path" Variant="Variant.Outlined" />
+                <MudTextField @bind-Value="_editor.MagnetarAppDataPath" Label="Magnetar app-data path" Variant="Variant.Outlined" />
+                <MudTextField @bind-Value="_editor.WorldPath" Label="World path" Variant="Variant.Outlined" />
+                <MudTextField @bind-Value="_editor.ConfigFilePath" Label="Rendered DS config path" Variant="Variant.Outlined" />
+                <MudSelect T="string" @bind-Value="_editor.ConfigProfileId" Label="Config profile" Variant="Variant.Outlined" HelperText="Reusable world, plugin, and mod preset from Configs page.">
+                    <MudSelectItem T="string" Value="@string.Empty">(No config profile)</MudSelectItem>
+                    @foreach (var profile in ConfigProfiles.GetProfiles())
+                    {
+                        <MudSelectItem T="string" Value="@profile.ConfigProfileId">@profile.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudTextField
+                    @bind-Value="_editor.LaunchArguments"
+                    Label="Launch arguments"
+                    Variant="Variant.Outlined"
+                    HelperText="Tokens: {instanceId} {configPath} {quasarBaseUrl} {nodeId} {dsAppDataPath} {magnetarAppDataPath} {worldPath}. Quasar also enforces headless flags and -path for managed instances." />
+                <MudNumericField T="int" @bind-Value="_editor.RestartDelaySeconds" Label="Restart delay (seconds)" Variant="Variant.Outlined" Min="0" />
+                <MudNumericField T="int" @bind-Value="_editor.MaxRestartAttempts" Label="Max restart attempts (0 = unlimited)" Variant="Variant.Outlined" Min="0" />
+                <MudCheckBox @bind-Value="_editor.RestartOnCrash" Label="Restart when process crashes" />
+                <MudText Typo="Typo.subtitle2" Class="mt-2">Health Policy</MudText>
+                <MudCheckBox @bind-Value="_editor.EnableHealthMonitoring" Label="Enable health monitoring" />
+                <MudCheckBox @bind-Value="_editor.AutoRestartOnUnhealthy" Label="Auto-restart when unhealthy" />
+                <MudNumericField T="int" @bind-Value="_editor.AgentStartupGraceSeconds" Label="Agent startup grace (seconds)" Variant="Variant.Outlined" Min="0" />
+                <MudNumericField T="int" @bind-Value="_editor.AgentHeartbeatTimeoutSeconds" Label="Agent heartbeat timeout (seconds)" Variant="Variant.Outlined" Min="1" />
+                <MudNumericField T="int" @bind-Value="_editor.WarnAfterUptimeHours" Label="Warn after uptime (hours)" Variant="Variant.Outlined" Min="0" />
+                <MudNumericField T="int" @bind-Value="_editor.RecycleAfterUptimeHours" Label="Recycle after uptime (hours, 0 = disabled)" Variant="Variant.Outlined" Min="0" />
+
+                <MudStack Row="true" Spacing="1">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Save</MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ResetEditor">Clear</MudButton>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" xl="7">
+        <MudPaper Class="pa-4 server-card">
+            <MudText Typo="Typo.h6" GutterBottom="true">Configured Instances</MudText>
+
+            @if (InstanceDefinitions.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    No instances defined yet.
+                </MudAlert>
+            }
+            else
+            {
+                <MudTable T="DedicatedServerInstanceDefinition" Dense="true" Hover="true" Items="InstanceDefinitions">
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Instance Id</MudTh>
+                        <MudTh>Config</MudTh>
+                        <MudTh>Goal</MudTh>
+                        <MudTh>Process</MudTh>
+                        <MudTh>Agent</MudTh>
+                        <MudTh>State</MudTh>
+                        <MudTh>Health</MudTh>
+                        <MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Name">@context.Name</MudTd>
+                        <MudTd DataLabel="Instance Id" Class="mono">@context.InstanceId</MudTd>
+                        <MudTd DataLabel="Config">@GetConfigProfileName(context.ConfigProfileId)</MudTd>
+                        <MudTd DataLabel="Goal">@GetGoalStateText(context.InstanceId)</MudTd>
+                        <MudTd DataLabel="Process" Class="mono">@GetProcessDisplay(context.InstanceId)</MudTd>
+                        <MudTd DataLabel="Agent">@GetAttachmentStatus(context.InstanceId)</MudTd>
+                        <MudTd DataLabel="State">
+                            <MudChip T="string" Color="@GetStateColor(context.InstanceId)" Variant="Variant.Outlined">
+                                @GetStateText(context.InstanceId)
+                            </MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="Health">
+                            <MudChip T="string" Color="@GetHealthColor(context.InstanceId)" Variant="Variant.Outlined" title="@GetHealthSummary(context.InstanceId)">
+                                @GetHealthText(context.InstanceId)
+                            </MudChip>
+                            @if (!string.IsNullOrWhiteSpace(GetHealthSummary(context.InstanceId)))
+                            {
+                                <MudText Typo="Typo.caption" Class="d-block mt-1">@GetHealthSummary(context.InstanceId)</MudText>
+                            }
+                        </MudTd>
+                        <MudTd Style="text-align: right;">
+                            @if (IsRunning(context.InstanceId))
+                            {
+                                <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Warning" OnClick="@(() => StopAsync(context.InstanceId))">Stop</MudButton>
+                                <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" OnClick="@(() => RestartAsync(context.InstanceId))">Restart</MudButton>
+                            }
+                            else
+                            {
+                                <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Success" OnClick="@(() => StartAsync(context.InstanceId))">Start</MudButton>
+                            }
+                            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => Edit(context))">Edit</MudButton>
+                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context.InstanceId))">Delete</MudButton>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code
+{
+    private DedicatedServerInstanceDefinition _editor = CreateBlank();
+    private bool _isEditing;
+
+    private IReadOnlyList<DedicatedServerInstanceDefinition> InstanceDefinitions => InstanceCatalog.GetInstances();
+
+    private IReadOnlyDictionary<string, DedicatedServerInstanceRuntimeSnapshot> RuntimeSnapshots => Supervisor
+        .GetSnapshots()
+        .ToDictionary(snapshot => snapshot.InstanceId, StringComparer.OrdinalIgnoreCase);
+
+    protected override void OnInitialized()
+    {
+        InstanceCatalog.Changed += HandleChanged;
+        Supervisor.Changed += HandleChanged;
+        ConfigProfiles.Changed += HandleChanged;
+    }
+
+    public void Dispose()
+    {
+        InstanceCatalog.Changed -= HandleChanged;
+        Supervisor.Changed -= HandleChanged;
+        ConfigProfiles.Changed -= HandleChanged;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_editor.Name))
+        {
+            Snackbar.Add("Instance name required.", Severity.Warning);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_editor.ExecutablePath))
+        {
+            Snackbar.Add("Executable path required.", Severity.Warning);
+            return;
+        }
+
+        await InstanceCatalog.UpsertAsync(_editor);
+        Snackbar.Add("Instance saved.", Severity.Success);
+        ResetEditor();
+    }
+
+    private async Task StartAsync(string instanceId)
+    {
+        try
+        {
+            await Supervisor.SetGoalStateAsync(instanceId, DedicatedServerInstanceGoalState.On);
+            Snackbar.Add("Instance goal state set to on.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task StopAsync(string instanceId)
+    {
+        try
+        {
+            await Supervisor.SetGoalStateAsync(instanceId, DedicatedServerInstanceGoalState.Off);
+            Snackbar.Add("Instance goal state set to off.", Severity.Info);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task RestartAsync(string instanceId)
+    {
+        try
+        {
+            await Supervisor.RestartInstanceAsync(instanceId);
+            Snackbar.Add("Instance restart requested.", Severity.Info);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task DeleteAsync(string instanceId)
+    {
+        if (IsRunning(instanceId))
+        {
+            Snackbar.Add("Stop the instance before deleting its definition.", Severity.Warning);
+            return;
+        }
+
+        await InstanceCatalog.DeleteAsync(instanceId);
+        if (string.Equals(_editor.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase))
+            ResetEditor();
+
+        Snackbar.Add("Instance removed.", Severity.Info);
+    }
+
+    private void Edit(DedicatedServerInstanceDefinition definition)
+    {
+        _editor = new DedicatedServerInstanceDefinition
+        {
+            InstanceId = definition.InstanceId,
+            Name = definition.Name,
+            GoalState = definition.GoalState,
+            ExecutablePath = definition.ExecutablePath,
+            WorkingDirectory = definition.WorkingDirectory,
+            DedicatedServerAppDataPath = definition.DedicatedServerAppDataPath,
+            MagnetarAppDataPath = definition.MagnetarAppDataPath,
+            WorldPath = definition.WorldPath,
+            ConfigFilePath = definition.ConfigFilePath,
+            ConfigProfileId = definition.ConfigProfileId,
+            LaunchArguments = definition.LaunchArguments,
+            AutoStart = definition.AutoStart,
+            EnableHealthMonitoring = definition.EnableHealthMonitoring,
+            AutoRestartOnUnhealthy = definition.AutoRestartOnUnhealthy,
+            AgentStartupGraceSeconds = definition.AgentStartupGraceSeconds,
+            AgentHeartbeatTimeoutSeconds = definition.AgentHeartbeatTimeoutSeconds,
+            WarnAfterUptimeHours = definition.WarnAfterUptimeHours,
+            RecycleAfterUptimeHours = definition.RecycleAfterUptimeHours,
+            RestartOnCrash = definition.RestartOnCrash,
+            RestartDelaySeconds = definition.RestartDelaySeconds,
+            MaxRestartAttempts = definition.MaxRestartAttempts,
+            UpdatedAtUtc = definition.UpdatedAtUtc,
+        };
+        _isEditing = true;
+    }
+
+    private void ResetEditor()
+    {
+        _editor = CreateBlank();
+        _isEditing = false;
+    }
+
+    private string GetAttachmentStatus(string instanceId)
+    {
+        var runtime = GetRuntime(instanceId);
+        if (runtime is null)
+            return "not attached";
+
+        return runtime.AgentAttached ? "attached" : "not attached";
+    }
+
+    private string GetProcessDisplay(string instanceId)
+    {
+        var runtime = GetRuntime(instanceId);
+        return runtime?.ProcessId?.ToString() ?? "stopped";
+    }
+
+    private string GetGoalStateText(string instanceId)
+    {
+        if (RuntimeSnapshots.TryGetValue(instanceId, out var runtime))
+            return runtime.GoalState.ToString().ToLowerInvariant();
+
+        return InstanceDefinitions
+            .FirstOrDefault(definition => string.Equals(definition.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase))
+            ?.GoalState
+            .ToString()
+            .ToLowerInvariant() ?? "off";
+    }
+
+    private string GetConfigProfileName(string configProfileId)
+    {
+        if (string.IsNullOrWhiteSpace(configProfileId))
+            return "-";
+
+        return ConfigProfiles.GetProfile(configProfileId)?.Name ?? $"Missing: {configProfileId}";
+    }
+
+    private string GetStateText(string instanceId)
+    {
+        var runtime = GetRuntime(instanceId);
+        return runtime?.State.ToString().ToLowerInvariant() ?? "stopped";
+    }
+
+    private Color GetStateColor(string instanceId)
+    {
+        var state = GetRuntime(instanceId)?.State ?? DedicatedServerInstanceProcessState.Stopped;
+        return state switch
+        {
+            DedicatedServerInstanceProcessState.Running => Color.Success,
+            DedicatedServerInstanceProcessState.Starting => Color.Info,
+            DedicatedServerInstanceProcessState.Restarting => Color.Warning,
+            DedicatedServerInstanceProcessState.Stopping => Color.Warning,
+            DedicatedServerInstanceProcessState.Crashed => Color.Error,
+            DedicatedServerInstanceProcessState.Faulted => Color.Error,
+            _ => Color.Default,
+        };
+    }
+
+    private string GetHealthText(string instanceId)
+    {
+        var health = GetRuntime(instanceId)?.HealthState ?? DedicatedServerInstanceHealthState.Unknown;
+        return health.ToString().ToLowerInvariant();
+    }
+
+    private string GetHealthSummary(string instanceId)
+    {
+        return GetRuntime(instanceId)?.HealthSummary ?? string.Empty;
+    }
+
+    private Color GetHealthColor(string instanceId)
+    {
+        var health = GetRuntime(instanceId)?.HealthState ?? DedicatedServerInstanceHealthState.Unknown;
+        return health switch
+        {
+            DedicatedServerInstanceHealthState.Healthy => Color.Success,
+            DedicatedServerInstanceHealthState.Warning => Color.Warning,
+            DedicatedServerInstanceHealthState.Unhealthy => Color.Error,
+            _ => Color.Default,
+        };
+    }
+
+    private bool IsRunning(string instanceId)
+    {
+        var state = GetRuntime(instanceId)?.State ?? DedicatedServerInstanceProcessState.Stopped;
+        return state is DedicatedServerInstanceProcessState.Starting
+            or DedicatedServerInstanceProcessState.Running
+            or DedicatedServerInstanceProcessState.Restarting
+            or DedicatedServerInstanceProcessState.Stopping;
+    }
+
+    private DedicatedServerInstanceRuntimeSnapshot? GetRuntime(string instanceId)
+    {
+        RuntimeSnapshots.TryGetValue(instanceId, out var runtime);
+        return runtime;
+    }
+
+    private void HandleChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private static DedicatedServerInstanceDefinition CreateBlank()
+    {
+        return new DedicatedServerInstanceDefinition
+        {
+            GoalState = DedicatedServerInstanceGoalState.Off,
+            EnableHealthMonitoring = true,
+            AutoRestartOnUnhealthy = true,
+            AgentStartupGraceSeconds = 180,
+            AgentHeartbeatTimeoutSeconds = 20,
+            WarnAfterUptimeHours = 12,
+            RestartDelaySeconds = 5,
+            RestartOnCrash = true,
+        };
+    }
+}
