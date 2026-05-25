@@ -31,21 +31,14 @@
 }
 
 .config-profile-button-selected {
-    box-shadow: none;
+    box-shadow: inset 4px 0 0 currentColor;
 }
 
 .config-profile-button ::deep .mud-button-label {
+    align-items: stretch;
+    height: 100%;
     justify-content: flex-start;
     width: 100%;
-}
-
-.config-profile-content {
-    width: 100%;
-}
-
-.config-profile-content-selected {
-    border-left: 4px solid currentColor;
-    padding-left: 0.75rem;
 }
 
 .config-profile-delete {

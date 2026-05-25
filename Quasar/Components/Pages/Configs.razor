@@ -52,13 +52,10 @@
                             var profileButtonClass = isSelected
                                 ? "config-profile-button config-profile-button-selected"
                                 : "config-profile-button";
-                            var profileContentClass = isSelected
-                                ? "config-profile-content config-profile-content-selected"
-                                : "config-profile-content";
                             <MudPaper Class="@profileTileClass" @key="profile.ConfigProfileId">
                                 <MudStack Row="true" AlignItems="AlignItems.Start" Justify="Justify.SpaceBetween" Spacing="1" Class="config-profile-row">
                                     <MudButton Variant="Variant.Text" Color="Color.Inherit" Class="@profileButtonClass" Style="flex: 1 1 auto; min-width: 0;" OnClick="@(() => SelectProfile(profile.ConfigProfileId))">
-                                        <MudStack AlignItems="AlignItems.Start" Spacing="0" Class="@profileContentClass">
+                                        <MudStack AlignItems="AlignItems.Start" Spacing="0">
                                             <MudText Typo="Typo.subtitle2">@profile.Name</MudText>
                                             <MudText Typo="Typo.caption" Class="config-secondary">
                                                 @GetProfileSummary(profile)
