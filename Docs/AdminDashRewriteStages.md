@@ -18,16 +18,18 @@ Complete:
 - `Quasar.Bootstrap` ensure-running helper
 - per-instance JSON-backed instance definitions with atomic history groundwork
 - first goal-state reconciliation and DS process supervision
-- first health-monitoring and auto-recovery pass in the supervisor
+- first health-monitoring and auto-recovery pass in the supervisor, now including DS-style simulation-frame progress scoring
 - initial runtime launch preparation with isolated app-data roots, runtime config sync, `LastSession.sbl`, and enforced headless launch shaping
 - neutral MudBlazor light/dark theming with local-storage persistence
-
-Pending:
-
 - file watching/reload for manual config edits
 - config editing migration from Python `webui/`
 - Quasar self-update staging and seamless cutover
 - cleanup of stale legacy docs and obsolete `webui/`
+
+No pending items remain in this short tracker. Active design/future notes live in:
+
+- [QuasarArchitecture.md](./QuasarArchitecture.md)
+- [QuasarUpdatePlan.md](./QuasarUpdatePlan.md)
 
 ## Final naming
 

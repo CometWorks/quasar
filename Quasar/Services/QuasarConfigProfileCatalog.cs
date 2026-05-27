@@ -5,7 +5,7 @@ using Quasar.Models;
 
 namespace Quasar.Services;
 
-public sealed class QuasarConfigProfileCatalog
+public sealed class QuasarConfigProfileCatalog : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -16,14 +16,26 @@ public sealed class QuasarConfigProfileCatalog
     private readonly object _sync = new();
     private readonly ILogger<QuasarConfigProfileCatalog> _logger;
     private List<QuasarConfigProfile> _profiles;
+    private string _snapshot;
+    private FileSystemWatcher? _watcher;
+    private CancellationTokenSource? _reloadDebounce;
 
     public QuasarConfigProfileCatalog(ILogger<QuasarConfigProfileCatalog> logger)
     {
         _logger = logger;
         _profiles = LoadProfiles();
+        _snapshot = CreateSnapshot(_profiles);
+        StartWatching();
     }
 
     public event Action? Changed;
+
+    public void Dispose()
+    {
+        _watcher?.Dispose();
+        _reloadDebounce?.Cancel();
+        _reloadDebounce?.Dispose();
+    }
 
     public IReadOnlyList<QuasarConfigProfile> GetProfiles()
     {
@@ -66,6 +78,8 @@ public sealed class QuasarConfigProfileCatalog
                 _profiles[index] = Clone(normalized);
             else
                 _profiles.Add(Clone(normalized));
+
+            _snapshot = CreateSnapshot(_profiles);
         }
 
         await SaveProfileAsync(normalized, cancellationToken);
@@ -87,6 +101,7 @@ public sealed class QuasarConfigProfileCatalog
             {
                 removed = Clone(_profiles[index]);
                 _profiles.RemoveAt(index);
+                _snapshot = CreateSnapshot(_profiles);
             }
         }
 
@@ -227,6 +242,109 @@ public sealed class QuasarConfigProfileCatalog
                    JsonSerializer.Serialize(profile, JsonOptions),
                    JsonOptions)
                ?? new QuasarConfigProfile();
+    }
+
+    private void StartWatching()
+    {
+        var directory = GetProfilesDirectory();
+        Directory.CreateDirectory(directory);
+
+        _watcher = new FileSystemWatcher(directory)
+        {
+            IncludeSubdirectories = true,
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
+            Filter = "*.json",
+        };
+
+        _watcher.Changed += HandleWatchedFileChanged;
+        _watcher.Created += HandleWatchedFileChanged;
+        _watcher.Deleted += HandleWatchedFileChanged;
+        _watcher.Renamed += HandleWatchedFileChanged;
+        _watcher.EnableRaisingEvents = true;
+    }
+
+    private void HandleWatchedFileChanged(object sender, FileSystemEventArgs args)
+    {
+        if (!IsTrackedProfilePath(args.FullPath))
+            return;
+
+        ScheduleReload();
+    }
+
+    private static bool IsTrackedProfilePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        return string.Equals(Path.GetFileName(path), "profile.json", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ScheduleReload()
+    {
+        CancellationTokenSource debounce;
+        lock (_sync)
+        {
+            _reloadDebounce?.Cancel();
+            _reloadDebounce?.Dispose();
+            _reloadDebounce = new CancellationTokenSource();
+            debounce = _reloadDebounce;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250), debounce.Token);
+                ReloadFromDisk();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, CancellationToken.None);
+    }
+
+    private void ReloadFromDisk()
+    {
+        List<QuasarConfigProfile> reloaded;
+        string snapshot;
+
+        try
+        {
+            reloaded = LoadProfiles();
+            snapshot = CreateSnapshot(reloaded);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed reloading Quasar config profiles from disk.");
+            return;
+        }
+
+        var changed = false;
+        lock (_sync)
+        {
+            if (!string.Equals(_snapshot, snapshot, StringComparison.Ordinal))
+            {
+                _profiles = reloaded;
+                _snapshot = snapshot;
+                changed = true;
+            }
+        }
+
+        if (!changed)
+            return;
+
+        _logger.LogInformation("Reloaded Quasar config profiles from disk after external edit.");
+        Changed?.Invoke();
+    }
+
+    private static string CreateSnapshot(IEnumerable<QuasarConfigProfile> profiles)
+    {
+        var normalized = profiles
+            .Select(profile => Normalize(Clone(profile)))
+            .OrderBy(profile => profile.ConfigProfileId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return JsonSerializer.Serialize(normalized, JsonOptions);
     }
 
     private static string GetProfilesDirectory() =>

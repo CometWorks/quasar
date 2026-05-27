@@ -18,6 +18,7 @@ public class Program
                 builder.WebHost.UseStaticWebAssets();
 
             var webServiceOptions = WebServiceOptions.Create(builder.Configuration);
+            var managedRuntimeOptions = ManagedRuntimeOptions.Create(builder.Configuration);
 
             QuasarLoggingConfigurator.Configure(builder, webServiceOptions);
 
@@ -33,10 +34,14 @@ public class Program
                 configuration.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomRight;
             });
             builder.Services.AddSingleton(webServiceOptions);
+            builder.Services.AddSingleton(managedRuntimeOptions);
+            builder.Services.AddSingleton<KnownPlayerCatalog>();
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
+            builder.Services.AddSingleton<QuasarWorldProfileCatalog>();
             builder.Services.AddSingleton<QuasarPluginCatalogService>();
             builder.Services.AddSingleton<QuasarWorkshopModResolver>();
+            builder.Services.AddSingleton<ManagedDedicatedServerRuntimeResolver>();
             builder.Services.AddSingleton<DedicatedServerInstanceCatalog>();
             builder.Services.AddSingleton<DedicatedServerSupervisor>();
             builder.Services.AddSingleton<DedicatedServerRuntimePreparer>();
@@ -45,6 +50,7 @@ public class Program
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<DedicatedServerSupervisor>());
             builder.Services.AddHostedService<WebServiceManifestHostedService>();
             builder.Services.AddScoped<ThemePreferenceService>();
+            builder.Services.AddSingleton<QuasarShutdownService>();
 
             var app = builder.Build();
 
@@ -65,7 +71,9 @@ public class Program
                 state.Options.NodeId,
                 state.Options.NodeName,
                 state.Options.Version,
-                baseUrl = state.CurrentManifest.BaseUrl,
+                baseUrl = string.IsNullOrWhiteSpace(state.CurrentManifest.BaseUrl)
+                    ? state.Options.BaseUrl
+                    : state.CurrentManifest.BaseUrl,
                 connectedAgents = state.Registry.GetAgents().Count(agent => agent.IsConnected),
                 configuredInstances = catalog.GetInstances().Count,
                 runningInstances = state.Supervisor.GetSnapshots().Count(snapshot =>
@@ -77,6 +85,43 @@ public class Program
 
             app.MapGet("/api/discovery", (WebServiceState state) =>
                 Results.Json(state.CurrentManifest));
+
+            app.MapPost("/api/internal/drain", (HttpContext context, DedicatedServerSupervisor supervisor, IHostApplicationLifetime lifetime) =>
+            {
+                var expectedToken = context.RequestServices.GetRequiredService<WebServiceOptions>().LauncherToken;
+                if (string.IsNullOrWhiteSpace(expectedToken) ||
+                    !string.Equals(context.Request.Headers["X-Quasar-Launcher-Token"], expectedToken, StringComparison.Ordinal))
+                {
+                    return Results.Unauthorized();
+                }
+
+                var delaySeconds = 0;
+                if (int.TryParse(context.Request.Query["delaySeconds"], out var parsedDelay))
+                    delaySeconds = Math.Max(0, parsedDelay);
+
+                supervisor.BeginLauncherDrain();
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        if (delaySeconds > 0)
+                            await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
+                    }
+                    catch
+                    {
+                    }
+                    finally
+                    {
+                        lifetime.StopApplication();
+                    }
+                });
+
+                return Results.Ok(new
+                {
+                    status = "draining",
+                    delaySeconds,
+                });
+            });
 
             app.Map("/ws/agent", async (HttpContext context, AgentSocketHandler socketHandler) =>
             {

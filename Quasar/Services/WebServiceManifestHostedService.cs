@@ -38,6 +38,9 @@ public sealed class WebServiceManifestHostedService : IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        if (!_options.OwnManifest)
+            return Task.CompletedTask;
+
         Directory.CreateDirectory(MagnetarPaths.GetWebServiceDirectory());
         _lifetime.ApplicationStarted.Register(WriteManifest);
         return Task.CompletedTask;
@@ -45,6 +48,9 @@ public sealed class WebServiceManifestHostedService : IHostedService
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
+        if (!_options.OwnManifest)
+            return Task.CompletedTask;
+
         var path = MagnetarPaths.GetWebServiceManifestPath();
 
         try

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Magnetar.Protocol.Runtime;
 using Magnetar.Protocol.Transport;
 using Quasar.Models;
@@ -7,28 +8,38 @@ namespace Quasar.Services;
 
 public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 {
+    private static readonly JsonSerializerOptions PersistedStateJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true,
+    };
+
     private static readonly TimeSpan RestartCounterResetWindow = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(2);
     private readonly object _sync = new();
     private readonly DedicatedServerInstanceCatalog _catalog;
     private readonly AgentRegistry _registry;
     private readonly DedicatedServerRuntimePreparer _runtimePreparer;
+    private readonly ManagedDedicatedServerRuntimeResolver _runtimeResolver;
     private readonly WebServiceOptions _options;
     private readonly ILogger<DedicatedServerSupervisor> _logger;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Dictionary<string, ManagedInstanceState> _states = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? _persistDebounce;
     private bool _isStopping;
+    private bool _preserveManagedInstancesOnShutdown;
 
     public DedicatedServerSupervisor(
         DedicatedServerInstanceCatalog catalog,
         AgentRegistry registry,
         DedicatedServerRuntimePreparer runtimePreparer,
+        ManagedDedicatedServerRuntimeResolver runtimeResolver,
         WebServiceOptions options,
         ILogger<DedicatedServerSupervisor> logger)
     {
         _catalog = catalog;
         _registry = registry;
         _runtimePreparer = runtimePreparer;
+        _runtimeResolver = runtimeResolver;
         _options = options;
         _logger = logger;
     }
@@ -38,8 +49,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     public Task StartAsync(CancellationToken cancellationToken)
     {
         SyncDefinitions();
+        RestorePersistedRuntimeState();
         _catalog.Changed += HandleCatalogChanged;
         _ = Task.Run(() => ReconcileLoopAsync(_shutdown.Token), _shutdown.Token);
+        SchedulePersistState();
         return Task.CompletedTask;
     }
 
@@ -48,6 +61,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _isStopping = true;
         _shutdown.Cancel();
         _catalog.Changed -= HandleCatalogChanged;
+
+        if (_options.PreserveManagedInstancesOnShutdown || _preserveManagedInstancesOnShutdown)
+        {
+            await PersistStateSnapshotAsync(CancellationToken.None);
+            return;
+        }
 
         var runningInstanceIds = GetSnapshots()
             .Where(snapshot => snapshot.State is DedicatedServerInstanceProcessState.Starting
@@ -68,6 +87,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 _logger.LogWarning(exception, "Failed stopping instance {InstanceId} during Quasar shutdown.", instanceId);
             }
         }
+
+        await PersistStateSnapshotAsync(CancellationToken.None);
     }
 
     public IReadOnlyList<DedicatedServerInstanceRuntimeSnapshot> GetSnapshots()
@@ -79,7 +100,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         lock (_sync)
         {
             snapshots = _states.Values
-                .Select(state => CloneSnapshot(state, agents.TryGetValue(state.InstanceId, out var agent) ? agent : null, now))
+                .Select(state => CloneSnapshot(
+                    state,
+                    agents.TryGetValue(state.InstanceId, out var agent) ? agent : null,
+                    now,
+                    _options.DisableInstanceHealthMonitoring))
                 .OrderBy(snapshot => snapshot.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(snapshot => snapshot.InstanceId, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -186,7 +211,23 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     public void Dispose()
     {
+        // Take ownership under the same lock used by SchedulePersistState so we cannot
+        // race with a concurrent cancel/dispose/recreate of _persistDebounce.
+        CancellationTokenSource? debounce;
+        lock (_sync)
+        {
+            debounce = _persistDebounce;
+            _persistDebounce = null;
+        }
+        debounce?.Cancel();
+        debounce?.Dispose();
         _shutdown.Dispose();
+    }
+
+    public void BeginLauncherDrain()
+    {
+        _preserveManagedInstancesOnShutdown = true;
+        PersistStateSnapshotAsync(CancellationToken.None).GetAwaiter().GetResult();
     }
 
     private async Task ReconcileLoopAsync(CancellationToken cancellationToken)
@@ -222,6 +263,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         List<(string InstanceId, ReconcileAction Action, string Reason)> actions = new();
         var agents = BuildAgentLookup();
         var now = DateTimeOffset.UtcNow;
+        var healthChanged = false;
 
         lock (_sync)
         {
@@ -229,7 +271,23 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             {
                 var processActive = IsProcessActive(state.Process);
                 var goalState = state.Definition.GoalState;
-                var health = EvaluateHealth(state, agents.TryGetValue(state.InstanceId, out var agent) ? agent : null, now);
+                var health = EvaluateHealth(
+                    state,
+                    agents.TryGetValue(state.InstanceId, out var agent) ? agent : null,
+                    now,
+                    _options.DisableInstanceHealthMonitoring);
+
+                if (state.HealthState != health.State ||
+                    !string.Equals(state.HealthSummary, health.Summary, StringComparison.Ordinal))
+                {
+                    state.HealthState = health.State;
+                    state.HealthSummary = health.Summary;
+                    healthChanged = true;
+                }
+
+                state.SimulationProgressScore = health.SimulationProgressScore;
+                state.SimulationProgressWindowSeconds = health.SimulationProgressWindowSeconds;
+                state.SimulationFramesAdvanced = health.SimulationFramesAdvanced;
 
                 if (goalState == DedicatedServerInstanceGoalState.On)
                 {
@@ -257,6 +315,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             }
         }
 
+        if (healthChanged)
+            NotifyChanged();
+
         foreach (var (instanceId, action, reason) in actions)
         {
             if (cancellationToken.IsCancellationRequested)
@@ -283,14 +344,26 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private async Task StartProcessAsync(ManagedInstanceState state, CancellationToken cancellationToken)
     {
         var definition = state.Definition;
-        var executablePath = definition.ExecutablePath?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
+        ResolvedDedicatedServerRuntime runtime;
+        try
+        {
+            runtime = await _runtimeResolver.ResolveAsync(definition, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            SetFaulted(state.InstanceId, exception.Message);
+            _logger.LogWarning(exception, "Failed resolving managed runtime for instance {InstanceId}.", state.InstanceId);
+            return;
+        }
+
+        var executablePath = runtime.ExecutablePath;
+        var workingDirectory = runtime.WorkingDirectory;
+        if (!File.Exists(executablePath))
         {
             SetFaulted(state.InstanceId, $"Executable not found: {executablePath}");
             return;
         }
 
-        var workingDirectory = ResolveWorkingDirectory(definition, executablePath);
         if (!Directory.Exists(workingDirectory))
         {
             SetFaulted(state.InstanceId, $"Working directory not found: {workingDirectory}");
@@ -300,7 +373,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         PreparedDedicatedServerLaunch launch;
         try
         {
-            launch = await _runtimePreparer.PrepareAsync(definition, cancellationToken);
+            launch = await _runtimePreparer.PrepareAsync(definition, runtime.DedicatedServer64Path, cancellationToken);
         }
         catch (Exception exception)
         {
@@ -335,6 +408,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         process.StartInfo.Environment["MAGNETAR_NODE_ID"] = _options.NodeId;
         process.StartInfo.Environment["QUASAR_DS_APPDATA_PATH"] = launch.DedicatedServerAppDataPath;
         process.StartInfo.Environment["QUASAR_MAGNETAR_APPDATA_PATH"] = launch.MagnetarAppDataPath;
+        process.StartInfo.Environment["QUASAR_DS64_PATH"] = launch.DedicatedServer64Path;
         process.StartInfo.Environment["QUASAR_WORLD_PATH"] = launch.WorldPath;
         process.StartInfo.Environment["QUASAR_DS_CONFIG_PATH"] = launch.RuntimeConfigPath;
         process.StartInfo.Environment["QUASAR_LAST_SESSION_PATH"] = launch.LastSessionPath;
@@ -376,6 +450,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             current.StandardErrorLogPath = stderrPath;
             current.IsRestartPending = false;
             current.StopRequested = false;
+            ResetHealthTracking(current);
         }
 
         _logger.LogInformation("Started instance {InstanceId} with pid {Pid}.", state.InstanceId, process.Id);
@@ -413,6 +488,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             state.LastExitCode = exitCode;
             state.StoppedAtUtc = now;
             state.StartedAtUtc = null;
+            ResetHealthTracking(state);
 
             if (!stopRequested &&
                 definition.GoalState == DedicatedServerInstanceGoalState.On &&
@@ -503,6 +579,63 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _ = Task.Run(() => ReconcileAsync(_shutdown.Token), _shutdown.Token);
     }
 
+    private void RestorePersistedRuntimeState()
+    {
+        var persisted = LoadPersistedRuntimeState();
+        if (persisted?.Instances is null || persisted.Instances.Count == 0)
+            return;
+
+        lock (_sync)
+        {
+            foreach (var persistedState in persisted.Instances)
+            {
+                if (!_states.TryGetValue(persistedState.InstanceId, out var state))
+                    continue;
+
+                state.RestartAttempts = Math.Max(0, persistedState.RestartAttempts);
+                state.LastExitCode = persistedState.LastExitCode;
+                state.StartedAtUtc = persistedState.StartedAtUtc;
+                state.StoppedAtUtc = persistedState.StoppedAtUtc;
+                state.StandardOutputLogPath = persistedState.StandardOutputLogPath ?? string.Empty;
+                state.StandardErrorLogPath = persistedState.StandardErrorLogPath ?? string.Empty;
+                state.LastHealthRecoveryActionUtc = persistedState.LastHealthRecoveryActionUtc;
+                state.StopRequested = false;
+                state.IsRestartPending = false;
+
+                if (persistedState.ProcessId is > 0 && TryAdoptProcess(persistedState.ProcessId.Value, out var process))
+                {
+                    process.EnableRaisingEvents = true;
+                    process.Exited += async (_, _) => await HandleProcessExitedAsync(state.InstanceId);
+
+                    state.Process = process;
+                    state.ProcessId = process.Id;
+                    state.State = persistedState.State is DedicatedServerInstanceProcessState.Starting
+                        or DedicatedServerInstanceProcessState.Running
+                        or DedicatedServerInstanceProcessState.Restarting
+                        or DedicatedServerInstanceProcessState.Stopping
+                        ? persistedState.State
+                        : DedicatedServerInstanceProcessState.Running;
+                    state.LastMessage = "Process adopted after Quasar worker turnover.";
+                    state.StoppedAtUtc = null;
+                }
+                else
+                {
+                    state.Process = null;
+                    state.ProcessId = null;
+
+                    if (state.State is DedicatedServerInstanceProcessState.Starting
+                        or DedicatedServerInstanceProcessState.Running
+                        or DedicatedServerInstanceProcessState.Restarting
+                        or DedicatedServerInstanceProcessState.Stopping)
+                    {
+                        state.State = DedicatedServerInstanceProcessState.Stopped;
+                        state.LastMessage = "Previously running process not found during supervisor restore.";
+                    }
+                }
+            }
+        }
+    }
+
     private void SyncDefinitions()
     {
         var definitions = _catalog.GetInstances();
@@ -542,6 +675,23 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
     }
 
+    private PersistedSupervisorState? LoadPersistedRuntimeState()
+    {
+        try
+        {
+            var path = MagnetarPaths.GetQuasarSupervisorStatePath();
+            if (!File.Exists(path))
+                return null;
+
+            return JsonSerializer.Deserialize<PersistedSupervisorState>(File.ReadAllText(path), PersistedStateJsonOptions);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed loading persisted Quasar supervisor runtime state.");
+            return null;
+        }
+    }
+
     private void SetFaulted(string instanceId, string message)
     {
         lock (_sync)
@@ -555,18 +705,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             state.IsRestartPending = false;
             state.LastMessage = message;
             state.StoppedAtUtc = DateTimeOffset.UtcNow;
+            ResetHealthTracking(state);
         }
 
         _logger.LogWarning("Instance {InstanceId} faulted: {Message}", instanceId, message);
         NotifyChanged();
-    }
-
-    private static string ResolveWorkingDirectory(DedicatedServerInstanceDefinition definition, string executablePath)
-    {
-        if (!string.IsNullOrWhiteSpace(definition.WorkingDirectory))
-            return definition.WorkingDirectory.Trim();
-
-        return Path.GetDirectoryName(executablePath) ?? AppContext.BaseDirectory;
     }
 
     private static async Task PumpOutputAsync(StreamReader reader, string path, CancellationToken cancellationToken)
@@ -604,7 +747,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private static InstanceHealthAssessment EvaluateHealth(
         ManagedInstanceState state,
         AgentRuntimeState? agent,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        bool disableHealthMonitoring)
     {
         var processActive = IsProcessActive(state.Process);
         var goalState = state.Definition.GoalState;
@@ -626,6 +770,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     ? "Process is starting."
                     : "Goal state is on but the process is not running.");
         }
+
+        if (disableHealthMonitoring)
+            return new InstanceHealthAssessment(DedicatedServerInstanceHealthState.Unknown, "Health monitoring disabled for local/dev launch.");
 
         if (!state.Definition.EnableHealthMonitoring)
             return new InstanceHealthAssessment(DedicatedServerInstanceHealthState.Unknown, "Health monitoring disabled.");
@@ -651,7 +798,18 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         {
             return new InstanceHealthAssessment(
                 DedicatedServerInstanceHealthState.Unhealthy,
-                $"Quasar.Agent heartbeat stale for {Math.Round(silence.TotalSeconds)}s.");
+                $"Quasar.Agent heartbeat stale beyond {state.Definition.AgentHeartbeatTimeoutSeconds}s timeout.");
+        }
+
+        var simulationProgress = EvaluateSimulationProgress(state, agent, uptime);
+        if (simulationProgress.State != DedicatedServerInstanceHealthState.Healthy)
+            return simulationProgress;
+
+        if (simulationProgress.SimulationProgressScore.HasValue &&
+            simulationProgress.SimulationProgressWindowSeconds.HasValue &&
+            simulationProgress.SimulationProgressWindowSeconds.Value > 0)
+        {
+            state.LastHealthySummary = $"Instance healthy. Frame progress score {simulationProgress.SimulationProgressScore.Value:0.00} over {simulationProgress.SimulationProgressWindowSeconds.Value}s.";
         }
 
         if (state.Definition.RecycleAfterUptimeHours > 0 &&
@@ -670,7 +828,120 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 $"Process uptime exceeded warning threshold of {state.Definition.WarnAfterUptimeHours}h.");
         }
 
-        return new InstanceHealthAssessment(DedicatedServerInstanceHealthState.Healthy, "Instance healthy.");
+        return new InstanceHealthAssessment(
+            DedicatedServerInstanceHealthState.Healthy,
+            string.IsNullOrWhiteSpace(state.LastHealthySummary) ? "Instance healthy." : state.LastHealthySummary,
+            state.SimulationProgressScore,
+            state.SimulationProgressWindowSeconds,
+            state.SimulationFramesAdvanced);
+    }
+
+    private static InstanceHealthAssessment EvaluateSimulationProgress(
+        ManagedInstanceState state,
+        AgentRuntimeState agent,
+        TimeSpan uptime)
+    {
+        var snapshot = agent.Snapshot;
+        var metrics = snapshot?.Metrics;
+        if (snapshot is null || metrics is null)
+            return BuildExistingSimulationAssessment(state, "Waiting for Quasar.Agent snapshot.");
+
+        var capturedAt = snapshot.CapturedAtUtc == default ? agent.LastSeenUtc : snapshot.CapturedAtUtc;
+        if (capturedAt == default || metrics.SimulationFrameCounter == 0)
+            return BuildExistingSimulationAssessment(state, "Collecting simulation progress baseline.");
+
+        if (!state.LastSimulationFrameCounter.HasValue ||
+            !state.LastSimulationFrameObservedAtUtc.HasValue ||
+            capturedAt <= state.LastSimulationFrameObservedAtUtc.Value ||
+            metrics.SimulationFrameCounter < state.LastSimulationFrameCounter.Value)
+        {
+            SetSimulationBaseline(state, capturedAt, metrics.SimulationFrameCounter);
+            return BuildExistingSimulationAssessment(state, "Collecting simulation progress baseline.");
+        }
+
+        if (metrics.IsSaveInProgress)
+        {
+            SetSimulationBaseline(state, capturedAt, metrics.SimulationFrameCounter);
+            return BuildExistingSimulationAssessment(state, "Collecting simulation progress baseline.");
+        }
+
+        var requiredWindow = TimeSpan.FromSeconds(Math.Max(1, state.Definition.SimulationProgressWindowSeconds));
+        var elapsed = capturedAt - state.LastSimulationFrameObservedAtUtc.Value;
+        if (elapsed < requiredWindow)
+            return BuildExistingSimulationAssessment(state, "Collecting simulation progress baseline.");
+
+        var frameDelta = metrics.SimulationFrameCounter - state.LastSimulationFrameCounter.Value;
+        var score = (float)(frameDelta / (elapsed.TotalSeconds * 60d));
+
+        state.SimulationProgressScore = score;
+        state.SimulationProgressWindowSeconds = (int)Math.Round(elapsed.TotalSeconds);
+        state.SimulationFramesAdvanced = frameDelta;
+        state.LastSimulationProgressEvaluatedAtUtc = capturedAt;
+
+        SetSimulationBaseline(state, capturedAt, metrics.SimulationFrameCounter);
+
+        if (score < state.Definition.MinimumSimulationProgressScore)
+        {
+            return new InstanceHealthAssessment(
+                DedicatedServerInstanceHealthState.Unhealthy,
+                $"Simulation frame progress score {score:0.00} is below minimum {state.Definition.MinimumSimulationProgressScore:0.00} over {elapsed.TotalSeconds:0.#}s ({frameDelta} frames advanced).",
+                score,
+                state.SimulationProgressWindowSeconds,
+                frameDelta);
+        }
+
+        return new InstanceHealthAssessment(
+            DedicatedServerInstanceHealthState.Healthy,
+            "Instance healthy.",
+            score,
+            state.SimulationProgressWindowSeconds,
+            frameDelta);
+    }
+
+    private static InstanceHealthAssessment BuildExistingSimulationAssessment(ManagedInstanceState state, string waitingSummary)
+    {
+        if (!state.SimulationProgressScore.HasValue ||
+            !state.SimulationProgressWindowSeconds.HasValue ||
+            !state.SimulationFramesAdvanced.HasValue)
+        {
+            return new InstanceHealthAssessment(DedicatedServerInstanceHealthState.Warning, waitingSummary);
+        }
+
+        if (state.SimulationProgressScore.Value < state.Definition.MinimumSimulationProgressScore)
+        {
+            return new InstanceHealthAssessment(
+                DedicatedServerInstanceHealthState.Unhealthy,
+                $"Simulation frame progress score {state.SimulationProgressScore.Value:0.00} is below minimum {state.Definition.MinimumSimulationProgressScore:0.00} over {state.SimulationProgressWindowSeconds.Value}s ({state.SimulationFramesAdvanced.Value} frames advanced).",
+                state.SimulationProgressScore,
+                state.SimulationProgressWindowSeconds,
+                state.SimulationFramesAdvanced);
+        }
+
+        return new InstanceHealthAssessment(
+            DedicatedServerInstanceHealthState.Healthy,
+            "Instance healthy.",
+            state.SimulationProgressScore,
+            state.SimulationProgressWindowSeconds,
+            state.SimulationFramesAdvanced);
+    }
+
+    private static void SetSimulationBaseline(ManagedInstanceState state, DateTimeOffset observedAtUtc, ulong simulationFrameCounter)
+    {
+        state.LastSimulationFrameObservedAtUtc = observedAtUtc;
+        state.LastSimulationFrameCounter = simulationFrameCounter;
+    }
+
+    private static void ResetHealthTracking(ManagedInstanceState state)
+    {
+        state.HealthState = DedicatedServerInstanceHealthState.Unknown;
+        state.HealthSummary = string.Empty;
+        state.LastSimulationFrameCounter = null;
+        state.LastSimulationFrameObservedAtUtc = null;
+        state.SimulationProgressScore = null;
+        state.SimulationProgressWindowSeconds = null;
+        state.SimulationFramesAdvanced = null;
+        state.LastSimulationProgressEvaluatedAtUtc = null;
+        state.LastHealthySummary = string.Empty;
     }
 
     private static bool CanScheduleHealthRestart(ManagedInstanceState state, DateTimeOffset now)
@@ -683,7 +954,63 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private void NotifyChanged()
     {
+        SchedulePersistState();
         Changed?.Invoke();
+    }
+
+    private void SchedulePersistState()
+    {
+        CancellationTokenSource debounce;
+        lock (_sync)
+        {
+            _persistDebounce?.Cancel();
+            _persistDebounce?.Dispose();
+            _persistDebounce = new CancellationTokenSource();
+            debounce = _persistDebounce;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(150), debounce.Token);
+                await PersistStateSnapshotAsync(debounce.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, CancellationToken.None);
+    }
+
+    private async Task PersistStateSnapshotAsync(CancellationToken cancellationToken)
+    {
+        PersistedSupervisorState persisted;
+        lock (_sync)
+        {
+            persisted = new PersistedSupervisorState
+            {
+                UpdatedAtUtc = DateTimeOffset.UtcNow,
+                Instances = _states.Values
+                    .Select(state => new PersistedManagedInstanceState
+                    {
+                        InstanceId = state.InstanceId,
+                        State = state.State,
+                        RestartAttempts = state.RestartAttempts,
+                        ProcessId = state.ProcessId,
+                        LastExitCode = state.LastExitCode,
+                        StartedAtUtc = state.StartedAtUtc,
+                        StoppedAtUtc = state.StoppedAtUtc,
+                        StandardOutputLogPath = state.StandardOutputLogPath,
+                        StandardErrorLogPath = state.StandardErrorLogPath,
+                        LastHealthRecoveryActionUtc = state.LastHealthRecoveryActionUtc,
+                    })
+                    .OrderBy(state => state.InstanceId, StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+            };
+        }
+
+        var json = JsonSerializer.Serialize(persisted, PersistedStateJsonOptions);
+        await AtomicFileWriter.WriteTextAsync(MagnetarPaths.GetQuasarSupervisorStatePath(), json, cancellationToken);
     }
 
     private static int SafeGetExitCode(Process process)
@@ -717,6 +1044,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             AutoRestartOnUnhealthy = definition.AutoRestartOnUnhealthy,
             AgentStartupGraceSeconds = definition.AgentStartupGraceSeconds,
             AgentHeartbeatTimeoutSeconds = definition.AgentHeartbeatTimeoutSeconds,
+            SimulationProgressWindowSeconds = definition.SimulationProgressWindowSeconds,
+            MinimumSimulationProgressScore = definition.MinimumSimulationProgressScore,
             WarnAfterUptimeHours = definition.WarnAfterUptimeHours,
             RecycleAfterUptimeHours = definition.RecycleAfterUptimeHours,
             RestartOnCrash = definition.RestartOnCrash,
@@ -726,20 +1055,44 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         };
     }
 
+    private static bool TryAdoptProcess(int processId, out Process process)
+    {
+        try
+        {
+            process = Process.GetProcessById(processId);
+            if (process.HasExited)
+            {
+                process.Dispose();
+                process = default!;
+                return false;
+            }
+
+            return true;
+        }
+        catch
+        {
+            process = default!;
+            return false;
+        }
+    }
+
     private static DedicatedServerInstanceRuntimeSnapshot CloneSnapshot(
         ManagedInstanceState state,
         AgentRuntimeState? agent,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        bool disableHealthMonitoring)
     {
-        var health = EvaluateHealth(state, agent, now);
         return new DedicatedServerInstanceRuntimeSnapshot
         {
             InstanceId = state.InstanceId,
             Name = state.Definition.Name,
             GoalState = state.Definition.GoalState,
             State = state.State,
-            HealthState = health.State,
-            HealthSummary = health.Summary,
+            HealthState = state.HealthState,
+            HealthSummary = state.HealthSummary,
+            SimulationProgressScore = state.SimulationProgressScore,
+            SimulationProgressWindowSeconds = state.SimulationProgressWindowSeconds,
+            SimulationFramesAdvanced = state.SimulationFramesAdvanced,
             RestartAttempts = state.RestartAttempts,
             ProcessId = state.ProcessId,
             LastExitCode = state.LastExitCode,
@@ -760,6 +1113,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public DedicatedServerInstanceDefinition Definition { get; set; } = new();
 
         public DedicatedServerInstanceProcessState State { get; set; } = DedicatedServerInstanceProcessState.Stopped;
+
+        public DedicatedServerInstanceHealthState HealthState { get; set; } = DedicatedServerInstanceHealthState.Unknown;
+
+        public string HealthSummary { get; set; } = string.Empty;
 
         public Process? Process { get; set; }
 
@@ -784,6 +1141,20 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public string StandardErrorLogPath { get; set; } = string.Empty;
 
         public DateTimeOffset? LastHealthRecoveryActionUtc { get; set; }
+
+        public ulong? LastSimulationFrameCounter { get; set; }
+
+        public DateTimeOffset? LastSimulationFrameObservedAtUtc { get; set; }
+
+        public float? SimulationProgressScore { get; set; }
+
+        public int? SimulationProgressWindowSeconds { get; set; }
+
+        public ulong? SimulationFramesAdvanced { get; set; }
+
+        public DateTimeOffset? LastSimulationProgressEvaluatedAtUtc { get; set; }
+
+        public string LastHealthySummary { get; set; } = string.Empty;
     }
 
     private enum ReconcileAction
@@ -795,5 +1166,38 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private readonly record struct InstanceHealthAssessment(
         DedicatedServerInstanceHealthState State,
-        string Summary);
+        string Summary,
+        float? SimulationProgressScore = null,
+        int? SimulationProgressWindowSeconds = null,
+        ulong? SimulationFramesAdvanced = null);
+
+    private sealed class PersistedSupervisorState
+    {
+        public DateTimeOffset UpdatedAtUtc { get; set; }
+
+        public List<PersistedManagedInstanceState> Instances { get; set; } = [];
+    }
+
+    private sealed class PersistedManagedInstanceState
+    {
+        public string InstanceId { get; set; } = string.Empty;
+
+        public DedicatedServerInstanceProcessState State { get; set; } = DedicatedServerInstanceProcessState.Stopped;
+
+        public int RestartAttempts { get; set; }
+
+        public int? ProcessId { get; set; }
+
+        public int? LastExitCode { get; set; }
+
+        public DateTimeOffset? StartedAtUtc { get; set; }
+
+        public DateTimeOffset? StoppedAtUtc { get; set; }
+
+        public string? StandardOutputLogPath { get; set; }
+
+        public string? StandardErrorLogPath { get; set; }
+
+        public DateTimeOffset? LastHealthRecoveryActionUtc { get; set; }
+    }
 }

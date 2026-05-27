@@ -22,6 +22,8 @@ public sealed class DedicatedServerInstanceDefinition
 
     public string ConfigProfileId { get; set; } = string.Empty;
 
+    public string WorldProfileId { get; set; } = string.Empty;
+
     public string LaunchArguments { get; set; } = string.Empty;
 
     public bool AutoStart { get; set; }
@@ -33,6 +35,10 @@ public sealed class DedicatedServerInstanceDefinition
     public int AgentStartupGraceSeconds { get; set; } = 180;
 
     public int AgentHeartbeatTimeoutSeconds { get; set; } = 20;
+
+    public int SimulationProgressWindowSeconds { get; set; } = 30;
+
+    public float MinimumSimulationProgressScore { get; set; } = 0.05f;
 
     public int WarnAfterUptimeHours { get; set; } = 12;
 

@@ -14,6 +14,12 @@ public sealed class DedicatedServerInstanceRuntimeSnapshot
 
     public string HealthSummary { get; set; } = string.Empty;
 
+    public float? SimulationProgressScore { get; set; }
+
+    public int? SimulationProgressWindowSeconds { get; set; }
+
+    public ulong? SimulationFramesAdvanced { get; set; }
+
     public int RestartAttempts { get; set; }
 
     public int? ProcessId { get; set; }

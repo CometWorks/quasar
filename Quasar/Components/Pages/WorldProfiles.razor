@@ -1,0 +1,163 @@
+@page "/world-profiles"
+@implements IDisposable
+@inject QuasarWorldProfileCatalog WorldProfileCatalog
+@inject ISnackbar Snackbar
+
+<PageTitle>World Profiles</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">World Profiles</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Reusable world blueprints. Import an existing Space Engineers save folder and select it when creating an instance — Quasar copies the world into the instance on first launch.</MudText>
+
+<MudGrid>
+    <MudItem xs="12" xl="5">
+        <MudPaper Class="pa-4 summary-card">
+            <MudText Typo="Typo.h6" GutterBottom="true">Import World Profile</MudText>
+
+            <MudStack Spacing="2">
+                <MudTextField @bind-Value="_name" Label="Profile name" Variant="Variant.Outlined" />
+                <MudTextField @bind-Value="_description" Label="Description" Variant="Variant.Outlined" Lines="2" />
+                <MudTextField
+                    @bind-Value="_sourcePath"
+                    Label="Source world path"
+                    Variant="Variant.Outlined"
+                    HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc. Quasar copies all files into managed storage." />
+
+                <MudStack Row="true" Spacing="1">
+                    <MudButton
+                        Variant="Variant.Filled"
+                        Color="Color.Primary"
+                        OnClick="ImportAsync"
+                        Disabled="_importing">
+                        @(_importing ? "Importing…" : "Import")
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ResetForm">Clear</MudButton>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" xl="7">
+        <MudPaper Class="pa-4 server-card">
+            <MudText Typo="Typo.h6" GutterBottom="true">World Profiles</MudText>
+
+            @if (Profiles.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    No world profiles yet. Import a save folder to create a blueprint.
+                </MudAlert>
+            }
+            else
+            {
+                <MudTable T="WorldProfileRow" Dense="true" Hover="true" Items="Profiles">
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Description</MudTh>
+                        <MudTh>World files</MudTh>
+                        <MudTh>Updated</MudTh>
+                        <MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Name">@context.Profile.Name</MudTd>
+                        <MudTd DataLabel="Description">@context.Profile.Description</MudTd>
+                        <MudTd DataLabel="World files">
+                            @if (context.WorldExists)
+                            {
+                                <MudText Typo="Typo.caption">@context.FileSizeKb KB</MudText>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Color="Color.Warning" Variant="Variant.Outlined" Size="Size.Small">missing</MudChip>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Updated">@context.Profile.UpdatedAtUtc.LocalDateTime.ToString("g")</MudTd>
+                        <MudTd Style="text-align: right;">
+                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context.Profile.WorldProfileId))">Delete</MudButton>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code
+{
+    private string _name = string.Empty;
+    private string _description = string.Empty;
+    private string _sourcePath = string.Empty;
+    private bool _importing;
+
+    private sealed record WorldProfileRow(
+        QuasarWorldProfile Profile,
+        bool WorldExists,
+        long FileSizeKb);
+
+    private IReadOnlyList<WorldProfileRow> Profiles =>
+        WorldProfileCatalog.GetProfiles()
+            .Select(p =>
+            {
+                var worldDir = WorldProfileCatalog.GetWorldDirectory(p.WorldProfileId);
+                var exists = Directory.Exists(worldDir);
+                var sizeKb = exists
+                    ? new DirectoryInfo(worldDir).GetFiles("*", SearchOption.AllDirectories).Sum(f => f.Length) / 1024
+                    : 0;
+                return new WorldProfileRow(p, exists, sizeKb);
+            })
+            .ToList();
+
+    protected override void OnInitialized()
+    {
+        WorldProfileCatalog.Changed += HandleChanged;
+    }
+
+    public void Dispose()
+    {
+        WorldProfileCatalog.Changed -= HandleChanged;
+    }
+
+    private async Task ImportAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_name))
+        {
+            Snackbar.Add("Profile name is required.", Severity.Warning);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_sourcePath))
+        {
+            Snackbar.Add("Source world path is required.", Severity.Warning);
+            return;
+        }
+
+        _importing = true;
+        try
+        {
+            await WorldProfileCatalog.ImportAsync(_name, _description, _sourcePath);
+            Snackbar.Add($"World profile '{_name}' imported.", Severity.Success);
+            ResetForm();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _importing = false;
+        }
+    }
+
+    private async Task DeleteAsync(string worldProfileId)
+    {
+        await WorldProfileCatalog.DeleteAsync(worldProfileId);
+        Snackbar.Add("World profile deleted.", Severity.Info);
+    }
+
+    private void ResetForm()
+    {
+        _name = string.Empty;
+        _description = string.Empty;
+        _sourcePath = string.Empty;
+    }
+
+    private void HandleChanged() => _ = InvokeAsync(StateHasChanged);
+}

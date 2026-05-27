@@ -9,10 +9,10 @@ namespace Quasar.Services;
 
 public sealed class QuasarPluginCatalogService
 {
-    private const int CacheSchemaVersion = 2;
+    private const int CacheSchemaVersion = 3;
     public const string DotNetCompatPluginId = "se-dotnet-compat";
-    public const string DefaultHubName = "PluginHub-DS";
-    public const string DefaultHubRepo = "viktor-ferenczi/PluginHub-DS";
+    public const string DefaultHubName = "MagnetarHub";
+    public const string DefaultHubRepo = "viktor-ferenczi/MagnetarHub";
     public const string DefaultHubBranch = "main";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

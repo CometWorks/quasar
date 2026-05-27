@@ -12,7 +12,9 @@ public sealed class DedicatedServerRuntimePreparer
     private static readonly Regex IgnoreLastSessionPattern = new(@"(?<!\S)-ignorelastsession(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex ConsolePattern = new(@"(?<!\S)-console(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex NoConsolePattern = new(@"(?<!\S)-noconsole(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex PathPattern = new(@"(?<!\S)-path(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex PathOptionPattern = new(@"(?<!\S)-path(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex ConfigOptionPattern = new(@"(?<!\S)-config(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex Ds64OptionPattern = new(@"(?<!\S)-ds64(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex NoSplashPattern = new(@"(?<!\S)-nosplash(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly XNamespace XsiNamespace = "http://www.w3.org/2001/XMLSchema-instance";
     private static readonly XNamespace XsdNamespace = "http://www.w3.org/2001/XMLSchema";
@@ -20,26 +22,30 @@ public sealed class DedicatedServerRuntimePreparer
     private readonly ILogger<DedicatedServerRuntimePreparer> _logger;
     private readonly WebServiceOptions _options;
     private readonly QuasarConfigProfileCatalog _configProfiles;
+    private readonly QuasarWorldProfileCatalog _worldProfiles;
 
     public DedicatedServerRuntimePreparer(
         ILogger<DedicatedServerRuntimePreparer> logger,
         WebServiceOptions options,
-        QuasarConfigProfileCatalog configProfiles)
+        QuasarConfigProfileCatalog configProfiles,
+        QuasarWorldProfileCatalog worldProfiles)
     {
         _logger = logger;
         _options = options;
         _configProfiles = configProfiles;
+        _worldProfiles = worldProfiles;
     }
 
     public async Task<PreparedDedicatedServerLaunch> PrepareAsync(
         DedicatedServerInstanceDefinition definition,
+        string dedicatedServer64Path,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(definition);
 
         var dedicatedServerAppDataPath = RequirePath(definition.DedicatedServerAppDataPath, "DedicatedServerAppDataPath");
         var magnetarAppDataPath = RequirePath(definition.MagnetarAppDataPath, "MagnetarAppDataPath");
-        var worldPath = ResolveWorldPath(definition.WorldPath);
+        var worldPath = await ResolveOrSeedWorldPathAsync(definition, cancellationToken);
         var runtimeConfigPath = Path.Combine(dedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg");
         var lastSessionPath = Path.Combine(dedicatedServerAppDataPath, "Saves", "LastSession.sbl");
         var configProfile = ResolveConfigProfile(definition);
@@ -56,6 +62,7 @@ public sealed class DedicatedServerRuntimePreparer
             definition,
             dedicatedServerAppDataPath,
             magnetarAppDataPath,
+            dedicatedServer64Path,
             worldPath,
             runtimeConfigPath,
             _options);
@@ -63,6 +70,7 @@ public sealed class DedicatedServerRuntimePreparer
         return new PreparedDedicatedServerLaunch(
             dedicatedServerAppDataPath,
             magnetarAppDataPath,
+            dedicatedServer64Path,
             worldPath,
             runtimeConfigPath,
             lastSessionPath,
@@ -148,8 +156,10 @@ public sealed class DedicatedServerRuntimePreparer
     {
         var sourcesDirectory = Path.Combine(magnetarAppDataPath, "Sources");
         var profilesDirectory = Path.Combine(magnetarAppDataPath, "Profiles");
+        var localDirectory = Path.Combine(magnetarAppDataPath, "Local");
         Directory.CreateDirectory(sourcesDirectory);
         Directory.CreateDirectory(profilesDirectory);
+        Directory.CreateDirectory(localDirectory);
 
         var currentProfileName = string.IsNullOrWhiteSpace(configProfile?.Name)
             ? "Quasar Current"
@@ -268,6 +278,7 @@ public sealed class DedicatedServerRuntimePreparer
         DedicatedServerInstanceDefinition definition,
         string dedicatedServerAppDataPath,
         string magnetarAppDataPath,
+        string dedicatedServer64Path,
         string worldPath,
         string runtimeConfigPath,
         WebServiceOptions options)
@@ -276,35 +287,33 @@ public sealed class DedicatedServerRuntimePreparer
             definition,
             dedicatedServerAppDataPath,
             magnetarAppDataPath,
+            dedicatedServer64Path,
             worldPath,
             runtimeConfigPath,
             options);
         if (IgnoreLastSessionPattern.IsMatch(baseArguments))
             throw new InvalidOperationException("Launch arguments cannot include -ignorelastsession for Quasar-managed instances.");
 
-        var additions = new List<string>();
-        if (!ConsolePattern.IsMatch(baseArguments) && !NoConsolePattern.IsMatch(baseArguments))
-            additions.Add("-noconsole");
+        var sanitizedArguments = StripManagedArguments(baseArguments);
+        var additions = new[]
+        {
+            "-noconsole",
+            $"-path {QuoteArgument(dedicatedServerAppDataPath)}",
+            $"-config {QuoteArgument(magnetarAppDataPath)}",
+            $"-ds64 {QuoteArgument(dedicatedServer64Path)}",
+        };
 
-        if (!PathPattern.IsMatch(baseArguments))
-            additions.Add($"-path {QuoteArgument(dedicatedServerAppDataPath)}");
-
-        if (!NoSplashPattern.IsMatch(baseArguments))
-            additions.Add("-nosplash");
-
-        if (additions.Count == 0)
-            return baseArguments;
-
-        if (string.IsNullOrWhiteSpace(baseArguments))
+        if (string.IsNullOrWhiteSpace(sanitizedArguments))
             return string.Join(" ", additions);
 
-        return $"{baseArguments} {string.Join(" ", additions)}";
+        return $"{sanitizedArguments} {string.Join(" ", additions)}";
     }
 
     private static string ExpandLaunchArguments(
         DedicatedServerInstanceDefinition definition,
         string dedicatedServerAppDataPath,
         string magnetarAppDataPath,
+        string dedicatedServer64Path,
         string worldPath,
         string runtimeConfigPath,
         WebServiceOptions options)
@@ -317,7 +326,75 @@ public sealed class DedicatedServerRuntimePreparer
             .Replace("{nodeId}", options.NodeId, StringComparison.OrdinalIgnoreCase)
             .Replace("{dsAppDataPath}", QuoteArgument(dedicatedServerAppDataPath), StringComparison.OrdinalIgnoreCase)
             .Replace("{magnetarAppDataPath}", QuoteArgument(magnetarAppDataPath), StringComparison.OrdinalIgnoreCase)
+            .Replace("{ds64Path}", QuoteArgument(dedicatedServer64Path), StringComparison.OrdinalIgnoreCase)
             .Replace("{worldPath}", QuoteArgument(worldPath), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string StripManagedArguments(string arguments)
+    {
+        if (string.IsNullOrWhiteSpace(arguments))
+            return string.Empty;
+
+        var sanitized = arguments;
+        sanitized = ConsolePattern.Replace(sanitized, string.Empty);
+        sanitized = NoConsolePattern.Replace(sanitized, string.Empty);
+        sanitized = PathOptionPattern.Replace(sanitized, string.Empty);
+        sanitized = ConfigOptionPattern.Replace(sanitized, string.Empty);
+        sanitized = Ds64OptionPattern.Replace(sanitized, string.Empty);
+        sanitized = NoSplashPattern.Replace(sanitized, string.Empty);
+        sanitized = Regex.Replace(sanitized, @"\s{2,}", " ");
+        return sanitized.Trim();
+    }
+
+    private async Task<string> ResolveOrSeedWorldPathAsync(
+        DedicatedServerInstanceDefinition definition,
+        CancellationToken cancellationToken)
+    {
+        var worldPath = RequirePath(definition.WorldPath, "WorldPath");
+
+        // World already exists — validate and use it.
+        if (Directory.Exists(worldPath) && File.Exists(Path.Combine(worldPath, "Sandbox.sbc")))
+            return ResolveWorldPath(worldPath);
+
+        // World doesn't exist yet — seed from profile if one is set.
+        if (!string.IsNullOrWhiteSpace(definition.WorldProfileId))
+        {
+            var profile = _worldProfiles.GetProfile(definition.WorldProfileId)
+                ?? throw new InvalidOperationException($"Unknown world profile '{definition.WorldProfileId}' for instance '{definition.InstanceId}'.");
+
+            await SeedWorldFromProfileAsync(definition.WorldProfileId, worldPath, cancellationToken);
+            _logger.LogInformation(
+                "Seeded world for instance {InstanceId} from profile '{ProfileName}' at {WorldPath}.",
+                definition.InstanceId, profile.Name, worldPath);
+            return worldPath;
+        }
+
+        // No profile — fall through to standard validation (throws if missing).
+        return ResolveWorldPath(worldPath);
+    }
+
+    private async Task SeedWorldFromProfileAsync(
+        string worldProfileId,
+        string destWorldPath,
+        CancellationToken cancellationToken)
+    {
+        var sourceDir = _worldProfiles.GetWorldDirectory(worldProfileId);
+
+        if (!Directory.Exists(sourceDir))
+            throw new InvalidOperationException($"World profile '{worldProfileId}' has no stored world files at '{sourceDir}'.");
+
+        if (!File.Exists(Path.Combine(sourceDir, "Sandbox.sbc")))
+            throw new InvalidOperationException($"World profile '{worldProfileId}' is missing Sandbox.sbc.");
+
+        Directory.CreateDirectory(destWorldPath);
+        foreach (var sourceFile in Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var relative = Path.GetRelativePath(sourceDir, sourceFile);
+            var destFile = Path.Combine(destWorldPath, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
+            File.Copy(sourceFile, destFile, overwrite: false);
+        }
     }
 
     private static string ResolveWorldPath(string worldPath)
@@ -430,6 +507,7 @@ public sealed class DedicatedServerRuntimePreparer
 public sealed record PreparedDedicatedServerLaunch(
     string DedicatedServerAppDataPath,
     string MagnetarAppDataPath,
+    string DedicatedServer64Path,
     string WorldPath,
     string RuntimeConfigPath,
     string LastSessionPath,

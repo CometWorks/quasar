@@ -1,5 +1,6 @@
 ﻿@inherits LayoutComponentBase
 @inject ThemePreferenceService ThemePreference
+@inject QuasarShutdownService ShutdownService
 
 <MudThemeProvider Theme="@ThemePreference.Theme" IsDarkMode="@_isDarkMode" ObserveSystemDarkModeChange="false" />
 <MudPopoverProvider />
@@ -25,7 +26,45 @@
                 Color="Color.Inherit"
                 OnClick="ToggleThemeAsync" />
         </MudTooltip>
+        <MudTooltip Text="Shut down Quasar">
+            <MudIconButton
+                Icon="@Icons.Material.Filled.PowerSettingsNew"
+                Color="Color.Error"
+                Disabled="@_isShuttingDown"
+                OnClick="HandleShutdownClickAsync" />
+        </MudTooltip>
     </MudAppBar>
+
+    <MudMessageBox @ref="_shutdownMessageBox" Title="Shut down Quasar?">
+        <MessageContent>
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">
+                This will stop all running Magnetar instances before terminating Quasar.
+            </MudAlert>
+            <MudText Typo="Typo.body2">
+                Each instance is sent a graceful shutdown command and waited on for a clean exit.
+                If Quasar is running under <strong>Quasar Bootstrap</strong>, the service will be
+                automatically restarted afterwards. To prevent restart, stop the Bootstrap process
+                separately or relaunch with <code>--force</code>.
+            </MudText>
+        </MessageContent>
+        <YesButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Error"
+                       StartIcon="@Icons.Material.Filled.PowerSettingsNew">
+                Shut Down
+            </MudButton>
+        </YesButton>
+        <CancelButton>
+            <MudButton Variant="Variant.Text" Color="Color.Default">Cancel</MudButton>
+        </CancelButton>
+    </MudMessageBox>
+
+    <MudOverlay Visible="@_isShuttingDown" DarkBackground="true" AutoClose="false" ZIndex="9999">
+        <MudStack AlignItems="AlignItems.Center" Spacing="4">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+            <MudText Typo="Typo.h6">@_shutdownStatus</MudText>
+        </MudStack>
+    </MudOverlay>
 
     <MudDrawer
         @bind-Open="_drawerOpen"
@@ -55,6 +94,9 @@
 {
     private bool _drawerOpen = true;
     private bool _isDarkMode = true;
+    private bool _isShuttingDown = false;
+    private string _shutdownStatus = string.Empty;
+    private MudMessageBox? _shutdownMessageBox;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -74,5 +116,24 @@
     {
         _isDarkMode = !_isDarkMode;
         await ThemePreference.SetDarkModeAsync(_isDarkMode);
+    }
+
+    private async Task HandleShutdownClickAsync()
+    {
+        var result = await _shutdownMessageBox!.ShowAsync();
+        if (result != true)
+            return;
+
+        _isShuttingDown = true;
+        _shutdownStatus = "Preparing shutdown…";
+        await InvokeAsync(StateHasChanged);
+
+        var progress = new Progress<string>(status =>
+        {
+            _shutdownStatus = status;
+            _ = InvokeAsync(StateHasChanged);
+        });
+
+        await ShutdownService.ShutdownAsync(progress);
     }
 }

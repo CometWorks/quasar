@@ -6,11 +6,15 @@ public class ServerMetrics
 
     public int MaxPlayers { get; set; }
 
+    public ulong SimulationFrameCounter { get; set; }
+
     public float SimSpeed { get; set; }
 
     public float SimCpuLoadPercent { get; set; }
 
     public float ServerCpuLoadPercent { get; set; }
+
+    public bool IsSaveInProgress { get; set; }
 
     public int UsedPcu { get; set; }
 

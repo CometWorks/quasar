@@ -1,7 +1,20 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\Magnetar.Protocol\Magnetar.Protocol.csproj" />
+    <!-- Build-only: ensures Quasar is compiled alongside Bootstrap without importing its code.
+         GlobalPropertiesToRemove prevents the publish RID from propagating to Quasar,
+         which would make it self-contained and break the reference. -->
+    <ProjectReference Include="..\Quasar\Quasar.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false"
+                      OutputItemType="None"
+                      GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;PublishSingleFile" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -9,6 +22,42 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <RuntimeIdentifiers>linux-x64;win-x64</RuntimeIdentifiers>
+    <SelfContained>false</SelfContained>
+    <DeployDir>$(HOME)/Documents/Quasar</DeployDir>
   </PropertyGroup>
+
+  <!-- After a regular (non-RID) build: copy output to deploy dir and rename the binary. -->
+  <Target Name="CopyToDeployDir" AfterTargets="Build"
+          Condition="'$(CopyToDeployDir)' != 'false' and '$(RuntimeIdentifier)' == ''">
+    <MakeDir Directories="$(DeployDir)" />
+    <ItemGroup>
+      <_DeployFiles Include="$(OutputPath)**\*" Exclude="$(OutputPath)**\*.pdb;$(OutputPath)**\*.xml" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_DeployFiles)"
+          DestinationFolder="$(DeployDir)/%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+    <Move SourceFiles="$(DeployDir)/Quasar.Bootstrap"
+          DestinationFiles="$(DeployDir)/Quasar"
+          Condition="Exists('$(DeployDir)/Quasar.Bootstrap')" />
+  </Target>
+
+  <!-- After publish: copy Quasar worker DLLs (no apphost) to publish dir,
+       then rename the Bootstrap single-file binary to Quasar. -->
+  <Target Name="CopyQuasarWorkerToPublish" AfterTargets="Publish">
+    <PropertyGroup>
+      <_QuasarBinDir>$(MSBuildThisFileDirectory)..\Quasar\bin\$(Configuration)\net10.0\</_QuasarBinDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_QuasarFiles Include="$(_QuasarBinDir)**\*"
+                    Exclude="$(_QuasarBinDir)**\*.pdb;$(_QuasarBinDir)**\*.xml;$(_QuasarBinDir)Quasar;$(_QuasarBinDir)Quasar.exe" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_QuasarFiles)"
+          DestinationFolder="$(PublishDir)%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+    <Move SourceFiles="$(PublishDir)/Quasar.Bootstrap"
+          DestinationFiles="$(PublishDir)/Quasar"
+          Condition="Exists('$(PublishDir)/Quasar.Bootstrap')" />
+  </Target>
 
 </Project>

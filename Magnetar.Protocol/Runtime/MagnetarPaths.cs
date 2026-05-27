@@ -5,39 +5,79 @@ namespace Magnetar.Protocol.Runtime;
 
 public static class MagnetarPaths
 {
-    public static string GetRuntimeDirectory()
+    // -------------------------------------------------------------------------
+    // Root — everything lives under ~/.config/Quasar (Linux / macOS) or
+    //        %APPDATA%\Quasar (Windows).  Override with QUASAR_DATA_DIR.
+    // -------------------------------------------------------------------------
+
+    public static string GetQuasarDirectory()
     {
-        string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var envOverride = Environment.GetEnvironmentVariable("QUASAR_DATA_DIR");
+        if (!string.IsNullOrWhiteSpace(envOverride))
+            return envOverride.Trim();
+
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         if (string.IsNullOrWhiteSpace(appData))
             appData = AppContext.BaseDirectory;
 
-        return Path.Combine(appData, "Magnetar", "Runtime");
+        return Path.Combine(appData, "Quasar");
     }
 
-    public static string GetWebServiceDirectory() => Path.Combine(GetRuntimeDirectory(), "WebService");
+    // Kept for backward compatibility — resolves to the Quasar root.
+    public static string GetRuntimeDirectory() => GetQuasarDirectory();
+
+    // -------------------------------------------------------------------------
+    // Bootstrap / web-service manifest
+    // -------------------------------------------------------------------------
+
+    // The manifest sits directly in the Quasar root (no WebService sub-folder).
+    public static string GetWebServiceDirectory() => GetQuasarDirectory();
 
     public static string GetWebServiceManifestPath() =>
-        Path.Combine(GetWebServiceDirectory(), "service-manifest.json");
+        Path.Combine(GetQuasarDirectory(), "service-manifest.json");
 
-    public static string GetQuasarDirectory() => Path.Combine(GetRuntimeDirectory(), "Quasar");
+    // -------------------------------------------------------------------------
+    // Quasar supervisor files
+    // -------------------------------------------------------------------------
 
-    public static string GetQuasarLogDirectory() => Path.Combine(GetQuasarDirectory(), "Logs");
+    public static string GetQuasarLogDirectory() =>
+        Path.Combine(GetQuasarDirectory(), "Logs");
 
     public static string GetQuasarInstanceLogDirectory(string instanceId) =>
         Path.Combine(GetQuasarLogDirectory(), "Instances", SanitizePathSegment(instanceId));
 
+    public static string GetQuasarSupervisorStatePath() =>
+        Path.Combine(GetQuasarDirectory(), "supervisor-state.json");
+
+    public static string GetQuasarKnownPlayersPath() =>
+        Path.Combine(GetQuasarDirectory(), "known-players.json");
+
+    // -------------------------------------------------------------------------
+    // Magnetar instance data  (~/.config/Quasar/Magnetars/<id>/)
+    // -------------------------------------------------------------------------
+
+    /// <summary>Legacy flat-file path — only used as a fallback migration read.</summary>
     public static string GetQuasarLegacyInstancesPath() =>
         Path.Combine(GetQuasarDirectory(), "instances.json");
 
+    /// <summary>Directory that contains one sub-folder per Magnetar instance.</summary>
     public static string GetQuasarInstancesDirectory() =>
-        Path.Combine(GetQuasarDirectory(), "Instances");
+        Path.Combine(GetQuasarDirectory(), "Magnetars");
 
     public static string GetQuasarInstanceDirectory(string instanceId) =>
         Path.Combine(GetQuasarInstancesDirectory(), SanitizePathSegment(instanceId));
 
+    /// <summary>
+    /// Space Engineers Dedicated Server app-data for this instance.
+    /// Passed to the DS launcher via <c>-path</c>.
+    /// </summary>
     public static string GetQuasarInstanceDedicatedServerAppDataDirectory(string instanceId) =>
         Path.Combine(GetQuasarInstanceDirectory(instanceId), "DedicatedServer");
 
+    /// <summary>
+    /// Magnetar app-data (profiles, sources, local config) for this instance.
+    /// Passed to the DS launcher via <c>-config</c>.
+    /// </summary>
     public static string GetQuasarInstanceMagnetarAppDataDirectory(string instanceId) =>
         Path.Combine(GetQuasarInstanceDirectory(instanceId), "Magnetar");
 
@@ -47,6 +87,29 @@ public static class MagnetarPaths
     public static string GetQuasarInstanceHistoryDirectory(string instanceId) =>
         Path.Combine(GetQuasarInstanceDirectory(instanceId), "History");
 
+    // -------------------------------------------------------------------------
+    // World profiles  (~/.config/Quasar/WorldProfiles/<id>/)
+    // -------------------------------------------------------------------------
+
+    public static string GetQuasarWorldProfilesDirectory() =>
+        Path.Combine(GetQuasarDirectory(), "WorldProfiles");
+
+    public static string GetQuasarWorldProfileDirectory(string worldProfileId) =>
+        Path.Combine(GetQuasarWorldProfilesDirectory(), SanitizePathSegment(worldProfileId));
+
+    public static string GetQuasarWorldProfileDefinitionPath(string worldProfileId) =>
+        Path.Combine(GetQuasarWorldProfileDirectory(worldProfileId), "profile.json");
+
+    public static string GetQuasarWorldProfileWorldDirectory(string worldProfileId) =>
+        Path.Combine(GetQuasarWorldProfileDirectory(worldProfileId), "World");
+
+    public static string GetQuasarWorldProfileHistoryDirectory(string worldProfileId) =>
+        Path.Combine(GetQuasarWorldProfileDirectory(worldProfileId), "History");
+
+    // -------------------------------------------------------------------------
+    // Bootstrap update / release staging
+    // -------------------------------------------------------------------------
+
     public static string GetQuasarUpdatesDirectory() =>
         Path.Combine(GetQuasarDirectory(), "Updates");
 
@@ -55,6 +118,29 @@ public static class MagnetarPaths
 
     public static string GetQuasarActiveReleasePath() =>
         Path.Combine(GetQuasarUpdatesDirectory(), "active-release.json");
+
+    // -------------------------------------------------------------------------
+    // Managed runtime (auto-downloaded Magnetar + DS install)
+    // -------------------------------------------------------------------------
+
+    public static string GetQuasarManagedRuntimeDirectory() =>
+        Path.Combine(GetQuasarDirectory(), "ManagedRuntime");
+
+    public static string GetQuasarManagedRuntimeCacheDirectory() =>
+        Path.Combine(GetQuasarManagedRuntimeDirectory(), "Cache");
+
+    public static string GetQuasarManagedRuntimeToolsDirectory() =>
+        Path.Combine(GetQuasarManagedRuntimeDirectory(), "Tools");
+
+    public static string GetQuasarManagedMagnetarInstallDirectory() =>
+        Path.Combine(GetQuasarManagedRuntimeToolsDirectory(), "Magnetar");
+
+    public static string GetQuasarManagedDedicatedServerInstallDirectory() =>
+        Path.Combine(GetQuasarManagedRuntimeToolsDirectory(), "SpaceEngineersDedicatedServer");
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
 
     private static string SanitizePathSegment(string value)
     {

@@ -316,6 +316,18 @@ This should be treated more like Terraform or other IaC reconciliation than like
 
 Space Engineers dedicated servers are known to degrade over long uptimes. Health monitoring is therefore not optional polish. It is part of the core reconciliation loop.
 
+For simulation-health checks, Quasar should mirror the dedicated server's own watcher logic rather than inventing a separate heuristic. The dedicated server computes a minimum acceptable frame advance over a time window from:
+
+- `WatcherInterval`
+- `WatcherSimulationSpeedMinimum`
+- `requiredFrames = windowSeconds * 60 * minimumSimulationSpeed`
+
+Quasar should therefore track total simulation frames reported by `Quasar.Agent`, compare frame deltas against elapsed wall-clock time, and derive a frame-progress score:
+
+- `frameProgressScore = deltaFrames / (elapsedSeconds * 60)`
+
+That score should be compared against a configurable minimum threshold, and save-in-progress windows should reset the baseline instead of being treated as a stall.
+
 Each launched DS process should receive:
 
 - stable instance id
@@ -349,9 +361,10 @@ Launch arguments remain configurable per instance, but Quasar should treat `Last
 
 Quasar should minimize background-start clutter:
 
-- on Linux, headless launches should not show a Magnetar splash
-- on Windows, background or multi-instance startup should use `-nosplash`
-- manual foreground/debug launches may still keep the Magnetar loading splash available for diagnosis
+- Quasar should launch Magnetar headless with `-noconsole`
+- Quasar should pass instance-specific `-path` and `-config` roots
+- Quasar should pass explicit `-ds64` so Magnetar targets the intended DS install
+- `-nosplash` is no longer required for current Magnetar builds
 
 ## Logging
 
@@ -652,6 +665,7 @@ Required for the first meaningful delivery:
 - goal-state reconciliation (`On` / `Off`)
 - DS process start/stop/restart supervision
 - strong instance health monitoring with agent attach grace, heartbeat freshness, uptime policy, and automated recovery
+- simulation-frame progress scoring aligned with the dedicated server watcher formula (`deltaFrames / (elapsedSeconds * 60)` versus a configurable minimum threshold)
 - `LastSession.sbl` preparation by Quasar
 - JSON file-backed authoritative config store
 - atomic config writes
@@ -711,6 +725,7 @@ The protocol and IDs should remain compatible with those later additions.
 - add crash monitoring and restart backoff
 - add instance health monitoring and health-state surfacing
 - detect missing/stale `Quasar.Agent` attachment with configurable grace/timeout thresholds
+- add simulation-frame progress scoring using the same threshold model as the dedicated server watcher
 - add long-uptime warning and recycle policy
 - trigger automated recovery when health policy marks an instance unhealthy
 - pass supervisor endpoint and instance identity into launched DS processes
@@ -773,14 +788,16 @@ As of this document:
 - atomic config history/versioning groundwork exists for instance definitions
 - first desired goal-state reconciliation exists
 - first process supervision exists for start/stop/restart and per-instance logs
-- first health-monitoring and auto-recovery pass exists for agent attach grace, heartbeat freshness, and uptime-based warning/recycle policy
+- first health-monitoring and auto-recovery pass exists for agent attach grace, heartbeat freshness, simulation-frame progress scoring aligned with the DS watcher, and uptime-based warning/recycle policy
 - initial runtime launch preparation now exists for isolated app-data roots, runtime config sync, `LastSession.sbl`, and enforced headless launch shaping
 - neutral light/dark theming exists with local-storage persistence
-- active-release pointer groundwork exists for staged relaunch
+- config editing is now migrated out of Python into Quasar-managed JSON profiles and rendered runtime artifacts
+- file watching/reload now exists for manual edits to Quasar-managed instance/profile JSON
+- `Quasar.Bootstrap` now owns the stable public endpoint and proxies active worker cutover
+- staged relaunch now persists supervisor runtime state so managed DS processes survive worker turnover
+- obsolete `webui/` is removed from the repository
 - per-instance isolated app-data path handling groundwork exists
 - Windows Service hosting is intentionally out of scope
-- config editing has not yet been migrated from Python
-- self-update staging and cutover are not yet implemented beyond active-release pointer groundwork
 - future shared-memory local bulk-state transport is planned but not implemented
 
 This document supersedes older assumptions that the DS plugin might directly own the long-running web host lifecycle.

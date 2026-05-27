@@ -5,7 +5,7 @@ using Quasar.Models;
 
 namespace Quasar.Services;
 
-public sealed class DedicatedServerInstanceCatalog
+public sealed class DedicatedServerInstanceCatalog : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -16,14 +16,26 @@ public sealed class DedicatedServerInstanceCatalog
     private readonly object _sync = new();
     private readonly ILogger<DedicatedServerInstanceCatalog> _logger;
     private List<DedicatedServerInstanceDefinition> _instances;
+    private string _snapshot;
+    private FileSystemWatcher? _watcher;
+    private CancellationTokenSource? _reloadDebounce;
 
     public DedicatedServerInstanceCatalog(ILogger<DedicatedServerInstanceCatalog> logger)
     {
         _logger = logger;
         _instances = LoadInstances();
+        _snapshot = CreateSnapshot(_instances);
+        StartWatching();
     }
 
     public event Action? Changed;
+
+    public void Dispose()
+    {
+        _watcher?.Dispose();
+        _reloadDebounce?.Cancel();
+        _reloadDebounce?.Dispose();
+    }
 
     public IReadOnlyList<DedicatedServerInstanceDefinition> GetInstances()
     {
@@ -66,6 +78,8 @@ public sealed class DedicatedServerInstanceCatalog
                 _instances[index] = Clone(normalized);
             else
                 _instances.Add(Clone(normalized));
+
+            _snapshot = CreateSnapshot(_instances);
         }
 
         await SaveInstanceAsync(normalized, cancellationToken);
@@ -102,6 +116,7 @@ public sealed class DedicatedServerInstanceCatalog
             {
                 removed = Clone(_instances[index]);
                 _instances.RemoveAt(index);
+                _snapshot = CreateSnapshot(_instances);
             }
         }
 
@@ -233,6 +248,7 @@ public sealed class DedicatedServerInstanceCatalog
             ? Path.Combine(instance.DedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg")
             : instance.ConfigFilePath.Trim();
         instance.ConfigProfileId = instance.ConfigProfileId?.Trim() ?? string.Empty;
+        instance.WorldProfileId = instance.WorldProfileId?.Trim() ?? string.Empty;
         instance.LaunchArguments = instance.LaunchArguments?.Trim() ?? string.Empty;
         instance.AutoStart = instance.GoalState == DedicatedServerInstanceGoalState.On || instance.AutoStart;
         instance.GoalState = instance.AutoStart ? DedicatedServerInstanceGoalState.On : DedicatedServerInstanceGoalState.Off;
@@ -240,6 +256,12 @@ public sealed class DedicatedServerInstanceCatalog
             instance.AgentStartupGraceSeconds = 0;
         if (instance.AgentHeartbeatTimeoutSeconds < 1)
             instance.AgentHeartbeatTimeoutSeconds = 1;
+        if (instance.SimulationProgressWindowSeconds < 1)
+            instance.SimulationProgressWindowSeconds = 1;
+        if (instance.MinimumSimulationProgressScore < 0f)
+            instance.MinimumSimulationProgressScore = 0f;
+        else if (instance.MinimumSimulationProgressScore > 1f)
+            instance.MinimumSimulationProgressScore = 1f;
         if (instance.WarnAfterUptimeHours < 0)
             instance.WarnAfterUptimeHours = 0;
         if (instance.RecycleAfterUptimeHours < 0)
@@ -283,12 +305,15 @@ public sealed class DedicatedServerInstanceCatalog
             WorldPath = instance.WorldPath,
             ConfigFilePath = instance.ConfigFilePath,
             ConfigProfileId = instance.ConfigProfileId,
+            WorldProfileId = instance.WorldProfileId,
             LaunchArguments = instance.LaunchArguments,
             AutoStart = instance.AutoStart,
             EnableHealthMonitoring = instance.EnableHealthMonitoring,
             AutoRestartOnUnhealthy = instance.AutoRestartOnUnhealthy,
             AgentStartupGraceSeconds = instance.AgentStartupGraceSeconds,
             AgentHeartbeatTimeoutSeconds = instance.AgentHeartbeatTimeoutSeconds,
+            SimulationProgressWindowSeconds = instance.SimulationProgressWindowSeconds,
+            MinimumSimulationProgressScore = instance.MinimumSimulationProgressScore,
             WarnAfterUptimeHours = instance.WarnAfterUptimeHours,
             RecycleAfterUptimeHours = instance.RecycleAfterUptimeHours,
             RestartOnCrash = instance.RestartOnCrash,
@@ -296,5 +321,108 @@ public sealed class DedicatedServerInstanceCatalog
             MaxRestartAttempts = instance.MaxRestartAttempts,
             UpdatedAtUtc = instance.UpdatedAtUtc,
         };
+    }
+
+    private void StartWatching()
+    {
+        var directory = MagnetarPaths.GetQuasarInstancesDirectory();
+        Directory.CreateDirectory(directory);
+
+        _watcher = new FileSystemWatcher(directory)
+        {
+            IncludeSubdirectories = true,
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
+            Filter = "*.json",
+        };
+
+        _watcher.Changed += HandleWatchedFileChanged;
+        _watcher.Created += HandleWatchedFileChanged;
+        _watcher.Deleted += HandleWatchedFileChanged;
+        _watcher.Renamed += HandleWatchedFileChanged;
+        _watcher.EnableRaisingEvents = true;
+    }
+
+    private void HandleWatchedFileChanged(object sender, FileSystemEventArgs args)
+    {
+        if (!IsTrackedInstancePath(args.FullPath))
+            return;
+
+        ScheduleReload();
+    }
+
+    private static bool IsTrackedInstancePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        return string.Equals(Path.GetFileName(path), "instance.json", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ScheduleReload()
+    {
+        CancellationTokenSource debounce;
+        lock (_sync)
+        {
+            _reloadDebounce?.Cancel();
+            _reloadDebounce?.Dispose();
+            _reloadDebounce = new CancellationTokenSource();
+            debounce = _reloadDebounce;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250), debounce.Token);
+                ReloadFromDisk();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, CancellationToken.None);
+    }
+
+    private void ReloadFromDisk()
+    {
+        List<DedicatedServerInstanceDefinition> reloaded;
+        string snapshot;
+
+        try
+        {
+            reloaded = LoadInstances();
+            snapshot = CreateSnapshot(reloaded);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed reloading Quasar instance catalog from disk.");
+            return;
+        }
+
+        var changed = false;
+        lock (_sync)
+        {
+            if (!string.Equals(_snapshot, snapshot, StringComparison.Ordinal))
+            {
+                _instances = reloaded;
+                _snapshot = snapshot;
+                changed = true;
+            }
+        }
+
+        if (!changed)
+            return;
+
+        _logger.LogInformation("Reloaded Quasar instance catalog from disk after external edit.");
+        Changed?.Invoke();
+    }
+
+    private static string CreateSnapshot(IEnumerable<DedicatedServerInstanceDefinition> instances)
+    {
+        var normalized = instances
+            .Select(instance => Normalize(Clone(instance)))
+            .OrderBy(instance => instance.InstanceId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return JsonSerializer.Serialize(normalized, JsonOptions);
     }
 }

@@ -11,6 +11,7 @@ using Sandbox;
 using Sandbox.Engine.Multiplayer;
 using Sandbox.Game.Gui;
 using Sandbox.Game.Multiplayer;
+using Sandbox.Game.Screens.Helpers;
 using Sandbox.Game.World;
 using VRage.Game;
 using VRage.Game.ModAPI;
@@ -182,9 +183,11 @@ namespace Quasar.Agent
             {
                 PlayersOnline = GetOnlinePlayerCount(session),
                 MaxPlayers = session.Settings.MaxPlayers,
+                SimulationFrameCounter = MySandboxGame.Static?.SimulationFrameCounter ?? 0,
                 SimSpeed = Sync.ServerSimulationRatio,
                 SimCpuLoadPercent = (float)Math.Round(Sync.ServerCPULoad, 1),
                 ServerCpuLoadPercent = (float)Math.Round(Sync.ServerCPULoad, 1),
+                IsSaveInProgress = session.IsSaveInProgress || MyAsyncSaving.InProgress,
                 UsedPcu = usedPcu,
                 TotalPcu = session.Settings.TotalPCU,
                 UptimeSeconds = (int)_uptime.Elapsed.TotalSeconds,
@@ -203,11 +206,20 @@ namespace Quasar.Agent
             {
                 foreach (var player in session.Players.GetOnlinePlayers())
                 {
+                    var steamId = (long)player.Id.SteamId;
+
                     result.Add(new PlayerSnapshot
                     {
-                        SteamId = (long)player.Id.SteamId,
+                        SteamId = steamId,
+                        IdentityId = player.Identity?.IdentityId ?? 0,
+                        SerialId = player.Id.SerialId,
                         DisplayName = player.DisplayName ?? string.Empty,
+                        PlatformDisplayName = player.PlatformDisplayName ?? string.Empty,
+                        PlatformIcon = player.PlatformIcon ?? string.Empty,
+                        GameAcronym = player.GameAcronym ?? string.Empty,
+                        ServiceName = GetPlayerServiceName(player.Id.SteamId),
                         FactionTag = GetPlayerFaction(session, player.Identity?.IdentityId ?? 0),
+                        PromoteLevel = session.GetUserPromoteLevel(player.Id.SteamId).ToString(),
                         IsAdmin = session.IsUserAdmin(player.Id.SteamId),
                         PingMs = 0,
                     });
@@ -341,6 +353,21 @@ namespace Quasar.Agent
             try
             {
                 return session.Factions?.GetPlayerFaction(identityId)?.Tag ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private string GetPlayerServiceName(ulong steamId)
+        {
+            if (steamId == 0)
+                return string.Empty;
+
+            try
+            {
+                return MyMultiplayer.Static?.GetMemberServiceName(steamId) ?? string.Empty;
             }
             catch
             {

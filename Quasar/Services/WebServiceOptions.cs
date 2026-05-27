@@ -33,6 +33,16 @@ public sealed class WebServiceOptions
 
     public string LoggingMinimumLevel { get; init; } = "Info";
 
+    public bool IsDevelopment { get; init; }
+
+    public bool DisableInstanceHealthMonitoring { get; init; }
+
+    public bool OwnManifest { get; init; } = true;
+
+    public bool PreserveManagedInstancesOnShutdown { get; init; }
+
+    public string LauncherToken { get; init; } = string.Empty;
+
     public bool IsServiceMode => string.Equals(Mode, "service", StringComparison.OrdinalIgnoreCase);
 
     public static WebServiceOptions Create(IConfiguration configuration)
@@ -86,6 +96,16 @@ public sealed class WebServiceOptions
         if (string.IsNullOrWhiteSpace(loggingMinimumLevel))
             loggingMinimumLevel = "Info";
 
+        var environmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+                              ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+                              ?? "Production";
+        var isDevelopment = string.Equals(environmentName, "Development", StringComparison.OrdinalIgnoreCase);
+
+        var disableInstanceHealthMonitoringValue = Environment.GetEnvironmentVariable("QUASAR_DISABLE_INSTANCE_HEALTH_MONITORING")
+                                                  ?? section["DisableInstanceHealthMonitoring"];
+        if (!bool.TryParse(disableInstanceHealthMonitoringValue, out var disableInstanceHealthMonitoring))
+            disableInstanceHealthMonitoring = isDevelopment;
+
         var advertisedHost = host switch
         {
             "0.0.0.0" => "127.0.0.1",
@@ -93,6 +113,21 @@ public sealed class WebServiceOptions
             "+" => "127.0.0.1",
             _ => host,
         };
+
+        var baseUrl = Environment.GetEnvironmentVariable("QUASAR_PUBLIC_BASE_URL")
+                      ?? Environment.GetEnvironmentVariable("MAGNETAR_WEB_BASE_URL");
+        if (string.IsNullOrWhiteSpace(baseUrl))
+            baseUrl = $"http://{advertisedHost}:{port}";
+
+        var ownManifestValue = Environment.GetEnvironmentVariable("QUASAR_OWN_MANIFEST") ?? "true";
+        if (!bool.TryParse(ownManifestValue, out var ownManifest))
+            ownManifest = true;
+
+        var preserveInstancesValue = Environment.GetEnvironmentVariable("QUASAR_PRESERVE_INSTANCES_ON_SHUTDOWN") ?? "false";
+        if (!bool.TryParse(preserveInstancesValue, out var preserveManagedInstancesOnShutdown))
+            preserveManagedInstancesOnShutdown = false;
+
+        var launcherToken = Environment.GetEnvironmentVariable("QUASAR_LAUNCHER_TOKEN") ?? string.Empty;
 
         return new WebServiceOptions
         {
@@ -105,8 +140,13 @@ public sealed class WebServiceOptions
             LoggingDirectory = loggingDirectory,
             LoggingFormat = loggingFormat,
             LoggingMinimumLevel = loggingMinimumLevel,
-            BaseUrl = $"http://{advertisedHost}:{port}",
+            IsDevelopment = isDevelopment,
+            DisableInstanceHealthMonitoring = disableInstanceHealthMonitoring,
+            BaseUrl = baseUrl,
             ListenUrl = $"http://{host}:{port}",
+            OwnManifest = ownManifest,
+            PreserveManagedInstancesOnShutdown = preserveManagedInstancesOnShutdown,
+            LauncherToken = launcherToken,
         };
     }
 }

@@ -20,6 +20,18 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <DeployDir>$(HOME)/Documents/Quasar</DeployDir>
   </PropertyGroup>
+
+  <Target Name="CopyToDeployDir" AfterTargets="Build" Condition="'$(CopyToDeployDir)' != 'false'">
+    <MakeDir Directories="$(DeployDir)" />
+    <ItemGroup>
+      <_DeployFiles Include="$(OutputPath)**\*"
+                    Exclude="$(OutputPath)**\*.pdb;$(OutputPath)**\*.xml;$(OutputPath)Quasar;$(OutputPath)Quasar.exe" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_DeployFiles)"
+          DestinationFolder="$(DeployDir)/%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
