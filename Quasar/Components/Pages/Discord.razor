@@ -1,0 +1,283 @@
+@page "/discord"
+@implements IDisposable
+@inject DiscordOptionsCatalog DiscordOptionsCatalog
+@inject DeathMessagesCatalog DeathMessagesCatalog
+@inject DedicatedServerInstanceCatalog InstanceCatalog
+@inject DiscordBotService DiscordBotService
+@inject ISnackbar Snackbar
+
+<PageTitle>Discord</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Discord</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">One bot, many Quasar instances. Bind command, chat, log, and analytics channels per instance.</MudText>
+
+<MudGrid>
+    <MudItem xs="12" xl="4">
+        <MudPaper Class="pa-4 summary-card">
+            <MudStack Spacing="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudText Typo="Typo.h6">Bot Settings</MudText>
+                    <MudChip T="string" Color="@GetStatusColor()" Variant="Variant.Outlined">
+                        @GetStatusLabel()
+                    </MudChip>
+                </MudStack>
+
+                @if (!string.IsNullOrWhiteSpace(BotStatus.LastError))
+                {
+                    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
+                        @BotStatus.LastError
+                    </MudAlert>
+                }
+
+                <MudCheckBox T="bool" @bind-Value="_options.Enabled" Label="Enabled" />
+                <MudTextField @bind-Value="_options.BotToken"
+                              Label="Bot token"
+                              Variant="Variant.Outlined"
+                              InputType="InputType.Password" />
+                <MudNumericField T="ulong"
+                                 Value="_options.GuildId"
+                                 ValueChanged="HandleGuildIdChanged"
+                                 Label="Guild ID"
+                                 Variant="Variant.Outlined"
+                                 Min="0" />
+
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveBotSettingsAsync">
+                    Save Bot Settings
+                </MudButton>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" xl="8">
+        <MudPaper Class="pa-4 server-card">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+                <MudText Typo="Typo.h6">Per-Instance Bindings</MudText>
+                <MudText Typo="Typo.caption">@($"{InstanceDefinitions.Count} instance(s)")</MudText>
+            </MudStack>
+
+            @if (InstanceDefinitions.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    No Quasar instances defined yet.
+                </MudAlert>
+            }
+            else
+            {
+                <MudExpansionPanels MultiExpansion="true" Elevation="0" Outlined="true" Dense="true">
+                    @foreach (var definition in InstanceDefinitions)
+                    {
+                        var instanceOptions = GetInstanceOptions(definition.InstanceId);
+
+                        <MudExpansionPanel Text="@definition.Name" @key="definition.InstanceId">
+                            <MudStack Spacing="2" Class="pt-2">
+                                <MudText Typo="Typo.caption" Class="mono">@definition.InstanceId</MudText>
+
+                                <MudTextField @bind-Value="instanceOptions.CommandPrefix"
+                                              Label="Command prefix"
+                                              Variant="Variant.Outlined" />
+                                <MudNumericField T="ulong?"
+                                                 @bind-Value="instanceOptions.CommandChannelId"
+                                                 Label="Command channel ID"
+                                                 Variant="Variant.Outlined"
+                                                 Min="0" />
+                                <MudNumericField T="ulong?"
+                                                 @bind-Value="instanceOptions.ChatRelayChannelId"
+                                                 Label="Chat relay channel ID"
+                                                 Variant="Variant.Outlined"
+                                                 Min="0" />
+                                <MudNumericField T="ulong?"
+                                                 @bind-Value="instanceOptions.LogChannelId"
+                                                 Label="Log channel ID"
+                                                 Variant="Variant.Outlined"
+                                                 Min="0" />
+                                <MudNumericField T="ulong?"
+                                                 @bind-Value="instanceOptions.AnalyticsChannelId"
+                                                 Label="Analytics channel ID"
+                                                 Variant="Variant.Outlined"
+                                                 Min="0" />
+                                <MudNumericField T="ulong?"
+                                                 @bind-Value="instanceOptions.DeathChannelId"
+                                                 Label="Death messages channel ID"
+                                                 Variant="Variant.Outlined"
+                                                 Min="0" />
+                                <MudNumericField T="int"
+                                                 @bind-Value="instanceOptions.LogExportIntervalMinutes"
+                                                 Label="Log export interval (minutes)"
+                                                 Variant="Variant.Outlined"
+                                                 Min="1" />
+                                <MudNumericField T="int"
+                                                 @bind-Value="instanceOptions.AnalyticsExportIntervalMinutes"
+                                                 Label="Analytics export interval (minutes)"
+                                                 Variant="Variant.Outlined"
+                                                 Min="1" />
+
+                                <MudCheckBox T="bool" @bind-Value="instanceOptions.EnableChatRelay" Label="Enable chat relay" />
+                                <MudCheckBox T="bool" @bind-Value="instanceOptions.EnableLogExport" Label="Enable log export" />
+                                <MudCheckBox T="bool" @bind-Value="instanceOptions.EnableAnalyticsExport" Label="Enable analytics export" />
+                                <MudCheckBox T="bool" @bind-Value="instanceOptions.EnableDeathMessages" Label="Enable death messages" />
+                                <MudTextField @bind-Value="instanceOptions.DeathMessageEmotes"
+                                              Label="Death emotes (comma-separated)"
+                                              Variant="Variant.Outlined" />
+                                <MudCheckBox T="bool" @bind-Value="instanceOptions.RelayNonCommandMessages" Label="Relay non-command Discord messages to game chat" />
+
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SaveInstanceAsync(definition.InstanceId))">
+                                    Save Instance
+                                </MudButton>
+                            </MudStack>
+                        </MudExpansionPanel>
+                    }
+                </MudExpansionPanels>
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+<MudPaper Class="pa-4 mt-4">
+    <MudStack Spacing="2">
+        <MudText Typo="Typo.h6">Death Message Templates</MudText>
+        <MudText Typo="Typo.body2">
+            Edit <span class="mono">@MagnetarPaths.GetQuasarDeathMessagesPath()</span> for custom per-death-type templates using <code>{victim}</code>, <code>{killer}</code>, and <code>{weapon}</code>.
+        </MudText>
+        <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ResetDeathTemplatesAsync">
+            Reset to Defaults
+        </MudButton>
+    </MudStack>
+</MudPaper>
+
+@code
+{
+    private DiscordOptions _options = new();
+
+    private IReadOnlyList<DedicatedServerInstanceDefinition> InstanceDefinitions => InstanceCatalog.GetInstances();
+
+    private DiscordBotStatusSnapshot BotStatus => DiscordBotService.GetStatus();
+
+    protected override void OnInitialized()
+    {
+        ReloadOptions();
+        DiscordOptionsCatalog.Changed += HandleChanged;
+        DeathMessagesCatalog.Changed += HandleChanged;
+        InstanceCatalog.Changed += HandleChanged;
+        DiscordBotService.Changed += HandleChanged;
+    }
+
+    public void Dispose()
+    {
+        DiscordOptionsCatalog.Changed -= HandleChanged;
+        DeathMessagesCatalog.Changed -= HandleChanged;
+        InstanceCatalog.Changed -= HandleChanged;
+        DiscordBotService.Changed -= HandleChanged;
+    }
+
+    private async Task SaveBotSettingsAsync()
+    {
+        await SaveAsync("Discord bot settings saved.");
+    }
+
+    private async Task SaveInstanceAsync(string instanceId)
+    {
+        if (string.IsNullOrWhiteSpace(instanceId))
+            return;
+
+        await SaveAsync($"Discord settings saved for {GetInstanceName(instanceId)}.");
+    }
+
+    private async Task SaveAsync(string successMessage)
+    {
+        try
+        {
+            SyncInstanceOptions();
+            await DiscordOptionsCatalog.SaveAsync(_options);
+            ReloadOptions();
+            Snackbar.Add(successMessage, Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task ResetDeathTemplatesAsync()
+    {
+        try
+        {
+            await DeathMessagesCatalog.ResetAsync();
+            Snackbar.Add("Death message templates reset.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private void HandleGuildIdChanged(ulong value)
+    {
+        _options.GuildId = value;
+    }
+
+    private DiscordInstanceOptions GetInstanceOptions(string instanceId)
+    {
+        return _options.Instances.First(instance =>
+            string.Equals(instance.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private string GetInstanceName(string instanceId)
+    {
+        return InstanceDefinitions
+            .FirstOrDefault(item => string.Equals(item.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase))
+            ?.Name ?? instanceId;
+    }
+
+    private void ReloadOptions()
+    {
+        _options = DiscordOptionsCatalog.GetOptions();
+        SyncInstanceOptions();
+    }
+
+    private void SyncInstanceOptions()
+    {
+        foreach (var definition in InstanceDefinitions)
+        {
+            if (_options.Instances.Any(instance =>
+                    string.Equals(instance.InstanceId, definition.InstanceId, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            _options.Instances.Add(new DiscordInstanceOptions
+            {
+                InstanceId = definition.InstanceId,
+            });
+        }
+
+        _options = DiscordOptions.Normalize(_options);
+    }
+
+    private Color GetStatusColor()
+    {
+        if (!string.IsNullOrWhiteSpace(BotStatus.LastError))
+            return Color.Error;
+
+        if (BotStatus.Enabled && BotStatus.IsRunning)
+            return Color.Success;
+
+        if (!BotStatus.Enabled)
+            return Color.Default;
+
+        return Color.Warning;
+    }
+
+    private string GetStatusLabel()
+    {
+        if (string.IsNullOrWhiteSpace(BotStatus.StateText))
+            return "Unknown";
+
+        return BotStatus.StateText;
+    }
+
+    private void HandleChanged()
+    {
+        ReloadOptions();
+        _ = InvokeAsync(StateHasChanged);
+    }
+}

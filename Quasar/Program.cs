@@ -2,6 +2,7 @@ using Quasar.Components;
 using Quasar.Models;
 using Quasar.Services;
 using Quasar.Services.Analytics;
+using Quasar.Services.Discord;
 using MudBlazor;
 using MudBlazor.Services;
 using NLog;
@@ -52,6 +53,17 @@ public class Program
             builder.Services.AddSingleton<AgentSocketHandler>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<DedicatedServerSupervisor>());
             builder.Services.AddHostedService<WebServiceManifestHostedService>();
+            builder.Services.AddSingleton<DiscordOptionsCatalog>();
+            builder.Services.AddSingleton<DiscordRateLimiter>();
+            builder.Services.AddSingleton<DeathMessagesCatalog>();
+            builder.Services.AddSingleton<DiscordCommandDispatcher>();
+            builder.Services.AddSingleton<DiscordCommandRouter>();
+            builder.Services.AddSingleton<DiscordChatRelayService>();
+            builder.Services.AddSingleton<DiscordDeathRelayService>();
+            builder.Services.AddSingleton<DiscordLogRelayService>();
+            builder.Services.AddSingleton<DiscordAnalyticsExportService>();
+            builder.Services.AddSingleton<DiscordBotService>();
+            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<DiscordBotService>());
             builder.Services.AddScoped<ThemePreferenceService>();
             builder.Services.AddSingleton<QuasarShutdownService>();
 

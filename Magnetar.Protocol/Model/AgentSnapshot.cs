@@ -29,5 +29,7 @@ public class AgentSnapshot
 
     public List<ChatMessageSnapshot> RecentChat { get; set; } = new List<ChatMessageSnapshot>();
 
+    public List<DeathEventSnapshot> RecentDeaths { get; set; } = new List<DeathEventSnapshot>();
+
     public List<PluginRuntimeInfo> Plugins { get; set; } = new List<PluginRuntimeInfo>();
 }

@@ -52,6 +52,12 @@ public static class MagnetarPaths
     public static string GetQuasarKnownPlayersPath() =>
         Path.Combine(GetQuasarDirectory(), "known-players.json");
 
+    public static string GetQuasarDiscordOptionsPath() =>
+        Path.Combine(GetQuasarDirectory(), "discord.json");
+
+    public static string GetQuasarDeathMessagesPath() =>
+        Path.Combine(GetQuasarDirectory(), "death-messages.json");
+
     // -------------------------------------------------------------------------
     // Magnetar instance data  (~/.config/Quasar/Magnetars/<id>/)
     // -------------------------------------------------------------------------

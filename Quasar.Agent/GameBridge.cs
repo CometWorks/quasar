@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -30,6 +31,7 @@ namespace Quasar.Agent
         private readonly string _nodeId;
         private readonly string _instanceId;
         private readonly string _pluginVersion;
+        private readonly ConcurrentQueue<DeathEventSnapshot> _deathQueue = new ConcurrentQueue<DeathEventSnapshot>();
         private long _lastWorkingSetBytes;
         private DateTime _lastSnapshotUtc = DateTime.MinValue;
         private AgentHello _latestHello;
@@ -160,8 +162,19 @@ namespace Quasar.Agent
                 Metrics = BuildMetrics(session),
                 Players = GetPlayers(session),
                 RecentChat = GetRecentChat(),
+                RecentDeaths = GetRecentDeaths(),
                 Plugins = GetPlugins(),
             };
+        }
+
+        public void RecordDeath(DeathEventSnapshot death)
+        {
+            if (death == null)
+                return;
+
+            _deathQueue.Enqueue(death);
+            while (_deathQueue.Count > 50)
+                _deathQueue.TryDequeue(out _);
         }
 
         private ServerMetrics BuildMetrics(MySession session)
@@ -302,6 +315,15 @@ namespace Quasar.Agent
                     IsLoaded = true,
                 });
             }
+
+            return result;
+        }
+
+        private List<DeathEventSnapshot> GetRecentDeaths()
+        {
+            var result = new List<DeathEventSnapshot>();
+            while (_deathQueue.TryDequeue(out var death))
+                result.Add(death);
 
             return result;
         }
