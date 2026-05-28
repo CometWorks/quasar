@@ -87,6 +87,9 @@ public static class MagnetarPaths
     public static string GetQuasarInstanceHistoryDirectory(string instanceId) =>
         Path.Combine(GetQuasarInstanceDirectory(instanceId), "History");
 
+    public static string GetQuasarInstanceAnalyticsPath(string instanceId) =>
+        Path.Combine(GetQuasarInstanceDirectory(instanceId), "analytics.json");
+
     // -------------------------------------------------------------------------
     // World profiles  (~/.config/Quasar/WorldProfiles/<id>/)
     // -------------------------------------------------------------------------

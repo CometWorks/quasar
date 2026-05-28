@@ -1,0 +1,70 @@
+@using MudBlazor
+@using Quasar.Services.Analytics
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.body2">@Subtitle</MudText>
+            <MudCheckBox T="bool" @bind-Value="_model.Visible" Label="Show panel" />
+            <MudNumericField T="int" @bind-Value="_model.Order" Label="Order" Variant="Variant.Outlined" Min="0" Max="99" />
+            <MudNumericField T="int" @bind-Value="_model.ColumnSpan" Label="Column span" Variant="Variant.Outlined" Min="1" Max="@Math.Max(1, GridColumns)" />
+            <MudNumericField T="int" @bind-Value="_model.RowSpan" Label="Row span" Variant="Variant.Outlined" Min="1" Max="@Math.Max(1, GridRows)" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Subtitle { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool Visible { get; set; } = true;
+
+    [Parameter]
+    public int Order { get; set; }
+
+    [Parameter]
+    public int ColumnSpan { get; set; } = 1;
+
+    [Parameter]
+    public int RowSpan { get; set; } = 1;
+
+    [Parameter]
+    public int GridColumns { get; set; } = 1;
+
+    [Parameter]
+    public int GridRows { get; set; } = 1;
+
+    private readonly AnalyticsPanelDialogResult _model = new();
+
+    protected override void OnInitialized()
+    {
+        _model.Visible = Visible;
+        _model.Order = Order;
+        _model.ColumnSpan = Math.Clamp(ColumnSpan, 1, Math.Max(1, GridColumns));
+        _model.RowSpan = Math.Clamp(RowSpan, 1, Math.Max(1, GridRows));
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private void Save()
+    {
+        _model.ColumnSpan = Math.Clamp(_model.ColumnSpan, 1, Math.Max(1, GridColumns));
+        _model.RowSpan = Math.Clamp(_model.RowSpan, 1, Math.Max(1, GridRows));
+        MudDialog.Close(DialogResult.Ok(_model));
+    }
+}

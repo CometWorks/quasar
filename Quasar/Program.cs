@@ -1,6 +1,7 @@
 using Quasar.Components;
 using Quasar.Models;
 using Quasar.Services;
+using Quasar.Services.Analytics;
 using MudBlazor;
 using MudBlazor.Services;
 using NLog;
@@ -36,6 +37,8 @@ public class Program
             builder.Services.AddSingleton(webServiceOptions);
             builder.Services.AddSingleton(managedRuntimeOptions);
             builder.Services.AddSingleton<KnownPlayerCatalog>();
+            builder.Services.AddSingleton<MetricsStoreService>();
+            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<MetricsStoreService>());
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarWorldProfileCatalog>();
