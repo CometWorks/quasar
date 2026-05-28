@@ -1,5 +1,6 @@
 using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Transport;
+using Quasar.Services.Analytics;
 
 namespace Quasar.Services;
 
@@ -9,10 +10,12 @@ public sealed class AgentRegistry
     private readonly Dictionary<string, AgentRuntimeState> _agents = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ServerCommandEnvelope> _pendingCommands = new(StringComparer.OrdinalIgnoreCase);
     private readonly KnownPlayerCatalog _knownPlayers;
+    private readonly MetricsStoreService _metricsStore;
 
-    public AgentRegistry(KnownPlayerCatalog knownPlayers)
+    public AgentRegistry(KnownPlayerCatalog knownPlayers, MetricsStoreService metricsStore)
     {
         _knownPlayers = knownPlayers;
+        _metricsStore = metricsStore;
     }
 
     public event Action? Changed;
@@ -62,6 +65,12 @@ public sealed class AgentRegistry
         }
 
         _knownPlayers.ObserveSnapshot(latestSnapshot);
+        if (!string.IsNullOrWhiteSpace(snapshot.InstanceId))
+        {
+            var sample = MetricSampleFactory.FromSnapshot(snapshot);
+            _metricsStore.Enqueue(snapshot.InstanceId, in sample);
+        }
+
         NotifyChanged();
     }
 

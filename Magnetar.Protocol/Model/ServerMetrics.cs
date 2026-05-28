@@ -20,6 +20,12 @@ public class ServerMetrics
 
     public int TotalPcu { get; set; }
 
+    public long? MemoryWorkingSetMb { get; set; }
+
+    public int? ActiveGridCount { get; set; }
+
+    public int? ActiveEntityCount { get; set; }
+
     public int UptimeSeconds { get; set; }
 
     public int ModsLoaded { get; set; }

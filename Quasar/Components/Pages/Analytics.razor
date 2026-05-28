@@ -1,0 +1,937 @@
+@page "/analytics"
+@implements IDisposable
+@using Microsoft.JSInterop
+@using MudBlazor.Charts
+@inject MetricsStoreService MetricsStore
+@inject DedicatedServerInstanceCatalog InstanceCatalog
+@inject AgentRegistry Registry
+@inject ISnackbar Snackbar
+@inject ILocalStorageService LocalStorage
+@inject IDialogService DialogService
+
+<PageTitle>Analytics</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Analytics</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Rolling server metrics with time-series charts, persisted filters, and configurable layout.</MudText>
+
+<MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" AlignItems="AlignItems.Center" Class="mb-4">
+    <div style="flex: 1 1 200px; min-width: 200px;">
+        <MudSelect T="string" Label="Time range" Value="_config.SelectedRangeKey" ValueChanged="HandleRangeChanged" Variant="Variant.Outlined">
+            @foreach (var option in RangeOptions)
+            {
+                <MudSelectItem T="string" Value="@option.Key">@option.Label</MudSelectItem>
+            }
+        </MudSelect>
+    </div>
+    <div style="flex: 1 1 180px; min-width: 180px;">
+        <MudSelect T="AnalyticsTierMode" Label="Tier" Value="_config.TierMode" ValueChanged="HandleTierChanged" Variant="Variant.Outlined">
+            <MudSelectItem T="AnalyticsTierMode" Value="AnalyticsTierMode.Auto">Auto</MudSelectItem>
+            <MudSelectItem T="AnalyticsTierMode" Value="AnalyticsTierMode.Raw">Raw</MudSelectItem>
+            <MudSelectItem T="AnalyticsTierMode" Value="AnalyticsTierMode.OneMinute">1 minute</MudSelectItem>
+            <MudSelectItem T="AnalyticsTierMode" Value="AnalyticsTierMode.OneHour">1 hour</MudSelectItem>
+        </MudSelect>
+    </div>
+    <div style="flex: 1 1 180px; min-width: 180px;">
+        <MudSelect T="int" Label="Auto refresh" Value="_config.AutoRefreshSeconds" ValueChanged="HandleAutoRefreshChanged" Variant="Variant.Outlined">
+            <MudSelectItem T="int" Value="0">Off</MudSelectItem>
+            <MudSelectItem T="int" Value="5">5s</MudSelectItem>
+            <MudSelectItem T="int" Value="15">15s</MudSelectItem>
+            <MudSelectItem T="int" Value="30">30s</MudSelectItem>
+            <MudSelectItem T="int" Value="60">60s</MudSelectItem>
+        </MudSelect>
+    </div>
+    <div style="flex: 1 1 160px; min-width: 160px;">
+        <MudNumericField T="int"
+                         Label="Point limit"
+                         Value="_config.PointLimit"
+                         ValueChanged="HandlePointLimitChanged"
+                         Variant="Variant.Outlined"
+                         Min="50"
+                         Max="5000" />
+    </div>
+    <MudSpacer />
+    <MudStack Row="true"
+              Spacing="1"
+              Wrap="Wrap.Wrap"
+              AlignItems="AlignItems.Center"
+              Justify="Justify.FlexEnd">
+        <MudStack Row="true"
+                  Spacing="1"
+                  Wrap="Wrap.Wrap"
+                  Justify="Justify.FlexEnd"
+                  AlignItems="AlignItems.Center">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync">
+                Refresh
+            </MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Download" OnClick="ExportAsync">
+                Export
+            </MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Default" StartIcon="@Icons.Material.Filled.SettingsBackupRestore" OnClick="ResetLayoutAsync">
+                Reset layout
+            </MudButton>
+            @if (HiddenPanels.Count > 0)
+            {
+                <MudMenu Icon="@Icons.Material.Filled.Visibility" Variant="Variant.Text" Color="Color.Default" Dense="true">
+                    @foreach (var panel in HiddenPanels)
+                    {
+                        <MudMenuItem OnClick="@(() => RestorePanelAsync(panel))">@ResolveMetricTitle(panel.Key)</MudMenuItem>
+                    }
+                </MudMenu>
+            }
+        </MudStack>
+    </MudStack>
+</MudStack>
+
+@if (IsCustomRange)
+{
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" sm="6" lg="3">
+            <MudDatePicker Label="From date" Date="_config.CustomFromDate" DateChanged="HandleCustomFromDateChanged" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <MudTimePicker Label="From time" Time="_config.CustomFromTime" TimeChanged="HandleCustomFromTimeChanged" Variant="Variant.Outlined" Editable="true" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <MudDatePicker Label="To date" Date="_config.CustomToDate" DateChanged="HandleCustomToDateChanged" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <MudTimePicker Label="To time" Time="_config.CustomToTime" TimeChanged="HandleCustomToTimeChanged" Variant="Variant.Outlined" Editable="true" />
+        </MudItem>
+    </MudGrid>
+}
+
+<MudPaper Class="pa-4 mb-4">
+    <MudGrid>
+        <MudItem xs="12" xl="8">
+            <MudStack Spacing="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudText Typo="Typo.h6">Instances</MudText>
+                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllInstancesAsync">Select all</MudButton>
+                </MudStack>
+                @if (_instanceOptions.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No instances known yet.</MudAlert>
+                }
+                else
+                {
+                    <MudGrid>
+                        @foreach (var option in _instanceOptions)
+                        {
+                            <MudItem xs="12" sm="6">
+                                <MudCheckBox T="bool"
+                                             Value="@IsInstanceSelected(option.InstanceId)"
+                                             ValueChanged="@(value => HandleInstanceToggled(option.InstanceId, value))"
+                                             Label="@option.DisplayName" />
+                            </MudItem>
+                        }
+                    </MudGrid>
+                }
+            </MudStack>
+        </MudItem>
+        <MudItem xs="12" xl="4">
+            <MudStack Spacing="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudText Typo="Typo.h6">Grid</MudText>
+                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ResetPanelsAsync">Reset panels</MudButton>
+                </MudStack>
+                <MudNumericField T="int" Label="Columns" Value="_config.GridColumns" ValueChanged="HandleGridColumnsChanged" Variant="Variant.Outlined" Min="1" Max="6" />
+                <MudNumericField T="int" Label="Rows" Value="_config.GridRows" ValueChanged="HandleGridRowsChanged" Variant="Variant.Outlined" Min="1" Max="12" />
+                <MudNumericField T="int" Label="Row height (px)" Value="_config.RowHeightPx" ValueChanged="HandleRowHeightChanged" Variant="Variant.Outlined" Min="180" Max="960" />
+            </MudStack>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudStack Row="true" Spacing="1" Class="mb-4 analytics-chip-row">
+    @foreach (var chip in _summaryChips)
+    {
+        <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">@chip.Label: @chip.Value</MudChip>
+    }
+</MudStack>
+
+@if (_charts.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        No analytics samples match current filters yet.
+    </MudAlert>
+}
+else
+{
+    <div class="analytics-chart-grid" style="@ChartGridStyle">
+        @foreach (var chart in _charts)
+        {
+            <div class="analytics-chart-card" style="@chart.LayoutStyle">
+                <MudPaper Class="pa-4 analytics-chart-paper">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+                        <MudStack Spacing="0">
+                            <MudText Typo="Typo.h6">@chart.Title</MudText>
+                            <MudText Typo="Typo.caption">@chart.Subtitle</MudText>
+                        </MudStack>
+                        <MudTooltip Text="Panel settings">
+                            <MudIconButton Icon="@Icons.Material.Filled.Tune"
+                                           Size="Size.Small"
+                                           Color="Color.Default"
+                                           OnClick="@(() => OpenPanelDialogAsync(chart.Panel))" />
+                        </MudTooltip>
+                    </MudStack>
+                    <MudChart T="double"
+                              ChartType="ChartType.Timeseries"
+                              ChartSeries="@chart.Series"
+                              ChartOptions="@chart.Options"
+                              CanHideSeries="true"
+                              MatchBoundsToSize="true"
+                              Width="100%"
+                              Height="100%" />
+                </MudPaper>
+            </div>
+        }
+    </div>
+}
+
+@code
+{
+    private const string StorageKey = "quasar.analytics.view.v2";
+
+    private static readonly (string Key, string Label)[] RangeOptions =
+    [
+        ("1h", "1h"),
+        ("6h", "6h"),
+        ("24h", "24h"),
+        ("7d", "7d"),
+        ("30d", "30d"),
+        ("custom", "Custom"),
+    ];
+
+    private static readonly MetricDefinition[] MetricDefinitions =
+    [
+        new("simspeed", "SimSpeed", "Simulation ratio", sample => sample.SimSpeed, sample => true, RequiresZero: false),
+        new("cpu", "CPU %", "Server process load", sample => sample.CpuPercent, sample => true, RequiresZero: true),
+        new("memory", "Memory MB", "Working set", sample => sample.MemoryMb, sample => sample.MemoryMb > 0f, RequiresZero: false),
+        new("players", "Player Count", "Players online", sample => sample.PlayersOnline, sample => true, RequiresZero: true),
+        new("frametime", "Frame Time ms", "Derived from sim speed", sample => sample.FrameTimeMs, sample => sample.FrameTimeMs > 0f, RequiresZero: true),
+        new("pcu", "PCU Used", "Used PCU", sample => sample.UsedPcu, sample => true, RequiresZero: true),
+        new("grids", "Active Grids", "Entity grids", sample => sample.ActiveGridCount, sample => sample.ActiveGridCount >= 0, RequiresZero: true),
+        new("entities", "Active Entities", "Entity count", sample => sample.ActiveEntityCount, sample => sample.ActiveEntityCount >= 0, RequiresZero: true),
+    ];
+
+    private readonly List<ChartModel> _charts = [];
+    private readonly List<SummaryChipModel> _summaryChips = [];
+    private AnalyticsViewConfig _config = CreateDefaultConfig();
+    private IReadOnlyList<InstanceOption> _instanceOptions = [];
+    private Timer? _refreshTimer;
+    private CancellationTokenSource _refreshCts = new();
+    private bool _disposed;
+    private bool _configLoaded;
+    private bool _selectionInitialized;
+    private int _refreshing;
+
+    private bool IsCustomRange => string.Equals(_config.SelectedRangeKey, "custom", StringComparison.OrdinalIgnoreCase);
+
+    private IReadOnlyList<AnalyticsPanelConfig> HiddenPanels => _config.Panels
+        .Where(panel => !panel.Visible)
+        .OrderBy(panel => panel.Order)
+        .ToList();
+
+    private string ChartGridStyle =>
+        $"--analytics-grid-columns: {Math.Max(1, _config.GridColumns)}; --analytics-grid-rows: {Math.Max(1, _config.GridRows)}; --analytics-row-height: {Math.Max(180, _config.RowHeightPx)}px;";
+
+    protected override void OnInitialized()
+    {
+        Registry.Changed += HandleSourceChanged;
+        InstanceCatalog.Changed += HandleSourceChanged;
+        RefreshView();
+        UpdateRefreshTimer();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        await LoadConfigAsync();
+        RefreshView();
+        UpdateRefreshTimer();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        Registry.Changed -= HandleSourceChanged;
+        InstanceCatalog.Changed -= HandleSourceChanged;
+        _refreshTimer?.Dispose();
+        _refreshCts.Cancel();
+        _refreshCts.Dispose();
+    }
+
+    private async Task LoadConfigAsync()
+    {
+        try
+        {
+            var stored = await LocalStorage.GetItemAsync<AnalyticsViewConfig>(StorageKey);
+            _config = NormalizeConfig(stored);
+            _configLoaded = true;
+        }
+        catch (InvalidOperationException)
+        {
+            _config = NormalizeConfig(null);
+        }
+        catch (JSDisconnectedException)
+        {
+            _config = NormalizeConfig(null);
+        }
+    }
+
+    private async Task PersistConfigAsync()
+    {
+        if (!_configLoaded)
+            return;
+
+        try
+        {
+            await LocalStorage.SetItemAsync(StorageKey, _config);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        RefreshView();
+        await PersistConfigAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ExportAsync()
+    {
+        try
+        {
+            await MetricsStore.PersistAllAsync();
+            Snackbar.Add("Analytics persisted to disk.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task ResetLayoutAsync()
+    {
+        _config.GridColumns = 2;
+        _config.GridRows = 4;
+        _config.RowHeightPx = 320;
+        await RefreshAsync();
+    }
+
+    private async Task ResetPanelsAsync()
+    {
+        _config.Panels = CreateDefaultPanels();
+        await RefreshAsync();
+    }
+
+    private async Task SelectAllInstancesAsync()
+    {
+        _config.SelectedInstanceIds = _instanceOptions.Select(option => option.InstanceId).ToList();
+        _selectionInitialized = true;
+        await RefreshAsync();
+    }
+
+    private async Task HandleInstanceToggled(string instanceId, bool value)
+    {
+        if (value)
+        {
+            if (!_config.SelectedInstanceIds.Any(id => string.Equals(id, instanceId, StringComparison.OrdinalIgnoreCase)))
+                _config.SelectedInstanceIds.Add(instanceId);
+        }
+        else
+        {
+            _config.SelectedInstanceIds.RemoveAll(id => string.Equals(id, instanceId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        _selectionInitialized = true;
+        await RefreshAsync();
+    }
+
+    private Task HandleRangeChanged(string value)
+    {
+        _config.SelectedRangeKey = string.IsNullOrWhiteSpace(value) ? "1h" : value;
+        return RefreshAsync();
+    }
+
+    private Task HandleTierChanged(AnalyticsTierMode value)
+    {
+        _config.TierMode = value;
+        return RefreshAsync();
+    }
+
+    private Task HandleAutoRefreshChanged(int value)
+    {
+        _config.AutoRefreshSeconds = Math.Max(0, value);
+        UpdateRefreshTimer();
+        return PersistConfigAsync();
+    }
+
+    private Task HandlePointLimitChanged(int value)
+    {
+        _config.PointLimit = Math.Clamp(value, 50, 5000);
+        return RefreshAsync();
+    }
+
+    private Task HandleCustomFromDateChanged(DateTime? value)
+    {
+        _config.CustomFromDate = value;
+        return RefreshAsync();
+    }
+
+    private Task HandleCustomFromTimeChanged(TimeSpan? value)
+    {
+        _config.CustomFromTime = value;
+        return RefreshAsync();
+    }
+
+    private Task HandleCustomToDateChanged(DateTime? value)
+    {
+        _config.CustomToDate = value;
+        return RefreshAsync();
+    }
+
+    private Task HandleCustomToTimeChanged(TimeSpan? value)
+    {
+        _config.CustomToTime = value;
+        return RefreshAsync();
+    }
+
+    private Task HandleGridColumnsChanged(int value)
+    {
+        _config.GridColumns = Math.Clamp(value, 1, 6);
+        foreach (var panel in _config.Panels)
+            panel.ColumnSpan = Math.Clamp(panel.ColumnSpan, 1, _config.GridColumns);
+
+        return RefreshAsync();
+    }
+
+    private Task HandleGridRowsChanged(int value)
+    {
+        _config.GridRows = Math.Clamp(value, 1, 12);
+        foreach (var panel in _config.Panels)
+            panel.RowSpan = Math.Clamp(panel.RowSpan, 1, _config.GridRows);
+
+        return RefreshAsync();
+    }
+
+    private Task HandleRowHeightChanged(int value)
+    {
+        _config.RowHeightPx = Math.Clamp(value, 180, 960);
+        return RefreshAsync();
+    }
+
+    private async Task RestorePanelAsync(AnalyticsPanelConfig panel)
+    {
+        panel.Visible = true;
+        await RefreshAsync();
+    }
+
+    private void HandleSourceChanged()
+    {
+        if (_disposed)
+            return;
+
+        _ = InvokeAsync(async () =>
+        {
+            if (_disposed)
+                return;
+
+            if (Interlocked.Exchange(ref _refreshing, 1) == 1)
+                return;
+
+            try
+            {
+                RefreshView();
+                await InvokeAsync(StateHasChanged);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _refreshing, 0);
+            }
+        });
+    }
+
+    private void UpdateRefreshTimer()
+    {
+        _refreshTimer?.Dispose();
+        _refreshTimer = null;
+
+        _refreshCts.Cancel();
+        _refreshCts.Dispose();
+        _refreshCts = new CancellationTokenSource();
+
+        if (_config.AutoRefreshSeconds <= 0 || _disposed)
+            return;
+
+        _refreshTimer = new Timer(_ =>
+        {
+            if (_disposed || _refreshCts.IsCancellationRequested)
+                return;
+
+            _ = InvokeAsync(async () =>
+            {
+                if (_disposed || _refreshCts.IsCancellationRequested)
+                    return;
+
+                RefreshView();
+                await InvokeAsync(StateHasChanged);
+            });
+        }, null, TimeSpan.FromSeconds(_config.AutoRefreshSeconds), TimeSpan.FromSeconds(_config.AutoRefreshSeconds));
+    }
+
+    private void RefreshView()
+    {
+        _instanceOptions = BuildInstanceOptions();
+        NormalizeSelection();
+
+        var (fromUnix, toUnix) = ResolveRange();
+        var selectedInstances = GetSelectedInstanceIds();
+        var samplesByInstance = new Dictionary<string, MetricSample[]>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var instanceId in selectedInstances)
+        {
+            var store = MetricsStore.GetStore(instanceId);
+            if (store is null)
+                continue;
+
+            var samples = Downsample(QueryTier(store, fromUnix, toUnix), _config.PointLimit);
+            if (samples.Length == 0)
+                continue;
+
+            samplesByInstance[instanceId] = samples;
+        }
+
+        BuildSummary(selectedInstances, samplesByInstance, toUnix - fromUnix);
+        BuildCharts(samplesByInstance, toUnix - fromUnix);
+    }
+
+    private IReadOnlyList<InstanceOption> BuildInstanceOptions()
+    {
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var instance in InstanceCatalog.GetInstances())
+            names[instance.InstanceId] = string.IsNullOrWhiteSpace(instance.Name) ? instance.InstanceId : instance.Name;
+
+        foreach (var agent in Registry.GetAgents())
+        {
+            var instanceId = agent.InstanceKey;
+            if (string.IsNullOrWhiteSpace(instanceId))
+                continue;
+
+            var displayName = agent.ServerDisplayName;
+            if (string.IsNullOrWhiteSpace(displayName) || string.Equals(displayName, "Unknown server", StringComparison.OrdinalIgnoreCase))
+                displayName = instanceId;
+
+            names.TryAdd(instanceId, displayName);
+        }
+
+        foreach (var instanceId in MetricsStore.GetInstanceIds())
+            names.TryAdd(instanceId, instanceId);
+
+        return names
+            .OrderBy(pair => pair.Value, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(pair => new InstanceOption(pair.Key, pair.Value))
+            .ToList();
+    }
+
+    private void NormalizeSelection()
+    {
+        var validIds = _instanceOptions.Select(option => option.InstanceId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _config.SelectedInstanceIds = _config.SelectedInstanceIds
+            .Where(validIds.Contains)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (!_selectionInitialized && _config.SelectedInstanceIds.Count == 0 && _instanceOptions.Count > 0)
+        {
+            _config.SelectedInstanceIds = _instanceOptions.Select(option => option.InstanceId).ToList();
+            _selectionInitialized = true;
+        }
+    }
+
+    private bool IsInstanceSelected(string instanceId)
+    {
+        return _config.SelectedInstanceIds.Any(id => string.Equals(id, instanceId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private IReadOnlyList<string> GetSelectedInstanceIds()
+    {
+        return _config.SelectedInstanceIds.Count > 0
+            ? _config.SelectedInstanceIds
+            : [];
+    }
+
+    private (long FromUnix, long ToUnix) ResolveRange()
+    {
+        var nowUtc = DateTimeOffset.UtcNow;
+        if (string.Equals(_config.SelectedRangeKey, "1h", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddHours(-1).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        if (string.Equals(_config.SelectedRangeKey, "6h", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddHours(-6).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        if (string.Equals(_config.SelectedRangeKey, "24h", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddHours(-24).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        if (string.Equals(_config.SelectedRangeKey, "7d", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddDays(-7).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        if (string.Equals(_config.SelectedRangeKey, "30d", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddDays(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        var fromDate = (_config.CustomFromDate ?? DateTime.Now.Date.AddDays(-1)).Date;
+        var toDate = (_config.CustomToDate ?? DateTime.Now.Date).Date;
+        var fromLocal = DateTime.SpecifyKind(fromDate.Add(_config.CustomFromTime ?? TimeSpan.Zero), DateTimeKind.Local);
+        var toLocal = DateTime.SpecifyKind(toDate.Add(_config.CustomToTime ?? new TimeSpan(23, 59, 0)), DateTimeKind.Local);
+        if (toLocal < fromLocal)
+            toLocal = fromLocal.AddHours(1);
+
+        return (new DateTimeOffset(fromLocal).ToUnixTimeSeconds(), new DateTimeOffset(toLocal).ToUnixTimeSeconds());
+    }
+
+    private MetricSample[] QueryTier(InstanceMetricsStore store, long fromUnix, long toUnix)
+    {
+        return _config.TierMode switch
+        {
+            AnalyticsTierMode.Raw => store.Raw.Read(fromUnix, toUnix),
+            AnalyticsTierMode.OneMinute => store.OneMinute.Read(fromUnix, toUnix),
+            AnalyticsTierMode.OneHour => store.OneHour.Read(fromUnix, toUnix),
+            _ => QueryAutoTier(store, fromUnix, toUnix),
+        };
+    }
+
+    private static MetricSample[] QueryAutoTier(InstanceMetricsStore store, long fromUnix, long toUnix)
+    {
+        var span = toUnix - fromUnix;
+        if (span <= 2 * 3600)
+            return store.Raw.Read(fromUnix, toUnix);
+
+        if (span <= 7 * 86400)
+            return store.OneMinute.Read(fromUnix, toUnix);
+
+        return store.OneHour.Read(fromUnix, toUnix);
+    }
+
+    private static MetricSample[] Downsample(MetricSample[] samples, int maxPoints)
+    {
+        if (samples.Length <= maxPoints)
+            return samples;
+
+        var step = Math.Max(1, (int)Math.Ceiling(samples.Length / (double)maxPoints));
+        var result = new List<MetricSample>((samples.Length / step) + 1);
+        for (var i = 0; i < samples.Length; i += step)
+            result.Add(samples[i]);
+
+        if (result.Count == 0 || result[^1].TimestampUnixSeconds != samples[^1].TimestampUnixSeconds)
+            result.Add(samples[^1]);
+
+        return result.ToArray();
+    }
+
+    private void BuildSummary(
+        IReadOnlyList<string> selectedInstances,
+        IReadOnlyDictionary<string, MetricSample[]> samplesByInstance,
+        long spanSeconds)
+    {
+        _summaryChips.Clear();
+
+        var latestSamples = new List<MetricSample>();
+        foreach (var instanceId in selectedInstances)
+        {
+            var latest = MetricsStore.GetStore(instanceId)?.Raw.ReadLatest(1);
+            if (latest is { Length: > 0 })
+                latestSamples.Add(latest[0]);
+        }
+
+        _summaryChips.Add(new SummaryChipModel("Instances", selectedInstances.Count.ToString()));
+        _summaryChips.Add(new SummaryChipModel("Tier", ResolveTierLabel(spanSeconds)));
+
+        if (latestSamples.Count == 0)
+        {
+            _summaryChips.Add(new SummaryChipModel("SimSpeed", "-"));
+            _summaryChips.Add(new SummaryChipModel("CPU", "-"));
+            _summaryChips.Add(new SummaryChipModel("Memory", "-"));
+            _summaryChips.Add(new SummaryChipModel("Players", "-"));
+            _summaryChips.Add(new SummaryChipModel("PCU", "-"));
+            _summaryChips.Add(new SummaryChipModel("Grids", "-"));
+            _summaryChips.Add(new SummaryChipModel("Entities", "-"));
+            return;
+        }
+
+        var simSpeed = latestSamples.Average(sample => sample.SimSpeed);
+        var cpu = latestSamples.Average(sample => sample.CpuPercent);
+        var memory = latestSamples.Sum(sample => sample.MemoryMb > 0f ? sample.MemoryMb : 0f);
+        var players = latestSamples.Sum(sample => sample.PlayersOnline);
+        var pcu = latestSamples.Sum(sample => sample.UsedPcu);
+        var grids = latestSamples.Where(sample => sample.ActiveGridCount >= 0).Sum(sample => sample.ActiveGridCount);
+        var entities = latestSamples.Where(sample => sample.ActiveEntityCount >= 0).Sum(sample => sample.ActiveEntityCount);
+
+        _summaryChips.Add(new SummaryChipModel("SimSpeed", simSpeed.ToString("0.000")));
+        _summaryChips.Add(new SummaryChipModel("CPU", $"{cpu:0.0}%"));
+        _summaryChips.Add(new SummaryChipModel("Memory", $"{memory:0} MB"));
+        _summaryChips.Add(new SummaryChipModel("Players", players.ToString()));
+        _summaryChips.Add(new SummaryChipModel("PCU", pcu.ToString()));
+        _summaryChips.Add(new SummaryChipModel("Grids", grids > 0 ? grids.ToString() : "-"));
+        _summaryChips.Add(new SummaryChipModel("Entities", entities > 0 ? entities.ToString() : "-"));
+
+        if (samplesByInstance.Values.SelectMany(sampleSet => sampleSet).Any())
+        {
+            var rangeSimAverage = samplesByInstance.Values
+                .SelectMany(sampleSet => sampleSet)
+                .Average(sample => sample.SimSpeed);
+            _summaryChips.Add(new SummaryChipModel("Range Avg Sim", rangeSimAverage.ToString("0.000")));
+        }
+    }
+
+    private void BuildCharts(IReadOnlyDictionary<string, MetricSample[]> samplesByInstance, long spanSeconds)
+    {
+        _charts.Clear();
+        if (samplesByInstance.Count == 0)
+            return;
+
+        foreach (var panel in _config.Panels
+                     .Where(panel => panel.Visible)
+                     .OrderBy(panel => panel.Order)
+                     .ThenBy(panel => ResolveMetricTitle(panel.Key), StringComparer.OrdinalIgnoreCase))
+        {
+            var definition = MetricDefinitions.FirstOrDefault(metric =>
+                string.Equals(metric.Key, panel.Key, StringComparison.OrdinalIgnoreCase));
+            if (definition is null)
+                continue;
+
+            var series = new List<ChartSeries<double>>();
+            foreach (var pair in samplesByInstance.OrderBy(pair => ResolveDisplayName(pair.Key), StringComparer.OrdinalIgnoreCase))
+            {
+                var values = pair.Value
+                    .Where(definition.IsAvailable)
+                    .Select(sample => new TimeValue<double>(
+                        DateTimeOffset.FromUnixTimeSeconds(sample.TimestampUnixSeconds).LocalDateTime,
+                        definition.Selector(sample)))
+                    .ToArray();
+
+                if (values.Length == 0)
+                    continue;
+
+                series.Add(new ChartSeries<double>
+                {
+                    Name = ResolveDisplayName(pair.Key),
+                    Data = values,
+                    Visible = true,
+                });
+            }
+
+            if (series.Count == 0)
+                continue;
+
+            _charts.Add(new ChartModel(
+                Title: definition.Title,
+                Subtitle: definition.Subtitle,
+                Series: series,
+                Options: CreateChartOptions(definition, spanSeconds),
+                LayoutStyle: $"grid-column: span {Math.Clamp(panel.ColumnSpan, 1, _config.GridColumns)}; grid-row: span {Math.Clamp(panel.RowSpan, 1, Math.Max(1, _config.GridRows))};",
+                Panel: panel));
+        }
+    }
+
+    private async Task OpenPanelDialogAsync(AnalyticsPanelConfig panel)
+    {
+        var parameters = new DialogParameters
+        {
+            ["Title"] = ResolveMetricTitle(panel.Key),
+            ["Subtitle"] = "Panel display and layout",
+            ["Visible"] = panel.Visible,
+            ["Order"] = panel.Order,
+            ["ColumnSpan"] = panel.ColumnSpan,
+            ["RowSpan"] = panel.RowSpan,
+            ["GridColumns"] = _config.GridColumns,
+            ["GridRows"] = _config.GridRows,
+        };
+
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            MaxWidth = MaxWidth.ExtraSmall,
+            FullWidth = true,
+        };
+
+        var dialog = await DialogService.ShowAsync<AnalyticsPanelDialog>(ResolveMetricTitle(panel.Key), parameters, options);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not AnalyticsPanelDialogResult updated)
+            return;
+
+        panel.Visible = updated.Visible;
+        panel.Order = Math.Clamp(updated.Order, 0, 99);
+        panel.ColumnSpan = Math.Clamp(updated.ColumnSpan, 1, _config.GridColumns);
+        panel.RowSpan = Math.Clamp(updated.RowSpan, 1, Math.Max(1, _config.GridRows));
+        await RefreshAsync();
+    }
+
+    private TimeSeriesChartOptions CreateChartOptions(MetricDefinition definition, long spanSeconds)
+    {
+        return new TimeSeriesChartOptions
+        {
+            YAxisLines = false,
+            XAxisLines = false,
+            ShowDataMarkers = _config.PointLimit <= 150,
+            LineStrokeWidth = 2,
+            MaxNumYAxisTicks = 8,
+            YAxisRequireZeroPoint = definition.RequiresZero,
+            TooltipTimeLabelFormat = ResolveTooltipTimeFormat(spanSeconds),
+            TimeLabelFormat = ResolveTimeLabelFormat(spanSeconds),
+            TimeLabelSpacing = ResolveTimeLabelSpacing(spanSeconds),
+            XAxisTitle = "Time",
+            YAxisTitle = definition.Title,
+        };
+    }
+
+    private string ResolveDisplayName(string instanceId)
+    {
+        return _instanceOptions.FirstOrDefault(option =>
+                   string.Equals(option.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase))
+               ?.DisplayName ?? instanceId;
+    }
+
+    private string ResolveMetricTitle(string key)
+    {
+        return MetricDefinitions.FirstOrDefault(metric => string.Equals(metric.Key, key, StringComparison.OrdinalIgnoreCase))
+               ?.Title ?? key;
+    }
+
+    private string ResolveTierLabel(long spanSeconds)
+    {
+        return _config.TierMode switch
+        {
+            AnalyticsTierMode.Raw => "Raw",
+            AnalyticsTierMode.OneMinute => "1 minute",
+            AnalyticsTierMode.OneHour => "1 hour",
+            _ when spanSeconds <= 2 * 3600 => "Auto/raw",
+            _ when spanSeconds <= 7 * 86400 => "Auto/1 minute",
+            _ => "Auto/1 hour",
+        };
+    }
+
+    private static string ResolveTimeLabelFormat(long spanSeconds)
+    {
+        if (spanSeconds <= 24 * 3600)
+            return "HH:mm";
+
+        if (spanSeconds <= 7 * 86400)
+            return "MM-dd HH:mm";
+
+        return "MM-dd";
+    }
+
+    private static string ResolveTooltipTimeFormat(long spanSeconds)
+    {
+        if (spanSeconds <= 24 * 3600)
+            return "yyyy-MM-dd HH:mm:ss";
+
+        return "yyyy-MM-dd HH:mm";
+    }
+
+    private static TimeSpan ResolveTimeLabelSpacing(long spanSeconds)
+    {
+        if (spanSeconds <= 2 * 3600)
+            return TimeSpan.FromMinutes(5);
+
+        if (spanSeconds <= 24 * 3600)
+            return TimeSpan.FromMinutes(30);
+
+        if (spanSeconds <= 7 * 86400)
+            return TimeSpan.FromHours(6);
+
+        return TimeSpan.FromDays(1);
+    }
+
+    private static AnalyticsViewConfig NormalizeConfig(AnalyticsViewConfig? config)
+    {
+        var normalized = config ?? CreateDefaultConfig();
+        normalized.SelectedRangeKey = RangeOptions.Any(option => string.Equals(option.Key, normalized.SelectedRangeKey, StringComparison.OrdinalIgnoreCase))
+            ? normalized.SelectedRangeKey
+            : "1h";
+        normalized.PointLimit = Math.Clamp(normalized.PointLimit <= 0 ? 500 : normalized.PointLimit, 50, 5000);
+        normalized.GridColumns = Math.Clamp(normalized.GridColumns <= 0 ? 2 : normalized.GridColumns, 1, 6);
+        normalized.GridRows = Math.Clamp(normalized.GridRows <= 0 ? 4 : normalized.GridRows, 1, 12);
+        normalized.RowHeightPx = Math.Clamp(normalized.RowHeightPx <= 0 ? 320 : normalized.RowHeightPx, 180, 960);
+        normalized.AutoRefreshSeconds = normalized.AutoRefreshSeconds switch
+        {
+            0 or 5 or 15 or 30 or 60 => normalized.AutoRefreshSeconds,
+            _ => 0,
+        };
+
+        var panels = (normalized.Panels ?? [])
+            .ToDictionary(panel => panel.Key, StringComparer.OrdinalIgnoreCase);
+        normalized.Panels = CreateDefaultPanels()
+            .Select(panel =>
+            {
+                if (!panels.TryGetValue(panel.Key, out var existing))
+                    return panel;
+
+                return new AnalyticsPanelConfig
+                {
+                    Key = panel.Key,
+                    Visible = existing.Visible,
+                    Order = Math.Clamp(existing.Order, 0, 99),
+                    ColumnSpan = Math.Clamp(existing.ColumnSpan, 1, normalized.GridColumns),
+                    RowSpan = Math.Clamp(existing.RowSpan, 1, Math.Max(1, normalized.GridRows)),
+                };
+            })
+            .OrderBy(panel => panel.Order)
+            .ToList();
+
+        normalized.SelectedInstanceIds ??= [];
+        return normalized;
+    }
+
+    private static AnalyticsViewConfig CreateDefaultConfig()
+    {
+        return new AnalyticsViewConfig
+        {
+            Panels = CreateDefaultPanels(),
+        };
+    }
+
+    private static List<AnalyticsPanelConfig> CreateDefaultPanels()
+    {
+        return MetricDefinitions
+            .Select((metric, index) => new AnalyticsPanelConfig
+            {
+                Key = metric.Key,
+                Visible = true,
+                Order = index,
+                ColumnSpan = 1,
+                RowSpan = 1,
+            })
+            .ToList();
+    }
+
+    private sealed record InstanceOption(string InstanceId, string DisplayName);
+
+    private sealed record SummaryChipModel(string Label, string Value);
+
+    private sealed record MetricDefinition(
+        string Key,
+        string Title,
+        string Subtitle,
+        Func<MetricSample, double> Selector,
+        Func<MetricSample, bool> IsAvailable,
+        bool RequiresZero);
+
+    private sealed record ChartModel(
+        string Title,
+        string Subtitle,
+        List<ChartSeries<double>> Series,
+        TimeSeriesChartOptions Options,
+        string LayoutStyle,
+        AnalyticsPanelConfig Panel);
+}

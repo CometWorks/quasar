@@ -9,6 +9,7 @@ using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Transport;
 using Sandbox;
 using Sandbox.Engine.Multiplayer;
+using Sandbox.Game.Entities;
 using Sandbox.Game.Gui;
 using Sandbox.Game.Multiplayer;
 using Sandbox.Game.Screens.Helpers;
@@ -29,6 +30,7 @@ namespace Quasar.Agent
         private readonly string _nodeId;
         private readonly string _instanceId;
         private readonly string _pluginVersion;
+        private long _lastWorkingSetBytes;
         private DateTime _lastSnapshotUtc = DateTime.MinValue;
         private AgentHello _latestHello;
         private AgentSnapshot _latestSnapshot;
@@ -164,10 +166,14 @@ namespace Quasar.Agent
 
         private ServerMetrics BuildMetrics(MySession session)
         {
+            var process = Process.GetCurrentProcess();
+            _lastWorkingSetBytes = process.WorkingSet64;
+
             if (session == null)
             {
                 return new ServerMetrics
                 {
+                    MemoryWorkingSetMb = _lastWorkingSetBytes >> 20,
                     UptimeSeconds = (int)_uptime.Elapsed.TotalSeconds,
                     PluginsLoaded = GetPlugins().Count,
                 };
@@ -178,6 +184,24 @@ namespace Quasar.Agent
                 usedPcu = session.SessionBlockLimits?.PCUBuilt ?? 0;
             else
                 usedPcu = session.GlobalBlockLimits?.PCUBuilt ?? 0;
+
+            int? activeGridCount = null;
+            int? activeEntityCount = null;
+
+            if (session.Ready)
+            {
+                try
+                {
+                    var entities = MyEntities.GetEntities();
+                    activeEntityCount = entities?.Count ?? 0;
+                    activeGridCount = entities?.Count(entity => entity is IMyCubeGrid) ?? 0;
+                }
+                catch
+                {
+                    activeGridCount = null;
+                    activeEntityCount = null;
+                }
+            }
 
             return new ServerMetrics
             {
@@ -190,6 +214,9 @@ namespace Quasar.Agent
                 IsSaveInProgress = session.IsSaveInProgress || MyAsyncSaving.InProgress,
                 UsedPcu = usedPcu,
                 TotalPcu = session.Settings.TotalPCU,
+                MemoryWorkingSetMb = _lastWorkingSetBytes >> 20,
+                ActiveGridCount = activeGridCount,
+                ActiveEntityCount = activeEntityCount,
                 UptimeSeconds = (int)_uptime.Elapsed.TotalSeconds,
                 ModsLoaded = session.Mods?.Count ?? 0,
                 PluginsLoaded = GetPlugins().Count,
