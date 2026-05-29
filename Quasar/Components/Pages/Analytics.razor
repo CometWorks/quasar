@@ -119,8 +119,8 @@
                         {
                             <MudItem xs="12" sm="6">
                                 <MudCheckBox T="bool"
-                                             Value="@IsInstanceSelected(option.InstanceId)"
-                                             ValueChanged="@(value => HandleInstanceToggled(option.InstanceId, value))"
+                                             Value="@IsInstanceSelected(option.UniqueName)"
+                                             ValueChanged="@(value => HandleInstanceToggled(option.UniqueName, value))"
                                              Label="@option.DisplayName" />
                             </MudItem>
                         }
@@ -335,21 +335,21 @@ else
 
     private async Task SelectAllInstancesAsync()
     {
-        _config.SelectedInstanceIds = _instanceOptions.Select(option => option.InstanceId).ToList();
+        _config.SelectedUniqueNames = _instanceOptions.Select(option => option.UniqueName).ToList();
         _selectionInitialized = true;
         await RefreshAsync();
     }
 
-    private async Task HandleInstanceToggled(string instanceId, bool value)
+    private async Task HandleInstanceToggled(string uniqueName, bool value)
     {
         if (value)
         {
-            if (!_config.SelectedInstanceIds.Any(id => string.Equals(id, instanceId, StringComparison.OrdinalIgnoreCase)))
-                _config.SelectedInstanceIds.Add(instanceId);
+            if (!_config.SelectedUniqueNames.Any(id => string.Equals(id, uniqueName, StringComparison.OrdinalIgnoreCase)))
+                _config.SelectedUniqueNames.Add(uniqueName);
         }
         else
         {
-            _config.SelectedInstanceIds.RemoveAll(id => string.Equals(id, instanceId, StringComparison.OrdinalIgnoreCase));
+            _config.SelectedUniqueNames.RemoveAll(id => string.Equals(id, uniqueName, StringComparison.OrdinalIgnoreCase));
         }
 
         _selectionInitialized = true;
@@ -494,12 +494,12 @@ else
         NormalizeSelection();
 
         var (fromUnix, toUnix) = ResolveRange();
-        var selectedInstances = GetSelectedInstanceIds();
+        var selectedInstances = GetSelectedUniqueNames();
         var samplesByInstance = new Dictionary<string, MetricSample[]>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var instanceId in selectedInstances)
+        foreach (var uniqueName in selectedInstances)
         {
-            var store = MetricsStore.GetStore(instanceId);
+            var store = MetricsStore.GetStore(uniqueName);
             if (store is null)
                 continue;
 
@@ -507,7 +507,7 @@ else
             if (samples.Length == 0)
                 continue;
 
-            samplesByInstance[instanceId] = samples;
+            samplesByInstance[uniqueName] = samples;
         }
 
         BuildSummary(selectedInstances, samplesByInstance, toUnix - fromUnix);
@@ -519,23 +519,23 @@ else
         var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var instance in InstanceCatalog.GetInstances())
-            names[instance.InstanceId] = string.IsNullOrWhiteSpace(instance.Name) ? instance.InstanceId : instance.Name;
+            names[instance.UniqueName] = instance.UniqueName;
 
         foreach (var agent in Registry.GetAgents())
         {
-            var instanceId = agent.InstanceKey;
-            if (string.IsNullOrWhiteSpace(instanceId))
+            var uniqueName = agent.UniqueNameKey;
+            if (string.IsNullOrWhiteSpace(uniqueName))
                 continue;
 
             var displayName = agent.ServerDisplayName;
             if (string.IsNullOrWhiteSpace(displayName) || string.Equals(displayName, "Unknown server", StringComparison.OrdinalIgnoreCase))
-                displayName = instanceId;
+                displayName = uniqueName;
 
-            names.TryAdd(instanceId, displayName);
+            names.TryAdd(uniqueName, displayName);
         }
 
-        foreach (var instanceId in MetricsStore.GetInstanceIds())
-            names.TryAdd(instanceId, instanceId);
+        foreach (var uniqueName in MetricsStore.GetUniqueNames())
+            names.TryAdd(uniqueName, uniqueName);
 
         return names
             .OrderBy(pair => pair.Value, StringComparer.OrdinalIgnoreCase)
@@ -546,28 +546,28 @@ else
 
     private void NormalizeSelection()
     {
-        var validIds = _instanceOptions.Select(option => option.InstanceId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        _config.SelectedInstanceIds = _config.SelectedInstanceIds
+        var validIds = _instanceOptions.Select(option => option.UniqueName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _config.SelectedUniqueNames = _config.SelectedUniqueNames
             .Where(validIds.Contains)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (!_selectionInitialized && _config.SelectedInstanceIds.Count == 0 && _instanceOptions.Count > 0)
+        if (!_selectionInitialized && _config.SelectedUniqueNames.Count == 0 && _instanceOptions.Count > 0)
         {
-            _config.SelectedInstanceIds = _instanceOptions.Select(option => option.InstanceId).ToList();
+            _config.SelectedUniqueNames = _instanceOptions.Select(option => option.UniqueName).ToList();
             _selectionInitialized = true;
         }
     }
 
-    private bool IsInstanceSelected(string instanceId)
+    private bool IsInstanceSelected(string uniqueName)
     {
-        return _config.SelectedInstanceIds.Any(id => string.Equals(id, instanceId, StringComparison.OrdinalIgnoreCase));
+        return _config.SelectedUniqueNames.Any(id => string.Equals(id, uniqueName, StringComparison.OrdinalIgnoreCase));
     }
 
-    private IReadOnlyList<string> GetSelectedInstanceIds()
+    private IReadOnlyList<string> GetSelectedUniqueNames()
     {
-        return _config.SelectedInstanceIds.Count > 0
-            ? _config.SelectedInstanceIds
+        return _config.SelectedUniqueNames.Count > 0
+            ? _config.SelectedUniqueNames
             : [];
     }
 
@@ -646,9 +646,9 @@ else
         _summaryChips.Clear();
 
         var latestSamples = new List<MetricSample>();
-        foreach (var instanceId in selectedInstances)
+        foreach (var uniqueName in selectedInstances)
         {
-            var latest = MetricsStore.GetStore(instanceId)?.Raw.ReadLatest(1);
+            var latest = MetricsStore.GetStore(uniqueName)?.Raw.ReadLatest(1);
             if (latest is { Length: > 0 })
                 latestSamples.Add(latest[0]);
         }
@@ -794,11 +794,11 @@ else
         };
     }
 
-    private string ResolveDisplayName(string instanceId)
+    private string ResolveDisplayName(string uniqueName)
     {
         return _instanceOptions.FirstOrDefault(option =>
-                   string.Equals(option.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase))
-               ?.DisplayName ?? instanceId;
+                   string.Equals(option.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
+               ?.DisplayName ?? uniqueName;
     }
 
     private string ResolveMetricTitle(string key)
@@ -889,7 +889,7 @@ else
             .OrderBy(panel => panel.Order)
             .ToList();
 
-        normalized.SelectedInstanceIds ??= [];
+        normalized.SelectedUniqueNames ??= [];
         return normalized;
     }
 
@@ -915,7 +915,7 @@ else
             .ToList();
     }
 
-    private sealed record InstanceOption(string InstanceId, string DisplayName);
+    private sealed record InstanceOption(string UniqueName, string DisplayName);
 
     private sealed record SummaryChipModel(string Label, string Value);
 

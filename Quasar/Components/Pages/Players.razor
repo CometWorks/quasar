@@ -55,7 +55,7 @@ else
         <RowTemplate>
             <MudTd DataLabel="Server">
                 <MudText Typo="Typo.body2">@context.ServerDisplayName</MudText>
-                <MudText Typo="Typo.caption">@context.Record.InstanceId</MudText>
+                <MudText Typo="Typo.caption">@context.Record.UniqueName</MudText>
             </MudTd>
             <MudTd DataLabel="Player">
                 <MudText Typo="Typo.body2">@GetDisplayName(context.Record)</MudText>
@@ -137,7 +137,7 @@ else
         var agents = Registry.GetAgents();
         var connectedAgentsByInstance = agents
             .Where(agent => agent.IsConnected)
-            .GroupBy(agent => agent.InstanceKey, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(agent => agent.UniqueNameKey, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
         var onlinePlayers = agents
@@ -146,14 +146,14 @@ else
             {
                 Agent = agent,
                 Player = player,
-                PlayerKey = BuildPlayerKey(agent.InstanceKey, player.SteamId),
+                PlayerKey = BuildPlayerKey(agent.UniqueNameKey, player.SteamId),
             }))
             .ToDictionary(item => item.PlayerKey, item => item.Player, StringComparer.OrdinalIgnoreCase);
 
         return KnownPlayers.GetPlayers()
             .Select(record =>
             {
-                connectedAgentsByInstance.TryGetValue(record.InstanceId, out var agent);
+                connectedAgentsByInstance.TryGetValue(record.UniqueName, out var agent);
                 onlinePlayers.TryGetValue(record.PlayerKey, out var onlinePlayer);
 
                 return new KnownPlayerView
@@ -177,7 +177,7 @@ else
             return true;
 
         return Contains(view.Record.ServerName, search)
-               || Contains(view.Record.InstanceId, search)
+               || Contains(view.Record.UniqueName, search)
                || Contains(view.Record.DisplayName, search)
                || Contains(view.Record.PlatformDisplayName, search)
                || Contains(view.Record.ServiceName, search)
@@ -189,7 +189,7 @@ else
     {
         if (view.Agent is null)
         {
-            Snackbar.Add($"Instance '{view.Record.InstanceId}' is not connected.", Severity.Error);
+            Snackbar.Add($"Instance '{view.Record.UniqueName}' is not connected.", Severity.Error);
             return;
         }
 
@@ -197,7 +197,7 @@ else
         {
             await Registry.SendCommandAsync(new ServerCommandEnvelope
             {
-                InstanceId = view.Agent.InstanceKey,
+                UniqueName = view.Agent.UniqueNameKey,
                 AgentId = view.Agent.AgentId,
                 ServerId = view.Agent.ServerKey,
                 CommandType = commandType,
@@ -255,9 +255,9 @@ else
         return value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
     }
 
-    private static string BuildPlayerKey(string instanceId, long steamId)
+    private static string BuildPlayerKey(string uniqueName, long steamId)
     {
-        return $"{instanceId?.Trim() ?? string.Empty}::{steamId}";
+        return $"{uniqueName?.Trim() ?? string.Empty}::{steamId}";
     }
 
     private sealed class KnownPlayerView
@@ -276,6 +276,6 @@ else
             ? Agent.ServerDisplayName
             : !string.IsNullOrWhiteSpace(Record.ServerName)
                 ? Record.ServerName
-                : Record.InstanceId;
+                : Record.UniqueName;
     }
 }

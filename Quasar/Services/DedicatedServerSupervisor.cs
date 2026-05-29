@@ -68,23 +68,23 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             return;
         }
 
-        var runningInstanceIds = GetSnapshots()
+        var runningUniqueNames = GetSnapshots()
             .Where(snapshot => snapshot.State is DedicatedServerInstanceProcessState.Starting
                 or DedicatedServerInstanceProcessState.Running
                 or DedicatedServerInstanceProcessState.Restarting
                 or DedicatedServerInstanceProcessState.Stopping)
-            .Select(snapshot => snapshot.InstanceId)
+            .Select(snapshot => snapshot.UniqueName)
             .ToList();
 
-        foreach (var instanceId in runningInstanceIds)
+        foreach (var uniqueName in runningUniqueNames)
         {
             try
             {
-                await StopInstanceAsync(instanceId, cancellationToken);
+                await StopInstanceAsync(uniqueName, cancellationToken);
             }
             catch (Exception exception)
             {
-                _logger.LogWarning(exception, "Failed stopping instance {InstanceId} during Quasar shutdown.", instanceId);
+                _logger.LogWarning(exception, "Failed stopping instance {UniqueName} during Quasar shutdown.", uniqueName);
             }
         }
 
@@ -102,11 +102,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             snapshots = _states.Values
                 .Select(state => CloneSnapshot(
                     state,
-                    agents.TryGetValue(state.InstanceId, out var agent) ? agent : null,
+                    agents.TryGetValue(state.UniqueName, out var agent) ? agent : null,
                     now,
                     _options.DisableInstanceHealthMonitoring))
-                .OrderBy(snapshot => snapshot.Name, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(snapshot => snapshot.InstanceId, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(snapshot => snapshot.UniqueName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(snapshot => snapshot.UniqueName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
 
@@ -114,22 +114,22 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     }
 
     public async Task SetGoalStateAsync(
-        string instanceId,
+        string uniqueName,
         DedicatedServerInstanceGoalState goalState,
         CancellationToken cancellationToken = default)
     {
-        await _catalog.SetGoalStateAsync(instanceId, goalState, cancellationToken);
+        await _catalog.SetGoalStateAsync(uniqueName, goalState, cancellationToken);
         await ReconcileAsync(cancellationToken);
     }
 
-    public async Task StartInstanceAsync(string instanceId, CancellationToken cancellationToken = default)
+    public async Task StartInstanceAsync(string uniqueName, CancellationToken cancellationToken = default)
     {
         ManagedInstanceState? state;
 
         lock (_sync)
         {
-            if (!_states.TryGetValue(instanceId, out state))
-                throw new InvalidOperationException($"Unknown Quasar instance '{instanceId}'.");
+            if (!_states.TryGetValue(uniqueName, out state))
+                throw new InvalidOperationException($"Unknown Quasar instance '{uniqueName}'.");
 
             if (IsProcessActive(state.Process))
                 return;
@@ -147,14 +147,14 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         await StartProcessAsync(state, cancellationToken);
     }
 
-    public async Task StopInstanceAsync(string instanceId, CancellationToken cancellationToken = default)
+    public async Task StopInstanceAsync(string uniqueName, CancellationToken cancellationToken = default)
     {
         ManagedInstanceState? state;
         Process? process;
 
         lock (_sync)
         {
-            if (!_states.TryGetValue(instanceId, out state))
+            if (!_states.TryGetValue(uniqueName, out state))
                 return;
 
             process = state.Process;
@@ -175,7 +175,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         NotifyChanged();
 
-        await TryRequestGracefulStopAsync(instanceId, cancellationToken);
+        await TryRequestGracefulStopAsync(uniqueName, cancellationToken);
 
         if (process is null)
             return;
@@ -190,23 +190,23 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         {
             if (IsProcessActive(process))
             {
-                _logger.LogWarning("Instance {InstanceId} did not stop gracefully. Killing process tree.", instanceId);
+                _logger.LogWarning("Instance {UniqueName} did not stop gracefully. Killing process tree.", uniqueName);
                 process.Kill(entireProcessTree: true);
             }
         }
     }
 
-    public async Task RestartInstanceAsync(string instanceId, CancellationToken cancellationToken = default)
+    public async Task RestartInstanceAsync(string uniqueName, CancellationToken cancellationToken = default)
     {
-        var definition = _catalog.GetInstance(instanceId);
+        var definition = _catalog.GetInstance(uniqueName);
         if (definition is null)
-            throw new InvalidOperationException($"Unknown Quasar instance '{instanceId}'.");
+            throw new InvalidOperationException($"Unknown Quasar instance '{uniqueName}'.");
 
         definition.GoalState = DedicatedServerInstanceGoalState.On;
         definition.AutoStart = true;
         await _catalog.UpsertAsync(definition, cancellationToken);
-        await StopInstanceAsync(instanceId, cancellationToken);
-        await StartInstanceAsync(instanceId, cancellationToken);
+        await StopInstanceAsync(uniqueName, cancellationToken);
+        await StartInstanceAsync(uniqueName, cancellationToken);
     }
 
     public void Dispose()
@@ -260,7 +260,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private async Task ReconcileAsync(CancellationToken cancellationToken)
     {
-        List<(string InstanceId, ReconcileAction Action, string Reason)> actions = new();
+        List<(string UniqueName, ReconcileAction Action, string Reason)> actions = new();
         var agents = BuildAgentLookup();
         var now = DateTimeOffset.UtcNow;
         var healthChanged = false;
@@ -273,7 +273,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 var goalState = state.Definition.GoalState;
                 var health = EvaluateHealth(
                     state,
-                    agents.TryGetValue(state.InstanceId, out var agent) ? agent : null,
+                    agents.TryGetValue(state.UniqueName, out var agent) ? agent : null,
                     now,
                     _options.DisableInstanceHealthMonitoring);
 
@@ -295,7 +295,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                             or DedicatedServerInstanceProcessState.Crashed
                             or DedicatedServerInstanceProcessState.Faulted)
                     {
-                        actions.Add((state.InstanceId, ReconcileAction.Start, "goal state is on"));
+                        actions.Add((state.UniqueName, ReconcileAction.Start, "goal state is on"));
                     }
                     else if (processActive &&
                              health.State == DedicatedServerInstanceHealthState.Unhealthy &&
@@ -304,13 +304,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                              CanScheduleHealthRestart(state, now))
                     {
                         state.LastHealthRecoveryActionUtc = now;
-                        actions.Add((state.InstanceId, ReconcileAction.Restart, health.Summary));
+                        actions.Add((state.UniqueName, ReconcileAction.Restart, health.Summary));
                     }
                 }
                 else
                 {
                     if (processActive && state.State != DedicatedServerInstanceProcessState.Stopping)
-                        actions.Add((state.InstanceId, ReconcileAction.Stop, "goal state is off"));
+                        actions.Add((state.UniqueName, ReconcileAction.Stop, "goal state is off"));
                 }
             }
         }
@@ -318,7 +318,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         if (healthChanged)
             NotifyChanged();
 
-        foreach (var (instanceId, action, reason) in actions)
+        foreach (var (uniqueName, action, reason) in actions)
         {
             if (cancellationToken.IsCancellationRequested)
                 break;
@@ -326,16 +326,16 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             switch (action)
             {
                 case ReconcileAction.Start:
-                    await StartInstanceAsync(instanceId, cancellationToken);
+                    await StartInstanceAsync(uniqueName, cancellationToken);
                     break;
 
                 case ReconcileAction.Stop:
-                    await StopInstanceAsync(instanceId, cancellationToken);
+                    await StopInstanceAsync(uniqueName, cancellationToken);
                     break;
 
                 case ReconcileAction.Restart:
-                    _logger.LogWarning("Quasar health recovery restarting instance {InstanceId}: {Reason}", instanceId, reason);
-                    await RestartInstanceAsync(instanceId, cancellationToken);
+                    _logger.LogWarning("Quasar health recovery restarting instance {UniqueName}: {Reason}", uniqueName, reason);
+                    await RestartInstanceAsync(uniqueName, cancellationToken);
                     break;
             }
         }
@@ -351,8 +351,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
         catch (Exception exception)
         {
-            SetFaulted(state.InstanceId, exception.Message);
-            _logger.LogWarning(exception, "Failed resolving managed runtime for instance {InstanceId}.", state.InstanceId);
+            SetFaulted(state.UniqueName, exception.Message);
+            _logger.LogWarning(exception, "Failed resolving managed runtime for instance {UniqueName}.", state.UniqueName);
             return;
         }
 
@@ -360,13 +360,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         var workingDirectory = runtime.WorkingDirectory;
         if (!File.Exists(executablePath))
         {
-            SetFaulted(state.InstanceId, $"Executable not found: {executablePath}");
+            SetFaulted(state.UniqueName, $"Executable not found: {executablePath}");
             return;
         }
 
         if (!Directory.Exists(workingDirectory))
         {
-            SetFaulted(state.InstanceId, $"Working directory not found: {workingDirectory}");
+            SetFaulted(state.UniqueName, $"Working directory not found: {workingDirectory}");
             return;
         }
 
@@ -377,12 +377,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
         catch (Exception exception)
         {
-            SetFaulted(state.InstanceId, exception.Message);
-            _logger.LogWarning(exception, "Failed preparing runtime files for instance {InstanceId}.", state.InstanceId);
+            SetFaulted(state.UniqueName, exception.Message);
+            _logger.LogWarning(exception, "Failed preparing runtime files for instance {UniqueName}.", state.UniqueName);
             return;
         }
 
-        var logDirectory = MagnetarPaths.GetQuasarInstanceLogDirectory(state.InstanceId);
+        var logDirectory = MagnetarPaths.GetQuasarInstanceLogDirectory(state.UniqueName);
         Directory.CreateDirectory(logDirectory);
 
         var stdoutPath = Path.Combine(logDirectory, "stdout.log");
@@ -403,7 +403,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             EnableRaisingEvents = true,
         };
 
-        process.StartInfo.Environment["QUASAR_INSTANCE_ID"] = definition.InstanceId;
+        process.StartInfo.Environment["QUASAR_UNIQUE_NAME"] = definition.UniqueName;
         process.StartInfo.Environment["QUASAR_BASE_URL"] = _options.BaseUrl;
         process.StartInfo.Environment["MAGNETAR_NODE_ID"] = _options.NodeId;
         process.StartInfo.Environment["QUASAR_DS_APPDATA_PATH"] = launch.DedicatedServerAppDataPath;
@@ -413,27 +413,27 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         process.StartInfo.Environment["QUASAR_DS_CONFIG_PATH"] = launch.RuntimeConfigPath;
         process.StartInfo.Environment["QUASAR_LAST_SESSION_PATH"] = launch.LastSessionPath;
 
-        process.Exited += async (_, _) => await HandleProcessExitedAsync(state.InstanceId);
+        process.Exited += async (_, _) => await HandleProcessExitedAsync(state.UniqueName);
 
         try
         {
             if (!process.Start())
             {
-                SetFaulted(state.InstanceId, "Process start returned false.");
+                SetFaulted(state.UniqueName, "Process start returned false.");
                 process.Dispose();
                 return;
             }
         }
         catch (Exception exception)
         {
-            SetFaulted(state.InstanceId, exception.Message);
+            SetFaulted(state.UniqueName, exception.Message);
             process.Dispose();
             return;
         }
 
         lock (_sync)
         {
-            if (!_states.TryGetValue(state.InstanceId, out var current))
+            if (!_states.TryGetValue(state.UniqueName, out var current))
             {
                 process.Kill(entireProcessTree: true);
                 return;
@@ -453,14 +453,14 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             ResetHealthTracking(current);
         }
 
-        _logger.LogInformation("Started instance {InstanceId} with pid {Pid}.", state.InstanceId, process.Id);
+        _logger.LogInformation("Started instance {UniqueName} with pid {Pid}.", state.UniqueName, process.Id);
         NotifyChanged();
 
         _ = PumpOutputAsync(process.StandardOutput, stdoutPath, cancellationToken);
         _ = PumpOutputAsync(process.StandardError, stderrPath, cancellationToken);
     }
 
-    private async Task HandleProcessExitedAsync(string instanceId)
+    private async Task HandleProcessExitedAsync(string uniqueName)
     {
         ManagedInstanceState? state;
         DedicatedServerInstanceDefinition definition;
@@ -472,7 +472,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         lock (_sync)
         {
-            if (!_states.TryGetValue(instanceId, out state) || state.Process is null)
+            if (!_states.TryGetValue(uniqueName, out state) || state.Process is null)
                 return;
 
             definition = Clone(state.Definition);
@@ -524,7 +524,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
 
         NotifyChanged();
-        _logger.LogInformation("Instance {InstanceId} exited with code {ExitCode}.", instanceId, exitCode);
+        _logger.LogInformation("Instance {UniqueName} exited with code {ExitCode}.", uniqueName, exitCode);
 
         if (!shouldRestart)
             return;
@@ -540,18 +540,18 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         lock (_sync)
         {
-            if (!_states.TryGetValue(instanceId, out state) || state.StopRequested || state.State != DedicatedServerInstanceProcessState.Restarting)
+            if (!_states.TryGetValue(uniqueName, out state) || state.StopRequested || state.State != DedicatedServerInstanceProcessState.Restarting)
                 return;
         }
 
-        await StartInstanceAsync(instanceId, _shutdown.Token);
+        await StartInstanceAsync(uniqueName, _shutdown.Token);
     }
 
-    private async Task TryRequestGracefulStopAsync(string instanceId, CancellationToken cancellationToken)
+    private async Task TryRequestGracefulStopAsync(string uniqueName, CancellationToken cancellationToken)
     {
         var agent = _registry.GetAgents().FirstOrDefault(current =>
             current.IsConnected &&
-            string.Equals(current.InstanceKey, instanceId, StringComparison.OrdinalIgnoreCase));
+            string.Equals(current.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
 
         if (agent is null)
             return;
@@ -561,14 +561,14 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             await _registry.SendCommandAsync(new ServerCommandEnvelope
             {
                 AgentId = agent.AgentId,
-                InstanceId = instanceId,
+                UniqueName = uniqueName,
                 ServerId = agent.ServerKey,
                 CommandType = ServerCommandType.StopServer,
             }, cancellationToken);
         }
         catch (Exception exception)
         {
-            _logger.LogDebug(exception, "Failed to send graceful stop to Quasar.Agent for instance {InstanceId}.", instanceId);
+            _logger.LogDebug(exception, "Failed to send graceful stop to Quasar.Agent for instance {UniqueName}.", uniqueName);
         }
     }
 
@@ -589,7 +589,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         {
             foreach (var persistedState in persisted.Instances)
             {
-                if (!_states.TryGetValue(persistedState.InstanceId, out var state))
+                if (!_states.TryGetValue(persistedState.UniqueName, out var state))
                     continue;
 
                 state.RestartAttempts = Math.Max(0, persistedState.RestartAttempts);
@@ -605,7 +605,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 if (persistedState.ProcessId is > 0 && TryAdoptProcess(persistedState.ProcessId.Value, out var process))
                 {
                     process.EnableRaisingEvents = true;
-                    process.Exited += async (_, _) => await HandleProcessExitedAsync(state.InstanceId);
+                    process.Exited += async (_, _) => await HandleProcessExitedAsync(state.UniqueName);
 
                     state.Process = process;
                     state.ProcessId = process.Id;
@@ -644,7 +644,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         {
             foreach (var definition in definitions)
             {
-                if (_states.TryGetValue(definition.InstanceId, out var state))
+                if (_states.TryGetValue(definition.UniqueName, out var state))
                 {
                     state.Definition = Clone(definition);
                     if (string.IsNullOrWhiteSpace(state.LastMessage))
@@ -652,9 +652,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 }
                 else
                 {
-                    _states.Add(definition.InstanceId, new ManagedInstanceState
+                    _states.Add(definition.UniqueName, new ManagedInstanceState
                     {
-                        InstanceId = definition.InstanceId,
+                        UniqueName = definition.UniqueName,
                         Definition = Clone(definition),
                         State = DedicatedServerInstanceProcessState.Stopped,
                         LastMessage = "Stopped.",
@@ -662,12 +662,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 }
             }
 
-            var configuredIds = definitions.Select(definition => definition.InstanceId)
+            var configuredIds = definitions.Select(definition => definition.UniqueName)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             foreach (var stale in _states.Values
-                         .Where(state => !configuredIds.Contains(state.InstanceId) && !IsProcessActive(state.Process))
-                         .Select(state => state.InstanceId)
+                         .Where(state => !configuredIds.Contains(state.UniqueName) && !IsProcessActive(state.Process))
+                         .Select(state => state.UniqueName)
                          .ToList())
             {
                 _states.Remove(stale);
@@ -692,11 +692,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
     }
 
-    private void SetFaulted(string instanceId, string message)
+    private void SetFaulted(string uniqueName, string message)
     {
         lock (_sync)
         {
-            if (!_states.TryGetValue(instanceId, out var state))
+            if (!_states.TryGetValue(uniqueName, out var state))
                 return;
 
             state.State = DedicatedServerInstanceProcessState.Faulted;
@@ -708,7 +708,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             ResetHealthTracking(state);
         }
 
-        _logger.LogWarning("Instance {InstanceId} faulted: {Message}", instanceId, message);
+        _logger.LogWarning("Instance {UniqueName} faulted: {Message}", uniqueName, message);
         NotifyChanged();
     }
 
@@ -736,8 +736,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private Dictionary<string, AgentRuntimeState> BuildAgentLookup()
     {
         return _registry.GetAgents()
-            .Where(agent => !string.IsNullOrWhiteSpace(agent.InstanceKey))
-            .GroupBy(agent => agent.InstanceKey, StringComparer.OrdinalIgnoreCase)
+            .Where(agent => !string.IsNullOrWhiteSpace(agent.UniqueNameKey))
+            .GroupBy(agent => agent.UniqueNameKey, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
                 group => group.Key,
                 group => group.OrderByDescending(agent => agent.LastSeenUtc).First(),
@@ -993,7 +993,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 Instances = _states.Values
                     .Select(state => new PersistedManagedInstanceState
                     {
-                        InstanceId = state.InstanceId,
+                        UniqueName = state.UniqueName,
                         State = state.State,
                         RestartAttempts = state.RestartAttempts,
                         ProcessId = state.ProcessId,
@@ -1004,7 +1004,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                         StandardErrorLogPath = state.StandardErrorLogPath,
                         LastHealthRecoveryActionUtc = state.LastHealthRecoveryActionUtc,
                     })
-                    .OrderBy(state => state.InstanceId, StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(state => state.UniqueName, StringComparer.OrdinalIgnoreCase)
                     .ToList(),
             };
         }
@@ -1029,8 +1029,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     {
         return new DedicatedServerInstanceDefinition
         {
-            InstanceId = definition.InstanceId,
-            Name = definition.Name,
+            UniqueName = definition.UniqueName,
+            OriginalUniqueName = definition.OriginalUniqueName,
             GoalState = definition.GoalState,
             ExecutablePath = definition.ExecutablePath,
             WorkingDirectory = definition.WorkingDirectory,
@@ -1084,8 +1084,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     {
         return new DedicatedServerInstanceRuntimeSnapshot
         {
-            InstanceId = state.InstanceId,
-            Name = state.Definition.Name,
+            UniqueName = state.UniqueName,
             GoalState = state.Definition.GoalState,
             State = state.State,
             HealthState = state.HealthState,
@@ -1108,7 +1107,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private sealed class ManagedInstanceState
     {
-        public string InstanceId { get; set; } = string.Empty;
+        public string UniqueName { get; set; } = string.Empty;
 
         public DedicatedServerInstanceDefinition Definition { get; set; } = new();
 
@@ -1180,7 +1179,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private sealed class PersistedManagedInstanceState
     {
-        public string InstanceId { get; set; } = string.Empty;
+        public string UniqueName { get; set; } = string.Empty;
 
         public DedicatedServerInstanceProcessState State { get; set; } = DedicatedServerInstanceProcessState.Stopped;
 

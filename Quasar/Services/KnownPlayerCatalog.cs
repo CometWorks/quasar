@@ -67,13 +67,13 @@ public sealed class KnownPlayerCatalog
                 if (player is null || player.SteamId <= 0)
                     continue;
 
-                var playerKey = BuildPlayerKey(snapshot.InstanceId, player.SteamId);
+                var playerKey = BuildPlayerKey(snapshot.UniqueName, player.SteamId);
                 if (!_players.TryGetValue(playerKey, out var record))
                 {
                     record = new KnownPlayerRecord
                     {
                         PlayerKey = playerKey,
-                        InstanceId = NormalizeInstanceId(snapshot.InstanceId),
+                        UniqueName = NormalizeUniqueName(snapshot.UniqueName),
                         SteamId = player.SteamId,
                         FirstSeenUtc = observedAt,
                     };
@@ -103,14 +103,14 @@ public sealed class KnownPlayerCatalog
         var changed = false;
         lock (_sync)
         {
-            var instanceId = NormalizeInstanceId(command.InstanceId);
-            var playerKey = BuildPlayerKey(instanceId, command.SteamId.Value);
+            var uniqueName = NormalizeUniqueName(command.UniqueName);
+            var playerKey = BuildPlayerKey(uniqueName, command.SteamId.Value);
             if (!_players.TryGetValue(playerKey, out var record))
             {
                 record = new KnownPlayerRecord
                 {
                     PlayerKey = playerKey,
-                    InstanceId = instanceId,
+                    UniqueName = uniqueName,
                     ServerId = command.ServerId?.Trim() ?? string.Empty,
                     FirstSeenUtc = result.CompletedAtUtc,
                     LastSeenUtc = result.CompletedAtUtc,
@@ -156,7 +156,7 @@ public sealed class KnownPlayerCatalog
     {
         var changed = false;
 
-        changed |= Assign(record.InstanceId, NormalizeInstanceId(snapshot.InstanceId), value => record.InstanceId = value);
+        changed |= Assign(record.UniqueName, NormalizeUniqueName(snapshot.UniqueName), value => record.UniqueName = value);
         changed |= Assign(record.ServerId, snapshot.ServerId?.Trim() ?? string.Empty, value => record.ServerId = value);
         changed |= Assign(record.ServerName, snapshot.ServerName?.Trim() ?? string.Empty, value => record.ServerName = value);
         changed |= Assign(record.WorldName, snapshot.WorldName?.Trim() ?? string.Empty, value => record.WorldName = value);
@@ -262,7 +262,7 @@ public sealed class KnownPlayerCatalog
         {
             snapshot = _players.Values
                 .Select(Clone)
-                .OrderBy(player => player.InstanceId, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(player => player.UniqueName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(player => player.SteamId)
                 .ToList();
         }
@@ -271,11 +271,11 @@ public sealed class KnownPlayerCatalog
         await AtomicFileWriter.WriteTextAsync(MagnetarPaths.GetQuasarKnownPlayersPath(), json, cancellationToken);
     }
 
-    private static string NormalizeInstanceId(string? instanceId) =>
-        instanceId?.Trim() ?? string.Empty;
+    private static string NormalizeUniqueName(string? uniqueName) =>
+        uniqueName?.Trim() ?? string.Empty;
 
-    private static string BuildPlayerKey(string? instanceId, long steamId) =>
-        $"{NormalizeInstanceId(instanceId)}::{steamId}";
+    private static string BuildPlayerKey(string? uniqueName, long steamId) =>
+        $"{NormalizeUniqueName(uniqueName)}::{steamId}";
 
     private static bool ShouldAdvanceLastSeen(DateTimeOffset previous, DateTimeOffset current)
     {
@@ -302,7 +302,7 @@ public sealed class KnownPlayerCatalog
         return new KnownPlayerRecord
         {
             PlayerKey = player.PlayerKey,
-            InstanceId = player.InstanceId,
+            UniqueName = player.UniqueName,
             ServerId = player.ServerId,
             ServerName = player.ServerName,
             WorldName = player.WorldName,

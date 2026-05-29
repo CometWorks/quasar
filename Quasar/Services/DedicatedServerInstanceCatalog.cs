@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Magnetar.Protocol.Runtime;
 using Quasar.Models;
 
@@ -12,6 +13,8 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         WriteIndented = true,
     };
+
+    private static readonly Regex UniqueNameRegex = new("^[a-zA-Z0-9_-]+$", RegexOptions.Compiled);
 
     private readonly object _sync = new();
     private readonly ILogger<DedicatedServerInstanceCatalog> _logger;
@@ -43,21 +46,20 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
         {
             return _instances
                 .Select(Clone)
-                .OrderBy(instance => instance.Name, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(instance => instance.InstanceId, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(instance => instance.UniqueName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
     }
 
-    public DedicatedServerInstanceDefinition? GetInstance(string instanceId)
+    public DedicatedServerInstanceDefinition? GetInstance(string uniqueName)
     {
-        if (string.IsNullOrWhiteSpace(instanceId))
+        if (string.IsNullOrWhiteSpace(uniqueName))
             return null;
 
         lock (_sync)
         {
             return _instances
-                .Where(instance => string.Equals(instance.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase))
+                .Where(instance => string.Equals(instance.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
                 .Select(Clone)
                 .FirstOrDefault();
         }
@@ -68,63 +70,49 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
         ArgumentNullException.ThrowIfNull(definition);
 
         var normalized = Normalize(Clone(definition));
+        var previousUniqueName = string.IsNullOrWhiteSpace(normalized.OriginalUniqueName)
+            ? normalized.UniqueName
+            : normalized.OriginalUniqueName;
 
         lock (_sync)
         {
-            var index = _instances.FindIndex(instance =>
-                string.Equals(instance.InstanceId, normalized.InstanceId, StringComparison.OrdinalIgnoreCase));
-
-            if (index >= 0)
-                _instances[index] = Clone(normalized);
-            else
-                _instances.Add(Clone(normalized));
-
-            _snapshot = CreateSnapshot(_instances);
+            if (_instances.Any(instance =>
+                    string.Equals(instance.UniqueName, normalized.UniqueName, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(instance.UniqueName, previousUniqueName, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException($"An instance named '{normalized.UniqueName}' already exists.");
+            }
         }
 
+        PrepareStorageForSave(normalized, previousUniqueName);
         await SaveInstanceAsync(normalized, cancellationToken);
-        Changed?.Invoke();
+        ReloadFromDisk();
     }
 
     public async Task SetGoalStateAsync(
-        string instanceId,
+        string uniqueName,
         DedicatedServerInstanceGoalState goalState,
         CancellationToken cancellationToken = default)
     {
-        var definition = GetInstance(instanceId);
+        var definition = GetInstance(uniqueName);
         if (definition is null)
-            throw new InvalidOperationException($"Unknown Quasar instance '{instanceId}'.");
+            throw new InvalidOperationException($"Unknown Quasar instance '{uniqueName}'.");
 
         definition.GoalState = goalState;
         definition.AutoStart = goalState == DedicatedServerInstanceGoalState.On;
         await UpsertAsync(definition, cancellationToken);
     }
 
-    public async Task DeleteAsync(string instanceId, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(string uniqueName, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(instanceId))
+        if (string.IsNullOrWhiteSpace(uniqueName))
             return;
 
-        DedicatedServerInstanceDefinition? removed = null;
-
-        lock (_sync)
-        {
-            var index = _instances.FindIndex(instance =>
-                string.Equals(instance.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase));
-
-            if (index >= 0)
-            {
-                removed = Clone(_instances[index]);
-                _instances.RemoveAt(index);
-                _snapshot = CreateSnapshot(_instances);
-            }
-        }
-
-        if (removed is null)
+        if (GetInstance(uniqueName) is null)
             return;
 
-        await ArchiveAndDeleteCurrentDefinitionAsync(removed.InstanceId, cancellationToken);
-        Changed?.Invoke();
+        await ArchiveAndDeleteCurrentDefinitionAsync(uniqueName, cancellationToken);
+        ReloadFromDisk();
     }
 
     private List<DedicatedServerInstanceDefinition> LoadInstances()
@@ -148,33 +136,11 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
                 }
             }
 
-            return LoadLegacyInstances();
+            return new List<DedicatedServerInstanceDefinition>();
         }
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Failed to load Quasar instance catalog.");
-            return new List<DedicatedServerInstanceDefinition>();
-        }
-    }
-
-    private List<DedicatedServerInstanceDefinition> LoadLegacyInstances()
-    {
-        var path = MagnetarPaths.GetQuasarLegacyInstancesPath();
-        try
-        {
-            if (!File.Exists(path))
-                return new List<DedicatedServerInstanceDefinition>();
-
-            var json = File.ReadAllText(path);
-            var instances = JsonSerializer.Deserialize<List<DedicatedServerInstanceDefinition>>(json, JsonOptions)
-                            ?? new List<DedicatedServerInstanceDefinition>();
-
-            _logger.LogInformation("Loaded legacy Quasar instance catalog from {Path}", path);
-            return instances.Select(Normalize).ToList();
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Failed to load legacy Quasar instance catalog from {Path}", path);
             return new List<DedicatedServerInstanceDefinition>();
         }
     }
@@ -196,9 +162,10 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
     private async Task SaveInstanceAsync(DedicatedServerInstanceDefinition definition, CancellationToken cancellationToken)
     {
         definition.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        definition.OriginalUniqueName = definition.UniqueName;
 
-        var path = MagnetarPaths.GetQuasarInstanceDefinitionPath(definition.InstanceId);
-        var historyDirectory = MagnetarPaths.GetQuasarInstanceHistoryDirectory(definition.InstanceId);
+        var path = MagnetarPaths.GetQuasarInstanceDefinitionPath(definition.UniqueName);
+        var historyDirectory = MagnetarPaths.GetQuasarInstanceHistoryDirectory(definition.UniqueName);
         var json = JsonSerializer.Serialize(definition, JsonOptions);
 
         await AtomicFileWriter.WriteTextAsync(path, json, cancellationToken);
@@ -210,13 +177,13 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
         _logger.LogInformation("Saved Quasar instance definition to {Path}", path);
     }
 
-    private async Task ArchiveAndDeleteCurrentDefinitionAsync(string instanceId, CancellationToken cancellationToken)
+    private async Task ArchiveAndDeleteCurrentDefinitionAsync(string uniqueName, CancellationToken cancellationToken)
     {
-        var currentPath = MagnetarPaths.GetQuasarInstanceDefinitionPath(instanceId);
+        var currentPath = MagnetarPaths.GetQuasarInstanceDefinitionPath(uniqueName);
         if (!File.Exists(currentPath))
             return;
 
-        var historyDirectory = MagnetarPaths.GetQuasarInstanceHistoryDirectory(instanceId);
+        var historyDirectory = MagnetarPaths.GetQuasarInstanceHistoryDirectory(uniqueName);
         Directory.CreateDirectory(historyDirectory);
 
         var deletedContents = await File.ReadAllTextAsync(currentPath, cancellationToken);
@@ -229,17 +196,18 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
 
     private static DedicatedServerInstanceDefinition Normalize(DedicatedServerInstanceDefinition instance)
     {
-        instance.InstanceId = string.IsNullOrWhiteSpace(instance.InstanceId)
-            ? Guid.NewGuid().ToString("N")
-            : instance.InstanceId.Trim();
-        instance.Name = instance.Name?.Trim() ?? string.Empty;
+        instance.UniqueName = instance.UniqueName?.Trim() ?? string.Empty;
+        ValidateUniqueName(instance.UniqueName);
+        instance.OriginalUniqueName = string.IsNullOrWhiteSpace(instance.OriginalUniqueName)
+            ? instance.UniqueName
+            : instance.OriginalUniqueName.Trim();
         instance.ExecutablePath = instance.ExecutablePath?.Trim() ?? string.Empty;
         instance.WorkingDirectory = instance.WorkingDirectory?.Trim() ?? string.Empty;
         instance.DedicatedServerAppDataPath = string.IsNullOrWhiteSpace(instance.DedicatedServerAppDataPath)
-            ? MagnetarPaths.GetQuasarInstanceDedicatedServerAppDataDirectory(instance.InstanceId)
+            ? MagnetarPaths.GetQuasarInstanceDedicatedServerAppDataDirectory(instance.UniqueName)
             : instance.DedicatedServerAppDataPath.Trim();
         instance.MagnetarAppDataPath = string.IsNullOrWhiteSpace(instance.MagnetarAppDataPath)
-            ? MagnetarPaths.GetQuasarInstanceMagnetarAppDataDirectory(instance.InstanceId)
+            ? MagnetarPaths.GetQuasarInstanceMagnetarAppDataDirectory(instance.UniqueName)
             : instance.MagnetarAppDataPath.Trim();
         instance.WorldPath = string.IsNullOrWhiteSpace(instance.WorldPath)
             ? Path.Combine(instance.DedicatedServerAppDataPath, "Saves", GetDefaultWorldDirectoryName(instance))
@@ -277,17 +245,13 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
 
     private static string GetDefaultWorldDirectoryName(DedicatedServerInstanceDefinition instance)
     {
-        var source = string.IsNullOrWhiteSpace(instance.Name)
-            ? instance.InstanceId
-            : instance.Name;
-
         var invalidCharacters = Path.GetInvalidFileNameChars();
-        var sanitized = source.Trim();
+        var sanitized = instance.UniqueName.Trim();
         foreach (var invalidCharacter in invalidCharacters)
             sanitized = sanitized.Replace(invalidCharacter, '-');
 
         return string.IsNullOrWhiteSpace(sanitized)
-            ? instance.InstanceId
+            ? instance.UniqueName
             : sanitized;
     }
 
@@ -295,8 +259,8 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
     {
         return new DedicatedServerInstanceDefinition
         {
-            InstanceId = instance.InstanceId,
-            Name = instance.Name,
+            UniqueName = instance.UniqueName,
+            OriginalUniqueName = instance.OriginalUniqueName,
             GoalState = instance.GoalState,
             ExecutablePath = instance.ExecutablePath,
             WorkingDirectory = instance.WorkingDirectory,
@@ -321,6 +285,65 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
             MaxRestartAttempts = instance.MaxRestartAttempts,
             UpdatedAtUtc = instance.UpdatedAtUtc,
         };
+    }
+
+    private static void ValidateUniqueName(string uniqueName)
+    {
+        if (string.IsNullOrWhiteSpace(uniqueName))
+            throw new InvalidOperationException("Unique name required.");
+
+        var trimmed = uniqueName.Trim();
+        if (!UniqueNameRegex.IsMatch(trimmed))
+            throw new InvalidOperationException("Unique name must match ^[a-zA-Z0-9_-]+$.");
+    }
+
+    private static void PrepareStorageForSave(DedicatedServerInstanceDefinition definition, string previousUniqueName)
+    {
+        if (string.Equals(previousUniqueName, definition.UniqueName, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var previousRoot = MagnetarPaths.GetQuasarInstanceDirectory(previousUniqueName);
+        var currentRoot = MagnetarPaths.GetQuasarInstanceDirectory(definition.UniqueName);
+
+        definition.DedicatedServerAppDataPath = RewriteManagedPath(definition.DedicatedServerAppDataPath, previousRoot, currentRoot);
+        definition.MagnetarAppDataPath = RewriteManagedPath(definition.MagnetarAppDataPath, previousRoot, currentRoot);
+        definition.WorldPath = RewriteManagedPath(definition.WorldPath, previousRoot, currentRoot);
+        definition.ConfigFilePath = RewriteManagedPath(definition.ConfigFilePath, previousRoot, currentRoot);
+
+        if (!Directory.Exists(previousRoot))
+            return;
+
+        if (Directory.Exists(currentRoot))
+            throw new InvalidOperationException($"Cannot rename instance to '{definition.UniqueName}' because the target directory already exists.");
+
+        Directory.CreateDirectory(Path.GetDirectoryName(currentRoot)!);
+        Directory.Move(previousRoot, currentRoot);
+    }
+
+    private static string RewriteManagedPath(string path, string previousRoot, string currentRoot)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return path;
+
+        var fullPath = Path.GetFullPath(path);
+        var fullPreviousRoot = Path.GetFullPath(previousRoot);
+        if (!IsPathWithinRoot(fullPath, fullPreviousRoot))
+            return path;
+
+        var relative = Path.GetRelativePath(fullPreviousRoot, fullPath);
+        return Path.Combine(currentRoot, relative);
+    }
+
+    private static bool IsPathWithinRoot(string fullPath, string fullRoot)
+    {
+        if (string.Equals(fullPath, fullRoot, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var prefix = fullRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? fullRoot
+            : fullRoot + Path.DirectorySeparatorChar;
+
+        return fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
     }
 
     private void StartWatching()
@@ -420,7 +443,7 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
     {
         var normalized = instances
             .Select(instance => Normalize(Clone(instance)))
-            .OrderBy(instance => instance.InstanceId, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(instance => instance.UniqueName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         return JsonSerializer.Serialize(normalized, JsonOptions);

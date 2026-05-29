@@ -11,7 +11,7 @@
                 </MudChip>
             </MudStack>
             <MudText Typo="Typo.caption">@Agent.NodeDisplayName · @Agent.WorldDisplayName</MudText>
-            <MudText Typo="Typo.caption" Class="mono">@Agent.InstanceKey</MudText>
+            <MudText Typo="Typo.caption" Class="mono">@Agent.UniqueNameKey</MudText>
         </CardHeaderContent>
     </MudCardHeader>
 
@@ -168,7 +168,7 @@
         {
             await Registry.SendCommandAsync(new ServerCommandEnvelope
             {
-                InstanceId = Agent.InstanceKey,
+                UniqueName = Agent.UniqueNameKey,
                 AgentId = Agent.AgentId,
                 ServerId = Agent.ServerKey,
                 CommandType = commandType,

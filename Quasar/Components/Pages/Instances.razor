@@ -38,8 +38,7 @@
     {
         <MudTable T="DedicatedServerInstanceDefinition" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="InstanceDefinitions">
             <HeaderContent>
-                <MudTh>Name</MudTh>
-                <MudTh>Instance Id</MudTh>
+                <MudTh>Unique Name</MudTh>
                 <MudTh>Config</MudTh>
                 <MudTh>Goal</MudTh>
                 <MudTh>Process</MudTh>
@@ -49,43 +48,42 @@
                 <MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd DataLabel="Name">@context.Name</MudTd>
-                <MudTd DataLabel="Instance Id" Class="mono">@context.InstanceId</MudTd>
+                <MudTd DataLabel="Unique Name" Class="mono">@context.UniqueName</MudTd>
                 <MudTd DataLabel="Config">@GetConfigProfileName(context.ConfigProfileId)</MudTd>
-                <MudTd DataLabel="Goal">@GetGoalStateText(context.InstanceId)</MudTd>
-                <MudTd DataLabel="Process" Class="mono">@GetProcessDisplay(context.InstanceId)</MudTd>
-                <MudTd DataLabel="Agent">@GetAttachmentStatus(context.InstanceId)</MudTd>
+                <MudTd DataLabel="Goal">@GetGoalStateText(context.UniqueName)</MudTd>
+                <MudTd DataLabel="Process" Class="mono">@GetProcessDisplay(context.UniqueName)</MudTd>
+                <MudTd DataLabel="Agent">@GetAttachmentStatus(context.UniqueName)</MudTd>
                 <MudTd DataLabel="State">
-                    <MudChip T="string" Color="@GetStateColor(context.InstanceId)" Variant="Variant.Outlined">
-                        @GetStateText(context.InstanceId)
+                    <MudChip T="string" Color="@GetStateColor(context.UniqueName)" Variant="Variant.Outlined">
+                        @GetStateText(context.UniqueName)
                     </MudChip>
                 </MudTd>
                 <MudTd DataLabel="Health">
-                    <MudChip T="string" Color="@GetHealthColor(context.InstanceId)" Variant="Variant.Outlined" title="@GetHealthSummary(context.InstanceId)">
-                        @GetHealthText(context.InstanceId)
+                    <MudChip T="string" Color="@GetHealthColor(context.UniqueName)" Variant="Variant.Outlined" title="@GetHealthSummary(context.UniqueName)">
+                        @GetHealthText(context.UniqueName)
                     </MudChip>
-                    @if (!string.IsNullOrWhiteSpace(GetHealthSummary(context.InstanceId)))
+                    @if (!string.IsNullOrWhiteSpace(GetHealthSummary(context.UniqueName)))
                     {
-                        <MudText Typo="Typo.caption" Class="d-block mt-1">@GetHealthSummary(context.InstanceId)</MudText>
+                        <MudText Typo="Typo.caption" Class="d-block mt-1">@GetHealthSummary(context.UniqueName)</MudText>
                     }
-                    @if (!string.IsNullOrWhiteSpace(GetHealthScoreDetail(context.InstanceId)))
+                    @if (!string.IsNullOrWhiteSpace(GetHealthScoreDetail(context.UniqueName)))
                     {
-                        <MudText Typo="Typo.caption" Class="d-block">@GetHealthScoreDetail(context.InstanceId)</MudText>
+                        <MudText Typo="Typo.caption" Class="d-block">@GetHealthScoreDetail(context.UniqueName)</MudText>
                     }
                 </MudTd>
                 <MudTd Style="text-align: right;">
                     <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.FlexEnd" Spacing="0">
-                        @if (IsRunning(context.InstanceId))
+                        @if (IsRunning(context.UniqueName))
                         {
-                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Warning" OnClick="@(() => StopAsync(context.InstanceId))">Stop</MudButton>
-                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" OnClick="@(() => RestartAsync(context.InstanceId))">Restart</MudButton>
+                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Warning" OnClick="@(() => StopAsync(context.UniqueName))">Stop</MudButton>
+                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" OnClick="@(() => RestartAsync(context.UniqueName))">Restart</MudButton>
                         }
                         else
                         {
-                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Success" OnClick="@(() => StartAsync(context.InstanceId))">Start</MudButton>
+                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Success" OnClick="@(() => StartAsync(context.UniqueName))">Start</MudButton>
                         }
                         <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => OpenEditDialogAsync(context))">Edit</MudButton>
-                        <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context.InstanceId))">Delete</MudButton>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context.UniqueName))">Delete</MudButton>
                     </MudStack>
                 </MudTd>
             </RowTemplate>
@@ -99,7 +97,7 @@
 
     private IReadOnlyDictionary<string, DedicatedServerInstanceRuntimeSnapshot> RuntimeSnapshots => Supervisor
         .GetSnapshots()
-        .ToDictionary(snapshot => snapshot.InstanceId, StringComparer.OrdinalIgnoreCase);
+        .ToDictionary(snapshot => snapshot.UniqueName, StringComparer.OrdinalIgnoreCase);
 
     protected override void OnInitialized()
     {
@@ -143,6 +141,7 @@
         {
             [nameof(InstanceEditorDialog.Definition)] = definition.Clone(),
             [nameof(InstanceEditorDialog.IsEditing)] = isEditing,
+            [nameof(InstanceEditorDialog.UniqueNameLocked)] = isEditing && IsRunning(definition.UniqueName),
         };
 
         var options = new DialogOptions
@@ -162,6 +161,15 @@
 
     private async Task SaveDefinitionAsync(DedicatedServerInstanceDefinition definition, string successMessage)
     {
+        var previousUniqueName = definition.OriginalUniqueName;
+        if (!string.IsNullOrWhiteSpace(previousUniqueName) &&
+            !string.Equals(previousUniqueName, definition.UniqueName, StringComparison.OrdinalIgnoreCase) &&
+            IsRunning(previousUniqueName))
+        {
+            Snackbar.Add("Stop the instance before renaming it.", Severity.Warning);
+            return;
+        }
+
         try
         {
             await InstanceCatalog.UpsertAsync(definition);
@@ -173,11 +181,11 @@
         }
     }
 
-    private async Task StartAsync(string instanceId)
+    private async Task StartAsync(string uniqueName)
     {
         try
         {
-            await Supervisor.SetGoalStateAsync(instanceId, DedicatedServerInstanceGoalState.On);
+            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerInstanceGoalState.On);
             Snackbar.Add("Instance goal state set to on.", Severity.Success);
         }
         catch (Exception exception)
@@ -186,11 +194,11 @@
         }
     }
 
-    private async Task StopAsync(string instanceId)
+    private async Task StopAsync(string uniqueName)
     {
         try
         {
-            await Supervisor.SetGoalStateAsync(instanceId, DedicatedServerInstanceGoalState.Off);
+            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerInstanceGoalState.Off);
             Snackbar.Add("Instance goal state set to off.", Severity.Info);
         }
         catch (Exception exception)
@@ -199,11 +207,11 @@
         }
     }
 
-    private async Task RestartAsync(string instanceId)
+    private async Task RestartAsync(string uniqueName)
     {
         try
         {
-            await Supervisor.RestartInstanceAsync(instanceId);
+            await Supervisor.RestartInstanceAsync(uniqueName);
             Snackbar.Add("Instance restart requested.", Severity.Info);
         }
         catch (Exception exception)
@@ -212,40 +220,40 @@
         }
     }
 
-    private async Task DeleteAsync(string instanceId)
+    private async Task DeleteAsync(string uniqueName)
     {
-        if (IsRunning(instanceId))
+        if (IsRunning(uniqueName))
         {
             Snackbar.Add("Stop the instance before deleting its definition.", Severity.Warning);
             return;
         }
 
-        await InstanceCatalog.DeleteAsync(instanceId);
+        await InstanceCatalog.DeleteAsync(uniqueName);
         Snackbar.Add("Instance removed.", Severity.Info);
     }
 
-    private string GetAttachmentStatus(string instanceId)
+    private string GetAttachmentStatus(string uniqueName)
     {
-        var runtime = GetRuntime(instanceId);
+        var runtime = GetRuntime(uniqueName);
         if (runtime is null)
             return "not attached";
 
         return runtime.AgentAttached ? "attached" : "not attached";
     }
 
-    private string GetProcessDisplay(string instanceId)
+    private string GetProcessDisplay(string uniqueName)
     {
-        var runtime = GetRuntime(instanceId);
+        var runtime = GetRuntime(uniqueName);
         return runtime?.ProcessId?.ToString() ?? "stopped";
     }
 
-    private string GetGoalStateText(string instanceId)
+    private string GetGoalStateText(string uniqueName)
     {
-        if (RuntimeSnapshots.TryGetValue(instanceId, out var runtime))
+        if (RuntimeSnapshots.TryGetValue(uniqueName, out var runtime))
             return runtime.GoalState.ToString().ToLowerInvariant();
 
         return InstanceDefinitions
-            .FirstOrDefault(definition => string.Equals(definition.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase))
+            .FirstOrDefault(definition => string.Equals(definition.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
             ?.GoalState
             .ToString()
             .ToLowerInvariant() ?? "off";
@@ -259,15 +267,15 @@
         return ConfigProfiles.GetProfile(configProfileId)?.Name ?? $"Missing: {configProfileId}";
     }
 
-    private string GetStateText(string instanceId)
+    private string GetStateText(string uniqueName)
     {
-        var runtime = GetRuntime(instanceId);
+        var runtime = GetRuntime(uniqueName);
         return runtime?.State.ToString().ToLowerInvariant() ?? "stopped";
     }
 
-    private Color GetStateColor(string instanceId)
+    private Color GetStateColor(string uniqueName)
     {
-        var state = GetRuntime(instanceId)?.State ?? DedicatedServerInstanceProcessState.Stopped;
+        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerInstanceProcessState.Stopped;
         return state switch
         {
             DedicatedServerInstanceProcessState.Running => Color.Success,
@@ -280,20 +288,20 @@
         };
     }
 
-    private string GetHealthText(string instanceId)
+    private string GetHealthText(string uniqueName)
     {
-        var health = GetRuntime(instanceId)?.HealthState ?? DedicatedServerInstanceHealthState.Unknown;
+        var health = GetRuntime(uniqueName)?.HealthState ?? DedicatedServerInstanceHealthState.Unknown;
         return health.ToString().ToLowerInvariant();
     }
 
-    private string GetHealthSummary(string instanceId)
+    private string GetHealthSummary(string uniqueName)
     {
-        return GetRuntime(instanceId)?.HealthSummary ?? string.Empty;
+        return GetRuntime(uniqueName)?.HealthSummary ?? string.Empty;
     }
 
-    private string GetHealthScoreDetail(string instanceId)
+    private string GetHealthScoreDetail(string uniqueName)
     {
-        var runtime = GetRuntime(instanceId);
+        var runtime = GetRuntime(uniqueName);
         if (runtime?.SimulationProgressScore is null ||
             runtime.SimulationProgressWindowSeconds is null ||
             runtime.SimulationFramesAdvanced is null)
@@ -304,9 +312,9 @@
         return $"frame score {runtime.SimulationProgressScore.Value:0.00} over {runtime.SimulationProgressWindowSeconds.Value}s ({runtime.SimulationFramesAdvanced.Value} frames)";
     }
 
-    private Color GetHealthColor(string instanceId)
+    private Color GetHealthColor(string uniqueName)
     {
-        var health = GetRuntime(instanceId)?.HealthState ?? DedicatedServerInstanceHealthState.Unknown;
+        var health = GetRuntime(uniqueName)?.HealthState ?? DedicatedServerInstanceHealthState.Unknown;
         return health switch
         {
             DedicatedServerInstanceHealthState.Healthy => Color.Success,
@@ -316,18 +324,18 @@
         };
     }
 
-    private bool IsRunning(string instanceId)
+    private bool IsRunning(string uniqueName)
     {
-        var state = GetRuntime(instanceId)?.State ?? DedicatedServerInstanceProcessState.Stopped;
+        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerInstanceProcessState.Stopped;
         return state is DedicatedServerInstanceProcessState.Starting
             or DedicatedServerInstanceProcessState.Running
             or DedicatedServerInstanceProcessState.Restarting
             or DedicatedServerInstanceProcessState.Stopping;
     }
 
-    private DedicatedServerInstanceRuntimeSnapshot? GetRuntime(string instanceId)
+    private DedicatedServerInstanceRuntimeSnapshot? GetRuntime(string uniqueName)
     {
-        RuntimeSnapshots.TryGetValue(instanceId, out var runtime);
+        RuntimeSnapshots.TryGetValue(uniqueName, out var runtime);
         return runtime;
     }
 
@@ -338,17 +346,10 @@
 
     private DedicatedServerInstanceDefinition CreateBlank()
     {
-        var id = Guid.NewGuid().ToString("N");
         var healthMonitoringEnabled = !Options.DisableInstanceHealthMonitoring;
-        var dsAppDataPath = MagnetarPaths.GetQuasarInstanceDedicatedServerAppDataDirectory(id);
-        var magnetarAppDataPath = MagnetarPaths.GetQuasarInstanceMagnetarAppDataDirectory(id);
         return new DedicatedServerInstanceDefinition
         {
-            InstanceId = id,
             GoalState = DedicatedServerInstanceGoalState.Off,
-            DedicatedServerAppDataPath = dsAppDataPath,
-            MagnetarAppDataPath = magnetarAppDataPath,
-            ConfigFilePath = Path.Combine(dsAppDataPath, "SpaceEngineers-Dedicated.cfg"),
             EnableHealthMonitoring = healthMonitoringEnabled,
             AutoRestartOnUnhealthy = healthMonitoringEnabled,
             AgentStartupGraceSeconds = 180,

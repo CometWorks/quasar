@@ -5,7 +5,7 @@ namespace Magnetar.Protocol.Model;
 
 public class AgentSnapshot
 {
-    public string InstanceId { get; set; } = string.Empty;
+    public string UniqueName { get; set; } = string.Empty;
 
     public string AgentId { get; set; } = string.Empty;
 

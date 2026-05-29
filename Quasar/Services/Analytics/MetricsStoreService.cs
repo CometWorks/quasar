@@ -18,7 +18,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
     private readonly DedicatedServerInstanceCatalog _catalog;
     private readonly ILogger<MetricsStoreService> _logger;
     private readonly ConcurrentDictionary<string, InstanceMetricsStore> _stores = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Channel<(string instanceId, MetricSample sample)> _channel = Channel.CreateBounded<(string instanceId, MetricSample sample)>(
+    private readonly Channel<(string uniqueName, MetricSample sample)> _channel = Channel.CreateBounded<(string uniqueName, MetricSample sample)>(
         new BoundedChannelOptions(512)
         {
             FullMode = BoundedChannelFullMode.DropOldest,
@@ -61,8 +61,8 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
     {
         foreach (var instance in _catalog.GetInstances())
         {
-            var store = _stores.GetOrAdd(instance.InstanceId, _ => new InstanceMetricsStore());
-            await TryLoadFromDiskAsync(instance.InstanceId, store, cancellationToken);
+            var store = _stores.GetOrAdd(instance.UniqueName, _ => new InstanceMetricsStore());
+            await TryLoadFromDiskAsync(instance.UniqueName, store, cancellationToken);
         }
 
         _lastPersistUtc = DateTimeOffset.UtcNow;
@@ -89,23 +89,23 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         await PersistAllAsync(cancellationToken);
     }
 
-    public void Enqueue(string instanceId, in MetricSample sample)
+    public void Enqueue(string uniqueName, in MetricSample sample)
     {
-        if (string.IsNullOrWhiteSpace(instanceId))
+        if (string.IsNullOrWhiteSpace(uniqueName))
             return;
 
-        _channel.Writer.TryWrite((instanceId, sample));
+        _channel.Writer.TryWrite((uniqueName, sample));
     }
 
-    public InstanceMetricsStore? GetStore(string instanceId)
+    public InstanceMetricsStore? GetStore(string uniqueName)
     {
-        if (string.IsNullOrWhiteSpace(instanceId))
+        if (string.IsNullOrWhiteSpace(uniqueName))
             return null;
 
-        return _stores.TryGetValue(instanceId, out var store) ? store : null;
+        return _stores.TryGetValue(uniqueName, out var store) ? store : null;
     }
 
-    public IReadOnlyList<string> GetInstanceIds()
+    public IReadOnlyList<string> GetUniqueNames()
     {
         return _stores.Keys
             .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
@@ -146,7 +146,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
             {
                 while (_channel.Reader.TryRead(out var item))
                 {
-                    var store = _stores.GetOrAdd(item.instanceId, _ => new InstanceMetricsStore());
+                    var store = _stores.GetOrAdd(item.uniqueName, _ => new InstanceMetricsStore());
                     store.Ingest(item.sample);
 
                     _itemsSincePersistCheck++;
@@ -168,7 +168,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         }
     }
 
-    private async Task PersistStoreAsync(string instanceId, InstanceMetricsStore store, CancellationToken cancellationToken)
+    private async Task PersistStoreAsync(string uniqueName, InstanceMetricsStore store, CancellationToken cancellationToken)
     {
         var payload = new PersistedAnalyticsDocument
         {
@@ -178,13 +178,13 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         };
 
         var json = JsonSerializer.Serialize(payload, JsonOptions);
-        var path = MagnetarPaths.GetQuasarInstanceAnalyticsPath(instanceId);
+        var path = MagnetarPaths.GetQuasarInstanceAnalyticsPath(uniqueName);
         await AtomicFileWriter.WriteTextAsync(path, json, cancellationToken);
     }
 
-    private async Task TryLoadFromDiskAsync(string instanceId, InstanceMetricsStore store, CancellationToken cancellationToken)
+    private async Task TryLoadFromDiskAsync(string uniqueName, InstanceMetricsStore store, CancellationToken cancellationToken)
     {
-        var path = MagnetarPaths.GetQuasarInstanceAnalyticsPath(instanceId);
+        var path = MagnetarPaths.GetQuasarInstanceAnalyticsPath(uniqueName);
         if (!File.Exists(path))
             return;
 
@@ -206,7 +206,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Failed to load analytics history for instance {InstanceId}", instanceId);
+            _logger.LogWarning(exception, "Failed to load analytics history for instance {UniqueName}", uniqueName);
         }
     }
 

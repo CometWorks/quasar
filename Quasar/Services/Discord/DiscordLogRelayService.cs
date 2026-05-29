@@ -68,11 +68,11 @@ public sealed class DiscordLogRelayService
         try
         {
             var snapshot = _supervisor.GetSnapshots()
-                .FirstOrDefault(item => string.Equals(item.InstanceId, instanceOptions.InstanceId, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(item => string.Equals(item.UniqueName, instanceOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
             if (snapshot is null || string.IsNullOrWhiteSpace(snapshot.StandardOutputLogPath))
                 return;
 
-            var delta = await ReadDeltaAsync(instanceOptions.InstanceId, snapshot.StandardOutputLogPath, cancellationToken);
+            var delta = await ReadDeltaAsync(instanceOptions.UniqueName, snapshot.StandardOutputLogPath, cancellationToken);
             if (string.IsNullOrWhiteSpace(delta))
                 return;
 
@@ -91,11 +91,11 @@ public sealed class DiscordLogRelayService
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Discord log export failed for instance {InstanceId}", instanceOptions.InstanceId);
+            _logger.LogWarning(exception, "Discord log export failed for instance {UniqueName}", instanceOptions.UniqueName);
         }
     }
 
-    private async Task<string> ReadDeltaAsync(string instanceId, string filePath, CancellationToken cancellationToken)
+    private async Task<string> ReadDeltaAsync(string uniqueName, string filePath, CancellationToken cancellationToken)
     {
         if (!File.Exists(filePath))
             return string.Empty;
@@ -103,7 +103,7 @@ public sealed class DiscordLogRelayService
         long offset;
         lock (_sync)
         {
-            if (!_offsets.TryGetValue(instanceId, out var state) ||
+            if (!_offsets.TryGetValue(uniqueName, out var state) ||
                 !string.Equals(state.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
             {
                 state = new LogCursorState
@@ -111,7 +111,7 @@ public sealed class DiscordLogRelayService
                     FilePath = filePath,
                     Offset = 0,
                 };
-                _offsets[instanceId] = state;
+                _offsets[uniqueName] = state;
             }
 
             offset = state.Offset;
@@ -129,7 +129,7 @@ public sealed class DiscordLogRelayService
 
         lock (_sync)
         {
-            if (_offsets.TryGetValue(instanceId, out var state) &&
+            if (_offsets.TryGetValue(uniqueName, out var state) &&
                 string.Equals(state.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
             {
                 state.Offset = newOffset;

@@ -4,7 +4,7 @@ namespace Magnetar.Protocol.Model;
 
 public class AgentHello
 {
-    public string InstanceId { get; set; } = string.Empty;
+    public string UniqueName { get; set; } = string.Empty;
 
     public string AgentId { get; set; } = string.Empty;
 

@@ -69,7 +69,7 @@ public sealed class DiscordAnalyticsExportService
     {
         try
         {
-            var store = _metricsStore.GetStore(instanceOptions.InstanceId);
+            var store = _metricsStore.GetStore(instanceOptions.UniqueName);
             if (store is null)
                 return;
 
@@ -82,10 +82,10 @@ public sealed class DiscordAnalyticsExportService
                 return;
 
             var snapshot = _supervisor.GetSnapshots()
-                .FirstOrDefault(item => string.Equals(item.InstanceId, instanceOptions.InstanceId, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(item => string.Equals(item.UniqueName, instanceOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
             var latest = samples[^1];
             var embed = new EmbedBuilder()
-                .WithTitle($"{snapshot?.Name ?? instanceOptions.InstanceId} analytics")
+                .WithTitle($"{snapshot?.UniqueName ?? instanceOptions.UniqueName} analytics")
                 .WithColor(Color.DarkBlue)
                 .WithTimestamp(DateTimeOffset.FromUnixTimeSeconds(latest.TimestampUnixSeconds))
                 .AddField("Window", $"{intervalMinutes} minute(s)", inline: true)
@@ -107,7 +107,7 @@ public sealed class DiscordAnalyticsExportService
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Discord analytics export failed for instance {InstanceId}", instanceOptions.InstanceId);
+            _logger.LogWarning(exception, "Discord analytics export failed for instance {UniqueName}", instanceOptions.UniqueName);
         }
     }
 
