@@ -65,10 +65,10 @@ public sealed class AgentRegistry
         }
 
         _knownPlayers.ObserveSnapshot(latestSnapshot);
-        if (!string.IsNullOrWhiteSpace(snapshot.InstanceId))
+        if (!string.IsNullOrWhiteSpace(snapshot.UniqueName))
         {
             var sample = MetricSampleFactory.FromSnapshot(snapshot);
-            _metricsStore.Enqueue(snapshot.InstanceId, in sample);
+            _metricsStore.Enqueue(snapshot.UniqueName, in sample);
         }
 
         NotifyChanged();
@@ -201,7 +201,7 @@ public sealed class AgentRegistry
         return new ServerCommandEnvelope
         {
             CommandId = command.CommandId,
-            InstanceId = command.InstanceId,
+            UniqueName = command.UniqueName,
             AgentId = command.AgentId,
             ServerId = command.ServerId,
             CommandType = command.CommandType,
@@ -230,7 +230,7 @@ public sealed class AgentRuntimeState
 
     public Func<AgentWireMessage, CancellationToken, Task>? Sender { get; set; }
 
-    public string InstanceKey => Snapshot?.InstanceId ?? Hello?.InstanceId ?? ServerKey;
+    public string UniqueNameKey => Snapshot?.UniqueName ?? Hello?.UniqueName ?? ServerKey;
 
     public string NodeKey => Snapshot?.NodeId ?? Hello?.NodeId ?? string.Empty;
 

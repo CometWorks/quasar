@@ -118,7 +118,7 @@ public sealed class DedicatedServerRuntimePreparer
         var content = SerializeXml(document);
         await AtomicFileWriter.WriteTextAsync(runtimeConfigPath, content, cancellationToken);
 
-        _logger.LogInformation("Prepared runtime DS config for instance {InstanceId} at {Path}.", definition.InstanceId, runtimeConfigPath);
+        _logger.LogInformation("Prepared runtime DS config for instance {UniqueName} at {Path}.", definition.UniqueName, runtimeConfigPath);
     }
 
     private async Task WriteLastSessionAsync(
@@ -146,7 +146,7 @@ public sealed class DedicatedServerRuntimePreparer
                 string.IsNullOrWhiteSpace(relativePath) ? null : new XElement("RelativePath", relativePath)));
 
         await AtomicFileWriter.WriteTextAsync(lastSessionPath, SerializeXml(document), cancellationToken);
-        _logger.LogInformation("Prepared LastSession.sbl for instance {InstanceId} at {Path}.", definition.InstanceId, lastSessionPath);
+        _logger.LogInformation("Prepared LastSession.sbl for instance {UniqueName} at {Path}.", definition.UniqueName, lastSessionPath);
     }
 
     private async Task PrepareMagnetarConfigAsync(
@@ -230,7 +230,7 @@ public sealed class DedicatedServerRuntimePreparer
 
         var profile = _configProfiles.GetProfile(definition.ConfigProfileId);
         if (profile is null)
-            throw new InvalidOperationException($"Unknown Quasar config profile '{definition.ConfigProfileId}' for instance '{definition.InstanceId}'.");
+            throw new InvalidOperationException($"Unknown Quasar config profile '{definition.ConfigProfileId}' for instance '{definition.UniqueName}'.");
 
         return profile;
     }
@@ -320,7 +320,7 @@ public sealed class DedicatedServerRuntimePreparer
     {
         return definition.LaunchArguments
             .Trim()
-            .Replace("{instanceId}", definition.InstanceId, StringComparison.OrdinalIgnoreCase)
+            .Replace("{uniqueName}", definition.UniqueName, StringComparison.OrdinalIgnoreCase)
             .Replace("{configPath}", QuoteArgument(runtimeConfigPath), StringComparison.OrdinalIgnoreCase)
             .Replace("{quasarBaseUrl}", QuoteArgument(options.BaseUrl), StringComparison.OrdinalIgnoreCase)
             .Replace("{nodeId}", options.NodeId, StringComparison.OrdinalIgnoreCase)
@@ -360,12 +360,12 @@ public sealed class DedicatedServerRuntimePreparer
         if (!string.IsNullOrWhiteSpace(definition.WorldProfileId))
         {
             var profile = _worldProfiles.GetProfile(definition.WorldProfileId)
-                ?? throw new InvalidOperationException($"Unknown world profile '{definition.WorldProfileId}' for instance '{definition.InstanceId}'.");
+                ?? throw new InvalidOperationException($"Unknown world profile '{definition.WorldProfileId}' for instance '{definition.UniqueName}'.");
 
             await SeedWorldFromProfileAsync(definition.WorldProfileId, worldPath, cancellationToken);
             _logger.LogInformation(
-                "Seeded world for instance {InstanceId} from profile '{ProfileName}' at {WorldPath}.",
-                definition.InstanceId, profile.Name, worldPath);
+                "Seeded world for instance {UniqueName} from profile '{ProfileName}' at {WorldPath}.",
+                definition.UniqueName, profile.Name, worldPath);
             return worldPath;
         }
 
@@ -428,8 +428,8 @@ public sealed class DedicatedServerRuntimePreparer
 
     private static string GetWorldDisplayName(DedicatedServerInstanceDefinition definition, string worldPath)
     {
-        if (!string.IsNullOrWhiteSpace(definition.Name))
-            return definition.Name.Trim();
+        if (!string.IsNullOrWhiteSpace(definition.UniqueName))
+            return definition.UniqueName.Trim();
 
         return Path.GetFileName(worldPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
     }

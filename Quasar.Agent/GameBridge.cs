@@ -29,7 +29,7 @@ namespace Quasar.Agent
         private readonly string _processName = Process.GetCurrentProcess().ProcessName;
         private readonly string _nodeName = Environment.MachineName;
         private readonly string _nodeId;
-        private readonly string _instanceId;
+        private readonly string _uniqueName;
         private readonly string _pluginVersion;
         private readonly ConcurrentQueue<DeathEventSnapshot> _deathQueue = new ConcurrentQueue<DeathEventSnapshot>();
         private long _lastWorkingSetBytes;
@@ -42,7 +42,7 @@ namespace Quasar.Agent
             _nodeId = (Environment.GetEnvironmentVariable("MAGNETAR_NODE_ID") ?? _nodeName)
                 .Trim()
                 .ToLowerInvariant();
-            _instanceId = (Environment.GetEnvironmentVariable("QUASAR_INSTANCE_ID")
+            _uniqueName = (Environment.GetEnvironmentVariable("QUASAR_UNIQUE_NAME")
                     ?? $"unmanaged-{_nodeId}-{_processId}")
                 .Trim();
             _pluginVersion = typeof(AdminPlugin).Assembly.GetName().Version?.ToString() ?? "0.0.0";
@@ -122,12 +122,12 @@ namespace Quasar.Agent
             var session = MySession.Static;
             var serverName = GetServerName(session);
             var worldName = GetWorldName(session);
-            var serverId = _instanceId;
+            var serverId = _uniqueName;
             var agentId = $"{serverId}:{_processId}";
 
             return new AgentHello
             {
-                InstanceId = _instanceId,
+                UniqueName = _uniqueName,
                 AgentId = agentId,
                 NodeId = _nodeId,
                 NodeName = _nodeName,
@@ -150,7 +150,7 @@ namespace Quasar.Agent
 
             return new AgentSnapshot
             {
-                InstanceId = hello.InstanceId,
+                UniqueName = hello.UniqueName,
                 AgentId = hello.AgentId,
                 NodeId = hello.NodeId,
                 NodeName = hello.NodeName,
@@ -443,7 +443,7 @@ namespace Quasar.Agent
             return new ServerCommandResult
             {
                 CommandId = command.CommandId,
-                InstanceId = command.InstanceId,
+                UniqueName = command.UniqueName,
                 AgentId = command.AgentId,
                 ServerId = command.ServerId,
                 Success = success,

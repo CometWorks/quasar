@@ -44,12 +44,12 @@ public sealed class DiscordDeathRelayService
             var agent = agents.FirstOrDefault(item =>
                 item.IsConnected &&
                 item.Snapshot is not null &&
-                string.Equals(item.InstanceKey, instanceOptions.InstanceId, StringComparison.OrdinalIgnoreCase));
+                string.Equals(item.UniqueNameKey, instanceOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
 
             if (agent?.Snapshot is null)
                 continue;
 
-            var deaths = CollectFreshDeaths(instanceOptions.InstanceId, agent.Snapshot.RecentDeaths);
+            var deaths = CollectFreshDeaths(instanceOptions.UniqueName, agent.Snapshot.RecentDeaths);
             if (deaths.Count == 0)
                 continue;
 
@@ -72,17 +72,17 @@ public sealed class DiscordDeathRelayService
         }
     }
 
-    private IReadOnlyList<DeathEventSnapshot> CollectFreshDeaths(string instanceId, IReadOnlyList<DeathEventSnapshot> recentDeaths)
+    private IReadOnlyList<DeathEventSnapshot> CollectFreshDeaths(string uniqueName, IReadOnlyList<DeathEventSnapshot> recentDeaths)
     {
         if (recentDeaths.Count == 0)
             return [];
 
         lock (_sync)
         {
-            if (!_dedup.TryGetValue(instanceId, out var dedupState))
+            if (!_dedup.TryGetValue(uniqueName, out var dedupState))
             {
                 dedupState = new DedupState();
-                _dedup[instanceId] = dedupState;
+                _dedup[uniqueName] = dedupState;
             }
 
             var fresh = new List<DeathEventSnapshot>();

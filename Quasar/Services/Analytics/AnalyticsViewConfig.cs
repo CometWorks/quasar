@@ -24,7 +24,7 @@ public sealed class AnalyticsViewConfig
 
     public AnalyticsTierMode TierMode { get; set; } = AnalyticsTierMode.Auto;
 
-    public List<string> SelectedInstanceIds { get; set; } = [];
+    public List<string> SelectedUniqueNames { get; set; } = [];
 
     public DateTime? CustomFromDate { get; set; } = DateTime.UtcNow.Date.AddDays(-1);
 

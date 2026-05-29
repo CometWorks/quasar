@@ -34,7 +34,7 @@ public sealed class DiscordOptions
             Enabled = options.Enabled,
             Instances = (options.Instances ?? [])
                 .Select(DiscordInstanceOptions.Normalize)
-                .OrderBy(instance => instance.InstanceId, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(instance => instance.UniqueName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(instance => instance.CommandPrefix, StringComparer.OrdinalIgnoreCase)
                 .ToList(),
         };
@@ -43,7 +43,7 @@ public sealed class DiscordOptions
 
 public sealed class DiscordInstanceOptions
 {
-    public string InstanceId { get; set; } = string.Empty;
+    public string UniqueName { get; set; } = string.Empty;
 
     public string CommandPrefix { get; set; } = string.Empty;
 
@@ -80,7 +80,7 @@ public sealed class DiscordInstanceOptions
     {
         return new DiscordInstanceOptions
         {
-            InstanceId = InstanceId,
+            UniqueName = UniqueName,
             CommandPrefix = CommandPrefix,
             CommandChannelId = CommandChannelId,
             ChatRelayChannelId = ChatRelayChannelId,
@@ -104,7 +104,7 @@ public sealed class DiscordInstanceOptions
 
         return new DiscordInstanceOptions
         {
-            InstanceId = options.InstanceId?.Trim() ?? string.Empty,
+            UniqueName = options.UniqueName?.Trim() ?? string.Empty,
             CommandPrefix = options.CommandPrefix?.Trim() ?? string.Empty,
             CommandChannelId = NormalizeChannelId(options.CommandChannelId),
             ChatRelayChannelId = NormalizeChannelId(options.ChatRelayChannelId),

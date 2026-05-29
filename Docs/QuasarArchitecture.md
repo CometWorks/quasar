@@ -276,7 +276,7 @@ The current direct agent-side process spawn is only an implementation stepping s
 It needs:
 
 - persistent instance definitions
-- stable `InstanceId` per DS instance
+- stable `UniqueName` per DS instance
 - desired `GoalState` per DS instance
 - desired state tracking
 - crash detection
@@ -330,7 +330,7 @@ That score should be compared against a configurable minimum threshold, and save
 
 Each launched DS process should receive:
 
-- stable instance id
+- stable unique name
 - supervisor endpoint
 - session/auth token
 - config/world identifiers
@@ -394,7 +394,7 @@ Requirements:
 Suggested layout:
 
 - `logs/quasar/`
-- `logs/instances/{instanceId}/`
+- `logs/instances/{uniqueName}/`
 
 ### Service mode behavior
 
@@ -714,7 +714,7 @@ The protocol and IDs should remain compatible with those later additions.
 ### Stage 4: Instance model and persistence
 
 - define persistent DS instance records
-- add stable `InstanceId`
+- add stable `UniqueName`
 - define launch settings, world/config selection, restart policy
 - define isolated DS and Magnetar app-data roots per instance
 - define desired goal state per instance

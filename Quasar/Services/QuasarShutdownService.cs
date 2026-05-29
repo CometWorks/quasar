@@ -37,12 +37,12 @@ public sealed class QuasarShutdownService
 
             foreach (var snapshot in running)
             {
-                var label = string.IsNullOrWhiteSpace(snapshot.Name) ? snapshot.InstanceId : snapshot.Name;
+                var label = snapshot.UniqueName;
                 progress?.Report($"Stopping \"{label}\"…");
 
                 try
                 {
-                    await _supervisor.StopInstanceAsync(snapshot.InstanceId, cancellationToken);
+                    await _supervisor.StopInstanceAsync(snapshot.UniqueName, cancellationToken);
                 }
                 catch
                 {

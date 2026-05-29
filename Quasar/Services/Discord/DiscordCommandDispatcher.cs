@@ -44,52 +44,52 @@ public sealed class DiscordCommandDispatcher
                         return;
                     }
 
-                    await SendAgentCommandAsync(instanceOptions.InstanceId, ServerCommandType.SendChat, text: args, cancellationToken: cancellationToken);
+                    await SendAgentCommandAsync(instanceOptions.UniqueName, ServerCommandType.SendChat, text: args, cancellationToken: cancellationToken);
                     await ReplyAsync(message, "Chat sent.");
                     return;
 
                 case "save":
-                    await SendAgentCommandAsync(instanceOptions.InstanceId, ServerCommandType.SaveWorld, cancellationToken: cancellationToken);
+                    await SendAgentCommandAsync(instanceOptions.UniqueName, ServerCommandType.SaveWorld, cancellationToken: cancellationToken);
                     await ReplyAsync(message, "Save requested.");
                     return;
 
                 case "stop":
-                    await _supervisor.StopInstanceAsync(instanceOptions.InstanceId, cancellationToken);
+                    await _supervisor.StopInstanceAsync(instanceOptions.UniqueName, cancellationToken);
                     await ReplyAsync(message, "Stop requested.");
                     return;
 
                 case "start":
-                    await _supervisor.StartInstanceAsync(instanceOptions.InstanceId, cancellationToken);
+                    await _supervisor.StartInstanceAsync(instanceOptions.UniqueName, cancellationToken);
                     await ReplyAsync(message, "Start requested.");
                     return;
 
                 case "restart":
-                    await _supervisor.RestartInstanceAsync(instanceOptions.InstanceId, cancellationToken);
+                    await _supervisor.RestartInstanceAsync(instanceOptions.UniqueName, cancellationToken);
                     await ReplyAsync(message, "Restart requested.");
                     return;
 
                 case "kick":
-                    await DispatchSteamIdCommandAsync(message, instanceOptions.InstanceId, args, ServerCommandType.KickPlayer, "Kick requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, instanceOptions.UniqueName, args, ServerCommandType.KickPlayer, "Kick requested.", cancellationToken);
                     return;
 
                 case "ban":
-                    await DispatchSteamIdCommandAsync(message, instanceOptions.InstanceId, args, ServerCommandType.BanPlayer, "Ban requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, instanceOptions.UniqueName, args, ServerCommandType.BanPlayer, "Ban requested.", cancellationToken);
                     return;
 
                 case "unban":
-                    await DispatchSteamIdCommandAsync(message, instanceOptions.InstanceId, args, ServerCommandType.UnbanPlayer, "Unban requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, instanceOptions.UniqueName, args, ServerCommandType.UnbanPlayer, "Unban requested.", cancellationToken);
                     return;
 
                 case "promote":
-                    await DispatchSteamIdCommandAsync(message, instanceOptions.InstanceId, args, ServerCommandType.PromotePlayer, "Promote requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, instanceOptions.UniqueName, args, ServerCommandType.PromotePlayer, "Promote requested.", cancellationToken);
                     return;
 
                 case "demote":
-                    await DispatchSteamIdCommandAsync(message, instanceOptions.InstanceId, args, ServerCommandType.DemotePlayer, "Demote requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, instanceOptions.UniqueName, args, ServerCommandType.DemotePlayer, "Demote requested.", cancellationToken);
                     return;
 
                 case "status":
-                    await message.Channel.SendMessageAsync(embed: BuildStatusEmbed(instanceOptions.InstanceId).Build());
+                    await message.Channel.SendMessageAsync(embed: BuildStatusEmbed(instanceOptions.UniqueName).Build());
                     return;
 
                 case "help":
@@ -104,7 +104,7 @@ public sealed class DiscordCommandDispatcher
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Discord command {Verb} failed for instance {InstanceId}", verb, instanceOptions.InstanceId);
+            _logger.LogWarning(exception, "Discord command {Verb} failed for instance {UniqueName}", verb, instanceOptions.UniqueName);
             await ReplyAsync(message, $"Error: {exception.Message}");
         }
     }
@@ -120,18 +120,18 @@ public sealed class DiscordCommandDispatcher
             if (string.IsNullOrWhiteSpace(text))
                 return;
 
-            await SendAgentCommandAsync(instanceOptions.InstanceId, ServerCommandType.SendChat, text: text.Trim(), cancellationToken: cancellationToken);
+            await SendAgentCommandAsync(instanceOptions.UniqueName, ServerCommandType.SendChat, text: text.Trim(), cancellationToken: cancellationToken);
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Discord chat relay failed for instance {InstanceId}", instanceOptions.InstanceId);
+            _logger.LogWarning(exception, "Discord chat relay failed for instance {UniqueName}", instanceOptions.UniqueName);
             await ReplyAsync(message, $"Error: {exception.Message}");
         }
     }
 
     private async Task DispatchSteamIdCommandAsync(
         SocketMessage message,
-        string instanceId,
+        string uniqueName,
         string args,
         ServerCommandType commandType,
         string successReply,
@@ -143,24 +143,24 @@ public sealed class DiscordCommandDispatcher
             return;
         }
 
-        await SendAgentCommandAsync(instanceId, commandType, steamId: steamId, cancellationToken: cancellationToken);
+        await SendAgentCommandAsync(uniqueName, commandType, steamId: steamId, cancellationToken: cancellationToken);
         await ReplyAsync(message, successReply);
     }
 
     private async Task SendAgentCommandAsync(
-        string instanceId,
+        string uniqueName,
         ServerCommandType commandType,
         string text = "",
         long? steamId = null,
         CancellationToken cancellationToken = default)
     {
-        var agent = ResolveConnectedAgent(instanceId);
+        var agent = ResolveConnectedAgent(uniqueName);
         if (agent is null)
             throw new InvalidOperationException("Instance not connected.");
 
         await _registry.SendCommandAsync(new ServerCommandEnvelope
         {
-            InstanceId = instanceId,
+            UniqueName = uniqueName,
             AgentId = agent.AgentId,
             ServerId = agent.ServerKey,
             CommandType = commandType,
@@ -170,31 +170,29 @@ public sealed class DiscordCommandDispatcher
         }, cancellationToken);
     }
 
-    private AgentRuntimeState? ResolveConnectedAgent(string instanceId)
+    private AgentRuntimeState? ResolveConnectedAgent(string uniqueName)
     {
         return _registry.GetAgents().FirstOrDefault(agent =>
             agent.IsConnected &&
-            string.Equals(agent.InstanceKey, instanceId, StringComparison.OrdinalIgnoreCase));
+            string.Equals(agent.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
     }
 
-    private EmbedBuilder BuildStatusEmbed(string instanceId)
+    private EmbedBuilder BuildStatusEmbed(string uniqueName)
     {
-        var definition = _instanceCatalog.GetInstance(instanceId);
+        var definition = _instanceCatalog.GetInstance(uniqueName);
         var runtime = _supervisor.GetSnapshots()
-            .FirstOrDefault(snapshot => string.Equals(snapshot.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(snapshot => string.Equals(snapshot.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase));
         var agent = _registry.GetAgents().FirstOrDefault(item =>
-            string.Equals(item.InstanceKey, instanceId, StringComparison.OrdinalIgnoreCase));
+            string.Equals(item.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
         var metrics = agent?.Snapshot?.Metrics;
 
-        var title = string.IsNullOrWhiteSpace(definition?.Name)
-            ? runtime?.Name ?? instanceId
-            : definition.Name;
+        var title = definition?.UniqueName ?? runtime?.UniqueName ?? uniqueName;
 
         var builder = new EmbedBuilder()
             .WithTitle($"{title} status")
             .WithColor(agent?.IsConnected == true ? Color.Green : Color.Orange)
             .WithTimestamp(DateTimeOffset.UtcNow)
-            .AddField("Instance", $"`{instanceId}`", inline: false)
+            .AddField("Instance", $"`{uniqueName}`", inline: false)
             .AddField("Goal", runtime?.GoalState.ToString() ?? definition?.GoalState.ToString() ?? "Unknown", inline: true)
             .AddField("State", runtime?.State.ToString() ?? "Unknown", inline: true)
             .AddField("Agent", agent?.IsConnected == true ? "Connected" : "Disconnected", inline: true)

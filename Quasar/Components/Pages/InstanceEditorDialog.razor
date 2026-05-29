@@ -9,17 +9,23 @@
             <section>
                 <MudText Typo="Typo.subtitle2" Class="mb-2">Identity</MudText>
                 <MudGrid>
-                    <MudItem xs="12" md="6">
-                        <MudTextField Value="_editor.InstanceId" Label="Instance ID" Variant="Variant.Outlined" ReadOnly="true" Class="mono" />
+                    <MudItem xs="12">
+                        <MudTextField
+                            @bind-Value="_editor.UniqueName"
+                            Label="Unique name"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            Pattern="^[a-zA-Z0-9_-]+$"
+                            Disabled="@UniqueNameLocked"
+                            AutoFocus="true"
+                            Class="mono"
+                            HelperText="@GetUniqueNameHelperText()" />
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudSelect T="DedicatedServerInstanceGoalState" @bind-Value="_editor.GoalState" Label="Goal state" Variant="Variant.Outlined">
                             <MudSelectItem Value="DedicatedServerInstanceGoalState.Off">Off</MudSelectItem>
                             <MudSelectItem Value="DedicatedServerInstanceGoalState.On">On</MudSelectItem>
                         </MudSelect>
-                    </MudItem>
-                    <MudItem xs="12" md="6">
-                        <MudTextField @bind-Value="_editor.Name" Label="Display name" Variant="Variant.Outlined" Immediate="true" />
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudSelect T="string" @bind-Value="_editor.ConfigProfileId" Label="Config profile" Variant="Variant.Outlined" HelperText="Reusable world, plugin, and mod preset from Configs page.">
@@ -66,14 +72,14 @@
                             @bind-Value="_editor.DedicatedServerAppDataPath"
                             Label="DS app-data path"
                             Variant="Variant.Outlined"
-                            HelperText="@($"Space Engineers Dedicated Server data (-path). Default: {MagnetarPaths.GetQuasarInstanceDedicatedServerAppDataDirectory(_editor.InstanceId)}")" />
+                            HelperText="@($"Space Engineers Dedicated Server data (-path). Default: {GetDefaultDedicatedServerAppDataPath()}")" />
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudTextField
                             @bind-Value="_editor.MagnetarAppDataPath"
                             Label="Magnetar app-data path"
                             Variant="Variant.Outlined"
-                            HelperText="@($"Magnetar profiles and sources (-config). Default: {MagnetarPaths.GetQuasarInstanceMagnetarAppDataDirectory(_editor.InstanceId)}")" />
+                            HelperText="@($"Magnetar profiles and sources (-config). Default: {GetDefaultMagnetarAppDataPath()}")" />
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudTextField
@@ -95,7 +101,7 @@
                             Label="Launch arguments"
                             Variant="Variant.Outlined"
                             Lines="3"
-                            HelperText="Tokens: {instanceId} {configPath} {quasarBaseUrl} {nodeId} {dsAppDataPath} {magnetarAppDataPath} {ds64Path} {worldPath}. Quasar enforces -noconsole, -path, -config, and -ds64 for managed instances." />
+                            HelperText="Tokens: {uniqueName} {configPath} {quasarBaseUrl} {nodeId} {dsAppDataPath} {magnetarAppDataPath} {ds64Path} {worldPath}. Quasar enforces -noconsole, -path, -config, and -ds64 for managed instances." />
                     </MudItem>
                 </MudGrid>
             </section>
@@ -177,6 +183,9 @@
     [Parameter]
     public bool IsEditing { get; set; }
 
+    [Parameter]
+    public bool UniqueNameLocked { get; set; }
+
     private DedicatedServerInstanceDefinition _editor = new();
     private bool _isEditing;
 
@@ -193,9 +202,15 @@
 
     private void Save()
     {
-        if (string.IsNullOrWhiteSpace(_editor.Name))
+        if (string.IsNullOrWhiteSpace(_editor.UniqueName))
         {
-            Snackbar.Add("Instance name required.", Severity.Warning);
+            Snackbar.Add("Unique name required.", Severity.Warning);
+            return;
+        }
+
+        if (!System.Text.RegularExpressions.Regex.IsMatch(_editor.UniqueName.Trim(), "^[a-zA-Z0-9_-]+$"))
+        {
+            Snackbar.Add("Unique name must match ^[a-zA-Z0-9_-]+$.", Severity.Warning);
             return;
         }
 
@@ -205,12 +220,10 @@
     private string GetDefaultWorldPath()
     {
         var dsPath = string.IsNullOrWhiteSpace(_editor.DedicatedServerAppDataPath)
-            ? MagnetarPaths.GetQuasarInstanceDedicatedServerAppDataDirectory(_editor.InstanceId)
+            ? GetDefaultDedicatedServerAppDataPath()
             : _editor.DedicatedServerAppDataPath;
 
-        var worldName = string.IsNullOrWhiteSpace(_editor.Name)
-            ? _editor.InstanceId
-            : _editor.Name.Trim();
+        var worldName = GetUniqueNamePreview();
 
         foreach (var ch in Path.GetInvalidFileNameChars())
             worldName = worldName.Replace(ch, '-');
@@ -221,9 +234,38 @@
     private string GetDefaultConfigFilePath()
     {
         var dsPath = string.IsNullOrWhiteSpace(_editor.DedicatedServerAppDataPath)
-            ? MagnetarPaths.GetQuasarInstanceDedicatedServerAppDataDirectory(_editor.InstanceId)
+            ? GetDefaultDedicatedServerAppDataPath()
             : _editor.DedicatedServerAppDataPath;
 
         return Path.Combine(dsPath, "SpaceEngineers-Dedicated.cfg");
+    }
+
+    private string GetDefaultDedicatedServerAppDataPath()
+    {
+        return Path.Combine(GetDefaultInstanceDirectory(), "DedicatedServer");
+    }
+
+    private string GetDefaultMagnetarAppDataPath()
+    {
+        return Path.Combine(GetDefaultInstanceDirectory(), "Magnetar");
+    }
+
+    private string GetDefaultInstanceDirectory()
+    {
+        return Path.Combine(MagnetarPaths.GetQuasarInstancesDirectory(), GetUniqueNamePreview());
+    }
+
+    private string GetUniqueNamePreview()
+    {
+        return string.IsNullOrWhiteSpace(_editor.UniqueName)
+            ? "<unique-name>"
+            : _editor.UniqueName.Trim();
+    }
+
+    private string GetUniqueNameHelperText()
+    {
+        return UniqueNameLocked
+            ? "Stop instance before renaming. Allowed: letters, numbers, underscore, hyphen. Used as canonical identity and Magnetars subdirectory name."
+            : "Required. Allowed: letters, numbers, underscore, hyphen. Used as canonical identity and Magnetars subdirectory name.";
     }
 }

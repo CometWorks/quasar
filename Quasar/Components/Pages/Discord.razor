@@ -66,11 +66,11 @@
                 <MudExpansionPanels MultiExpansion="true" Elevation="0" Outlined="true" Dense="true">
                     @foreach (var definition in InstanceDefinitions)
                     {
-                        var instanceOptions = GetInstanceOptions(definition.InstanceId);
+                        var instanceOptions = GetInstanceOptions(definition.UniqueName);
 
-                        <MudExpansionPanel Text="@definition.Name" @key="definition.InstanceId">
+                        <MudExpansionPanel Text="@definition.UniqueName" @key="definition.UniqueName">
                             <MudStack Spacing="2" Class="pt-2">
-                                <MudText Typo="Typo.caption" Class="mono">@definition.InstanceId</MudText>
+                                <MudText Typo="Typo.caption" Class="mono">@definition.UniqueName</MudText>
 
                                 <MudTextField @bind-Value="instanceOptions.CommandPrefix"
                                               Label="Command prefix"
@@ -120,7 +120,7 @@
                                               Variant="Variant.Outlined" />
                                 <MudCheckBox T="bool" @bind-Value="instanceOptions.RelayNonCommandMessages" Label="Relay non-command Discord messages to game chat" />
 
-                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SaveInstanceAsync(definition.InstanceId))">
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SaveInstanceAsync(definition.UniqueName))">
                                     Save Instance
                                 </MudButton>
                             </MudStack>
@@ -236,12 +236,12 @@
         await SaveAsync("Discord bot settings saved.");
     }
 
-    private async Task SaveInstanceAsync(string instanceId)
+    private async Task SaveInstanceAsync(string uniqueName)
     {
-        if (string.IsNullOrWhiteSpace(instanceId))
+        if (string.IsNullOrWhiteSpace(uniqueName))
             return;
 
-        await SaveAsync($"Discord settings saved for {GetInstanceName(instanceId)}.");
+        await SaveAsync($"Discord settings saved for {GetInstanceName(uniqueName)}.");
     }
 
     private async Task SaveAsync(string successMessage)
@@ -292,17 +292,17 @@
         _options.GuildId = value;
     }
 
-    private DiscordInstanceOptions GetInstanceOptions(string instanceId)
+    private DiscordInstanceOptions GetInstanceOptions(string uniqueName)
     {
         return _options.Instances.First(instance =>
-            string.Equals(instance.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase));
+            string.Equals(instance.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase));
     }
 
-    private string GetInstanceName(string instanceId)
+    private string GetInstanceName(string uniqueName)
     {
         return InstanceDefinitions
-            .FirstOrDefault(item => string.Equals(item.InstanceId, instanceId, StringComparison.OrdinalIgnoreCase))
-            ?.Name ?? instanceId;
+            .FirstOrDefault(item => string.Equals(item.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
+            ?.UniqueName ?? uniqueName;
     }
 
     private void ReloadOptions()
@@ -387,14 +387,14 @@
         foreach (var definition in InstanceDefinitions)
         {
             if (_options.Instances.Any(instance =>
-                    string.Equals(instance.InstanceId, definition.InstanceId, StringComparison.OrdinalIgnoreCase)))
+                    string.Equals(instance.UniqueName, definition.UniqueName, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }
 
             _options.Instances.Add(new DiscordInstanceOptions
             {
-                InstanceId = definition.InstanceId,
+                UniqueName = definition.UniqueName,
             });
         }
 

@@ -39,12 +39,12 @@ public sealed class DiscordChatRelayService
             var agent = agents.FirstOrDefault(item =>
                 item.IsConnected &&
                 item.Snapshot is not null &&
-                string.Equals(item.InstanceKey, instanceOptions.InstanceId, StringComparison.OrdinalIgnoreCase));
+                string.Equals(item.UniqueNameKey, instanceOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
 
             if (agent?.Snapshot is null)
                 continue;
 
-            var freshMessages = CollectFreshMessages(instanceOptions.InstanceId, agent.Snapshot.RecentChat);
+            var freshMessages = CollectFreshMessages(instanceOptions.UniqueName, agent.Snapshot.RecentChat);
             foreach (var freshMessage in freshMessages)
                 Enqueue(client, instanceOptions.ChatRelayChannelId!.Value, freshMessage, cancellationToken);
         }
@@ -61,17 +61,17 @@ public sealed class DiscordChatRelayService
         }
     }
 
-    private IReadOnlyList<string> CollectFreshMessages(string instanceId, IReadOnlyList<ChatMessageSnapshot> recentChat)
+    private IReadOnlyList<string> CollectFreshMessages(string uniqueName, IReadOnlyList<ChatMessageSnapshot> recentChat)
     {
         if (recentChat.Count == 0)
             return [];
 
         lock (_sync)
         {
-            if (!_dedup.TryGetValue(instanceId, out var dedupState))
+            if (!_dedup.TryGetValue(uniqueName, out var dedupState))
             {
                 dedupState = new DedupState();
-                _dedup[instanceId] = dedupState;
+                _dedup[uniqueName] = dedupState;
             }
 
             var fresh = new List<string>();

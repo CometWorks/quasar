@@ -110,7 +110,7 @@
                     @if (GetAssignedInstances(_editor.ConfigProfileId).Count > 0)
                     {
                         <MudText Typo="Typo.caption" Class="d-block mt-2 config-secondary">
-                            Applied to: @string.Join(", ", GetAssignedInstances(_editor.ConfigProfileId).Select(instance => instance.Name))
+                            Applied to: @string.Join(", ", GetAssignedInstances(_editor.ConfigProfileId).Select(instance => instance.UniqueName))
                         </MudText>
                     }
 
@@ -1039,7 +1039,7 @@
     {
         return InstanceCatalog.GetInstances()
             .Where(instance => string.Equals(instance.ConfigProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(instance => instance.Name, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(instance => instance.UniqueName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 

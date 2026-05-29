@@ -6,7 +6,7 @@ public class ServerCommandEnvelope
 {
     public string CommandId { get; set; } = Guid.NewGuid().ToString("N");
 
-    public string InstanceId { get; set; } = string.Empty;
+    public string UniqueName { get; set; } = string.Empty;
 
     public string AgentId { get; set; } = string.Empty;
 

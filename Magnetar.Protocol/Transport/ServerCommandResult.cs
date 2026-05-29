@@ -6,7 +6,7 @@ public class ServerCommandResult
 {
     public string CommandId { get; set; } = string.Empty;
 
-    public string InstanceId { get; set; } = string.Empty;
+    public string UniqueName { get; set; } = string.Empty;
 
     public string AgentId { get; set; } = string.Empty;
 

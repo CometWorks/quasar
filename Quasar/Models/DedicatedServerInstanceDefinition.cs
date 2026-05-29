@@ -1,10 +1,13 @@
+using System.Text.Json.Serialization;
+
 namespace Quasar.Models;
 
 public sealed class DedicatedServerInstanceDefinition
 {
-    public string InstanceId { get; set; } = Guid.NewGuid().ToString("N");
+    public string UniqueName { get; set; } = string.Empty;
 
-    public string Name { get; set; } = string.Empty;
+    [JsonIgnore]
+    public string OriginalUniqueName { get; set; } = string.Empty;
 
     public DedicatedServerInstanceGoalState GoalState { get; set; } = DedicatedServerInstanceGoalState.Off;
 
@@ -56,8 +59,8 @@ public sealed class DedicatedServerInstanceDefinition
     {
         return new DedicatedServerInstanceDefinition
         {
-            InstanceId = InstanceId,
-            Name = Name,
+            UniqueName = UniqueName,
+            OriginalUniqueName = OriginalUniqueName,
             GoalState = GoalState,
             ExecutablePath = ExecutablePath,
             WorkingDirectory = WorkingDirectory,
