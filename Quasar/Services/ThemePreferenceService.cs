@@ -7,14 +7,16 @@ public sealed class ThemePreferenceService
 {
     private const string StorageKey = "quasar.theme.mode";
     private readonly ILocalStorageService _localStorage;
+    private readonly BrandingService _brandingService;
     private bool _initialized;
 
-    public ThemePreferenceService(ILocalStorageService localStorage)
+    public ThemePreferenceService(ILocalStorageService localStorage, BrandingService brandingService)
     {
         _localStorage = localStorage;
+        _brandingService = brandingService;
     }
 
-    public MudTheme Theme => QuasarTheme.Default;
+    public MudTheme Theme => _brandingService.BuildMudTheme();
 
     public bool IsDarkMode { get; private set; } = true;
 

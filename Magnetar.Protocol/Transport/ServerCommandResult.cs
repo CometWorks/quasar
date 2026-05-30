@@ -16,5 +16,12 @@ public class ServerCommandResult
 
     public string Message { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Optional JSON response body for commands that return structured data
+    /// (e.g. <see cref="ServerCommandType.ListEntities"/> returns an
+    /// <c>EntityListResult</c>). Empty for simple commands.
+    /// </summary>
+    public string Payload { get; set; } = string.Empty;
+
     public DateTimeOffset CompletedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 }

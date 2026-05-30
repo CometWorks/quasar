@@ -1,0 +1,344 @@
+@page "/entities"
+@implements IDisposable
+@inject AgentRegistry Registry
+@inject EntityService EntityService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Entities</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Entities</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Live world entity list for a connected instance. Query grids, characters, floating objects and voxels, then inspect or delete them with full admin control.</MudText>
+
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+    <MudSelect T="string"
+               Label="Instance"
+               Value="_selectedAgentId"
+               ValueChanged="OnInstanceChangedAsync"
+               Variant="Variant.Outlined"
+               Dense="true"
+               Disabled="@(ConnectedAgents.Count == 0)"
+               Style="min-width: 16rem;">
+        @foreach (var agent in ConnectedAgents)
+        {
+            <MudSelectItem T="string" Value="@agent.AgentId">@agent.ServerDisplayName</MudSelectItem>
+        }
+    </MudSelect>
+
+    <MudSelect T="string"
+               Label="Type"
+               Value="_typeFilter"
+               ValueChanged="OnTypeChangedAsync"
+               Variant="Variant.Outlined"
+               Dense="true"
+               Style="min-width: 12rem;">
+        @foreach (var option in TypeOptions)
+        {
+            <MudSelectItem T="string" Value="@option.Value">@option.Label</MudSelectItem>
+        }
+    </MudSelect>
+
+    <MudTextField @bind-Value="_searchText"
+                  Label="Search name / id / owner"
+                  Variant="Variant.Outlined"
+                  Adornment="Adornment.Start"
+                  AdornmentIcon="@Icons.Material.Filled.Search"
+                  Clearable="true"
+                  Immediate="true"
+                  Style="min-width: 16rem;" />
+
+    <MudButton Variant="Variant.Filled"
+               Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Refresh"
+               OnClick="LoadAsync"
+               Disabled="@(_loading || GetSelectedAgent() is null)">
+        Refresh
+    </MudButton>
+</MudStack>
+
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+    @if (_lastResult is not null)
+    {
+        <MudChip T="string" Variant="Variant.Outlined">Matching @_lastResult.TotalCount</MudChip>
+        <MudChip T="string" Variant="Variant.Outlined">Shown @FilteredEntities.Count</MudChip>
+        <MudChip T="string" Variant="Variant.Outlined">Live total @_lastResult.TotalEntityCount</MudChip>
+    }
+    @if (_lastUpdated is not null)
+    {
+        <MudText Typo="Typo.caption">Last updated: @_lastUpdated.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</MudText>
+    }
+    @if (_loading)
+    {
+        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+    }
+</MudStack>
+
+@if (ConnectedAgents.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        No connected instances. Entities can only be listed for an instance with a live Quasar agent.
+    </MudAlert>
+}
+else if (GetSelectedAgent() is null)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+        The selected instance is no longer connected. Pick another instance above.
+    </MudAlert>
+}
+else if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
+}
+else if (_lastResult is null)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        Select an instance and press Refresh to load the live entity list.
+    </MudAlert>
+}
+else if (FilteredEntities.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        No entities match the current filter.
+    </MudAlert>
+}
+else
+{
+    <MudTable T="EntitySummary" Items="FilteredEntities" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" FixedHeader="true" Height="60vh">
+        <HeaderContent>
+            <MudTh>Type</MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.DisplayName)">Name</MudTableSortLabel></MudTh>
+            <MudTh>Sub-type</MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.BlockCount ?? -1)">Blocks</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.Pcu ?? -1)">PCU</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.SizeMeters)">Size (m)</MudTableSortLabel></MudTh>
+            <MudTh>Owner</MudTh>
+            <MudTh>Position</MudTh>
+            <MudTh Style="text-align: right;">Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Type">
+                <MudChip T="string" Size="Size.Small" Color="@GetTypeColor(context.TypeTag)" Variant="Variant.Outlined">@context.TypeTag</MudChip>
+            </MudTd>
+            <MudTd DataLabel="Name">
+                <MudText Typo="Typo.body2">@context.DisplayName</MudText>
+                <MudText Typo="Typo.caption" Class="mono">#@context.EntityId</MudText>
+            </MudTd>
+            <MudTd DataLabel="Sub-type">@context.SubType</MudTd>
+            <MudTd DataLabel="Blocks">@(context.BlockCount?.ToString() ?? "-")</MudTd>
+            <MudTd DataLabel="PCU">@(context.Pcu?.ToString() ?? "-")</MudTd>
+            <MudTd DataLabel="Size (m)">@context.SizeMeters.ToString("0")</MudTd>
+            <MudTd DataLabel="Owner">@FormatOwner(context)</MudTd>
+            <MudTd DataLabel="Position" Class="mono">@FormatPosition(context)</MudTd>
+            <MudTd Style="text-align: right;">
+                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                               Color="Color.Error"
+                               Size="Size.Small"
+                               OnClick="@(() => DeleteEntityAsync(context))"
+                               title="Delete entity" />
+            </MudTd>
+        </RowTemplate>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new[] { 25, 50, 100, 250 }" />
+        </PagerContent>
+    </MudTable>
+}
+
+@code
+{
+    private static readonly (string Value, string Label)[] TypeOptions =
+    {
+        ("All", "All types"),
+        ("Grid", "Grids"),
+        ("Character", "Characters"),
+        ("Float", "Floating objects"),
+        ("Voxel", "Voxels"),
+    };
+
+    private string? _selectedAgentId;
+    private string _typeFilter = "All";
+    private string _searchText = string.Empty;
+    private IReadOnlyList<EntitySummary> _entities = Array.Empty<EntitySummary>();
+    private EntityListResult? _lastResult;
+    private DateTimeOffset? _lastUpdated;
+    private bool _loading;
+    private string? _error;
+
+    private List<AgentRuntimeState> ConnectedAgents => Registry.GetAgents()
+        .Where(agent => agent.IsConnected)
+        .ToList();
+
+    private List<EntitySummary> FilteredEntities => _entities
+        .Where(MatchesSearch)
+        .ToList();
+
+    protected override void OnInitialized()
+    {
+        Registry.Changed += HandleChanged;
+        _selectedAgentId ??= ConnectedAgents.FirstOrDefault()?.AgentId;
+    }
+
+    public void Dispose()
+    {
+        Registry.Changed -= HandleChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _lastResult is null && GetSelectedAgent() is not null)
+            await LoadAsync();
+    }
+
+    private async Task OnInstanceChangedAsync(string agentId)
+    {
+        _selectedAgentId = agentId;
+        await LoadAsync();
+    }
+
+    private async Task OnTypeChangedAsync(string typeTag)
+    {
+        _typeFilter = typeTag;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var agent = GetSelectedAgent();
+        if (agent is null)
+        {
+            _entities = Array.Empty<EntitySummary>();
+            _lastResult = null;
+            return;
+        }
+
+        _loading = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            var filter = new EntityListFilter
+            {
+                TypeTag = _typeFilter,
+                Search = string.Empty,
+                Limit = 500,
+                Offset = 0,
+            };
+
+            var result = await EntityService.GetEntitiesAsync(agent, filter);
+            _lastResult = result;
+            _entities = result.Entities;
+            _lastUpdated = result.CapturedAtUtc;
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            _entities = Array.Empty<EntitySummary>();
+            _lastResult = null;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteEntityAsync(EntitySummary entity)
+    {
+        var agent = GetSelectedAgent();
+        if (agent is null)
+        {
+            Snackbar.Add("The selected instance is not connected.", Severity.Error);
+            return;
+        }
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Delete entity",
+            $"Permanently delete \"{entity.DisplayName}\" (#{entity.EntityId})? This cannot be undone.",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        try
+        {
+            var result = await EntityService.DeleteEntityAsync(agent, entity.EntityId);
+            if (result.Success)
+            {
+                Snackbar.Add(string.IsNullOrWhiteSpace(result.Message) ? "Entity deleted." : result.Message, Severity.Success);
+                await LoadAsync();
+            }
+            else
+            {
+                Snackbar.Add(string.IsNullOrWhiteSpace(result.Message) ? "Delete failed." : result.Message, Severity.Error);
+            }
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private AgentRuntimeState? GetSelectedAgent()
+    {
+        if (string.IsNullOrEmpty(_selectedAgentId))
+            return null;
+
+        return ConnectedAgents.FirstOrDefault(agent =>
+            string.Equals(agent.AgentId, _selectedAgentId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool MatchesSearch(EntitySummary entity)
+    {
+        var search = _searchText?.Trim();
+        if (string.IsNullOrWhiteSpace(search))
+            return true;
+
+        return Contains(entity.DisplayName, search)
+               || Contains(entity.SubType, search)
+               || Contains(entity.OwnerName, search)
+               || entity.EntityId.ToString().Contains(search, StringComparison.OrdinalIgnoreCase)
+               || (entity.OwnerSteamId?.ToString().Contains(search, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private void HandleChanged()
+    {
+        // Connected-instance list and connection status can change underneath us; just
+        // re-render. The entity list itself is only refreshed on explicit user action.
+        _selectedAgentId ??= ConnectedAgents.FirstOrDefault()?.AgentId;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private static bool Contains(string? value, string search)
+    {
+        return !string.IsNullOrWhiteSpace(value)
+               && value.Contains(search, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FormatOwner(EntitySummary entity)
+    {
+        if (!string.IsNullOrWhiteSpace(entity.OwnerName))
+            return entity.OwnerName;
+
+        return entity.OwnerSteamId is { } steamId && steamId != 0
+            ? steamId.ToString()
+            : "-";
+    }
+
+    private static string FormatPosition(EntitySummary entity)
+    {
+        return $"{entity.PositionX:0}, {entity.PositionY:0}, {entity.PositionZ:0}";
+    }
+
+    private static Color GetTypeColor(string typeTag)
+    {
+        return typeTag switch
+        {
+            "Grid" => Color.Primary,
+            "Character" => Color.Success,
+            "Float" => Color.Warning,
+            "Voxel" => Color.Info,
+            _ => Color.Default,
+        };
+    }
+}

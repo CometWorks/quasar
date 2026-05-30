@@ -9,6 +9,7 @@ public sealed class AgentRegistry
     private readonly object _sync = new();
     private readonly Dictionary<string, AgentRuntimeState> _agents = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ServerCommandEnvelope> _pendingCommands = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, TaskCompletionSource<ServerCommandResult>> _pendingResults = new(StringComparer.OrdinalIgnoreCase);
     private readonly KnownPlayerCatalog _knownPlayers;
     private readonly MetricsStoreService _metricsStore;
 
@@ -77,6 +78,7 @@ public sealed class AgentRegistry
     public void UpdateCommandResult(ServerCommandResult result)
     {
         ServerCommandEnvelope? command = null;
+        TaskCompletionSource<ServerCommandResult>? awaiter = null;
 
         lock (_sync)
         {
@@ -90,8 +92,13 @@ public sealed class AgentRegistry
             {
                 _pendingCommands.TryGetValue(result.CommandId, out command);
                 _pendingCommands.Remove(result.CommandId);
+
+                if (_pendingResults.TryGetValue(result.CommandId, out awaiter))
+                    _pendingResults.Remove(result.CommandId);
             }
         }
+
+        awaiter?.TrySetResult(result);
 
         if (command is not null)
             _knownPlayers.ApplyCommandOutcome(command, result);
@@ -103,6 +110,7 @@ public sealed class AgentRegistry
     {
         var changed = false;
         var disconnectedAgentIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var abandonedAwaiters = new List<TaskCompletionSource<ServerCommandResult>>();
 
         lock (_sync)
         {
@@ -124,9 +132,18 @@ public sealed class AgentRegistry
                              .ToList())
                 {
                     _pendingCommands.Remove(commandId);
+
+                    if (_pendingResults.TryGetValue(commandId, out var awaiter))
+                    {
+                        _pendingResults.Remove(commandId);
+                        abandonedAwaiters.Add(awaiter);
+                    }
                 }
             }
         }
+
+        foreach (var awaiter in abandonedAwaiters)
+            awaiter.TrySetException(new InvalidOperationException("Agent disconnected before responding to the command."));
 
         if (changed)
             NotifyChanged();
@@ -161,6 +178,62 @@ public sealed class AgentRegistry
             }
 
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Sends a command and awaits the matching <see cref="ServerCommandResult"/> from the agent.
+    /// Used by request/response commands such as <see cref="ServerCommandType.ListEntities"/>.
+    /// Throws <see cref="TimeoutException"/> if the agent does not respond in time, or
+    /// <see cref="InvalidOperationException"/> if the agent is not connected / disconnects.
+    /// </summary>
+    public async Task<ServerCommandResult> SendCommandAndWaitAsync(
+        ServerCommandEnvelope command,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        Func<AgentWireMessage, CancellationToken, Task>? sender;
+        var completion = new TaskCompletionSource<ServerCommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        lock (_sync)
+        {
+            if (!_agents.TryGetValue(command.AgentId, out var state) || state.Sender is null || !state.IsConnected)
+                throw new InvalidOperationException($"Agent '{command.AgentId}' is not connected.");
+
+            sender = state.Sender;
+            _pendingCommands[command.CommandId] = CloneCommand(command);
+            _pendingResults[command.CommandId] = completion;
+        }
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(timeout);
+
+        await using var registration = timeoutCts.Token.Register(() =>
+        {
+            if (cancellationToken.IsCancellationRequested)
+                completion.TrySetCanceled(cancellationToken);
+            else
+                completion.TrySetException(new TimeoutException(
+                    $"Agent '{command.AgentId}' did not respond within {timeout.TotalSeconds:0}s."));
+        });
+
+        try
+        {
+            await sender(new AgentWireMessage
+            {
+                Kind = WireMessageKind.Command,
+                Command = command,
+            }, cancellationToken);
+
+            return await completion.Task;
+        }
+        finally
+        {
+            lock (_sync)
+            {
+                _pendingCommands.Remove(command.CommandId);
+                _pendingResults.Remove(command.CommandId);
+            }
         }
     }
 
@@ -207,6 +280,7 @@ public sealed class AgentRegistry
             CommandType = command.CommandType,
             Text = command.Text,
             SteamId = command.SteamId,
+            Payload = command.Payload,
             IssuedAtUtc = command.IssuedAtUtc,
         };
     }

@@ -18,5 +18,12 @@ public class ServerCommandEnvelope
 
     public long? SteamId { get; set; }
 
+    /// <summary>
+    /// Optional JSON request body for commands that carry structured parameters
+    /// (e.g. <see cref="ServerCommandType.ListEntities"/> filter,
+    /// <see cref="ServerCommandType.DeleteEntity"/> target). Empty for simple commands.
+    /// </summary>
+    public string Payload { get; set; } = string.Empty;
+
     public DateTimeOffset IssuedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 }

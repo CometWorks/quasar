@@ -78,6 +78,47 @@ h1:focus {
     font-family: "JetBrains Mono", "Cascadia Code", monospace;
 }
 
+.branding-logo-preview {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: var(--mud-default-borderradius);
+}
+
+.branding-logo-preview img {
+    max-height: 48px;
+    max-width: 100%;
+    object-fit: contain;
+}
+
+.branding-logo-preview-dark {
+    background: #18181b;
+}
+
+.branding-logo-preview-light {
+    background: #f5f5f5;
+}
+
+.branding-favicon-preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    padding: 0.5rem;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: var(--mud-default-borderradius);
+    background: var(--mud-palette-surface);
+}
+
+.branding-favicon-preview img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
 .mud-main-content {
     background: var(--mud-palette-background);
 }

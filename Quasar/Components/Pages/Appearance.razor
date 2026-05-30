@@ -1,0 +1,347 @@
+@page "/settings/appearance"
+@using MudBlazor.Utilities
+@implements IDisposable
+@inject BrandingService BrandingService
+@inject ISnackbar Snackbar
+
+<PageTitle>Appearance</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Appearance</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    Customize branding, theme colors, logos, and favicon. Changes apply live across all open sessions once saved.
+</MudText>
+
+<MudGrid>
+    <MudItem xs="12" md="4">
+        <MudPaper Class="pa-4 summary-card">
+            <MudStack Spacing="3">
+                <MudText Typo="Typo.h6">Branding</MudText>
+                <MudTextField @bind-Value="_draft.AppName"
+                              Label="App name"
+                              Variant="Variant.Outlined" />
+                <MudTextField @bind-Value="_draft.AppSubtitle"
+                              Label="Subtitle"
+                              Variant="Variant.Outlined" />
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="8">
+        <MudPaper Class="pa-4 server-card">
+            <MudStack Spacing="3">
+                <MudText Typo="Typo.h6">Preset Theme</MudText>
+                <MudText Typo="Typo.body2">
+                    Pick a starting palette. Editing any color below switches to a custom theme.
+                </MudText>
+                <MudSelect T="string"
+                           Value="@(_draft.PresetId ?? CustomPresetValue)"
+                           ValueChanged="ApplyPreset"
+                           Label="Preset"
+                           Variant="Variant.Outlined">
+                    @foreach (var preset in BrandingPresets.All)
+                    {
+                        <MudSelectItem T="string" Value="@preset.Id">@preset.DisplayName</MudSelectItem>
+                    }
+                    <MudSelectItem T="string" Value="@CustomPresetValue" Disabled="true">Custom (edited)</MudSelectItem>
+                </MudSelect>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12">
+        <MudPaper Class="pa-4">
+            <MudText Typo="Typo.h6" Class="mb-2">Colors</MudText>
+            <MudTabs Elevation="0" Rounded="true" Outlined="true" ApplyEffectsToContainer="true" TabPanelsClass="pa-4">
+                <MudTabPanel Text="Light">
+                    @RenderPaletteEditor(_draft.LightPalette)
+                </MudTabPanel>
+                <MudTabPanel Text="Dark">
+                    @RenderPaletteEditor(_draft.DarkPalette)
+                </MudTabPanel>
+            </MudTabs>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4">
+            <MudStack Spacing="3">
+                <MudText Typo="Typo.h6">Logo</MudText>
+
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.subtitle2">Light mode logo</MudText>
+                    <div class="branding-logo-preview branding-logo-preview-dark">
+                        <img src="@(_draft.LogoDarkPath ?? "/Quasar.png")" alt="Light mode logo preview" />
+                    </div>
+                    <MudFileUpload T="IBrowserFile"
+                                   Accept=".png,.jpg,.jpeg,.webp,.svg"
+                                   FilesChanged="@(file => UploadLogoAsync(file, isDark: true))">
+                        <CustomContent Context="upload">
+                            <MudButton Variant="Variant.Outlined"
+                                       StartIcon="@Icons.Material.Filled.CloudUpload"
+                                       OnClick="@(() => upload.OpenFilePickerAsync())">
+                                Upload light-mode logo
+                            </MudButton>
+                        </CustomContent>
+                    </MudFileUpload>
+                </MudStack>
+
+                <MudDivider />
+
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.subtitle2">Dark mode logo</MudText>
+                    <div class="branding-logo-preview branding-logo-preview-light">
+                        <img src="@(_draft.LogoLightPath ?? "/Quasar-inverted-transparent.png")" alt="Dark mode logo preview" />
+                    </div>
+                    <MudFileUpload T="IBrowserFile"
+                                   Accept=".png,.jpg,.jpeg,.webp,.svg"
+                                   FilesChanged="@(file => UploadLogoAsync(file, isDark: false))">
+                        <CustomContent Context="upload">
+                            <MudButton Variant="Variant.Outlined"
+                                       StartIcon="@Icons.Material.Filled.CloudUpload"
+                                       OnClick="@(() => upload.OpenFilePickerAsync())">
+                                Upload dark-mode logo
+                            </MudButton>
+                        </CustomContent>
+                    </MudFileUpload>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4">
+            <MudStack Spacing="3">
+                <MudText Typo="Typo.h6">Favicon</MudText>
+                <div class="branding-favicon-preview">
+                    <img src="@(_draft.FaviconPath ?? "/Quasar.ico")" alt="Favicon preview" />
+                </div>
+                <MudFileUpload T="IBrowserFile"
+                               Accept=".ico,.png"
+                               FilesChanged="UploadFaviconAsync">
+                    <CustomContent Context="upload">
+                        <MudButton Variant="Variant.Outlined"
+                                   StartIcon="@Icons.Material.Filled.CloudUpload"
+                                   OnClick="@(() => upload.OpenFilePickerAsync())">
+                            Upload favicon
+                        </MudButton>
+                    </CustomContent>
+                </MudFileUpload>
+                <MudText Typo="Typo.caption">
+                    A browser tab may need one refresh to drop an aggressively cached favicon.
+                </MudText>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12">
+        <MudPaper Class="pa-4">
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" AlignItems="AlignItems.Center">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Save"
+                           OnClick="SaveAsync">
+                    Save Changes
+                </MudButton>
+                <MudButton Variant="Variant.Text"
+                           Color="Color.Default"
+                           StartIcon="@Icons.Material.Filled.RestartAlt"
+                           OnClick="ResetAsync">
+                    Reset to Quasar Default
+                </MudButton>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code
+{
+    private const string CustomPresetValue = "__custom";
+    private const long MaxUploadBytes = 10 * 1024 * 1024;
+
+    private BrandingSettings _draft = BrandingSettings.Normalize(null);
+
+    private static readonly IReadOnlyList<ColorGroup> ColorGroups =
+    [
+        new("Identity",
+        [
+            new("Primary", p => p.Primary, (p, v) => p.Primary = v),
+            new("Primary text", p => p.PrimaryContrastText, (p, v) => p.PrimaryContrastText = v),
+            new("Secondary", p => p.Secondary, (p, v) => p.Secondary = v),
+            new("Secondary text", p => p.SecondaryContrastText, (p, v) => p.SecondaryContrastText = v),
+        ]),
+        new("Surfaces",
+        [
+            new("Background", p => p.Background, (p, v) => p.Background = v),
+            new("Background gray", p => p.BackgroundGray, (p, v) => p.BackgroundGray = v),
+            new("Surface", p => p.Surface, (p, v) => p.Surface = v),
+        ]),
+        new("Navigation",
+        [
+            new("Drawer background", p => p.DrawerBackground, (p, v) => p.DrawerBackground = v),
+            new("Drawer text", p => p.DrawerText, (p, v) => p.DrawerText = v),
+            new("Drawer icon", p => p.DrawerIcon, (p, v) => p.DrawerIcon = v),
+            new("Appbar background", p => p.AppbarBackground, (p, v) => p.AppbarBackground = v),
+            new("Appbar text", p => p.AppbarText, (p, v) => p.AppbarText = v),
+        ]),
+        new("Text",
+        [
+            new("Text primary", p => p.TextPrimary, (p, v) => p.TextPrimary = v),
+            new("Text secondary", p => p.TextSecondary, (p, v) => p.TextSecondary = v),
+        ]),
+        new("Lines",
+        [
+            new("Lines default", p => p.LinesDefault, (p, v) => p.LinesDefault = v),
+            new("Lines inputs", p => p.LinesInputs, (p, v) => p.LinesInputs = v),
+            new("Table lines", p => p.TableLines, (p, v) => p.TableLines = v),
+            new("Divider", p => p.Divider, (p, v) => p.Divider = v),
+            new("Divider light", p => p.DividerLight, (p, v) => p.DividerLight = v),
+        ]),
+        new("Status",
+        [
+            new("Info", p => p.Info, (p, v) => p.Info = v),
+            new("Info text", p => p.InfoContrastText, (p, v) => p.InfoContrastText = v),
+            new("Success", p => p.Success, (p, v) => p.Success = v),
+            new("Success text", p => p.SuccessContrastText, (p, v) => p.SuccessContrastText = v),
+            new("Warning", p => p.Warning, (p, v) => p.Warning = v),
+            new("Warning text", p => p.WarningContrastText, (p, v) => p.WarningContrastText = v),
+            new("Error", p => p.Error, (p, v) => p.Error = v),
+            new("Error text", p => p.ErrorContrastText, (p, v) => p.ErrorContrastText = v),
+        ]),
+    ];
+
+    protected override void OnInitialized()
+    {
+        _draft = BrandingService.GetSettings();
+        BrandingService.Changed += HandleBrandingChanged;
+    }
+
+    public void Dispose()
+    {
+        BrandingService.Changed -= HandleBrandingChanged;
+    }
+
+    private RenderFragment RenderPaletteEditor(ThemePalette palette) => __builder =>
+    {
+        foreach (var group in ColorGroups)
+        {
+            <MudText Typo="Typo.subtitle2" Class="mt-2 mb-1">@group.Title</MudText>
+            <MudGrid>
+                @foreach (var field in group.Fields)
+                {
+                    <MudItem xs="6" sm="4" md="3" @key="@($"{group.Title}-{field.Label}")">
+                        <MudColorPicker Label="@field.Label"
+                                        Value="@(new MudColor(field.Get(palette)))"
+                                        ValueChanged="@(color => HandleColorChanged(palette, field, color))"
+                                        Variant="Variant.Outlined"
+                                        ColorPickerView="ColorPickerView.Spectrum" />
+                    </MudItem>
+                }
+            </MudGrid>
+        }
+    };
+
+    private void ApplyPreset(string presetId)
+    {
+        if (string.IsNullOrWhiteSpace(presetId) ||
+            string.Equals(presetId, CustomPresetValue, StringComparison.Ordinal) ||
+            !BrandingPresets.IsKnownPreset(presetId))
+        {
+            return;
+        }
+
+        _draft.PresetId = presetId;
+        _draft.LightPalette = BrandingPresets.GetLightPalette(presetId);
+        _draft.DarkPalette = BrandingPresets.GetDarkPalette(presetId);
+    }
+
+    private void HandleColorChanged(ThemePalette palette, ColorField field, MudColor color)
+    {
+        field.Set(palette, color.ToString(MudColorOutputFormats.Hex));
+
+        // A manual color edit means the palette no longer matches any preset.
+        _draft.PresetId = null;
+    }
+
+    private async Task UploadLogoAsync(IBrowserFile? file, bool isDark)
+    {
+        if (file is null)
+            return;
+
+        try
+        {
+            await using var stream = file.OpenReadStream(MaxUploadBytes);
+            await BrandingService.SaveLogoAsync(isDark, stream, Path.GetExtension(file.Name));
+            SyncAssetPaths();
+            Snackbar.Add($"{(isDark ? "Dark" : "Light")}-mode logo updated.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Logo upload failed: {exception.Message}", Severity.Error);
+        }
+    }
+
+    private async Task UploadFaviconAsync(IBrowserFile? file)
+    {
+        if (file is null)
+            return;
+
+        try
+        {
+            await using var stream = file.OpenReadStream(MaxUploadBytes);
+            await BrandingService.SaveFaviconAsync(stream, Path.GetExtension(file.Name));
+            SyncAssetPaths();
+            Snackbar.Add("Favicon updated.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Favicon upload failed: {exception.Message}", Severity.Error);
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            await BrandingService.SaveAsync(_draft);
+            _draft = BrandingService.GetSettings();
+            Snackbar.Add("Appearance saved.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Save failed: {exception.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ResetAsync()
+    {
+        try
+        {
+            await BrandingService.ResetToDefaultAsync();
+            _draft = BrandingService.GetSettings();
+            Snackbar.Add("Appearance reset to Quasar default.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Reset failed: {exception.Message}", Severity.Error);
+        }
+    }
+
+    // Logo / favicon uploads take effect immediately and persist their own paths.
+    // Pull those paths back into the draft so a later "Save Changes" keeps them.
+    private void SyncAssetPaths()
+    {
+        var current = BrandingService.Settings;
+        _draft.LogoLightPath = current.LogoLightPath;
+        _draft.LogoDarkPath = current.LogoDarkPath;
+        _draft.FaviconPath = current.FaviconPath;
+    }
+
+    private void HandleBrandingChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private sealed record ColorField(string Label, Func<ThemePalette, string> Get, Action<ThemePalette, string> Set);
+
+    private sealed record ColorGroup(string Title, IReadOnlyList<ColorField> Fields);
+}

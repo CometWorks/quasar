@@ -1,0 +1,26 @@
+@inject BrandingService BrandingService
+@implements IDisposable
+
+<HeadContent>
+    <link rel="icon" type="image/x-icon" href="@FaviconHref" />
+</HeadContent>
+
+@code
+{
+    private string FaviconHref => BrandingService.Settings.FaviconPath ?? "/Quasar.ico";
+
+    protected override void OnInitialized()
+    {
+        BrandingService.Changed += OnChanged;
+    }
+
+    public void Dispose()
+    {
+        BrandingService.Changed -= OnChanged;
+    }
+
+    private void OnChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+}

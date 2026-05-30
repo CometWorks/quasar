@@ -8,6 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Transport;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 using Sandbox;
 using Sandbox.Engine.Multiplayer;
 using Sandbox.Game.Entities;
@@ -23,6 +25,13 @@ namespace Quasar.Agent
     public class GameBridge
     {
         private static readonly TimeSpan SnapshotInterval = TimeSpan.FromSeconds(1);
+
+        private static readonly JsonSerializerSettings PayloadJsonSettings = new JsonSerializerSettings
+        {
+            ContractResolver = new CamelCasePropertyNamesContractResolver(),
+            NullValueHandling = NullValueHandling.Ignore,
+        };
+
         private readonly Stopwatch _uptime = Stopwatch.StartNew();
         private readonly object _sync = new object();
         private readonly int _processId = Process.GetCurrentProcess().Id;
@@ -366,6 +375,12 @@ namespace Quasar.Agent
                     MySession.Static.SetUserPromoteLevel((ulong)(command.SteamId ?? 0), MyPromoteLevel.None);
                     return CreateResult(command, true, $"Demote requested for {command.SteamId}.");
 
+                case ServerCommandType.ListEntities:
+                    return ListEntities(command);
+
+                case ServerCommandType.DeleteEntity:
+                    return DeleteEntity(command);
+
                 default:
                     return CreateResult(command, false, $"Unsupported command '{command.CommandType}'.");
             }
@@ -380,6 +395,36 @@ namespace Quasar.Agent
             MyMultiplayer.Static?.SendChatMessage(text, ChatChannel.Global, 0L);
 
             return CreateResult(command, true, "Chat message sent.");
+        }
+
+        private ServerCommandResult ListEntities(ServerCommandEnvelope command)
+        {
+            var filter = DeserializePayload<EntityListFilter>(command.Payload) ?? new EntityListFilter();
+            var result = EntityInspector.Query(filter);
+            var message = $"Returned {result.Entities.Count} of {result.TotalCount} matching ({result.TotalEntityCount} total).";
+            return CreateResult(command, true, message, SerializePayload(result));
+        }
+
+        private ServerCommandResult DeleteEntity(ServerCommandEnvelope command)
+        {
+            var request = DeserializePayload<EntityDeleteRequest>(command.Payload);
+            if (request == null || request.EntityId == 0)
+                return CreateResult(command, false, "Delete request is missing an entity id.");
+
+            var success = EntityInspector.TryDelete(request.EntityId, out var message);
+            return CreateResult(command, success, message);
+        }
+
+        private static string SerializePayload(object value)
+        {
+            return JsonConvert.SerializeObject(value, PayloadJsonSettings);
+        }
+
+        private static T DeserializePayload<T>(string payload) where T : class
+        {
+            return string.IsNullOrWhiteSpace(payload)
+                ? null
+                : JsonConvert.DeserializeObject<T>(payload, PayloadJsonSettings);
         }
 
         private int GetOnlinePlayerCount(MySession session)
@@ -438,7 +483,7 @@ namespace Quasar.Agent
                    ?? "Unknown World";
         }
 
-        private static ServerCommandResult CreateResult(ServerCommandEnvelope command, bool success, string message)
+        private static ServerCommandResult CreateResult(ServerCommandEnvelope command, bool success, string message, string payload = null)
         {
             return new ServerCommandResult
             {
@@ -448,6 +493,7 @@ namespace Quasar.Agent
                 ServerId = command.ServerId,
                 Success = success,
                 Message = message,
+                Payload = payload ?? string.Empty,
                 CompletedAtUtc = DateTimeOffset.UtcNow,
             };
         }

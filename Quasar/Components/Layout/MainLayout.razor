@@ -1,22 +1,26 @@
 ﻿@inherits LayoutComponentBase
+@implements IDisposable
 @inject ThemePreferenceService ThemePreference
 @inject QuasarShutdownService ShutdownService
+@inject BrandingService BrandingService
 
 <MudThemeProvider Theme="@ThemePreference.Theme" IsDarkMode="@_isDarkMode" ObserveSystemDarkModeChange="false" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
+<BrandingHeadContent />
+
 <MudLayout>
     <MudAppBar Elevation="0" Class="magnetar-appbar">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="ToggleDrawer" />
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="quasar-brand">
             <img class="quasar-brand-mark"
-                 src="@(_isDarkMode ? "/Quasar.png" : "/Quasar-inverted-transparent.png")"
-                 alt="Quasar logo" />
+                 src="@LogoSrc"
+                 alt="@($"{BrandingService.Settings.AppName} logo")" />
             <MudStack Spacing="0">
-                <MudText Typo="Typo.h6">Quasar</MudText>
-                <MudText Typo="Typo.caption" Class="magnetar-appbar-subtitle">Supervisor control plane</MudText>
+                <MudText Typo="Typo.h6">@BrandingService.Settings.AppName</MudText>
+                <MudText Typo="Typo.caption" Class="magnetar-appbar-subtitle">@BrandingService.Settings.AppSubtitle</MudText>
             </MudStack>
         </MudStack>
         <MudSpacer />
@@ -102,6 +106,25 @@
     private bool _isShuttingDown = false;
     private string _shutdownStatus = string.Empty;
     private MudMessageBox? _shutdownMessageBox;
+
+    private string LogoSrc => _isDarkMode
+        ? (BrandingService.Settings.LogoDarkPath ?? "/Quasar.png")
+        : (BrandingService.Settings.LogoLightPath ?? "/Quasar-inverted-transparent.png");
+
+    protected override void OnInitialized()
+    {
+        BrandingService.Changed += OnBrandingChanged;
+    }
+
+    public void Dispose()
+    {
+        BrandingService.Changed -= OnBrandingChanged;
+    }
+
+    private void OnBrandingChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

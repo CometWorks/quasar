@@ -55,6 +55,12 @@ public static class MagnetarPaths
     public static string GetQuasarDiscordOptionsPath() =>
         Path.Combine(GetQuasarDirectory(), "discord.json");
 
+    public static string GetQuasarBrandingPath() =>
+        Path.Combine(GetQuasarDirectory(), "branding.json");
+
+    public static string GetQuasarBrandingDirectory(string webRootPath) =>
+        Path.Combine(webRootPath, "branding");
+
     public static string GetQuasarDeathMessagesPath() =>
         Path.Combine(GetQuasarDirectory(), "death-messages.json");
 

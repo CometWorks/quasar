@@ -3,6 +3,8 @@ using Quasar.Models;
 using Quasar.Services;
 using Quasar.Services.Analytics;
 using Quasar.Services.Discord;
+using Magnetar.Protocol.Runtime;
+using Microsoft.Extensions.FileProviders;
 using MudBlazor;
 using MudBlazor.Services;
 using NLog;
@@ -41,6 +43,7 @@ public class Program
             builder.Services.AddSingleton<MetricsStoreService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<MetricsStoreService>());
             builder.Services.AddSingleton<AgentRegistry>();
+            builder.Services.AddSingleton<EntityService>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarWorldProfileCatalog>();
             builder.Services.AddSingleton<QuasarPluginCatalogService>();
@@ -64,6 +67,7 @@ public class Program
             builder.Services.AddSingleton<DiscordAnalyticsExportService>();
             builder.Services.AddSingleton<DiscordBotService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<DiscordBotService>());
+            builder.Services.AddSingleton<BrandingService>();
             builder.Services.AddScoped<ThemePreferenceService>();
             builder.Services.AddSingleton<QuasarShutdownService>();
 
@@ -144,6 +148,21 @@ public class Program
             });
 
             app.MapStaticAssets();
+
+            // Runtime-uploaded branding assets (logos, favicon) live outside the
+            // build-time static-asset manifest, so serve them with the classic
+            // static-file middleware from the physical branding directory.
+            var brandingWebRootPath = string.IsNullOrWhiteSpace(app.Environment.WebRootPath)
+                ? Path.Combine(app.Environment.ContentRootPath, "wwwroot")
+                : app.Environment.WebRootPath;
+            var brandingAssetsDirectory = MagnetarPaths.GetQuasarBrandingDirectory(brandingWebRootPath);
+            Directory.CreateDirectory(brandingAssetsDirectory);
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                FileProvider = new PhysicalFileProvider(brandingAssetsDirectory),
+                RequestPath = "/branding",
+            });
+
             app.MapRazorComponents<App>()
                 .AddInteractiveServerRenderMode();
 

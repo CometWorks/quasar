@@ -12,4 +12,6 @@ public enum ServerCommandType
     UnbanPlayer = 7,
     PromotePlayer = 8,
     DemotePlayer = 9,
+    ListEntities = 10,
+    DeleteEntity = 11,
 }
