@@ -233,6 +233,26 @@ namespace Quasar.Agent
 
                 var sizeVector = aabb.Max - aabb.Min;
                 summary.SizeMeters = Math.Max(sizeVector.X, Math.Max(sizeVector.Y, sizeVector.Z));
+
+                // WorldMatrixRef is the non-obsolete accessor; captured so a future
+                // renderer can draw oriented bounding boxes, not just axis-aligned.
+                MatrixD world = entity.PositionComp.WorldMatrixRef;
+                summary.WorldMatrixM11 = world.M11;
+                summary.WorldMatrixM12 = world.M12;
+                summary.WorldMatrixM13 = world.M13;
+                summary.WorldMatrixM14 = world.M14;
+                summary.WorldMatrixM21 = world.M21;
+                summary.WorldMatrixM22 = world.M22;
+                summary.WorldMatrixM23 = world.M23;
+                summary.WorldMatrixM24 = world.M24;
+                summary.WorldMatrixM31 = world.M31;
+                summary.WorldMatrixM32 = world.M32;
+                summary.WorldMatrixM33 = world.M33;
+                summary.WorldMatrixM34 = world.M34;
+                summary.WorldMatrixM41 = world.M41;
+                summary.WorldMatrixM42 = world.M42;
+                summary.WorldMatrixM43 = world.M43;
+                summary.WorldMatrixM44 = world.M44;
             }
             catch
             {

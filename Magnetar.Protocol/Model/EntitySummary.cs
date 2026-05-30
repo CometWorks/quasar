@@ -1,10 +1,11 @@
 namespace Magnetar.Protocol.Model;
 
 /// <summary>
-/// A single live world entity as seen by the agent. Position and bounding box are
-/// flattened to plain doubles so the netstandard protocol assembly stays free of any
-/// VRage math dependency. The world AABB fields are captured up front so a future
-/// world-space renderer can consume this DTO without a schema change.
+/// A single live world entity as seen by the agent. Position, bounding box and the
+/// full world matrix are flattened to plain doubles so the netstandard protocol
+/// assembly stays free of any VRage math dependency. The world AABB and world-matrix
+/// fields are captured up front so a future world-space renderer can consume this DTO
+/// (oriented bounding boxes, not just axis-aligned ones) without a schema change.
 /// </summary>
 public class EntitySummary
 {
@@ -46,4 +47,40 @@ public class EntitySummary
 
     /// <summary>Largest world-AABB dimension in metres, a convenience for sizing/sorting.</summary>
     public double SizeMeters { get; set; }
+
+    // Full world matrix (VRageMath.MatrixD), flattened row-major. Rows 1-3 carry the
+    // orientation basis (Right / Up / Backward) and scale; row 4 (M41/M42/M43) is the
+    // translation, equal to Position above. A future renderer needs this to draw
+    // oriented bounding boxes; AABB alone only yields axis-aligned ones.
+    public double WorldMatrixM11 { get; set; }
+
+    public double WorldMatrixM12 { get; set; }
+
+    public double WorldMatrixM13 { get; set; }
+
+    public double WorldMatrixM14 { get; set; }
+
+    public double WorldMatrixM21 { get; set; }
+
+    public double WorldMatrixM22 { get; set; }
+
+    public double WorldMatrixM23 { get; set; }
+
+    public double WorldMatrixM24 { get; set; }
+
+    public double WorldMatrixM31 { get; set; }
+
+    public double WorldMatrixM32 { get; set; }
+
+    public double WorldMatrixM33 { get; set; }
+
+    public double WorldMatrixM34 { get; set; }
+
+    public double WorldMatrixM41 { get; set; }
+
+    public double WorldMatrixM42 { get; set; }
+
+    public double WorldMatrixM43 { get; set; }
+
+    public double WorldMatrixM44 { get; set; }
 }
