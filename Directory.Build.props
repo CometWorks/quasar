@@ -1,11 +1,14 @@
 <Project>
   <PropertyGroup>
     <!-- Shared application-data root used by Magnetar and Quasar -->
-    <Magnetar>$(APPDATA)\Magnetar</Magnetar>
+    <Magnetar Condition="'$(Magnetar)' == '' AND $([MSBuild]::IsOSPlatform('Windows'))">$(APPDATA)\Magnetar</Magnetar>
+    <Magnetar Condition="'$(Magnetar)' == '' AND !$([MSBuild]::IsOSPlatform('Windows'))">$(HOME)/.local/share/Magnetar</Magnetar>
 
-    <!-- Folder containing SpaceEngineersDedicated.exe -->
-    <DS64 Condition="'$(DS64)' == ''">$(registry:HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 298740@InstallLocation)\DedicatedServer64</DS64>
-    <DS64 Condition="'$(DS64)' == '\DedicatedServer64'">C:\Program Files (x86)\Steam\steamapps\common\SpaceEngineersDedicatedServer\DedicatedServer64</DS64>
+    <!-- Folder containing SpaceEngineersDedicated.exe on Windows -->
+    <DS64 Condition="'$(DS64)' == '' AND $([MSBuild]::IsOSPlatform('Windows'))">$(registry:HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 298740@InstallLocation)\DedicatedServer64</DS64>
+      
+    <!-- Folder containing SpaceEngineersDedicated.exe on Linux -->
+    <DS64 Condition="'$(DS64)' == '' AND !$([MSBuild]::IsOSPlatform('Windows'))">$(HOME)/.steam/steam/steamapps/common/SpaceEngineersDedicatedServer/DedicatedServer64</DS64>
 
     <!-- Path to Steamworks.NET (for .NET 4.8) -->
     <Steamworks>$(DS64)\Steamworks.NET.dll</Steamworks>
