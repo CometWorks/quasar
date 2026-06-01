@@ -1,4 +1,7 @@
 window.quasarConfigs = window.quasarConfigs || {
+    getSystemDarkMode() {
+        return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    },
     focusElement(id) {
         const element = document.getElementById(id);
         if (!element) {

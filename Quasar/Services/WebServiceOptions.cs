@@ -7,7 +7,7 @@ public sealed class WebServiceOptions
 {
     public const string SupervisorName = "Quasar";
 
-    public string Host { get; init; } = "127.0.0.1";
+    public string Host { get; init; } = "0.0.0.0";
 
     public int Port { get; init; } = 58631;
 
@@ -19,7 +19,7 @@ public sealed class WebServiceOptions
 
     public string BaseUrl { get; init; } = "http://127.0.0.1:58631";
 
-    public string ListenUrl { get; init; } = "http://127.0.0.1:58631";
+    public string ListenUrl { get; init; } = "http://0.0.0.0:58631";
 
     public string Version { get; init; } = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "0.0.0";
 
@@ -55,7 +55,7 @@ public sealed class WebServiceOptions
         var host = Environment.GetEnvironmentVariable("QUASAR_WEB_HOST")
                    ?? Environment.GetEnvironmentVariable("MAGNETAR_WEB_HOST")
                    ?? section["Host"]
-                   ?? "127.0.0.1";
+                   ?? "0.0.0.0";
 
         var portValue = Environment.GetEnvironmentVariable("QUASAR_WEB_PORT")
                         ?? Environment.GetEnvironmentVariable("MAGNETAR_WEB_PORT")

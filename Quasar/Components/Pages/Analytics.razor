@@ -60,13 +60,13 @@
                   Wrap="Wrap.Wrap"
                   Justify="Justify.FlexEnd"
                   AlignItems="AlignItems.Center">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync">
+            <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync">
                 Refresh
             </MudButton>
-            <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Download" OnClick="ExportAsync">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Download" OnClick="ExportAsync">
                 Export
             </MudButton>
-            <MudButton Variant="Variant.Text" Color="Color.Default" StartIcon="@Icons.Material.Filled.SettingsBackupRestore" OnClick="ResetLayoutAsync">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SettingsBackupRestore" OnClick="ResetLayoutAsync">
                 Reset layout
             </MudButton>
             @if (HiddenPanels.Count > 0)

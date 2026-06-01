@@ -3,15 +3,15 @@
 @inject QuasarWorldProfileCatalog WorldProfileCatalog
 @inject ISnackbar Snackbar
 
-<PageTitle>World Profiles</PageTitle>
+<PageTitle>World Templates</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">World Profiles</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Reusable world blueprints. Import an existing Space Engineers save folder and select it when creating an instance — Quasar copies the world into the instance on first launch.</MudText>
+<MudText Typo="Typo.h4" GutterBottom="true">World Templates</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Reusable world blueprints. Import an existing Space Engineers save folder and select it when creating an instance — Quasar copies template world data into the instance on first launch.</MudText>
 
 <MudGrid>
     <MudItem xs="12" xl="5">
         <MudPaper Class="pa-4 summary-card">
-            <MudText Typo="Typo.h6" GutterBottom="true">Import World Profile</MudText>
+            <MudText Typo="Typo.h6" GutterBottom="true">Import World Template</MudText>
 
             <MudStack Spacing="2">
                 <MudTextField @bind-Value="_name" Label="Profile name" Variant="Variant.Outlined" />
@@ -38,12 +38,12 @@
 
     <MudItem xs="12" xl="7">
         <MudPaper Class="pa-4 server-card">
-            <MudText Typo="Typo.h6" GutterBottom="true">World Profiles</MudText>
+            <MudText Typo="Typo.h6" GutterBottom="true">World Templates</MudText>
 
             @if (Profiles.Count == 0)
             {
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                    No world profiles yet. Import a save folder to create a blueprint.
+                    No world templates yet. Import a save folder to create a blueprint.
                 </MudAlert>
             }
             else
@@ -71,6 +71,7 @@
                         </MudTd>
                         <MudTd DataLabel="Updated">@context.Profile.UpdatedAtUtc.LocalDateTime.ToString("g")</MudTd>
                         <MudTd Style="text-align: right;">
+                            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => CloneAsync(context))" Disabled="@(!context.WorldExists || _importing)">Clone</MudButton>
                             <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context.Profile.WorldProfileId))">Delete</MudButton>
                         </MudTd>
                     </RowTemplate>
@@ -133,8 +134,28 @@
         try
         {
             await WorldProfileCatalog.ImportAsync(_name, _description, _sourcePath);
-            Snackbar.Add($"World profile '{_name}' imported.", Severity.Success);
+            Snackbar.Add($"World template '{_name}' imported.", Severity.Success);
             ResetForm();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _importing = false;
+        }
+    }
+
+    private async Task CloneAsync(WorldProfileRow row)
+    {
+        var sourceDir = WorldProfileCatalog.GetWorldDirectory(row.Profile.WorldProfileId);
+        var newName = $"{row.Profile.Name} (Copy)";
+        _importing = true;
+        try
+        {
+            await WorldProfileCatalog.ImportAsync(newName, row.Profile.Description, sourceDir);
+            Snackbar.Add($"World template '{newName}' created.", Severity.Success);
         }
         catch (Exception ex)
         {
@@ -149,7 +170,7 @@
     private async Task DeleteAsync(string worldProfileId)
     {
         await WorldProfileCatalog.DeleteAsync(worldProfileId);
-        Snackbar.Add("World profile deleted.", Severity.Info);
+        Snackbar.Add("World template deleted.", Severity.Info);
     }
 
     private void ResetForm()

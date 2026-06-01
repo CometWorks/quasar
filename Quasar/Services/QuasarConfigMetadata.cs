@@ -101,7 +101,6 @@ public static class QuasarConfigMetadata
         RootText("MessageOfTheDay", "MessageOfTheDay", "server", "Message of the Day", 20, QuasarConfigOptionKind.LongText),
         RootText("MessageOfTheDayUrl", "MessageOfTheDayUrl", "server", "MOTD URL", 30, searchAliases: "motd message url"),
         RootBool("CrossPlatform", "CrossPlatform", "server", "Cross Platform", 40),
-        RootInt("AsteroidAmount", "AsteroidAmount", "server", "Asteroid Amount", 50, min: 0),
         RootBool("VerboseNetworkLogging", "VerboseNetworkLogging", "server", "Verbose Network Logging", 60),
         RootBool("PauseGameWhenEmpty", "PauseGameWhenEmpty", "server", "Pause Game When Empty", 70),
 
@@ -128,7 +127,7 @@ public static class QuasarConfigMetadata
 
         SessionSelect("GameMode", "GameMode", "general", "Game Mode", 10, [new(0, "Creative"), new(1, "Survival")]),
         SessionSelect("OnlineMode", "OnlineMode", "general", "Online Mode", 20, [new(0, "Offline"), new(1, "Private"), new(2, "Friends"), new(3, "Public")]),
-        SessionInt("MaxPlayers", "MaxPlayers", "general", "Max Players", 30, min: 1),
+        SessionInt("MaxPlayers", "MaxPlayers", "server", "Max Players", 35, min: 1),
         SessionInt("MaxFloatingObjects", "MaxFloatingObjects", "general", "Max Floating Objects", 40, min: 0),
         SessionInt("TotalBotLimit", "TotalBotLimit", "general", "Total Bot Limit", 50, min: 0),
         SessionInt("MaxBackupSaves", "MaxBackupSaves", "general", "Max Backup Saves", 60, min: 0),
@@ -199,6 +198,7 @@ public static class QuasarConfigMetadata
         SessionBool("EnableOxygenPressurization", "EnableOxygenPressurization", "npcs", "Enable Oxygen Pressurization", 100),
         SessionBool("WeatherSystem", "WeatherSystem", "npcs", "Weather System", 110),
         SessionBool("WeatherLightingDamage", "WeatherLightingDamage", "npcs", "Weather Lightning Damage", 120, searchAliases: "lighting lightning"),
+        RootInt("AsteroidAmount", "AsteroidAmount", "npcs", "Asteroid Amount", 125, min: 0),
         SessionBool("PredefinedAsteroids", "PredefinedAsteroids", "npcs", "Predefined Asteroids", 130),
         SessionInt("MaxPlanets", "MaxPlanets", "npcs", "Max Planets", 140, min: 0),
 

@@ -38,26 +38,24 @@
     {
         <MudTable T="DedicatedServerInstanceDefinition" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="InstanceDefinitions">
             <HeaderContent>
+                <MudTh>Status</MudTh>
                 <MudTh>Unique Name</MudTh>
                 <MudTh>Config</MudTh>
-                <MudTh>Goal</MudTh>
                 <MudTh>Process</MudTh>
                 <MudTh>Agent</MudTh>
-                <MudTh>State</MudTh>
                 <MudTh>Health</MudTh>
                 <MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd DataLabel="Unique Name" Class="mono">@context.UniqueName</MudTd>
-                <MudTd DataLabel="Config">@GetConfigProfileName(context.ConfigProfileId)</MudTd>
-                <MudTd DataLabel="Goal">@GetGoalStateText(context.UniqueName)</MudTd>
-                <MudTd DataLabel="Process" Class="mono">@GetProcessDisplay(context.UniqueName)</MudTd>
-                <MudTd DataLabel="Agent">@GetAttachmentStatus(context.UniqueName)</MudTd>
-                <MudTd DataLabel="State">
+                <MudTd DataLabel="Status">
                     <MudChip T="string" Color="@GetStateColor(context.UniqueName)" Variant="Variant.Outlined">
                         @GetStateText(context.UniqueName)
                     </MudChip>
                 </MudTd>
+                <MudTd DataLabel="Unique Name" Class="mono">@context.UniqueName</MudTd>
+                <MudTd DataLabel="Config">@GetConfigProfileName(context.ConfigProfileId)</MudTd>
+                <MudTd DataLabel="Process" Class="mono">@GetProcessDisplay(context.UniqueName)</MudTd>
+                <MudTd DataLabel="Agent">@GetAttachmentStatus(context.UniqueName)</MudTd>
                 <MudTd DataLabel="Health">
                     <MudChip T="string" Color="@GetHealthColor(context.UniqueName)" Variant="Variant.Outlined" title="@GetHealthSummary(context.UniqueName)">
                         @GetHealthText(context.UniqueName)
@@ -82,6 +80,7 @@
                         {
                             <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Success" OnClick="@(() => StartAsync(context.UniqueName))">Start</MudButton>
                         }
+                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => OpenCloneDialogAsync(context))">Clone</MudButton>
                         <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => OpenEditDialogAsync(context))">Edit</MudButton>
                         <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context.UniqueName))">Delete</MudButton>
                     </MudStack>
@@ -124,6 +123,18 @@
             return;
 
         await SaveDefinitionAsync(definition, "Instance created.");
+    }
+
+    private async Task OpenCloneDialogAsync(DedicatedServerInstanceDefinition definition)
+    {
+        var cloned = definition.Clone();
+        cloned.UniqueName = $"{definition.UniqueName}-copy";
+        cloned.OriginalUniqueName = string.Empty;
+        var created = await ShowEditorDialogAsync(cloned, isEditing: false);
+        if (created is null)
+            return;
+
+        await SaveDefinitionAsync(created, "Instance cloned.");
     }
 
     private async Task OpenEditDialogAsync(DedicatedServerInstanceDefinition definition)
@@ -186,7 +197,7 @@
         try
         {
             await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerInstanceGoalState.On);
-            Snackbar.Add("Instance goal state set to on.", Severity.Success);
+            Snackbar.Add("Instance start requested.", Severity.Success);
         }
         catch (Exception exception)
         {
@@ -199,7 +210,7 @@
         try
         {
             await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerInstanceGoalState.Off);
-            Snackbar.Add("Instance goal state set to off.", Severity.Info);
+            Snackbar.Add("Instance stop requested.", Severity.Info);
         }
         catch (Exception exception)
         {
@@ -245,18 +256,6 @@
     {
         var runtime = GetRuntime(uniqueName);
         return runtime?.ProcessId?.ToString() ?? "stopped";
-    }
-
-    private string GetGoalStateText(string uniqueName)
-    {
-        if (RuntimeSnapshots.TryGetValue(uniqueName, out var runtime))
-            return runtime.GoalState.ToString().ToLowerInvariant();
-
-        return InstanceDefinitions
-            .FirstOrDefault(definition => string.Equals(definition.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
-            ?.GoalState
-            .ToString()
-            .ToLowerInvariant() ?? "off";
     }
 
     private string GetConfigProfileName(string configProfileId)

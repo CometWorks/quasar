@@ -1,0 +1,84 @@
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" @bind-IsValid="_formIsValid">
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.body2">
+                Create a reusable config profile, then it will be selected back in the instance editor.
+            </MudText>
+
+            <MudTextField
+                @bind-Value="_name"
+                Label="Profile name"
+                Variant="Variant.Outlined"
+                Immediate="true"
+                AutoFocus="true"
+                Required="true"
+                RequiredError="Profile name required." />
+
+            <MudTextField
+                @bind-Value="_description"
+                Label="Description"
+                Variant="Variant.Outlined"
+                Immediate="true"
+                Lines="2" />
+        </MudStack>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel" Disabled="@_saving">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync" Disabled="@_saving">
+            @(_saving ? "Creating..." : "Create Profile")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Inject]
+    private QuasarConfigProfileCatalog ConfigProfiles { get; set; } = default!;
+
+    [Inject]
+    private ISnackbar Snackbar { get; set; } = default!;
+
+    private MudForm? _form;
+    private bool _formIsValid;
+    private string _name = string.Empty;
+    private string _description = string.Empty;
+    private bool _saving;
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task CreateAsync()
+    {
+        await _form!.Validate();
+        if (!_formIsValid)
+            return;
+
+        _saving = true;
+        try
+        {
+            var profile = new QuasarConfigProfile
+            {
+                Name = _name.Trim(),
+                Description = _description?.Trim() ?? string.Empty,
+            };
+
+            await ConfigProfiles.UpsertAsync(profile);
+            MudDialog.Close(DialogResult.Ok(profile));
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

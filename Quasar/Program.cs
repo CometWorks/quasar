@@ -27,7 +27,12 @@ public class Program
             QuasarLoggingConfigurator.Configure(builder, webServiceOptions);
 
             if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
-                builder.WebHost.UseUrls(webServiceOptions.ListenUrl);
+            {
+                if (ShouldListenOnAnyInterface(webServiceOptions.Host))
+                    builder.WebHost.ConfigureKestrel(options => options.ListenAnyIP(webServiceOptions.Port));
+                else
+                    builder.WebHost.UseUrls(webServiceOptions.ListenUrl);
+            }
 
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents();
@@ -197,5 +202,13 @@ public class Program
         }
 
         return false;
+    }
+
+    private static bool ShouldListenOnAnyInterface(string host)
+    {
+        return string.Equals(host, "0.0.0.0", StringComparison.Ordinal) ||
+               string.Equals(host, "[::]", StringComparison.Ordinal) ||
+               string.Equals(host, "*", StringComparison.Ordinal) ||
+               string.Equals(host, "+", StringComparison.Ordinal);
     }
 }

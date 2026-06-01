@@ -1,5 +1,19 @@
 .configs-sidebar {
+    display: flex;
+    flex-direction: column;
     height: 100%;
+}
+
+.configs-sidebar-inner {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.configs-profile-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .config-profile-tile {
@@ -58,6 +72,35 @@
     height: 56px;
 }
 
+.configs-expansion-panels {
+    display: grid;
+    gap: 0;
+}
+
+.configs-world-panels-shell {
+    padding: 0.85rem;
+    border-radius: calc(var(--mud-default-borderradius) + 2px);
+    background: var(--mud-palette-background-gray);
+    border: 1px solid var(--mud-palette-lines-default);
+    max-height: 40rem;
+    overflow-y: auto;
+}
+
+.configs-expansion-panel {
+    background: var(--mud-palette-background);
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.configs-expansion-panel .mud-expand-panel-header {
+    transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.configs-expansion-panel .mud-expand-panel-header:hover {
+    background-color: var(--mud-palette-action-default-hover);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
 .config-option-card {
     height: 100%;
     scroll-margin-top: 6rem;
@@ -88,6 +131,6 @@
 @media (min-width: 1280px) {
     .configs-sidebar {
         position: sticky;
-        top: 1rem;
+        top: calc(64px + 1rem);
     }
 }

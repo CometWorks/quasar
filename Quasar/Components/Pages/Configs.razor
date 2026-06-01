@@ -11,13 +11,13 @@
 
 <MudText Typo="Typo.h4" GutterBottom="true">Configs</MudText>
 <MudText Typo="Typo.body2" Class="mb-4">
-    Reusable world and Magnetar config profiles. Save many presets, search world options fast, then assign profiles to instances.
+    Reusable world templates and Magnetar config profiles. Save many presets, search world options fast, then assign profiles to instances.
 </MudText>
 
 <MudGrid>
     <MudItem xs="12" lg="3">
         <MudPaper Class="server-card pa-4 configs-sidebar">
-            <MudStack Spacing="2">
+            <MudStack Spacing="2" Class="configs-sidebar-inner">
                 <div>
                     <MudText Typo="Typo.h6">Profiles</MudText>
                     <MudText Typo="Typo.body2" Class="config-secondary">Stored Quasar presets for world rules, plugins, and mods.</MudText>
@@ -44,7 +44,7 @@
                 }
                 else
                 {
-                    <MudStack Spacing="1">
+                    <MudStack Spacing="1" Class="configs-profile-list">
                         @foreach (var profile in Profiles)
                         {
                             var isSelected = string.Equals(_selectedProfileId, profile.ConfigProfileId, StringComparison.OrdinalIgnoreCase);
@@ -63,6 +63,11 @@
                                         </MudStack>
                                     </MudButton>
                                     <MudIconButton
+                                        Icon="@Icons.Material.Filled.ContentCopy"
+                                        Color="Color.Default"
+                                        Size="Size.Small"
+                                        OnClick="@(() => CloneProfileAsync(profile.ConfigProfileId))" />
+                                    <MudIconButton
                                         Icon="@Icons.Material.Filled.DeleteOutline"
                                         Color="Color.Error"
                                         Size="Size.Small"
@@ -78,6 +83,7 @@
     </MudItem>
 
     <MudItem xs="12" lg="9">
+        <div>
         @if (_editor is null)
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
@@ -120,293 +126,360 @@
                     </MudStack>
                 </MudPaper>
 
-                <MudTabs Rounded="true">
+                <MudTabs Rounded="true" ApplyEffectsToContainer="true" >
                     <MudTabPanel Text="World">
-                        <MudPaper Class="server-card pa-4">
+                        <MudPaper Class="server-card pa-4" Square="true">
                             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
-                                <MudTextField
-                                    @bind-Value="_worldSearch"
-                                    Label="Search world options"
-                                    Variant="Variant.Outlined"
-                                    Immediate="true"
-                                    Adornment="Adornment.Start"
-                                    AdornmentIcon="@Icons.Material.Filled.Search"
-                                    Class="configs-search-field" />
-                                <MudButton Variant="Variant.Outlined" Color="Color.Default" Disabled="@string.IsNullOrWhiteSpace(FirstMatchingOptionId)" OnClick="JumpToFirstOptionAsync">
-                                    Jump to First Match
-                                </MudButton>
-                                <MudChip T="string" Variant="Variant.Outlined">
-                                    Matches @VisibleWorldMatchCount
-                                </MudChip>
-                            </MudStack>
+                            <MudTextField
+                                @bind-Value="_worldSearch"
+                                Label="Search world options"
+                                Variant="Variant.Outlined"
+                                Immediate="true"
+                                Adornment="Adornment.Start"
+                                AdornmentIcon="@Icons.Material.Filled.Search"
+                                Class="configs-search-field"/>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Disabled="@string.IsNullOrWhiteSpace(FirstMatchingOptionId)" OnClick="JumpToFirstOptionAsync">
+                                Jump to First Match
+                            </MudButton>
+                            <MudChip T="string" Variant="Variant.Outlined">
+                                Matches @VisibleWorldMatchCount
+                            </MudChip>
+                        </MudStack>
 
-                            @if (!HasVisibleWorldContent)
-                            {
-                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                                    No world options match current search.
-                                </MudAlert>
-                            }
-                            else
-                            {
-                                <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true">
-                                    @if (IsAccessSectionVisible)
-                                    {
-                                        <MudExpansionPanel Expanded="@IsCategoryExpanded(AccessCategoryKey)" ExpandedChanged="@(expanded => SetCategoryExpanded(AccessCategoryKey, expanded))" @key="AccessCategoryKey">
-                                            <TitleContent>
-                                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
-                                                    <MudStack Spacing="0">
-                                                        <MudText Typo="Typo.subtitle1">Access</MudText>
-                                                        <MudText Typo="Typo.caption" Class="config-secondary">Group whitelist, reserved slots, admin IDs, and banned IDs.</MudText>
-                                                    </MudStack>
-                                                    <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@GetAccessEntryCount()</MudChip>
+                        @if (!HasVisibleWorldContent)
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                No world options match current search.
+                            </MudAlert>
+                        }
+                        else
+                        {
+                            <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="configs-expansion-panels">
+                                @if (TryGetVisibleCategory(ServerCategoryKey, out var serverCategory))
+                                {
+                                    var serverOptions = GetCategoryOptions(serverCategory.Key);
+                                    <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsCategoryExpanded(serverCategory.Key)" ExpandedChanged="@(expanded => SetCategoryExpanded(serverCategory.Key, expanded))" @key="serverCategory.Key">
+                                        <TitleContent>
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
+                                                <MudStack Spacing="0">
+                                                    <MudText Typo="Typo.subtitle1">@serverCategory.Title</MudText>
+                                                    <MudText Typo="Typo.caption" Class="config-secondary">@serverCategory.Description</MudText>
                                                 </MudStack>
-                                            </TitleContent>
-                                            <ChildContent>
-                                                <MudStack Spacing="2" Class="mt-2">
-                                                    <MudNumericField T="ulong" Value="_editor.RootSettings.GroupId" ValueChanged="SetGroupId" Label="Whitelist Group ID" Variant="Variant.Outlined" Min="0" HelperText="Dedicated server supports one group ID here. Use 0 to disable." id="@AccessGroupIdAnchorId" />
-                                                    <MudTextField T="string" Value="GetAdministratorText()" ValueChanged="SetAdministratorText" Label="Admin User IDs" Variant="Variant.Outlined" Lines="4" HelperText="Comma, space, or newline separated IDs." id="@AccessAdministratorsAnchorId" />
-                                                    <MudTextField T="string" Value="GetReservedText()" ValueChanged="SetReservedText" Label="Reserved Slot User IDs" Variant="Variant.Outlined" Lines="4" HelperText="Comma, space, or newline separated numeric IDs." id="@AccessReservedAnchorId" />
-                                                    <MudTextField T="string" Value="GetBannedText()" ValueChanged="SetBannedText" Label="Banned / Blacklisted User IDs" Variant="Variant.Outlined" Lines="4" HelperText="Comma, space, or newline separated numeric IDs." id="@AccessBannedAnchorId" />
-                                                </MudStack>
-                                            </ChildContent>
-                                        </MudExpansionPanel>
-                                    }
+                                                <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@serverOptions.Count</MudChip>
+                                            </MudStack>
+                                        </TitleContent>
+                                        <ChildContent>
+                                            <MudStack Spacing="2" Class="mt-2">
+                                                @foreach (var option in serverOptions)
+                                                {
+                                                    var optionCardClass = GetOptionCssClass(option);
+                                                    <MudPaper Class="@optionCardClass" id="@GetOptionAnchorId(option)" tabindex="-1" @key="option.PropertyName">
+                                                        @switch (option.Kind)
+                                                        {
+                                                            case QuasarConfigOptionKind.Boolean:
+                                                                <MudCheckBox T="bool" Value="GetBoolOption(option)" ValueChanged="@(value => SetBoolOption(option, value))" Label="@option.Label"/>
+                                                                break;
+                                                            case QuasarConfigOptionKind.Integer:
+                                                                <MudNumericField T="int" Value="GetIntOption(option)" ValueChanged="@(value => SetIntOption(option, value))" Label="@option.Label" Variant="Variant.Outlined" Min="@ToIntOrDefault(option.Min, int.MinValue)" Max="@ToIntOrDefault(option.Max, int.MaxValue)" Step="@ToIntOrDefault(option.Step, 1)"/>
+                                                                break;
+                                                            case QuasarConfigOptionKind.Decimal:
+                                                                <MudNumericField T="double" Value="GetDoubleOption(option)" ValueChanged="@(value => SetDoubleOption(option, value))" Label="@option.Label" Variant="Variant.Outlined" Min="@ToDoubleOrDefault(option.Min, double.MinValue)" Max="@ToDoubleOrDefault(option.Max, double.MaxValue)" Step="@ToDoubleOrDefault(option.Step, 1d)"/>
+                                                                break;
+                                                            case QuasarConfigOptionKind.SelectInteger:
+                                                                <MudSelect T="int" Value="GetIntOption(option)" ValueChanged="@(value => SetIntOption(option, value))" Label="@option.Label" Variant="Variant.Outlined">
+                                                                    @foreach (var choice in option.SelectOptions)
+                                                                    {
+                                                                        <MudSelectItem T="int" Value="@choice.Value">@choice.Label</MudSelectItem>
+                                                                    }
+                                                                </MudSelect>
+                                                                break;
+                                                            case QuasarConfigOptionKind.SelectText:
+                                                                <MudSelect T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined">
+                                                                    @foreach (var choice in option.SelectTextOptions)
+                                                                    {
+                                                                        <MudSelectItem T="string" Value="@choice.Value">@choice.Label</MudSelectItem>
+                                                                    }
+                                                                </MudSelect>
+                                                                break;
+                                                            case QuasarConfigOptionKind.LongText:
+                                                                <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="3"/>
+                                                                break;
+                                                            default:
+                                                                <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined"/>
+                                                                break;
+                                                        }
 
-                                    @foreach (var category in VisibleCategories)
-                                    {
-                                        var categoryOptions = GetCategoryOptions(category.Key);
-                                        <MudExpansionPanel Expanded="@IsCategoryExpanded(category.Key)" ExpandedChanged="@(expanded => SetCategoryExpanded(category.Key, expanded))" @key="category.Key">
-                                            <TitleContent>
-                                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
-                                                    <MudStack Spacing="0">
-                                                        <MudText Typo="Typo.subtitle1">@category.Title</MudText>
-                                                        <MudText Typo="Typo.caption" Class="config-secondary">@category.Description</MudText>
-                                                    </MudStack>
-                                                    <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@categoryOptions.Count</MudChip>
-                                                </MudStack>
-                                            </TitleContent>
-                                            <ChildContent>
-                                                <MudStack Spacing="2" Class="mt-2">
-                                                    @foreach (var option in categoryOptions)
-                                                    {
-                                                        var optionCardClass = GetOptionCssClass(option);
-                                                        <MudPaper Class="@optionCardClass" id="@GetOptionAnchorId(option)" tabindex="-1" @key="option.PropertyName">
-                                                                @switch (option.Kind)
-                                                                {
-                                                                    case QuasarConfigOptionKind.Boolean:
-                                                                        <MudCheckBox T="bool" Value="GetBoolOption(option)" ValueChanged="@(value => SetBoolOption(option, value))" Label="@option.Label" />
-                                                                        break;
-                                                                    case QuasarConfigOptionKind.Integer:
-                                                                        <MudNumericField T="int" Value="GetIntOption(option)" ValueChanged="@(value => SetIntOption(option, value))" Label="@option.Label" Variant="Variant.Outlined" Min="@ToIntOrDefault(option.Min, int.MinValue)" Max="@ToIntOrDefault(option.Max, int.MaxValue)" Step="@ToIntOrDefault(option.Step, 1)" />
-                                                                        break;
-                                                                    case QuasarConfigOptionKind.Decimal:
-                                                                        <MudNumericField T="double" Value="GetDoubleOption(option)" ValueChanged="@(value => SetDoubleOption(option, value))" Label="@option.Label" Variant="Variant.Outlined" Min="@ToDoubleOrDefault(option.Min, double.MinValue)" Max="@ToDoubleOrDefault(option.Max, double.MaxValue)" Step="@ToDoubleOrDefault(option.Step, 1d)" />
-                                                                        break;
-                                                                    case QuasarConfigOptionKind.SelectInteger:
-                                                                        <MudSelect T="int" Value="GetIntOption(option)" ValueChanged="@(value => SetIntOption(option, value))" Label="@option.Label" Variant="Variant.Outlined">
-                                                                            @foreach (var choice in option.SelectOptions)
-                                                                            {
-                                                                                <MudSelectItem T="int" Value="@choice.Value">@choice.Label</MudSelectItem>
-                                                                            }
-                                                                        </MudSelect>
-                                                                        break;
-                                                                    case QuasarConfigOptionKind.SelectText:
-                                                                        <MudSelect T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined">
-                                                                            @foreach (var choice in option.SelectTextOptions)
-                                                                            {
-                                                                                <MudSelectItem T="string" Value="@choice.Value">@choice.Label</MudSelectItem>
-                                                                            }
-                                                                        </MudSelect>
-                                                                        break;
-                                                                    case QuasarConfigOptionKind.LongText:
-                                                                        <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="3" />
-                                                                        break;
-                                                                    default:
-                                                                        <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" />
-                                                                        break;
-                                                                }
+                                                        @if (!string.IsNullOrWhiteSpace(option.HelperText))
+                                                        {
+                                                            <MudText Typo="Typo.caption" Class="d-block mt-2 config-secondary">@option.HelperText</MudText>
+                                                        }
+                                                    </MudPaper>
+                                                }
+                                            </MudStack>
+                                        </ChildContent>
+                                    </MudExpansionPanel>
+                                }
 
-                                                                @if (!string.IsNullOrWhiteSpace(option.HelperText))
-                                                                {
-                                                                    <MudText Typo="Typo.caption" Class="d-block mt-2 config-secondary">@option.HelperText</MudText>
-                                                                }
-                                                        </MudPaper>
-                                                    }
+                                @if (IsAccessSectionVisible)
+                                {
+                                    <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsCategoryExpanded(AccessCategoryKey)" ExpandedChanged="@(expanded => SetCategoryExpanded(AccessCategoryKey, expanded))" @key="AccessCategoryKey">
+                                        <TitleContent>
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
+                                                <MudStack Spacing="0">
+                                                    <MudText Typo="Typo.subtitle1">Access</MudText>
+                                                    <MudText Typo="Typo.caption" Class="config-secondary">Group whitelist, reserved slots, admin IDs, and banned IDs.</MudText>
                                                 </MudStack>
-                                            </ChildContent>
-                                        </MudExpansionPanel>
-                                    }
-                                </MudExpansionPanels>
-                            }
+                                                <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@GetAccessEntryCount()</MudChip>
+                                            </MudStack>
+                                        </TitleContent>
+                                        <ChildContent>
+                                            <MudStack Spacing="2" Class="mt-2">
+                                                <MudNumericField T="ulong" Value="_editor.RootSettings.GroupId" ValueChanged="SetGroupId" Label="Whitelist Group ID" Variant="Variant.Outlined" Min="0" HelperText="Dedicated server supports one group ID here. Use 0 to disable." id="@AccessGroupIdAnchorId"/>
+                                                <MudTextField T="string" Value="GetAdministratorText()" ValueChanged="@(v => SetAdministratorText(FilterNumericListInput(v)))" Label="Admin User IDs" Variant="Variant.Outlined" Lines="4" HelperText="Comma, space, or newline separated Steam IDs (numeric only)." id="@AccessAdministratorsAnchorId"/>
+                                                <MudTextField T="string" Value="GetReservedText()" ValueChanged="@(v => SetReservedText(FilterNumericListInput(v)))" Label="Reserved Slot User IDs" Variant="Variant.Outlined" Lines="4" HelperText="Comma, space, or newline separated numeric IDs." id="@AccessReservedAnchorId"/>
+                                                <MudTextField T="string" Value="GetBannedText()" ValueChanged="@(v => SetBannedText(FilterNumericListInput(v)))" Label="Banned / Blacklisted User IDs" Variant="Variant.Outlined" Lines="4" HelperText="Comma, space, or newline separated numeric IDs." id="@AccessBannedAnchorId"/>
+                                            </MudStack>
+                                        </ChildContent>
+                                    </MudExpansionPanel>
+                                }
+
+                                @foreach (var category in RemainingVisibleCategories)
+                                {
+                                    var categoryOptions = GetCategoryOptions(category.Key);
+                                    <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsCategoryExpanded(category.Key)" ExpandedChanged="@(expanded => SetCategoryExpanded(category.Key, expanded))" @key="category.Key">
+                                        <TitleContent>
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
+                                                <MudStack Spacing="0">
+                                                    <MudText Typo="Typo.subtitle1">@category.Title</MudText>
+                                                    <MudText Typo="Typo.caption" Class="config-secondary">@category.Description</MudText>
+                                                </MudStack>
+                                                <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@categoryOptions.Count</MudChip>
+                                            </MudStack>
+                                        </TitleContent>
+                                        <ChildContent>
+                                            <MudStack Spacing="2" Class="mt-2">
+                                                @foreach (var option in categoryOptions)
+                                                {
+                                                    var optionCardClass = GetOptionCssClass(option);
+                                                    <MudPaper Class="@optionCardClass" id="@GetOptionAnchorId(option)" tabindex="-1" @key="option.PropertyName">
+                                                        @switch (option.Kind)
+                                                        {
+                                                            case QuasarConfigOptionKind.Boolean:
+                                                                <MudCheckBox T="bool" Value="GetBoolOption(option)" ValueChanged="@(value => SetBoolOption(option, value))" Label="@option.Label"/>
+                                                                break;
+                                                            case QuasarConfigOptionKind.Integer:
+                                                                <MudNumericField T="int" Value="GetIntOption(option)" ValueChanged="@(value => SetIntOption(option, value))" Label="@option.Label" Variant="Variant.Outlined" Min="@ToIntOrDefault(option.Min, int.MinValue)" Max="@ToIntOrDefault(option.Max, int.MaxValue)" Step="@ToIntOrDefault(option.Step, 1)"/>
+                                                                break;
+                                                            case QuasarConfigOptionKind.Decimal:
+                                                                <MudNumericField T="double" Value="GetDoubleOption(option)" ValueChanged="@(value => SetDoubleOption(option, value))" Label="@option.Label" Variant="Variant.Outlined" Min="@ToDoubleOrDefault(option.Min, double.MinValue)" Max="@ToDoubleOrDefault(option.Max, double.MaxValue)" Step="@ToDoubleOrDefault(option.Step, 1d)"/>
+                                                                break;
+                                                            case QuasarConfigOptionKind.SelectInteger:
+                                                                <MudSelect T="int" Value="GetIntOption(option)" ValueChanged="@(value => SetIntOption(option, value))" Label="@option.Label" Variant="Variant.Outlined">
+                                                                    @foreach (var choice in option.SelectOptions)
+                                                                    {
+                                                                        <MudSelectItem T="int" Value="@choice.Value">@choice.Label</MudSelectItem>
+                                                                    }
+                                                                </MudSelect>
+                                                                break;
+                                                            case QuasarConfigOptionKind.SelectText:
+                                                                <MudSelect T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined">
+                                                                    @foreach (var choice in option.SelectTextOptions)
+                                                                    {
+                                                                        <MudSelectItem T="string" Value="@choice.Value">@choice.Label</MudSelectItem>
+                                                                    }
+                                                                </MudSelect>
+                                                                break;
+                                                            case QuasarConfigOptionKind.LongText:
+                                                                <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="3"/>
+                                                                break;
+                                                            default:
+                                                                <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined"/>
+                                                                break;
+                                                        }
+
+                                                        @if (!string.IsNullOrWhiteSpace(option.HelperText))
+                                                        {
+                                                            <MudText Typo="Typo.caption" Class="d-block mt-2 config-secondary">@option.HelperText</MudText>
+                                                        }
+                                                    </MudPaper>
+                                                }
+                                            </MudStack>
+                                        </ChildContent>
+                                    </MudExpansionPanel>
+                                }
+                            </MudExpansionPanels>
+                        }
                         </MudPaper>
                     </MudTabPanel>
 
                     <MudTabPanel Text="Plugins">
-                        <MudPaper Class="server-card pa-4">
-                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
-                                <MudTextField
-                                    @bind-Value="_pluginSearch"
-                                    Label="Search plugin names"
-                                    Variant="Variant.Outlined"
-                                    Immediate="true"
-                                    Adornment="Adornment.Start"
-                                    AdornmentIcon="@Icons.Material.Filled.Search"
-                                    Class="configs-search-field" />
-                                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="RefreshPluginCatalogAsync" Disabled="@_catalogRefreshing">
-                                    @(_catalogRefreshing ? "Refreshing..." : "Refresh Catalog")
-                                </MudButton>
-                                <MudChip T="string" Variant="Variant.Outlined">Selected @_editor.Plugins.Count</MudChip>
-                                <MudChip T="string" Variant="Variant.Outlined">Catalog @FilteredCatalogEntries.Count</MudChip>
-                            </MudStack>
+                        <MudPaper Class="server-card pa-4" Square="true">
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+                            <MudTextField
+                                @bind-Value="_pluginSearch"
+                                Label="Search plugin names"
+                                Variant="Variant.Outlined"
+                                Immediate="true"
+                                Adornment="Adornment.Start"
+                                AdornmentIcon="@Icons.Material.Filled.Search"
+                                Class="configs-search-field" />
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="RefreshPluginCatalogAsync" Disabled="@_catalogRefreshing">
+                                @(_catalogRefreshing ? "Refreshing..." : "Refresh Catalog")
+                            </MudButton>
+                            <MudChip T="string" Variant="Variant.Outlined">Selected @_editor.Plugins.Count</MudChip>
+                            <MudChip T="string" Variant="Variant.Outlined">Catalog @FilteredCatalogEntries.Count</MudChip>
+                        </MudStack>
 
-                            @if (_editor.Plugins.Count > 0)
-                            {
-                                <MudText Typo="Typo.subtitle2" Class="mb-2">Selected Plugins</MudText>
-                                <MudStack Spacing="1" Class="mb-4">
-                                    @foreach (var plugin in _editor.Plugins.Where(MatchesPluginSearch))
-                                    {
-                                        <MudPaper Class="pa-3 config-selection-row" @key="plugin.PluginId">
-                                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                                <MudStack Spacing="0">
-                                                    <MudText Typo="Typo.subtitle2">@plugin.DisplayName</MudText>
-                                                    <MudText Typo="Typo.caption" Class="config-secondary">@plugin.PluginId</MudText>
-                                                </MudStack>
-                                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePlugin(plugin.PluginId))" />
-                                            </MudStack>
-                                        </MudPaper>
-                                    }
-                                </MudStack>
-                            }
-
-                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.End" Spacing="1" Class="mb-4">
-                                <MudTextField @bind-Value="_customPluginId" Label="Add custom plugin ID" Variant="Variant.Outlined" Immediate="true" />
-                                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="AddCustomPlugin" Disabled="@string.IsNullOrWhiteSpace(_customPluginId)">
-                                    Add Custom
-                                </MudButton>
-                            </MudStack>
-
-                            @if (CatalogEntries.Count == 0)
-                            {
-                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                                    Plugin catalog empty. Refresh to download MagnetarHub.
-                                </MudAlert>
-                            }
-                            else if (SelectableCatalogEntryCount == 0 && HasHiddenCatalogEntries)
-                            {
-                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                                    MagnetarHub currently exposes only hidden or automatic plugins. They are not selectable manually.
-                                </MudAlert>
-                            }
-                            else
-                            {
-                                <MudTable T="QuasarPluginCatalogEntry" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredCatalogEntries">
-                                    <HeaderContent>
-                                        <MudTh>Use</MudTh>
-                                        <MudTh>Name</MudTh>
-                                        <MudTh>Plugin Id</MudTh>
-                                        <MudTh>Author</MudTh>
-                                        <MudTh>Description</MudTh>
-                                    </HeaderContent>
-                                    <RowTemplate>
-                                        <MudTd DataLabel="Use">
-                                            <MudCheckBox T="bool" Value="IsPluginSelected(context.PluginId)" ValueChanged="@(value => SetPluginSelection(context, value))" />
-                                        </MudTd>
-                                        <MudTd DataLabel="Name">
+                        @if (_editor.Plugins.Count > 0)
+                        {
+                            <MudText Typo="Typo.subtitle2" Class="mb-2">Selected Plugins</MudText>
+                            <MudStack Spacing="1" Class="mb-4">
+                                @foreach (var plugin in _editor.Plugins.Where(MatchesPluginSearch))
+                                {
+                                    <MudPaper Class="pa-3 config-selection-row" @key="plugin.PluginId">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                                             <MudStack Spacing="0">
-                                                <MudText Typo="Typo.subtitle2">@context.FriendlyName</MudText>
-                                                @if (context.Hidden)
-                                                {
-                                                    <MudText Typo="Typo.caption" Class="config-secondary">Hidden in hub</MudText>
-                                                }
+                                                <MudText Typo="Typo.subtitle2">@plugin.DisplayName</MudText>
+                                                <MudText Typo="Typo.caption" Class="config-secondary">@plugin.PluginId</MudText>
                                             </MudStack>
-                                        </MudTd>
-                                        <MudTd DataLabel="Plugin Id" Class="mono">@context.PluginId</MudTd>
-                                        <MudTd DataLabel="Author">@context.Author</MudTd>
-                                        <MudTd DataLabel="Description">@GetPluginDescription(context)</MudTd>
-                                    </RowTemplate>
-                                    <NoRecordsContent>
-                                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
-                                            No plugin catalog entries match current search.
-                                        </MudAlert>
-                                    </NoRecordsContent>
-                                </MudTable>
-                            }
+                                            <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePlugin(plugin.PluginId))" />
+                                        </MudStack>
+                                    </MudPaper>
+                                }
+                            </MudStack>
+                        }
+
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.End" Spacing="1" Class="mb-4">
+                            <MudTextField @bind-Value="_customPluginId" Label="Add custom plugin ID" Variant="Variant.Outlined" Immediate="true" />
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="AddCustomPlugin" Disabled="@string.IsNullOrWhiteSpace(_customPluginId)">
+                                Add Custom
+                            </MudButton>
+                        </MudStack>
+
+                        @if (CatalogEntries.Count == 0)
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                Plugin catalog empty. Refresh to download MagnetarHub.
+                            </MudAlert>
+                        }
+                        else if (SelectableCatalogEntryCount == 0 && HasHiddenCatalogEntries)
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                MagnetarHub currently exposes only hidden or automatic plugins. They are not selectable manually.
+                            </MudAlert>
+                        }
+                        else
+                        {
+                            <MudTable T="QuasarPluginCatalogEntry" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredCatalogEntries">
+                                <HeaderContent>
+                                    <MudTh>Use</MudTh>
+                                    <MudTh>Name</MudTh>
+                                    <MudTh>Plugin Id</MudTh>
+                                    <MudTh>Author</MudTh>
+                                    <MudTh>Description</MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd DataLabel="Use">
+                                        <MudCheckBox T="bool" Value="IsPluginSelected(context.PluginId)" ValueChanged="@(value => SetPluginSelection(context, value))" />
+                                    </MudTd>
+                                    <MudTd DataLabel="Name">
+                                        <MudStack Spacing="0">
+                                            <MudText Typo="Typo.subtitle2">@context.FriendlyName</MudText>
+                                            @if (context.Hidden)
+                                            {
+                                                <MudText Typo="Typo.caption" Class="config-secondary">Hidden in hub</MudText>
+                                            }
+                                        </MudStack>
+                                    </MudTd>
+                                    <MudTd DataLabel="Plugin Id" Class="mono">@context.PluginId</MudTd>
+                                    <MudTd DataLabel="Author">@context.Author</MudTd>
+                                    <MudTd DataLabel="Description">@GetPluginDescription(context)</MudTd>
+                                </RowTemplate>
+                                <NoRecordsContent>
+                                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                        No plugin catalog entries match current search.
+                                    </MudAlert>
+                                </NoRecordsContent>
+                            </MudTable>
+                        }
                         </MudPaper>
                     </MudTabPanel>
 
                     <MudTabPanel Text="Mods">
-                        <MudPaper Class="server-card pa-4">
-                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+                        <MudPaper Class="server-card pa-4" Square="true">
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+                            <MudTextField
+                                @bind-Value="_modSearch"
+                                Label="Search mod names"
+                                Variant="Variant.Outlined"
+                                Immediate="true"
+                                Adornment="Adornment.Start"
+                                AdornmentIcon="@Icons.Material.Filled.Search"
+                                Class="configs-search-field" />
+                            <MudChip T="string" Variant="Variant.Outlined">Mods @FilteredMods.Count</MudChip>
+                        </MudStack>
+
+                        <MudGrid Class="mb-4">
+                            <MudItem xs="12">
                                 <MudTextField
-                                    @bind-Value="_modSearch"
-                                    Label="Search mod names"
+                                    T="string"
+                                    @bind-Value="_workshopInput"
+                                    Label="Workshop URLs, IDs, or collection"
                                     Variant="Variant.Outlined"
+                                    Lines="4"
                                     Immediate="true"
-                                    Adornment="Adornment.Start"
-                                    AdornmentIcon="@Icons.Material.Filled.Search"
-                                    Class="configs-search-field" />
-                                <MudChip T="string" Variant="Variant.Outlined">Mods @FilteredMods.Count</MudChip>
-                            </MudStack>
+                                    HelperText="Paste single Steam Workshop URL, collection URL/ID, or bulk list of IDs. Collections expand into individual workshop items." />
+                            </MudItem>
+                            <MudItem xs="12">
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ResolveWorkshopModsAsync" Disabled="@(_modResolving || string.IsNullOrWhiteSpace(_workshopInput))">
+                                    @(_modResolving ? "Resolving Workshop Items..." : "Resolve and Add Workshop Mods")
+                                </MudButton>
+                            </MudItem>
+                            <MudItem xs="12" md="5">
+                                <MudTextField @bind-Value="_newModName" Label="Mod name" Variant="Variant.Outlined" Immediate="true" />
+                            </MudItem>
+                            <MudItem xs="12" md="4">
+                                <MudNumericField T="long" @bind-Value="_newModWorkshopId" Label="Workshop ID" Variant="Variant.Outlined" Min="1" />
+                            </MudItem>
+                            <MudItem xs="12" md="3">
+                                <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" Class="configs-add-button" OnClick="AddMod" Disabled="@(_newModWorkshopId <= 0 || string.IsNullOrWhiteSpace(_newModName))">
+                                    Add Mod
+                                </MudButton>
+                            </MudItem>
+                        </MudGrid>
 
-                            <MudGrid Class="mb-4">
-                                <MudItem xs="12">
-                                    <MudTextField
-                                        T="string"
-                                        @bind-Value="_workshopInput"
-                                        Label="Workshop URLs, IDs, or collection"
-                                        Variant="Variant.Outlined"
-                                        Lines="4"
-                                        Immediate="true"
-                                        HelperText="Paste single Steam Workshop URL, collection URL/ID, or bulk list of IDs. Collections expand into individual workshop items." />
-                                </MudItem>
-                                <MudItem xs="12">
-                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ResolveWorkshopModsAsync" Disabled="@(_modResolving || string.IsNullOrWhiteSpace(_workshopInput))">
-                                        @(_modResolving ? "Resolving Workshop Items..." : "Resolve and Add Workshop Mods")
-                                    </MudButton>
-                                </MudItem>
-                                <MudItem xs="12" md="5">
-                                    <MudTextField @bind-Value="_newModName" Label="Mod name" Variant="Variant.Outlined" Immediate="true" />
-                                </MudItem>
-                                <MudItem xs="12" md="4">
-                                    <MudNumericField T="long" @bind-Value="_newModWorkshopId" Label="Workshop ID" Variant="Variant.Outlined" Min="1" />
-                                </MudItem>
-                                <MudItem xs="12" md="3">
-                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" Class="configs-add-button" OnClick="AddMod" Disabled="@(_newModWorkshopId <= 0 || string.IsNullOrWhiteSpace(_newModName))">
-                                        Add Mod
-                                    </MudButton>
-                                </MudItem>
-                            </MudGrid>
-
-                            <MudTable T="QuasarModSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="FilteredMods">
-                                <HeaderContent>
-                                    <MudTh>Name</MudTh>
-                                    <MudTh>Workshop ID</MudTh>
-                                    <MudTh></MudTh>
-                                </HeaderContent>
-                                <RowTemplate>
-                                    <MudTd DataLabel="Name">@context.DisplayName</MudTd>
-                                    <MudTd DataLabel="Workshop ID" Class="mono">@context.WorkshopId</MudTd>
-                                    <MudTd Style="text-align:right;">
-                                        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveMod(context.WorkshopId))" />
-                                    </MudTd>
-                                </RowTemplate>
-                                <NoRecordsContent>
-                                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
-                                        No mods match current search.
-                                    </MudAlert>
-                                </NoRecordsContent>
-                            </MudTable>
+                        <MudTable T="QuasarModSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="FilteredMods">
+                            <HeaderContent>
+                                <MudTh>Name</MudTh>
+                                <MudTh>Workshop ID</MudTh>
+                                <MudTh></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+                                <MudTd DataLabel="Workshop ID" Class="mono">@context.WorkshopId</MudTd>
+                                <MudTd Style="text-align:right;">
+                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveMod(context.WorkshopId))" />
+                                </MudTd>
+                            </RowTemplate>
+                            <NoRecordsContent>
+                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                    No mods match current search.
+                                </MudAlert>
+                            </NoRecordsContent>
+                        </MudTable>
                         </MudPaper>
                     </MudTabPanel>
                 </MudTabs>
             </MudStack>
         }
+        </div>
     </MudItem>
 </MudGrid>
 
 @code
 {
     private const string AccessCategoryKey = "access";
+    private const string ServerCategoryKey = "server";
     private const string AccessGroupIdAnchorId = "config-access-group-id";
     private const string AccessAdministratorsAnchorId = "config-access-administrators";
     private const string AccessReservedAnchorId = "config-access-reserved";
@@ -439,6 +512,10 @@
     private List<QuasarConfigOptionCategory> VisibleCategories => QuasarConfigMetadata.Categories
         .Where(category => GetCategoryOptions(category.Key).Count > 0)
         .OrderBy(category => category.Order)
+        .ToList();
+
+    private List<QuasarConfigOptionCategory> RemainingVisibleCategories => VisibleCategories
+        .Where(category => !string.Equals(category.Key, ServerCategoryKey, StringComparison.OrdinalIgnoreCase))
         .ToList();
 
     private bool IsAccessSectionVisible => string.IsNullOrWhiteSpace(_worldSearch)
@@ -533,6 +610,19 @@
         Snackbar.Add("Config profile saved.", Severity.Success);
     }
 
+    private async Task CloneProfileAsync(string configProfileId)
+    {
+        var profile = ConfigProfiles.GetProfile(configProfileId);
+        if (profile is null)
+            return;
+
+        profile.ConfigProfileId = Guid.NewGuid().ToString();
+        profile.Name = $"{profile.Name} (Copy)";
+        await ConfigProfiles.UpsertAsync(profile);
+        SelectProfile(profile.ConfigProfileId);
+        Snackbar.Add("Config profile cloned.", Severity.Success);
+    }
+
     private async Task DeleteProfileAsync(string configProfileId)
     {
         var assignedInstances = GetAssignedInstances(configProfileId);
@@ -560,6 +650,8 @@
         _editor = string.IsNullOrWhiteSpace(_selectedProfileId)
             ? null
             : ConfigProfiles.GetProfile(_selectedProfileId);
+        _hasExplicitCategoryExpansion = true;
+        _expandedCategoryKey = null;
     }
 
     private async Task RefreshPluginCatalogAsync()
@@ -621,11 +713,7 @@
 
     private string? GetDefaultExpandedCategoryKey()
     {
-        if (IsAccessSectionVisible)
-            return AccessCategoryKey;
-
-        var firstVisibleCategory = VisibleCategories.FirstOrDefault();
-        return firstVisibleCategory?.Key;
+        return null;
     }
 
     private bool IsCategoryVisible(string categoryKey)
@@ -662,7 +750,35 @@
         if (string.IsNullOrWhiteSpace(FirstMatchingOptionId))
             return;
 
+        ExpandCategoryForAnchorId(FirstMatchingOptionId);
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(1);
         await JS.InvokeVoidAsync("quasarConfigs.focusElement", FirstMatchingOptionId);
+    }
+
+    private bool TryGetVisibleCategory(string categoryKey, out QuasarConfigOptionCategory category)
+    {
+        category = VisibleCategories.FirstOrDefault(existing => string.Equals(existing.Key, categoryKey, StringComparison.OrdinalIgnoreCase))
+            ?? new QuasarConfigOptionCategory(string.Empty, string.Empty, 0, string.Empty);
+
+        return !string.IsNullOrWhiteSpace(category.Key);
+    }
+
+    private void ExpandCategoryForAnchorId(string anchorId)
+    {
+        string? categoryKey = anchorId switch
+        {
+            AccessGroupIdAnchorId or AccessAdministratorsAnchorId or AccessReservedAnchorId or AccessBannedAnchorId => AccessCategoryKey,
+            _ => VisibleWorldOptions
+                .FirstOrDefault(option => string.Equals(GetOptionAnchorId(option), anchorId, StringComparison.Ordinal))
+                ?.CategoryKey
+        };
+
+        if (string.IsNullOrWhiteSpace(categoryKey))
+            return;
+
+        _hasExplicitCategoryExpansion = true;
+        _expandedCategoryKey = categoryKey;
     }
 
     private bool GetBoolOption(QuasarConfigOptionDefinition option)
@@ -1085,6 +1201,9 @@
 
         return Task.CompletedTask;
     }
+
+    private static string FilterNumericListInput(string? value) =>
+        value is null ? string.Empty : new string(value.Where(c => char.IsDigit(c) || c is ',' or ';' or ' ' or '\n' or '\r' or '\t').ToArray());
 
     private static bool MatchesSearchTerms(string searchText, params string[] values)
     {

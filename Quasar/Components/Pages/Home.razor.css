@@ -1,0 +1,42 @@
+.setup-wizard-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.setup-wizard-step {
+    padding: 0.9rem 0;
+    border-top: 1px solid var(--mud-palette-lines-default);
+}
+
+.setup-wizard-step:first-child {
+    padding-top: 0;
+    border-top: 0;
+}
+
+.setup-wizard-step:last-child {
+    padding-bottom: 0;
+}
+
+.setup-wizard-copy {
+    flex: 1 1 28rem;
+    min-width: 16rem;
+}
+
+.setup-wizard-actions {
+    justify-content: flex-end;
+}
+
+.setup-wizard-status-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.setup-wizard-status-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}

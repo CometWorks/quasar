@@ -1,0 +1,88 @@
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" @bind-IsValid="_formIsValid">
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.body2">
+                Import an existing Space Engineers save folder as reusable world template, then select it back in instance editor.
+            </MudText>
+
+            <MudTextField
+                @bind-Value="_name"
+                Label="Profile name"
+                Variant="Variant.Outlined"
+                Immediate="true"
+                AutoFocus="true"
+                Required="true"
+                RequiredError="Profile name required." />
+
+            <MudTextField
+                @bind-Value="_description"
+                Label="Description"
+                Variant="Variant.Outlined"
+                Immediate="true"
+                Lines="2" />
+
+            <MudTextField
+                @bind-Value="_sourcePath"
+                Label="Source world path"
+                Variant="Variant.Outlined"
+                Immediate="true"
+                Required="true"
+                RequiredError="Source world path required."
+                HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc." />
+        </MudStack>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel" Disabled="@_importing">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ImportAsync" Disabled="@_importing">
+            @(_importing ? "Importing..." : "Import World Template")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Inject]
+    private QuasarWorldProfileCatalog WorldProfiles { get; set; } = default!;
+
+    [Inject]
+    private ISnackbar Snackbar { get; set; } = default!;
+
+    private MudForm? _form;
+    private bool _formIsValid;
+    private string _name = string.Empty;
+    private string _description = string.Empty;
+    private string _sourcePath = string.Empty;
+    private bool _importing;
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task ImportAsync()
+    {
+        await _form!.Validate();
+        if (!_formIsValid)
+            return;
+
+        _importing = true;
+        try
+        {
+            var profile = await WorldProfiles.ImportAsync(_name.Trim(), _description?.Trim() ?? string.Empty, _sourcePath.Trim());
+            MudDialog.Close(DialogResult.Ok(profile));
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            _importing = false;
+        }
+    }
+}

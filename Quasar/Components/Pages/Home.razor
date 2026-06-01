@@ -3,11 +3,292 @@
 @inject AgentRegistry Registry
 @inject DedicatedServerInstanceCatalog InstanceCatalog
 @inject DedicatedServerSupervisor Supervisor
+@inject QuasarConfigProfileCatalog ConfigProfiles
+@inject QuasarWorldProfileCatalog WorldProfiles
+@inject IDialogService DialogService
+@inject WebServiceOptions Options
+@inject ISnackbar Snackbar
 
 <PageTitle>Dashboard</PageTitle>
 
 <MudText Typo="Typo.h4" GutterBottom="true">Dashboard</MudText>
 <MudText Typo="Typo.body2" Class="mb-6">Multi-node, multi-server, multi-plugin control over Blazor Server UI and raw WebSocket agents.</MudText>
+
+@if (ShowSetupWizard)
+{
+    <MudPaper Class="pa-4 summary-card mb-6">
+        <MudStack Spacing="3">
+            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+                <div>
+                    <MudText Typo="Typo.h6">First Setup</MudText>
+                    <MudText Typo="Typo.body2">Stay on dashboard. Create profiles, create instance, launch instance, then watch agent attach here.</MudText>
+                </div>
+            </MudStack>
+
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                @GetNextSetupHint()
+            </MudAlert>
+
+            <div class="setup-wizard-steps">
+                <div class="setup-wizard-step">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+                            <MudStack Spacing="0" Class="setup-wizard-copy">
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                                    <MudText Typo="Typo.subtitle2">Create config profile</MudText>
+                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(ConfigProfileCount > 0 ? Color.Success : Color.Info)" Size="Size.Small">
+                                        @(ConfigProfileCount > 0 ? "Done" : "Recommended")
+                                    </MudChip>
+                                </MudStack>
+                                <MudText Typo="Typo.body2">
+                                    @if (ConfigProfileCount > 0)
+                                    {
+                                        @($"{ConfigProfileCount} config profile(s) ready for reuse.")
+                                    }
+                                    else
+                                    {
+                                        @("Optional helper. Save reusable world rules, plugins, and mods before instance creation.")
+                                    }
+                                </MudText>
+                            </MudStack>
+
+                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="setup-wizard-actions">
+                                <MudButton Variant="@(ConfigProfileCount > 0 ? Variant.Outlined : Variant.Filled)"
+                                           Color="@(ConfigProfileCount > 0 ? Color.Default : Color.Primary)"
+                                           StartIcon="@Icons.Material.Filled.Tune"
+                                           OnClick="OpenCreateConfigProfileDialogAsync">
+                                    @(ConfigProfileCount > 0 ? "Add Config Profile" : "Create Config Profile")
+                                </MudButton>
+                            </MudStack>
+                        </MudStack>
+
+                        @if (ConfigProfilesPreview.Count > 0)
+                        {
+                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                                @foreach (var profile in ConfigProfilesPreview)
+                                {
+                                    <MudChip T="string" Variant="Variant.Outlined">@profile.Name</MudChip>
+                                }
+                                @if (ConfigProfileCount > ConfigProfilesPreview.Count)
+                                {
+                                    <MudChip T="string" Variant="Variant.Outlined">+@(ConfigProfileCount - ConfigProfilesPreview.Count) more</MudChip>
+                                }
+                            </MudStack>
+                        }
+                    </MudStack>
+                </div>
+
+                <div class="setup-wizard-step">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+                            <MudStack Spacing="0" Class="setup-wizard-copy">
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                                    <MudText Typo="Typo.subtitle2">Import world template</MudText>
+                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(WorldProfileCount > 0 ? Color.Success : Color.Default)" Size="Size.Small">
+                                        @(WorldProfileCount > 0 ? "Done" : "Optional")
+                                    </MudChip>
+                                </MudStack>
+                                <MudText Typo="Typo.body2">
+                                    @if (WorldProfileCount > 0)
+                                    {
+                                        @($"{WorldProfileCount} world template(s) ready for first-launch copies.")
+                                    }
+                                    else
+                                    {
+                                        @("Optional helper. Import blueprint save if first launch should seed world folder automatically.")
+                                    }
+                                </MudText>
+                            </MudStack>
+
+                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="setup-wizard-actions">
+                                <MudButton Variant="@(WorldProfileCount > 0 ? Variant.Outlined : Variant.Filled)"
+                                           Color="@(WorldProfileCount > 0 ? Color.Default : Color.Primary)"
+                                           StartIcon="@Icons.Material.Filled.Public"
+                                           OnClick="OpenImportWorldProfileDialogAsync">
+                                    @(WorldProfileCount > 0 ? "Add World Template" : "Import World Template")
+                                </MudButton>
+                            </MudStack>
+                        </MudStack>
+
+                        @if (WorldProfilesPreview.Count > 0)
+                        {
+                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                                @foreach (var profile in WorldProfilesPreview)
+                                {
+                                    <MudChip T="string" Variant="Variant.Outlined">@profile.Name</MudChip>
+                                }
+                                @if (WorldProfileCount > WorldProfilesPreview.Count)
+                                {
+                                    <MudChip T="string" Variant="Variant.Outlined">+@(WorldProfileCount - WorldProfilesPreview.Count) more</MudChip>
+                                }
+                            </MudStack>
+                        }
+                    </MudStack>
+                </div>
+
+                <div class="setup-wizard-step">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+                            <MudStack Spacing="0" Class="setup-wizard-copy">
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                                    <MudText Typo="Typo.subtitle2">Create instance</MudText>
+                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(ConfiguredInstanceCount > 0 ? Color.Success : Color.Warning)" Size="Size.Small">
+                                        @(ConfiguredInstanceCount > 0 ? "Done" : "Required")
+                                    </MudChip>
+                                </MudStack>
+                                <MudText Typo="Typo.body2">
+                                    @if (ConfiguredInstanceCount > 0)
+                                    {
+                                        @($"{ConfiguredInstanceCount} instance definition(s) saved on dashboard.")
+                                    }
+                                    else
+                                    {
+                                        @("Required. Define identity, profile assignments, runtime policy, restart policy, health policy here.")
+                                    }
+                                </MudText>
+                            </MudStack>
+
+                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="setup-wizard-actions">
+                                <MudButton Variant="@(ConfiguredInstanceCount > 0 ? Variant.Outlined : Variant.Filled)"
+                                           Color="@(ConfiguredInstanceCount > 0 ? Color.Default : Color.Primary)"
+                                           StartIcon="@Icons.Material.Filled.Storage"
+                                           OnClick="OpenCreateInstanceDialogAsync">
+                                    @(ConfiguredInstanceCount > 0 ? "Add Instance" : "Create Instance")
+                                </MudButton>
+                            </MudStack>
+                        </MudStack>
+
+                        @if (Instances.Count > 0)
+                        {
+                            <MudStack Spacing="1" Class="setup-wizard-status-list">
+                                @foreach (var instance in Instances.Take(4))
+                                {
+                                    <div class="setup-wizard-status-row">
+                                        <MudStack Spacing="0" Class="setup-wizard-copy">
+                                            <MudText Typo="Typo.body2" Class="mono">@instance.UniqueName</MudText>
+                                            <MudText Typo="Typo.caption">@GetInstanceSetupSummary(instance)</MudText>
+                                        </MudStack>
+                                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                                            <MudChip T="string" Variant="Variant.Outlined" Color="@GetSetupStateColor(instance.UniqueName)">
+                                                @GetSetupStateText(instance.UniqueName)
+                                            </MudChip>
+                                        </MudStack>
+                                    </div>
+                                }
+                            </MudStack>
+                        }
+                    </MudStack>
+                </div>
+
+                <div class="setup-wizard-step">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+                            <MudStack Spacing="0" Class="setup-wizard-copy">
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                                    <MudText Typo="Typo.subtitle2">Start instance</MudText>
+                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(RunningInstanceCount > 0 ? Color.Success : Color.Warning)" Size="Size.Small">
+                                        @(RunningInstanceCount > 0 ? "Done" : "Required")
+                                    </MudChip>
+                                </MudStack>
+                                <MudText Typo="Typo.body2">
+                                    @if (RunningInstanceCount > 0)
+                                    {
+                                        @($"{RunningInstanceCount} instance(s) launching or running now.")
+                                    }
+                                    else if (ConfiguredInstanceCount == 0)
+                                    {
+                                        @("Create instance first. Launch buttons appear here after save.")
+                                    }
+                                    else
+                                    {
+                                        @("Required. Launch saved instance here. Quasar prepares runtime and starts server from dashboard.")
+                                    }
+                                </MudText>
+                            </MudStack>
+
+                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="setup-wizard-actions">
+                                @if (StartableInstances.Count == 0)
+                                {
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="Color.Default"
+                                               Disabled="true"
+                                               StartIcon="@Icons.Material.Filled.PlayArrow">
+                                        @(ConfiguredInstanceCount == 0 ? "Create Instance First" : "All Instances Running")
+                                    </MudButton>
+                                }
+                                else
+                                {
+                                    @foreach (var instance in StartableInstances)
+                                    {
+                                        <MudButton Variant="Variant.Filled"
+                                                   Color="Color.Primary"
+                                                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                                                   OnClick="@(() => StartAsync(instance.UniqueName))">
+                                            Start @instance.UniqueName
+                                        </MudButton>
+                                    }
+                                }
+                            </MudStack>
+                        </MudStack>
+                    </MudStack>
+                </div>
+
+                <div class="setup-wizard-step">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+                            <MudStack Spacing="0" Class="setup-wizard-copy">
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                                    <MudText Typo="Typo.subtitle2">Wait for Quasar.Agent</MudText>
+                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(ConnectedAgentCount > 0 ? Color.Success : Color.Warning)" Size="Size.Small">
+                                        @(ConnectedAgentCount > 0 ? "Done" : "Waiting")
+                                    </MudChip>
+                                </MudStack>
+                                <MudText Typo="Typo.body2">
+                                    @if (ConnectedAgentCount > 0)
+                                    {
+                                        @($"{ConnectedAgentCount} connected agent(s) reporting live server data.")
+                                    }
+                                    else if (RunningInstanceCount == 0)
+                                    {
+                                        @("No running instance yet. Launch one above, then dashboard watches attach here.")
+                                    }
+                                    else
+                                    {
+                                        @("Dashboard watching live attach now. Keep page open while Quasar.Agent connects.")
+                                    }
+                                </MudText>
+                            </MudStack>
+
+                        </MudStack>
+
+                        @if (LaunchedInstances.Count > 0)
+                        {
+                            <MudStack Spacing="1" Class="setup-wizard-status-list">
+                                @foreach (var instance in LaunchedInstances)
+                                {
+                                    <div class="setup-wizard-status-row">
+                                        <MudStack Spacing="0" Class="setup-wizard-copy">
+                                            <MudText Typo="Typo.body2" Class="mono">@instance.UniqueName</MudText>
+                                            <MudText Typo="Typo.caption">@GetSetupRuntimeSummary(instance.UniqueName)</MudText>
+                                        </MudStack>
+                                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                                            <MudChip T="string" Variant="Variant.Outlined" Color="@GetSetupStateColor(instance.UniqueName)">
+                                                @GetSetupStateText(instance.UniqueName)
+                                            </MudChip>
+                                            <MudChip T="string" Variant="Variant.Outlined" Color="@GetSetupAgentColor(instance.UniqueName)">
+                                                @GetSetupAgentText(instance.UniqueName)
+                                            </MudChip>
+                                        </MudStack>
+                                    </div>
+                                }
+                            </MudStack>
+                        }
+                    </MudStack>
+                </div>
+            </div>
+        </MudStack>
+    </MudPaper>
+}
 
 <MudGrid Class="mb-4">
     <MudItem xs="12" sm="6" lg="3">
@@ -62,9 +343,12 @@
 
 @if (Agents.Count == 0)
 {
-    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-        No agents connected yet. Start a dedicated server instance with the Quasar.Agent plugin loaded.
-    </MudAlert>
+    @if (!ShowSetupWizard)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+            No agents connected yet. Start a dedicated server instance with the Quasar.Agent plugin loaded.
+        </MudAlert>
+    }
 }
 else
 {
@@ -81,6 +365,15 @@ else
 @code
 {
     private IReadOnlyList<AgentRuntimeState> Agents => Registry.GetAgents();
+    private IReadOnlyList<DedicatedServerInstanceDefinition> Instances => InstanceCatalog.GetInstances();
+    private IReadOnlyDictionary<string, DedicatedServerInstanceRuntimeSnapshot> RuntimeSnapshots => Supervisor
+        .GetSnapshots()
+        .ToDictionary(snapshot => snapshot.UniqueName, StringComparer.OrdinalIgnoreCase);
+
+    private IReadOnlyList<QuasarConfigProfile> ConfigProfilesPreview => ConfigProfiles.GetProfiles().Take(3).ToList();
+    private IReadOnlyList<QuasarWorldProfile> WorldProfilesPreview => WorldProfiles.GetProfiles().Take(3).ToList();
+    private IReadOnlyList<DedicatedServerInstanceDefinition> StartableInstances => Instances.Where(instance => !IsRunning(instance.UniqueName)).ToList();
+    private IReadOnlyList<DedicatedServerInstanceDefinition> LaunchedInstances => Instances.Where(instance => IsRunning(instance.UniqueName)).ToList();
 
     private int NodeCount => Agents
         .Select(agent => agent.NodeKey)
@@ -98,7 +391,7 @@ else
 
     private int PlayersOnline => Agents.Sum(agent => agent.Snapshot?.Metrics.PlayersOnline ?? 0);
 
-    private int ConfiguredInstanceCount => InstanceCatalog.GetInstances().Count;
+    private int ConfiguredInstanceCount => Instances.Count;
 
     private int RunningInstanceCount => Supervisor.GetSnapshots().Count(snapshot =>
         snapshot.State is DedicatedServerInstanceProcessState.Starting
@@ -112,11 +405,22 @@ else
     private int UnhealthyInstanceCount => Supervisor.GetSnapshots().Count(snapshot =>
         snapshot.HealthState == DedicatedServerInstanceHealthState.Unhealthy);
 
+    private int ConfigProfileCount => ConfigProfiles.GetProfiles().Count;
+
+    private int WorldProfileCount => WorldProfiles.GetProfiles().Count;
+
+    private bool ShowSetupWizard =>
+        ConfiguredInstanceCount == 0
+        || RunningInstanceCount == 0
+        || ConnectedAgentCount == 0;
+
     protected override void OnInitialized()
     {
         Registry.Changed += HandleRegistryChanged;
         InstanceCatalog.Changed += HandleRegistryChanged;
         Supervisor.Changed += HandleRegistryChanged;
+        ConfigProfiles.Changed += HandleRegistryChanged;
+        WorldProfiles.Changed += HandleRegistryChanged;
     }
 
     public void Dispose()
@@ -124,10 +428,242 @@ else
         Registry.Changed -= HandleRegistryChanged;
         InstanceCatalog.Changed -= HandleRegistryChanged;
         Supervisor.Changed -= HandleRegistryChanged;
+        ConfigProfiles.Changed -= HandleRegistryChanged;
+        WorldProfiles.Changed -= HandleRegistryChanged;
     }
 
     private void HandleRegistryChanged()
     {
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    private string GetSetupProgressText()
+    {
+        var completed = 0;
+        if (ConfiguredInstanceCount > 0)
+            completed++;
+        if (RunningInstanceCount > 0)
+            completed++;
+        if (ConnectedAgentCount > 0)
+            completed++;
+
+        return $"{completed}/3 required steps complete";
+    }
+
+    private string GetNextSetupHint()
+    {
+        if (ConfiguredInstanceCount == 0)
+        {
+            if (ConfigProfileCount == 0 && WorldProfileCount == 0)
+                return "Optional: create config profile or import world template here first. Then create first instance below.";
+
+            return "Next: create first instance below. No page switch needed.";
+        }
+
+        if (RunningInstanceCount == 0)
+            return "Next: start saved instance below. Quasar handles runtime prep on launch.";
+
+        if (ConnectedAgentCount == 0)
+            return "Last step: wait here for Quasar.Agent attach. Dashboard updates live when server reports in.";
+
+        return "Setup complete. Dashboard now stays focused on live running servers.";
+    }
+
+    private async Task OpenCreateConfigProfileDialogAsync()
+    {
+        var dialog = await DialogService.ShowAsync<ConfigProfileQuickCreateDialog>(
+            "New Config Profile",
+            new DialogParameters(),
+            new DialogOptions
+            {
+                CloseOnEscapeKey = true,
+                FullWidth = true,
+                MaxWidth = MaxWidth.Small,
+            });
+
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not QuasarConfigProfile)
+            return;
+
+        Snackbar.Add("Config profile created.", Severity.Success);
+    }
+
+    private async Task OpenImportWorldProfileDialogAsync()
+    {
+        var dialog = await DialogService.ShowAsync<WorldProfileQuickImportDialog>(
+            "Import World Template",
+            new DialogParameters(),
+            new DialogOptions
+            {
+                CloseOnEscapeKey = true,
+                FullWidth = true,
+                MaxWidth = MaxWidth.Medium,
+            });
+
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not QuasarWorldProfile)
+            return;
+
+        Snackbar.Add("World profile imported.", Severity.Success);
+    }
+
+    private async Task OpenCreateInstanceDialogAsync()
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(InstanceEditorDialog.Definition)] = CreateBlank(),
+            [nameof(InstanceEditorDialog.IsEditing)] = false,
+            [nameof(InstanceEditorDialog.UniqueNameLocked)] = false,
+        };
+
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            FullWidth = true,
+            MaxWidth = MaxWidth.ExtraLarge,
+        };
+
+        var dialog = await DialogService.ShowAsync<InstanceEditorDialog>("Create Instance", parameters, options);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not DedicatedServerInstanceDefinition definition)
+            return;
+
+        await SaveDefinitionAsync(definition, "Instance created.");
+    }
+
+    private async Task SaveDefinitionAsync(DedicatedServerInstanceDefinition definition, string successMessage)
+    {
+        var previousUniqueName = definition.OriginalUniqueName;
+        if (!string.IsNullOrWhiteSpace(previousUniqueName) &&
+            !string.Equals(previousUniqueName, definition.UniqueName, StringComparison.OrdinalIgnoreCase) &&
+            IsRunning(previousUniqueName))
+        {
+            Snackbar.Add("Stop instance before renaming it.", Severity.Warning);
+            return;
+        }
+
+        try
+        {
+            await InstanceCatalog.UpsertAsync(definition);
+            Snackbar.Add(successMessage, Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task StartAsync(string uniqueName)
+    {
+        try
+        {
+            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerInstanceGoalState.On);
+            Snackbar.Add($"Start requested for '{uniqueName}'.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private bool IsRunning(string uniqueName)
+    {
+        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerInstanceProcessState.Stopped;
+        return state is DedicatedServerInstanceProcessState.Starting
+            or DedicatedServerInstanceProcessState.Running
+            or DedicatedServerInstanceProcessState.Restarting
+            or DedicatedServerInstanceProcessState.Stopping;
+    }
+
+    private DedicatedServerInstanceRuntimeSnapshot? GetRuntime(string uniqueName)
+    {
+        RuntimeSnapshots.TryGetValue(uniqueName, out var runtime);
+        return runtime;
+    }
+
+    private string GetInstanceSetupSummary(DedicatedServerInstanceDefinition instance)
+    {
+        var configProfileName = string.IsNullOrWhiteSpace(instance.ConfigProfileId)
+            ? "No config profile"
+            : ConfigProfiles.GetProfile(instance.ConfigProfileId)?.Name ?? $"Missing config: {instance.ConfigProfileId}";
+
+        var worldProfileName = string.IsNullOrWhiteSpace(instance.WorldProfileId)
+            ? "No world template"
+            : WorldProfiles.GetProfile(instance.WorldProfileId)?.Name ?? $"Missing world: {instance.WorldProfileId}";
+
+        return $"{configProfileName} | {worldProfileName}";
+    }
+
+    private string GetSetupRuntimeSummary(string uniqueName)
+    {
+        var runtime = GetRuntime(uniqueName);
+        if (runtime is null)
+            return "No runtime snapshot yet.";
+
+        if (runtime.AgentAttached)
+            return "Agent attached. Live dashboard data ready.";
+
+        if (runtime.ProcessId is int processId)
+            return $"Process {processId} running. Waiting for Quasar.Agent attach.";
+
+        return "Launch requested. Waiting for process and agent.";
+    }
+
+    private string GetSetupStateText(string uniqueName)
+    {
+        return (GetRuntime(uniqueName)?.State ?? DedicatedServerInstanceProcessState.Stopped)
+            .ToString()
+            .ToLowerInvariant();
+    }
+
+    private Color GetSetupStateColor(string uniqueName)
+    {
+        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerInstanceProcessState.Stopped;
+        return state switch
+        {
+            DedicatedServerInstanceProcessState.Running => Color.Success,
+            DedicatedServerInstanceProcessState.Starting => Color.Info,
+            DedicatedServerInstanceProcessState.Restarting => Color.Warning,
+            DedicatedServerInstanceProcessState.Stopping => Color.Warning,
+            DedicatedServerInstanceProcessState.Crashed => Color.Error,
+            DedicatedServerInstanceProcessState.Faulted => Color.Error,
+            _ => Color.Default,
+        };
+    }
+
+    private string GetSetupAgentText(string uniqueName)
+    {
+        var runtime = GetRuntime(uniqueName);
+        if (runtime is null)
+            return "not attached";
+
+        return runtime.AgentAttached ? "attached" : "waiting";
+    }
+
+    private Color GetSetupAgentColor(string uniqueName)
+    {
+        var runtime = GetRuntime(uniqueName);
+        if (runtime is null)
+            return Color.Default;
+
+        return runtime.AgentAttached ? Color.Success : Color.Warning;
+    }
+
+    private DedicatedServerInstanceDefinition CreateBlank()
+    {
+        var healthMonitoringEnabled = !Options.DisableInstanceHealthMonitoring;
+        return new DedicatedServerInstanceDefinition
+        {
+            GoalState = DedicatedServerInstanceGoalState.Off,
+            EnableHealthMonitoring = healthMonitoringEnabled,
+            AutoRestartOnUnhealthy = healthMonitoringEnabled,
+            AgentStartupGraceSeconds = 180,
+            AgentHeartbeatTimeoutSeconds = 20,
+            SimulationProgressWindowSeconds = 30,
+            MinimumSimulationProgressScore = 0.05f,
+            WarnAfterUptimeHours = 12,
+            RestartDelaySeconds = 5,
+            RestartOnCrash = true,
+        };
     }
 }

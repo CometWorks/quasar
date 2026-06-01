@@ -4,7 +4,7 @@
 @inject QuasarShutdownService ShutdownService
 @inject BrandingService BrandingService
 
-<MudThemeProvider Theme="@ThemePreference.Theme" IsDarkMode="@_isDarkMode" ObserveSystemDarkModeChange="false" />
+<MudThemeProvider Theme="@ThemePreference.Theme" IsDarkMode="@_isDarkMode" IsDarkModeChanged="OnSystemDarkModeChangedAsync" ObserveSystemDarkModeChange="@(_themeMode == ThemeMode.System)" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
@@ -24,17 +24,11 @@
             </MudStack>
         </MudStack>
         <MudSpacer />
-        <MudHidden Breakpoint="Breakpoint.SmAndDown">
-            <MudChip T="string" Color="Color.Default" Variant="Variant.Outlined" Class="mr-2">
-                Interactive Server
-            </MudChip>
-        </MudHidden>
-        <MudTooltip Text="@(_isDarkMode ? "Switch to light mode" : "Switch to dark mode")">
-            <MudIconButton
-                Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
-                Color="Color.Inherit"
-                OnClick="ToggleThemeAsync" />
-        </MudTooltip>
+        <MudMenu Icon="@GetThemeModeIcon()" Color="Color.Inherit" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Dense="true">
+            <MudMenuItem Icon="@Icons.Material.Filled.BrightnessAuto" IconColor="@(_themeMode == ThemeMode.System ? Color.Primary : Color.Default)" OnClick="@(() => SetThemeModeAsync(ThemeMode.System))">System</MudMenuItem>
+            <MudMenuItem Icon="@Icons.Material.Filled.LightMode" IconColor="@(_themeMode == ThemeMode.Light ? Color.Primary : Color.Default)" OnClick="@(() => SetThemeModeAsync(ThemeMode.Light))">Light</MudMenuItem>
+            <MudMenuItem Icon="@Icons.Material.Filled.DarkMode" IconColor="@(_themeMode == ThemeMode.Dark ? Color.Primary : Color.Default)" OnClick="@(() => SetThemeModeAsync(ThemeMode.Dark))">Dark</MudMenuItem>
+        </MudMenu>
         <MudTooltip Text="Shut down Quasar">
             <MudIconButton
                 Icon="@Icons.Material.Filled.PowerSettingsNew"
@@ -103,6 +97,7 @@
 {
     private bool _drawerOpen = true;
     private bool _isDarkMode = true;
+    private ThemeMode _themeMode = ThemeMode.System;
     private bool _isShuttingDown = false;
     private string _shutdownStatus = string.Empty;
     private MudMessageBox? _shutdownMessageBox;
@@ -131,7 +126,9 @@
         if (!firstRender)
             return;
 
-        _isDarkMode = await ThemePreference.InitializeAsync();
+        var (mode, isDark) = await ThemePreference.InitializeAsync();
+        _themeMode = mode;
+        _isDarkMode = isDark;
         await InvokeAsync(StateHasChanged);
     }
 
@@ -140,11 +137,26 @@
         _drawerOpen = !_drawerOpen;
     }
 
-    private async Task ToggleThemeAsync()
+    private async Task SetThemeModeAsync(ThemeMode mode)
     {
-        _isDarkMode = !_isDarkMode;
-        await ThemePreference.SetDarkModeAsync(_isDarkMode);
+        await ThemePreference.SetModeAsync(mode);
+        _themeMode = mode;
+        _isDarkMode = ThemePreference.IsDarkMode;
     }
+
+    private async Task OnSystemDarkModeChangedAsync(bool isDark)
+    {
+        _isDarkMode = isDark;
+        ThemePreference.SyncSystemDarkMode(isDark);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string GetThemeModeIcon() => _themeMode switch
+    {
+        ThemeMode.Light => Icons.Material.Filled.LightMode,
+        ThemeMode.Dark => Icons.Material.Filled.DarkMode,
+        _ => Icons.Material.Filled.BrightnessAuto,
+    };
 
     private async Task HandleShutdownClickAsync()
     {
