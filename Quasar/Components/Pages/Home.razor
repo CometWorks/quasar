@@ -6,13 +6,22 @@
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarWorldProfileCatalog WorldProfiles
 @inject IDialogService DialogService
-@inject WebServiceOptions Options
 @inject ISnackbar Snackbar
 
 <PageTitle>Dashboard</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">Dashboard</MudText>
-<MudText Typo="Typo.body2" Class="mb-6">Multi-node, multi-server, multi-plugin control over Blazor Server UI and raw WebSocket agents.</MudText>
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-2">
+    <div>
+        <MudText Typo="Typo.h4" GutterBottom="true">Dashboard</MudText>
+        <MudText Typo="Typo.body2" Class="mb-2">Multi-node, multi-server, multi-plugin control over Blazor Server UI and raw WebSocket agents.</MudText>
+    </div>
+    @if (!ShowSetupWizard)
+    {
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="ShowSetupWizardAgain">
+            Restart Setup Wizard
+        </MudButton>
+    }
+</MudStack>
 
 @if (ShowSetupWizard)
 {
@@ -23,6 +32,12 @@
                     <MudText Typo="Typo.h6">First Setup</MudText>
                     <MudText Typo="Typo.body2">Stay on dashboard. Create profiles, create instance, launch instance, then watch agent attach here.</MudText>
                 </div>
+                @if (_setupWizardRequested && !IsSetupIncomplete)
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Close" OnClick="HideSetupWizard">
+                        Hide Wizard
+                    </MudButton>
+                }
             </MudStack>
 
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
@@ -409,10 +424,24 @@ else
 
     private int WorldProfileCount => WorldProfiles.GetProfiles().Count;
 
-    private bool ShowSetupWizard =>
+    private bool _setupWizardRequested;
+
+    private bool IsSetupIncomplete =>
         ConfiguredInstanceCount == 0
         || RunningInstanceCount == 0
         || ConnectedAgentCount == 0;
+
+    private bool ShowSetupWizard => IsSetupIncomplete || _setupWizardRequested;
+
+    private void ShowSetupWizardAgain()
+    {
+        _setupWizardRequested = true;
+    }
+
+    private void HideSetupWizard()
+    {
+        _setupWizardRequested = false;
+    }
 
     protected override void OnInitialized()
     {
@@ -469,88 +498,25 @@ else
         return "Setup complete. Dashboard now stays focused on live running servers.";
     }
 
-    private async Task OpenCreateConfigProfileDialogAsync()
+    private Task OpenCreateConfigProfileDialogAsync() =>
+        ShowFullScreenPageDialogAsync<ConfigsPageDialog>("Config Profiles");
+
+    private Task OpenImportWorldProfileDialogAsync() =>
+        ShowFullScreenPageDialogAsync<WorldProfilesPageDialog>("World Templates");
+
+    private Task OpenCreateInstanceDialogAsync() =>
+        ShowFullScreenPageDialogAsync<InstancesPageDialog>("Instances");
+
+    private async Task ShowFullScreenPageDialogAsync<TDialog>(string title) where TDialog : ComponentBase
     {
-        var dialog = await DialogService.ShowAsync<ConfigProfileQuickCreateDialog>(
-            "New Config Profile",
-            new DialogParameters(),
-            new DialogOptions
-            {
-                CloseOnEscapeKey = true,
-                FullWidth = true,
-                MaxWidth = MaxWidth.Small,
-            });
-
-        var result = await dialog.Result;
-        if (result is null || result.Canceled || result.Data is not QuasarConfigProfile)
-            return;
-
-        Snackbar.Add("Config profile created.", Severity.Success);
-    }
-
-    private async Task OpenImportWorldProfileDialogAsync()
-    {
-        var dialog = await DialogService.ShowAsync<WorldProfileQuickImportDialog>(
-            "Import World Template",
-            new DialogParameters(),
-            new DialogOptions
-            {
-                CloseOnEscapeKey = true,
-                FullWidth = true,
-                MaxWidth = MaxWidth.Medium,
-            });
-
-        var result = await dialog.Result;
-        if (result is null || result.Canceled || result.Data is not QuasarWorldProfile)
-            return;
-
-        Snackbar.Add("World profile imported.", Severity.Success);
-    }
-
-    private async Task OpenCreateInstanceDialogAsync()
-    {
-        var parameters = new DialogParameters
-        {
-            [nameof(InstanceEditorDialog.Definition)] = CreateBlank(),
-            [nameof(InstanceEditorDialog.IsEditing)] = false,
-            [nameof(InstanceEditorDialog.UniqueNameLocked)] = false,
-        };
-
         var options = new DialogOptions
         {
             CloseOnEscapeKey = true,
-            FullWidth = true,
-            MaxWidth = MaxWidth.ExtraLarge,
+            FullScreen = true,
         };
 
-        var dialog = await DialogService.ShowAsync<InstanceEditorDialog>("Create Instance", parameters, options);
-        var result = await dialog.Result;
-        if (result is null || result.Canceled || result.Data is not DedicatedServerInstanceDefinition definition)
-            return;
-
-        await SaveDefinitionAsync(definition, "Instance created.");
-    }
-
-    private async Task SaveDefinitionAsync(DedicatedServerInstanceDefinition definition, string successMessage)
-    {
-        var previousUniqueName = definition.OriginalUniqueName;
-        if (!string.IsNullOrWhiteSpace(previousUniqueName) &&
-            !string.Equals(previousUniqueName, definition.UniqueName, StringComparison.OrdinalIgnoreCase) &&
-            IsRunning(previousUniqueName))
-        {
-            Snackbar.Add("Stop instance before renaming it.", Severity.Warning);
-            return;
-        }
-
-        try
-        {
-            await InstanceCatalog.UpsertAsync(definition);
-            Snackbar.Add(successMessage, Severity.Success);
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add(exception.Message, Severity.Error);
-        }
+        var dialog = await DialogService.ShowAsync<TDialog>(title, new DialogParameters(), options);
+        await dialog.Result;
     }
 
     private async Task StartAsync(string uniqueName)
@@ -649,21 +615,4 @@ else
         return runtime.AgentAttached ? Color.Success : Color.Warning;
     }
 
-    private DedicatedServerInstanceDefinition CreateBlank()
-    {
-        var healthMonitoringEnabled = !Options.DisableInstanceHealthMonitoring;
-        return new DedicatedServerInstanceDefinition
-        {
-            GoalState = DedicatedServerInstanceGoalState.Off,
-            EnableHealthMonitoring = healthMonitoringEnabled,
-            AutoRestartOnUnhealthy = healthMonitoringEnabled,
-            AgentStartupGraceSeconds = 180,
-            AgentHeartbeatTimeoutSeconds = 20,
-            SimulationProgressWindowSeconds = 30,
-            MinimumSimulationProgressScore = 0.05f,
-            WarnAfterUptimeHours = 12,
-            RestartDelaySeconds = 5,
-            RestartOnCrash = true,
-        };
-    }
 }
