@@ -22,6 +22,16 @@ public static class BrowserLauncher
     {
         try
         {
+            if (OperatingSystem.IsLinux())
+            {
+                if (TryStartBrowserCommand("xdg-open", url) ||
+                    TryStartBrowserCommand("gio", $"open \"{url}\"") ||
+                    TryStartBrowserCommand("sensible-browser", url))
+                {
+                    return;
+                }
+            }
+
             Process.Start(new ProcessStartInfo(url)
             {
                 UseShellExecute = true,
@@ -29,6 +39,27 @@ public static class BrowserLauncher
         }
         catch
         {
+        }
+    }
+
+    private static bool TryStartBrowserCommand(string fileName, string arguments)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 }

@@ -25,7 +25,7 @@ public sealed class DedicatedServerInstanceDefinition
 
     public string ConfigProfileId { get; set; } = string.Empty;
 
-    public string WorldProfileId { get; set; } = string.Empty;
+    public string WorldTemplateId { get; set; } = string.Empty;
 
     public string LaunchArguments { get; set; } = string.Empty;
 
@@ -69,7 +69,7 @@ public sealed class DedicatedServerInstanceDefinition
             WorldPath = WorldPath,
             ConfigFilePath = ConfigFilePath,
             ConfigProfileId = ConfigProfileId,
-            WorldProfileId = WorldProfileId,
+            WorldTemplateId = WorldTemplateId,
             LaunchArguments = LaunchArguments,
             AutoStart = AutoStart,
             EnableHealthMonitoring = EnableHealthMonitoring,

@@ -4,7 +4,10 @@ namespace Quasar.Services;
 
 public sealed class ManagedRuntimeOptions
 {
-    public string MagnetarArchiveUrl { get; init; } = "https://nas.ferenczi.eu/public.php/dav/files/q4godba6fXH6w74/?accept=zip";
+    private const string DefaultLinuxMagnetarArchiveUrl = "https://nas.ferenczi.eu/public.php/dav/files/q4godba6fXH6w74/MagnetarForLinux.7z";
+    private const string DefaultMagnetarArchiveUrl = "https://nas.ferenczi.eu/public.php/dav/files/q4godba6fXH6w74/?accept=zip";
+
+    public string MagnetarArchiveUrl { get; init; } = GetDefaultMagnetarArchiveUrl();
 
     public string MagnetarInstallDirectory { get; init; } = MagnetarPaths.GetQuasarManagedMagnetarInstallDirectory();
 
@@ -21,8 +24,9 @@ public sealed class ManagedRuntimeOptions
         var section = configuration.GetSection("Quasar").GetSection("ManagedRuntime");
 
         var magnetarArchiveUrl = Environment.GetEnvironmentVariable("QUASAR_MAGNETAR_ARCHIVE_URL")
-                                 ?? section["MagnetarArchiveUrl"]
-                                 ?? "https://nas.ferenczi.eu/public.php/dav/files/q4godba6fXH6w74/?accept=zip";
+                                 ?? section["MagnetarArchiveUrl"];
+        if (string.IsNullOrWhiteSpace(magnetarArchiveUrl))
+            magnetarArchiveUrl = GetDefaultMagnetarArchiveUrl();
 
         var magnetarInstallDirectory = Environment.GetEnvironmentVariable("QUASAR_MAGNETAR_INSTALL_DIR")
                                        ?? section["MagnetarInstallDirectory"];
@@ -51,7 +55,7 @@ public sealed class ManagedRuntimeOptions
 
         return new ManagedRuntimeOptions
         {
-            MagnetarArchiveUrl = magnetarArchiveUrl,
+            MagnetarArchiveUrl = magnetarArchiveUrl.Trim(),
             MagnetarInstallDirectory = magnetarInstallDirectory.Trim(),
             DedicatedServerInstallDirectory = dedicatedServerInstallDirectory.Trim(),
             DedicatedServer64OverridePath = dedicatedServer64OverridePath.Trim(),
@@ -59,4 +63,9 @@ public sealed class ManagedRuntimeOptions
             PreferManagedDedicatedServerInstall = preferManagedDedicatedServerInstall,
         };
     }
+
+    private static string GetDefaultMagnetarArchiveUrl() =>
+        OperatingSystem.IsLinux()
+            ? DefaultLinuxMagnetarArchiveUrl
+            : DefaultMagnetarArchiveUrl;
 }

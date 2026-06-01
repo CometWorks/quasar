@@ -99,23 +99,26 @@ public static class MagnetarPaths
         Path.Combine(GetQuasarInstanceDirectory(uniqueName), "analytics.json");
 
     // -------------------------------------------------------------------------
-    // World profiles  (~/.config/Quasar/WorldProfiles/<id>/)
+    // World templates  (~/.config/Quasar/WorldTemplates/<id>/)
     // -------------------------------------------------------------------------
 
-    public static string GetQuasarWorldProfilesDirectory() =>
+    public static string GetQuasarWorldTemplatesDirectory() =>
+        Path.Combine(GetQuasarDirectory(), "WorldTemplates");
+
+    public static string GetLegacyQuasarWorldProfilesDirectory() =>
         Path.Combine(GetQuasarDirectory(), "WorldProfiles");
 
-    public static string GetQuasarWorldProfileDirectory(string worldProfileId) =>
-        Path.Combine(GetQuasarWorldProfilesDirectory(), SanitizePathSegment(worldProfileId));
+    public static string GetQuasarWorldTemplateDirectory(string worldTemplateId) =>
+        Path.Combine(GetQuasarWorldTemplatesDirectory(), SanitizePathSegment(worldTemplateId));
 
-    public static string GetQuasarWorldProfileDefinitionPath(string worldProfileId) =>
-        Path.Combine(GetQuasarWorldProfileDirectory(worldProfileId), "profile.json");
+    public static string GetQuasarWorldTemplateDefinitionPath(string worldTemplateId) =>
+        Path.Combine(GetQuasarWorldTemplateDirectory(worldTemplateId), "template.json");
 
-    public static string GetQuasarWorldProfileWorldDirectory(string worldProfileId) =>
-        Path.Combine(GetQuasarWorldProfileDirectory(worldProfileId), "World");
+    public static string GetQuasarWorldTemplateWorldDirectory(string worldTemplateId) =>
+        Path.Combine(GetQuasarWorldTemplateDirectory(worldTemplateId), "World");
 
-    public static string GetQuasarWorldProfileHistoryDirectory(string worldProfileId) =>
-        Path.Combine(GetQuasarWorldProfileDirectory(worldProfileId), "History");
+    public static string GetQuasarWorldTemplateHistoryDirectory(string worldTemplateId) =>
+        Path.Combine(GetQuasarWorldTemplateDirectory(worldTemplateId), "History");
 
     // -------------------------------------------------------------------------
     // Bootstrap update / release staging

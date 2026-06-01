@@ -1,8 +1,8 @@
 namespace Quasar.Models;
 
-public sealed class QuasarWorldProfile
+public sealed class QuasarWorldTemplate
 {
-    public string WorldProfileId { get; set; } = Guid.NewGuid().ToString("N");
+    public string WorldTemplateId { get; set; } = Guid.NewGuid().ToString("N");
 
     public string Name { get; set; } = string.Empty;
 

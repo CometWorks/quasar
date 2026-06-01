@@ -4,7 +4,7 @@
 @inject DedicatedServerInstanceCatalog InstanceCatalog
 @inject DedicatedServerSupervisor Supervisor
 @inject QuasarConfigProfileCatalog ConfigProfiles
-@inject QuasarWorldProfileCatalog WorldProfiles
+@inject QuasarWorldTemplateCatalog WorldTemplates
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 
@@ -30,7 +30,7 @@
             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
                 <div>
                     <MudText Typo="Typo.h6">First Setup</MudText>
-                    <MudText Typo="Typo.body2">Stay on dashboard. Create profiles, create instance, launch instance, then watch agent attach here.</MudText>
+                    <MudText Typo="Typo.body2">Stay on dashboard. Create templates, create instance, launch instance, then watch agent attach here.</MudText>
                 </div>
                 @if (_setupWizardRequested && !IsSetupIncomplete)
                 {
@@ -50,7 +50,7 @@
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
                             <MudStack Spacing="0" Class="setup-wizard-copy">
                                 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-                                    <MudText Typo="Typo.subtitle2">Create config profile</MudText>
+                                    <MudText Typo="Typo.subtitle2">Create config template</MudText>
                                     <MudChip T="string" Variant="Variant.Outlined" Color="@(ConfigProfileCount > 0 ? Color.Success : Color.Info)" Size="Size.Small">
                                         @(ConfigProfileCount > 0 ? "Done" : "Recommended")
                                     </MudChip>
@@ -58,7 +58,7 @@
                                 <MudText Typo="Typo.body2">
                                     @if (ConfigProfileCount > 0)
                                     {
-                                        @($"{ConfigProfileCount} config profile(s) ready for reuse.")
+                                        @($"{ConfigProfileCount} config template(s) ready for reuse.")
                                     }
                                     else
                                     {
@@ -72,7 +72,7 @@
                                            Color="@(ConfigProfileCount > 0 ? Color.Default : Color.Primary)"
                                            StartIcon="@Icons.Material.Filled.Tune"
                                            OnClick="OpenCreateConfigProfileDialogAsync">
-                                    @(ConfigProfileCount > 0 ? "Add Config Profile" : "Create Config Profile")
+                                    @(ConfigProfileCount > 0 ? "Add Config Template" : "Create Config Template")
                                 </MudButton>
                             </MudStack>
                         </MudStack>
@@ -80,9 +80,9 @@
                         @if (ConfigProfilesPreview.Count > 0)
                         {
                             <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                                @foreach (var profile in ConfigProfilesPreview)
+                                @foreach (var template in ConfigProfilesPreview)
                                 {
-                                    <MudChip T="string" Variant="Variant.Outlined">@profile.Name</MudChip>
+                                    <MudChip T="string" Variant="Variant.Outlined">@template.Name</MudChip>
                                 }
                                 @if (ConfigProfileCount > ConfigProfilesPreview.Count)
                                 {
@@ -99,14 +99,14 @@
                             <MudStack Spacing="0" Class="setup-wizard-copy">
                                 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
                                     <MudText Typo="Typo.subtitle2">Import world template</MudText>
-                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(WorldProfileCount > 0 ? Color.Success : Color.Default)" Size="Size.Small">
-                                        @(WorldProfileCount > 0 ? "Done" : "Optional")
+                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(WorldTemplateCount > 0 ? Color.Success : Color.Default)" Size="Size.Small">
+                                        @(WorldTemplateCount > 0 ? "Done" : "Optional")
                                     </MudChip>
                                 </MudStack>
                                 <MudText Typo="Typo.body2">
-                                    @if (WorldProfileCount > 0)
+                                    @if (WorldTemplateCount > 0)
                                     {
-                                        @($"{WorldProfileCount} world template(s) ready for first-launch copies.")
+                                        @($"{WorldTemplateCount} world template(s) ready for first-launch copies.")
                                     }
                                     else
                                     {
@@ -116,25 +116,25 @@
                             </MudStack>
 
                             <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="setup-wizard-actions">
-                                <MudButton Variant="@(WorldProfileCount > 0 ? Variant.Outlined : Variant.Filled)"
-                                           Color="@(WorldProfileCount > 0 ? Color.Default : Color.Primary)"
+                                <MudButton Variant="@(WorldTemplateCount > 0 ? Variant.Outlined : Variant.Filled)"
+                                           Color="@(WorldTemplateCount > 0 ? Color.Default : Color.Primary)"
                                            StartIcon="@Icons.Material.Filled.Public"
-                                           OnClick="OpenImportWorldProfileDialogAsync">
-                                    @(WorldProfileCount > 0 ? "Add World Template" : "Import World Template")
+                                           OnClick="OpenImportWorldTemplateDialogAsync">
+                                    @(WorldTemplateCount > 0 ? "Add World Template" : "Import World Template")
                                 </MudButton>
                             </MudStack>
                         </MudStack>
 
-                        @if (WorldProfilesPreview.Count > 0)
+                        @if (WorldTemplatesPreview.Count > 0)
                         {
                             <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                                @foreach (var profile in WorldProfilesPreview)
+                                @foreach (var template in WorldTemplatesPreview)
                                 {
-                                    <MudChip T="string" Variant="Variant.Outlined">@profile.Name</MudChip>
+                                    <MudChip T="string" Variant="Variant.Outlined">@template.Name</MudChip>
                                 }
-                                @if (WorldProfileCount > WorldProfilesPreview.Count)
+                                @if (WorldTemplateCount > WorldTemplatesPreview.Count)
                                 {
-                                    <MudChip T="string" Variant="Variant.Outlined">+@(WorldProfileCount - WorldProfilesPreview.Count) more</MudChip>
+                                    <MudChip T="string" Variant="Variant.Outlined">+@(WorldTemplateCount - WorldTemplatesPreview.Count) more</MudChip>
                                 }
                             </MudStack>
                         }
@@ -158,7 +158,7 @@
                                     }
                                     else
                                     {
-                                        @("Required. Define identity, profile assignments, runtime policy, restart policy, health policy here.")
+                                        @("Required. Define identity, template assignments, runtime policy, restart policy, health policy here.")
                                     }
                                 </MudText>
                             </MudStack>
@@ -386,7 +386,7 @@ else
         .ToDictionary(snapshot => snapshot.UniqueName, StringComparer.OrdinalIgnoreCase);
 
     private IReadOnlyList<QuasarConfigProfile> ConfigProfilesPreview => ConfigProfiles.GetProfiles().Take(3).ToList();
-    private IReadOnlyList<QuasarWorldProfile> WorldProfilesPreview => WorldProfiles.GetProfiles().Take(3).ToList();
+    private IReadOnlyList<QuasarWorldTemplate> WorldTemplatesPreview => WorldTemplates.GetTemplates().Take(3).ToList();
     private IReadOnlyList<DedicatedServerInstanceDefinition> StartableInstances => Instances.Where(instance => !IsRunning(instance.UniqueName)).ToList();
     private IReadOnlyList<DedicatedServerInstanceDefinition> LaunchedInstances => Instances.Where(instance => IsRunning(instance.UniqueName)).ToList();
 
@@ -422,7 +422,7 @@ else
 
     private int ConfigProfileCount => ConfigProfiles.GetProfiles().Count;
 
-    private int WorldProfileCount => WorldProfiles.GetProfiles().Count;
+    private int WorldTemplateCount => WorldTemplates.GetTemplates().Count;
 
     private bool _setupWizardRequested;
 
@@ -449,7 +449,7 @@ else
         InstanceCatalog.Changed += HandleRegistryChanged;
         Supervisor.Changed += HandleRegistryChanged;
         ConfigProfiles.Changed += HandleRegistryChanged;
-        WorldProfiles.Changed += HandleRegistryChanged;
+        WorldTemplates.Changed += HandleRegistryChanged;
     }
 
     public void Dispose()
@@ -458,7 +458,7 @@ else
         InstanceCatalog.Changed -= HandleRegistryChanged;
         Supervisor.Changed -= HandleRegistryChanged;
         ConfigProfiles.Changed -= HandleRegistryChanged;
-        WorldProfiles.Changed -= HandleRegistryChanged;
+        WorldTemplates.Changed -= HandleRegistryChanged;
     }
 
     private void HandleRegistryChanged()
@@ -483,8 +483,8 @@ else
     {
         if (ConfiguredInstanceCount == 0)
         {
-            if (ConfigProfileCount == 0 && WorldProfileCount == 0)
-                return "Optional: create config profile or import world template here first. Then create first instance below.";
+            if (ConfigProfileCount == 0 && WorldTemplateCount == 0)
+                return "Optional: create config template or import world template here first. Then create first instance below.";
 
             return "Next: create first instance below. No page switch needed.";
         }
@@ -499,10 +499,10 @@ else
     }
 
     private Task OpenCreateConfigProfileDialogAsync() =>
-        ShowFullScreenPageDialogAsync<ConfigsPageDialog>("Config Profiles");
+        ShowFullScreenPageDialogAsync<ConfigsPageDialog>("Config Templates");
 
-    private Task OpenImportWorldProfileDialogAsync() =>
-        ShowFullScreenPageDialogAsync<WorldProfilesPageDialog>("World Templates");
+    private Task OpenImportWorldTemplateDialogAsync() =>
+        ShowFullScreenPageDialogAsync<WorldTemplatesPageDialog>("World Templates");
 
     private Task OpenCreateInstanceDialogAsync() =>
         ShowFullScreenPageDialogAsync<InstancesPageDialog>("Instances");
@@ -550,14 +550,14 @@ else
     private string GetInstanceSetupSummary(DedicatedServerInstanceDefinition instance)
     {
         var configProfileName = string.IsNullOrWhiteSpace(instance.ConfigProfileId)
-            ? "No config profile"
+            ? "No config template"
             : ConfigProfiles.GetProfile(instance.ConfigProfileId)?.Name ?? $"Missing config: {instance.ConfigProfileId}";
 
-        var worldProfileName = string.IsNullOrWhiteSpace(instance.WorldProfileId)
+        var worldTemplateName = string.IsNullOrWhiteSpace(instance.WorldTemplateId)
             ? "No world template"
-            : WorldProfiles.GetProfile(instance.WorldProfileId)?.Name ?? $"Missing world: {instance.WorldProfileId}";
+            : WorldTemplates.GetTemplate(instance.WorldTemplateId)?.Name ?? $"Missing world: {instance.WorldTemplateId}";
 
-        return $"{configProfileName} | {worldProfileName}";
+        return $"{configProfileName} | {worldTemplateName}";
     }
 
     private string GetSetupRuntimeSummary(string uniqueName)

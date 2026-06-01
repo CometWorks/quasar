@@ -2,19 +2,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Magnetar.Protocol\Magnetar.Protocol.csproj" />
-    <!-- Build-only: ensures Quasar is compiled alongside Bootstrap without importing its code.
-         GlobalPropertiesToRemove prevents the publish RID from propagating to Quasar,
-         which would make it self-contained and break the reference. -->
-    <ProjectReference Include="..\Quasar\Quasar.csproj"
-                      ReferenceOutputAssembly="false"
-                      Private="false"
-                      OutputItemType="None"
-                      GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;PublishSingleFile" />
   </ItemGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -23,8 +14,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RuntimeIdentifiers>linux-x64;win-x64</RuntimeIdentifiers>
-    <SelfContained>false</SelfContained>
     <DeployDir>$(HOME)/Documents/Quasar</DeployDir>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>none</DebugType>
   </PropertyGroup>
 
   <!-- After a regular (non-RID) build: copy output to deploy dir and rename the binary. -->
@@ -42,22 +40,45 @@
           Condition="Exists('$(DeployDir)/Quasar.Bootstrap')" />
   </Target>
 
-  <!-- After publish: copy Quasar worker DLLs (no apphost) to publish dir,
-       then rename the Bootstrap single-file binary to Quasar. -->
-  <Target Name="CopyQuasarWorkerToPublish" AfterTargets="Publish">
+  <!-- Publish the web-service worker as its own single-file app.  It lives in a
+       required WebService subfolder so both launcher and worker process names
+       can be Quasar without overwriting each other. -->
+  <Target Name="PublishQuasarWorker" BeforeTargets="Publish"
+          Condition="'$(RuntimeIdentifier)' != ''">
     <PropertyGroup>
-      <_QuasarBinDir>$(MSBuildThisFileDirectory)..\Quasar\bin\$(Configuration)\net10.0\</_QuasarBinDir>
+      <_QuasarWorkerPublishDir>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\quasar-worker-publish\</_QuasarWorkerPublishDir>
     </PropertyGroup>
+    <RemoveDir Directories="$(_QuasarWorkerPublishDir)" />
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\Quasar\Quasar.csproj"
+             Targets="Restore;Publish"
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=true;PublishSingleFile=true;EnableCompressionInSingleFile=true;DebugSymbols=false;DebugType=none;CopyToDeployDir=false;PublishDir=$(_QuasarWorkerPublishDir)" />
+  </Target>
+
+  <Target Name="PackPublishedQuasar" AfterTargets="Publish"
+          Condition="'$(RuntimeIdentifier)' != ''">
+    <PropertyGroup>
+      <_QuasarWorkerPublishDir>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\quasar-worker-publish\</_QuasarWorkerPublishDir>
+      <_QuasarWorkerTargetDir>$(PublishDir)WebService\</_QuasarWorkerTargetDir>
+    </PropertyGroup>
+    <RemoveDir Directories="$(_QuasarWorkerTargetDir)" />
+    <MakeDir Directories="$(_QuasarWorkerTargetDir)" />
     <ItemGroup>
-      <_QuasarFiles Include="$(_QuasarBinDir)**\*"
-                    Exclude="$(_QuasarBinDir)**\*.pdb;$(_QuasarBinDir)**\*.xml;$(_QuasarBinDir)Quasar;$(_QuasarBinDir)Quasar.exe" />
+      <_QuasarWorkerFiles Include="$(_QuasarWorkerPublishDir)**\*"
+                          Exclude="$(_QuasarWorkerPublishDir)**\*.pdb;$(_QuasarWorkerPublishDir)**\*.xml" />
     </ItemGroup>
-    <Copy SourceFiles="@(_QuasarFiles)"
-          DestinationFolder="$(PublishDir)%(RecursiveDir)"
+    <Copy SourceFiles="@(_QuasarWorkerFiles)"
+          DestinationFolder="$(_QuasarWorkerTargetDir)%(RecursiveDir)"
           SkipUnchangedFiles="true" />
-    <Move SourceFiles="$(PublishDir)/Quasar.Bootstrap"
-          DestinationFiles="$(PublishDir)/Quasar"
+    <Move SourceFiles="$(PublishDir)Quasar.Bootstrap"
+          DestinationFiles="$(PublishDir)Quasar"
           Condition="Exists('$(PublishDir)/Quasar.Bootstrap')" />
+    <Move SourceFiles="$(PublishDir)Quasar.Bootstrap.exe"
+          DestinationFiles="$(PublishDir)Quasar.exe"
+          Condition="Exists('$(PublishDir)/Quasar.Bootstrap.exe')" />
+    <ItemGroup>
+      <_PublishedDebugFiles Include="$(PublishDir)**\*.pdb;$(PublishDir)**\*.xml" />
+    </ItemGroup>
+    <Delete Files="@(_PublishedDebugFiles)" />
   </Target>
 
 </Project>

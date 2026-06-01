@@ -28,23 +28,23 @@
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="1">
                             <MudSelect T="string"
                                        @bind-Value="_editor.ConfigProfileId"
-                                       Label="Config profile"
+                                       Label="Config template"
                                        Variant="Variant.Outlined"
                                        HelperText="Reusable world, plugin, and mod preset from Configs page."
-                                       Class="instance-editor-profile-select"
+                                       Class="instance-editor-template-select"
                                        PopoverClass="instance-editor-select-popover"
                                        ListClass="instance-editor-select-list">
-                                <MudSelectItem T="string" Value="@string.Empty">(No config profile)</MudSelectItem>
-                                @foreach (var profile in ConfigProfiles.GetProfiles())
+                                <MudSelectItem T="string" Value="@string.Empty">(No config template)</MudSelectItem>
+                                @foreach (var template in ConfigProfiles.GetProfiles())
                                 {
-                                    <MudSelectItem T="string" Value="@profile.ConfigProfileId">@profile.Name</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@template.ConfigProfileId">@template.Name</MudSelectItem>
                                 }
                             </MudSelect>
                             @if (string.IsNullOrWhiteSpace(_editor.ConfigProfileId))
                             {
-                                <MudTooltip Text="Create a config profile without leaving this dialog">
+                                <MudTooltip Text="Create a config template without leaving this dialog">
                                     <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateConfigProfileDialogAsync">
-                                        New Profile
+                                        New Template
                                     </MudButton>
                                 </MudTooltip>
                             }
@@ -53,23 +53,23 @@
                     <MudItem xs="12" md="6">
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="1">
                             <MudSelect T="string"
-                                       @bind-Value="_editor.WorldProfileId"
+                                       @bind-Value="_editor.WorldTemplateId"
                                        Label="World template"
                                        Variant="Variant.Outlined"
                                        HelperText="Blueprint world copied into instance world path on first launch if world directory does not already exist."
-                                       Class="instance-editor-profile-select"
+                                       Class="instance-editor-template-select"
                                        PopoverClass="instance-editor-select-popover"
                                        ListClass="instance-editor-select-list">
                                 <MudSelectItem T="string" Value="@string.Empty">(No world template)</MudSelectItem>
-                                @foreach (var profile in WorldProfiles.GetProfiles())
+                                @foreach (var template in WorldTemplates.GetTemplates())
                                 {
-                                    <MudSelectItem T="string" Value="@profile.WorldProfileId">@profile.Name</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@template.WorldTemplateId">@template.Name</MudSelectItem>
                                 }
                             </MudSelect>
-                            @if (string.IsNullOrWhiteSpace(_editor.WorldProfileId))
+                            @if (string.IsNullOrWhiteSpace(_editor.WorldTemplateId))
                             {
                                 <MudTooltip Text="Import world template without leaving this dialog">
-                                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenImportWorldProfileDialogAsync">
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenImportWorldTemplateDialogAsync">
                                         New Template
                                     </MudButton>
                                 </MudTooltip>
@@ -187,7 +187,7 @@
                                         @bind-Value="_editor.MagnetarAppDataPath"
                                         Label="Magnetar app-data path"
                                         Variant="Variant.Outlined"
-                                        HelperText="@($"Magnetar profiles and sources (-config). Default: {GetDefaultMagnetarAppDataPath()}")" />
+                                        HelperText="@($"Magnetar templates and sources (-config). Default: {GetDefaultMagnetarAppDataPath()}")" />
                                 </MudItem>
                                 <MudItem xs="12" md="6">
                                     <MudTextField
@@ -235,7 +235,7 @@
     private QuasarConfigProfileCatalog ConfigProfiles { get; set; } = default!;
 
     [Inject]
-    private QuasarWorldProfileCatalog WorldProfiles { get; set; } = default!;
+    private QuasarWorldTemplateCatalog WorldTemplates { get; set; } = default!;
 
     [Inject]
     private DedicatedServerInstanceCatalog InstanceCatalog { get; set; } = default!;
@@ -279,7 +279,7 @@
 
     private async Task SaveAsync()
     {
-        await _form!.Validate();
+        await _form!.ValidateAsync();
         if (!_formIsValid)
             return;
 
@@ -289,7 +289,7 @@
     private async Task OpenCreateConfigProfileDialogAsync()
     {
         var dialog = await DialogService.ShowAsync<ConfigProfileQuickCreateDialog>(
-            "New Config Profile",
+            "New Config Template",
             new DialogParameters(),
             new DialogOptions
             {
@@ -299,16 +299,16 @@
             });
 
         var result = await dialog.Result;
-        if (result is null || result.Canceled || result.Data is not QuasarConfigProfile profile)
+        if (result is null || result.Canceled || result.Data is not QuasarConfigProfile template)
             return;
 
-        _editor.ConfigProfileId = profile.ConfigProfileId;
+        _editor.ConfigProfileId = template.ConfigProfileId;
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task OpenImportWorldProfileDialogAsync()
+    private async Task OpenImportWorldTemplateDialogAsync()
     {
-        var dialog = await DialogService.ShowAsync<WorldProfileQuickImportDialog>(
+        var dialog = await DialogService.ShowAsync<WorldTemplateQuickImportDialog>(
             "Import World Template",
             new DialogParameters(),
             new DialogOptions
@@ -319,10 +319,10 @@
             });
 
         var result = await dialog.Result;
-        if (result is null || result.Canceled || result.Data is not QuasarWorldProfile profile)
+        if (result is null || result.Canceled || result.Data is not QuasarWorldTemplate template)
             return;
 
-        _editor.WorldProfileId = profile.WorldProfileId;
+        _editor.WorldTemplateId = template.WorldTemplateId;
         await InvokeAsync(StateHasChanged);
     }
 

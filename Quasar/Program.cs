@@ -51,7 +51,7 @@ public class Program
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<EntityService>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
-            builder.Services.AddSingleton<QuasarWorldProfileCatalog>();
+            builder.Services.AddSingleton<QuasarWorldTemplateCatalog>();
             builder.Services.AddSingleton<QuasarPluginCatalogService>();
             builder.Services.AddSingleton<QuasarWorkshopModResolver>();
             builder.Services.AddSingleton<ManagedDedicatedServerRuntimeResolver>();

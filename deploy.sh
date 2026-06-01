@@ -15,16 +15,17 @@ done
 
 echo "Deploying Quasar ($CONFIGURATION) → $DEPLOY_DIR"
 mkdir -p "$DEPLOY_DIR"
+find "$DEPLOY_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 
 dotnet publish "$SCRIPT_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj" \
     -c "$CONFIGURATION" \
     -r linux-x64 \
-    -p:PublishSingleFile=true \
-    --no-self-contained \
+    -p:CopyToDeployDir=false \
     -o "$DEPLOY_DIR" \
     -v minimal
 
 chmod +x "$DEPLOY_DIR/Quasar"
+chmod +x "$DEPLOY_DIR/WebService/Quasar"
 
 echo "Done. $DEPLOY_DIR"
 

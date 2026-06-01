@@ -150,13 +150,35 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
         try
         {
             var json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<DedicatedServerInstanceDefinition>(json, JsonOptions);
+            var definition = JsonSerializer.Deserialize<DedicatedServerInstanceDefinition>(json, JsonOptions);
+            if (definition is null)
+                return null;
+
+            using var document = JsonDocument.Parse(json);
+            var hasLegacyWorldTemplateId = document.RootElement.TryGetProperty("worldProfileId", out var legacyWorldProfileId);
+            if (string.IsNullOrWhiteSpace(definition.WorldTemplateId) &&
+                hasLegacyWorldTemplateId &&
+                legacyWorldProfileId.ValueKind == JsonValueKind.String)
+            {
+                definition.WorldTemplateId = legacyWorldProfileId.GetString() ?? string.Empty;
+            }
+
+            if (hasLegacyWorldTemplateId)
+                RewriteLegacyInstanceDefinition(path, definition);
+
+            return definition;
         }
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Failed to load Quasar instance definition from {Path}", path);
             return null;
         }
+    }
+
+    private static void RewriteLegacyInstanceDefinition(string path, DedicatedServerInstanceDefinition definition)
+    {
+        var json = JsonSerializer.Serialize(definition, JsonOptions);
+        WriteTextReplacing(path, json);
     }
 
     private async Task SaveInstanceAsync(DedicatedServerInstanceDefinition definition, CancellationToken cancellationToken)
@@ -216,7 +238,7 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
             ? Path.Combine(instance.DedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg")
             : instance.ConfigFilePath.Trim();
         instance.ConfigProfileId = instance.ConfigProfileId?.Trim() ?? string.Empty;
-        instance.WorldProfileId = instance.WorldProfileId?.Trim() ?? string.Empty;
+        instance.WorldTemplateId = instance.WorldTemplateId?.Trim() ?? string.Empty;
         instance.LaunchArguments = instance.LaunchArguments?.Trim() ?? string.Empty;
         instance.AutoStart = instance.GoalState == DedicatedServerInstanceGoalState.On || instance.AutoStart;
         instance.GoalState = instance.AutoStart ? DedicatedServerInstanceGoalState.On : DedicatedServerInstanceGoalState.Off;
@@ -269,7 +291,7 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
             WorldPath = instance.WorldPath,
             ConfigFilePath = instance.ConfigFilePath,
             ConfigProfileId = instance.ConfigProfileId,
-            WorldProfileId = instance.WorldProfileId,
+            WorldTemplateId = instance.WorldTemplateId,
             LaunchArguments = instance.LaunchArguments,
             AutoStart = instance.AutoStart,
             EnableHealthMonitoring = instance.EnableHealthMonitoring,
@@ -447,5 +469,13 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
             .ToList();
 
         return JsonSerializer.Serialize(normalized, JsonOptions);
+    }
+
+    private static void WriteTextReplacing(string path, string content)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var tempPath = $"{path}.{Guid.NewGuid():N}.tmp";
+        File.WriteAllText(tempPath, content);
+        File.Move(tempPath, path, overwrite: true);
     }
 }

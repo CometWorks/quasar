@@ -36,9 +36,35 @@ public static class QuasarLoggingConfigurator
             Layout = BuildLayout(options.LoggingFormat),
         };
 
+        var minimumLevel = ParseMinimumLevel(options.LoggingMinimumLevel);
+
         configuration.AddTarget(fileTarget);
-        configuration.AddRule(ParseMinimumLevel(options.LoggingMinimumLevel), NLog.LogLevel.Fatal, fileTarget);
+        configuration.AddRule(minimumLevel, NLog.LogLevel.Fatal, fileTarget);
+
+        // The bootstrap launches the worker with QUASAR_CONSOLE_LOGGING=true when the user
+        // started Quasar from an interactive console. Mirror NLog output to stdout so the
+        // launcher can pipe it back through to that terminal.
+        if (IsConsoleLoggingRequested())
+        {
+            var consoleTarget = new ConsoleTarget("quasar-console")
+            {
+                Layout = BuildLayout(options.LoggingFormat),
+                StdErr = false,
+            };
+
+            configuration.AddTarget(consoleTarget);
+            configuration.AddRule(minimumLevel, NLog.LogLevel.Fatal, consoleTarget);
+        }
+
         return configuration;
+    }
+
+    private static bool IsConsoleLoggingRequested()
+    {
+        var value = Environment.GetEnvironmentVariable("QUASAR_CONSOLE_LOGGING");
+        return !string.IsNullOrWhiteSpace(value) &&
+               (string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(value, "1", StringComparison.Ordinal));
     }
 
     private static Layout BuildLayout(string? loggingFormat)

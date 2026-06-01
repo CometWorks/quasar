@@ -5,13 +5,9 @@ using System.Reflection;
 using System.Text.Json;
 using Magnetar.Protocol.Discovery;
 using Magnetar.Protocol.Runtime;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Yarp.ReverseProxy.Forwarder;
 
 namespace Quasar.Bootstrap;
 
@@ -31,18 +27,38 @@ internal static class Program
         var quiet = args.Any(static arg => string.Equals(arg, "--quiet", StringComparison.OrdinalIgnoreCase));
         var openBrowser = args.Any(static arg => string.Equals(arg, "--open-browser", StringComparison.OrdinalIgnoreCase));
         var force = args.Any(static arg => string.Equals(arg, "--force", StringComparison.OrdinalIgnoreCase));
+        var explicitForeground = args.Any(static arg =>
+            string.Equals(arg, "--foreground", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(arg, "--console", StringComparison.OrdinalIgnoreCase));
         var command = args.FirstOrDefault(arg => !arg.StartsWith("-", StringComparison.Ordinal)) ?? EnsureRunningCommand;
+
+        // When started from a real terminal we keep the bootstrap and worker in the
+        // foreground so the user sees live logs in the console they invoked us from.
+        // Detached spawn is still used for non-interactive launches (services, scripts).
+        var foreground = !quiet && (explicitForeground || IsAttachedToInteractiveConsole());
 
         return command.ToLowerInvariant() switch
         {
-            EnsureRunningCommand => await EnsureRunningAsync(quiet, openBrowser, force),
-            ServeCommand => await ServeAsync(quiet),
+            EnsureRunningCommand => await EnsureRunningAsync(quiet, openBrowser, force, foreground),
+            ServeCommand => await ServeAsync(quiet, foreground),
             ActivateReleaseCommand => await ActivateReleaseAsync(args, quiet),
             _ => InvalidUsage(quiet),
         };
     }
 
-    private static async Task<int> EnsureRunningAsync(bool quiet, bool openBrowser = false, bool force = false)
+    private static bool IsAttachedToInteractiveConsole()
+    {
+        try
+        {
+            return !Console.IsOutputRedirected && Environment.UserInteractive;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task<int> EnsureRunningAsync(bool quiet, bool openBrowser = false, bool force = false, bool foreground = false)
     {
         var existing = await TryGetHealthyServiceUriAsync().ConfigureAwait(false);
         if (existing is not null)
@@ -66,6 +82,7 @@ internal static class Program
         }
         catch
         {
+            //
         }
 
         existing = await TryGetHealthyServiceUriAsync().ConfigureAwait(false);
@@ -89,6 +106,29 @@ internal static class Program
                     Console.Error.WriteLine($"Error: port {bootstrapOptions.Port} is already bound by another process and no healthy Quasar instance was detected. Use --force to terminate the existing process and restart.");
                 return 5;
             }
+        }
+
+        if (foreground)
+        {
+            if (openBrowser && !IsHeadless())
+            {
+                _ = Task.Run(async () =>
+                {
+                    var baseUrl = $"http://127.0.0.1:{BootstrapOptions.Create().Port}";
+                    for (var attempt = 0; attempt < 60; attempt++)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+                        if (await TryGetHealthyServiceUriAsync().ConfigureAwait(false) is { } ready)
+                        {
+                            TryOpenBrowser(ready);
+                            return;
+                        }
+                    }
+                    TryOpenBrowser(new Uri(baseUrl));
+                });
+            }
+
+            return await ServeAsync(quiet, foreground: true).ConfigureAwait(false);
         }
 
         if (!TryBuildBootstrapLaunchSpec(out var fileName, out var arguments, out var workingDirectory))
@@ -140,20 +180,16 @@ internal static class Program
         }
     }
 
-    private static async Task<int> ServeAsync(bool quiet = false)
+    private static async Task<int> ServeAsync(bool quiet = false, bool foreground = false)
     {
-        // Guard against races: if another instance already bound the port and is healthy, exit gracefully.
         var existing = await TryGetHealthyServiceUriAsync().ConfigureAwait(false);
         if (existing is not null)
             return 0;
 
         var options = BootstrapOptions.Create();
 
-        // Pre-bind check: detect port conflicts before attempting to start Kestrel so that
-        // callers get a fast, clear error instead of a silent exit-0 after EADDRINUSE.
         if (IsPortInUse(options.Port, options.AdvertisedHost))
         {
-            // Re-check health — another serve may have won the race during startup.
             existing = await TryGetHealthyServiceUriAsync().ConfigureAwait(false);
             if (existing is not null)
                 return 0;
@@ -163,52 +199,46 @@ internal static class Program
             return 1;
         }
 
-        var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseUrls(options.ListenUrl);
-        builder.Services.AddSingleton(options);
-        builder.Services.AddSingleton<LauncherCoordinator>();
-        builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<LauncherCoordinator>());
-        builder.Services.AddHttpForwarder();
-
-        var app = builder.Build();
-
-        if (!quiet)
+        using var loggerFactory = LoggerFactory.Create(logging =>
         {
-            app.Lifetime.ApplicationStarted.Register(() =>
+            if (foreground)
             {
-                foreach (var address in app.Urls)
-                    Console.WriteLine($"{BootstrapOptions.SupervisorName} bootstrap listening on {address}");
-            });
-        }
-
-        app.UseWebSockets(new WebSocketOptions
-        {
-            KeepAliveInterval = TimeSpan.FromSeconds(30),
+                logging.AddSimpleConsole(formatterOptions =>
+                {
+                    formatterOptions.SingleLine = true;
+                    formatterOptions.TimestampFormat = "HH:mm:ss ";
+                });
+            }
         });
 
-        app.MapGet("/api/health", (LauncherCoordinator coordinator) =>
-        {
-            var payload = coordinator.GetHealthPayload();
-            var statusCode = coordinator.IsReady ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable;
-            return Results.Json(payload, statusCode: statusCode);
-        });
+        var coordinator = new LauncherCoordinator(
+            options,
+            new LauncherForegroundOptions(foreground),
+            loggerFactory.CreateLogger<LauncherCoordinator>());
 
-        app.MapGet("/api/discovery", (LauncherCoordinator coordinator) =>
-            Results.Json(coordinator.GetManifest()));
-
-        app.Map("/{**catchall}", async (HttpContext context, IHttpForwarder forwarder, LauncherCoordinator coordinator) =>
+        using var shutdown = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, eventArgs) =>
         {
-            await coordinator.ProxyAsync(context, forwarder);
-        });
+            eventArgs.Cancel = true;
+            shutdown.Cancel();
+        };
 
         try
         {
-            await app.RunAsync();
+            await coordinator.StartAsync(shutdown.Token).ConfigureAwait(false);
+
+            if (!quiet)
+                Console.WriteLine($"{BootstrapOptions.SupervisorName} worker launching on {options.BaseUrl}");
+
+            await Task.Delay(Timeout.InfiniteTimeSpan, shutdown.Token).ConfigureAwait(false);
         }
-        catch (IOException ex) when (IsAddressAlreadyInUse(ex))
+        catch (OperationCanceledException)
         {
-            // Another serve instance raced to bind the port — that is acceptable.
-            return 0;
+        }
+        finally
+        {
+            await coordinator.StopAsync(CancellationToken.None).ConfigureAwait(false);
+            coordinator.Dispose();
         }
 
         return 0;
@@ -237,14 +267,6 @@ internal static class Program
         {
             return false;
         }
-    }
-
-    private static bool IsAddressAlreadyInUse(IOException ex)
-    {
-        return ex.InnerException is SocketException { SocketErrorCode: SocketError.AddressAlreadyInUse }
-               || ex.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase)
-               // Windows: WSAEADDRINUSE message text
-               || ex.Message.Contains("Only one usage of each socket address", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<int> ActivateReleaseAsync(string[] args, bool quiet)
@@ -317,13 +339,45 @@ internal static class Program
 
     private static void TryOpenBrowser(Uri uri)
     {
+        var url = uri.AbsoluteUri;
         try
         {
-            Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+            if (OperatingSystem.IsLinux())
+            {
+                if (TryStartBrowserCommand("xdg-open", url) ||
+                    TryStartBrowserCommand("gio", $"open \"{url}\"") ||
+                    TryStartBrowserCommand("sensible-browser", url))
+                {
+                    return;
+                }
+            }
+
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
         }
         catch
         {
             // Best-effort: failure to open browser is not fatal.
+        }
+    }
+
+    private static bool TryStartBrowserCommand(string fileName, string arguments)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -513,13 +567,16 @@ internal sealed class BootstrapOptions
 
     public static BootstrapOptions Create()
     {
-        var host = Environment.GetEnvironmentVariable("QUASAR_WEB_HOST")
-                   ?? Environment.GetEnvironmentVariable("MAGNETAR_WEB_HOST")
-                   ?? "127.0.0.1";
+        var configuration = BuildConfiguration();
+        var section = configuration.GetSection("Quasar");
+        if (!section.Exists())
+            section = configuration.GetSection("MagnetarWeb");
 
-        var portValue = Environment.GetEnvironmentVariable("QUASAR_WEB_PORT")
-                        ?? Environment.GetEnvironmentVariable("MAGNETAR_WEB_PORT")
-                        ?? "58631";
+        var host = section["Host"];
+        if (string.IsNullOrWhiteSpace(host))
+            host = "127.0.0.1";
+
+        var portValue = section["Port"] ?? "58631";
 
         if (!int.TryParse(portValue, out var port) || port <= 0)
             port = 58631;
@@ -539,6 +596,36 @@ internal sealed class BootstrapOptions
             Port = port,
         };
     }
+
+    private static IConfigurationRoot BuildConfiguration()
+    {
+        var environmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+                              ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+                              ?? "Production";
+        var builder = new ConfigurationBuilder();
+
+        foreach (var directory in EnumerateConfigurationDirectories())
+        {
+            builder.AddJsonFile(Path.Combine(directory, "appsettings.json"), optional: true, reloadOnChange: false);
+            builder.AddJsonFile(Path.Combine(directory, $"appsettings.{environmentName}.json"), optional: true, reloadOnChange: false);
+        }
+
+        return builder.Build();
+    }
+
+    private static IEnumerable<string> EnumerateConfigurationDirectories()
+    {
+        yield return AppContext.BaseDirectory;
+        yield return Path.Combine(AppContext.BaseDirectory, "WebService");
+
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var depth = 0; directory is not null && depth < 8; depth++, directory = directory.Parent)
+        {
+            var sourceQuasar = Path.Combine(directory.FullName, "Quasar");
+            if (File.Exists(Path.Combine(sourceQuasar, "appsettings.json")))
+                yield return sourceQuasar;
+        }
+    }
 }
 
 internal sealed class LauncherCoordinator : IHostedService, IDisposable
@@ -548,15 +635,10 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         WriteIndented = true,
     };
 
-    private static readonly ForwarderRequestConfig ProxyRequestConfig = new()
-    {
-        ActivityTimeout = TimeSpan.FromMinutes(15),
-    };
-
     private readonly BootstrapOptions _options;
+    private readonly LauncherForegroundOptions _foregroundOptions;
     private readonly ILogger<LauncherCoordinator> _logger;
     private readonly HttpClient _healthClient;
-    private readonly HttpMessageInvoker _proxyInvoker;
     private readonly SemaphoreSlim _activationLock = new(1, 1);
     private readonly object _sync = new();
     private readonly string _instanceId = Guid.NewGuid().ToString("N");
@@ -567,24 +649,16 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private WorkerProcessHandle? _currentWorker;
     private bool _isStopping;
 
-    public LauncherCoordinator(BootstrapOptions options, ILogger<LauncherCoordinator> logger)
+    public LauncherCoordinator(BootstrapOptions options, LauncherForegroundOptions foregroundOptions, ILogger<LauncherCoordinator> logger)
     {
         _options = options;
+        _foregroundOptions = foregroundOptions;
         _logger = logger;
         _healthClient = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(2),
         };
 
-        _proxyInvoker = new HttpMessageInvoker(new SocketsHttpHandler
-        {
-            UseProxy = false,
-            AllowAutoRedirect = false,
-            AutomaticDecompression = DecompressionMethods.None,
-            UseCookies = false,
-            EnableMultipleHttp2Connections = true,
-            ConnectTimeout = TimeSpan.FromSeconds(15),
-        });
     }
 
     public bool IsReady
@@ -637,15 +711,13 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         };
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(MagnetarPaths.GetWebServiceDirectory());
         Directory.CreateDirectory(MagnetarPaths.GetQuasarUpdatesDirectory());
-        WriteManifest();
         EnsureActiveReleasePointerExists();
+        await ActivateCurrentReleaseAsync(force: false, cancellationToken).ConfigureAwait(false);
         StartWatchingReleasePointer();
-        _ = Task.Run(() => ActivateCurrentReleaseAsync(force: true, CancellationToken.None), CancellationToken.None);
-        return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -654,7 +726,6 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         _watcher?.Dispose();
         _reloadDebounce?.Cancel();
         _reloadDebounce?.Dispose();
-        DeleteManifest();
 
         WorkerProcessHandle? worker;
         lock (_sync)
@@ -674,60 +745,12 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         _reloadDebounce?.Dispose();
         _activationLock.Dispose();
         _healthClient.Dispose();
-        _proxyInvoker.Dispose();
-    }
-
-    public async Task ProxyAsync(HttpContext context, IHttpForwarder forwarder)
-    {
-        string? destinationPrefix;
-        lock (_sync)
-        {
-            destinationPrefix = _currentWorker?.BaseUri.AbsoluteUri.TrimEnd('/');
-        }
-
-        if (string.IsNullOrWhiteSpace(destinationPrefix))
-        {
-            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            await context.Response.WriteAsync("Quasar worker is not ready.");
-            return;
-        }
-
-        var error = await forwarder.SendAsync(context, destinationPrefix, _proxyInvoker, ProxyRequestConfig, HttpTransformer.Default);
-        if (error == ForwarderError.None)
-            return;
-
-        var errorFeature = context.Features.Get<IForwarderErrorFeature>();
-        _logger.LogWarning(errorFeature?.Exception, "Failed proxying request to Quasar worker.");
-
-        if (!context.Response.HasStarted)
-            context.Response.StatusCode = StatusCodes.Status502BadGateway;
-    }
-
-    private void WriteManifest()
-    {
-        var path = MagnetarPaths.GetWebServiceManifestPath();
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, JsonSerializer.Serialize(GetManifest(), JsonOptions));
-    }
-
-    private void DeleteManifest()
-    {
-        var path = MagnetarPaths.GetWebServiceManifestPath();
-        try
-        {
-            if (File.Exists(path))
-                File.Delete(path);
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Failed deleting Quasar launcher manifest at {Path}", path);
-        }
     }
 
     private void EnsureActiveReleasePointerExists()
     {
         var existing = ReadActiveReleasePointer();
-        if (existing is not null)
+        if (existing is not null && IsReleasePointerUsable(existing))
             return;
 
         if (!TryBuildInitialReleasePointer(out var pointer))
@@ -839,27 +862,26 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             return null;
         }
 
-        var workerPort = GetAvailablePort();
-        var workerBaseUri = new Uri($"http://127.0.0.1:{workerPort}");
+        var workerBaseUri = new Uri(_options.BaseUrl);
         var startInfo = new ProcessStartInfo
         {
             FileName = resolvedFileName,
-            Arguments = pointer.Arguments ?? string.Empty,
+            Arguments = pointer.Arguments,
             WorkingDirectory = string.IsNullOrWhiteSpace(pointer.WorkingDirectory)
                 ? Path.GetDirectoryName(resolvedFileName) ?? AppContext.BaseDirectory
                 : pointer.WorkingDirectory,
             UseShellExecute = false,
             CreateNoWindow = true,
+            RedirectStandardOutput = _foregroundOptions.IsForeground,
+            RedirectStandardError = _foregroundOptions.IsForeground,
         };
 
-        startInfo.Environment["QUASAR_WEB_HOST"] = "127.0.0.1";
-        startInfo.Environment["QUASAR_WEB_PORT"] = workerPort.ToString();
-        startInfo.Environment["QUASAR_PUBLIC_BASE_URL"] = _options.BaseUrl;
-        startInfo.Environment["QUASAR_OWN_MANIFEST"] = "false";
         startInfo.Environment["QUASAR_OPEN_BROWSER_ON_START"] = "false";
         startInfo.Environment["QUASAR_MODE"] = "service";
         startInfo.Environment["QUASAR_LAUNCHER_TOKEN"] = _launcherToken;
         startInfo.Environment["QUASAR_PRESERVE_INSTANCES_ON_SHUTDOWN"] = "false";
+        if (_foregroundOptions.IsForeground)
+            startInfo.Environment["QUASAR_CONSOLE_LOGGING"] = "true";
 
         Process process;
         try
@@ -877,6 +899,12 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         process.EnableRaisingEvents = true;
         process.Exited += (_, _) => HandleWorkerExited(worker);
 
+        if (_foregroundOptions.IsForeground)
+        {
+            _ = PumpWorkerStreamAsync(process.StandardOutput, Console.Out);
+            _ = PumpWorkerStreamAsync(process.StandardError, Console.Error);
+        }
+
         var healthy = await WaitForWorkerHealthyAsync(worker, cancellationToken);
         if (healthy)
             return worker;
@@ -888,6 +916,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
         catch
         {
+            //
         }
 
         process.Dispose();
@@ -913,6 +942,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             }
             catch
             {
+                //
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
@@ -984,20 +1014,6 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             _ = Task.Run(() => ActivateCurrentReleaseAsync(force: true, CancellationToken.None), CancellationToken.None);
     }
 
-    private static int GetAvailablePort()
-    {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        try
-        {
-            return ((IPEndPoint)listener.LocalEndpoint).Port;
-        }
-        finally
-        {
-            listener.Stop();
-        }
-    }
-
     private static int SafeGetExitCode(Process process)
     {
         try
@@ -1014,10 +1030,10 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     {
         return new QuasarActiveReleasePointer
         {
-            Version = pointer.Version?.Trim() ?? string.Empty,
-            FileName = pointer.FileName?.Trim() ?? string.Empty,
-            Arguments = pointer.Arguments ?? string.Empty,
-            WorkingDirectory = pointer.WorkingDirectory?.Trim() ?? string.Empty,
+            Version = pointer.Version.Trim(),
+            FileName = pointer.FileName.Trim(),
+            Arguments = pointer.Arguments,
+            WorkingDirectory = pointer.WorkingDirectory.Trim(),
             ActivatedAtUtc = pointer.ActivatedAtUtc == default ? DateTimeOffset.UtcNow : pointer.ActivatedAtUtc,
         };
     }
@@ -1081,6 +1097,19 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             return true;
         }
 
+        var packagedWorker = FindPackagedWorkerCandidate();
+        if (!string.IsNullOrWhiteSpace(packagedWorker))
+        {
+            pointer = new QuasarActiveReleasePointer
+            {
+                FileName = packagedWorker,
+                Arguments = string.Empty,
+                WorkingDirectory = Path.GetDirectoryName(packagedWorker) ?? AppContext.BaseDirectory,
+                ActivatedAtUtc = DateTimeOffset.UtcNow,
+            };
+            return true;
+        }
+
         var candidateDll = FindWorkerCandidate("Quasar.dll");
         if (!string.IsNullOrWhiteSpace(candidateDll))
         {
@@ -1123,14 +1152,93 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         return null;
     }
 
+    private static bool IsReleasePointerUsable(QuasarActiveReleasePointer pointer)
+    {
+        pointer = Normalize(pointer);
+        if (string.IsNullOrWhiteSpace(pointer.FileName))
+            return false;
+
+        var isDotNetHost = string.Equals(Path.GetFileNameWithoutExtension(pointer.FileName), "dotnet", StringComparison.OrdinalIgnoreCase);
+        if (isDotNetHost)
+        {
+            return TryGetDotNetAssemblyArgument(pointer.Arguments, out var assemblyPath) &&
+                   File.Exists(assemblyPath) &&
+                   !IsCurrentBootstrapAssembly(assemblyPath);
+        }
+
+        return File.Exists(pointer.FileName) && !IsCurrentBootstrapExecutable(pointer.FileName);
+    }
+
+    private static bool TryGetDotNetAssemblyArgument(string arguments, out string assemblyPath)
+    {
+        assemblyPath = string.Empty;
+        var trimmed = arguments.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+            return false;
+
+        if (trimmed[0] == '"')
+        {
+            var endQuote = trimmed.IndexOf('"', 1);
+            if (endQuote <= 1)
+                return false;
+
+            assemblyPath = trimmed[1..endQuote];
+            return true;
+        }
+
+        var separator = trimmed.IndexOf(' ', StringComparison.Ordinal);
+        assemblyPath = separator < 0 ? trimmed : trimmed[..separator];
+        return true;
+    }
+
+    private static bool IsCurrentBootstrapExecutable(string path)
+    {
+        var processPath = Environment.ProcessPath;
+        return !string.IsNullOrWhiteSpace(processPath) &&
+               string.Equals(Path.GetFullPath(path), Path.GetFullPath(processPath), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCurrentBootstrapAssembly(string path)
+    {
+        var entryAssemblyName = Assembly.GetEntryAssembly()?.GetName().Name;
+        if (string.IsNullOrWhiteSpace(entryAssemblyName))
+            return false;
+
+        var entryAssemblyPath = Path.Combine(AppContext.BaseDirectory, $"{entryAssemblyName}.dll");
+        return File.Exists(entryAssemblyPath) &&
+               string.Equals(Path.GetFullPath(path), Path.GetFullPath(entryAssemblyPath), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? FindPackagedWorkerCandidate()
+    {
+        foreach (var fileName in GetQuasarExecutableFileNames())
+        {
+            var candidate = Path.Combine(AppContext.BaseDirectory, "WebService", fileName);
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> GetQuasarExecutableFileNames()
+    {
+        yield return OperatingSystem.IsWindows() ? "Quasar.exe" : "Quasar";
+        yield return OperatingSystem.IsWindows() ? "Quasar" : "Quasar.exe";
+    }
+
     private static string? FindWorkerCandidate(string fileName)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         for (var depth = 0; directory is not null && depth < 8; depth++, directory = directory.Parent)
         {
             var direct = Path.Combine(directory.FullName, fileName);
-            if (File.Exists(direct))
+            if (File.Exists(direct) &&
+                !IsCurrentBootstrapExecutable(direct) &&
+                !IsCurrentBootstrapAssembly(direct))
+            {
                 return direct;
+            }
 
             var projectBin = Path.Combine(directory.FullName, "Quasar", "bin");
             if (Directory.Exists(projectBin))
@@ -1144,5 +1252,26 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         return null;
     }
 
+    private static async Task PumpWorkerStreamAsync(StreamReader reader, TextWriter writer)
+    {
+        try
+        {
+            while (true)
+            {
+                var line = await reader.ReadLineAsync();
+                if (line is null)
+                    return;
+
+                await writer.WriteLineAsync(line);
+            }
+        }
+        catch
+        {
+            // Worker exit closes the pipe; stop pumping silently.
+        }
+    }
+
     private sealed record WorkerProcessHandle(Process Process, Uri BaseUri, QuasarActiveReleasePointer Release);
 }
+
+internal sealed record LauncherForegroundOptions(bool IsForeground);

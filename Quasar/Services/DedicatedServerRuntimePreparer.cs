@@ -22,18 +22,18 @@ public sealed class DedicatedServerRuntimePreparer
     private readonly ILogger<DedicatedServerRuntimePreparer> _logger;
     private readonly WebServiceOptions _options;
     private readonly QuasarConfigProfileCatalog _configProfiles;
-    private readonly QuasarWorldProfileCatalog _worldProfiles;
+    private readonly QuasarWorldTemplateCatalog _worldTemplates;
 
     public DedicatedServerRuntimePreparer(
         ILogger<DedicatedServerRuntimePreparer> logger,
         WebServiceOptions options,
         QuasarConfigProfileCatalog configProfiles,
-        QuasarWorldProfileCatalog worldProfiles)
+        QuasarWorldTemplateCatalog worldTemplates)
     {
         _logger = logger;
         _options = options;
         _configProfiles = configProfiles;
-        _worldProfiles = worldProfiles;
+        _worldTemplates = worldTemplates;
     }
 
     public async Task<PreparedDedicatedServerLaunch> PrepareAsync(
@@ -161,7 +161,7 @@ public sealed class DedicatedServerRuntimePreparer
         Directory.CreateDirectory(profilesDirectory);
         Directory.CreateDirectory(localDirectory);
 
-        var currentProfileName = string.IsNullOrWhiteSpace(configProfile?.Name)
+        var currentTemplateName = string.IsNullOrWhiteSpace(configProfile?.Name)
             ? "Quasar Current"
             : configProfile.Name.Trim();
 
@@ -195,8 +195,8 @@ public sealed class DedicatedServerRuntimePreparer
         var currentProfileDocument = new XDocument(
             new XDeclaration("1.0", "utf-8", null),
             new XElement(
-                "Profile",
-                new XElement("Name", currentProfileName),
+                "Template",
+                new XElement("Name", currentTemplateName),
                 new XElement(
                     "GitHub",
                     (configProfile?.Plugins ?? [])
@@ -228,11 +228,11 @@ public sealed class DedicatedServerRuntimePreparer
         if (string.IsNullOrWhiteSpace(definition.ConfigProfileId))
             return null;
 
-        var profile = _configProfiles.GetProfile(definition.ConfigProfileId);
-        if (profile is null)
+        var template = _configProfiles.GetProfile(definition.ConfigProfileId);
+        if (template is null)
             throw new InvalidOperationException($"Unknown Quasar config profile '{definition.ConfigProfileId}' for instance '{definition.UniqueName}'.");
 
-        return profile;
+        return template;
     }
 
     private static XDocument CreateEmptyDedicatedConfigDocument()
@@ -356,35 +356,35 @@ public sealed class DedicatedServerRuntimePreparer
         if (Directory.Exists(worldPath) && File.Exists(Path.Combine(worldPath, "Sandbox.sbc")))
             return ResolveWorldPath(worldPath);
 
-        // World doesn't exist yet — seed from profile if one is set.
-        if (!string.IsNullOrWhiteSpace(definition.WorldProfileId))
+        // World doesn't exist yet — seed from template if one is set.
+        if (!string.IsNullOrWhiteSpace(definition.WorldTemplateId))
         {
-            var profile = _worldProfiles.GetProfile(definition.WorldProfileId)
-                ?? throw new InvalidOperationException($"Unknown world profile '{definition.WorldProfileId}' for instance '{definition.UniqueName}'.");
+            var template = _worldTemplates.GetTemplate(definition.WorldTemplateId)
+                ?? throw new InvalidOperationException($"Unknown world template '{definition.WorldTemplateId}' for instance '{definition.UniqueName}'.");
 
-            await SeedWorldFromProfileAsync(definition.WorldProfileId, worldPath, cancellationToken);
+            await SeedWorldFromTemplateAsync(definition.WorldTemplateId, worldPath, cancellationToken);
             _logger.LogInformation(
-                "Seeded world for instance {UniqueName} from profile '{ProfileName}' at {WorldPath}.",
-                definition.UniqueName, profile.Name, worldPath);
+                "Seeded world for instance {UniqueName} from template '{TemplateName}' at {WorldPath}.",
+                definition.UniqueName, template.Name, worldPath);
             return worldPath;
         }
 
-        // No profile — fall through to standard validation (throws if missing).
+        // No template — fall through to standard validation (throws if missing).
         return ResolveWorldPath(worldPath);
     }
 
-    private async Task SeedWorldFromProfileAsync(
-        string worldProfileId,
+    private async Task SeedWorldFromTemplateAsync(
+        string worldTemplateId,
         string destWorldPath,
         CancellationToken cancellationToken)
     {
-        var sourceDir = _worldProfiles.GetWorldDirectory(worldProfileId);
+        var sourceDir = _worldTemplates.GetWorldDirectory(worldTemplateId);
 
         if (!Directory.Exists(sourceDir))
-            throw new InvalidOperationException($"World profile '{worldProfileId}' has no stored world files at '{sourceDir}'.");
+            throw new InvalidOperationException($"World template '{worldTemplateId}' has no stored world files at '{sourceDir}'.");
 
         if (!File.Exists(Path.Combine(sourceDir, "Sandbox.sbc")))
-            throw new InvalidOperationException($"World profile '{worldProfileId}' is missing Sandbox.sbc.");
+            throw new InvalidOperationException($"World template '{worldTemplateId}' is missing Sandbox.sbc.");
 
         Directory.CreateDirectory(destWorldPath);
         foreach (var sourceFile in Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories))

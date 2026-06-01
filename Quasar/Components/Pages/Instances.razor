@@ -4,7 +4,7 @@
 @inject DedicatedServerSupervisor Supervisor
 @inject AgentRegistry Registry
 @inject QuasarConfigProfileCatalog ConfigProfiles
-@inject QuasarWorldProfileCatalog WorldProfiles
+@inject QuasarWorldTemplateCatalog WorldTemplates
 @inject IDialogService DialogService
 @inject WebServiceOptions Options
 @inject ISnackbar Snackbar
@@ -71,10 +71,13 @@
                 </MudTd>
                 <MudTd Style="text-align: right;">
                     <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.FlexEnd" Spacing="0">
-                        @if (IsRunning(context.UniqueName))
+                        @if (context.GoalState == DedicatedServerInstanceGoalState.On)
                         {
                             <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Warning" OnClick="@(() => StopAsync(context.UniqueName))">Stop</MudButton>
-                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" OnClick="@(() => RestartAsync(context.UniqueName))">Restart</MudButton>
+                            @if (IsRunning(context.UniqueName))
+                            {
+                                <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" OnClick="@(() => RestartAsync(context.UniqueName))">Restart</MudButton>
+                            }
                         }
                         else
                         {
@@ -104,7 +107,7 @@
         Supervisor.Changed += HandleChanged;
         Registry.Changed += HandleChanged;
         ConfigProfiles.Changed += HandleChanged;
-        WorldProfiles.Changed += HandleChanged;
+        WorldTemplates.Changed += HandleChanged;
     }
 
     public void Dispose()
@@ -113,7 +116,7 @@
         Supervisor.Changed -= HandleChanged;
         Registry.Changed -= HandleChanged;
         ConfigProfiles.Changed -= HandleChanged;
-        WorldProfiles.Changed -= HandleChanged;
+        WorldTemplates.Changed -= HandleChanged;
     }
 
     private async Task OpenCreateDialogAsync()

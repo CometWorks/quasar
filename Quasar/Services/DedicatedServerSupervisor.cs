@@ -467,7 +467,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         NotifyChanged();
 
         _ = PumpStandardOutputAsync(process.StandardOutput, stdoutPath, state.UniqueName, cancellationToken);
-        _ = PumpOutputAsync(process.StandardError, stderrPath, cancellationToken);
+        _ = PumpStandardErrorAsync(process.StandardError, stderrPath, state.UniqueName, cancellationToken);
     }
 
     private async Task HandleProcessExitedAsync(string uniqueName)
@@ -722,6 +722,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         NotifyChanged();
     }
 
+    private const string MagnetarLogSource = "magnetar";
+
     private async Task PumpStandardOutputAsync(StreamReader reader, string path, string uniqueName, CancellationToken cancellationToken)
     {
         await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
@@ -740,10 +742,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
             if (PluginLogStream.TryParseSinkLine(uniqueName, line, out var entry) && entry is not null)
                 _pluginLogStream.Append(entry);
+            else if (!string.IsNullOrWhiteSpace(line))
+                _pluginLogStream.Append(BuildMagnetarEntry(uniqueName, line, "Info"));
         }
     }
 
-    private static async Task PumpOutputAsync(StreamReader reader, string path, CancellationToken cancellationToken)
+    private async Task PumpStandardErrorAsync(StreamReader reader, string path, string uniqueName, CancellationToken cancellationToken)
     {
         await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
         await using var writer = new StreamWriter(stream)
@@ -758,8 +762,20 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 break;
 
             await writer.WriteLineAsync($"{DateTimeOffset.UtcNow:O} {line}");
+
+            if (!string.IsNullOrWhiteSpace(line))
+                _pluginLogStream.Append(BuildMagnetarEntry(uniqueName, line, "Error"));
         }
     }
+
+    private static PluginLogEntry BuildMagnetarEntry(string uniqueName, string line, string level) => new()
+    {
+        UniqueName = uniqueName,
+        TimestampUtc = DateTimeOffset.UtcNow,
+        Level = level,
+        Plugin = MagnetarLogSource,
+        Message = line,
+    };
 
     private static bool IsProcessActive(Process? process) =>
         process is not null && !process.HasExited;
@@ -1069,6 +1085,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             MagnetarAppDataPath = definition.MagnetarAppDataPath,
             WorldPath = definition.WorldPath,
             ConfigFilePath = definition.ConfigFilePath,
+            ConfigProfileId = definition.ConfigProfileId,
+            WorldTemplateId = definition.WorldTemplateId,
             LaunchArguments = definition.LaunchArguments,
             AutoStart = definition.AutoStart,
             EnableHealthMonitoring = definition.EnableHealthMonitoring,

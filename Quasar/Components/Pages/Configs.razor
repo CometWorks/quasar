@@ -11,7 +11,7 @@
 
 <MudText Typo="Typo.h4" GutterBottom="true">Configs</MudText>
 <MudText Typo="Typo.body2" Class="mb-4">
-    Reusable world templates and Magnetar config profiles. Save many presets, search world options fast, then assign profiles to instances.
+    Reusable world templates and Magnetar config templates. Save many presets, search world options fast, then assign templates to instances.
 </MudText>
 
 <MudGrid>
@@ -19,46 +19,46 @@
         <MudPaper Class="server-card pa-4 configs-sidebar">
             <MudStack Spacing="2" Class="configs-sidebar-inner">
                 <div>
-                    <MudText Typo="Typo.h6">Profiles</MudText>
+                    <MudText Typo="Typo.h6">Templates</MudText>
                     <MudText Typo="Typo.body2" Class="config-secondary">Stored Quasar presets for world rules, plugins, and mods.</MudText>
                 </div>
 
                 <MudTextField
                     @bind-Value="_newProfileName"
-                    Label="New profile name"
+                    Label="New template name"
                     Variant="Variant.Outlined"
                     Immediate="true"
                     OnKeyDown="HandleNewProfileKeyDown" />
 
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateProfileAsync" Disabled="@string.IsNullOrWhiteSpace(_newProfileName)">
-                    Create Profile
+                    Create Template
                 </MudButton>
 
                 <MudDivider />
 
-                @if (Profiles.Count == 0)
+                @if (Templates.Count == 0)
                 {
                     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                        No config profiles yet.
+                        No config templates yet.
                     </MudAlert>
                 }
                 else
                 {
-                    <MudStack Spacing="1" Class="configs-profile-list">
-                        @foreach (var profile in Profiles)
+                    <MudStack Spacing="1" Class="configs-template-list">
+                        @foreach (var template in Templates)
                         {
-                            var isSelected = string.Equals(_selectedProfileId, profile.ConfigProfileId, StringComparison.OrdinalIgnoreCase);
+                            var isSelected = string.Equals(_selectedProfileId, template.ConfigProfileId, StringComparison.OrdinalIgnoreCase);
                             var profileTileClass = GetProfileTileCssClass(isSelected);
                             var profileButtonClass = isSelected
-                                ? "config-profile-button config-profile-button-selected"
-                                : "config-profile-button";
-                            <MudPaper Class="@profileTileClass" @key="profile.ConfigProfileId">
-                                <MudStack Row="true" AlignItems="AlignItems.Start" Justify="Justify.SpaceBetween" Spacing="1" Class="config-profile-row">
-                                    <MudButton Variant="Variant.Text" Color="Color.Inherit" Class="@profileButtonClass" Style="flex: 1 1 auto; min-width: 0;" OnClick="@(() => SelectProfile(profile.ConfigProfileId))">
+                                ? "config-template-button config-template-button-selected"
+                                : "config-template-button";
+                            <MudPaper Class="@profileTileClass" @key="template.ConfigProfileId">
+                                <MudStack Row="true" AlignItems="AlignItems.Start" Justify="Justify.SpaceBetween" Spacing="1" Class="config-template-row">
+                                    <MudButton Variant="Variant.Text" Color="Color.Inherit" Class="@profileButtonClass" Style="flex: 1 1 auto; min-width: 0;" OnClick="@(() => SelectProfile(template.ConfigProfileId))">
                                         <MudStack AlignItems="AlignItems.Start" Spacing="0">
-                                            <MudText Typo="Typo.subtitle2">@profile.Name</MudText>
+                                            <MudText Typo="Typo.subtitle2">@template.Name</MudText>
                                             <MudText Typo="Typo.caption" Class="config-secondary">
-                                                @GetProfileSummary(profile)
+                                                @GetProfileSummary(template)
                                             </MudText>
                                         </MudStack>
                                     </MudButton>
@@ -66,13 +66,13 @@
                                         Icon="@Icons.Material.Filled.ContentCopy"
                                         Color="Color.Default"
                                         Size="Size.Small"
-                                        OnClick="@(() => CloneProfileAsync(profile.ConfigProfileId))" />
+                                        OnClick="@(() => CloneProfileAsync(template.ConfigProfileId))" />
                                     <MudIconButton
                                         Icon="@Icons.Material.Filled.DeleteOutline"
                                         Color="Color.Error"
                                         Size="Size.Small"
-                                        Class="config-profile-delete"
-                                        OnClick="@(() => DeleteProfileAsync(profile.ConfigProfileId))" />
+                                        Class="config-template-delete"
+                                        OnClick="@(() => DeleteProfileAsync(template.ConfigProfileId))" />
                                 </MudStack>
                             </MudPaper>
                         }
@@ -87,7 +87,7 @@
         @if (_editor is null)
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                Select profile or create new one to start editing.
+                Select template or create new one to start editing.
             </MudAlert>
         }
         else
@@ -96,7 +96,7 @@
                 <MudPaper Class="server-card pa-4">
                     <MudGrid>
                         <MudItem xs="12" md="6">
-                            <MudTextField @bind-Value="_editor.Name" Label="Profile name" Variant="Variant.Outlined" Immediate="true" />
+                            <MudTextField @bind-Value="_editor.Name" Label="Template name" Variant="Variant.Outlined" Immediate="true" />
                         </MudItem>
                         <MudItem xs="12" md="6">
                             <MudTextField @bind-Value="_editor.Description" Label="Description" Variant="Variant.Outlined" Immediate="true" />
@@ -121,7 +121,7 @@
                     }
 
                     <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-4">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveProfileAsync">Save Profile</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveTemplateAsync">Save Template</MudButton>
                         <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ResetEditor">Reset</MudButton>
                     </MudStack>
                 </MudPaper>
@@ -500,7 +500,7 @@
     private string? _expandedCategoryKey;
     private bool _hasExplicitCategoryExpansion;
 
-    private IReadOnlyList<QuasarConfigProfile> Profiles => ConfigProfiles.GetProfiles();
+    private IReadOnlyList<QuasarConfigProfile> Templates => ConfigProfiles.GetProfiles();
     private IReadOnlyList<QuasarPluginCatalogEntry> CatalogEntries => PluginCatalog.GetEntries();
 
     private List<QuasarConfigOptionDefinition> VisibleWorldOptions => QuasarConfigMetadata.Options
@@ -557,7 +557,7 @@
     {
         ConfigProfiles.Changed += HandleProfilesChanged;
         InstanceCatalog.Changed += HandleInstancesChanged;
-        SelectProfile(Profiles.FirstOrDefault()?.ConfigProfileId ?? string.Empty);
+        SelectProfile(Templates.FirstOrDefault()?.ConfigProfileId ?? string.Empty);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -579,48 +579,48 @@
         var name = _newProfileName.Trim();
         if (string.IsNullOrWhiteSpace(name))
         {
-            Snackbar.Add("Profile name required.", Severity.Warning);
+            Snackbar.Add("Template name required.", Severity.Warning);
             return;
         }
 
-        var profile = new QuasarConfigProfile
+        var template = new QuasarConfigProfile
         {
             Name = name,
         };
 
-        await ConfigProfiles.UpsertAsync(profile);
+        await ConfigProfiles.UpsertAsync(template);
         _newProfileName = string.Empty;
-        SelectProfile(profile.ConfigProfileId);
-        Snackbar.Add("Config profile created.", Severity.Success);
+        SelectProfile(template.ConfigProfileId);
+        Snackbar.Add("Config template created.", Severity.Success);
     }
 
-    private async Task SaveProfileAsync()
+    private async Task SaveTemplateAsync()
     {
         if (_editor is null)
             return;
 
         if (string.IsNullOrWhiteSpace(_editor.Name))
         {
-            Snackbar.Add("Profile name required.", Severity.Warning);
+            Snackbar.Add("Template name required.", Severity.Warning);
             return;
         }
 
         await ConfigProfiles.UpsertAsync(_editor);
         SelectProfile(_editor.ConfigProfileId);
-        Snackbar.Add("Config profile saved.", Severity.Success);
+        Snackbar.Add("Config template saved.", Severity.Success);
     }
 
     private async Task CloneProfileAsync(string configProfileId)
     {
-        var profile = ConfigProfiles.GetProfile(configProfileId);
-        if (profile is null)
+        var template = ConfigProfiles.GetProfile(configProfileId);
+        if (template is null)
             return;
 
-        profile.ConfigProfileId = Guid.NewGuid().ToString();
-        profile.Name = $"{profile.Name} (Copy)";
-        await ConfigProfiles.UpsertAsync(profile);
-        SelectProfile(profile.ConfigProfileId);
-        Snackbar.Add("Config profile cloned.", Severity.Success);
+        template.ConfigProfileId = Guid.NewGuid().ToString();
+        template.Name = $"{template.Name} (Copy)";
+        await ConfigProfiles.UpsertAsync(template);
+        SelectProfile(template.ConfigProfileId);
+        Snackbar.Add("Config template cloned.", Severity.Success);
     }
 
     private async Task DeleteProfileAsync(string configProfileId)
@@ -628,15 +628,15 @@
         var assignedInstances = GetAssignedInstances(configProfileId);
         if (assignedInstances.Count > 0)
         {
-            Snackbar.Add("Profile still assigned to instances. Reassign or clear them first.", Severity.Warning);
+            Snackbar.Add("Template still assigned to instances. Reassign or clear them first.", Severity.Warning);
             return;
         }
 
         await ConfigProfiles.DeleteAsync(configProfileId);
         if (string.Equals(_selectedProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))
-            SelectProfile(Profiles.FirstOrDefault(profile => !string.Equals(profile.ConfigProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))?.ConfigProfileId ?? string.Empty);
+            SelectProfile(Templates.FirstOrDefault(template => !string.Equals(template.ConfigProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))?.ConfigProfileId ?? string.Empty);
 
-        Snackbar.Add("Config profile deleted.", Severity.Info);
+        Snackbar.Add("Config template deleted.", Severity.Info);
     }
 
     private void ResetEditor()
@@ -729,8 +729,8 @@
 
     private static string GetProfileTileCssClass(bool isSelected) =>
         isSelected
-            ? "pa-3 config-profile-tile config-profile-selected"
-            : "pa-3 config-profile-tile";
+            ? "pa-3 config-template-tile config-template-selected"
+            : "pa-3 config-template-tile";
 
     private string GetOptionCssClass(QuasarConfigOptionDefinition option)
     {
@@ -1146,9 +1146,9 @@
         _editor.Mods.RemoveAll(mod => mod.WorkshopId == workshopId);
     }
 
-    private string GetProfileSummary(QuasarConfigProfile profile)
+    private string GetProfileSummary(QuasarConfigProfile template)
     {
-        return $"{profile.Plugins.Count} plugins, {profile.Mods.Count} mods, {GetAssignedInstances(profile.ConfigProfileId).Count} instances";
+        return $"{template.Plugins.Count} plugins, {template.Mods.Count} mods, {GetAssignedInstances(template.ConfigProfileId).Count} instances";
     }
 
     private List<DedicatedServerInstanceDefinition> GetAssignedInstances(string configProfileId)

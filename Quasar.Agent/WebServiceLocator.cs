@@ -179,6 +179,15 @@ namespace Quasar.Agent
                 return true;
             }
 
+            candidateExe = FindCandidate("Quasar.exe") ?? FindCandidate("Quasar");
+            if (!string.IsNullOrWhiteSpace(candidateExe))
+            {
+                fileName = candidateExe;
+                arguments = "ensure-running --quiet";
+                workingDirectory = Path.GetDirectoryName(candidateExe) ?? AppContext.BaseDirectory;
+                return true;
+            }
+
             fileName = null;
             arguments = null;
             workingDirectory = null;

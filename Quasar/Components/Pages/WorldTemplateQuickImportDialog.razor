@@ -8,12 +8,12 @@
 
             <MudTextField
                 @bind-Value="_name"
-                Label="Profile name"
+                Label="Template name"
                 Variant="Variant.Outlined"
                 Immediate="true"
                 AutoFocus="true"
                 Required="true"
-                RequiredError="Profile name required." />
+                RequiredError="Template name required." />
 
             <MudTextField
                 @bind-Value="_description"
@@ -47,7 +47,7 @@
     private IMudDialogInstance MudDialog { get; set; } = default!;
 
     [Inject]
-    private QuasarWorldProfileCatalog WorldProfiles { get; set; } = default!;
+    private QuasarWorldTemplateCatalog WorldTemplates { get; set; } = default!;
 
     [Inject]
     private ISnackbar Snackbar { get; set; } = default!;
@@ -66,15 +66,15 @@
 
     private async Task ImportAsync()
     {
-        await _form!.Validate();
+        await _form!.ValidateAsync();
         if (!_formIsValid)
             return;
 
         _importing = true;
         try
         {
-            var profile = await WorldProfiles.ImportAsync(_name.Trim(), _description?.Trim() ?? string.Empty, _sourcePath.Trim());
-            MudDialog.Close(DialogResult.Ok(profile));
+            var template = await WorldTemplates.ImportAsync(_name.Trim(), _description?.Trim() ?? string.Empty, _sourcePath.Trim());
+            MudDialog.Close(DialogResult.Ok(template));
         }
         catch (Exception exception)
         {

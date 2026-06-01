@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.IO.Compression;
 using Magnetar.Protocol.Runtime;
 using Quasar.Models;
+using SharpCompress.Archives;
+using SharpCompress.Readers;
 
 namespace Quasar.Services;
 
@@ -10,6 +12,12 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     private const string MagnetarLauncherName = "MagnetarInterim";
     private const string DedicatedServerAppId = "298740";
     private const string DedicatedServerExecutableName = "SpaceEngineersDedicated";
+    private static readonly string[] MagnetarLauncherFileNames =
+    [
+        "MagnetarInterim",
+        "MagnetarInterim.exe",
+    ];
+
     private static readonly string[] DedicatedServerExecutableNames =
     [
         "SpaceEngineersDedicated",
@@ -77,15 +85,17 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     private async Task<string> EnsureManagedMagnetarInstallAsync(CancellationToken cancellationToken)
     {
         var installDirectory = _options.MagnetarInstallDirectory;
-        var launcherPath = Path.Combine(installDirectory, MagnetarLauncherName);
-        var binaryLauncherPath = Path.Combine(installDirectory, "Bin", MagnetarLauncherName);
-        if (File.Exists(launcherPath) && File.Exists(binaryLauncherPath))
+        var launcherPath = FindImmediateFile(installDirectory, MagnetarLauncherFileNames);
+        var binaryLauncherPath = FindImmediateFile(Path.Combine(installDirectory, "Bin"), MagnetarLauncherFileNames);
+        if (!string.IsNullOrWhiteSpace(launcherPath) && !string.IsNullOrWhiteSpace(binaryLauncherPath))
             return launcherPath;
 
         await _magnetarInstallLock.WaitAsync(cancellationToken);
         try
         {
-            if (File.Exists(launcherPath) && File.Exists(binaryLauncherPath))
+            launcherPath = FindImmediateFile(installDirectory, MagnetarLauncherFileNames);
+            binaryLauncherPath = FindImmediateFile(Path.Combine(installDirectory, "Bin"), MagnetarLauncherFileNames);
+            if (!string.IsNullOrWhiteSpace(launcherPath) && !string.IsNullOrWhiteSpace(binaryLauncherPath))
                 return launcherPath;
 
             Directory.CreateDirectory(MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory());
@@ -97,31 +107,40 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 using var client = _httpClientFactory.CreateClient();
                 client.Timeout = TimeSpan.FromMinutes(5);
 
-                await using (var archiveStream = await client.GetStreamAsync(_options.MagnetarArchiveUrl, cancellationToken))
+                var archivePath = Path.Combine(extractRoot, "magnetar-download" + InferArchiveExtension(_options.MagnetarArchiveUrl));
+                using var response = await client.GetAsync(_options.MagnetarArchiveUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                if (!response.IsSuccessStatusCode)
                 {
-                    using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read, leaveOpen: false);
-                    foreach (var entry in archive.Entries)
-                        ExtractZipEntry(entry, extractRoot);
+                    throw new InvalidOperationException(
+                        $"Failed downloading Magnetar archive from {_options.MagnetarArchiveUrl}. Status={(int)response.StatusCode} {response.ReasonPhrase}.");
                 }
 
-                var sourceDirectory = FindMagnetarSourceDirectory(extractRoot)
-                                      ?? throw new InvalidOperationException("Downloaded Magnetar archive did not contain Magnetar/Bin payload.");
+                await using (var archiveFile = File.Create(archivePath))
+                {
+                    await response.Content.CopyToAsync(archiveFile, cancellationToken);
+                }
 
-                var sourceLauncherPath = Path.Combine(sourceDirectory, MagnetarLauncherName);
-                var sourceBinDirectory = Path.Combine(sourceDirectory, "Bin");
-                if (!File.Exists(sourceLauncherPath))
-                    throw new InvalidOperationException($"Magnetar launcher not found in extracted archive: {sourceLauncherPath}");
-                if (!Directory.Exists(sourceBinDirectory))
-                    throw new InvalidOperationException($"Magnetar Bin directory not found in extracted archive: {sourceBinDirectory}");
+                ExtractArchive(archivePath, extractRoot);
+
+                var source = FindMagnetarSource(extractRoot)
+                             ?? throw new InvalidOperationException("Downloaded Magnetar archive did not contain MagnetarInterim with a Bin payload.");
+
+                if (!File.Exists(source.LauncherPath))
+                    throw new InvalidOperationException($"Magnetar launcher not found in extracted archive: {source.LauncherPath}");
+                if (!Directory.Exists(source.BinDirectory))
+                    throw new InvalidOperationException($"Magnetar Bin directory not found in extracted archive: {source.BinDirectory}");
 
                 if (Directory.Exists(installDirectory))
                     Directory.Delete(installDirectory, recursive: true);
 
                 Directory.CreateDirectory(installDirectory);
-                CopyDirectory(sourceBinDirectory, Path.Combine(installDirectory, "Bin"));
-                File.Copy(sourceLauncherPath, launcherPath, overwrite: true);
+                CopyDirectory(source.BinDirectory, Path.Combine(installDirectory, "Bin"));
+                launcherPath = Path.Combine(installDirectory, Path.GetFileName(source.LauncherPath));
+                File.Copy(source.LauncherPath, launcherPath, overwrite: true);
                 EnsureExecutableBit(launcherPath);
-                EnsureExecutableBit(Path.Combine(installDirectory, "Bin", MagnetarLauncherName));
+                binaryLauncherPath = FindImmediateFile(Path.Combine(installDirectory, "Bin"), MagnetarLauncherFileNames);
+                if (!string.IsNullOrWhiteSpace(binaryLauncherPath))
+                    EnsureExecutableBit(binaryLauncherPath);
 
                 _logger.LogInformation("Installed managed Magnetar runtime into {Path}.", installDirectory);
                 return launcherPath;
@@ -325,17 +344,67 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         return DedicatedServerExecutableNames.Any(fileName => File.Exists(Path.Combine(path, fileName)));
     }
 
-    private static void ExtractZipEntry(ZipArchiveEntry entry, string destinationRoot)
+    private static void ExtractArchive(string archivePath, string destinationRoot)
     {
-        if (string.IsNullOrEmpty(entry.Name) && string.IsNullOrEmpty(entry.FullName))
+        var kind = DetectArchiveKind(archivePath);
+        switch (kind)
+        {
+            case ArchiveKind.Zip:
+                ExtractZipArchive(archivePath, destinationRoot);
+                return;
+            case ArchiveKind.SevenZip:
+                ExtractSevenZipArchive(archivePath, destinationRoot);
+                return;
+            default:
+                throw new InvalidOperationException($"Unsupported Magnetar archive format: {archivePath}");
+        }
+    }
+
+    private static void ExtractSevenZipArchive(string archivePath, string destinationRoot)
+    {
+        using var archive = ArchiveFactory.OpenArchive(archivePath, new ReaderOptions());
+        foreach (var entry in archive.Entries)
+        {
+            ExtractSharpCompressEntry(entry, destinationRoot);
+        }
+    }
+
+    private static void ExtractZipArchive(string archivePath, string destinationRoot)
+    {
+        using var fileStream = File.OpenRead(archivePath);
+        using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read);
+        foreach (var entry in archive.Entries)
+        {
+            ExtractZipEntry(entry, destinationRoot);
+        }
+    }
+
+    private static void ExtractSharpCompressEntry(IArchiveEntry entry, string destinationRoot)
+    {
+        if (string.IsNullOrWhiteSpace(entry.Key))
             return;
 
-        var destinationPath = Path.GetFullPath(Path.Combine(destinationRoot, entry.FullName.Replace('/', Path.DirectorySeparatorChar)));
-        var fullRoot = Path.GetFullPath(destinationRoot + Path.DirectorySeparatorChar);
-        if (!destinationPath.StartsWith(fullRoot, StringComparison.Ordinal))
-            throw new InvalidOperationException($"Archive entry escapes extraction root: {entry.FullName}");
+        var destinationPath = ResolveArchiveEntryPath(entry.Key, destinationRoot);
+        if (entry.IsDirectory)
+        {
+            Directory.CreateDirectory(destinationPath);
+            return;
+        }
 
-        if (string.IsNullOrEmpty(entry.Name))
+        Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+        using var entryStream = entry.OpenEntryStream();
+        using var destinationStream = File.Create(destinationPath);
+        entryStream.CopyTo(destinationStream);
+    }
+
+    private static void ExtractZipEntry(ZipArchiveEntry entry, string destinationRoot)
+    {
+        if (string.IsNullOrWhiteSpace(entry.FullName))
+            return;
+
+        var destinationPath = ResolveArchiveEntryPath(entry.FullName, destinationRoot);
+        if (entry.FullName.EndsWith("/", StringComparison.Ordinal) ||
+            entry.FullName.EndsWith("\\", StringComparison.Ordinal))
         {
             Directory.CreateDirectory(destinationPath);
             return;
@@ -345,14 +414,132 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         entry.ExtractToFile(destinationPath, overwrite: true);
     }
 
-    private static string? FindMagnetarSourceDirectory(string extractionRoot)
+    private static string ResolveArchiveEntryPath(string entryPath, string destinationRoot)
     {
-        return Directory.GetFiles(extractionRoot, MagnetarLauncherName, SearchOption.AllDirectories)
-            .Select(Path.GetDirectoryName)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(path => path!)
-            .FirstOrDefault(path => Directory.Exists(Path.Combine(path, "Bin")));
+        var normalizedEntryPath = entryPath
+            .Replace('\\', Path.DirectorySeparatorChar)
+            .Replace('/', Path.DirectorySeparatorChar);
+        var destinationPath = Path.GetFullPath(Path.Combine(destinationRoot, normalizedEntryPath));
+        var fullRoot = Path.GetFullPath(destinationRoot + Path.DirectorySeparatorChar);
+        if (!destinationPath.StartsWith(fullRoot, StringComparison.Ordinal))
+            throw new InvalidOperationException($"Archive entry escapes extraction root: {entryPath}");
+
+        return destinationPath;
     }
+
+    private static ArchiveKind DetectArchiveKind(string archivePath)
+    {
+        Span<byte> header = stackalloc byte[8];
+        using (var stream = File.OpenRead(archivePath))
+        {
+            var read = stream.Read(header);
+            header = header[..read];
+        }
+
+        if (header.Length >= 6 &&
+            header[0] == 0x37 &&
+            header[1] == 0x7A &&
+            header[2] == 0xBC &&
+            header[3] == 0xAF &&
+            header[4] == 0x27 &&
+            header[5] == 0x1C)
+        {
+            return ArchiveKind.SevenZip;
+        }
+
+        if (header.Length >= 4 &&
+            header[0] == 0x50 &&
+            header[1] == 0x4B &&
+            header[2] is 0x03 or 0x05 or 0x07 &&
+            header[3] is 0x04 or 0x06 or 0x08)
+        {
+            return ArchiveKind.Zip;
+        }
+
+        var extension = Path.GetExtension(archivePath);
+        if (string.Equals(extension, ".7z", StringComparison.OrdinalIgnoreCase))
+            return ArchiveKind.SevenZip;
+        if (string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase))
+            return ArchiveKind.Zip;
+
+        return ArchiveKind.Unknown;
+    }
+
+    private static string InferArchiveExtension(string archiveUrl)
+    {
+        try
+        {
+            if (Uri.TryCreate(archiveUrl, UriKind.Absolute, out var uri))
+            {
+                var extension = Path.GetExtension(uri.AbsolutePath);
+                if (string.Equals(extension, ".7z", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase))
+                {
+                    return extension;
+                }
+
+                if (uri.Query.Contains("accept=zip", StringComparison.OrdinalIgnoreCase))
+                    return ".zip";
+            }
+        }
+        catch
+        {
+        }
+
+        return ".archive";
+    }
+
+    private static MagnetarSource? FindMagnetarSource(string extractionRoot)
+    {
+        return Directory.GetFiles(extractionRoot, "*", SearchOption.AllDirectories)
+            .Where(IsMagnetarLauncherFileName)
+            .Select(path => new { LauncherPath = path, Directory = Path.GetDirectoryName(path) })
+            .Where(path => !string.IsNullOrWhiteSpace(path.Directory))
+            .Select(path => new
+            {
+                path.LauncherPath,
+                Directory = path.Directory!,
+                BinDirectory = FindImmediateDirectory(path.Directory!, "Bin"),
+            })
+            .Where(path => !string.IsNullOrWhiteSpace(path.BinDirectory))
+            .Select(path => new MagnetarSource(path.Directory, path.LauncherPath, path.BinDirectory!))
+            .FirstOrDefault();
+    }
+
+    private static bool IsMagnetarLauncherFileName(string path)
+    {
+        var fileName = Path.GetFileName(path);
+        return MagnetarLauncherFileNames.Any(name => string.Equals(fileName, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string? FindImmediateDirectory(string parentDirectory, string directoryName)
+    {
+        if (!Directory.Exists(parentDirectory))
+            return null;
+
+        return Directory.EnumerateDirectories(parentDirectory)
+            .FirstOrDefault(path => string.Equals(
+                Path.GetFileName(path),
+                directoryName,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string? FindImmediateFile(string parentDirectory, IReadOnlyCollection<string> fileNames)
+    {
+        if (!Directory.Exists(parentDirectory))
+            return null;
+
+        return Directory.EnumerateFiles(parentDirectory)
+            .FirstOrDefault(path => fileNames.Any(fileName => string.Equals(
+                Path.GetFileName(path),
+                fileName,
+                StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private sealed record MagnetarSource(
+        string Directory,
+        string LauncherPath,
+        string BinDirectory);
 
     private static void CopyDirectory(string sourceDirectory, string destinationDirectory)
     {
@@ -411,6 +598,13 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             ? value
             : value[..maxLength] + "...";
     }
+}
+
+internal enum ArchiveKind
+{
+    Unknown,
+    Zip,
+    SevenZip,
 }
 
 public sealed record ResolvedDedicatedServerRuntime(
