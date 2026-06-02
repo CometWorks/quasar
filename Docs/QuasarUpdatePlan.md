@@ -8,6 +8,7 @@ It is written against the current repository state:
 - the active release pointer is now used for worker activation and cutover.
 - local release activation now drains the old worker and hands DS supervision state to the new worker.
 - `Quasar.Agent` can already trigger `Quasar.Bootstrap` when the supervisor is missing.
+- `Quasar` deploys the staged/source `Quasar.Agent` payload into each instance's Magnetar local plugin directory during runtime preparation.
 - automatic bundle download, release packaging, and feed polling are still future work.
 
 ## Goal
@@ -69,10 +70,18 @@ The release manifest should include:
 - release channel
 - compatibility info
 - file checksums
+- component entries for `bootstrap`, `worker`, and `agent`
 - optional minimum launcher version
 - optional minimum worker version
 
 Because repo ownership will change soon, feed configuration must not be hardcoded to one GitHub owner or repo. Keep update source configurable.
+
+The component checksums are the authority for whether a local file is current.
+For `Quasar.Agent`, compare the staged agent payload against each instance's
+Magnetar local plugin files by SHA-256 during runtime preparation. If a file
+differs, overwrite it before the DS process starts. This makes a newly pulled
+agent artifact take effect on the next instance restart without relying on
+timestamps, file size, or assembly version alone.
 
 ## GitHub Pipeline and Artifact Work
 
@@ -284,23 +293,52 @@ So "seamless" for agent update means:
 - the updated instance reconnects automatically after restart
 - there is no manual reinstall path
 
-## Repo-Specific Blocker
+## Agent Deployment State
 
-Before true agent auto-update exists, `Quasar` must own agent deployment.
+Quasar now owns the initial agent deployment path.
 
-Right now `DedicatedServerRuntimePreparer` prepares DS and Magnetar config, but it does not appear to deploy `Quasar.Agent` into a Quasar-managed plugin location for each instance.
+`DedicatedServerRuntimePreparer` locates the staged/source `Quasar.Agent`
+payload and copies `Quasar.Agent.dll` plus `Magnetar.Protocol.dll` into the
+instance Magnetar local plugin directory. The copy decision should remain
+content-hash based so the instance always gets the current staged agent bits on
+restart.
 
-That needs to be added first.
+Remaining additions:
 
-Required additions:
-
-- Quasar-managed agent package directory
+- Quasar-managed agent package directory populated from release bundles
 - per-instance desired agent version
-- runtime preparation that deploys `Quasar.Agent`
 - instance state showing update pending / applied / failed
 - version comparison beyond plain assembly version
+- operator-controlled rolling restart policy
 
 The existing `AgentHello.PluginVersion` field is useful for reporting, but protocol compatibility should be tracked separately from simple plugin version.
+
+## UI Control and Notifications
+
+Add an Updates page under Settings. It should expose:
+
+- current launcher, worker, protocol, and agent versions
+- configured release source URL and channel
+- latest available version and checksum status
+- automatic update mode: disabled, notify only, stage only, or stage and apply
+- Quasar UI rollover action with rollback target
+- agent rollout mode: manual, restart when operator approves, or rolling restart
+- per-instance agent status: current, update staged, restart required, failed
+
+Notifications should be persistent server-side events surfaced in the UI:
+
+- update available
+- bundle downloaded and verified
+- worker rollover started/completed/failed
+- rollback available or rollback used
+- agent payload staged
+- instance restart required for agent update
+- agent update applied after reconnect
+
+The worker can provide this over an `UpdateStatusService` singleton with a
+small persisted state file. The UI subscribes to service change events and uses
+MudBlazor snackbars for transient notifications plus the Updates page for the
+durable history.
 
 ## Suggested Implementation Order
 
@@ -310,8 +348,10 @@ The existing `AgentHello.PluginVersion` field is useful for reporting, but proto
 4. add worker warm-up and cutover flow
 5. add old-worker drain behavior
 6. add Quasar-owned `Quasar.Agent` deployment path
-7. add per-instance desired agent version and rolling restart policy
-8. add automatic download and feed polling last
+7. add release-manifest and SHA-256 validation for worker, launcher, and agent payloads
+8. add update state service, notifications, and Settings → Updates UI controls
+9. add per-instance desired agent version and rolling restart policy
+10. add automatic download and feed polling last
 
 This order matters. Building auto-download first would create a downloader without a safe activation path.
 

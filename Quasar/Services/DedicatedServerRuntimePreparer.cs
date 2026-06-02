@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -262,18 +263,22 @@ public sealed class DedicatedServerRuntimePreparer
     {
         if (File.Exists(destinationPath))
         {
-            var sourceInfo = new FileInfo(sourcePath);
-            var destinationInfo = new FileInfo(destinationPath);
-            if (sourceInfo.Length == destinationInfo.Length &&
-                sourceInfo.LastWriteTimeUtc <= destinationInfo.LastWriteTimeUtc)
-            {
+            var sourceHash = await ComputeSha256HexAsync(sourcePath, cancellationToken);
+            var destinationHash = await ComputeSha256HexAsync(destinationPath, cancellationToken);
+            if (string.Equals(sourceHash, destinationHash, StringComparison.OrdinalIgnoreCase))
                 return;
-            }
         }
 
         await using var source = File.OpenRead(sourcePath);
         await using var destination = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
         await source.CopyToAsync(destination, cancellationToken);
+    }
+
+    private static async Task<string> ComputeSha256HexAsync(string path, CancellationToken cancellationToken)
+    {
+        await using var stream = File.OpenRead(path);
+        var hash = await SHA256.HashDataAsync(stream, cancellationToken);
+        return Convert.ToHexString(hash);
     }
 
     private static string? LocateAgentSourceDirectory()
