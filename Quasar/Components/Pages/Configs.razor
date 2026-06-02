@@ -409,44 +409,143 @@
                         <MudPaper Class="server-card pa-4" Square="true">
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
                             <MudTextField
+                                @bind-Value="_workshopSearchText"
+                                Label="Search Steam Workshop mods"
+                                Variant="Variant.Outlined"
+                                Immediate="true"
+                                Adornment="Adornment.Start"
+                                AdornmentIcon="@Icons.Material.Filled.Search"
+                                OnKeyDown="HandleWorkshopSearchKeyDown"
+                                Class="configs-search-field" />
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SearchWorkshopModsAsync" Disabled="@_workshopSearchLoading" StartIcon="@Icons.Material.Filled.Search">
+                                @(_workshopSearchLoading ? "Searching..." : "Search Workshop")
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="LoadPopularWorkshopModsAsync" Disabled="@_workshopSearchLoading" StartIcon="@Icons.Material.Filled.Whatshot">
+                                Popular Mods
+                            </MudButton>
+                            <AuthorizeView>
+                                <Authorized Context="authContext">
+                                    @if (IsSteamPrincipal(authContext.User))
+                                    {
+                                        <MudChip T="string" Variant="Variant.Outlined" Color="Color.Success" Icon="@Icons.Material.Filled.CheckCircle">
+                                            Steam signed in
+                                        </MudChip>
+                                    }
+                                    else
+                                    {
+                                        <MudButton Href="@SteamLoginUrl"
+                                                   Variant="Variant.Filled"
+                                                   Color="Color.Primary"
+                                                   StartIcon="@Icons.Material.Filled.Login">
+                                            Sign in with Steam
+                                        </MudButton>
+                                    }
+                                </Authorized>
+                                <NotAuthorized>
+                                    <MudButton Href="@SteamLoginUrl"
+                                               Variant="Variant.Filled"
+                                               Color="Color.Primary"
+                                               StartIcon="@Icons.Material.Filled.Login">
+                                        Sign in with Steam
+                                    </MudButton>
+                                </NotAuthorized>
+                            </AuthorizeView>
+                            <MudChip T="string" Variant="Variant.Outlined">Selected @FilteredMods.Count</MudChip>
+                        </MudStack>
+
+                        @if (!string.IsNullOrWhiteSpace(_workshopSearchError))
+                        {
+                            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-4">
+                                @_workshopSearchError
+                            </MudAlert>
+                        }
+                        else if (_workshopSearchLoading)
+                        {
+                            <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-4" />
+                        }
+                        else if (_workshopResultsLoaded && _workshopResults.Count == 0)
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+                                No Steam Workshop mods found.
+                            </MudAlert>
+                        }
+
+                        @if (_workshopResults.Count > 0)
+                        {
+                            <MudTable T="QuasarWorkshopSearchResult" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_workshopResults" Class="mb-4">
+                                <HeaderContent>
+                                    <MudTh>Workshop mod</MudTh>
+                                    <MudTh>Tags</MudTh>
+                                    <MudTh></MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd DataLabel="Workshop mod">
+                                        <MudStack Spacing="0">
+                                            <MudText Typo="Typo.subtitle2">@context.Title</MudText>
+                                            <MudText Typo="Typo.caption" Class="mono">@context.WorkshopId</MudText>
+                                            @if (!string.IsNullOrWhiteSpace(context.Description))
+                                            {
+                                                <MudText Typo="Typo.caption" Class="config-secondary">@context.Description</MudText>
+                                            }
+                                        </MudStack>
+                                    </MudTd>
+                                    <MudTd DataLabel="Tags">@GetWorkshopTagText(context)</MudTd>
+                                    <MudTd Style="text-align:right;">
+                                        <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="1">
+                                            <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetWorkshopUrl(context.WorkshopId)" Target="_blank" />
+                                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Disabled="@IsModSelected(context.WorkshopId)" OnClick="@(() => AddWorkshopResult(context))">
+                                                @(IsModSelected(context.WorkshopId) ? "Selected" : "Add")
+                                            </MudButton>
+                                        </MudStack>
+                                    </MudTd>
+                                </RowTemplate>
+                            </MudTable>
+                        }
+
+                        <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="configs-expansion-panels mb-4">
+                            <MudExpansionPanel Text="Advanced/manual mod setup">
+                                <MudGrid Class="mt-2">
+                                    <MudItem xs="12">
+                                        <MudTextField
+                                            T="string"
+                                            @bind-Value="_workshopInput"
+                                            Label="Workshop URLs, IDs, or collection"
+                                            Variant="Variant.Outlined"
+                                            Lines="4"
+                                            Immediate="true"
+                                            HelperText="Paste single Steam Workshop URL, collection URL/ID, or bulk list of IDs. Collections expand into individual workshop items." />
+                                    </MudItem>
+                                    <MudItem xs="12">
+                                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ResolveWorkshopModsAsync" Disabled="@(_modResolving || string.IsNullOrWhiteSpace(_workshopInput))">
+                                            @(_modResolving ? "Resolving Workshop Items..." : "Resolve and Add Workshop Mods")
+                                        </MudButton>
+                                    </MudItem>
+                                    <MudItem xs="12" md="5">
+                                        <MudTextField @bind-Value="_newModName" Label="Mod name" Variant="Variant.Outlined" Immediate="true" />
+                                    </MudItem>
+                                    <MudItem xs="12" md="4">
+                                        <MudNumericField T="long" @bind-Value="_newModWorkshopId" Label="Workshop ID" Variant="Variant.Outlined" Min="1" />
+                                    </MudItem>
+                                    <MudItem xs="12" md="3">
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" Class="configs-add-button" OnClick="AddMod" Disabled="@(_newModWorkshopId <= 0 || string.IsNullOrWhiteSpace(_newModName))">
+                                            Add Mod
+                                        </MudButton>
+                                    </MudItem>
+                                </MudGrid>
+                            </MudExpansionPanel>
+                        </MudExpansionPanels>
+
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
+                            <MudTextField
                                 @bind-Value="_modSearch"
-                                Label="Search mod names"
+                                Label="Filter selected mods"
                                 Variant="Variant.Outlined"
                                 Immediate="true"
                                 Adornment="Adornment.Start"
                                 AdornmentIcon="@Icons.Material.Filled.Search"
                                 Class="configs-search-field" />
-                            <MudChip T="string" Variant="Variant.Outlined">Mods @FilteredMods.Count</MudChip>
+                            <MudChip T="string" Variant="Variant.Outlined">Selected mods @FilteredMods.Count</MudChip>
                         </MudStack>
-
-                        <MudGrid Class="mb-4">
-                            <MudItem xs="12">
-                                <MudTextField
-                                    T="string"
-                                    @bind-Value="_workshopInput"
-                                    Label="Workshop URLs, IDs, or collection"
-                                    Variant="Variant.Outlined"
-                                    Lines="4"
-                                    Immediate="true"
-                                    HelperText="Paste single Steam Workshop URL, collection URL/ID, or bulk list of IDs. Collections expand into individual workshop items." />
-                            </MudItem>
-                            <MudItem xs="12">
-                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ResolveWorkshopModsAsync" Disabled="@(_modResolving || string.IsNullOrWhiteSpace(_workshopInput))">
-                                    @(_modResolving ? "Resolving Workshop Items..." : "Resolve and Add Workshop Mods")
-                                </MudButton>
-                            </MudItem>
-                            <MudItem xs="12" md="5">
-                                <MudTextField @bind-Value="_newModName" Label="Mod name" Variant="Variant.Outlined" Immediate="true" />
-                            </MudItem>
-                            <MudItem xs="12" md="4">
-                                <MudNumericField T="long" @bind-Value="_newModWorkshopId" Label="Workshop ID" Variant="Variant.Outlined" Min="1" />
-                            </MudItem>
-                            <MudItem xs="12" md="3">
-                                <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" Class="configs-add-button" OnClick="AddMod" Disabled="@(_newModWorkshopId <= 0 || string.IsNullOrWhiteSpace(_newModName))">
-                                    Add Mod
-                                </MudButton>
-                            </MudItem>
-                        </MudGrid>
 
                         <MudTable T="QuasarModSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="FilteredMods">
                             <HeaderContent>
@@ -484,6 +583,7 @@
     private const string AccessAdministratorsAnchorId = "config-access-administrators";
     private const string AccessReservedAnchorId = "config-access-reserved";
     private const string AccessBannedAnchorId = "config-access-banned";
+    private const string SteamLoginUrl = "/login?returnUrl=/configs&forceSteam=true";
 
     private string _selectedProfileId = string.Empty;
     private QuasarConfigProfile? _editor;
@@ -491,12 +591,17 @@
     private string _worldSearch = string.Empty;
     private string _pluginSearch = string.Empty;
     private string _modSearch = string.Empty;
+    private string _workshopSearchText = string.Empty;
     private string _customPluginId = string.Empty;
     private string _workshopInput = string.Empty;
     private string _newModName = string.Empty;
     private long _newModWorkshopId;
+    private List<QuasarWorkshopSearchResult> _workshopResults = [];
     private bool _catalogRefreshing;
+    private bool _workshopSearchLoading;
+    private bool _workshopResultsLoaded;
     private bool _modResolving;
+    private string? _workshopSearchError;
     private string? _expandedCategoryKey;
     private bool _hasExplicitCategoryExpansion;
 
@@ -553,6 +658,12 @@
         .ThenBy(mod => mod.WorkshopId)
         .ToList();
 
+    private static bool IsSteamPrincipal(System.Security.Claims.ClaimsPrincipal principal) =>
+        string.Equals(
+            principal.FindFirst(QuasarClaimTypes.Provider)?.Value,
+            QuasarAuthSchemes.Steam,
+            StringComparison.OrdinalIgnoreCase);
+
     protected override void OnInitialized()
     {
         ConfigProfiles.Changed += HandleProfilesChanged;
@@ -562,10 +673,13 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || CatalogEntries.Count > 0)
+        if (!firstRender)
             return;
 
-        await RefreshPluginCatalogAsync();
+        if (CatalogEntries.Count == 0)
+            await RefreshPluginCatalogAsync();
+
+        await LoadPopularWorkshopModsAsync();
     }
 
     public void Dispose()
@@ -1074,6 +1188,80 @@
         _newModWorkshopId = 0;
     }
 
+    private async Task HandleWorkshopSearchKeyDown(KeyboardEventArgs args)
+    {
+        if (string.Equals(args.Key, "Enter", StringComparison.OrdinalIgnoreCase))
+            await SearchWorkshopModsAsync();
+    }
+
+    private Task LoadPopularWorkshopModsAsync() =>
+        LoadWorkshopResultsAsync(() => WorkshopMods.GetPopularModsAsync(), clearSearch: true);
+
+    private Task SearchWorkshopModsAsync()
+    {
+        var searchText = _workshopSearchText.Trim();
+        return string.IsNullOrWhiteSpace(searchText)
+            ? LoadPopularWorkshopModsAsync()
+            : LoadWorkshopResultsAsync(() => WorkshopMods.SearchModsAsync(searchText), clearSearch: false);
+    }
+
+    private async Task LoadWorkshopResultsAsync(
+        Func<Task<QuasarWorkshopSearchResultSet>> load,
+        bool clearSearch)
+    {
+        if (_workshopSearchLoading)
+            return;
+
+        _workshopSearchLoading = true;
+        _workshopSearchError = null;
+        try
+        {
+            if (clearSearch)
+                _workshopSearchText = string.Empty;
+
+            var result = await load();
+            _workshopResults = result.Mods.ToList();
+            _workshopResultsLoaded = true;
+        }
+        catch (Exception exception)
+        {
+            _workshopResults = [];
+            _workshopResultsLoaded = true;
+            _workshopSearchError = exception.Message;
+        }
+        finally
+        {
+            _workshopSearchLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void AddWorkshopResult(QuasarWorkshopSearchResult result)
+    {
+        if (_editor is null)
+            return;
+
+        if (IsModSelected(result.WorkshopId))
+        {
+            Snackbar.Add("Mod already selected.", Severity.Info);
+            return;
+        }
+
+        _editor.Mods.Add(new QuasarModSelection
+        {
+            WorkshopId = result.WorkshopId,
+            DisplayName = string.IsNullOrWhiteSpace(result.Title)
+                ? result.WorkshopId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : result.Title.Trim(),
+        });
+        _editor.Mods = _editor.Mods
+            .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(mod => mod.WorkshopId)
+            .ToList();
+
+        Snackbar.Add("Workshop mod added.", Severity.Success);
+    }
+
     private async Task ResolveWorkshopModsAsync()
     {
         if (_editor is null)
@@ -1167,6 +1355,22 @@
 
     private bool MatchesModSearch(QuasarModSelection mod)
         => MatchesSearchTerms(_modSearch, mod.DisplayName, mod.WorkshopId.ToString());
+
+    private bool IsModSelected(long workshopId) =>
+        _editor?.Mods.Any(mod => mod.WorkshopId == workshopId) == true;
+
+    private static string GetWorkshopUrl(long workshopId) =>
+        $"https://steamcommunity.com/sharedfiles/filedetails/?id={workshopId.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+
+    private static string GetWorkshopTagText(QuasarWorkshopSearchResult result)
+    {
+        var tags = result.Tags
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Take(4)
+            .ToList();
+
+        return tags.Count == 0 ? "-" : string.Join(", ", tags);
+    }
 
     private string GetPluginDescription(QuasarPluginCatalogEntry entry)
     {

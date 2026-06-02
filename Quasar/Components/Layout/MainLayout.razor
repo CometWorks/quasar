@@ -29,13 +29,35 @@
             <MudMenuItem Icon="@Icons.Material.Filled.LightMode" IconColor="@(_themeMode == ThemeMode.Light ? Color.Primary : Color.Default)" OnClick="@(() => SetThemeModeAsync(ThemeMode.Light))">Light</MudMenuItem>
             <MudMenuItem Icon="@Icons.Material.Filled.DarkMode" IconColor="@(_themeMode == ThemeMode.Dark ? Color.Primary : Color.Default)" OnClick="@(() => SetThemeModeAsync(ThemeMode.Dark))">Dark</MudMenuItem>
         </MudMenu>
-        <MudTooltip Text="Shut down Quasar">
-            <MudIconButton
-                Icon="@Icons.Material.Filled.PowerSettingsNew"
-                Color="Color.Error"
-                Disabled="@_isShuttingDown"
-                OnClick="HandleShutdownClickAsync" />
-        </MudTooltip>
+        <AuthorizeView>
+            <Authorized Context="authContext">
+                <MudTooltip Text="@GetAuthTooltip(authContext.User)">
+                    <MudIconButton
+                        Icon="@Icons.Material.Filled.Logout"
+                        Color="Color.Inherit"
+                        Href="/logout" />
+                </MudTooltip>
+            </Authorized>
+            <NotAuthorized>
+                <MudTooltip Text="Sign in">
+                    <MudIconButton
+                        Icon="@Icons.Material.Filled.Login"
+                        Color="Color.Inherit"
+                        Href="/login" />
+                </MudTooltip>
+            </NotAuthorized>
+        </AuthorizeView>
+        <AuthorizeView Policy="@QuasarPolicyNames.CanShutdownQuasar">
+            <Authorized>
+                <MudTooltip Text="Shut down Quasar">
+                    <MudIconButton
+                        Icon="@Icons.Material.Filled.PowerSettingsNew"
+                        Color="Color.Error"
+                        Disabled="@_isShuttingDown"
+                        OnClick="HandleShutdownClickAsync" />
+                </MudTooltip>
+            </Authorized>
+        </AuthorizeView>
     </MudAppBar>
 
     <MudMessageBox @ref="_shutdownMessageBox" Title="Shut down Quasar?">
@@ -157,6 +179,12 @@
         ThemeMode.Dark => Icons.Material.Filled.DarkMode,
         _ => Icons.Material.Filled.BrightnessAuto,
     };
+
+    private static string GetAuthTooltip(System.Security.Claims.ClaimsPrincipal principal)
+    {
+        var displayName = principal.GetQuasarDisplayName();
+        return string.IsNullOrWhiteSpace(displayName) ? "Sign out" : $"Sign out {displayName}";
+    }
 
     private async Task HandleShutdownClickAsync()
     {

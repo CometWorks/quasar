@@ -1,0 +1,160 @@
+@page "/settings/security"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
+@implements IDisposable
+@inject QuasarAuthOptions AuthOptions
+@inject RbacConfigCatalog RbacConfigCatalog
+@inject ISnackbar Snackbar
+
+<PageTitle>Security</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Security</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    Manage SteamID-based RBAC mappings and review provider defaults.
+</MudText>
+
+<MudGrid>
+    <MudItem xs="12" lg="4">
+        <MudPaper Class="pa-4 summary-card">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Auth Provider</MudText>
+                <MudText Typo="Typo.body2">Default provider: <strong>@AuthOptions.DefaultProvider</strong></MudText>
+                <MudText Typo="Typo.body2">Steam login: <strong>@(AuthOptions.Steam.Enabled ? "Enabled" : "Disabled")</strong></MudText>
+                <MudText Typo="Typo.body2">Trusted loopback: <strong>@(AuthOptions.TrustedNetworkBypass.AllowLoopback ? "Enabled" : "Disabled")</strong></MudText>
+                <MudText Typo="Typo.body2">Trusted same subnet: <strong>@(AuthOptions.TrustedNetworkBypass.AllowSameSubnet ? "Enabled" : "Disabled")</strong></MudText>
+                <MudText Typo="Typo.caption">
+                    Provider and trusted network defaults come from <code>appsettings.json</code>.
+                </MudText>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" lg="8">
+        <MudPaper Class="pa-4">
+            <MudStack Spacing="3">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudText Typo="Typo.h6">Runtime Subject Role Mappings</MudText>
+                    <MudChip T="string" Variant="Variant.Outlined">@_config.SubjectRoleMappings.Count mapping(s)</MudChip>
+                </MudStack>
+
+                <MudGrid>
+                    <MudItem xs="12" md="3">
+                        <MudSelect T="string" @bind-Value="_newProvider" Label="Provider" Variant="Variant.Outlined">
+                            <MudSelectItem T="string" Value="@QuasarAuthSchemes.Steam">Steam</MudSelectItem>
+                            <MudSelectItem T="string" Value="@OidcProviderName">Oidc</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" md="5">
+                        <MudTextField @bind-Value="_newSubject"
+                                      Label="@(_newProvider == QuasarAuthSchemes.Steam ? "SteamID" : "Subject")"
+                                      Variant="Variant.Outlined" />
+                    </MudItem>
+                    <MudItem xs="12" md="3">
+                        <MudTextField @bind-Value="_newRoles"
+                                      Label="Roles"
+                                      HelperText="viewer, editor, admin"
+                                      Variant="Variant.Outlined" />
+                    </MudItem>
+                    <MudItem xs="12" md="1" Class="d-flex align-center">
+                        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                       Color="Color.Primary"
+                                       Disabled="@(!CanAddMapping)"
+                                       OnClick="AddMappingAsync" />
+                    </MudItem>
+                </MudGrid>
+
+                @if (_config.SubjectRoleMappings.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                        Runtime RBAC has no subject mappings yet.
+                    </MudAlert>
+                }
+                else
+                {
+                    <MudTable T="SubjectRoleMapping" Items="_config.SubjectRoleMappings" Dense="true" Hover="true">
+                        <HeaderContent>
+                            <MudTh>Provider</MudTh>
+                            <MudTh>Subject</MudTh>
+                            <MudTh>Roles</MudTh>
+                            <MudTh></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@context.Provider</MudTd>
+                            <MudTd Class="mono">@context.Subject</MudTd>
+                            <MudTd>@string.Join(", ", context.Roles)</MudTd>
+                            <MudTd>
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                               Color="Color.Error"
+                                               OnClick="@(() => RemoveMappingAsync(context))" />
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code
+{
+    private RbacConfig _config = new();
+    private const string OidcProviderName = "Oidc";
+    private string _newProvider = QuasarAuthSchemes.Steam;
+    private string _newSubject = string.Empty;
+    private string _newRoles = QuasarRoles.Viewer;
+
+    private bool CanAddMapping =>
+        !string.IsNullOrWhiteSpace(_newSubject) &&
+        SubjectRoleMapping.ParseRoles(_newRoles).Count > 0;
+
+    protected override void OnInitialized()
+    {
+        Reload();
+        RbacConfigCatalog.Changed += HandleRbacChanged;
+    }
+
+    public void Dispose()
+    {
+        RbacConfigCatalog.Changed -= HandleRbacChanged;
+    }
+
+    private void HandleRbacChanged()
+    {
+        _ = InvokeAsync(() =>
+        {
+            Reload();
+            StateHasChanged();
+        });
+    }
+
+    private void Reload()
+    {
+        _config = RbacConfigCatalog.GetConfig();
+    }
+
+    private async Task AddMappingAsync()
+    {
+        _config.SubjectRoleMappings.Add(new SubjectRoleMapping
+        {
+            Provider = _newProvider,
+            Subject = _newSubject.Trim(),
+            Roles = SubjectRoleMapping.ParseRoles(_newRoles),
+        });
+
+        await SaveAsync("Added RBAC mapping.");
+        _newSubject = string.Empty;
+        _newRoles = QuasarRoles.Viewer;
+    }
+
+    private async Task RemoveMappingAsync(SubjectRoleMapping mapping)
+    {
+        _config.SubjectRoleMappings.Remove(mapping);
+        await SaveAsync("Removed RBAC mapping.");
+    }
+
+    private async Task SaveAsync(string message)
+    {
+        await RbacConfigCatalog.SaveAsync(_config);
+        _config = RbacConfigCatalog.GetConfig();
+        Snackbar.Add(message, Severity.Success);
+    }
+}
