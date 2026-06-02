@@ -23,5 +23,20 @@ window.quasarConfigs = window.quasarConfigs || {
         window.setTimeout(() => {
             element.classList.remove("config-option-focus");
         }, 1800);
+    },
+    scrollToBottom(id) {
+        const element = document.getElementById(id);
+        if (!element) {
+            return;
+        }
+        element.scrollTop = element.scrollHeight;
+    },
+    isScrolledNearBottom(id, threshold) {
+        const element = document.getElementById(id);
+        if (!element) {
+            return true;
+        }
+        const slack = typeof threshold === "number" ? threshold : 32;
+        return element.scrollHeight - element.scrollTop - element.clientHeight <= slack;
     }
 };

@@ -23,7 +23,7 @@ public enum QuasarConfigOptionKind
 
 public sealed record QuasarConfigOptionCategory(string Key, string Title, int Order, string Description);
 
-public sealed record QuasarConfigSelectOption(int Value, string Label);
+public sealed record QuasarConfigSelectOption(int Value, string Label, string XmlName = "");
 
 public sealed record QuasarConfigSelectTextOption(string Value, string Label);
 
@@ -125,8 +125,8 @@ public static class QuasarConfigMetadata
         RootDecimal("SpamMessagesTime", "SpamMessagesTime", "moderation", "Spam Detection Window (sec)", 60, min: 0, step: 0.1),
         RootInt("SpamMessagesTimeout", "SpamMessagesTimeout", "moderation", "Spam Timeout (sec)", 70, min: 0),
 
-        SessionSelect("GameMode", "GameMode", "general", "Game Mode", 10, [new(0, "Creative"), new(1, "Survival")]),
-        SessionSelect("OnlineMode", "OnlineMode", "general", "Online Mode", 20, [new(0, "Offline"), new(1, "Private"), new(2, "Friends"), new(3, "Public")]),
+        SessionSelect("GameMode", "GameMode", "general", "Game Mode", 10, [new(0, "Creative", "Creative"), new(1, "Survival", "Survival")]),
+        SessionSelect("OnlineMode", "OnlineMode", "general", "Online Mode", 20, [new(0, "Offline", "OFFLINE"), new(1, "Public", "PUBLIC"), new(2, "Friends", "FRIENDS"), new(3, "Private", "PRIVATE")]),
         SessionInt("MaxPlayers", "MaxPlayers", "server", "Max Players", 35, min: 1),
         SessionInt("MaxFloatingObjects", "MaxFloatingObjects", "general", "Max Floating Objects", 40, min: 0),
         SessionInt("TotalBotLimit", "TotalBotLimit", "general", "Total Bot Limit", 50, min: 0),
@@ -154,7 +154,7 @@ public static class QuasarConfigMetadata
         SessionDecimal("FloraDensityMultiplier", "FloraDensityMultiplier", "multipliers", "Flora Density Multiplier", 120, min: 0, step: 0.1),
         SessionDecimal("HarvestRatioMultiplier", "HarvestRatioMultiplier", "multipliers", "Harvest Ratio Multiplier", 130, min: 0, step: 0.1),
 
-        SessionSelect("EnvironmentHostility", "EnvironmentHostility", "player", "Environment Hostility", 10, [new(0, "Safe"), new(1, "Normal"), new(2, "Cataclysm"), new(3, "Cataclysm Unreal")]),
+        SessionSelect("EnvironmentHostility", "EnvironmentHostility", "player", "Environment Hostility", 10, [new(0, "Safe", "SAFE"), new(1, "Normal", "NORMAL"), new(2, "Cataclysm", "CATACLYSM"), new(3, "Cataclysm Unreal", "CATACLYSM_UNREAL")]),
         SessionBool("AutoHealing", "AutoHealing", "player", "Auto Healing", 20),
         SessionBool("ShowPlayerNamesOnHud", "ShowPlayerNamesOnHud", "player", "Show Player Names On HUD", 30),
         SessionBool("EnableSpectator", "EnableSpectator", "player", "Enable Spectator", 40),
@@ -275,11 +275,22 @@ public static class QuasarConfigMetadata
         return option.Kind switch
         {
             QuasarConfigOptionKind.Boolean => ((bool)value) ? "true" : "false",
-            QuasarConfigOptionKind.Integer or QuasarConfigOptionKind.SelectInteger => Convert.ToString(value, CultureInfo.InvariantCulture) ?? "0",
+            QuasarConfigOptionKind.Integer => Convert.ToString(value, CultureInfo.InvariantCulture) ?? "0",
+            QuasarConfigOptionKind.SelectInteger => FormatSelectInteger(option, value),
             QuasarConfigOptionKind.Decimal => Convert.ToString(value, CultureInfo.InvariantCulture) ?? "0",
             QuasarConfigOptionKind.SelectText when value is QuasarNetworkType networkType => networkType.ToConfigValue(),
             _ => value.ToString() ?? string.Empty,
         };
+    }
+
+    private static string FormatSelectInteger(QuasarConfigOptionDefinition option, object value)
+    {
+        var intValue = Convert.ToInt32(value, CultureInfo.InvariantCulture);
+        var match = option.SelectOptions.FirstOrDefault(choice => choice.Value == intValue);
+        if (match is not null && !string.IsNullOrEmpty(match.XmlName))
+            return match.XmlName;
+
+        return intValue.ToString(CultureInfo.InvariantCulture);
     }
 
     private static QuasarConfigOptionDefinition RootBool(string propertyName, string elementName, string categoryKey, string label, int order, string helperText = "", string searchAliases = "") =>

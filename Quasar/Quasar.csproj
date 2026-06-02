@@ -36,4 +36,39 @@
           SkipUnchangedFiles="true" />
   </Target>
 
+  <!-- Build Quasar.Agent and stage its plugin DLLs into an Agent/ subfolder of both
+       the Build output and the Publish output. The runtime preparer copies these
+       into each instance's Magnetar Local plugin folder. -->
+  <PropertyGroup>
+    <_QuasarAgentProject>$(MSBuildThisFileDirectory)..\Quasar.Agent\Quasar.Agent.csproj</_QuasarAgentProject>
+    <_QuasarAgentOutputDir>$(MSBuildThisFileDirectory)..\Quasar.Agent\bin\$(Configuration)\netstandard2.0\</_QuasarAgentOutputDir>
+  </PropertyGroup>
+
+  <Target Name="BuildQuasarAgent" BeforeTargets="Build;Publish">
+    <!-- Quasar.Agent targets netstandard2.0 and is RID-agnostic. Explicitly clear
+         RuntimeIdentifier / SelfContained / PublishSingleFile so they don't bleed in
+         from a publish-time global property set on the parent build. -->
+    <MSBuild Projects="$(_QuasarAgentProject)"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);Platform=x64;RuntimeIdentifier=;SelfContained=;PublishSingleFile=" />
+  </Target>
+
+  <Target Name="StageQuasarAgent" AfterTargets="Build" DependsOnTargets="BuildQuasarAgent">
+    <ItemGroup>
+      <_QuasarAgentStageFiles Include="$(_QuasarAgentOutputDir)Quasar.Agent.dll;$(_QuasarAgentOutputDir)Magnetar.Protocol.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_QuasarAgentStageFiles)"
+          DestinationFolder="$(OutputPath)Agent\"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="StageQuasarAgentForPublish" AfterTargets="Publish" DependsOnTargets="BuildQuasarAgent">
+    <ItemGroup>
+      <_QuasarAgentPublishFiles Include="$(_QuasarAgentOutputDir)Quasar.Agent.dll;$(_QuasarAgentOutputDir)Magnetar.Protocol.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_QuasarAgentPublishFiles)"
+          DestinationFolder="$(PublishDir)Agent\"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>

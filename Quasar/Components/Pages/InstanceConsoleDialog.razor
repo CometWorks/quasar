@@ -1,0 +1,189 @@
+@implements IDisposable
+@inject PluginLogStream LogStream
+@inject IJSRuntime JS
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">@_entries.Count line(s)</MudText>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudSwitch T="bool" Value="MagnetarOnly" ValueChanged="OnMagnetarOnlyChanged" Color="Color.Primary" Label="Magnetar stdout only" />
+                <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.DeleteSweep" OnClick="ClearAsync">Clear</MudButton>
+            </MudStack>
+        </MudStack>
+
+        @if (_entries.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                No output captured yet — the process must be running to produce console output.
+            </MudAlert>
+        }
+        else
+        {
+            <div id="@_scrollContainerId" class="quasar-console-output">
+                @foreach (var entry in _entries)
+                {
+                    <div class="quasar-console-line">
+                        <span class="quasar-console-time">@entry.TimestampUtc.LocalDateTime.ToString("HH:mm:ss.fff")</span>
+                        <span class="quasar-console-level" style="color: @LevelHex(entry.Level);">@LevelTag(entry.Level)</span>
+                        @if (!IsMagnetar(entry))
+                        {
+                            <span class="quasar-console-plugin">@entry.Plugin</span>
+                        }
+                        <span class="quasar-console-message">@entry.Message</span>
+                        @if (!string.IsNullOrEmpty(entry.Exception))
+                        {
+                            <div class="quasar-console-exception">@entry.Exception</div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<style>
+    .quasar-console-output {
+        height: 60vh;
+        overflow-y: auto;
+        background: var(--mud-palette-background);
+        border: 1px solid var(--mud-palette-divider);
+        border-radius: 4px;
+        padding: 8px 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.8125rem;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .quasar-console-line {
+        display: block;
+    }
+
+    .quasar-console-time {
+        color: var(--mud-palette-text-secondary);
+        margin-right: 8px;
+    }
+
+    .quasar-console-level {
+        margin-right: 8px;
+        font-weight: 600;
+    }
+
+    .quasar-console-plugin {
+        color: var(--mud-palette-info);
+        margin-right: 8px;
+    }
+
+    .quasar-console-exception {
+        color: var(--mud-palette-error);
+        white-space: pre-wrap;
+        margin-left: 16px;
+    }
+</style>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public string UniqueName { get; set; } = string.Empty;
+
+    private bool MagnetarOnly { get; set; } = true;
+
+    private readonly string _scrollContainerId = $"quasar-console-{Guid.NewGuid():N}";
+    private IReadOnlyList<PluginLogEntry> _entries = Array.Empty<PluginLogEntry>();
+    private bool _firstRenderDone;
+
+    protected override void OnInitialized()
+    {
+        LogStream.Changed += HandleChanged;
+        Refresh();
+    }
+
+    public void Dispose()
+    {
+        LogStream.Changed -= HandleChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_entries.Count == 0)
+            return;
+
+        if (firstRender || !_firstRenderDone)
+        {
+            _firstRenderDone = true;
+            await ScrollToBottomAsync();
+            return;
+        }
+
+        var nearBottom = await JS.InvokeAsync<bool>("quasarConfigs.isScrolledNearBottom", _scrollContainerId, 48);
+        if (nearBottom)
+            await ScrollToBottomAsync();
+    }
+
+    private async Task ScrollToBottomAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.scrollToBottom", _scrollContainerId);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private void HandleChanged()
+    {
+        Refresh();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void Refresh()
+    {
+        var all = LogStream.GetEntries(UniqueName);
+        _entries = MagnetarOnly
+            ? all.Where(IsMagnetar).ToArray()
+            : all;
+    }
+
+    private async Task ClearAsync()
+    {
+        LogStream.Clear(UniqueName);
+        Refresh();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnMagnetarOnlyChanged(bool value)
+    {
+        MagnetarOnly = value;
+        Refresh();
+        _firstRenderDone = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void Close() => MudDialog.Close();
+
+    private static bool IsMagnetar(PluginLogEntry entry) =>
+        string.Equals(entry.Plugin, "magnetar", StringComparison.OrdinalIgnoreCase);
+
+    private static string LevelTag(string level) => string.IsNullOrEmpty(level)
+        ? "INFO"
+        : level.ToUpperInvariant();
+
+    private static string LevelHex(string level) => level switch
+    {
+        "Critical" => "var(--mud-palette-error)",
+        "Error" => "var(--mud-palette-error)",
+        "Warning" => "var(--mud-palette-warning)",
+        "Info" => "var(--mud-palette-info)",
+        "Debug" => "var(--mud-palette-text-secondary)",
+        _ => "var(--mud-palette-text-primary)",
+    };
+}

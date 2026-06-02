@@ -83,6 +83,7 @@
                         {
                             <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Success" OnClick="@(() => StartAsync(context.UniqueName))">Start</MudButton>
                         }
+                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Terminal" Color="Color.Default" title="Show console output" OnClick="@(() => OpenConsoleDialogAsync(context.UniqueName))" />
                         <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => OpenCloneDialogAsync(context))">Clone</MudButton>
                         <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => OpenEditDialogAsync(context))">Edit</MudButton>
                         <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context.UniqueName))">Delete</MudButton>
@@ -147,6 +148,23 @@
             return;
 
         await SaveDefinitionAsync(updated, "Instance saved.");
+    }
+
+    private async Task OpenConsoleDialogAsync(string uniqueName)
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(InstanceConsoleDialog.UniqueName)] = uniqueName,
+        };
+
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            FullWidth = true,
+            MaxWidth = MaxWidth.Large,
+        };
+
+        await DialogService.ShowAsync<InstanceConsoleDialog>($"Console — {uniqueName}", parameters, options);
     }
 
     private async Task<DedicatedServerInstanceDefinition?> ShowEditorDialogAsync(DedicatedServerInstanceDefinition definition, bool isEditing)

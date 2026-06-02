@@ -128,7 +128,7 @@ public sealed class QuasarSessionSettings
 
     public double RefinerySpeedMultiplier { get; set; } = 3.0;
 
-    public int OnlineMode { get; set; } = 3;
+    public int OnlineMode { get; set; } = 1;
 
     public int MaxPlayers { get; set; } = 4;
 

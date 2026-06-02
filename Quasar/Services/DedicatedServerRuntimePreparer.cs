@@ -161,6 +161,8 @@ public sealed class DedicatedServerRuntimePreparer
         Directory.CreateDirectory(profilesDirectory);
         Directory.CreateDirectory(localDirectory);
 
+        var agentLocalFileNames = await DeployQuasarAgentAsync(localDirectory, cancellationToken);
+
         var currentTemplateName = string.IsNullOrWhiteSpace(configProfile?.Name)
             ? "Quasar Current"
             : configProfile.Name.Trim();
@@ -195,7 +197,7 @@ public sealed class DedicatedServerRuntimePreparer
         var currentProfileDocument = new XDocument(
             new XDeclaration("1.0", "utf-8", null),
             new XElement(
-                "Template",
+                "Profile",
                 new XElement("Name", currentTemplateName),
                 new XElement(
                     "GitHub",
@@ -206,7 +208,9 @@ public sealed class DedicatedServerRuntimePreparer
                         new XElement("Id", plugin.PluginId),
                         new XElement("SelectedVersion", plugin.SelectedVersion)))),
                 new XElement("DevFolder"),
-                new XElement("Local"),
+                new XElement(
+                    "Local",
+                    agentLocalFileNames.Select(fileName => new XElement("string", fileName))),
                 new XElement(
                     "Mods",
                     (configProfile?.Mods ?? [])
@@ -222,6 +226,88 @@ public sealed class DedicatedServerRuntimePreparer
             SerializeXml(currentProfileDocument),
             cancellationToken);
     }
+
+    private async Task<IReadOnlyList<string>> DeployQuasarAgentAsync(
+        string localPluginDirectory,
+        CancellationToken cancellationToken)
+    {
+        var sourceDirectory = LocateAgentSourceDirectory();
+        if (sourceDirectory is null)
+        {
+            _logger.LogWarning("Quasar.Agent.dll could not be located on disk; the agent plugin will not be deployed.");
+            return Array.Empty<string>();
+        }
+
+        var enabledNames = new List<string>();
+        foreach (var fileName in AgentDeploymentFiles)
+        {
+            var sourcePath = Path.Combine(sourceDirectory, fileName);
+            if (!File.Exists(sourcePath))
+                continue;
+
+            var destinationPath = Path.Combine(localPluginDirectory, fileName);
+            await CopyFileIfChangedAsync(sourcePath, destinationPath, cancellationToken);
+
+            if (string.Equals(fileName, AgentPluginFileName, StringComparison.OrdinalIgnoreCase))
+                enabledNames.Add(fileName);
+        }
+
+        if (enabledNames.Count == 0)
+            _logger.LogWarning("Quasar.Agent.dll was not found in {SourceDirectory}; the agent plugin will not be enabled.", sourceDirectory);
+
+        return enabledNames;
+    }
+
+    private static async Task CopyFileIfChangedAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken)
+    {
+        if (File.Exists(destinationPath))
+        {
+            var sourceInfo = new FileInfo(sourcePath);
+            var destinationInfo = new FileInfo(destinationPath);
+            if (sourceInfo.Length == destinationInfo.Length &&
+                sourceInfo.LastWriteTimeUtc <= destinationInfo.LastWriteTimeUtc)
+            {
+                return;
+            }
+        }
+
+        await using var source = File.OpenRead(sourcePath);
+        await using var destination = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        await source.CopyToAsync(destination, cancellationToken);
+    }
+
+    private static string? LocateAgentSourceDirectory()
+    {
+        var stagedDirectory = Path.Combine(AppContext.BaseDirectory, "Agent");
+        if (File.Exists(Path.Combine(stagedDirectory, AgentPluginFileName)))
+            return stagedDirectory;
+
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var depth = 0; directory is not null && depth < 8; depth++, directory = directory.Parent)
+        {
+            var devBin = Path.Combine(directory.FullName, "Quasar.Agent", "bin");
+            if (!Directory.Exists(devBin))
+                continue;
+
+            var candidate = Directory
+                .EnumerateFiles(devBin, AgentPluginFileName, SearchOption.AllDirectories)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault();
+
+            if (candidate is not null)
+                return Path.GetDirectoryName(candidate);
+        }
+
+        return null;
+    }
+
+    private const string AgentPluginFileName = "Quasar.Agent.dll";
+
+    private static readonly string[] AgentDeploymentFiles =
+    [
+        AgentPluginFileName,
+        "Magnetar.Protocol.dll",
+    ];
 
     private QuasarConfigProfile? ResolveConfigProfile(DedicatedServerInstanceDefinition definition)
     {
