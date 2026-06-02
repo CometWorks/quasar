@@ -39,11 +39,12 @@
         <MudTable T="DedicatedServerInstanceDefinition" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="InstanceDefinitions">
             <HeaderContent>
                 <MudTh>Status</MudTh>
-                <MudTh>Unique Name</MudTh>
+                <MudTh>Name</MudTh>
+                <MudTh>Port</MudTh>
                 <MudTh>Config</MudTh>
+                <MudTh>Players</MudTh>
                 <MudTh>Process</MudTh>
                 <MudTh>Agent</MudTh>
-                <MudTh>Health</MudTh>
                 <MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
@@ -52,23 +53,15 @@
                         @GetStateText(context.UniqueName)
                     </MudChip>
                 </MudTd>
-                <MudTd DataLabel="Unique Name" Class="mono">@context.UniqueName</MudTd>
+                <MudTd DataLabel="Name">
+                    <MudText Typo="Typo.body2">@GetDisplayName(context)</MudText>
+                    <MudText Typo="Typo.caption" Class="mono">@context.UniqueName</MudText>
+                </MudTd>
+                <MudTd DataLabel="Port" Class="mono">@context.ServerPort</MudTd>
                 <MudTd DataLabel="Config">@GetConfigProfileName(context.ConfigProfileId)</MudTd>
+                <MudTd DataLabel="Players">@GetPlayerCount(context.UniqueName)</MudTd>
                 <MudTd DataLabel="Process" Class="mono">@GetProcessDisplay(context.UniqueName)</MudTd>
                 <MudTd DataLabel="Agent">@GetAttachmentStatus(context.UniqueName)</MudTd>
-                <MudTd DataLabel="Health">
-                    <MudChip T="string" Color="@GetHealthColor(context.UniqueName)" Variant="Variant.Outlined" title="@GetHealthSummary(context.UniqueName)">
-                        @GetHealthText(context.UniqueName)
-                    </MudChip>
-                    @if (!string.IsNullOrWhiteSpace(GetHealthSummary(context.UniqueName)))
-                    {
-                        <MudText Typo="Typo.caption" Class="d-block mt-1">@GetHealthSummary(context.UniqueName)</MudText>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(GetHealthScoreDetail(context.UniqueName)))
-                    {
-                        <MudText Typo="Typo.caption" Class="d-block">@GetHealthScoreDetail(context.UniqueName)</MudText>
-                    }
-                </MudTd>
                 <MudTd Style="text-align: right;">
                     <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.FlexEnd" Spacing="0">
                         @if (context.GoalState == DedicatedServerInstanceGoalState.On)
@@ -260,6 +253,15 @@
             return;
         }
 
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Delete instance?",
+            $"Instance definition '{uniqueName}' will be permanently removed. World files on disk are kept. This cannot be undone.",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
         await InstanceCatalog.DeleteAsync(uniqueName);
         Snackbar.Add("Instance removed.", Severity.Info);
     }
@@ -271,6 +273,22 @@
             return "not attached";
 
         return runtime.AgentAttached ? "attached" : "not attached";
+    }
+
+    private static string GetDisplayName(DedicatedServerInstanceDefinition definition)
+    {
+        return string.IsNullOrWhiteSpace(definition.DisplayName) ? definition.UniqueName : definition.DisplayName;
+    }
+
+    private string GetPlayerCount(string uniqueName)
+    {
+        var agent = Registry.GetAgents().FirstOrDefault(a =>
+            string.Equals(a.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
+        var snapshot = agent?.Snapshot;
+        if (snapshot is null)
+            return "-";
+
+        return $"{snapshot.Metrics.PlayersOnline}/{snapshot.Metrics.MaxPlayers}";
     }
 
     private string GetProcessDisplay(string uniqueName)
@@ -308,42 +326,6 @@
         };
     }
 
-    private string GetHealthText(string uniqueName)
-    {
-        var health = GetRuntime(uniqueName)?.HealthState ?? DedicatedServerInstanceHealthState.Unknown;
-        return health.ToString().ToLowerInvariant();
-    }
-
-    private string GetHealthSummary(string uniqueName)
-    {
-        return GetRuntime(uniqueName)?.HealthSummary ?? string.Empty;
-    }
-
-    private string GetHealthScoreDetail(string uniqueName)
-    {
-        var runtime = GetRuntime(uniqueName);
-        if (runtime?.SimulationProgressScore is null ||
-            runtime.SimulationProgressWindowSeconds is null ||
-            runtime.SimulationFramesAdvanced is null)
-        {
-            return string.Empty;
-        }
-
-        return $"frame score {runtime.SimulationProgressScore.Value:0.00} over {runtime.SimulationProgressWindowSeconds.Value}s ({runtime.SimulationFramesAdvanced.Value} frames)";
-    }
-
-    private Color GetHealthColor(string uniqueName)
-    {
-        var health = GetRuntime(uniqueName)?.HealthState ?? DedicatedServerInstanceHealthState.Unknown;
-        return health switch
-        {
-            DedicatedServerInstanceHealthState.Healthy => Color.Success,
-            DedicatedServerInstanceHealthState.Warning => Color.Warning,
-            DedicatedServerInstanceHealthState.Unhealthy => Color.Error,
-            _ => Color.Default,
-        };
-    }
-
     private bool IsRunning(string uniqueName)
     {
         var state = GetRuntime(uniqueName)?.State ?? DedicatedServerInstanceProcessState.Stopped;
@@ -370,6 +352,8 @@
         return new DedicatedServerInstanceDefinition
         {
             GoalState = DedicatedServerInstanceGoalState.Off,
+            ServerPort = AllocateNextPort(),
+            ServerIP = "0.0.0.0",
             EnableHealthMonitoring = healthMonitoringEnabled,
             AutoRestartOnUnhealthy = healthMonitoringEnabled,
             AgentStartupGraceSeconds = 180,
@@ -380,5 +364,19 @@
             RestartDelaySeconds = 5,
             RestartOnCrash = true,
         };
+    }
+
+    private int AllocateNextPort()
+    {
+        var used = InstanceCatalog.GetInstances()
+            .Select(instance => instance.ServerPort)
+            .Where(port => port > 0)
+            .ToHashSet();
+
+        var port = 27016;
+        while (used.Contains(port) && port < 65535)
+            port++;
+
+        return port;
     }
 }

@@ -6,6 +6,8 @@ public sealed class DedicatedServerInstanceDefinition
 {
     public string UniqueName { get; set; } = string.Empty;
 
+    public string DisplayName { get; set; } = string.Empty;
+
     [JsonIgnore]
     public string OriginalUniqueName { get; set; } = string.Empty;
 
@@ -28,6 +30,10 @@ public sealed class DedicatedServerInstanceDefinition
     public string WorldTemplateId { get; set; } = string.Empty;
 
     public string LaunchArguments { get; set; } = string.Empty;
+
+    public int ServerPort { get; set; } = 27016;
+
+    public string ServerIP { get; set; } = "0.0.0.0";
 
     public bool AutoStart { get; set; }
 
@@ -53,6 +59,8 @@ public sealed class DedicatedServerInstanceDefinition
 
     public int MaxRestartAttempts { get; set; }
 
+    public string DailyRestartTimeLocal { get; set; } = string.Empty;
+
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 
     public DedicatedServerInstanceDefinition Clone()
@@ -60,6 +68,7 @@ public sealed class DedicatedServerInstanceDefinition
         return new DedicatedServerInstanceDefinition
         {
             UniqueName = UniqueName,
+            DisplayName = DisplayName,
             OriginalUniqueName = OriginalUniqueName,
             GoalState = GoalState,
             ExecutablePath = ExecutablePath,
@@ -71,6 +80,8 @@ public sealed class DedicatedServerInstanceDefinition
             ConfigProfileId = ConfigProfileId,
             WorldTemplateId = WorldTemplateId,
             LaunchArguments = LaunchArguments,
+            ServerPort = ServerPort,
+            ServerIP = ServerIP,
             AutoStart = AutoStart,
             EnableHealthMonitoring = EnableHealthMonitoring,
             AutoRestartOnUnhealthy = AutoRestartOnUnhealthy,
@@ -83,6 +94,7 @@ public sealed class DedicatedServerInstanceDefinition
             RestartOnCrash = RestartOnCrash,
             RestartDelaySeconds = RestartDelaySeconds,
             MaxRestartAttempts = MaxRestartAttempts,
+            DailyRestartTimeLocal = DailyRestartTimeLocal,
             UpdatedAtUtc = UpdatedAtUtc,
         };
     }

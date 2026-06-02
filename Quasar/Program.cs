@@ -120,7 +120,9 @@ public class Program
             builder.Services.AddLocalStorageServices();
             builder.Services.AddMudServices(configuration =>
             {
-                configuration.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomRight;
+                configuration.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomStart;
+                configuration.SnackbarConfiguration.PreventDuplicates = true;
+                configuration.SnackbarConfiguration.NewestOnTop = true;
             });
             builder.Services.AddSingleton(webServiceOptions);
             builder.Services.AddSingleton(managedRuntimeOptions);
@@ -141,6 +143,7 @@ public class Program
             builder.Services.AddSingleton<DedicatedServerInstanceCatalog>();
             builder.Services.AddSingleton<DedicatedServerSupervisor>();
             builder.Services.AddSingleton<DedicatedServerRuntimePreparer>();
+            builder.Services.AddSingleton<FileBrowserService>();
             builder.Services.AddSingleton<WebServiceState>();
             builder.Services.AddSingleton<PluginLogStream>();
             builder.Services.AddSingleton<PluginConfigService>();

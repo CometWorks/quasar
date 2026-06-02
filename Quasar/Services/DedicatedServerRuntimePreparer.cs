@@ -113,6 +113,13 @@ public sealed class DedicatedServerRuntimePreparer
 
         var root = document.Root ?? throw new InvalidOperationException($"DS config '{sourcePath ?? runtimeConfigPath}' has no root element.");
         UpsertElement(root, "IgnoreLastSession", "false");
+
+        if (definition.ServerPort > 0)
+            UpsertElement(root, "ServerPort", definition.ServerPort.ToString(CultureInfo.InvariantCulture));
+
+        if (!string.IsNullOrWhiteSpace(definition.ServerIP))
+            UpsertElement(root, "ServerIP", definition.ServerIP.Trim());
+
         if (configProfile is not null)
             ApplyConfigProfile(root, configProfile);
 

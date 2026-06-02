@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject QuasarWorldTemplateCatalog WorldTemplateCatalog
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <PageTitle>World Templates</PageTitle>
 
@@ -16,11 +17,17 @@
             <MudStack Spacing="2">
                 <MudTextField @bind-Value="_name" Label="Template name" Variant="Variant.Outlined" />
                 <MudTextField @bind-Value="_description" Label="Description" Variant="Variant.Outlined" Lines="2" />
-                <MudTextField
-                    @bind-Value="_sourcePath"
-                    Label="Source world path"
-                    Variant="Variant.Outlined"
-                    HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc. Quasar copies all files into managed storage." />
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.End">
+                    <MudTextField
+                        @bind-Value="_sourcePath"
+                        Label="Source world path"
+                        Variant="Variant.Outlined"
+                        Class="flex-grow-1"
+                        HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc. Quasar copies all files into managed storage." />
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.FolderOpen" OnClick="OpenFolderPickerAsync">
+                        Browse
+                    </MudButton>
+                </MudStack>
 
                 <MudStack Row="true" Spacing="1">
                     <MudButton
@@ -72,7 +79,7 @@
                         <MudTd DataLabel="Updated">@context.Template.UpdatedAtUtc.LocalDateTime.ToString("g")</MudTd>
                         <MudTd Style="text-align: right;">
                             <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => CloneAsync(context))" Disabled="@(!context.WorldExists || _importing)">Clone</MudButton>
-                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context.Template.WorldTemplateId))">Delete</MudButton>
+                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context.Template))">Delete</MudButton>
                         </MudTd>
                     </RowTemplate>
                 </MudTable>
@@ -167,9 +174,35 @@
         }
     }
 
-    private async Task DeleteAsync(string worldTemplateId)
+    private async Task OpenFolderPickerAsync()
     {
-        await WorldTemplateCatalog.DeleteAsync(worldTemplateId);
+        var parameters = new DialogParameters
+        {
+            [nameof(FolderPickerDialog.InitialPath)] = _sourcePath,
+        };
+
+        var dialog = await DialogService.ShowAsync<FolderPickerDialog>(
+            "Pick world folder",
+            parameters,
+            new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Medium, FullWidth = true });
+
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string path })
+            _sourcePath = path;
+    }
+
+    private async Task DeleteAsync(QuasarWorldTemplate template)
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Delete world template?",
+            $"'{template.Name}' will be permanently removed along with its imported world files. This cannot be undone.",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        await WorldTemplateCatalog.DeleteAsync(template.WorldTemplateId);
         Snackbar.Add("World template deleted.", Severity.Info);
     }
 

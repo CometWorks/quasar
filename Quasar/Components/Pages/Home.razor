@@ -44,7 +44,12 @@
                 @GetNextSetupHint()
             </MudAlert>
 
+            <MudProgressLinear Value="@SetupProgressPercent" Color="Color.Primary" Class="my-2" />
+            <MudText Typo="Typo.caption">@GetSetupProgressText()</MudText>
+
             <div class="setup-wizard-steps">
+                @if (CurrentSetupStep == 0)
+                {
                 <div class="setup-wizard-step">
                     <MudStack Spacing="2">
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
@@ -90,9 +95,16 @@
                                 }
                             </MudStack>
                         }
+
+                        <MudStack Row="true" Spacing="1">
+                            <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="SkipCurrentSetupStep">Skip for now</MudButton>
+                        </MudStack>
                     </MudStack>
                 </div>
+                }
 
+                @if (CurrentSetupStep == 1)
+                {
                 <div class="setup-wizard-step">
                     <MudStack Spacing="2">
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
@@ -138,9 +150,16 @@
                                 }
                             </MudStack>
                         }
+
+                        <MudStack Row="true" Spacing="1">
+                            <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="SkipCurrentSetupStep">Skip for now</MudButton>
+                        </MudStack>
                     </MudStack>
                 </div>
+                }
 
+                @if (CurrentSetupStep == 2)
+                {
                 <div class="setup-wizard-step">
                     <MudStack Spacing="2">
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
@@ -194,7 +213,10 @@
                         }
                     </MudStack>
                 </div>
+                }
 
+                @if (CurrentSetupStep == 3)
+                {
                 <div class="setup-wizard-step">
                     <MudStack Spacing="2">
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
@@ -247,7 +269,10 @@
                         </MudStack>
                     </MudStack>
                 </div>
+                }
 
+                @if (CurrentSetupStep == 4)
+                {
                 <div class="setup-wizard-step">
                     <MudStack Spacing="2">
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
@@ -300,6 +325,14 @@
                         }
                     </MudStack>
                 </div>
+                }
+
+                @if (CurrentSetupStep > 0)
+                {
+                    <MudStack Row="true" Spacing="1" Class="mt-1">
+                        <MudButton Variant="Variant.Text" Color="Color.Default" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="GoToPreviousSetupStep">Back</MudButton>
+                    </MudStack>
+                }
             </div>
         </MudStack>
     </MudPaper>
@@ -425,6 +458,63 @@ else
     private int WorldTemplateCount => WorldTemplates.GetTemplates().Count;
 
     private bool _setupWizardRequested;
+    private readonly HashSet<int> _skippedSetupSteps = new();
+    private int? _setupStepOverride;
+
+    private bool IsSetupStepComplete(int index) => index switch
+    {
+        0 => ConfigProfileCount > 0 || _skippedSetupSteps.Contains(0),
+        1 => WorldTemplateCount > 0 || _skippedSetupSteps.Contains(1),
+        2 => ConfiguredInstanceCount > 0,
+        3 => RunningInstanceCount > 0,
+        4 => ConnectedAgentCount > 0,
+        _ => true,
+    };
+
+    private int CurrentSetupStep
+    {
+        get
+        {
+            if (_setupStepOverride is int forced)
+                return Math.Clamp(forced, 0, 4);
+
+            for (var i = 0; i < 5; i++)
+                if (!IsSetupStepComplete(i))
+                    return i;
+
+            return 4;
+        }
+    }
+
+    private int SetupProgressPercent
+    {
+        get
+        {
+            var completed = 0;
+            for (var i = 0; i < 5; i++)
+                if (IsSetupStepComplete(i))
+                    completed++;
+
+            return completed * 100 / 5;
+        }
+    }
+
+    private void SkipCurrentSetupStep()
+    {
+        var step = CurrentSetupStep;
+        _skippedSetupSteps.Add(step);
+        _setupStepOverride = null;
+    }
+
+    private void GoToPreviousSetupStep()
+    {
+        var step = CurrentSetupStep;
+        if (step == 0)
+            return;
+
+        _skippedSetupSteps.Remove(step - 1);
+        _setupStepOverride = step - 1;
+    }
 
     private bool IsSetupIncomplete =>
         ConfiguredInstanceCount == 0
@@ -469,14 +559,11 @@ else
     private string GetSetupProgressText()
     {
         var completed = 0;
-        if (ConfiguredInstanceCount > 0)
-            completed++;
-        if (RunningInstanceCount > 0)
-            completed++;
-        if (ConnectedAgentCount > 0)
-            completed++;
+        for (var i = 0; i < 5; i++)
+            if (IsSetupStepComplete(i))
+                completed++;
 
-        return $"{completed}/3 required steps complete";
+        return $"Step {Math.Min(CurrentSetupStep + 1, 5)} of 5 · {completed}/5 complete";
     }
 
     private string GetNextSetupHint()

@@ -4,6 +4,7 @@
 @inject QuasarAuthOptions AuthOptions
 @inject RbacConfigCatalog RbacConfigCatalog
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <PageTitle>Security</PageTitle>
 
@@ -147,6 +148,15 @@
 
     private async Task RemoveMappingAsync(SubjectRoleMapping mapping)
     {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Remove RBAC mapping?",
+            $"Mapping for '{mapping.Subject}' will be removed. The subject loses any roles granted by it.",
+            yesText: "Remove",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
         _config.SubjectRoleMappings.Remove(mapping);
         await SaveAsync("Removed RBAC mapping.");
     }
