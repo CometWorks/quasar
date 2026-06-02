@@ -310,6 +310,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                         state.LastHealthRecoveryActionUtc = now;
                         actions.Add((state.UniqueName, ReconcileAction.Restart, health.Summary));
                     }
+                    else if (processActive &&
+                             state.State == DedicatedServerInstanceProcessState.Running &&
+                             ShouldScheduledRestartFire(state, now))
+                    {
+                        state.LastScheduledRestartUtc = now;
+                        actions.Add((state.UniqueName, ReconcileAction.Restart, $"scheduled restart at {state.Definition.DailyRestartTimeLocal}"));
+                    }
                 }
                 else
                 {
@@ -999,6 +1006,58 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         return (now - state.LastHealthRecoveryActionUtc.Value) >= TimeSpan.FromSeconds(Math.Max(30, state.Definition.RestartDelaySeconds));
     }
 
+    private static bool ShouldScheduledRestartFire(ManagedInstanceState state, DateTimeOffset now)
+    {
+        if (!TryParseDailyTime(state.Definition.DailyRestartTimeLocal, out var scheduledHour, out var scheduledMinute))
+            return false;
+
+        if (!state.StartedAtUtc.HasValue)
+            return false;
+
+        var nowLocal = now.ToLocalTime();
+        var scheduledLocal = new DateTimeOffset(
+            nowLocal.Year, nowLocal.Month, nowLocal.Day,
+            scheduledHour, scheduledMinute, 0,
+            nowLocal.Offset);
+
+        if (nowLocal < scheduledLocal)
+            return false;
+
+        if (nowLocal - scheduledLocal > TimeSpan.FromMinutes(5))
+            return false;
+
+        if (state.LastScheduledRestartUtc.HasValue &&
+            (now - state.LastScheduledRestartUtc.Value) < TimeSpan.FromHours(20))
+        {
+            return false;
+        }
+
+        if ((now - state.StartedAtUtc.Value) < TimeSpan.FromMinutes(5))
+            return false;
+
+        return true;
+    }
+
+    private static bool TryParseDailyTime(string value, out int hour, out int minute)
+    {
+        hour = 0;
+        minute = 0;
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        var parts = value.Trim().Split(':');
+        if (parts.Length != 2)
+            return false;
+
+        if (!int.TryParse(parts[0], out hour) || hour < 0 || hour > 23)
+            return false;
+
+        if (!int.TryParse(parts[1], out minute) || minute < 0 || minute > 59)
+            return false;
+
+        return true;
+    }
+
     private void NotifyChanged()
     {
         SchedulePersistState();
@@ -1189,6 +1248,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public string StandardErrorLogPath { get; set; } = string.Empty;
 
         public DateTimeOffset? LastHealthRecoveryActionUtc { get; set; }
+
+        public DateTimeOffset? LastScheduledRestartUtc { get; set; }
 
         public ulong? LastSimulationFrameCounter { get; set; }
 

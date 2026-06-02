@@ -6,6 +6,7 @@
 @inject DedicatedServerInstanceCatalog InstanceCatalog
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
+@inject IDialogService DialogService
 
 <PageTitle>Configs</PageTitle>
 
@@ -745,6 +746,17 @@
             Snackbar.Add("Template still assigned to instances. Reassign or clear them first.", Severity.Warning);
             return;
         }
+
+        var profile = ConfigProfiles.GetProfile(configProfileId);
+        var profileName = profile?.Name ?? configProfileId;
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Delete config template?",
+            $"'{profileName}' will be permanently removed. This cannot be undone.",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
 
         await ConfigProfiles.DeleteAsync(configProfileId);
         if (string.Equals(_selectedProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))

@@ -1,4 +1,10 @@
 <MudDialog>
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" OnClick="Cancel" title="Discard changes" />
+            <MudText Typo="Typo.h6">@(_isEditing ? "Edit Instance" : "Create Instance")</MudText>
+        </MudStack>
+    </TitleContent>
     <DialogContent>
         <div class="instance-editor-dialog-content">
         <MudForm @ref="_form" @bind-IsValid="_formIsValid">
@@ -10,19 +16,52 @@
             <section>
                 <MudText Typo="Typo.subtitle2" Class="mb-2">Identity</MudText>
                 <MudGrid>
-                    <MudItem xs="12">
+                    <MudItem xs="12" md="6">
                         <MudTextField
-                            @bind-Value="_editor.UniqueName"
-                            Label="Unique name"
+                            T="string"
+                            Value="_editor.DisplayName"
+                            ValueChanged="HandleDisplayNameChanged"
+                            Label="Display name"
                             Variant="Variant.Outlined"
                             Immediate="true"
-                            Disabled="@UniqueNameLocked"
-                            AutoFocus="true"
+                            AutoFocus="@(!_isEditing)"
+                            Required="true"
+                            RequiredError="Display name required."
+                            HelperText="Friendly name shown in lists and dashboards." />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudTextField
+                            T="string"
+                            Value="_editor.UniqueName"
+                            ValueChanged="HandleIdentifierChanged"
+                            Label="Identifier"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            Disabled="@_isEditing"
                             Class="mono"
                             Required="true"
-                            RequiredError="Unique name required."
+                            RequiredError="Identifier required."
                             Validation="@(new Func<string, string?>(ValidateUniqueNameField))"
                             HelperText="@GetUniqueNameHelperText()" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudNumericField T="int"
+                                         Value="_editor.ServerPort"
+                                         ValueChanged="HandlePortChanged"
+                                         Label="Listen port"
+                                         Variant="Variant.Outlined"
+                                         Min="1"
+                                         Max="65535"
+                                         Required="true"
+                                         RequiredError="Listen port required."
+                                         Validation="@(new Func<int, string?>(ValidatePortField))"
+                                         HelperText="UDP port for clients. Default 27016. Must be unique across local instances." />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudTextField @bind-Value="_editor.ServerIP"
+                                      Label="Listen IP"
+                                      Variant="Variant.Outlined"
+                                      HelperText="0.0.0.0 listens on all interfaces. Set a specific IP to bind to one NIC." />
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="1">
@@ -103,6 +142,14 @@
                                 <MudItem xs="12" md="4" Class="d-flex align-center">
                                     <MudCheckBox @bind-Value="_editor.RestartOnCrash" Label="Restart when process crashes" />
                                 </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField @bind-Value="_editor.DailyRestartTimeLocal"
+                                                  Label="Daily restart time (HH:mm, server local time)"
+                                                  Variant="Variant.Outlined"
+                                                  Placeholder="e.g. 04:00"
+                                                  Validation="@(new Func<string, string?>(ValidateDailyRestartTime))"
+                                                  HelperText="Leave blank to disable. Fires within 5 minutes of the time, once per day." />
+                                </MudItem>
                             </MudGrid>
                         </ChildContent>
                     </MudExpansionPanel>
@@ -134,13 +181,10 @@
                                     <MudNumericField T="int" @bind-Value="_editor.SimulationProgressWindowSeconds" Label="Simulation frame window (seconds)" Variant="Variant.Outlined" Min="1" />
                                 </MudItem>
                                 <MudItem xs="12" md="6" lg="4">
-                                    <MudNumericField T="float" @bind-Value="_editor.MinimumSimulationProgressScore" Label="Minimum frame progress score" Variant="Variant.Outlined" Min="0f" Max="1f" Step="0.01f" HelperText="Score = frames advanced / (seconds * 60)." />
+                                    <MudNumericField T="float" @bind-Value="_editor.MinimumSimulationProgressScore" Label="Minimum average simulation rate" Variant="Variant.Outlined" Min="0f" Max="1f" Step="0.01f" HelperText="Rate = frames advanced / (seconds * 60). 1.00 = full sim speed." />
                                 </MudItem>
                                 <MudItem xs="12" md="6">
                                     <MudNumericField T="int" @bind-Value="_editor.WarnAfterUptimeHours" Label="Warn after uptime (hours)" Variant="Variant.Outlined" Min="0" />
-                                </MudItem>
-                                <MudItem xs="12" md="6">
-                                    <MudNumericField T="int" @bind-Value="_editor.RecycleAfterUptimeHours" Label="Recycle after uptime (hours, 0 = disabled)" Variant="Variant.Outlined" Min="0" />
                                 </MudItem>
                             </MudGrid>
                         </ChildContent>
@@ -245,6 +289,7 @@
 
     private MudForm? _form;
     private bool _formIsValid;
+    private bool _identifierManuallyEdited;
 
     [Parameter]
     public DedicatedServerInstanceDefinition Definition { get; set; } = new();
@@ -270,6 +315,96 @@
         _restartPolicyExpanded = _isEditing;
         _healthPolicyExpanded = _isEditing;
         _runtimeExpanded = _isEditing;
+
+        if (string.IsNullOrWhiteSpace(_editor.DisplayName) && !string.IsNullOrWhiteSpace(_editor.UniqueName))
+            _editor.DisplayName = _editor.UniqueName;
+
+        _identifierManuallyEdited = _isEditing || !string.IsNullOrWhiteSpace(_editor.UniqueName);
+    }
+
+    private void HandleDisplayNameChanged(string value)
+    {
+        _editor.DisplayName = value ?? string.Empty;
+
+        if (_isEditing || _identifierManuallyEdited)
+            return;
+
+        _editor.UniqueName = SlugifyForIdentifier(_editor.DisplayName);
+    }
+
+    private void HandleIdentifierChanged(string value)
+    {
+        _editor.UniqueName = value ?? string.Empty;
+        _identifierManuallyEdited = true;
+    }
+
+    private void HandlePortChanged(int value)
+    {
+        _editor.ServerPort = value;
+    }
+
+    private static string? ValidateDailyRestartTime(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var parts = value.Trim().Split(':');
+        if (parts.Length != 2 ||
+            !int.TryParse(parts[0], out var hour) || hour is < 0 or > 23 ||
+            !int.TryParse(parts[1], out var minute) || minute is < 0 or > 59)
+        {
+            return "Use HH:mm (00:00–23:59).";
+        }
+
+        return null;
+    }
+
+    private string? ValidatePortField(int value)
+    {
+        if (value < 1 || value > 65535)
+            return "Port must be between 1 and 65535.";
+
+        var originalUniqueName = _editor.OriginalUniqueName?.Trim() ?? string.Empty;
+        var conflict = InstanceCatalog.GetInstances().FirstOrDefault(instance =>
+            instance.ServerPort == value &&
+            !string.Equals(instance.UniqueName, originalUniqueName, StringComparison.OrdinalIgnoreCase));
+
+        return conflict is null ? null : $"Port already used by instance '{conflict.UniqueName}'.";
+    }
+
+    private static string SlugifyForIdentifier(string source)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+            return string.Empty;
+
+        var trimmed = source.Trim().ToLowerInvariant();
+        var builder = new System.Text.StringBuilder(trimmed.Length);
+        char lastAppended = '\0';
+
+        foreach (var ch in trimmed)
+        {
+            char mapped;
+            if (char.IsLetterOrDigit(ch))
+            {
+                mapped = ch;
+            }
+            else if (ch is '-' or '_' || char.IsWhiteSpace(ch))
+            {
+                mapped = '-';
+            }
+            else
+            {
+                continue;
+            }
+
+            if (mapped == '-' && lastAppended == '-')
+                continue;
+
+            builder.Append(mapped);
+            lastAppended = mapped;
+        }
+
+        return builder.ToString().Trim('-');
     }
 
     private void Cancel()

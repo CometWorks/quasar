@@ -22,14 +22,20 @@
                 Immediate="true"
                 Lines="2" />
 
-            <MudTextField
-                @bind-Value="_sourcePath"
-                Label="Source world path"
-                Variant="Variant.Outlined"
-                Immediate="true"
-                Required="true"
-                RequiredError="Source world path required."
-                HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc." />
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.End">
+                <MudTextField
+                    @bind-Value="_sourcePath"
+                    Label="Source world path"
+                    Variant="Variant.Outlined"
+                    Immediate="true"
+                    Class="flex-grow-1"
+                    Required="true"
+                    RequiredError="Source world path required."
+                    HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc." />
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.FolderOpen" OnClick="OpenFolderPickerAsync">
+                    Browse
+                </MudButton>
+            </MudStack>
         </MudStack>
         </MudForm>
     </DialogContent>
@@ -52,6 +58,9 @@
     [Inject]
     private ISnackbar Snackbar { get; set; } = default!;
 
+    [Inject]
+    private IDialogService DialogService { get; set; } = default!;
+
     private MudForm? _form;
     private bool _formIsValid;
     private string _name = string.Empty;
@@ -62,6 +71,23 @@
     private void Cancel()
     {
         MudDialog.Cancel();
+    }
+
+    private async Task OpenFolderPickerAsync()
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(FolderPickerDialog.InitialPath)] = _sourcePath,
+        };
+
+        var dialog = await DialogService.ShowAsync<FolderPickerDialog>(
+            "Pick world folder",
+            parameters,
+            new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Medium, FullWidth = true });
+
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string path })
+            _sourcePath = path;
     }
 
     private async Task ImportAsync()
