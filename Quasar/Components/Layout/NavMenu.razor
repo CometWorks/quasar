@@ -52,5 +52,12 @@
         <MudNavLink Href="/settings/appearance" Icon="@Icons.Material.Filled.Palette">
             Appearance
         </MudNavLink>
+        <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
+            <Authorized>
+                <MudNavLink Href="/settings/security" Icon="@Icons.Material.Filled.Security">
+                    Security
+                </MudNavLink>
+            </Authorized>
+        </AuthorizeView>
     </MudNavMenu>
 </MudStack>
