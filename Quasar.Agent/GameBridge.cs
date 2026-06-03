@@ -327,6 +327,7 @@ namespace Quasar.Agent
 
             int? activeGridCount = null;
             int? activeEntityCount = null;
+            var gridPcu = 0;
 
             if (session.Ready)
             {
@@ -334,7 +335,16 @@ namespace Quasar.Agent
                 {
                     var entities = MyEntities.GetEntities();
                     activeEntityCount = entities?.Count ?? 0;
-                    activeGridCount = entities?.Count(entity => entity is IMyCubeGrid) ?? 0;
+                    if (entities != null)
+                    {
+                        var grids = entities.OfType<MyCubeGrid>().ToList();
+                        activeGridCount = grids.Count;
+                        gridPcu = grids.Sum(grid => Math.Max(0, grid.BlocksPCU));
+                    }
+                    else
+                    {
+                        activeGridCount = 0;
+                    }
                 }
                 catch
                 {
@@ -352,7 +362,7 @@ namespace Quasar.Agent
                 SimCpuLoadPercent = (float)Math.Round(Sync.ServerCPULoad, 1),
                 ServerCpuLoadPercent = (float)Math.Round(Sync.ServerCPULoad, 1),
                 IsSaveInProgress = session.IsSaveInProgress || MyAsyncSaving.InProgress,
-                UsedPcu = usedPcu,
+                UsedPcu = usedPcu > 0 ? usedPcu : gridPcu,
                 TotalPcu = session.Settings.TotalPCU,
                 MemoryWorkingSetMb = _lastWorkingSetBytes >> 20,
                 ActiveGridCount = activeGridCount,

@@ -144,11 +144,23 @@
                                 </MudItem>
                                 <MudItem xs="12" md="6">
                                     <MudTextField @bind-Value="_editor.DailyRestartTimeLocal"
-                                                  Label="Daily restart time (HH:mm, server local time)"
+                                                  Label="Restart schedule (HH:mm, server local time)"
                                                   Variant="Variant.Outlined"
-                                                  Placeholder="e.g. 04:00"
-                                                  Validation="@(new Func<string, string?>(ValidateDailyRestartTime))"
-                                                  HelperText="Leave blank to disable. Fires within 5 minutes of the time, once per day." />
+                                                  Placeholder="e.g. 04:00 08:00 12:00"
+                                                  Validation="@(new Func<string, string?>(ValidateRestartSchedule))"
+                                                  HelperText="Leave blank to disable. Accepts multiple times separated by spaces, commas, or new lines." />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField @bind-Value="_editor.MaximumUptime"
+                                                  Label="Maximum uptime (HH:mm)"
+                                                  Variant="Variant.Outlined"
+                                                  Placeholder="e.g. 06:00"
+                                                  Validation="@(new Func<string, string?>(ValidateMaximumUptime))"
+                                                  HelperText="Leave blank to disable. Restarts once process uptime reaches this duration." />
+                                </MudItem>
+                                <MudItem xs="12">
+                                    <MudCheckBox @bind-Value="_editor.AvoidSimultaneousScheduledRestarts"
+                                                 Label="Avoid restarting more than one server at once for scheduled or maximum-uptime restarts" />
                                 </MudItem>
                             </MudGrid>
                         </ChildContent>
@@ -181,10 +193,24 @@
                                     <MudNumericField T="int" @bind-Value="_editor.SimulationProgressWindowSeconds" Label="Simulation frame window (seconds)" Variant="Variant.Outlined" Min="1" />
                                 </MudItem>
                                 <MudItem xs="12" md="6" lg="4">
-                                    <MudNumericField T="float" @bind-Value="_editor.MinimumSimulationProgressScore" Label="Minimum average simulation rate" Variant="Variant.Outlined" Min="0f" Max="1f" Step="0.01f" HelperText="Rate = frames advanced / (seconds * 60). 1.00 = full sim speed." />
+                                    <MudNumericField T="decimal"
+                                                     Value="MinimumSimulationRateEditorValue"
+                                                     ValueChanged="HandleMinimumSimulationRateChanged"
+                                                     Label="Minimum average simulation rate"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0m"
+                                                     Max="1m"
+                                                     Step="0.1m"
+                                                     Format="0.###"
+                                                     HelperText="Rate = frames advanced / (seconds * 60). 1.00 = full sim speed." />
                                 </MudItem>
                                 <MudItem xs="12" md="6">
-                                    <MudNumericField T="int" @bind-Value="_editor.WarnAfterUptimeHours" Label="Warn after uptime (hours)" Variant="Variant.Outlined" Min="0" />
+                                    <MudNumericField T="int"
+                                                     @bind-Value="_editor.WarnAfterUptimeHours"
+                                                     Label="Warn after uptime (hours)"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0"
+                                                     HelperText="Shows a dashboard health warning after process uptime exceeds this value. 0 disables it." />
                                 </MudItem>
                             </MudGrid>
                         </ChildContent>
@@ -247,6 +273,30 @@
                                         Variant="Variant.Outlined"
                                         HelperText="@($"Quasar writes the rendered SpaceEngineers-Dedicated.cfg here. Default: {GetDefaultConfigFilePath()}")" />
                                 </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudSelect T="DedicatedServerProcessPriority"
+                                               @bind-Value="_editor.StartupProcessPriority"
+                                               Label="Startup process priority"
+                                               Variant="Variant.Outlined"
+                                               HelperText="Applied after process start. Linux uses nice level.">
+                                        @foreach (var priority in ProcessPriorities)
+                                        {
+                                            <MudSelectItem T="DedicatedServerProcessPriority" Value="@priority">@FormatPriority(priority)</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudSelect T="DedicatedServerProcessPriority"
+                                               @bind-Value="_editor.ReadyProcessPriority"
+                                               Label="Ready process priority"
+                                               Variant="Variant.Outlined"
+                                               HelperText="Applied when agent snapshot confirms the server is open.">
+                                        @foreach (var priority in ProcessPriorities)
+                                        {
+                                            <MudSelectItem T="DedicatedServerProcessPriority" Value="@priority">@FormatPriority(priority)</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </MudItem>
                                 <MudItem xs="12">
                                     <MudTextField
                                         @bind-Value="_editor.LaunchArguments"
@@ -307,6 +357,14 @@
     private bool _restartPolicyExpanded;
     private bool _healthPolicyExpanded;
     private bool _runtimeExpanded;
+    private static readonly DedicatedServerProcessPriority[] ProcessPriorities =
+    [
+        DedicatedServerProcessPriority.Low,
+        DedicatedServerProcessPriority.BelowNormal,
+        DedicatedServerProcessPriority.Normal,
+        DedicatedServerProcessPriority.AboveNormal,
+        DedicatedServerProcessPriority.High,
+    ];
 
     protected override void OnInitialized()
     {
@@ -343,17 +401,50 @@
         _editor.ServerPort = value;
     }
 
-    private static string? ValidateDailyRestartTime(string? value)
+    private decimal MinimumSimulationRateEditorValue =>
+        Math.Round((decimal)_editor.MinimumSimulationProgressScore, 3);
+
+    private void HandleMinimumSimulationRateChanged(decimal value)
+    {
+        _editor.MinimumSimulationProgressScore = (float)Math.Clamp(value, 0m, 1m);
+    }
+
+    private static string? ValidateRestartSchedule(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var tokens = value
+            .Split([' ', ',', ';', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (tokens.Length == 0)
+            return null;
+
+        foreach (var token in tokens)
+        {
+            var parts = token.Split(':');
+            if (parts.Length != 2 ||
+                !int.TryParse(parts[0], out var hour) || hour is < 0 or > 23 ||
+                !int.TryParse(parts[1], out var minute) || minute is < 0 or > 59)
+            {
+                return "Use HH:mm values from 00:00 to 23:59.";
+            }
+        }
+
+        return null;
+    }
+
+    private static string? ValidateMaximumUptime(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
             return null;
 
         var parts = value.Trim().Split(':');
         if (parts.Length != 2 ||
-            !int.TryParse(parts[0], out var hour) || hour is < 0 or > 23 ||
-            !int.TryParse(parts[1], out var minute) || minute is < 0 or > 59)
+            !int.TryParse(parts[0], out var hours) || hours < 0 ||
+            !int.TryParse(parts[1], out var minutes) || minutes is < 0 or > 59 ||
+            (hours == 0 && minutes == 0))
         {
-            return "Use HH:mm (00:00–23:59).";
+            return "Use HH:mm duration, for example 06:00.";
         }
 
         return null;
@@ -528,6 +619,15 @@
         UniqueNameLocked
             ? "Stop instance before renaming. Allowed: letters, numbers, underscore, hyphen. Used as canonical identity and Magnetars subdirectory name."
             : "Required. Allowed: letters, numbers, underscore, hyphen. Used as canonical identity and Magnetars subdirectory name.";
+
+    private static string FormatPriority(DedicatedServerProcessPriority priority) => priority switch
+    {
+        DedicatedServerProcessPriority.Low => "Low",
+        DedicatedServerProcessPriority.BelowNormal => "Below normal",
+        DedicatedServerProcessPriority.AboveNormal => "Above normal",
+        DedicatedServerProcessPriority.High => "High",
+        _ => "Normal",
+    };
 
     private string? ValidateUniqueNameField(string? value)
     {

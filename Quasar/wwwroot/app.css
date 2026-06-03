@@ -79,11 +79,44 @@ h1:focus {
     transition: border-color 120ms ease;
 }
 
+.summary-card-warning {
+    background: rgba(var(--mud-palette-warning-rgb), 0.16);
+    border-color: var(--mud-palette-warning);
+}
+
+.summary-card-error {
+    background: rgba(var(--mud-palette-error-rgb), 0.16);
+    border-color: var(--mud-palette-error);
+}
+
+.mud-expansion-panels > .mud-expand-panel {
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: calc(var(--mud-default-borderradius) + 2px);
+    box-shadow: none;
+    overflow: hidden;
+}
+
+.mud-expansion-panels > .mud-expand-panel + .mud-expand-panel {
+    margin-top: 0.5rem;
+}
+
+.mud-expansion-panels > .mud-expand-panel .mud-expand-panel-header {
+    border-bottom: 1px solid transparent;
+}
+
+.mud-expansion-panels > .mud-expand-panel.mud-panel-expanded .mud-expand-panel-header {
+    border-bottom-color: var(--mud-palette-lines-default);
+}
+
 .server-card {
     height: 100%;
     background: var(--mud-palette-surface);
     box-shadow: none;
     overflow: hidden;
+}
+
+.world-template-browse-button {
+    margin-top: 1rem;
 }
 
 .chat-list {

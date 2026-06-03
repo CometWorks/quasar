@@ -361,7 +361,17 @@
         if (snapshot is null)
             return "-";
 
-        return $"{snapshot.Metrics.PlayersOnline}/{snapshot.Metrics.MaxPlayers}";
+        var instance = InstanceCatalog
+            .GetInstances()
+            .FirstOrDefault(item => string.Equals(item.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase));
+        var configuredMaxPlayers = string.IsNullOrWhiteSpace(instance?.ConfigProfileId)
+            ? null
+            : ConfigProfiles.GetProfile(instance.ConfigProfileId)?.SessionSettings.MaxPlayers;
+        var maxPlayers = configuredMaxPlayers is > 0
+            ? configuredMaxPlayers.GetValueOrDefault()
+            : snapshot.Metrics.MaxPlayers;
+
+        return $"{snapshot.Metrics.PlayersOnline}/{maxPlayers}";
     }
 
     private string GetProcessDisplay(string uniqueName)

@@ -2,7 +2,7 @@ namespace Quasar.Services;
 
 public sealed class FileBrowserService
 {
-    public IReadOnlyList<FileBrowserEntry> ListDirectories(string path)
+    public IReadOnlyList<FileBrowserEntry> ListDirectories(string path, bool showHidden = false)
     {
         var resolved = ResolvePath(path);
         if (!Directory.Exists(resolved))
@@ -14,7 +14,7 @@ public sealed class FileBrowserService
             try
             {
                 var info = new DirectoryInfo(directory);
-                if ((info.Attributes & FileAttributes.Hidden) != 0)
+                if (!showHidden && (info.Attributes & FileAttributes.Hidden) != 0)
                     continue;
 
                 entries.Add(new FileBrowserEntry(

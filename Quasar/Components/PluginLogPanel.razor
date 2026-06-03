@@ -8,6 +8,41 @@
         <MudText Typo="Typo.caption" Class="mud-text-secondary">@_entries.Count shown</MudText>
     </div>
 
+    <MudGrid Class="mb-3">
+        <MudItem xs="12" sm="6" lg="2">
+            <MudSelect T="string" Label="Server" Value="_uniqueNameFilter" ValueChanged="HandleUniqueNameChanged" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">All</MudSelectItem>
+                @foreach (var uniqueName in LogStream.GetUniqueNames())
+                {
+                    <MudSelectItem T="string" Value="@uniqueName">@ServerName(uniqueName)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="2">
+            <MudSelect T="string" Label="Level" Value="_levelFilter" ValueChanged="HandleLevelChanged" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">All</MudSelectItem>
+                @foreach (var level in Levels)
+                {
+                    <MudSelectItem T="string" Value="@level">@level</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="2">
+            <MudSelect T="string" Label="Range" Value="_rangeKey" ValueChanged="HandleRangeChanged" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@("1h")">Last 1h</MudSelectItem>
+                <MudSelectItem T="string" Value="@("24h")">Last 24h</MudSelectItem>
+                <MudSelectItem T="string" Value="@("7d")">Last 7d</MudSelectItem>
+                <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="2">
+            <MudNumericField T="int" Label="Limit" Value="_limit" ValueChanged="HandleLimitChanged" Variant="Variant.Outlined" Min="1" Max="@PluginLogStream.MaxEntriesPerInstance" />
+        </MudItem>
+        <MudItem xs="12" lg="4">
+            <MudTextField T="string" Value="_textFilter" ValueChanged="HandleTextChanged" Label="Filter text" Variant="Variant.Outlined" Immediate="true" />
+        </MudItem>
+    </MudGrid>
+
     @if (_entries.Count == 0)
     {
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
@@ -46,7 +81,13 @@
 
 @code
 {
+    private static readonly string[] Levels = ["Debug", "Info", "Warning", "Error", "Critical"];
     private IReadOnlyList<PluginLogEntry> _entries = Array.Empty<PluginLogEntry>();
+    private string _uniqueNameFilter = string.Empty;
+    private string _levelFilter = string.Empty;
+    private string _rangeKey = "24h";
+    private string _textFilter = string.Empty;
+    private int _limit = PluginLogStream.MaxEntriesPerInstance;
 
     protected override void OnInitialized()
     {
@@ -65,7 +106,60 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private void Refresh() => _entries = LogStream.GetRecent();
+    private void Refresh()
+    {
+        _entries = LogStream.Query(new PluginLogQuery
+        {
+            UniqueName = _uniqueNameFilter,
+            Level = _levelFilter,
+            Text = _textFilter,
+            FromUtc = ResolveFromUtc(),
+            Limit = _limit,
+        });
+    }
+
+    private DateTimeOffset? ResolveFromUtc() => _rangeKey switch
+    {
+        "1h" => DateTimeOffset.UtcNow.AddHours(-1),
+        "7d" => DateTimeOffset.UtcNow.AddDays(-7),
+        "all" => null,
+        _ => DateTimeOffset.UtcNow.AddDays(-1),
+    };
+
+    private Task HandleUniqueNameChanged(string value)
+    {
+        _uniqueNameFilter = value;
+        Refresh();
+        return Task.CompletedTask;
+    }
+
+    private Task HandleLevelChanged(string value)
+    {
+        _levelFilter = value;
+        Refresh();
+        return Task.CompletedTask;
+    }
+
+    private Task HandleRangeChanged(string value)
+    {
+        _rangeKey = value;
+        Refresh();
+        return Task.CompletedTask;
+    }
+
+    private Task HandleLimitChanged(int value)
+    {
+        _limit = Math.Clamp(value, 1, PluginLogStream.MaxEntriesPerInstance);
+        Refresh();
+        return Task.CompletedTask;
+    }
+
+    private Task HandleTextChanged(string value)
+    {
+        _textFilter = value ?? string.Empty;
+        Refresh();
+        return Task.CompletedTask;
+    }
 
     private string ServerName(string uniqueName)
     {

@@ -69,15 +69,17 @@
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SettingsBackupRestore" OnClick="ResetLayoutAsync">
                 Reset layout
             </MudButton>
-            @if (HiddenPanels.Count > 0)
-            {
-                <MudMenu Icon="@Icons.Material.Filled.Visibility" Variant="Variant.Text" Color="Color.Default" Dense="true">
-                    @foreach (var panel in HiddenPanels)
-                    {
-                        <MudMenuItem OnClick="@(() => RestorePanelAsync(panel))">@ResolveMetricTitle(panel.Key)</MudMenuItem>
-                    }
-                </MudMenu>
-            }
+            <MudMenu StartIcon="@Icons.Material.Filled.Visibility"
+                     Label="Add panel"
+                     Variant="Variant.Outlined"
+                     Color="Color.Default"
+                     Dense="true"
+                     Disabled="@(HiddenPanels.Count == 0)">
+                @foreach (var panel in HiddenPanels)
+                {
+                    <MudMenuItem OnClick="@(() => RestorePanelAsync(panel))">@ResolveMetricTitle(panel.Key)</MudMenuItem>
+                }
+            </MudMenu>
         </MudStack>
     </MudStack>
 </MudStack>

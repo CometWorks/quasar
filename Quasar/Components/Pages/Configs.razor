@@ -3,6 +3,7 @@
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarPluginCatalogService PluginCatalog
 @inject QuasarWorkshopModResolver WorkshopMods
+@inject SteamWorkshopCredentialsCatalog WorkshopCredentials
 @inject DedicatedServerInstanceCatalog InstanceCatalog
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
@@ -418,39 +419,18 @@
                                 AdornmentIcon="@Icons.Material.Filled.Search"
                                 OnKeyDown="HandleWorkshopSearchKeyDown"
                                 Class="configs-search-field" />
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SearchWorkshopModsAsync" Disabled="@_workshopSearchLoading" StartIcon="@Icons.Material.Filled.Search">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SearchWorkshopModsAsync" Disabled="@(!WorkshopCredentials.HasWebApiKey || _workshopSearchLoading)" StartIcon="@Icons.Material.Filled.Search">
                                 @(_workshopSearchLoading ? "Searching..." : "Search Workshop")
                             </MudButton>
-                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="LoadPopularWorkshopModsAsync" Disabled="@_workshopSearchLoading" StartIcon="@Icons.Material.Filled.Whatshot">
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="LoadPopularWorkshopModsAsync" Disabled="@(!WorkshopCredentials.HasWebApiKey || _workshopSearchLoading)" StartIcon="@Icons.Material.Filled.Whatshot">
                                 Popular Mods
                             </MudButton>
-                            <AuthorizeView>
-                                <Authorized Context="authContext">
-                                    @if (IsSteamPrincipal(authContext.User))
-                                    {
-                                        <MudChip T="string" Variant="Variant.Outlined" Color="Color.Success" Icon="@Icons.Material.Filled.CheckCircle">
-                                            Steam signed in
-                                        </MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudButton Href="@SteamLoginUrl"
-                                                   Variant="Variant.Filled"
-                                                   Color="Color.Primary"
-                                                   StartIcon="@Icons.Material.Filled.Login">
-                                            Sign in with Steam
-                                        </MudButton>
-                                    }
-                                </Authorized>
-                                <NotAuthorized>
-                                    <MudButton Href="@SteamLoginUrl"
-                                               Variant="Variant.Filled"
-                                               Color="Color.Primary"
-                                               StartIcon="@Icons.Material.Filled.Login">
-                                        Sign in with Steam
-                                    </MudButton>
-                                </NotAuthorized>
-                            </AuthorizeView>
+                            <MudChip T="string" Variant="Variant.Outlined" Color="@(WorkshopCredentials.HasWebApiKey ? Color.Success : Color.Warning)" Icon="@(WorkshopCredentials.HasWebApiKey ? Icons.Material.Filled.Key : Icons.Material.Filled.KeyOff)">
+                                @(WorkshopCredentials.HasWebApiKey ? "Workshop API key set" : "Workshop API key needed")
+                            </MudChip>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="OpenWorkshopApiKeyDialogAsync" StartIcon="@Icons.Material.Filled.Key">
+                                @(WorkshopCredentials.HasWebApiKey ? "Update API Key" : "Add API Key")
+                            </MudButton>
                             <MudChip T="string" Variant="Variant.Outlined">Selected @FilteredMods.Count</MudChip>
                         </MudStack>
 
@@ -475,11 +455,20 @@
                         {
                             <MudTable T="QuasarWorkshopSearchResult" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_workshopResults" Class="mb-4">
                                 <HeaderContent>
+                                    <MudTh Style="width:96px;"></MudTh>
                                     <MudTh>Workshop mod</MudTh>
                                     <MudTh>Tags</MudTh>
                                     <MudTh></MudTh>
                                 </HeaderContent>
                                 <RowTemplate>
+                                    <MudTd DataLabel="Preview">
+                                        @if (!string.IsNullOrWhiteSpace(context.PreviewUrl))
+                                        {
+                                            <MudLink Href="@GetWorkshopUrl(context.WorkshopId)" Target="_blank" Underline="Underline.None">
+                                                <img src="@context.PreviewUrl" alt="@context.Title" loading="lazy" class="workshop-thumbnail" />
+                                            </MudLink>
+                                        }
+                                    </MudTd>
                                     <MudTd DataLabel="Workshop mod">
                                         <MudStack Spacing="0">
                                             <MudText Typo="Typo.subtitle2">@context.Title</MudText>
@@ -584,8 +573,6 @@
     private const string AccessAdministratorsAnchorId = "config-access-administrators";
     private const string AccessReservedAnchorId = "config-access-reserved";
     private const string AccessBannedAnchorId = "config-access-banned";
-    private const string SteamLoginUrl = "/login?returnUrl=/configs&forceSteam=true";
-
     private string _selectedProfileId = string.Empty;
     private QuasarConfigProfile? _editor;
     private string _newProfileName = string.Empty;
@@ -659,16 +646,11 @@
         .ThenBy(mod => mod.WorkshopId)
         .ToList();
 
-    private static bool IsSteamPrincipal(System.Security.Claims.ClaimsPrincipal principal) =>
-        string.Equals(
-            principal.FindFirst(QuasarClaimTypes.Provider)?.Value,
-            QuasarAuthSchemes.Steam,
-            StringComparison.OrdinalIgnoreCase);
-
     protected override void OnInitialized()
     {
         ConfigProfiles.Changed += HandleProfilesChanged;
         InstanceCatalog.Changed += HandleInstancesChanged;
+        WorkshopCredentials.Changed += HandleWorkshopCredentialsChanged;
         SelectProfile(Templates.FirstOrDefault()?.ConfigProfileId ?? string.Empty);
     }
 
@@ -680,13 +662,15 @@
         if (CatalogEntries.Count == 0)
             await RefreshPluginCatalogAsync();
 
-        await LoadPopularWorkshopModsAsync();
+        if (WorkshopCredentials.HasWebApiKey)
+            await LoadPopularWorkshopModsAsync();
     }
 
     public void Dispose()
     {
         ConfigProfiles.Changed -= HandleProfilesChanged;
         InstanceCatalog.Changed -= HandleInstancesChanged;
+        WorkshopCredentials.Changed -= HandleWorkshopCredentialsChanged;
     }
 
     private async Task CreateProfileAsync()
@@ -797,6 +781,32 @@
             _catalogRefreshing = false;
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private async Task OpenWorkshopApiKeyDialogAsync()
+    {
+        var parameters = new DialogParameters
+        {
+            ["CurrentWebApiKey"] = WorkshopCredentials.GetCredentials().WebApiKey,
+        };
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+        };
+
+        var dialog = await DialogService.ShowAsync<SteamWorkshopApiKeyDialog>("Steam Workshop API Key", parameters, options);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not string webApiKey)
+            return;
+
+        await WorkshopCredentials.SaveAsync(new SteamWorkshopCredentials
+        {
+            WebApiKey = webApiKey,
+        });
+
+        _workshopSearchError = null;
+        Snackbar.Add("Steam Workshop API key saved.", Severity.Success);
+        await LoadPopularWorkshopModsAsync();
     }
 
     private List<QuasarConfigOptionDefinition> GetCategoryOptions(string categoryKey)
@@ -1406,6 +1416,11 @@
     }
 
     private void HandleInstancesChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleWorkshopCredentialsChanged()
     {
         _ = InvokeAsync(StateHasChanged);
     }

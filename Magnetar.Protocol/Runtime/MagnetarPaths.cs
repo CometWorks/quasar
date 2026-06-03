@@ -64,6 +64,9 @@ public static class MagnetarPaths
     public static string GetQuasarDeathMessagesPath() =>
         Path.Combine(GetQuasarDirectory(), "death-messages.json");
 
+    public static string GetQuasarWorkshopOptionsPath() =>
+        Path.Combine(GetQuasarDirectory(), "steam-workshop.json");
+
     // -------------------------------------------------------------------------
     // Magnetar instance data  (~/.config/Quasar/Magnetars/<unique-name>/)
     // -------------------------------------------------------------------------

@@ -13,7 +13,7 @@ namespace Quasar.Services.PluginSdk;
 public sealed class PluginLogStream
 {
     /// <summary>Maximum entries retained per server instance.</summary>
-    public const int MaxEntriesPerInstance = 500;
+    public const int MaxEntriesPerInstance = 10_000;
 
     private readonly object _sync = new();
     private readonly Dictionary<string, Queue<PluginLogEntry>> _byUniqueName =
@@ -64,6 +64,51 @@ public sealed class PluginLogStream
         {
             return _byUniqueName.Values
                 .SelectMany(queue => queue)
+                .OrderByDescending(entry => entry.TimestampUtc)
+                .Take(limit)
+                .ToList();
+        }
+    }
+
+    public IReadOnlyList<string> GetUniqueNames()
+    {
+        lock (_sync)
+        {
+            return _byUniqueName.Keys
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    public IReadOnlyList<PluginLogEntry> Query(PluginLogQuery query)
+    {
+        var limit = Math.Clamp(query.Limit, 1, MaxEntriesPerInstance);
+        lock (_sync)
+        {
+            IEnumerable<PluginLogEntry> entries = _byUniqueName.Values.SelectMany(queue => queue);
+
+            if (!string.IsNullOrWhiteSpace(query.UniqueName))
+                entries = entries.Where(entry => string.Equals(entry.UniqueName, query.UniqueName, StringComparison.OrdinalIgnoreCase));
+
+            if (!string.IsNullOrWhiteSpace(query.Level))
+                entries = entries.Where(entry => string.Equals(entry.Level, query.Level, StringComparison.OrdinalIgnoreCase));
+
+            if (query.FromUtc.HasValue)
+                entries = entries.Where(entry => entry.TimestampUtc >= query.FromUtc.Value);
+
+            if (query.ToUtc.HasValue)
+                entries = entries.Where(entry => entry.TimestampUtc <= query.ToUtc.Value);
+
+            if (!string.IsNullOrWhiteSpace(query.Text))
+            {
+                var text = query.Text.Trim();
+                entries = entries.Where(entry =>
+                    entry.Plugin.Contains(text, StringComparison.OrdinalIgnoreCase) ||
+                    entry.Message.Contains(text, StringComparison.OrdinalIgnoreCase) ||
+                    (entry.Exception?.Contains(text, StringComparison.OrdinalIgnoreCase) ?? false));
+            }
+
+            return entries
                 .OrderByDescending(entry => entry.TimestampUtc)
                 .Take(limit)
                 .ToList();
@@ -164,4 +209,19 @@ public sealed class PluginLogStream
             return false;
         }
     }
+}
+
+public sealed record PluginLogQuery
+{
+    public string UniqueName { get; init; } = string.Empty;
+
+    public string Level { get; init; } = string.Empty;
+
+    public string Text { get; init; } = string.Empty;
+
+    public DateTimeOffset? FromUtc { get; init; } = DateTimeOffset.UtcNow.AddDays(-1);
+
+    public DateTimeOffset? ToUtc { get; init; }
+
+    public int Limit { get; init; } = 10_000;
 }

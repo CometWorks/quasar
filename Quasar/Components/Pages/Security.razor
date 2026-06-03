@@ -50,10 +50,12 @@
                                       Variant="Variant.Outlined" />
                     </MudItem>
                     <MudItem xs="12" md="3">
-                        <MudTextField @bind-Value="_newRoles"
-                                      Label="Roles"
-                                      HelperText="viewer, editor, admin"
-                                      Variant="Variant.Outlined" />
+                        <MudSelect T="string" @bind-Value="_newRole" Label="Role" Variant="Variant.Outlined">
+                            @foreach (var role in QuasarRoles.All.OrderBy(role => role, StringComparer.OrdinalIgnoreCase))
+                            {
+                                <MudSelectItem T="string" Value="@role">@role</MudSelectItem>
+                            }
+                        </MudSelect>
                     </MudItem>
                     <MudItem xs="12" md="1" Class="d-flex align-center">
                         <MudIconButton Icon="@Icons.Material.Filled.Add"
@@ -101,11 +103,11 @@
     private const string OidcProviderName = "Oidc";
     private string _newProvider = QuasarAuthSchemes.Steam;
     private string _newSubject = string.Empty;
-    private string _newRoles = QuasarRoles.Viewer;
+    private string _newRole = QuasarRoles.Viewer;
 
     private bool CanAddMapping =>
         !string.IsNullOrWhiteSpace(_newSubject) &&
-        SubjectRoleMapping.ParseRoles(_newRoles).Count > 0;
+        QuasarRoles.All.Contains(_newRole);
 
     protected override void OnInitialized()
     {
@@ -138,12 +140,12 @@
         {
             Provider = _newProvider,
             Subject = _newSubject.Trim(),
-            Roles = SubjectRoleMapping.ParseRoles(_newRoles),
+            Roles = [_newRole],
         });
 
         await SaveAsync("Added RBAC mapping.");
         _newSubject = string.Empty;
-        _newRoles = QuasarRoles.Viewer;
+        _newRole = QuasarRoles.Viewer;
     }
 
     private async Task RemoveMappingAsync(SubjectRoleMapping mapping)

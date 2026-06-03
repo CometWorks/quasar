@@ -23,7 +23,7 @@
             <div id="@_scrollContainerId" class="quasar-console-output">
                 @foreach (var entry in _entries)
                 {
-                    <div class="quasar-console-line">
+                    <div class="@GetLineClass(entry)">
                         <span class="quasar-console-time">@entry.TimestampUtc.LocalDateTime.ToString("HH:mm:ss.fff")</span>
                         <span class="quasar-console-level" style="color: @LevelHex(entry.Level);">@LevelTag(entry.Level)</span>
                         @if (!IsMagnetar(entry))
@@ -56,33 +56,45 @@
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         font-size: 0.8125rem;
         line-height: 1.45;
-        white-space: pre-wrap;
+        white-space: normal;
         word-break: break-word;
     }
 
     .quasar-console-line {
-        display: block;
+        display: grid;
+        grid-template-columns: 96px 64px minmax(0, 1fr);
+        column-gap: 8px;
+        align-items: start;
+    }
+
+    .quasar-console-line-with-plugin {
+        grid-template-columns: 96px 64px max-content minmax(0, 1fr);
     }
 
     .quasar-console-time {
         color: var(--mud-palette-text-secondary);
-        margin-right: 8px;
+        white-space: nowrap;
     }
 
     .quasar-console-level {
-        margin-right: 8px;
         font-weight: 600;
+        white-space: nowrap;
     }
 
     .quasar-console-plugin {
         color: var(--mud-palette-info);
-        margin-right: 8px;
+        white-space: nowrap;
+    }
+
+    .quasar-console-message {
+        min-width: 0;
+        white-space: pre-wrap;
     }
 
     .quasar-console-exception {
+        grid-column: 3 / -1;
         color: var(--mud-palette-error);
         white-space: pre-wrap;
-        margin-left: 16px;
     }
 </style>
 
@@ -172,6 +184,11 @@
 
     private static bool IsMagnetar(PluginLogEntry entry) =>
         string.Equals(entry.Plugin, "magnetar", StringComparison.OrdinalIgnoreCase);
+
+    private static string GetLineClass(PluginLogEntry entry) =>
+        IsMagnetar(entry)
+            ? "quasar-console-line"
+            : "quasar-console-line quasar-console-line-with-plugin";
 
     private static string LevelTag(string level) => string.IsNullOrEmpty(level)
         ? "INFO"
