@@ -1,0 +1,54 @@
+@using MudBlazor
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.body2">
+                Store the Steam Web API key used by Quasar server-side for Workshop search. The key is saved under Quasar runtime data and is not sent to browser JavaScript.
+            </MudText>
+            <MudLink Href="https://steamcommunity.com/dev/apikey" Target="_blank">Get a Steam Web API key</MudLink>
+            <MudTextField
+                @bind-Value="_webApiKey"
+                Label="Steam Web API key"
+                Variant="Variant.Outlined"
+                InputType="InputType.Password"
+                Immediate="true"
+                Adornment="Adornment.Start"
+                AdornmentIcon="@Icons.Material.Filled.Key" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@string.IsNullOrWhiteSpace(_webApiKey)">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public string CurrentWebApiKey { get; set; } = string.Empty;
+
+    private string _webApiKey = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        _webApiKey = CurrentWebApiKey;
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private void Save()
+    {
+        var key = _webApiKey.Trim();
+        if (string.IsNullOrWhiteSpace(key))
+            return;
+
+        MudDialog.Close(DialogResult.Ok(key));
+    }
+}

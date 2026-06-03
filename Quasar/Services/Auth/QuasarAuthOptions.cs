@@ -125,7 +125,6 @@ public sealed class WorkshopOptions
 {
     public bool Enabled { get; set; } = true;
     public int AppId { get; set; } = SteamAuthConstants.SpaceEngineersAppId;
-    public string WebApiKey { get; set; } = string.Empty;
     public int PopularLimit { get; set; } = 50;
     public int SearchLimit { get; set; } = 50;
     public List<string> RequiredTags { get; set; } = ["Mod"];
@@ -138,7 +137,6 @@ public sealed class WorkshopOptions
     public void Normalize()
     {
         AppId = AppId <= 0 ? SteamAuthConstants.SpaceEngineersAppId : AppId;
-        WebApiKey = WebApiKey.Trim();
         PopularLimit = Math.Clamp(PopularLimit, 1, 50);
         SearchLimit = Math.Clamp(SearchLimit, 1, 50);
         RequiredTags = RequiredTags

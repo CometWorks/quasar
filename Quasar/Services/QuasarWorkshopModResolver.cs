@@ -19,15 +19,18 @@ public sealed class QuasarWorkshopModResolver
     };
 
     private readonly QuasarAuthOptions _authOptions;
+    private readonly SteamWorkshopCredentialsCatalog _credentialsCatalog;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<QuasarWorkshopModResolver> _logger;
 
     public QuasarWorkshopModResolver(
         QuasarAuthOptions authOptions,
+        SteamWorkshopCredentialsCatalog credentialsCatalog,
         IHttpClientFactory httpClientFactory,
         ILogger<QuasarWorkshopModResolver> logger)
     {
         _authOptions = authOptions;
+        _credentialsCatalog = credentialsCatalog;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
@@ -103,7 +106,8 @@ public sealed class QuasarWorkshopModResolver
         if (!options.Enabled)
             throw new InvalidOperationException("Steam Workshop search is disabled.");
 
-        if (string.IsNullOrWhiteSpace(options.WebApiKey))
+        var webApiKey = _credentialsCatalog.GetCredentials().WebApiKey;
+        if (string.IsNullOrWhiteSpace(webApiKey))
             throw new InvalidOperationException("Steam Workshop Web API key required for search.");
 
         var request = new QueryFilesRequest
@@ -127,7 +131,7 @@ public sealed class QuasarWorkshopModResolver
             "https://api.steampowered.com/IPublishedFileService/QueryFiles/v1/",
             new Dictionary<string, string?>
             {
-                ["key"] = options.WebApiKey,
+                ["key"] = webApiKey,
                 ["input_json"] = JsonSerializer.Serialize(request, JsonOptions),
             });
 

@@ -8,6 +8,7 @@
 @inject ManagedRuntimeWarmupService RuntimeWarmup
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject ILocalStorageService LocalStorage
 
 <PageTitle>Dashboard</PageTitle>
 
@@ -15,7 +16,7 @@
     <div>
         <MudText Typo="Typo.h4" GutterBottom="true">Dashboard</MudText>
     </div>
-    @if (!ShowSetupWizard)
+    @if (_setupWizardPreferenceLoaded && !ShowSetupWizard)
     {
         <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="ShowSetupWizardAgain">
             Restart Setup Wizard
@@ -32,12 +33,9 @@
                     <MudText Typo="Typo.h6">First Setup</MudText>
                     <MudText Typo="Typo.body2">Stay on dashboard. Create templates, create instance, launch instance, then watch the agent attach here.</MudText>
                 </div>
-                @if (_setupWizardRequested && !IsSetupIncomplete)
-                {
-                    <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Close" OnClick="HideSetupWizard">
-                        Hide Wizard
-                    </MudButton>
-                }
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Close" OnClick="HideSetupWizardAsync">
+                    Hide Wizard
+                </MudButton>
             </MudStack>
 
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
@@ -468,7 +466,10 @@ else
 
     private int WorldTemplateCount => WorldTemplates.GetTemplates().Count;
 
+    private const string SetupWizardDismissedStorageKey = "quasar.dashboard.setupWizardDismissed";
     private bool _setupWizardRequested;
+    private bool _setupWizardDismissed;
+    private bool _setupWizardPreferenceLoaded;
     private readonly HashSet<int> _skippedSetupSteps = new();
     private int? _setupStepOverride;
 
@@ -532,16 +533,27 @@ else
         || RunningInstanceCount == 0
         || ConnectedAgentCount == 0;
 
-    private bool ShowSetupWizard => IsSetupIncomplete || _setupWizardRequested;
+    private bool ShowSetupWizard =>
+        _setupWizardRequested ||
+        (_setupWizardPreferenceLoaded && IsSetupIncomplete && !_setupWizardDismissed);
 
     private void ShowSetupWizardAgain()
     {
         _setupWizardRequested = true;
     }
 
-    private void HideSetupWizard()
+    private async Task HideSetupWizardAsync()
     {
         _setupWizardRequested = false;
+        _setupWizardDismissed = true;
+        try
+        {
+            await LocalStorage.SetItemAsync(SetupWizardDismissedStorageKey, true);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed saving setup wizard preference: {exception.Message}", Severity.Warning);
+        }
     }
 
     protected override void OnInitialized()
@@ -552,6 +564,24 @@ else
         ConfigProfiles.Changed += HandleRegistryChanged;
         WorldTemplates.Changed += HandleRegistryChanged;
         RuntimeWarmup.Changed += HandleRegistryChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        try
+        {
+            _setupWizardDismissed = await LocalStorage.GetItemAsync<bool>(SetupWizardDismissedStorageKey);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed loading setup wizard preference: {exception.Message}", Severity.Warning);
+        }
+
+        _setupWizardPreferenceLoaded = true;
+        await InvokeAsync(StateHasChanged);
     }
 
     public void Dispose()

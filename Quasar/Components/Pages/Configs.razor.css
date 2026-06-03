@@ -74,7 +74,7 @@
 
 .configs-expansion-panels {
     display: grid;
-    gap: 0;
+    gap: 0.5rem;
 }
 
 .configs-world-panels-shell {
@@ -88,8 +88,10 @@
 
 .configs-expansion-panel {
     background: var(--mud-palette-background);
-    border-radius: 0;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: calc(var(--mud-default-borderradius) + 2px);
     box-shadow: none;
+    overflow: hidden;
 }
 
 .configs-expansion-panel .mud-expand-panel-header {

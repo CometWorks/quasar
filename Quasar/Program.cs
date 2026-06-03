@@ -66,8 +66,6 @@ public class Program
                     options.SignInScheme = QuasarAuthSchemes.Cookie;
                     options.CorrelationCookie.SameSite = SameSiteMode.Lax;
                     options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-                    if (!string.IsNullOrWhiteSpace(authOptions.Workshop.WebApiKey))
-                        options.ApplicationKey = authOptions.Workshop.WebApiKey;
 
                     options.Events.OnAuthenticated = context =>
                     {
@@ -138,6 +136,7 @@ public class Program
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarWorldTemplateCatalog>();
             builder.Services.AddSingleton<QuasarPluginCatalogService>();
+            builder.Services.AddSingleton<SteamWorkshopCredentialsCatalog>();
             builder.Services.AddSingleton<QuasarWorkshopModResolver>();
             builder.Services.AddSingleton<ManagedDedicatedServerRuntimeResolver>();
             builder.Services.AddSingleton<ManagedRuntimeWarmupService>();
