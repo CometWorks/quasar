@@ -63,6 +63,16 @@
     opacity: 0.78;
 }
 
+.workshop-thumbnail {
+    display: block;
+    width: 80px;
+    height: 80px;
+    object-fit: cover;
+    border-radius: calc(var(--mud-default-borderradius) + 2px);
+    border: 1px solid var(--mud-palette-lines-default);
+    background: var(--mud-palette-background-gray);
+}
+
 .configs-search-field {
     flex: 1 1 20rem;
     min-width: min(22rem, 100%);

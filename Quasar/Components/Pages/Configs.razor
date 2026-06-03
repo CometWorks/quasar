@@ -455,11 +455,20 @@
                         {
                             <MudTable T="QuasarWorkshopSearchResult" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_workshopResults" Class="mb-4">
                                 <HeaderContent>
+                                    <MudTh Style="width:96px;"></MudTh>
                                     <MudTh>Workshop mod</MudTh>
                                     <MudTh>Tags</MudTh>
                                     <MudTh></MudTh>
                                 </HeaderContent>
                                 <RowTemplate>
+                                    <MudTd DataLabel="Preview">
+                                        @if (!string.IsNullOrWhiteSpace(context.PreviewUrl))
+                                        {
+                                            <MudLink Href="@GetWorkshopUrl(context.WorkshopId)" Target="_blank" Underline="Underline.None">
+                                                <img src="@context.PreviewUrl" alt="@context.Title" loading="lazy" class="workshop-thumbnail" />
+                                            </MudLink>
+                                        }
+                                    </MudTd>
                                     <MudTd DataLabel="Workshop mod">
                                         <MudStack Spacing="0">
                                             <MudText Typo="Typo.subtitle2">@context.Title</MudText>
