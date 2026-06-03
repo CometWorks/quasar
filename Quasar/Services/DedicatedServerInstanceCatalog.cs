@@ -260,6 +260,8 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
             instance.RestartDelaySeconds = 0;
         if (instance.MaxRestartAttempts < 0)
             instance.MaxRestartAttempts = 0;
+        instance.DailyRestartTimeLocal = instance.DailyRestartTimeLocal?.Trim() ?? string.Empty;
+        instance.MaximumUptime = instance.MaximumUptime?.Trim() ?? string.Empty;
         if (instance.UpdatedAtUtc == default)
             instance.UpdatedAtUtc = DateTimeOffset.UtcNow;
         return instance;
@@ -305,6 +307,8 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
             RestartOnCrash = instance.RestartOnCrash,
             RestartDelaySeconds = instance.RestartDelaySeconds,
             MaxRestartAttempts = instance.MaxRestartAttempts,
+            DailyRestartTimeLocal = instance.DailyRestartTimeLocal,
+            MaximumUptime = instance.MaximumUptime,
             UpdatedAtUtc = instance.UpdatedAtUtc,
         };
     }

@@ -10,10 +10,20 @@
     <DialogContent>
         <MudStack Spacing="2" Style="min-width: 480px;">
             <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
-                <MudTextField @bind-Value="_currentPath" Variant="Variant.Outlined" Immediate="false" Label="Path" Class="mono flex-grow-1" OnAdornmentClick="Navigate" Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Refresh" />
+                <MudTextField @bind-Value="_currentPath"
+                              Variant="Variant.Outlined"
+                              Immediate="false"
+                              Label="Path"
+                              Class="mono flex-grow-1"
+                              OnKeyDown="HandlePathKeyDownAsync"
+                              OnAdornmentClick="Navigate"
+                              Adornment="Adornment.End"
+                              AdornmentIcon="@Icons.Material.Filled.Refresh" />
                 <MudButton Variant="Variant.Outlined" OnClick="Navigate">Go</MudButton>
                 <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" title="Up" OnClick="GoUp" />
             </MudStack>
+
+            <MudCheckBox T="bool" Value="_showHidden" ValueChanged="HandleShowHiddenChanged" Label="Show hidden folders" Dense="true" />
 
             <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
                 @foreach (var shortcut in _shortcuts)
@@ -80,6 +90,7 @@
     private IReadOnlyList<FileBrowserEntry> _entries = Array.Empty<FileBrowserEntry>();
     private IReadOnlyList<FileBrowserBreadcrumb> _breadcrumbs = Array.Empty<FileBrowserBreadcrumb>();
     private IReadOnlyList<FileBrowserShortcut> _shortcuts = Array.Empty<FileBrowserShortcut>();
+    private bool _showHidden;
 
     protected override void OnInitialized()
     {
@@ -93,7 +104,7 @@
         try
         {
             var resolved = FileBrowserService.ResolvePath(path);
-            _entries = Browser.ListDirectories(resolved);
+            _entries = Browser.ListDirectories(resolved, _showHidden);
             _breadcrumbs = FileBrowserService.GetBreadcrumbs(resolved);
             _currentPath = resolved;
             _error = string.Empty;
@@ -105,6 +116,21 @@
     }
 
     private void Navigate() => NavigateTo(_currentPath);
+
+    private async Task HandlePathKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+            Navigate();
+
+        await Task.CompletedTask;
+    }
+
+    private Task HandleShowHiddenChanged(bool value)
+    {
+        _showHidden = value;
+        Navigate();
+        return Task.CompletedTask;
+    }
 
     private void GoUp()
     {

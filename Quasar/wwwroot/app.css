@@ -79,11 +79,25 @@ h1:focus {
     transition: border-color 120ms ease;
 }
 
+.summary-card-warning {
+    background: rgba(var(--mud-palette-warning-rgb), 0.16);
+    border-color: var(--mud-palette-warning);
+}
+
+.summary-card-error {
+    background: rgba(var(--mud-palette-error-rgb), 0.16);
+    border-color: var(--mud-palette-error);
+}
+
 .server-card {
     height: 100%;
     background: var(--mud-palette-surface);
     box-shadow: none;
     overflow: hidden;
+}
+
+.world-template-browse-button {
+    margin-top: 1rem;
 }
 
 .chat-list {

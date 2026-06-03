@@ -1,24 +1,166 @@
 <MudCard Class="server-card">
     <MudCardHeader>
         <CardHeaderContent>
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                <MudText Typo="Typo.h6">@Agent.ServerDisplayName</MudText>
-                <MudChip T="string" Size="Size.Small" Color="@(Agent.IsConnected ? Color.Success : Color.Error)">
-                    @(Agent.IsConnected ? "connected" : "disconnected")
-                </MudChip>
+            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                    <MudText Typo="Typo.h6">@GetDisplayName()</MudText>
+                    <MudChip T="string" Size="Size.Small" Color="@GetStatusColor()">
+                        @GetStatusLabel()
+                    </MudChip>
+                </MudStack>
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                    @if (CanStart)
+                    {
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Success"
+                                   Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                                   OnClick="StartAsync">
+                            Start
+                        </MudButton>
+                    }
+                    @if (CanRestart)
+                    {
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Primary"
+                                   Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.RestartAlt"
+                                   OnClick="RestartAsync">
+                            Restart
+                        </MudButton>
+                    }
+                    @if (CanStop)
+                    {
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Error"
+                                   Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.Stop"
+                                   OnClick="StopAsync">
+                            Stop
+                        </MudButton>
+                    }
+                </MudStack>
             </MudStack>
-            <MudText Typo="Typo.caption">@Agent.NodeDisplayName · @Agent.WorldDisplayName</MudText>
-            <MudText Typo="Typo.caption" Class="mono">@Agent.UniqueNameKey</MudText>
+            <MudStack Spacing="0">
+                <MudText Typo="Typo.caption">@GetHostLabel() · @GetWorldLabel()</MudText>
+                <MudText Typo="Typo.caption" Class="mono">@Instance.UniqueName</MudText>
+                @if (!string.IsNullOrWhiteSpace(Runtime?.LastMessage))
+                {
+                    <MudText Typo="Typo.caption">@Runtime.LastMessage</MudText>
+                }
+                @if (!string.IsNullOrWhiteSpace(Runtime?.HealthSummary))
+                {
+                    <MudText Typo="Typo.caption">@Runtime.HealthSummary</MudText>
+                }
+            </MudStack>
         </CardHeaderContent>
     </MudCardHeader>
 
     <MudCardContent>
-        <ServerDetailPanel Agent="@Agent" />
+        <ServerDetailPanel Instance="@Instance" Runtime="@Runtime" Agent="@Agent" />
     </MudCardContent>
 </MudCard>
 
 @code
 {
     [Parameter, EditorRequired]
-    public AgentRuntimeState Agent { get; set; } = default!;
+    public DedicatedServerInstanceDefinition Instance { get; set; } = default!;
+
+    [Parameter]
+    public DedicatedServerInstanceRuntimeSnapshot? Runtime { get; set; }
+
+    [Parameter]
+    public AgentRuntimeState? Agent { get; set; }
+
+    [Parameter]
+    public EventCallback<string> StartRequested { get; set; }
+
+    [Parameter]
+    public EventCallback<string> StopRequested { get; set; }
+
+    [Parameter]
+    public EventCallback<string> RestartRequested { get; set; }
+
+    private DedicatedServerInstanceProcessState ProcessState => Runtime?.State ?? DedicatedServerInstanceProcessState.Stopped;
+
+    private bool IsProcessActive => ProcessState is DedicatedServerInstanceProcessState.Starting
+        or DedicatedServerInstanceProcessState.Running
+        or DedicatedServerInstanceProcessState.Restarting
+        or DedicatedServerInstanceProcessState.Stopping;
+
+    private bool CanStart => !IsProcessActive;
+
+    private bool CanStop => ProcessState is DedicatedServerInstanceProcessState.Starting
+        or DedicatedServerInstanceProcessState.Running
+        or DedicatedServerInstanceProcessState.Restarting;
+
+    private bool CanRestart => ProcessState == DedicatedServerInstanceProcessState.Running;
+
+    private Task StartAsync() => StartRequested.InvokeAsync(Instance.UniqueName);
+
+    private Task StopAsync() => StopRequested.InvokeAsync(Instance.UniqueName);
+
+    private Task RestartAsync() => RestartRequested.InvokeAsync(Instance.UniqueName);
+
+    private string GetDisplayName()
+    {
+        if (!string.IsNullOrWhiteSpace(Instance.DisplayName))
+            return Instance.DisplayName.Trim();
+
+        return Agent?.ServerDisplayName ?? Instance.UniqueName;
+    }
+
+    private string GetHostLabel()
+    {
+        if (!string.IsNullOrWhiteSpace(Agent?.NodeDisplayName) &&
+            !string.Equals(Agent.NodeDisplayName, "Unknown node", StringComparison.OrdinalIgnoreCase))
+        {
+            return Agent.NodeDisplayName;
+        }
+
+        return "Local host";
+    }
+
+    private string GetWorldLabel()
+    {
+        if (!string.IsNullOrWhiteSpace(Agent?.WorldDisplayName) &&
+            !string.Equals(Agent.WorldDisplayName, "Unknown world", StringComparison.OrdinalIgnoreCase))
+        {
+            return Agent.WorldDisplayName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(Instance.WorldPath))
+            return Path.GetFileName(Instance.WorldPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+
+        return "World pending";
+    }
+
+    private string GetStatusLabel()
+    {
+        if (ProcessState == DedicatedServerInstanceProcessState.Stopping)
+            return "STOPPING";
+
+        if (!IsProcessActive)
+            return "OFF";
+
+        if (ProcessState == DedicatedServerInstanceProcessState.Running && Agent?.IsConnected == true && Agent.Snapshot is not null)
+            return "OPEN";
+
+        return "STARTING";
+    }
+
+    private Color GetStatusColor()
+    {
+        if (ProcessState is DedicatedServerInstanceProcessState.Crashed or DedicatedServerInstanceProcessState.Faulted)
+            return Color.Error;
+
+        return GetStatusLabel() switch
+        {
+            "OPEN" => Color.Success,
+            "STARTING" => Color.Warning,
+            "STOPPING" => Color.Warning,
+            "OFF" => Color.Error,
+            _ => Color.Default,
+        };
+    }
 }

@@ -29,6 +29,13 @@
                     </MudAlert>
                 }
 
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                    Create a Discord app and bot in the Developer Portal, copy the bot token here, enable Message Content Intent if using text commands, then invite the bot with bot scope. Required channel permissions: View Channel, Send Messages, Read Message History, Attach Files, and Embed Links.
+                    <MudLink Href="https://docs.discord.com/developers/docs/getting-started" Target="_blank">Bot setup</MudLink>
+                    ·
+                    <MudLink Href="https://docs.discord.com/developers/platform/oauth2-and-permissions" Target="_blank">OAuth2 permissions</MudLink>
+                </MudAlert>
+
                 <MudCheckBox T="bool" @bind-Value="_options.Enabled" Label="Enabled" />
                 <MudTextField @bind-Value="_options.BotToken"
                               Label="Bot token"

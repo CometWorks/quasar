@@ -22,7 +22,7 @@
                 Immediate="true"
                 Lines="2" />
 
-            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.End">
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Start">
                 <MudTextField
                     @bind-Value="_sourcePath"
                     Label="Source world path"
@@ -32,7 +32,11 @@
                     Required="true"
                     RequiredError="Source world path required."
                     HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc." />
-                <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.FolderOpen" OnClick="OpenFolderPickerAsync">
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Default"
+                           StartIcon="@Icons.Material.Filled.FolderOpen"
+                           Class="world-template-browse-button"
+                           OnClick="OpenFolderPickerAsync">
                     Browse
                 </MudButton>
             </MudStack>

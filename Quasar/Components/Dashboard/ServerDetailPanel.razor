@@ -4,10 +4,20 @@
 @if (Agent?.Snapshot is null)
 {
     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-        @(Agent is null
-            ? "No Quasar.Agent attached. Start the instance to see live data."
-            : "Waiting for snapshot from agent.")
+        @GetWaitingText()
     </MudAlert>
+
+    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-3">
+        <MudChip T="string" Variant="Variant.Outlined">State @(Runtime?.State.ToString() ?? "Stopped")</MudChip>
+        @if (Runtime?.ProcessId is int processId)
+        {
+            <MudChip T="string" Variant="Variant.Outlined">PID @processId</MudChip>
+        }
+        @if (Runtime?.StartedAtUtc is DateTimeOffset started)
+        {
+            <MudChip T="string" Variant="Variant.Outlined">Uptime @FormatDuration((int)Math.Max(0, (DateTimeOffset.UtcNow - started).TotalSeconds))</MudChip>
+        }
+    </MudStack>
 }
 else
 {
@@ -28,14 +38,17 @@ else
         <MudButton Variant="Variant.Filled" Color="Color.Info" OnClick="@(() => SendCommandAsync(ServerCommandType.SaveWorld))" Disabled="@(!Agent.IsConnected)">
             Save
         </MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="@(() => SendCommandAsync(ServerCommandType.StopServer))" Disabled="@(!Agent.IsConnected)">
-            Stop
-        </MudButton>
     </MudStack>
 
     <MudText Typo="Typo.subtitle2" Class="mb-2">Send Chat</MudText>
     <MudStack Row="true" AlignItems="AlignItems.End" Spacing="1" Class="mb-3">
-        <MudTextField @bind-Value="_chatText" Label="Broadcast message" Variant="Variant.Outlined" FullWidth="true" Disabled="@(!Agent.IsConnected)" />
+        <MudTextField @bind-Value="_chatText"
+                      Label="Broadcast message"
+                      Variant="Variant.Outlined"
+                      FullWidth="true"
+                      Immediate="true"
+                      OnKeyDown="HandleChatKeyDownAsync"
+                      Disabled="@(!Agent.IsConnected)" />
         <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="SendChatAsync" Disabled="@(!Agent.IsConnected || string.IsNullOrWhiteSpace(_chatText))">
             Send
         </MudButton>
@@ -59,11 +72,11 @@ else
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.ServiceName)</MudChip>
             </MudTd>
             <MudTd DataLabel="Name">
-                <MudText Typo="Typo.body2">@context.DisplayName</MudText>
+                <MudText Typo="Typo.body2">@CleanText(context.DisplayName)</MudText>
                 @if (!string.IsNullOrWhiteSpace(context.PlatformDisplayName) &&
                      !string.Equals(context.PlatformDisplayName, context.DisplayName, StringComparison.Ordinal))
                 {
-                    <MudText Typo="Typo.caption">@context.PlatformDisplayName</MudText>
+                    <MudText Typo="Typo.caption">@CleanText(context.PlatformDisplayName)</MudText>
                 }
             </MudTd>
             <MudTd DataLabel="Steam ID">
@@ -91,7 +104,7 @@ else
         {
             <div class="chat-row">
                 <MudText Typo="Typo.caption" Class="mono">@FormatTimestamp(message.TimestampTicksUtc)</MudText>
-                <MudText Typo="Typo.body2"><strong>@message.AuthorName</strong>: @message.Content</MudText>
+                <MudText Typo="Typo.body2"><strong>@CleanText(message.AuthorName)</strong>: @CleanText(message.Content)</MudText>
             </div>
         }
     </div>
@@ -128,9 +141,21 @@ else
 @code
 {
     [Parameter]
+    public DedicatedServerInstanceDefinition? Instance { get; set; }
+
+    [Parameter]
+    public DedicatedServerInstanceRuntimeSnapshot? Runtime { get; set; }
+
+    [Parameter]
     public AgentRuntimeState? Agent { get; set; }
 
     private string _chatText = string.Empty;
+
+    private async Task HandleChatKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+            await SendChatAsync();
+    }
 
     private async Task SendChatAsync()
     {
@@ -200,6 +225,37 @@ else
     private static string GetServiceLabel(string? serviceName)
     {
         return string.IsNullOrWhiteSpace(serviceName) ? "Unknown" : serviceName.Trim();
+    }
+
+    private string GetWaitingText()
+    {
+        if (Runtime?.State is DedicatedServerInstanceProcessState.Starting or DedicatedServerInstanceProcessState.Restarting)
+            return "Starting. Waiting for Quasar.Agent and first game snapshot.";
+
+        if (Runtime?.State == DedicatedServerInstanceProcessState.Stopping)
+            return "Stopping. Save and shutdown in progress.";
+
+        if (Runtime?.State is DedicatedServerInstanceProcessState.Crashed or DedicatedServerInstanceProcessState.Faulted)
+            return Runtime.LastMessage;
+
+        return "No live game snapshot. Start the instance to see metrics, players, chat, and plugins.";
+    }
+
+    private static string CleanText(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+
+        var builder = new System.Text.StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            if (char.IsControl(ch) && ch is not '\t' and not '\r' and not '\n')
+                continue;
+
+            builder.Append(ch == '\uFFFD' ? '?' : ch);
+        }
+
+        return builder.ToString();
     }
 
     private static string GetRoleLabel(PlayerSnapshot player)

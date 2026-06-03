@@ -130,7 +130,7 @@ public sealed class QuasarSessionSettings
 
     public int OnlineMode { get; set; } = 1;
 
-    public int MaxPlayers { get; set; } = 4;
+    public int MaxPlayers { get; set; } = 30;
 
     public int MaxFloatingObjects { get; set; } = 100;
 

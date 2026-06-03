@@ -312,6 +312,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     }
                     else if (processActive &&
                              state.State == DedicatedServerInstanceProcessState.Running &&
+                             ShouldMaximumUptimeRestartFire(state, now))
+                    {
+                        actions.Add((state.UniqueName, ReconcileAction.Restart, $"maximum uptime {state.Definition.MaximumUptime} reached"));
+                    }
+                    else if (processActive &&
+                             state.State == DedicatedServerInstanceProcessState.Running &&
                              ShouldScheduledRestartFire(state, now))
                     {
                         state.LastScheduledRestartUtc = now;
@@ -356,6 +362,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     {
         var definition = state.Definition;
         ResolvedDedicatedServerRuntime runtime;
+        SetRuntimeMessage(state.UniqueName, "Resolving managed runtime.");
         try
         {
             runtime = await _runtimeResolver.ResolveAsync(definition, cancellationToken);
@@ -382,6 +389,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
 
         PreparedDedicatedServerLaunch launch;
+        SetRuntimeMessage(state.UniqueName, "Preparing dedicated server runtime.");
         try
         {
             launch = await _runtimePreparer.PrepareAsync(definition, runtime.DedicatedServer64Path, cancellationToken);
@@ -475,6 +483,19 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         _ = PumpStandardOutputAsync(process.StandardOutput, stdoutPath, state.UniqueName, cancellationToken);
         _ = PumpStandardErrorAsync(process.StandardError, stderrPath, state.UniqueName, cancellationToken);
+    }
+
+    private void SetRuntimeMessage(string uniqueName, string message)
+    {
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out var state))
+                return;
+
+            state.LastMessage = message;
+        }
+
+        NotifyChanged();
     }
 
     private async Task HandleProcessExitedAsync(string uniqueName)
@@ -1008,40 +1029,88 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private static bool ShouldScheduledRestartFire(ManagedInstanceState state, DateTimeOffset now)
     {
-        if (!TryParseDailyTime(state.Definition.DailyRestartTimeLocal, out var scheduledHour, out var scheduledMinute))
-            return false;
-
         if (!state.StartedAtUtc.HasValue)
             return false;
-
-        var nowLocal = now.ToLocalTime();
-        var scheduledLocal = new DateTimeOffset(
-            nowLocal.Year, nowLocal.Month, nowLocal.Day,
-            scheduledHour, scheduledMinute, 0,
-            nowLocal.Offset);
-
-        if (nowLocal < scheduledLocal)
-            return false;
-
-        if (nowLocal - scheduledLocal > TimeSpan.FromMinutes(5))
-            return false;
-
-        if (state.LastScheduledRestartUtc.HasValue &&
-            (now - state.LastScheduledRestartUtc.Value) < TimeSpan.FromHours(20))
-        {
-            return false;
-        }
 
         if ((now - state.StartedAtUtc.Value) < TimeSpan.FromMinutes(5))
             return false;
 
-        return true;
+        var nowLocal = now.ToLocalTime();
+        foreach (var (scheduledHour, scheduledMinute) in ParseScheduleTimes(state.Definition.DailyRestartTimeLocal))
+        {
+            var scheduledLocal = new DateTimeOffset(
+                nowLocal.Year, nowLocal.Month, nowLocal.Day,
+                scheduledHour, scheduledMinute, 0,
+                nowLocal.Offset);
+
+            if (nowLocal < scheduledLocal)
+                continue;
+
+            if (nowLocal - scheduledLocal > TimeSpan.FromMinutes(5))
+                continue;
+
+            var scheduleKey = $"{scheduledLocal:yyyyMMddHHmm}";
+            if (string.Equals(state.LastScheduledRestartKey, scheduleKey, StringComparison.Ordinal))
+                continue;
+
+            state.LastScheduledRestartKey = scheduleKey;
+            return true;
+        }
+
+        return false;
     }
 
-    private static bool TryParseDailyTime(string value, out int hour, out int minute)
+    private static bool ShouldMaximumUptimeRestartFire(ManagedInstanceState state, DateTimeOffset now)
     {
-        hour = 0;
-        minute = 0;
+        if (!state.StartedAtUtc.HasValue)
+            return false;
+
+        if (!TryParseDurationHoursMinutes(state.Definition.MaximumUptime, out var maximumUptime))
+            return false;
+
+        if (maximumUptime <= TimeSpan.Zero)
+            return false;
+
+        return now - state.StartedAtUtc.Value >= maximumUptime;
+    }
+
+    private static IReadOnlyList<(int Hour, int Minute)> ParseScheduleTimes(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return [];
+
+        return value
+            .Split([' ', ',', ';', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(TryParseDailyTime)
+            .Where(item => item.HasValue)
+            .Select(item => item!.Value)
+            .Distinct()
+            .OrderBy(item => item.Hour)
+            .ThenBy(item => item.Minute)
+            .ToList();
+    }
+
+    private static (int Hour, int Minute)? TryParseDailyTime(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var parts = value.Trim().Split(':');
+        if (parts.Length != 2)
+            return null;
+
+        if (!int.TryParse(parts[0], out var hour) || hour < 0 || hour > 23)
+            return null;
+
+        if (!int.TryParse(parts[1], out var minute) || minute < 0 || minute > 59)
+            return null;
+
+        return (hour, minute);
+    }
+
+    private static bool TryParseDurationHoursMinutes(string value, out TimeSpan duration)
+    {
+        duration = TimeSpan.Zero;
         if (string.IsNullOrWhiteSpace(value))
             return false;
 
@@ -1049,12 +1118,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         if (parts.Length != 2)
             return false;
 
-        if (!int.TryParse(parts[0], out hour) || hour < 0 || hour > 23)
+        if (!int.TryParse(parts[0], out var hours) || hours < 0)
             return false;
 
-        if (!int.TryParse(parts[1], out minute) || minute < 0 || minute > 59)
+        if (!int.TryParse(parts[1], out var minutes) || minutes < 0 || minutes > 59)
             return false;
 
+        duration = TimeSpan.FromHours(hours) + TimeSpan.FromMinutes(minutes);
         return true;
     }
 
@@ -1159,6 +1229,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             RestartOnCrash = definition.RestartOnCrash,
             RestartDelaySeconds = definition.RestartDelaySeconds,
             MaxRestartAttempts = definition.MaxRestartAttempts,
+            DailyRestartTimeLocal = definition.DailyRestartTimeLocal,
+            MaximumUptime = definition.MaximumUptime,
             UpdatedAtUtc = definition.UpdatedAtUtc,
         };
     }
@@ -1250,6 +1322,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public DateTimeOffset? LastHealthRecoveryActionUtc { get; set; }
 
         public DateTimeOffset? LastScheduledRestartUtc { get; set; }
+
+        public string LastScheduledRestartKey { get; set; } = string.Empty;
 
         public ulong? LastSimulationFrameCounter { get; set; }
 

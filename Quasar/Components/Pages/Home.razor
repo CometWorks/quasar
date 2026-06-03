@@ -337,23 +337,18 @@
     </MudPaper>
 }
 
+@if (ProblemBanner is not null)
+{
+    <MudAlert Severity="@ProblemBanner.Value.Severity" Variant="Variant.Filled" Class="mb-4">
+        @ProblemBanner.Value.Message
+    </MudAlert>
+}
+
 <MudGrid Class="mb-4">
     <MudItem xs="12" sm="6" lg="3">
         <MudPaper Class="pa-4 summary-card">
-            <MudText Typo="Typo.overline">Nodes</MudText>
-            <MudText Typo="Typo.h4">@NodeCount</MudText>
-        </MudPaper>
-    </MudItem>
-    <MudItem xs="12" sm="6" lg="3">
-        <MudPaper Class="pa-4 summary-card">
-            <MudText Typo="Typo.overline">Servers</MudText>
-            <MudText Typo="Typo.h4">@ServerCount</MudText>
-        </MudPaper>
-    </MudItem>
-    <MudItem xs="12" sm="6" lg="3">
-        <MudPaper Class="pa-4 summary-card">
-            <MudText Typo="Typo.overline">Connected Agents</MudText>
-            <MudText Typo="Typo.h4">@ConnectedAgentCount</MudText>
+            <MudText Typo="Typo.overline">Online Servers</MudText>
+            <MudText Typo="Typo.h4">@OnlineServerCount</MudText>
         </MudPaper>
     </MudItem>
     <MudItem xs="12" sm="6" lg="3">
@@ -363,47 +358,40 @@
         </MudPaper>
     </MudItem>
     <MudItem xs="12" sm="6" lg="3">
-        <MudPaper Class="pa-4 summary-card">
-            <MudText Typo="Typo.overline">Configured Instances</MudText>
-            <MudText Typo="Typo.h4">@ConfiguredInstanceCount</MudText>
-        </MudPaper>
-    </MudItem>
-    <MudItem xs="12" sm="6" lg="3">
-        <MudPaper Class="pa-4 summary-card">
-            <MudText Typo="Typo.overline">Running Instances</MudText>
-            <MudText Typo="Typo.h4">@RunningInstanceCount</MudText>
-        </MudPaper>
-    </MudItem>
-    <MudItem xs="12" sm="6" lg="3">
-        <MudPaper Class="pa-4 summary-card">
+        <MudPaper Class="@GetProblemCardClass(WarningInstanceCount, false)">
             <MudText Typo="Typo.overline">Health Warnings</MudText>
             <MudText Typo="Typo.h4">@WarningInstanceCount</MudText>
         </MudPaper>
     </MudItem>
     <MudItem xs="12" sm="6" lg="3">
-        <MudPaper Class="pa-4 summary-card">
-            <MudText Typo="Typo.overline">Unhealthy Instances</MudText>
+        <MudPaper Class="@GetProblemCardClass(UnhealthyInstanceCount, true)">
+            <MudText Typo="Typo.overline">Errors</MudText>
             <MudText Typo="Typo.h4">@UnhealthyInstanceCount</MudText>
         </MudPaper>
     </MudItem>
 </MudGrid>
 
-@if (Agents.Count == 0)
+@if (Instances.Count == 0)
 {
     @if (!ShowSetupWizard)
     {
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-            No agents connected yet. Start a dedicated server instance with the Quasar.Agent plugin loaded.
+            No server instances configured yet. Create an instance to manage a Space Engineers dedicated server.
         </MudAlert>
     }
 }
 else
 {
     <MudGrid>
-        @foreach (var agent in Agents)
+        @foreach (var instance in Instances)
         {
             <MudItem xs="12" xl="6">
-                <ServerCard Agent="@agent" />
+                <ServerCard Instance="@instance"
+                            Runtime="@GetRuntime(instance.UniqueName)"
+                            Agent="@GetAgent(instance.UniqueName)"
+                            StartRequested="StartAsync"
+                            StopRequested="StopAsync"
+                            RestartRequested="RestartAsync" />
             </MudItem>
         }
     </MudGrid>
@@ -413,6 +401,7 @@ else
 {
     private IReadOnlyList<AgentRuntimeState> Agents => Registry.GetAgents();
     private IReadOnlyList<DedicatedServerInstanceDefinition> Instances => InstanceCatalog.GetInstances();
+    private IReadOnlyList<DedicatedServerInstanceRuntimeSnapshot> RuntimeSnapshotList => Supervisor.GetSnapshots();
     private IReadOnlyDictionary<string, DedicatedServerInstanceRuntimeSnapshot> RuntimeSnapshots => Supervisor
         .GetSnapshots()
         .ToDictionary(snapshot => snapshot.UniqueName, StringComparer.OrdinalIgnoreCase);
@@ -422,35 +411,47 @@ else
     private IReadOnlyList<DedicatedServerInstanceDefinition> StartableInstances => Instances.Where(instance => !IsRunning(instance.UniqueName)).ToList();
     private IReadOnlyList<DedicatedServerInstanceDefinition> LaunchedInstances => Instances.Where(instance => IsRunning(instance.UniqueName)).ToList();
 
-    private int NodeCount => Agents
-        .Select(agent => agent.NodeKey)
-        .Where(value => !string.IsNullOrWhiteSpace(value))
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .Count();
-
-    private int ServerCount => Agents
-        .Select(agent => agent.ServerKey)
-        .Where(value => !string.IsNullOrWhiteSpace(value))
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .Count();
-
     private int ConnectedAgentCount => Agents.Count(agent => agent.IsConnected);
 
-    private int PlayersOnline => Agents.Sum(agent => agent.Snapshot?.Metrics.PlayersOnline ?? 0);
+    private int OnlineServerCount => Instances.Count(instance => IsOpen(instance.UniqueName));
+
+    private int PlayersOnline => Instances
+        .Select(instance => GetAgent(instance.UniqueName))
+        .Where(agent => agent?.IsConnected == true)
+        .Sum(agent => agent?.Snapshot?.Metrics.PlayersOnline ?? 0);
 
     private int ConfiguredInstanceCount => Instances.Count;
 
-    private int RunningInstanceCount => Supervisor.GetSnapshots().Count(snapshot =>
+    private int RunningInstanceCount => RuntimeSnapshotList.Count(snapshot =>
         snapshot.State is DedicatedServerInstanceProcessState.Starting
             or DedicatedServerInstanceProcessState.Running
             or DedicatedServerInstanceProcessState.Restarting
             or DedicatedServerInstanceProcessState.Stopping);
 
-    private int WarningInstanceCount => Supervisor.GetSnapshots().Count(snapshot =>
+    private int WarningInstanceCount => RuntimeSnapshotList.Count(snapshot =>
         snapshot.HealthState == DedicatedServerInstanceHealthState.Warning);
 
-    private int UnhealthyInstanceCount => Supervisor.GetSnapshots().Count(snapshot =>
-        snapshot.HealthState == DedicatedServerInstanceHealthState.Unhealthy);
+    private int UnhealthyInstanceCount => RuntimeSnapshotList.Count(snapshot =>
+        snapshot.HealthState == DedicatedServerInstanceHealthState.Unhealthy ||
+        snapshot.State is DedicatedServerInstanceProcessState.Crashed or DedicatedServerInstanceProcessState.Faulted);
+
+    private (Severity Severity, string Message)? ProblemBanner
+    {
+        get
+        {
+            var error = RuntimeSnapshotList.FirstOrDefault(snapshot =>
+                snapshot.HealthState == DedicatedServerInstanceHealthState.Unhealthy ||
+                snapshot.State is DedicatedServerInstanceProcessState.Crashed or DedicatedServerInstanceProcessState.Faulted);
+            if (error is not null)
+                return (Severity.Error, $"{error.UniqueName}: {FirstNonEmpty(error.HealthSummary, error.LastMessage, "Server needs attention.")}");
+
+            var warning = RuntimeSnapshotList.FirstOrDefault(snapshot => snapshot.HealthState == DedicatedServerInstanceHealthState.Warning);
+            if (warning is not null)
+                return (Severity.Warning, $"{warning.UniqueName}: {FirstNonEmpty(warning.HealthSummary, warning.LastMessage, "Health warning.")}");
+
+            return null;
+        }
+    }
 
     private int ConfigProfileCount => ConfigProfiles.GetProfiles().Count;
 
@@ -618,6 +619,32 @@ else
         }
     }
 
+    private async Task StopAsync(string uniqueName)
+    {
+        try
+        {
+            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerInstanceGoalState.Off);
+            Snackbar.Add($"Stop requested for '{uniqueName}'.", Severity.Warning);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task RestartAsync(string uniqueName)
+    {
+        try
+        {
+            await Supervisor.RestartInstanceAsync(uniqueName);
+            Snackbar.Add($"Restart requested for '{uniqueName}'.", Severity.Info);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
     private bool IsRunning(string uniqueName)
     {
         var state = GetRuntime(uniqueName)?.State ?? DedicatedServerInstanceProcessState.Stopped;
@@ -632,6 +659,32 @@ else
         RuntimeSnapshots.TryGetValue(uniqueName, out var runtime);
         return runtime;
     }
+
+    private AgentRuntimeState? GetAgent(string uniqueName)
+    {
+        return Agents
+            .Where(agent => agent.IsConnected)
+            .FirstOrDefault(agent => string.Equals(agent.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool IsOpen(string uniqueName)
+    {
+        var runtime = GetRuntime(uniqueName);
+        var agent = GetAgent(uniqueName);
+        return runtime?.State == DedicatedServerInstanceProcessState.Running &&
+               agent?.IsConnected == true &&
+               agent.Snapshot is not null;
+    }
+
+    private static string GetProblemCardClass(int count, bool error) =>
+        count <= 0
+            ? "pa-4 summary-card"
+            : error
+                ? "pa-4 summary-card summary-card-error"
+                : "pa-4 summary-card summary-card-warning";
+
+    private static string FirstNonEmpty(params string[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
 
     private string GetInstanceSetupSummary(DedicatedServerInstanceDefinition instance)
     {

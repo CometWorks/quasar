@@ -118,15 +118,17 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
         {
             var directory = GetProfilesDirectory();
             if (!Directory.Exists(directory))
-                return [];
+                return CreateDefaultProfiles(saveToDisk: true);
 
-            return Directory
+            var profiles = Directory
                 .GetFiles(directory, "profile.json", SearchOption.AllDirectories)
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .Select(LoadProfile)
                 .Where(profile => profile is not null)
                 .Select(profile => Normalize(profile!))
                 .ToList();
+
+            return profiles;
         }
         catch (Exception exception)
         {
@@ -146,6 +148,54 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
         {
             _logger.LogWarning(exception, "Failed to load Quasar config profile from {Path}", path);
             return null;
+        }
+    }
+
+    private List<QuasarConfigProfile> CreateDefaultProfiles(bool saveToDisk)
+    {
+        var profiles = new List<QuasarConfigProfile>
+        {
+            CreateDefaultProfile("default-survival", "Survival (default)", 1),
+            CreateDefaultProfile("default-creative", "Creative (default)", 0),
+        };
+
+        if (saveToDisk)
+        {
+            foreach (var profile in profiles)
+                SaveDefaultProfile(profile);
+        }
+
+        return profiles;
+    }
+
+    private static QuasarConfigProfile CreateDefaultProfile(string id, string name, int gameMode)
+    {
+        return Normalize(new QuasarConfigProfile
+        {
+            ConfigProfileId = id,
+            Name = name,
+            Description = "Quasar built-in starter template.",
+            SessionSettings = new QuasarSessionSettings
+            {
+                GameMode = gameMode,
+                MaxPlayers = 30,
+            },
+        });
+    }
+
+    private void SaveDefaultProfile(QuasarConfigProfile profile)
+    {
+        try
+        {
+            profile.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            var path = GetProfilePath(profile.ConfigProfileId);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, JsonSerializer.Serialize(profile, JsonOptions));
+            _logger.LogInformation("Seeded default Quasar config profile at {Path}.", path);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed seeding default Quasar config profile {ConfigProfileId}.", profile.ConfigProfileId);
         }
     }
 

@@ -47,7 +47,7 @@ public sealed class DedicatedServerInstanceDefinition
 
     public int SimulationProgressWindowSeconds { get; set; } = 30;
 
-    public float MinimumSimulationProgressScore { get; set; } = 0.05f;
+    public float MinimumSimulationProgressScore { get; set; } = 0.1f;
 
     public int WarnAfterUptimeHours { get; set; } = 12;
 
@@ -60,6 +60,8 @@ public sealed class DedicatedServerInstanceDefinition
     public int MaxRestartAttempts { get; set; }
 
     public string DailyRestartTimeLocal { get; set; } = string.Empty;
+
+    public string MaximumUptime { get; set; } = string.Empty;
 
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 
@@ -95,6 +97,7 @@ public sealed class DedicatedServerInstanceDefinition
             RestartDelaySeconds = RestartDelaySeconds,
             MaxRestartAttempts = MaxRestartAttempts,
             DailyRestartTimeLocal = DailyRestartTimeLocal,
+            MaximumUptime = MaximumUptime,
             UpdatedAtUtc = UpdatedAtUtc,
         };
     }
