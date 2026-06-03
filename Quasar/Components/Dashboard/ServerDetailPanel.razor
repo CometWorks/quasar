@@ -1,4 +1,5 @@
 @inject AgentRegistry Registry
+@inject QuasarConfigProfileCatalog ConfigProfiles
 @inject ISnackbar Snackbar
 
 @if (Agent?.Snapshot is null)
@@ -22,7 +23,7 @@
 else
 {
     <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-3">
-        <MudChip T="string" Variant="Variant.Outlined">Players @Agent.Snapshot.Metrics.PlayersOnline/@Agent.Snapshot.Metrics.MaxPlayers</MudChip>
+        <MudChip T="string" Variant="Variant.Outlined">Players @Agent.Snapshot.Metrics.PlayersOnline/@GetMaxPlayers()</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">Sim @Agent.Snapshot.Metrics.SimSpeed.ToString("0.00")</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">CPU @Agent.Snapshot.Metrics.ServerCpuLoadPercent.ToString("0.0")%</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">PCU @Agent.Snapshot.Metrics.UsedPcu/@Agent.Snapshot.Metrics.TotalPcu</MudChip>
@@ -212,6 +213,22 @@ else
             return $"{duration.Minutes}m {duration.Seconds}s";
 
         return $"{duration.Seconds}s";
+    }
+
+    private int GetMaxPlayers()
+    {
+        if (!string.IsNullOrWhiteSpace(Instance?.ConfigProfileId))
+        {
+            var configuredMaxPlayers = ConfigProfiles
+                .GetProfile(Instance.ConfigProfileId)
+                ?.SessionSettings
+                .MaxPlayers;
+
+            if (configuredMaxPlayers is > 0)
+                return configuredMaxPlayers.GetValueOrDefault();
+        }
+
+        return Agent?.Snapshot?.Metrics.MaxPlayers ?? 0;
     }
 
     private static string FormatTimestamp(long ticksUtc)
