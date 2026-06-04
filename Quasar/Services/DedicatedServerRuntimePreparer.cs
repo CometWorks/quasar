@@ -192,7 +192,14 @@ public sealed class DedicatedServerRuntimePreparer
                         new XElement("Enabled", "true"),
                         new XElement("Trusted", "true"))),
                 new XElement("RemotePluginSources"),
-                new XElement("LocalPluginSources"),
+                new XElement(
+                    "LocalPluginSources",
+                    configProfile.DevFolders
+                    .Select(devFolder => new XElement(
+                        "LocalPlugin",
+                        new XElement("Name", string.IsNullOrWhiteSpace(devFolder.Name) ? devFolder.PluginId : devFolder.Name),
+                        new XElement("Folder", devFolder.FolderPath),
+                        new XElement("Enabled", devFolder.Enabled ? "true" : "false")))),
                 new XElement(
                     "ModSources",
                     configProfile.Mods
@@ -218,7 +225,15 @@ public sealed class DedicatedServerRuntimePreparer
                         "GitHubPluginConfig",
                         new XElement("Id", plugin.PluginId),
                         new XElement("SelectedVersion", plugin.SelectedVersion)))),
-                new XElement("DevFolder"),
+                new XElement(
+                    "DevFolder",
+                    configProfile.DevFolders
+                    .Where(devFolder => devFolder.Enabled)
+                    .Select(devFolder => new XElement(
+                        "LocalFolderConfig",
+                        new XElement("Id", devFolder.PluginId),
+                        new XElement("DataFile", devFolder.DataFile),
+                        new XElement("DebugBuild", devFolder.DebugBuild ? "true" : "false")))),
                 new XElement(
                     "Local",
                     agentLocalFileNames.Select(fileName => new XElement("string", fileName))),
