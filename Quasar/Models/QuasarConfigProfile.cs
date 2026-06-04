@@ -48,7 +48,24 @@ public sealed class QuasarConfigProfile
 
     public List<QuasarModSelection> Mods { get; set; } = [];
 
+    public List<QuasarDevFolderSelection> DevFolders { get; set; } = [];
+
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class QuasarDevFolderSelection
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string FolderPath { get; set; } = string.Empty;
+
+    public string DataFile { get; set; } = string.Empty;   // manifest XML filename, relative to FolderPath
+
+    public string PluginId { get; set; } = string.Empty;   // auto-filled from manifest <Id>; matches <LocalFolderConfig><Id>
+
+    public bool DebugBuild { get; set; } = true;
+
+    public bool Enabled { get; set; } = true;
 }
 
 public sealed class QuasarWorldRootSettings
