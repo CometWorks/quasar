@@ -95,6 +95,12 @@
     flex: 0 0 10rem;
 }
 
+.configs-dev-folder-row-selected,
+::deep .configs-dev-folder-row-selected {
+    background: rgba(250, 204, 21, 0.08);
+    box-shadow: inset 3px 0 0 rgba(250, 204, 21, 0.55);
+}
+
 .configs-expansion-panels {
     display: grid;
     gap: 0.5rem;

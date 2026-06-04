@@ -646,7 +646,7 @@
                             Register local plugin source folders so Magnetar loads them as dev builds. The plugin id is read from the manifest XML when you add the folder.
                         </MudText>
 
-                        <MudTable T="QuasarDevFolderSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_editor.DevFolders">
+                        <MudTable T="QuasarDevFolderSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_editor.DevFolders" RowClassFunc="GetDevFolderRowClass">
                             <HeaderContent>
                                 <MudTh>Name</MudTh>
                                 <MudTh>Folder</MudTh>
@@ -657,13 +657,23 @@
                             </HeaderContent>
                             <RowTemplate>
                                 <MudTd DataLabel="Name">
-                                    <MudTooltip Text="@($"Plugin Id: {context.PluginId}")">@context.Name</MudTooltip>
+                                    <MudButton Variant="Variant.Text" Color="Color.Inherit" Size="Size.Small" Class="config-template-button" OnClick="@(() => EditDevFolder(context))">
+                                        <MudStack AlignItems="AlignItems.Start" Spacing="0">
+                                            <MudText Typo="Typo.subtitle2">@context.Name</MudText>
+                                            <MudText Typo="Typo.caption" Class="config-secondary">@context.PluginId</MudText>
+                                        </MudStack>
+                                    </MudButton>
                                 </MudTd>
                                 <MudTd DataLabel="Folder" Class="mono">@context.FolderPath</MudTd>
                                 <MudTd DataLabel="Manifest" Class="mono">@context.DataFile</MudTd>
-                                <MudTd DataLabel="Debug">@(context.DebugBuild ? "Yes" : "No")</MudTd>
-                                <MudTd DataLabel="Enabled">@(context.Enabled ? "Yes" : "No")</MudTd>
+                                <MudTd DataLabel="Debug">
+                                    <MudSwitch T="bool" Value="@context.DebugBuild" ValueChanged="@(value => SetDevFolderDebug(context, value))" Color="Color.Primary" />
+                                </MudTd>
+                                <MudTd DataLabel="Enabled">
+                                    <MudSwitch T="bool" Value="@context.Enabled" ValueChanged="@(value => SetDevFolderEnabled(context, value))" Color="Color.Primary" />
+                                </MudTd>
                                 <MudTd Style="text-align:right;">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Default" OnClick="@(() => EditDevFolder(context))" />
                                     <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveDevFolder(context))" />
                                 </MudTd>
                             </RowTemplate>
@@ -675,6 +685,14 @@
                         </MudTable>
 
                         <MudGrid Class="mt-2" Spacing="2">
+                            <MudItem xs="12">
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="1">
+                                    <MudText Typo="Typo.subtitle2">@(_selectedDevFolder is null ? "New dev folder" : $"Editing {_selectedDevFolder.Name}")</MudText>
+                                    <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="ClearDevFolderEditor" Disabled="@(_selectedDevFolder is null && string.IsNullOrWhiteSpace(_newDevFolderName) && string.IsNullOrWhiteSpace(_newDevFolderPath) && string.IsNullOrWhiteSpace(_newDevFolderDataFile))">
+                                        New Entry
+                                    </MudButton>
+                                </MudStack>
+                            </MudItem>
                             <MudItem xs="12" md="6">
                                 <MudTextField @bind-Value="_newDevFolderName" Label="Name" Variant="Variant.Outlined" Immediate="true" />
                             </MudItem>
@@ -696,8 +714,8 @@
                                 <MudSwitch @bind-Value="_newDevFolderEnabled" Color="Color.Primary" Label="Enabled" />
                             </MudItem>
                             <MudItem xs="12" md="4">
-                                <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" Class="configs-add-button" OnClick="AddDevFolder" Disabled="@(string.IsNullOrWhiteSpace(_newDevFolderPath) || string.IsNullOrWhiteSpace(_newDevFolderDataFile))">
-                                    Add
+                                <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" Class="configs-add-button" OnClick="SaveDevFolder" Disabled="@(string.IsNullOrWhiteSpace(_newDevFolderPath) || string.IsNullOrWhiteSpace(_newDevFolderDataFile))">
+                                    @(_selectedDevFolder is null ? "Create Entry" : "Save Entry")
                                 </MudButton>
                             </MudItem>
                         </MudGrid>
@@ -740,6 +758,7 @@
     private string _newDevFolderDataFile = string.Empty;
     private bool _newDevFolderDebug = true;
     private bool _newDevFolderEnabled = true;
+    private QuasarDevFolderSelection? _selectedDevFolder;
     private List<QuasarWorkshopSearchResult> _workshopResults = [];
     private bool _catalogRefreshing;
     private bool _workshopSearchLoading;
@@ -1007,6 +1026,7 @@
         _selectedProfileSnapshot = CreateProfileSnapshot(_editor);
         _hasExplicitCategoryExpansion = true;
         _expandedCategoryKey = null;
+        ClearDevFolderEditor();
     }
 
     private string GetInitialProfileId()
@@ -1680,7 +1700,7 @@
             _newDevFolderPath = path;
     }
 
-    private void AddDevFolder()
+    private void SaveDevFolder()
     {
         if (_editor is null)
             return;
@@ -1694,6 +1714,7 @@
         }
 
         if (_editor.DevFolders.Any(devFolder =>
+                !ReferenceEquals(devFolder, _selectedDevFolder) &&
                 string.Equals(devFolder.FolderPath, folderPath, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(devFolder.DataFile, dataFile, StringComparison.OrdinalIgnoreCase)))
         {
@@ -1712,24 +1733,65 @@
             return;
         }
 
-        _editor.DevFolders.Add(new QuasarDevFolderSelection
-        {
-            Name = string.IsNullOrWhiteSpace(_newDevFolderName) ? pluginId : _newDevFolderName.Trim(),
-            FolderPath = folderPath,
-            DataFile = dataFile,
-            PluginId = pluginId,
-            DebugBuild = _newDevFolderDebug,
-            Enabled = _newDevFolderEnabled,
-        });
+        var devFolder = _selectedDevFolder is not null && _editor.DevFolders.Contains(_selectedDevFolder)
+            ? _selectedDevFolder
+            : new QuasarDevFolderSelection();
+
+        devFolder.Name = string.IsNullOrWhiteSpace(_newDevFolderName) ? pluginId : _newDevFolderName.Trim();
+        devFolder.FolderPath = folderPath;
+        devFolder.DataFile = dataFile;
+        devFolder.PluginId = pluginId;
+        devFolder.DebugBuild = _newDevFolderDebug;
+        devFolder.Enabled = _newDevFolderEnabled;
+
+        if (!_editor.DevFolders.Contains(devFolder))
+            _editor.DevFolders.Add(devFolder);
+
         _editor.DevFolders = _editor.DevFolders
             .OrderBy(devFolder => devFolder.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
+        _selectedDevFolder = devFolder;
+    }
 
+    private void EditDevFolder(QuasarDevFolderSelection devFolder)
+    {
+        _selectedDevFolder = devFolder;
+        _newDevFolderName = devFolder.Name;
+        _newDevFolderPath = devFolder.FolderPath;
+        _newDevFolderDataFile = devFolder.DataFile;
+        _newDevFolderDebug = devFolder.DebugBuild;
+        _newDevFolderEnabled = devFolder.Enabled;
+    }
+
+    private void ClearDevFolderEditor()
+    {
+        _selectedDevFolder = null;
         _newDevFolderName = string.Empty;
         _newDevFolderPath = string.Empty;
         _newDevFolderDataFile = string.Empty;
         _newDevFolderDebug = true;
         _newDevFolderEnabled = true;
+    }
+
+    private void SetDevFolderDebug(QuasarDevFolderSelection devFolder, bool value)
+    {
+        devFolder.DebugBuild = value;
+        if (ReferenceEquals(_selectedDevFolder, devFolder))
+            _newDevFolderDebug = value;
+    }
+
+    private void SetDevFolderEnabled(QuasarDevFolderSelection devFolder, bool value)
+    {
+        devFolder.Enabled = value;
+        if (ReferenceEquals(_selectedDevFolder, devFolder))
+            _newDevFolderEnabled = value;
+    }
+
+    private string GetDevFolderRowClass(QuasarDevFolderSelection devFolder, int rowNumber)
+    {
+        return ReferenceEquals(devFolder, _selectedDevFolder)
+            ? "configs-dev-folder-row-selected"
+            : string.Empty;
     }
 
     private void RemoveDevFolder(QuasarDevFolderSelection devFolder)
@@ -1738,6 +1800,8 @@
             return;
 
         _editor.DevFolders.Remove(devFolder);
+        if (ReferenceEquals(_selectedDevFolder, devFolder))
+            ClearDevFolderEditor();
     }
 
     private async Task MergeModsFromWorldTemplateAsync()
