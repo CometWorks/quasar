@@ -263,7 +263,7 @@ h1:focus {
 
 @media (min-width: 1280px) {
     body {
-        zoom: 0.8;
+        zoom: 0.9;
     }
 
     :root {

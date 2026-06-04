@@ -43,7 +43,7 @@ else
     <MudTable T="KnownPlayerView" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredPlayers">
         <HeaderContent>
             <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.ServerDisplayName)">Server</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetDisplayName(x.Record))">Player</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetPlayerName(x.Record))">Player</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetServiceLabel(x.Record.ServiceName))">Service</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.SteamId)">Steam ID</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.FactionTag)">Faction</MudTableSortLabel></MudTh>
@@ -58,11 +58,10 @@ else
                 <MudText Typo="Typo.caption">@context.Record.UniqueName</MudText>
             </MudTd>
             <MudTd DataLabel="Player">
-                <MudText Typo="Typo.body2">@GetDisplayName(context.Record)</MudText>
-                @if (!string.IsNullOrWhiteSpace(context.Record.PlatformDisplayName) &&
-                     !string.Equals(context.Record.PlatformDisplayName, GetDisplayName(context.Record), StringComparison.Ordinal))
+                <MudText Typo="Typo.body2">@GetPlayerName(context.Record)</MudText>
+                @if (GetPlatformName(context.Record) is { Length: > 0 } platformName)
                 {
-                    <MudText Typo="Typo.caption">@context.Record.PlatformDisplayName</MudText>
+                    <MudText Typo="Typo.caption">Platform: @platformName</MudText>
                 }
             </MudTd>
             <MudTd DataLabel="Service">
@@ -165,7 +164,7 @@ else
             })
             .OrderByDescending(view => view.IsOnline)
             .ThenBy(view => view.ServerDisplayName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(view => GetDisplayName(view.Record), StringComparer.OrdinalIgnoreCase)
+            .ThenBy(view => GetPlayerName(view.Record), StringComparer.OrdinalIgnoreCase)
             .ThenBy(view => view.Record.SteamId)
             .ToList();
     }
@@ -178,8 +177,8 @@ else
 
         return Contains(view.Record.ServerName, search)
                || Contains(view.Record.UniqueName, search)
-               || Contains(view.Record.DisplayName, search)
-               || Contains(view.Record.PlatformDisplayName, search)
+               || Contains(GetPlayerName(view.Record), search)
+               || Contains(GetPlatformName(view.Record), search)
                || Contains(view.Record.ServiceName, search)
                || Contains(view.Record.FactionTag, search)
                || view.Record.SteamId.ToString().Contains(search, StringComparison.OrdinalIgnoreCase);
@@ -204,7 +203,7 @@ else
                 SteamId = view.Record.SteamId,
             });
 
-            Snackbar.Add($"{commandType} sent for {GetDisplayName(view.Record)} ({view.Record.SteamId}).", Severity.Info);
+            Snackbar.Add($"{commandType} sent for {GetPlayerName(view.Record)} ({view.Record.SteamId}).", Severity.Info);
         }
         catch (Exception exception)
         {
@@ -223,11 +222,21 @@ else
                && value.Contains(search, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string GetDisplayName(KnownPlayerRecord record)
+    private static string GetPlayerName(KnownPlayerRecord record)
     {
-        return string.IsNullOrWhiteSpace(record.DisplayName)
+        var displayName = TextSanitizer.CleanGameText(record.DisplayName);
+        return string.IsNullOrWhiteSpace(displayName)
             ? record.SteamId.ToString()
-            : record.DisplayName;
+            : displayName;
+    }
+
+    private static string GetPlatformName(KnownPlayerRecord record)
+    {
+        var platformName = TextSanitizer.CleanGameText(record.PlatformDisplayName);
+        return string.IsNullOrWhiteSpace(platformName) ||
+               string.Equals(platformName, GetPlayerName(record), StringComparison.Ordinal)
+            ? string.Empty
+            : platformName;
     }
 
     private static string GetRoleLabel(KnownPlayerRecord record)

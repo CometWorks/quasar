@@ -29,7 +29,7 @@ public sealed class KnownPlayerCatalog
             if (string.IsNullOrWhiteSpace(player.PlayerKey))
                 continue;
 
-            _players[player.PlayerKey] = Clone(player);
+            _players[player.PlayerKey] = NormalizeRecord(Clone(player));
         }
     }
 
@@ -165,8 +165,8 @@ public sealed class KnownPlayerCatalog
 
         changed |= Assign(record.IdentityId, player.IdentityId, value => record.IdentityId = value);
         changed |= Assign(record.SerialId, player.SerialId, value => record.SerialId = value);
-        changed |= Assign(record.DisplayName, player.DisplayName?.Trim() ?? string.Empty, value => record.DisplayName = value);
-        changed |= Assign(record.PlatformDisplayName, player.PlatformDisplayName?.Trim() ?? string.Empty, value => record.PlatformDisplayName = value);
+        changed |= Assign(record.DisplayName, TextSanitizer.CleanGameText(player.DisplayName), value => record.DisplayName = value);
+        changed |= Assign(record.PlatformDisplayName, TextSanitizer.CleanGameText(player.PlatformDisplayName), value => record.PlatformDisplayName = value);
         changed |= Assign(record.PlatformIcon, player.PlatformIcon?.Trim() ?? string.Empty, value => record.PlatformIcon = value);
         changed |= Assign(record.GameAcronym, player.GameAcronym?.Trim() ?? string.Empty, value => record.GameAcronym = value);
         changed |= Assign(record.ServiceName, player.ServiceName?.Trim() ?? string.Empty, value => record.ServiceName = value);
@@ -311,8 +311,8 @@ public sealed class KnownPlayerCatalog
             SteamId = player.SteamId,
             IdentityId = player.IdentityId,
             SerialId = player.SerialId,
-            DisplayName = player.DisplayName,
-            PlatformDisplayName = player.PlatformDisplayName,
+            DisplayName = TextSanitizer.CleanGameText(player.DisplayName),
+            PlatformDisplayName = TextSanitizer.CleanGameText(player.PlatformDisplayName),
             PlatformIcon = player.PlatformIcon,
             GameAcronym = player.GameAcronym,
             ServiceName = player.ServiceName,
@@ -325,5 +325,12 @@ public sealed class KnownPlayerCatalog
             LastSeenUtc = player.LastSeenUtc,
             LastOnlineUtc = player.LastOnlineUtc,
         };
+    }
+
+    private static KnownPlayerRecord NormalizeRecord(KnownPlayerRecord player)
+    {
+        player.DisplayName = TextSanitizer.CleanGameText(player.DisplayName);
+        player.PlatformDisplayName = TextSanitizer.CleanGameText(player.PlatformDisplayName);
+        return player;
     }
 }
