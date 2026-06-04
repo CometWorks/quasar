@@ -338,29 +338,25 @@
                                         <MudChip T="string" Variant="Variant.Outlined">Selected plugins @_editor.Plugins.Count</MudChip>
                                     </MudStack>
 
-                                    @if (_editor.Plugins.Count == 0)
-                                    {
-                                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                                            No plugins selected.
-                                        </MudAlert>
-                                    }
-                                    else
-                                    {
-                                        <MudStack Spacing="1">
-                                            @foreach (var plugin in _editor.Plugins.Where(MatchesPluginSearch))
-                                            {
-                                                <MudPaper Class="pa-3 config-selection-row" @key="plugin.PluginId">
-                                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                                        <MudStack Spacing="0">
-                                                            <MudText Typo="Typo.subtitle2">@plugin.DisplayName</MudText>
-                                                            <MudText Typo="Typo.caption" Class="config-secondary">@plugin.PluginId</MudText>
-                                                        </MudStack>
-                                                        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePlugin(plugin.PluginId))" />
-                                                    </MudStack>
-                                                </MudPaper>
-                                            }
-                                        </MudStack>
-                                    }
+                                    <MudTable T="QuasarPluginSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="FilteredPlugins">
+                                        <HeaderContent>
+                                            <MudTh>Name</MudTh>
+                                            <MudTh>Plugin ID</MudTh>
+                                            <MudTh></MudTh>
+                                        </HeaderContent>
+                                        <RowTemplate>
+                                            <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+                                            <MudTd DataLabel="Plugin ID" Class="mono">@context.PluginId</MudTd>
+                                            <MudTd Style="text-align:right;">
+                                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePlugin(context.PluginId))" />
+                                            </MudTd>
+                                        </RowTemplate>
+                                        <NoRecordsContent>
+                                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                                @(_editor.Plugins.Count == 0 ? "No plugins selected." : "No plugins match current search.")
+                                            </MudAlert>
+                                        </NoRecordsContent>
+                                    </MudTable>
                                 </ChildContent>
                             </MudExpansionPanel>
 
@@ -714,6 +710,12 @@
     private int SelectableCatalogEntryCount => CatalogEntries.Count(entry => !entry.Hidden);
 
     private bool HasHiddenCatalogEntries => CatalogEntries.Any(entry => entry.Hidden);
+
+    private List<QuasarPluginSelection> FilteredPlugins => (_editor?.Plugins ?? [])
+        .Where(plugin => MatchesPluginSearch(plugin))
+        .OrderBy(plugin => plugin.DisplayName, StringComparer.OrdinalIgnoreCase)
+        .ThenBy(plugin => plugin.PluginId, StringComparer.OrdinalIgnoreCase)
+        .ToList();
 
     private List<QuasarModSelection> FilteredMods => (_editor?.Mods ?? [])
         .Where(mod => MatchesModSearch(mod))
