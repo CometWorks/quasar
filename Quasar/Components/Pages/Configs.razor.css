@@ -82,6 +82,19 @@
     height: 56px;
 }
 
+.configs-dev-folder-path-row {
+    width: 100%;
+}
+
+.configs-dev-folder-path-field {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.configs-dev-folder-browse {
+    flex: 0 0 10rem;
+}
+
 .configs-expansion-panels {
     display: grid;
     gap: 0.5rem;
@@ -144,5 +157,16 @@
     .configs-sidebar {
         position: sticky;
         top: calc(64px + 1rem);
+    }
+}
+
+@media (max-width: 599px) {
+    .configs-dev-folder-path-row {
+        flex-direction: column;
+    }
+
+    .configs-dev-folder-browse {
+        flex-basis: auto;
+        width: 100%;
     }
 }

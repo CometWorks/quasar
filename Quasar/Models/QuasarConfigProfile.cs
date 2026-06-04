@@ -396,5 +396,11 @@ public sealed class QuasarPluginCatalogEntry
 
     public string SourceRepo { get; set; } = string.Empty;
 
+    public string ManifestRepo { get; set; } = string.Empty;
+
+    public string ManifestBranch { get; set; } = string.Empty;
+
+    public string ManifestFile { get; set; } = string.Empty;
+
     public bool Hidden { get; set; }
 }

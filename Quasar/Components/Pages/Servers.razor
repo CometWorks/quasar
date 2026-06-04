@@ -8,6 +8,7 @@
 @inject IDialogService DialogService
 @inject WebServiceOptions Options
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
 
 <PageTitle>Servers</PageTitle>
 
@@ -75,7 +76,15 @@
                     <MudText Typo="Typo.caption" Class="mono">@context.UniqueName</MudText>
                 </MudTd>
                 <MudTd DataLabel="Port" Class="mono">@context.ServerPort</MudTd>
-                <MudTd DataLabel="Config">@GetConfigProfileName(context.ConfigProfileId)</MudTd>
+                <MudTd DataLabel="Config">
+                    <MudButton Variant="Variant.Text"
+                               Size="Size.Small"
+                               Color="Color.Primary"
+                               Disabled="@(!CanOpenConfigProfile(context.ConfigProfileId))"
+                               OnClick="@(() => OpenConfigProfileAsync(context.ConfigProfileId))">
+                        @GetConfigProfileName(context.ConfigProfileId)
+                    </MudButton>
+                </MudTd>
                 <MudTd DataLabel="Players">@GetPlayerCount(context.UniqueName)</MudTd>
                 <MudTd DataLabel="Process" Class="mono">@GetProcessDisplay(context.UniqueName)</MudTd>
                 <MudTd DataLabel="Agent">@GetAttachmentStatus(context.UniqueName)</MudTd>
@@ -134,6 +143,9 @@
 {
     private readonly HashSet<string> _expanded = new(StringComparer.OrdinalIgnoreCase);
     private bool _creatingWorldTemplate;
+
+    [Parameter]
+    public EventCallback<string> ConfigProfileSelected { get; set; }
 
     private IReadOnlyList<DedicatedServerInstanceDefinition> InstanceDefinitions => InstanceCatalog.GetInstances();
 
@@ -225,6 +237,20 @@
             return;
 
         await SaveDefinitionAsync(updated, "Server saved.");
+    }
+
+    private async Task OpenConfigProfileAsync(string configProfileId)
+    {
+        if (!CanOpenConfigProfile(configProfileId))
+            return;
+
+        if (ConfigProfileSelected.HasDelegate)
+        {
+            await ConfigProfileSelected.InvokeAsync(configProfileId);
+            return;
+        }
+
+        Navigation.NavigateTo($"/configs?profileId={Uri.EscapeDataString(configProfileId)}");
     }
 
     private async Task OpenConsoleDialogAsync(string uniqueName)
@@ -457,6 +483,10 @@
 
         return ConfigProfiles.GetProfile(configProfileId)?.Name ?? $"Missing: {configProfileId}";
     }
+
+    private bool CanOpenConfigProfile(string configProfileId) =>
+        !string.IsNullOrWhiteSpace(configProfileId) &&
+        ConfigProfiles.GetProfile(configProfileId) is not null;
 
     private string GetStateText(string uniqueName)
     {

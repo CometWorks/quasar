@@ -4,7 +4,7 @@
     <TitleContent>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
             <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" OnClick="Cancel" title="Cancel" />
-            <MudText Typo="Typo.h6">Pick world folder</MudText>
+            <MudText Typo="Typo.h6">@DialogTitle</MudText>
         </MudStack>
     </TitleContent>
     <DialogContent>
@@ -55,7 +55,7 @@
             {
                 <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">@_error</MudAlert>
             }
-            else if (FileBrowserService.IsWorldFolder(_currentPath))
+            else if (RequireWorldFolder && FileBrowserService.IsWorldFolder(_currentPath))
             {
                 <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Dense="true">
                     Sandbox.sbc found. Click "Use this folder" to select it.
@@ -85,7 +85,7 @@
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
         <MudButton Variant="Variant.Filled"
                    Color="Color.Primary"
-                   Disabled="@(!FileBrowserService.IsWorldFolder(_currentPath))"
+                   Disabled="@(!CanUseCurrentFolder)"
                    OnClick="UseCurrent">
             Use this folder
         </MudButton>
@@ -100,12 +100,22 @@
     [Parameter]
     public string? InitialPath { get; set; }
 
+    [Parameter]
+    public string DialogTitle { get; set; } = "Pick world folder";
+
+    [Parameter]
+    public bool RequireWorldFolder { get; set; } = true;
+
     private string _currentPath = string.Empty;
     private string _error = string.Empty;
     private IReadOnlyList<FileBrowserEntry> _entries = Array.Empty<FileBrowserEntry>();
     private IReadOnlyList<FileBrowserBreadcrumb> _breadcrumbs = Array.Empty<FileBrowserBreadcrumb>();
     private IReadOnlyList<FileBrowserShortcut> _shortcuts = Array.Empty<FileBrowserShortcut>();
     private bool _showHidden;
+    private bool CanUseCurrentFolder =>
+        string.IsNullOrWhiteSpace(_error) &&
+        Directory.Exists(_currentPath) &&
+        (!RequireWorldFolder || FileBrowserService.IsWorldFolder(_currentPath));
 
     protected override void OnInitialized()
     {

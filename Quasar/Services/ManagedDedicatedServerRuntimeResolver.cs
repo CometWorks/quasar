@@ -215,16 +215,9 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
             var process = new Process
             {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = steamCmdPath,
-                    Arguments = BuildDedicatedServerUpdateArguments(_options.DedicatedServerInstallDirectory),
-                    WorkingDirectory = Path.GetDirectoryName(steamCmdPath) ?? AppContext.BaseDirectory,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                },
+                StartInfo = CreateSteamCmdStartInfo(
+                    steamCmdPath,
+                    BuildDedicatedServerUpdateArguments(_options.DedicatedServerInstallDirectory)),
             };
 
             try
@@ -277,7 +270,10 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
         var managedPath = FindSteamCmdExecutable(_options.SteamCmdInstallDirectory);
         if (!string.IsNullOrWhiteSpace(managedPath))
+        {
+            EnsureSteamCmdExecutableBits(_options.SteamCmdInstallDirectory);
             return managedPath;
+        }
 
         var pathCandidate = ResolveSteamCmdPathFromEnvironment();
         if (!string.IsNullOrWhiteSpace(pathCandidate))
@@ -312,7 +308,10 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         {
             var steamCmdPath = FindSteamCmdExecutable(_options.SteamCmdInstallDirectory);
             if (!string.IsNullOrWhiteSpace(steamCmdPath))
+            {
+                EnsureSteamCmdExecutableBits(_options.SteamCmdInstallDirectory);
                 return steamCmdPath;
+            }
 
             Directory.CreateDirectory(MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory());
             var extractRoot = Path.Combine(MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory(), $"steamcmd-{Guid.NewGuid():N}");
@@ -348,6 +347,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
                 Directory.CreateDirectory(_options.SteamCmdInstallDirectory);
                 CopyDirectory(extractRoot, _options.SteamCmdInstallDirectory);
+                EnsureSteamCmdExecutableBits(_options.SteamCmdInstallDirectory);
 
                 steamCmdPath = FindSteamCmdExecutable(_options.SteamCmdInstallDirectory);
                 if (string.IsNullOrWhiteSpace(steamCmdPath))
@@ -356,7 +356,6 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                     return string.Empty;
                 }
 
-                EnsureExecutableBit(steamCmdPath);
                 _logger.LogInformation("Installed managed SteamCMD into {Path}.", _options.SteamCmdInstallDirectory);
                 return steamCmdPath;
             }
@@ -409,6 +408,39 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             : "+@sSteamCmdForcePlatformType windows ";
 
         return $"+force_install_dir {QuoteArgument(installDirectory)} {forcePlatform}+login anonymous +app_update {DedicatedServerAppId} validate +quit";
+    }
+
+    private static ProcessStartInfo CreateSteamCmdStartInfo(string steamCmdPath, string arguments)
+    {
+        var workingDirectory = Path.GetDirectoryName(steamCmdPath) ?? AppContext.BaseDirectory;
+        var fileName = steamCmdPath;
+        var processArguments = arguments;
+        var extension = Path.GetExtension(steamCmdPath);
+
+        if (OperatingSystem.IsWindows() &&
+            (string.Equals(extension, ".bat", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(extension, ".cmd", StringComparison.OrdinalIgnoreCase)))
+        {
+            fileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
+            processArguments = $"/d /s /c \"\"{steamCmdPath}\" {arguments}\"";
+        }
+        else if (!OperatingSystem.IsWindows() &&
+                 string.Equals(extension, ".sh", StringComparison.OrdinalIgnoreCase))
+        {
+            fileName = File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
+            processArguments = $"{QuoteArgument(steamCmdPath)} {arguments}";
+        }
+
+        return new ProcessStartInfo
+        {
+            FileName = fileName,
+            Arguments = processArguments,
+            WorkingDirectory = workingDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
     }
 
     private static bool LooksLikeDedicatedServerExecutable(string path)
@@ -717,6 +749,23 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         }
         catch
         {
+        }
+    }
+
+    private static void EnsureSteamCmdExecutableBits(string directory)
+    {
+        if (OperatingSystem.IsWindows() || string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+            return;
+
+        foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+        {
+            if (SteamCmdFileNames.Any(fileName => string.Equals(
+                    Path.GetFileName(file),
+                    fileName,
+                    StringComparison.OrdinalIgnoreCase)))
+            {
+                EnsureExecutableBit(file);
+            }
         }
     }
 

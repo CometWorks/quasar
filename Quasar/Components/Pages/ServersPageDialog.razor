@@ -6,7 +6,7 @@
         </MudStack>
     </TitleContent>
     <DialogContent>
-        <Servers />
+        <Servers ConfigProfileSelected="OpenConfigProfileAsync" />
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Done</MudButton>
@@ -18,5 +18,27 @@
     [CascadingParameter]
     private IMudDialogInstance MudDialog { get; set; } = default!;
 
+    [Inject]
+    private IDialogService DialogService { get; set; } = default!;
+
     private void Close() => MudDialog.Close();
+
+    private async Task OpenConfigProfileAsync(string configProfileId)
+    {
+        MudDialog.Close();
+
+        var parameters = new DialogParameters
+        {
+            [nameof(ConfigsPageDialog.InitialProfileId)] = configProfileId,
+        };
+
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            FullScreen = true,
+        };
+
+        var dialog = await DialogService.ShowAsync<ConfigsPageDialog>("Config Templates", parameters, options);
+        await dialog.Result;
+    }
 }

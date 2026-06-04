@@ -9,11 +9,14 @@ namespace Quasar.Services;
 
 public sealed class QuasarPluginCatalogService
 {
-    private const int CacheSchemaVersion = 4;
+    private const int CacheSchemaVersion = 5;
     public const string DotNetCompatPluginId = "se-dotnet-compat";
+    public const string LinuxCompatPluginId = "se-linux-compat";
     public const string DefaultHubName = "MagnetarHub";
     public const string DefaultHubRepo = "viktor-ferenczi/MagnetarHub";
     public const string DefaultHubBranch = "main";
+    public const string DotNetCompatManifestFile = "Plugins/DotNetCompat.xml";
+    public const string LinuxCompatManifestFile = "Plugins/LinuxCompat.xml";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -108,6 +111,9 @@ public sealed class QuasarPluginCatalogService
                         Tooltip = GetValue(root, "Tooltip"),
                         Runtimes = GetValue(root, "Runtimes"),
                         SourceRepo = GetValue(root, "RepoId", DefaultHubRepo),
+                        ManifestRepo = DefaultHubRepo,
+                        ManifestBranch = DefaultHubBranch,
+                        ManifestFile = GetArchiveEntryRelativePath(entry.FullName),
                         Hidden = GetBoolean(root, "Hidden"),
                     };
                 }
@@ -190,6 +196,13 @@ public sealed class QuasarPluginCatalogService
         return bool.TryParse(root.Element(name)?.Value?.Trim(), out var value) && value;
     }
 
+    private static string GetArchiveEntryRelativePath(string fullName)
+    {
+        var normalized = (fullName ?? string.Empty).Replace('\\', '/').Trim('/');
+        var slash = normalized.IndexOf('/', StringComparison.Ordinal);
+        return slash >= 0 ? normalized[(slash + 1)..] : normalized;
+    }
+
     private static QuasarPluginCatalogEntry Clone(QuasarPluginCatalogEntry entry)
     {
         return new QuasarPluginCatalogEntry
@@ -201,6 +214,9 @@ public sealed class QuasarPluginCatalogService
             Tooltip = entry.Tooltip,
             Runtimes = entry.Runtimes,
             SourceRepo = entry.SourceRepo,
+            ManifestRepo = entry.ManifestRepo,
+            ManifestBranch = entry.ManifestBranch,
+            ManifestFile = entry.ManifestFile,
             Hidden = entry.Hidden,
         };
     }

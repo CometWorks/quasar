@@ -24,17 +24,20 @@ public sealed class DedicatedServerRuntimePreparer
     private readonly WebServiceOptions _options;
     private readonly QuasarConfigProfileCatalog _configProfiles;
     private readonly QuasarWorldTemplateCatalog _worldTemplates;
+    private readonly QuasarPluginCatalogService _pluginCatalog;
 
     public DedicatedServerRuntimePreparer(
         ILogger<DedicatedServerRuntimePreparer> logger,
         WebServiceOptions options,
         QuasarConfigProfileCatalog configProfiles,
-        QuasarWorldTemplateCatalog worldTemplates)
+        QuasarWorldTemplateCatalog worldTemplates,
+        QuasarPluginCatalogService pluginCatalog)
     {
         _logger = logger;
         _options = options;
         _configProfiles = configProfiles;
         _worldTemplates = worldTemplates;
+        _pluginCatalog = pluginCatalog;
     }
 
     public async Task<PreparedDedicatedServerLaunch> PrepareAsync(
@@ -174,6 +177,7 @@ public sealed class DedicatedServerRuntimePreparer
         var currentTemplateName = string.IsNullOrWhiteSpace(configProfile.Name)
             ? "Quasar Current"
             : configProfile.Name.Trim();
+        var remotePluginSources = await BuildRemotePluginSourcesAsync(configProfile, cancellationToken);
 
         var sourcesDocument = new XDocument(
             new XDeclaration("1.0", "utf-8", null),
@@ -184,14 +188,12 @@ public sealed class DedicatedServerRuntimePreparer
                 new XElement("LocalHubSources"),
                 new XElement(
                     "RemoteHubSources",
-                    new XElement(
-                        "RemoteHub",
-                        new XElement("Name", QuasarPluginCatalogService.DefaultHubName),
-                        new XElement("Repo", QuasarPluginCatalogService.DefaultHubRepo),
-                        new XElement("Branch", QuasarPluginCatalogService.DefaultHubBranch),
-                        new XElement("Enabled", "true"),
-                        new XElement("Trusted", "true"))),
-                new XElement("RemotePluginSources"),
+                    remotePluginSources.UseDefaultHub
+                        ? CreateDefaultRemoteHubElement()
+                        : null),
+                new XElement(
+                    "RemotePluginSources",
+                    remotePluginSources.Entries.Select(CreateRemotePluginElement)),
                 new XElement(
                     "LocalPluginSources",
                     configProfile.DevFolders
@@ -249,6 +251,113 @@ public sealed class DedicatedServerRuntimePreparer
             SerializeXml(currentProfileDocument),
             cancellationToken);
     }
+
+    private async Task<RemotePluginSourceSet> BuildRemotePluginSourcesAsync(
+        QuasarConfigProfile configProfile,
+        CancellationToken cancellationToken)
+    {
+        var catalogEntries = _pluginCatalog.GetEntries();
+        var selectedPluginIds = configProfile.Plugins
+            .Where(plugin => QuasarPluginCatalogService.IsManualSelectionAllowed(plugin.PluginId))
+            .Select(plugin => plugin.PluginId.Trim())
+            .Where(pluginId => !string.IsNullOrWhiteSpace(pluginId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var catalogById = ToCatalogById(catalogEntries);
+
+        if (selectedPluginIds.Any(pluginId => !HasCatalogRemoteManifest(catalogById, pluginId)))
+        {
+            try
+            {
+                await _pluginCatalog.RefreshAsync(cancellationToken);
+                catalogById = ToCatalogById(_pluginCatalog.GetEntries());
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Failed refreshing plugin catalog before preparing Magnetar plugin sources.");
+            }
+        }
+
+        var entries = new Dictionary<string, QuasarPluginCatalogEntry>(StringComparer.OrdinalIgnoreCase);
+        var useDefaultHub = false;
+
+        foreach (var pluginId in selectedPluginIds)
+        {
+            if (catalogById.TryGetValue(pluginId, out var catalogEntry) &&
+                HasRemoteManifest(catalogEntry))
+            {
+                entries[pluginId] = catalogEntry;
+                continue;
+            }
+
+            useDefaultHub = true;
+        }
+
+        AddCoreRemotePluginSource(entries, catalogById, QuasarPluginCatalogService.DotNetCompatPluginId, QuasarPluginCatalogService.DotNetCompatManifestFile);
+        if (OperatingSystem.IsLinux())
+            AddCoreRemotePluginSource(entries, catalogById, QuasarPluginCatalogService.LinuxCompatPluginId, QuasarPluginCatalogService.LinuxCompatManifestFile);
+
+        return new RemotePluginSourceSet(useDefaultHub, entries.Values.OrderBy(entry => entry.Hidden).ThenBy(entry => entry.FriendlyName, StringComparer.OrdinalIgnoreCase).ToList());
+    }
+
+    private static Dictionary<string, QuasarPluginCatalogEntry> ToCatalogById(IReadOnlyList<QuasarPluginCatalogEntry> entries) =>
+        entries
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.PluginId))
+            .ToDictionary(entry => entry.PluginId, StringComparer.OrdinalIgnoreCase);
+
+    private static bool HasCatalogRemoteManifest(
+        IReadOnlyDictionary<string, QuasarPluginCatalogEntry> catalogById,
+        string pluginId) =>
+        catalogById.TryGetValue(pluginId, out var catalogEntry) &&
+        HasRemoteManifest(catalogEntry);
+
+    private static void AddCoreRemotePluginSource(
+        Dictionary<string, QuasarPluginCatalogEntry> entries,
+        IReadOnlyDictionary<string, QuasarPluginCatalogEntry> catalogById,
+        string pluginId,
+        string manifestFile)
+    {
+        if (catalogById.TryGetValue(pluginId, out var catalogEntry) &&
+            HasRemoteManifest(catalogEntry))
+        {
+            entries[pluginId] = catalogEntry;
+            return;
+        }
+
+        entries[pluginId] = new QuasarPluginCatalogEntry
+        {
+            PluginId = pluginId,
+            FriendlyName = pluginId,
+            ManifestRepo = QuasarPluginCatalogService.DefaultHubRepo,
+            ManifestBranch = QuasarPluginCatalogService.DefaultHubBranch,
+            ManifestFile = manifestFile,
+            Hidden = true,
+        };
+    }
+
+    private static bool HasRemoteManifest(QuasarPluginCatalogEntry entry) =>
+        !string.IsNullOrWhiteSpace(entry.ManifestRepo) &&
+        !string.IsNullOrWhiteSpace(entry.ManifestBranch) &&
+        !string.IsNullOrWhiteSpace(entry.ManifestFile);
+
+    private static XElement CreateDefaultRemoteHubElement() =>
+        new(
+            "RemoteHub",
+            new XElement("Name", QuasarPluginCatalogService.DefaultHubName),
+            new XElement("Repo", QuasarPluginCatalogService.DefaultHubRepo),
+            new XElement("Branch", QuasarPluginCatalogService.DefaultHubBranch),
+            new XElement("Enabled", "true"),
+            new XElement("Trusted", "true"));
+
+    private static XElement CreateRemotePluginElement(QuasarPluginCatalogEntry entry) =>
+        new(
+            "RemotePlugin",
+            new XElement("Name", string.IsNullOrWhiteSpace(entry.FriendlyName) ? entry.PluginId : entry.FriendlyName),
+            new XElement("Repo", entry.ManifestRepo),
+            new XElement("Branch", entry.ManifestBranch),
+            new XElement("File", entry.ManifestFile),
+            new XElement("Enabled", "true"),
+            new XElement("Trusted", "true"));
 
     private async Task<IReadOnlyList<string>> DeployQuasarAgentAsync(
         string localPluginDirectory,
@@ -335,6 +444,8 @@ public sealed class DedicatedServerRuntimePreparer
         AgentPluginFileName,
         "Magnetar.Protocol.dll",
     ];
+
+    private sealed record RemotePluginSourceSet(bool UseDefaultHub, IReadOnlyList<QuasarPluginCatalogEntry> Entries);
 
     private QuasarConfigProfile ResolveConfigProfile(DedicatedServerInstanceDefinition definition)
     {

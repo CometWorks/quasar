@@ -6,7 +6,7 @@
         </MudStack>
     </TitleContent>
     <DialogContent>
-        <Configs />
+        <Configs InitialProfileId="@InitialProfileId" />
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Done</MudButton>
@@ -17,6 +17,9 @@
 {
     [CascadingParameter]
     private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public string? InitialProfileId { get; set; }
 
     private void Close() => MudDialog.Close();
 }

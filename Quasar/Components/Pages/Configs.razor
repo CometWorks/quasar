@@ -681,13 +681,13 @@
                             <MudItem xs="12" md="6">
                                 <MudTextField @bind-Value="_newDevFolderDataFile" Label="Manifest file" Variant="Variant.Outlined" Immediate="true" HelperText="Manifest XML filename relative to the folder (e.g. Plugin.xml)." />
                             </MudItem>
-                            <MudItem xs="12" md="9">
-                                <MudTextField @bind-Value="_newDevFolderPath" Label="Folder" Variant="Variant.Outlined" Immediate="true" />
-                            </MudItem>
-                            <MudItem xs="12" md="3">
-                                <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" Class="configs-add-button" StartIcon="@Icons.Material.Filled.FolderOpen" OnClick="OpenDevFolderPickerAsync">
-                                    Browse
-                                </MudButton>
+                            <MudItem xs="12">
+                                <MudStack Row="true" AlignItems="AlignItems.Stretch" Spacing="2" Class="configs-dev-folder-path-row">
+                                    <MudTextField @bind-Value="_newDevFolderPath" Label="Folder" Variant="Variant.Outlined" Immediate="true" Class="configs-dev-folder-path-field" />
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Class="configs-add-button configs-dev-folder-browse" StartIcon="@Icons.Material.Filled.FolderOpen" OnClick="OpenDevFolderPickerAsync">
+                                        Browse
+                                    </MudButton>
+                                </MudStack>
                             </MudItem>
                             <MudItem xs="12" md="4">
                                 <MudSwitch @bind-Value="_newDevFolderDebug" Color="Color.Primary" Label="Debug build" />
@@ -751,6 +751,13 @@
     private string _expandedPluginPanelKey = PluginListPanelKey;
     private string _selectedProfileSnapshot = string.Empty;
     private bool _hasExplicitCategoryExpansion;
+
+    [Parameter]
+    public string? InitialProfileId { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "profileId")]
+    public string? RequestedProfileId { get; set; }
 
     private IReadOnlyList<QuasarConfigProfile> Templates => ConfigProfiles.GetProfiles();
     private IReadOnlyList<QuasarPluginCatalogEntry> CatalogEntries => PluginCatalog.GetEntries();
@@ -821,7 +828,7 @@
         ConfigProfiles.Changed += HandleProfilesChanged;
         InstanceCatalog.Changed += HandleInstancesChanged;
         WorkshopCredentials.Changed += HandleWorkshopCredentialsChanged;
-        SelectProfile(Templates.FirstOrDefault()?.ConfigProfileId ?? string.Empty);
+        SelectProfile(GetInitialProfileId());
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -1000,6 +1007,21 @@
         _selectedProfileSnapshot = CreateProfileSnapshot(_editor);
         _hasExplicitCategoryExpansion = true;
         _expandedCategoryKey = null;
+    }
+
+    private string GetInitialProfileId()
+    {
+        var requested = FirstExistingProfileId(InitialProfileId) ?? FirstExistingProfileId(RequestedProfileId);
+        return requested ?? Templates.FirstOrDefault()?.ConfigProfileId ?? string.Empty;
+    }
+
+    private string? FirstExistingProfileId(string? configProfileId)
+    {
+        if (string.IsNullOrWhiteSpace(configProfileId))
+            return null;
+
+        var trimmed = configProfileId.Trim();
+        return ConfigProfiles.GetProfile(trimmed) is null ? null : trimmed;
     }
 
     private bool HasPendingChanges() =>
@@ -1644,6 +1666,8 @@
         var parameters = new DialogParameters
         {
             [nameof(FolderPickerDialog.InitialPath)] = _newDevFolderPath,
+            [nameof(FolderPickerDialog.DialogTitle)] = "Pick plugin source folder",
+            [nameof(FolderPickerDialog.RequireWorldFolder)] = false,
         };
 
         var dialog = await DialogService.ShowAsync<FolderPickerDialog>(
