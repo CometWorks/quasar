@@ -89,19 +89,26 @@ else
                 </MudStack>
             </MudTd>
             <MudTd Style="text-align: right;">
-                <MudMenu Dense="true" Icon="@Icons.Material.Filled.MoreVert" Disabled="@(!context.CanModerate)">
+                <MudMenu Dense="true"
+                         Icon="@Icons.Material.Filled.MoreVert"
+                         Disabled="@(!context.CanModerate)"
+                         AnchorOrigin="Origin.BottomRight"
+                         TransformOrigin="Origin.TopRight">
+                    <MudMenuItem Disabled="true">Set role</MudMenuItem>
+                    @foreach (var promoteLevel in PromoteLevels)
+                    {
+                        <MudMenuItem Disabled="@IsCurrentPromoteLevel(context.Record, promoteLevel)"
+                                     OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.SetPlayerPromoteLevel, promoteLevel))">
+                            @promoteLevel
+                        </MudMenuItem>
+                    }
+                    <MudDivider />
                     <MudMenuItem Disabled="@(!context.IsOnline)"
                                  OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.KickPlayer))">
                         Kick
                     </MudMenuItem>
                     <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(context, context.Record.IsBanned ? ServerCommandType.UnbanPlayer : ServerCommandType.BanPlayer))">
                         @(context.Record.IsBanned ? "Unban" : "Ban")
-                    </MudMenuItem>
-                    <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.PromotePlayer))">
-                        Promote
-                    </MudMenuItem>
-                    <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.DemotePlayer))">
-                        Demote
                     </MudMenuItem>
                 </MudMenu>
             </MudTd>
@@ -111,6 +118,8 @@ else
 
 @code
 {
+    private static readonly string[] PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"];
+
     private string _searchText = string.Empty;
 
     private IReadOnlyList<KnownPlayerView> KnownPlayerViews => BuildKnownPlayerViews();
@@ -184,7 +193,7 @@ else
                || view.Record.SteamId.ToString().Contains(search, StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task SendPlayerCommandAsync(KnownPlayerView view, ServerCommandType commandType)
+    private async Task SendPlayerCommandAsync(KnownPlayerView view, ServerCommandType commandType, string text = "")
     {
         if (view.Agent is null)
         {
@@ -200,6 +209,7 @@ else
                 AgentId = view.Agent.AgentId,
                 ServerId = view.Agent.ServerKey,
                 CommandType = commandType,
+                Text = text,
                 SteamId = view.Record.SteamId,
             });
 
@@ -250,6 +260,11 @@ else
 
         return record.IsAdmin ? "Admin" : "Player";
     }
+
+    private static bool IsCurrentPromoteLevel(KnownPlayerRecord record, string promoteLevel) =>
+        string.Equals(GetRoleLabel(record), promoteLevel, StringComparison.OrdinalIgnoreCase) ||
+        (string.Equals(promoteLevel, "None", StringComparison.OrdinalIgnoreCase) &&
+         string.Equals(GetRoleLabel(record), "Player", StringComparison.OrdinalIgnoreCase));
 
     private static string GetServiceLabel(string? serviceName)
     {

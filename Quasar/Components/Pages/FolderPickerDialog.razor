@@ -25,16 +25,31 @@
 
             <MudCheckBox T="bool" Value="_showHidden" ValueChanged="HandleShowHiddenChanged" Label="Show hidden folders" Dense="true" />
 
-            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                @foreach (var shortcut in _shortcuts)
+            @if (_shortcuts.Count > 0)
+            {
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                    @foreach (var shortcut in _shortcuts)
+                    {
+                        <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => NavigateTo(shortcut.FullPath))">
+                            @shortcut.Label
+                        </MudChip>
+                    }
+                </MudStack>
+            }
+
+            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="0" Class="folder-picker-breadcrumbs">
+                @foreach (var crumb in _breadcrumbs)
                 {
-                    <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => NavigateTo(shortcut.FullPath))">
-                        @shortcut.Label
-                    </MudChip>
+                    var isCurrent = string.Equals(crumb.FullPath, _currentPath, StringComparison.OrdinalIgnoreCase);
+                    <MudButton Variant="Variant.Text"
+                               Size="Size.Small"
+                               Disabled="@isCurrent"
+                               Class="folder-picker-breadcrumb"
+                               OnClick="@(() => NavigateTo(crumb.FullPath))">
+                        @crumb.Label
+                    </MudButton>
                 }
             </MudStack>
-
-            <MudBreadcrumbs Items="_breadcrumbs.Select(crumb => new BreadcrumbItem(crumb.Label, crumb.FullPath)).ToList()" />
 
             @if (!string.IsNullOrWhiteSpace(_error))
             {

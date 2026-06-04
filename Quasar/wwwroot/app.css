@@ -211,46 +211,6 @@ h1:focus {
     border-radius: inherit;
 }
 
-.instance-editor-select-popover {
-    border: 1px solid var(--mud-palette-lines-default);
-    border-radius: calc(var(--mud-default-borderradius) + 4px);
-    background: var(--mud-palette-surface);
-    box-shadow: var(--mud-elevation-8);
-    overflow: hidden;
-}
-
-.instance-editor-select-popover .mud-paper {
-    box-shadow: none;
-}
-
-.instance-editor-select-list {
-    padding: 0.35rem;
-    background: var(--mud-palette-surface);
-}
-
-.instance-editor-select-list .mud-list-item {
-    border-radius: var(--mud-default-borderradius);
-    min-height: 2.6rem;
-    transition: background-color 120ms ease, box-shadow 120ms ease, color 120ms ease;
-}
-
-.instance-editor-select-list .mud-list-item + .mud-list-item {
-    margin-top: 0.2rem;
-}
-
-.instance-editor-select-list .mud-list-item-clickable:hover,
-.instance-editor-select-list .mud-list-item-clickable:focus-visible,
-.instance-editor-select-list .mud-list-item-clickable:active {
-    background: rgba(var(--mud-palette-primary-rgb), 0.08);
-}
-
-.instance-editor-select-list .mud-list-item-clickable.mud-selected-item {
-    background: rgba(var(--mud-palette-primary-rgb), 0.14);
-    color: var(--mud-palette-primary);
-    box-shadow: inset 3px 0 0 var(--mud-palette-primary);
-    font-weight: 500;
-}
-
 @media (max-width: 959.98px) {
     .magnetar-body {
         padding-inline: 0.5rem;
@@ -262,10 +222,6 @@ h1:focus {
 }
 
 @media (min-width: 1280px) {
-    body {
-        zoom: 0.9;
-    }
-
     :root {
         --mud-typography-h4-size: 1.75rem;
         --mud-typography-h4-lineheight: 2rem;

@@ -90,6 +90,7 @@
                         }
                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Terminal" Color="Color.Default" title="Show console output" OnClick="@(() => OpenConsoleDialogAsync(context.UniqueName))" />
                         <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => OpenCloneDialogAsync(context))">Clone</MudButton>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" Disabled="@(!CanCreateWorldTemplate(context))" OnClick="@(() => CreateWorldTemplateAsync(context))">Template</MudButton>
                         <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => OpenEditDialogAsync(context))">Edit</MudButton>
                         <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context.UniqueName))">Delete</MudButton>
                     </MudStack>
@@ -132,6 +133,7 @@
 @code
 {
     private readonly HashSet<string> _expanded = new(StringComparer.OrdinalIgnoreCase);
+    private bool _creatingWorldTemplate;
 
     private IReadOnlyList<DedicatedServerInstanceDefinition> InstanceDefinitions => InstanceCatalog.GetInstances();
 
@@ -240,6 +242,60 @@
         };
 
         await DialogService.ShowAsync<InstanceConsoleDialog>($"Console — {uniqueName}", parameters, options);
+    }
+
+    private async Task CreateWorldTemplateAsync(DedicatedServerInstanceDefinition definition)
+    {
+        if (!CanCreateWorldTemplate(definition))
+        {
+            Snackbar.Add("Stop the server before creating a world template from its current state.", Severity.Warning);
+            return;
+        }
+
+        var worldPath = definition.WorldPath?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(worldPath) || !Directory.Exists(worldPath))
+        {
+            Snackbar.Add($"World path not found for '{definition.UniqueName}'.", Severity.Error);
+            return;
+        }
+
+        if (!File.Exists(Path.Combine(worldPath, "Sandbox.sbc")))
+        {
+            Snackbar.Add($"World path '{worldPath}' does not contain Sandbox.sbc.", Severity.Error);
+            return;
+        }
+
+        var defaultName = $"{GetDisplayName(definition)} Snapshot {DateTime.Now:yyyy-MM-dd HHmm}";
+        var parameters = new DialogParameters
+        {
+            [nameof(WorldTemplateFromServerDialog.DefaultName)] = defaultName,
+            [nameof(WorldTemplateFromServerDialog.DefaultDescription)] = $"Created from stopped server '{definition.UniqueName}'.",
+            [nameof(WorldTemplateFromServerDialog.WorldPath)] = worldPath,
+        };
+
+        var dialog = await DialogService.ShowAsync<WorldTemplateFromServerDialog>(
+            "Create World Template",
+            parameters,
+            new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small });
+
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not WorldTemplateFromServerDialog.TemplateRequest request)
+            return;
+
+        _creatingWorldTemplate = true;
+        try
+        {
+            var template = await WorldTemplates.ImportAsync(request.Name, request.Description, worldPath);
+            Snackbar.Add($"World template '{template.Name}' created.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            _creatingWorldTemplate = false;
+        }
     }
 
     private async Task<DedicatedServerInstanceDefinition?> ShowEditorDialogAsync(DedicatedServerInstanceDefinition definition, bool isEditing)
@@ -430,6 +486,15 @@
             or DedicatedServerInstanceProcessState.Running
             or DedicatedServerInstanceProcessState.Restarting
             or DedicatedServerInstanceProcessState.Stopping;
+    }
+
+    private bool CanCreateWorldTemplate(DedicatedServerInstanceDefinition definition)
+    {
+        if (_creatingWorldTemplate || definition.GoalState != DedicatedServerInstanceGoalState.Off)
+            return false;
+
+        var state = GetRuntime(definition.UniqueName)?.State ?? DedicatedServerInstanceProcessState.Stopped;
+        return state == DedicatedServerInstanceProcessState.Stopped;
     }
 
     private DedicatedServerInstanceRuntimeSnapshot? GetRuntime(string uniqueName)

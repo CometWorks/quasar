@@ -86,11 +86,21 @@ else
             <MudTd DataLabel="Role">@GetRoleLabel(context)</MudTd>
             <MudTd DataLabel="Ping">@context.PingMs</MudTd>
             <MudTd Style="text-align: right;">
-                <MudMenu Dense="true" Icon="@Icons.Material.Filled.MoreVert">
+                <MudMenu Dense="true"
+                         Icon="@Icons.Material.Filled.MoreVert"
+                         AnchorOrigin="Origin.BottomRight"
+                         TransformOrigin="Origin.TopRight">
+                    <MudMenuItem Disabled="true">Set role</MudMenuItem>
+                    @foreach (var promoteLevel in PromoteLevels)
+                    {
+                        <MudMenuItem Disabled="@IsCurrentPromoteLevel(context, promoteLevel)"
+                                     OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.SetPlayerPromoteLevel, context.SteamId, promoteLevel))">
+                            @promoteLevel
+                        </MudMenuItem>
+                    }
+                    <MudDivider />
                     <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.KickPlayer, context.SteamId))">Kick</MudMenuItem>
                     <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.BanPlayer, context.SteamId))">Ban</MudMenuItem>
-                    <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.PromotePlayer, context.SteamId))">Promote</MudMenuItem>
-                    <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.DemotePlayer, context.SteamId))">Demote</MudMenuItem>
                 </MudMenu>
             </MudTd>
         </RowTemplate>
@@ -140,6 +150,8 @@ else
 
 @code
 {
+    private static readonly string[] PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"];
+
     [Parameter]
     public DedicatedServerInstanceDefinition? Instance { get; set; }
 
@@ -170,9 +182,9 @@ else
         _chatText = string.Empty;
     }
 
-    private Task SendPlayerCommandAsync(ServerCommandType commandType, long steamId)
+    private Task SendPlayerCommandAsync(ServerCommandType commandType, long steamId, string text = "")
     {
-        return SendCommandAsync(commandType, steamId: steamId);
+        return SendCommandAsync(commandType, text, steamId);
     }
 
     private async Task SendCommandAsync(ServerCommandType commandType, string text = "", long? steamId = null)
@@ -278,4 +290,9 @@ else
 
         return player.IsAdmin ? "Admin" : "Player";
     }
+
+    private static bool IsCurrentPromoteLevel(PlayerSnapshot player, string promoteLevel) =>
+        string.Equals(GetRoleLabel(player), promoteLevel, StringComparison.OrdinalIgnoreCase) ||
+        (string.Equals(promoteLevel, "None", StringComparison.OrdinalIgnoreCase) &&
+         string.Equals(GetRoleLabel(player), "Player", StringComparison.OrdinalIgnoreCase));
 }

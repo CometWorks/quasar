@@ -1,0 +1,64 @@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Create World Template</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudTextField @bind-Value="_name"
+                          Label="Template name"
+                          Variant="Variant.Outlined"
+                          Required="true"
+                          RequiredError="Template name required." />
+            <MudTextField @bind-Value="_description"
+                          Label="Description"
+                          Variant="Variant.Outlined"
+                          Lines="2" />
+            <div>
+                <MudText Typo="Typo.caption">Source world path</MudText>
+                <MudText Typo="Typo.caption" Class="mono">@WorldPath</MudText>
+            </div>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!CanCreate)" OnClick="Create">Create</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public string DefaultName { get; set; } = string.Empty;
+
+    [Parameter]
+    public string DefaultDescription { get; set; } = string.Empty;
+
+    [Parameter]
+    public string WorldPath { get; set; } = string.Empty;
+
+    private string _name = string.Empty;
+    private string _description = string.Empty;
+
+    private bool CanCreate => !string.IsNullOrWhiteSpace(_name);
+
+    public sealed record TemplateRequest(string Name, string Description);
+
+    protected override void OnInitialized()
+    {
+        _name = DefaultName;
+        _description = DefaultDescription;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void Create()
+    {
+        if (string.IsNullOrWhiteSpace(_name))
+            return;
+
+        MudDialog.Close(DialogResult.Ok(new TemplateRequest(_name.Trim(), _description.Trim())));
+    }
+}

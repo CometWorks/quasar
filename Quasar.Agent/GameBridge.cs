@@ -27,6 +27,14 @@ namespace Quasar.Agent
     public class GameBridge
     {
         private static readonly TimeSpan SnapshotInterval = TimeSpan.FromSeconds(1);
+        private static readonly MyPromoteLevel[] PromoteLevels =
+        {
+            MyPromoteLevel.None,
+            MyPromoteLevel.Scripter,
+            MyPromoteLevel.Moderator,
+            MyPromoteLevel.SpaceMaster,
+            MyPromoteLevel.Admin,
+        };
 
         private static readonly JsonSerializerSettings PayloadJsonSettings = new JsonSerializerSettings
         {
@@ -505,12 +513,21 @@ namespace Quasar.Agent
                     return CreateResult(command, true, $"Unban requested for {command.SteamId}.");
 
                 case ServerCommandType.PromotePlayer:
-                    MySession.Static.SetUserPromoteLevel((ulong)(command.SteamId ?? 0), MyPromoteLevel.Admin);
-                    return CreateResult(command, true, $"Promote requested for {command.SteamId}.");
+                    var promotedLevel = GetAdjacentPromoteLevel((ulong)(command.SteamId ?? 0), 1);
+                    MySession.Static.SetUserPromoteLevel((ulong)(command.SteamId ?? 0), promotedLevel);
+                    return CreateResult(command, true, $"Promote requested for {command.SteamId} to {promotedLevel}.");
 
                 case ServerCommandType.DemotePlayer:
-                    MySession.Static.SetUserPromoteLevel((ulong)(command.SteamId ?? 0), MyPromoteLevel.None);
-                    return CreateResult(command, true, $"Demote requested for {command.SteamId}.");
+                    var demotedLevel = GetAdjacentPromoteLevel((ulong)(command.SteamId ?? 0), -1);
+                    MySession.Static.SetUserPromoteLevel((ulong)(command.SteamId ?? 0), demotedLevel);
+                    return CreateResult(command, true, $"Demote requested for {command.SteamId} to {demotedLevel}.");
+
+                case ServerCommandType.SetPlayerPromoteLevel:
+                    if (!TryParsePromoteLevel(command.Text, out var targetLevel))
+                        return CreateResult(command, false, $"Unknown promote level '{command.Text}'.");
+
+                    MySession.Static.SetUserPromoteLevel((ulong)(command.SteamId ?? 0), targetLevel);
+                    return CreateResult(command, true, $"Promote level set to {targetLevel} for {command.SteamId}.");
 
                 case ServerCommandType.ListEntities:
                     return ListEntities(command);
@@ -613,6 +630,28 @@ namespace Quasar.Agent
             {
                 return string.Empty;
             }
+        }
+
+        private static MyPromoteLevel GetAdjacentPromoteLevel(ulong steamId, int direction)
+        {
+            var current = MySession.Static.GetUserPromoteLevel(steamId);
+            var index = Array.IndexOf(PromoteLevels, current);
+            if (index < 0)
+                index = 0;
+
+            return PromoteLevels[Math.Max(0, Math.Min(PromoteLevels.Length - 1, index + direction))];
+        }
+
+        private static bool TryParsePromoteLevel(string value, out MyPromoteLevel promoteLevel)
+        {
+            if (Enum.TryParse(value?.Trim() ?? string.Empty, ignoreCase: true, out promoteLevel) &&
+                Array.IndexOf(PromoteLevels, promoteLevel) >= 0)
+            {
+                return true;
+            }
+
+            promoteLevel = MyPromoteLevel.None;
+            return false;
         }
 
         private string GetServerName(MySession session)

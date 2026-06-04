@@ -9,6 +9,8 @@ namespace Quasar.Services;
 
 public sealed class KnownPlayerCatalog
 {
+    private static readonly string[] PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"];
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -218,18 +220,45 @@ public sealed class KnownPlayerCatalog
                 break;
 
             case ServerCommandType.PromotePlayer:
-                changed |= Assign(record.PromoteLevel, "Admin", value => record.PromoteLevel = value);
-                changed |= Assign(record.IsAdmin, true, value => record.IsAdmin = value);
+                var promotedLevel = GetAdjacentPromoteLevel(record.PromoteLevel, 1);
+                changed |= Assign(record.PromoteLevel, promotedLevel, value => record.PromoteLevel = value);
+                changed |= Assign(record.IsAdmin, IsAdminLevel(promotedLevel), value => record.IsAdmin = value);
                 break;
 
             case ServerCommandType.DemotePlayer:
-                changed |= Assign(record.PromoteLevel, "None", value => record.PromoteLevel = value);
-                changed |= Assign(record.IsAdmin, false, value => record.IsAdmin = value);
+                var demotedLevel = GetAdjacentPromoteLevel(record.PromoteLevel, -1);
+                changed |= Assign(record.PromoteLevel, demotedLevel, value => record.PromoteLevel = value);
+                changed |= Assign(record.IsAdmin, IsAdminLevel(demotedLevel), value => record.IsAdmin = value);
+                break;
+
+            case ServerCommandType.SetPlayerPromoteLevel:
+                var targetLevel = NormalizePromoteLevel(command.Text);
+                changed |= Assign(record.PromoteLevel, targetLevel, value => record.PromoteLevel = value);
+                changed |= Assign(record.IsAdmin, IsAdminLevel(targetLevel), value => record.IsAdmin = value);
                 break;
         }
 
         return changed;
     }
+
+    private static string GetAdjacentPromoteLevel(string currentLevel, int direction)
+    {
+        var normalized = NormalizePromoteLevel(currentLevel);
+        var index = Array.FindIndex(PromoteLevels, level => string.Equals(level, normalized, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+            index = 0;
+
+        return PromoteLevels[Math.Clamp(index + direction, 0, PromoteLevels.Length - 1)];
+    }
+
+    private static string NormalizePromoteLevel(string? level)
+    {
+        var normalized = PromoteLevels.FirstOrDefault(candidate => string.Equals(candidate, level?.Trim(), StringComparison.OrdinalIgnoreCase));
+        return normalized ?? "None";
+    }
+
+    private static bool IsAdminLevel(string level) =>
+        string.Equals(level, "Admin", StringComparison.OrdinalIgnoreCase);
 
     private void ScheduleSave()
     {

@@ -1,5 +1,6 @@
 @page "/configs"
 @implements IDisposable
+@using System.Text.Json
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarPluginCatalogService PluginCatalog
 @inject QuasarWorkshopModResolver WorkshopMods
@@ -56,7 +57,7 @@
                                 : "config-template-button";
                             <MudPaper Class="@profileTileClass" @key="template.ConfigProfileId">
                                 <MudStack Row="true" AlignItems="AlignItems.Start" Justify="Justify.SpaceBetween" Spacing="1" Class="config-template-row">
-                                    <MudButton Variant="Variant.Text" Color="Color.Inherit" Class="@profileButtonClass" Style="flex: 1 1 auto; min-width: 0;" OnClick="@(() => SelectProfile(template.ConfigProfileId))">
+                                    <MudButton Variant="Variant.Text" Color="Color.Inherit" Class="@profileButtonClass" Style="flex: 1 1 auto; min-width: 0;" OnClick="@(() => SelectProfileFromListAsync(template.ConfigProfileId))">
                                         <MudStack AlignItems="AlignItems.Start" Spacing="0">
                                             <MudText Typo="Typo.subtitle2">@template.Name</MudText>
                                             <MudText Typo="Typo.caption" Class="config-secondary">
@@ -124,7 +125,7 @@
 
                     <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-4">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveTemplateAsync">Save Template</MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ResetEditor">Reset</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="ResetEditorAsync">Reset</MudButton>
                     </MudStack>
                 </MudPaper>
 
@@ -316,184 +317,276 @@
 
                     <MudTabPanel Text="Plugins">
                         <MudPaper Class="server-card pa-4" Square="true">
-                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
-                            <MudTextField
-                                @bind-Value="_pluginSearch"
-                                Label="Search plugin names"
-                                Variant="Variant.Outlined"
-                                Immediate="true"
-                                Adornment="Adornment.Start"
-                                AdornmentIcon="@Icons.Material.Filled.Search"
-                                Class="configs-search-field" />
-                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="RefreshPluginCatalogAsync" Disabled="@_catalogRefreshing">
-                                @(_catalogRefreshing ? "Refreshing..." : "Refresh Catalog")
-                            </MudButton>
-                            <MudChip T="string" Variant="Variant.Outlined">Selected @_editor.Plugins.Count</MudChip>
-                            <MudChip T="string" Variant="Variant.Outlined">Catalog @FilteredCatalogEntries.Count</MudChip>
-                        </MudStack>
+                        <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="configs-expansion-panels mb-4">
+                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsPluginPanelExpanded(PluginListPanelKey)" ExpandedChanged="@(expanded => SetPluginPanelExpanded(PluginListPanelKey, expanded))">
+                                <TitleContent>
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                        <MudText Typo="Typo.subtitle2">Plugin list</MudText>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_editor.Plugins.Count</MudChip>
+                                    </MudStack>
+                                </TitleContent>
+                                <ChildContent>
+                                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3 mt-2">
+                                        <MudTextField
+                                            @bind-Value="_pluginSearch"
+                                            Label="Filter selected plugins"
+                                            Variant="Variant.Outlined"
+                                            Immediate="true"
+                                            Adornment="Adornment.Start"
+                                            AdornmentIcon="@Icons.Material.Filled.Search"
+                                            Class="configs-search-field" />
+                                        <MudChip T="string" Variant="Variant.Outlined">Selected plugins @_editor.Plugins.Count</MudChip>
+                                    </MudStack>
 
-                        @if (_editor.Plugins.Count > 0)
-                        {
-                            <MudText Typo="Typo.subtitle2" Class="mb-2">Selected Plugins</MudText>
-                            <MudStack Spacing="1" Class="mb-4">
-                                @foreach (var plugin in _editor.Plugins.Where(MatchesPluginSearch))
-                                {
-                                    <MudPaper Class="pa-3 config-selection-row" @key="plugin.PluginId">
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                            <MudStack Spacing="0">
-                                                <MudText Typo="Typo.subtitle2">@plugin.DisplayName</MudText>
-                                                <MudText Typo="Typo.caption" Class="config-secondary">@plugin.PluginId</MudText>
-                                            </MudStack>
-                                            <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePlugin(plugin.PluginId))" />
-                                        </MudStack>
-                                    </MudPaper>
-                                }
-                            </MudStack>
-                        }
+                                    <MudTable T="QuasarPluginSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="FilteredPlugins">
+                                        <HeaderContent>
+                                            <MudTh>Name</MudTh>
+                                            <MudTh>Plugin ID</MudTh>
+                                            <MudTh></MudTh>
+                                        </HeaderContent>
+                                        <RowTemplate>
+                                            <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+                                            <MudTd DataLabel="Plugin ID" Class="mono">@context.PluginId</MudTd>
+                                            <MudTd Style="text-align:right;">
+                                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePlugin(context.PluginId))" />
+                                            </MudTd>
+                                        </RowTemplate>
+                                        <NoRecordsContent>
+                                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                                @(_editor.Plugins.Count == 0 ? "No plugins selected." : "No plugins match current search.")
+                                            </MudAlert>
+                                        </NoRecordsContent>
+                                    </MudTable>
+                                </ChildContent>
+                            </MudExpansionPanel>
 
-                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.End" Spacing="1" Class="mb-4">
-                            <MudTextField @bind-Value="_customPluginId" Label="Add custom plugin ID" Variant="Variant.Outlined" Immediate="true" />
-                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="AddCustomPlugin" Disabled="@string.IsNullOrWhiteSpace(_customPluginId)">
-                                Add Custom
-                            </MudButton>
-                        </MudStack>
+                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsPluginPanelExpanded(PluginCatalogPanelKey)" ExpandedChanged="@(expanded => SetPluginPanelExpanded(PluginCatalogPanelKey, expanded))">
+                                <TitleContent>
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                        <MudText Typo="Typo.subtitle2">Plugin catalog</MudText>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@FilteredCatalogEntries.Count</MudChip>
+                                    </MudStack>
+                                </TitleContent>
+                                <ChildContent>
+                                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4 mt-2">
+                                        <MudTextField
+                                            @bind-Value="_pluginSearch"
+                                            Label="Search plugin catalog"
+                                            Variant="Variant.Outlined"
+                                            Immediate="true"
+                                            Adornment="Adornment.Start"
+                                            AdornmentIcon="@Icons.Material.Filled.Search"
+                                            Class="configs-search-field" />
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="RefreshPluginCatalogAsync" Disabled="@_catalogRefreshing">
+                                            @(_catalogRefreshing ? "Refreshing..." : "Refresh Catalog")
+                                        </MudButton>
+                                        <MudChip T="string" Variant="Variant.Outlined">Selected @_editor.Plugins.Count</MudChip>
+                                    </MudStack>
 
-                        @if (CatalogEntries.Count == 0)
-                        {
-                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                                Plugin catalog empty. Refresh to download MagnetarHub.
-                            </MudAlert>
-                        }
-                        else if (SelectableCatalogEntryCount == 0 && HasHiddenCatalogEntries)
-                        {
-                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                                MagnetarHub currently exposes only hidden or automatic plugins. They are not selectable manually.
-                            </MudAlert>
-                        }
-                        else
-                        {
-                            <MudTable T="QuasarPluginCatalogEntry" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredCatalogEntries">
-                                <HeaderContent>
-                                    <MudTh>Use</MudTh>
-                                    <MudTh>Name</MudTh>
-                                    <MudTh>Plugin Id</MudTh>
-                                    <MudTh>Author</MudTh>
-                                    <MudTh>Description</MudTh>
-                                </HeaderContent>
-                                <RowTemplate>
-                                    <MudTd DataLabel="Use">
-                                        <MudCheckBox T="bool" Value="IsPluginSelected(context.PluginId)" ValueChanged="@(value => SetPluginSelection(context, value))" />
-                                    </MudTd>
-                                    <MudTd DataLabel="Name">
-                                        <MudStack Spacing="0">
-                                            <MudText Typo="Typo.subtitle2">@context.FriendlyName</MudText>
-                                            @if (context.Hidden)
-                                            {
-                                                <MudText Typo="Typo.caption" Class="config-secondary">Hidden in hub</MudText>
-                                            }
-                                        </MudStack>
-                                    </MudTd>
-                                    <MudTd DataLabel="Plugin Id" Class="mono">@context.PluginId</MudTd>
-                                    <MudTd DataLabel="Author">@context.Author</MudTd>
-                                    <MudTd DataLabel="Description">@GetPluginDescription(context)</MudTd>
-                                </RowTemplate>
-                                <NoRecordsContent>
-                                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
-                                        No plugin catalog entries match current search.
-                                    </MudAlert>
-                                </NoRecordsContent>
-                            </MudTable>
-                        }
+                                    @if (CatalogEntries.Count == 0)
+                                    {
+                                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                            Plugin catalog empty. Refresh to download MagnetarHub.
+                                        </MudAlert>
+                                    }
+                                    else if (SelectableCatalogEntryCount == 0 && HasHiddenCatalogEntries)
+                                    {
+                                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                            MagnetarHub currently exposes only hidden or automatic plugins. They are not selectable manually.
+                                        </MudAlert>
+                                    }
+                                    else
+                                    {
+                                        <MudTable T="QuasarPluginCatalogEntry" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredCatalogEntries">
+                                            <HeaderContent>
+                                                <MudTh>Use</MudTh>
+                                                <MudTh>Name</MudTh>
+                                                <MudTh>Plugin Id</MudTh>
+                                                <MudTh>Author</MudTh>
+                                                <MudTh>Description</MudTh>
+                                            </HeaderContent>
+                                            <RowTemplate>
+                                                <MudTd DataLabel="Use">
+                                                    <MudCheckBox T="bool" Value="IsPluginSelected(context.PluginId)" ValueChanged="@(value => SetPluginSelection(context, value))" />
+                                                </MudTd>
+                                                <MudTd DataLabel="Name">
+                                                    <MudStack Spacing="0">
+                                                        <MudText Typo="Typo.subtitle2">@context.FriendlyName</MudText>
+                                                        @if (context.Hidden)
+                                                        {
+                                                            <MudText Typo="Typo.caption" Class="config-secondary">Hidden in hub</MudText>
+                                                        }
+                                                    </MudStack>
+                                                </MudTd>
+                                                <MudTd DataLabel="Plugin Id" Class="mono">@context.PluginId</MudTd>
+                                                <MudTd DataLabel="Author">@context.Author</MudTd>
+                                                <MudTd DataLabel="Description">@GetPluginDescription(context)</MudTd>
+                                            </RowTemplate>
+                                            <NoRecordsContent>
+                                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                                    No plugin catalog entries match current search.
+                                                </MudAlert>
+                                            </NoRecordsContent>
+                                        </MudTable>
+                                    }
+                                </ChildContent>
+                            </MudExpansionPanel>
+
+                            <MudExpansionPanel Class="configs-expansion-panel" Text="Advanced/manual plugin setup" Expanded="@IsPluginPanelExpanded(AdvancedPluginsPanelKey)" ExpandedChanged="@(expanded => SetPluginPanelExpanded(AdvancedPluginsPanelKey, expanded))">
+                                <ChildContent>
+                                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.End" Spacing="1" Class="mt-2">
+                                        <MudTextField @bind-Value="_customPluginId" Label="Add custom plugin ID" Variant="Variant.Outlined" Immediate="true" />
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="AddCustomPlugin" Disabled="@string.IsNullOrWhiteSpace(_customPluginId)">
+                                            Add Custom
+                                        </MudButton>
+                                    </MudStack>
+                                </ChildContent>
+                            </MudExpansionPanel>
+                        </MudExpansionPanels>
                         </MudPaper>
                     </MudTabPanel>
 
                     <MudTabPanel Text="Mods">
                         <MudPaper Class="server-card pa-4" Square="true">
-                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
-                            <MudTextField
-                                @bind-Value="_workshopSearchText"
-                                Label="Search Steam Workshop mods"
-                                Variant="Variant.Outlined"
-                                Immediate="true"
-                                Adornment="Adornment.Start"
-                                AdornmentIcon="@Icons.Material.Filled.Search"
-                                OnKeyDown="HandleWorkshopSearchKeyDown"
-                                Class="configs-search-field" />
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SearchWorkshopModsAsync" Disabled="@(!WorkshopCredentials.HasWebApiKey || _workshopSearchLoading)" StartIcon="@Icons.Material.Filled.Search">
-                                @(_workshopSearchLoading ? "Searching..." : "Search Workshop")
-                            </MudButton>
-                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="LoadPopularWorkshopModsAsync" Disabled="@(!WorkshopCredentials.HasWebApiKey || _workshopSearchLoading)" StartIcon="@Icons.Material.Filled.Whatshot">
-                                Popular Mods
-                            </MudButton>
-                            <MudChip T="string" Variant="Variant.Outlined" Color="@(WorkshopCredentials.HasWebApiKey ? Color.Success : Color.Warning)" Icon="@(WorkshopCredentials.HasWebApiKey ? Icons.Material.Filled.Key : Icons.Material.Filled.KeyOff)">
-                                @(WorkshopCredentials.HasWebApiKey ? "Workshop API key set" : "Workshop API key needed")
-                            </MudChip>
-                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="OpenWorkshopApiKeyDialogAsync" StartIcon="@Icons.Material.Filled.Key">
-                                @(WorkshopCredentials.HasWebApiKey ? "Update API Key" : "Add API Key")
-                            </MudButton>
-                            <MudChip T="string" Variant="Variant.Outlined">Selected @FilteredMods.Count</MudChip>
-                        </MudStack>
-
-                        @if (!string.IsNullOrWhiteSpace(_workshopSearchError))
-                        {
-                            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-4">
-                                @_workshopSearchError
-                            </MudAlert>
-                        }
-                        else if (_workshopSearchLoading)
-                        {
-                            <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-4" />
-                        }
-                        else if (_workshopResultsLoaded && _workshopResults.Count == 0)
-                        {
-                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
-                                No Steam Workshop mods found.
-                            </MudAlert>
-                        }
-
-                        @if (_workshopResults.Count > 0)
-                        {
-                            <MudTable T="QuasarWorkshopSearchResult" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_workshopResults" Class="mb-4">
-                                <HeaderContent>
-                                    <MudTh Style="width:96px;"></MudTh>
-                                    <MudTh>Workshop mod</MudTh>
-                                    <MudTh>Tags</MudTh>
-                                    <MudTh></MudTh>
-                                </HeaderContent>
-                                <RowTemplate>
-                                    <MudTd DataLabel="Preview">
-                                        @if (!string.IsNullOrWhiteSpace(context.PreviewUrl))
-                                        {
-                                            <MudLink Href="@GetWorkshopUrl(context.WorkshopId)" Target="_blank" Underline="Underline.None">
-                                                <img src="@context.PreviewUrl" alt="@context.Title" loading="lazy" class="workshop-thumbnail" />
-                                            </MudLink>
-                                        }
-                                    </MudTd>
-                                    <MudTd DataLabel="Workshop mod">
-                                        <MudStack Spacing="0">
-                                            <MudText Typo="Typo.subtitle2">@context.Title</MudText>
-                                            <MudText Typo="Typo.caption" Class="mono">@context.WorkshopId</MudText>
-                                            @if (!string.IsNullOrWhiteSpace(context.Description))
-                                            {
-                                                <MudText Typo="Typo.caption" Class="config-secondary">@context.Description</MudText>
-                                            }
-                                        </MudStack>
-                                    </MudTd>
-                                    <MudTd DataLabel="Tags">@GetWorkshopTagText(context)</MudTd>
-                                    <MudTd Style="text-align:right;">
-                                        <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="1">
-                                            <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetWorkshopUrl(context.WorkshopId)" Target="_blank" />
-                                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Disabled="@IsModSelected(context.WorkshopId)" OnClick="@(() => AddWorkshopResult(context))">
-                                                @(IsModSelected(context.WorkshopId) ? "Selected" : "Add")
-                                            </MudButton>
-                                        </MudStack>
-                                    </MudTd>
-                                </RowTemplate>
-                            </MudTable>
-                        }
-
                         <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="configs-expansion-panels mb-4">
-                            <MudExpansionPanel Text="Advanced/manual mod setup">
+                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsModPanelExpanded(ModListPanelKey)" ExpandedChanged="@(expanded => SetModPanelExpanded(ModListPanelKey, expanded))">
+                                <TitleContent>
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                        <MudText Typo="Typo.subtitle2">Mod list</MudText>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@FilteredMods.Count</MudChip>
+                                    </MudStack>
+                                </TitleContent>
+                                <ChildContent>
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3 mt-2">
+                                    <MudTextField
+                                        @bind-Value="_modSearch"
+                                        Label="Filter selected mods"
+                                        Variant="Variant.Outlined"
+                                        Immediate="true"
+                                        Adornment="Adornment.Start"
+                                        AdornmentIcon="@Icons.Material.Filled.Search"
+                                        Class="configs-search-field" />
+                                    <MudChip T="string" Variant="Variant.Outlined">Selected mods @FilteredMods.Count</MudChip>
+                                </MudStack>
+
+                                <MudTable T="QuasarModSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="FilteredMods">
+                                    <HeaderContent>
+                                        <MudTh>Name</MudTh>
+                                        <MudTh>Workshop ID</MudTh>
+                                        <MudTh></MudTh>
+                                    </HeaderContent>
+                                    <RowTemplate>
+                                        <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+                                        <MudTd DataLabel="Workshop ID" Class="mono">@context.WorkshopId</MudTd>
+                                        <MudTd Style="text-align:right;">
+                                            <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveMod(context.WorkshopId))" />
+                                        </MudTd>
+                                    </RowTemplate>
+                                    <NoRecordsContent>
+                                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                            No mods match current search.
+                                        </MudAlert>
+                                    </NoRecordsContent>
+                                </MudTable>
+                                </ChildContent>
+                            </MudExpansionPanel>
+
+                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsModPanelExpanded(WorkshopPanelKey)" ExpandedChanged="@(expanded => SetModPanelExpanded(WorkshopPanelKey, expanded))">
+                                <TitleContent>
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                        <MudText Typo="Typo.subtitle2">Steam Workshop</MudText>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_workshopResults.Count result(s)</MudChip>
+                                    </MudStack>
+                                </TitleContent>
+                                <ChildContent>
+                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4 mt-2">
+                                    <MudTextField
+                                        @bind-Value="_workshopSearchText"
+                                        Label="Search Steam Workshop mods"
+                                        Variant="Variant.Outlined"
+                                        Immediate="true"
+                                        Adornment="Adornment.Start"
+                                        AdornmentIcon="@Icons.Material.Filled.Search"
+                                        OnKeyDown="HandleWorkshopSearchKeyDown"
+                                        Class="configs-search-field" />
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SearchWorkshopModsAsync" Disabled="@(!WorkshopCredentials.HasWebApiKey || _workshopSearchLoading)" StartIcon="@Icons.Material.Filled.Search">
+                                        @(_workshopSearchLoading ? "Searching..." : "Search Workshop")
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="LoadPopularWorkshopModsAsync" Disabled="@(!WorkshopCredentials.HasWebApiKey || _workshopSearchLoading)" StartIcon="@Icons.Material.Filled.Whatshot">
+                                        Popular Mods
+                                    </MudButton>
+                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(WorkshopCredentials.HasWebApiKey ? Color.Success : Color.Warning)" Icon="@(WorkshopCredentials.HasWebApiKey ? Icons.Material.Filled.Key : Icons.Material.Filled.KeyOff)">
+                                        @(WorkshopCredentials.HasWebApiKey ? "Workshop API key set" : "Workshop API key needed")
+                                    </MudChip>
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="OpenWorkshopApiKeyDialogAsync" StartIcon="@Icons.Material.Filled.Key">
+                                        @(WorkshopCredentials.HasWebApiKey ? "Update API Key" : "Add API Key")
+                                    </MudButton>
+                                </MudStack>
+
+                                @if (!string.IsNullOrWhiteSpace(_workshopSearchError))
+                                {
+                                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-4">
+                                        @_workshopSearchError
+                                    </MudAlert>
+                                }
+                                else if (_workshopSearchLoading)
+                                {
+                                    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-4" />
+                                }
+                                else if (_workshopResultsLoaded && _workshopResults.Count == 0)
+                                {
+                                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+                                        No Steam Workshop mods found.
+                                    </MudAlert>
+                                }
+
+                                @if (_workshopResults.Count > 0)
+                                {
+                                    <MudTable T="QuasarWorkshopSearchResult" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_workshopResults" Class="mb-4">
+                                        <HeaderContent>
+                                            <MudTh Style="width:56px;">Use</MudTh>
+                                            <MudTh Style="width:96px;"></MudTh>
+                                            <MudTh>Workshop mod</MudTh>
+                                            <MudTh>Tags</MudTh>
+                                            <MudTh></MudTh>
+                                        </HeaderContent>
+                                        <RowTemplate>
+                                            <MudTd DataLabel="Use">
+                                                <MudCheckBox T="bool"
+                                                             Dense="true"
+                                                             Value="@IsModSelected(context.WorkshopId)"
+                                                             ValueChanged="@(selected => SetWorkshopResultSelection(context, selected))" />
+                                            </MudTd>
+                                            <MudTd DataLabel="Preview">
+                                                @if (!string.IsNullOrWhiteSpace(context.PreviewUrl))
+                                                {
+                                                    <MudLink Href="@GetWorkshopUrl(context.WorkshopId)" Target="_blank" Underline="Underline.None">
+                                                        <img src="@context.PreviewUrl" alt="@context.Title" loading="lazy" class="workshop-thumbnail" />
+                                                    </MudLink>
+                                                }
+                                            </MudTd>
+                                            <MudTd DataLabel="Workshop mod">
+                                                <MudStack Spacing="0">
+                                                    <MudText Typo="Typo.subtitle2">@context.Title</MudText>
+                                                    <MudText Typo="Typo.caption" Class="mono">@context.WorkshopId</MudText>
+                                                    @if (!string.IsNullOrWhiteSpace(context.Description))
+                                                    {
+                                                        <MudText Typo="Typo.caption" Class="config-secondary">@context.Description</MudText>
+                                                    }
+                                                </MudStack>
+                                            </MudTd>
+                                            <MudTd DataLabel="Tags">@GetWorkshopTagText(context)</MudTd>
+                                            <MudTd Style="text-align:right;">
+                                                <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetWorkshopUrl(context.WorkshopId)" Target="_blank" />
+                                            </MudTd>
+                                        </RowTemplate>
+                                    </MudTable>
+                                }
+                                </ChildContent>
+                            </MudExpansionPanel>
+
+                            <MudExpansionPanel Class="configs-expansion-panel" Text="Advanced/manual mod setup" Expanded="@IsModPanelExpanded(AdvancedModsPanelKey)" ExpandedChanged="@(expanded => SetModPanelExpanded(AdvancedModsPanelKey, expanded))">
+                                <ChildContent>
                                 <MudGrid Class="mt-2">
                                     <MudItem xs="12">
                                         <MudTextField
@@ -522,40 +615,9 @@
                                         </MudButton>
                                     </MudItem>
                                 </MudGrid>
+                                </ChildContent>
                             </MudExpansionPanel>
                         </MudExpansionPanels>
-
-                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
-                            <MudTextField
-                                @bind-Value="_modSearch"
-                                Label="Filter selected mods"
-                                Variant="Variant.Outlined"
-                                Immediate="true"
-                                Adornment="Adornment.Start"
-                                AdornmentIcon="@Icons.Material.Filled.Search"
-                                Class="configs-search-field" />
-                            <MudChip T="string" Variant="Variant.Outlined">Selected mods @FilteredMods.Count</MudChip>
-                        </MudStack>
-
-                        <MudTable T="QuasarModSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="FilteredMods">
-                            <HeaderContent>
-                                <MudTh>Name</MudTh>
-                                <MudTh>Workshop ID</MudTh>
-                                <MudTh></MudTh>
-                            </HeaderContent>
-                            <RowTemplate>
-                                <MudTd DataLabel="Name">@context.DisplayName</MudTd>
-                                <MudTd DataLabel="Workshop ID" Class="mono">@context.WorkshopId</MudTd>
-                                <MudTd Style="text-align:right;">
-                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveMod(context.WorkshopId))" />
-                                </MudTd>
-                            </RowTemplate>
-                            <NoRecordsContent>
-                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
-                                    No mods match current search.
-                                </MudAlert>
-                            </NoRecordsContent>
-                        </MudTable>
                         </MudPaper>
                     </MudTabPanel>
                 </MudTabs>
@@ -573,6 +635,12 @@
     private const string AccessAdministratorsAnchorId = "config-access-administrators";
     private const string AccessReservedAnchorId = "config-access-reserved";
     private const string AccessBannedAnchorId = "config-access-banned";
+    private const string ModListPanelKey = "mod-list";
+    private const string WorkshopPanelKey = "workshop";
+    private const string AdvancedModsPanelKey = "advanced-mods";
+    private const string PluginListPanelKey = "plugin-list";
+    private const string PluginCatalogPanelKey = "plugin-catalog";
+    private const string AdvancedPluginsPanelKey = "advanced-plugins";
     private string _selectedProfileId = string.Empty;
     private QuasarConfigProfile? _editor;
     private string _newProfileName = string.Empty;
@@ -591,6 +659,9 @@
     private bool _modResolving;
     private string? _workshopSearchError;
     private string? _expandedCategoryKey;
+    private string _expandedModPanelKey = ModListPanelKey;
+    private string _expandedPluginPanelKey = PluginListPanelKey;
+    private string _selectedProfileSnapshot = string.Empty;
     private bool _hasExplicitCategoryExpansion;
 
     private IReadOnlyList<QuasarConfigProfile> Templates => ConfigProfiles.GetProfiles();
@@ -639,6 +710,12 @@
     private int SelectableCatalogEntryCount => CatalogEntries.Count(entry => !entry.Hidden);
 
     private bool HasHiddenCatalogEntries => CatalogEntries.Any(entry => entry.Hidden);
+
+    private List<QuasarPluginSelection> FilteredPlugins => (_editor?.Plugins ?? [])
+        .Where(plugin => MatchesPluginSearch(plugin))
+        .OrderBy(plugin => plugin.DisplayName, StringComparer.OrdinalIgnoreCase)
+        .ThenBy(plugin => plugin.PluginId, StringComparer.OrdinalIgnoreCase)
+        .ToList();
 
     private List<QuasarModSelection> FilteredMods => (_editor?.Mods ?? [])
         .Where(mod => MatchesModSearch(mod))
@@ -695,18 +772,28 @@
 
     private async Task SaveTemplateAsync()
     {
+        await SaveTemplateInternalAsync(reselectAfterSave: true);
+    }
+
+    private async Task<bool> SaveTemplateInternalAsync(bool reselectAfterSave)
+    {
         if (_editor is null)
-            return;
+            return true;
 
         if (string.IsNullOrWhiteSpace(_editor.Name))
         {
             Snackbar.Add("Template name required.", Severity.Warning);
-            return;
+            return false;
         }
 
         await ConfigProfiles.UpsertAsync(_editor);
-        SelectProfile(_editor.ConfigProfileId);
+        if (reselectAfterSave)
+            SelectProfile(_editor.ConfigProfileId);
+        else
+            _selectedProfileSnapshot = CreateProfileSnapshot(_editor);
+
         Snackbar.Add("Config template saved.", Severity.Success);
+        return true;
     }
 
     private async Task CloneProfileAsync(string configProfileId)
@@ -749,9 +836,53 @@
         Snackbar.Add("Config template deleted.", Severity.Info);
     }
 
-    private void ResetEditor()
+    private async Task ResetEditorAsync()
     {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Reset config template?",
+            "Pending editor changes will be discarded and the template will be reloaded from disk.",
+            yesText: "Reset",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
         SelectProfile(_selectedProfileId);
+    }
+
+    private async Task SelectProfileFromListAsync(string configProfileId)
+    {
+        if (string.Equals(_selectedProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (!await ConfirmPendingChangesBeforeSwitchAsync())
+            return;
+
+        SelectProfile(configProfileId);
+    }
+
+    private async Task<bool> ConfirmPendingChangesBeforeSwitchAsync()
+    {
+        if (!HasPendingChanges())
+            return true;
+
+        var dialog = await DialogService.ShowAsync<ConfigProfilePendingChangesDialog>(
+            "Unsaved config changes",
+            new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small });
+
+        var result = await dialog.Result;
+        if (result is null ||
+            result.Canceled ||
+            result.Data is not ConfigProfilePendingChangesDialog.PendingChangesAction action ||
+            action == ConfigProfilePendingChangesDialog.PendingChangesAction.Cancel)
+        {
+            return false;
+        }
+
+        if (action == ConfigProfilePendingChangesDialog.PendingChangesAction.Save)
+            return await SaveTemplateInternalAsync(reselectAfterSave: false);
+
+        return true;
     }
 
     private void SelectProfile(string configProfileId)
@@ -760,8 +891,22 @@
         _editor = string.IsNullOrWhiteSpace(_selectedProfileId)
             ? null
             : ConfigProfiles.GetProfile(_selectedProfileId);
+        _selectedProfileSnapshot = CreateProfileSnapshot(_editor);
         _hasExplicitCategoryExpansion = true;
         _expandedCategoryKey = null;
+    }
+
+    private bool HasPendingChanges() =>
+        !string.Equals(CreateProfileSnapshot(_editor), _selectedProfileSnapshot, StringComparison.Ordinal);
+
+    private static string CreateProfileSnapshot(QuasarConfigProfile? profile)
+    {
+        if (profile is null)
+            return string.Empty;
+
+        var clone = JsonSerializer.Deserialize<QuasarConfigProfile>(JsonSerializer.Serialize(profile)) ?? new QuasarConfigProfile();
+        clone.UpdatedAtUtc = default;
+        return JsonSerializer.Serialize(clone);
     }
 
     private async Task RefreshPluginCatalogAsync()
@@ -830,6 +975,28 @@
         _expandedCategoryKey = expanded
             ? categoryKey
             : null;
+        return Task.CompletedTask;
+    }
+
+    private bool IsModPanelExpanded(string panelKey) =>
+        string.Equals(_expandedModPanelKey, panelKey, StringComparison.OrdinalIgnoreCase);
+
+    private Task SetModPanelExpanded(string panelKey, bool expanded)
+    {
+        _expandedModPanelKey = expanded
+            ? panelKey
+            : string.Empty;
+        return Task.CompletedTask;
+    }
+
+    private bool IsPluginPanelExpanded(string panelKey) =>
+        string.Equals(_expandedPluginPanelKey, panelKey, StringComparison.OrdinalIgnoreCase);
+
+    private Task SetPluginPanelExpanded(string panelKey, bool expanded)
+    {
+        _expandedPluginPanelKey = expanded
+            ? panelKey
+            : string.Empty;
         return Task.CompletedTask;
     }
 
@@ -1258,14 +1425,23 @@
         }
     }
 
-    private void AddWorkshopResult(QuasarWorkshopSearchResult result)
+    private void SetWorkshopResultSelection(QuasarWorkshopSearchResult result, bool selected)
+    {
+        if (selected)
+            AddWorkshopResult(result, showSnackbar: false);
+        else
+            RemoveMod(result.WorkshopId);
+    }
+
+    private void AddWorkshopResult(QuasarWorkshopSearchResult result, bool showSnackbar = true)
     {
         if (_editor is null)
             return;
 
         if (IsModSelected(result.WorkshopId))
         {
-            Snackbar.Add("Mod already selected.", Severity.Info);
+            if (showSnackbar)
+                Snackbar.Add("Mod already selected.", Severity.Info);
             return;
         }
 
@@ -1281,7 +1457,8 @@
             .ThenBy(mod => mod.WorkshopId)
             .ToList();
 
-        Snackbar.Add("Workshop mod added.", Severity.Success);
+        if (showSnackbar)
+            Snackbar.Add("Workshop mod added.", Severity.Success);
     }
 
     private async Task ResolveWorkshopModsAsync()

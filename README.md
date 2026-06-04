@@ -26,3 +26,7 @@ Build notes:
 - `Quasar.Agent` depends on a local `DS64` path for Space Engineers Dedicated Server assemblies.
 - A local-only override can live at `Quasar.Agent/Directory.Build.props`.
 - This repo keeps the machine-specific override out of source control.
+
+Agent workflow note:
+
+- Do not launch the Quasar web service process (`dotnet run --project Quasar/Quasar.csproj`) unless the user explicitly asks for a smoketest.

@@ -14,4 +14,5 @@ public enum ServerCommandType
     DemotePlayer = 9,
     ListEntities = 10,
     DeleteEntity = 11,
+    SetPlayerPromoteLevel = 12,
 }

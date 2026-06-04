@@ -7,7 +7,7 @@
 <PageTitle>World Templates</PageTitle>
 
 <MudText Typo="Typo.h4" GutterBottom="true">World Templates</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Reusable world blueprints. Import an existing Space Engineers save folder and select it when creating an instance — Quasar copies template world data into the instance on first launch.</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Reusable world templates. Import an existing Space Engineers save folder and select it when creating a server — Quasar copies template world data into the server on first launch.</MudText>
 
 <MudGrid>
     <MudItem xs="12" xl="5">
@@ -54,7 +54,7 @@
             @if (Templates.Count == 0)
             {
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                    No world templates yet. Import a save folder to create a blueprint.
+                    No world templates yet. Import a save folder to create a template.
                 </MudAlert>
             }
             else

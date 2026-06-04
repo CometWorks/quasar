@@ -69,10 +69,7 @@
                                        @bind-Value="_editor.ConfigProfileId"
                                        Label="Config template"
                                        Variant="Variant.Outlined"
-                                       HelperText="Reusable world, plugin, and mod preset from Configs page."
-                                       Class="instance-editor-template-select"
-                                       PopoverClass="instance-editor-select-popover"
-                                       ListClass="instance-editor-select-list">
+                                       HelperText="Reusable world, plugin, and mod preset from Configs page.">
                                 <MudSelectItem T="string" Value="@string.Empty">(No config template)</MudSelectItem>
                                 @foreach (var template in ConfigProfiles.GetProfiles())
                                 {
@@ -98,10 +95,7 @@
                                        Required="true"
                                        RequiredError="World template required."
                                        Validation="@(new Func<string, string?>(ValidateWorldTemplateField))"
-                                       HelperText="Template world will be copied to instance world path on first launch if world directory does not already exist."
-                                       Class="instance-editor-template-select"
-                                       PopoverClass="instance-editor-select-popover"
-                                       ListClass="instance-editor-select-list">
+                                       HelperText="Template world will be copied to instance world path on first launch if world directory does not already exist.">
                                 @foreach (var template in WorldTemplates.GetTemplates())
                                 {
                                     <MudSelectItem T="string" Value="@template.WorldTemplateId">@template.Name</MudSelectItem>

@@ -52,12 +52,6 @@ public sealed class FileBrowserService
                 shortcuts.Add(new FileBrowserShortcut("SE Player Saves", sePlayer));
         }
 
-        foreach (var drive in DriveInfo.GetDrives())
-        {
-            if (drive.IsReady && drive.DriveType is DriveType.Fixed or DriveType.Removable)
-                shortcuts.Add(new FileBrowserShortcut(drive.Name, drive.RootDirectory.FullName));
-        }
-
         return shortcuts;
     }
 
