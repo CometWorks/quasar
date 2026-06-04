@@ -88,6 +88,7 @@ else
             <MudTd Style="text-align: right;">
                 <MudMenu Dense="true"
                          Icon="@Icons.Material.Filled.MoreVert"
+                         OpenChanged="@(open => _menuOpen = open)"
                          AnchorOrigin="Origin.BottomRight"
                          TransformOrigin="Origin.TopRight">
                     <MudMenuItem Disabled="true">Set role</MudMenuItem>
@@ -162,6 +163,14 @@ else
     public AgentRuntimeState? Agent { get; set; }
 
     private string _chatText = string.Empty;
+
+    // True while a player's action menu is open. The parent re-renders this panel on every
+    // live snapshot; doing so under an open menu would close it, so we hold renders until the
+    // menu is dismissed (click outside / Escape / selection close it natively).
+    private bool _menuOpen;
+
+    // Skip live-update renders while a menu is open so the popup is not torn down underneath it.
+    protected override bool ShouldRender() => !_menuOpen;
 
     private async Task HandleChatKeyDownAsync(KeyboardEventArgs args)
     {

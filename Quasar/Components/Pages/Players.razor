@@ -92,6 +92,7 @@ else
                 <MudMenu Dense="true"
                          Icon="@Icons.Material.Filled.MoreVert"
                          Disabled="@(!context.CanModerate)"
+                         OpenChanged="@(open => _menuOpen = open)"
                          AnchorOrigin="Origin.BottomRight"
                          TransformOrigin="Origin.TopRight">
                     <MudMenuItem Disabled="true">Set role</MudMenuItem>
@@ -122,6 +123,11 @@ else
 
     private string _searchText = string.Empty;
 
+    // True while a row's action menu is open. The live data feed keeps pushing updates;
+    // re-rendering the table underneath an open menu would close it, so we hold renders
+    // until the menu is dismissed (click outside / Escape / selection close it natively).
+    private bool _menuOpen;
+
     private IReadOnlyList<KnownPlayerView> KnownPlayerViews => BuildKnownPlayerViews();
 
     private List<KnownPlayerView> FilteredPlayers => KnownPlayerViews
@@ -139,6 +145,9 @@ else
         Registry.Changed -= HandleChanged;
         KnownPlayers.Changed -= HandleChanged;
     }
+
+    // Skip live-update renders while a menu is open so the popup is not torn down underneath it.
+    protected override bool ShouldRender() => !_menuOpen;
 
     private List<KnownPlayerView> BuildKnownPlayerViews()
     {
