@@ -52,6 +52,18 @@ public sealed class PluginConfigEnvelope
 
         return JsonNode.Parse(Values.GetRawText()) as JsonObject ?? new JsonObject();
     }
+
+    /// <summary>
+    /// Returns the <c>defaults</c> section as a mutable <see cref="JsonObject"/>
+    /// the editor can use for reset-to-defaults.
+    /// </summary>
+    public JsonObject CloneDefaults()
+    {
+        if (Defaults.ValueKind != JsonValueKind.Object)
+            return new JsonObject();
+
+        return JsonNode.Parse(Defaults.GetRawText()) as JsonObject ?? new JsonObject();
+    }
 }
 
 public sealed class ConfigSchemaDto

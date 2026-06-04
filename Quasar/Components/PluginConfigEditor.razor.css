@@ -1,0 +1,30 @@
+.plugin-config-container {
+    min-width: 0;
+}
+
+.plugin-config-field {
+    min-width: 0;
+}
+
+.plugin-config-composite,
+.plugin-config-nested,
+.plugin-config-list-row {
+    background: var(--mud-palette-background-gray);
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: calc(var(--mud-default-borderradius) + 2px);
+}
+
+.plugin-config-row-index {
+    width: 2rem;
+    text-align: right;
+}
+
+.plugin-config-row-editor {
+    flex: 1 1 auto;
+    min-width: min(18rem, 100%);
+}
+
+.plugin-config-key-field {
+    flex: 0 1 16rem;
+    min-width: min(12rem, 100%);
+}
