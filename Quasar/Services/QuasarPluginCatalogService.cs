@@ -9,7 +9,7 @@ namespace Quasar.Services;
 
 public sealed class QuasarPluginCatalogService
 {
-    private const int CacheSchemaVersion = 3;
+    private const int CacheSchemaVersion = 4;
     public const string DotNetCompatPluginId = "se-dotnet-compat";
     public const string DefaultHubName = "MagnetarHub";
     public const string DefaultHubRepo = "viktor-ferenczi/MagnetarHub";
@@ -47,6 +47,24 @@ public sealed class QuasarPluginCatalogService
 
     public static bool IsManualSelectionAllowed(string pluginId) =>
         !string.Equals(pluginId?.Trim(), DotNetCompatPluginId, StringComparison.OrdinalIgnoreCase);
+
+    public static string GetRepositoryUrl(string sourceRepo)
+    {
+        var repo = sourceRepo?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(repo))
+            return string.Empty;
+
+        if (Uri.TryCreate(repo, UriKind.Absolute, out var uri) &&
+            (string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)))
+        {
+            return uri.ToString();
+        }
+
+        return repo.Contains('/', StringComparison.Ordinal)
+            ? $"https://github.com/{repo.Trim('/')}"
+            : string.Empty;
+    }
 
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
@@ -89,7 +107,7 @@ public sealed class QuasarPluginCatalogService
                         Description = GetValue(root, "Description"),
                         Tooltip = GetValue(root, "Tooltip"),
                         Runtimes = GetValue(root, "Runtimes"),
-                        SourceRepo = DefaultHubRepo,
+                        SourceRepo = GetValue(root, "RepoId", DefaultHubRepo),
                         Hidden = GetBoolean(root, "Hidden"),
                     };
                 }

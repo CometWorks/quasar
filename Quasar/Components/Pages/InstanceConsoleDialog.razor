@@ -4,44 +4,79 @@
 
 <MudDialog>
     <DialogContent>
-        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
-            <MudText Typo="Typo.body2" Class="mud-text-secondary">@_entries.Count line(s)</MudText>
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                <MudSwitch T="bool" Value="MagnetarOnly" ValueChanged="OnMagnetarOnlyChanged" Color="Color.Primary" Label="Magnetar process output only" />
-                <MudTooltip Text="When enabled, shows only Magnetar process stdout and stderr. Turn off to include structured plugin log entries emitted through PluginSdk.">
-                    <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Color="Color.Default" />
-                </MudTooltip>
-                <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.DeleteSweep" OnClick="ClearAsync">Clear</MudButton>
-            </MudStack>
-        </MudStack>
+        <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pt-3" @bind-ActivePanelIndex="_activeTabIndex">
+            <MudTabPanel Text="Process console" Icon="@Icons.Material.Filled.Terminal">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">@_entries.Count line(s)</MudText>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudSwitch T="bool" Value="MagnetarOnly" ValueChanged="OnMagnetarOnlyChanged" Color="Color.Primary" Label="Magnetar process output only" />
+                        <MudTooltip Text="When enabled, shows only Magnetar process stdout and stderr. Turn off to include structured plugin log entries emitted through PluginSdk.">
+                            <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Color="Color.Default" />
+                        </MudTooltip>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.DeleteSweep" OnClick="ClearAsync">Clear</MudButton>
+                    </MudStack>
+                </MudStack>
 
-        @if (_entries.Count == 0)
-        {
-            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                No output captured yet — the process must be running to produce console output.
-            </MudAlert>
-        }
-        else
-        {
-            <div id="@_scrollContainerId" class="quasar-console-output">
-                @foreach (var entry in _entries)
+                @if (_entries.Count == 0)
                 {
-                    <div class="@GetLineClass(entry)">
-                        <span class="quasar-console-time">@entry.TimestampUtc.LocalDateTime.ToString("HH:mm:ss.fff")</span>
-                        <span class="quasar-console-level" style="color: @LevelHex(entry.Level);">@LevelTag(entry.Level)</span>
-                        @if (!IsMagnetar(entry))
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                        No output captured yet — the process must be running to produce console output.
+                    </MudAlert>
+                }
+                else
+                {
+                    <div id="@_scrollContainerId" class="quasar-console-output">
+                        @foreach (var entry in _entries)
                         {
-                            <span class="quasar-console-plugin">@entry.Plugin</span>
-                        }
-                        <span class="quasar-console-message">@entry.Message</span>
-                        @if (!string.IsNullOrEmpty(entry.Exception))
-                        {
-                            <div class="quasar-console-exception">@entry.Exception</div>
+                            <div class="@GetLineClass(entry)">
+                                <span class="quasar-console-time">@entry.TimestampUtc.LocalDateTime.ToString("HH:mm:ss.fff")</span>
+                                <span class="quasar-console-level" style="color: @LevelHex(entry.Level);">@LevelTag(entry.Level)</span>
+                                @if (!IsMagnetar(entry))
+                                {
+                                    <span class="quasar-console-plugin">@entry.Plugin</span>
+                                }
+                                <span class="quasar-console-message">@entry.Message</span>
+                                @if (!string.IsNullOrEmpty(entry.Exception))
+                                {
+                                    <div class="quasar-console-exception">@entry.Exception</div>
+                                }
+                            </div>
                         }
                     </div>
                 }
-            </div>
-        }
+            </MudTabPanel>
+
+            <MudTabPanel Text="Magnetar info.log" Icon="@Icons.Material.Filled.Description">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                            @(_infoLogMissing
+                                ? "info.log not found — Magnetar has not produced one yet for this instance."
+                                : $"{_infoLogLineCount} line(s){(_infoLogTruncated ? " (tail only)" : string.Empty)}")
+                        </MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary quasar-info-log-path">@_infoLogPath</MudText>
+                    </MudStack>
+                    <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInfoLogAsync">Refresh</MudButton>
+                </MudStack>
+
+                @if (_infoLogMissing)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                        Start the server at least once so Magnetar can write its log. Plugin startup exceptions appear here.
+                    </MudAlert>
+                }
+                else if (!string.IsNullOrEmpty(_infoLogError))
+                {
+                    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_infoLogError</MudAlert>
+                }
+                else
+                {
+                    <div id="@_infoLogScrollContainerId" class="quasar-console-output">
+                        <pre class="quasar-info-log-pre">@_infoLogContent</pre>
+                    </div>
+                }
+            </MudTabPanel>
+        </MudTabs>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Close</MudButton>
@@ -99,10 +134,27 @@
         color: var(--mud-palette-error);
         white-space: pre-wrap;
     }
+
+    .quasar-info-log-pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font: inherit;
+        color: var(--mud-palette-text-primary);
+    }
+
+    .quasar-info-log-path {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        word-break: break-all;
+    }
 </style>
 
 @code
 {
+    private const int InfoLogTailBytes = 256 * 1024;
+    private const int ProcessConsoleTabIndex = 0;
+    private const int InfoLogTabIndex = 1;
+
     [CascadingParameter]
     private IMudDialogInstance MudDialog { get; set; } = default!;
 
@@ -112,11 +164,26 @@
     private bool MagnetarOnly { get; set; } = true;
 
     private readonly string _scrollContainerId = $"quasar-console-{Guid.NewGuid():N}";
+    private readonly string _infoLogScrollContainerId = $"quasar-info-log-{Guid.NewGuid():N}";
     private IReadOnlyList<PluginLogEntry> _entries = Array.Empty<PluginLogEntry>();
     private bool _firstRenderDone;
 
+    private int _activeTabIndex;
+    private int _renderedTabIndex = -1;
+    private string _infoLogContent = string.Empty;
+    private string _infoLogPath = string.Empty;
+    private int _infoLogLineCount;
+    private bool _infoLogTruncated;
+    private bool _infoLogMissing;
+    private string? _infoLogError;
+    private bool _infoLogLoaded;
+    private bool _infoLogScrollPending;
+
     protected override void OnInitialized()
     {
+        _infoLogPath = Path.Combine(
+            MagnetarPaths.GetQuasarInstanceMagnetarAppDataDirectory(UniqueName),
+            "info.log");
         LogStream.Changed += HandleChanged;
         Refresh();
     }
@@ -128,29 +195,60 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        var tabChanged = _renderedTabIndex != _activeTabIndex;
+        _renderedTabIndex = _activeTabIndex;
+
+        if (_activeTabIndex == InfoLogTabIndex)
+        {
+            if (!_infoLogLoaded)
+            {
+                await LoadInfoLogAsync();
+                return;
+            }
+
+            if (tabChanged || _infoLogScrollPending)
+            {
+                _infoLogScrollPending = false;
+                await ScrollToBottomAsync(_infoLogScrollContainerId);
+            }
+            return;
+        }
+
         if (_entries.Count == 0)
             return;
 
-        if (firstRender || !_firstRenderDone)
+        if (firstRender || !_firstRenderDone || tabChanged)
         {
             _firstRenderDone = true;
-            await ScrollToBottomAsync();
+            await ScrollToBottomAsync(_scrollContainerId);
             return;
         }
 
-        var nearBottom = await JS.InvokeAsync<bool>("quasarConfigs.isScrolledNearBottom", _scrollContainerId, 48);
+        var nearBottom = await IsNearBottomAsync(_scrollContainerId);
         if (nearBottom)
-            await ScrollToBottomAsync();
+            await ScrollToBottomAsync(_scrollContainerId);
     }
 
-    private async Task ScrollToBottomAsync()
+    private async Task ScrollToBottomAsync(string containerId)
     {
         try
         {
-            await JS.InvokeVoidAsync("quasarConfigs.scrollToBottom", _scrollContainerId);
+            await JS.InvokeVoidAsync("quasarConfigs.scrollToBottom", containerId);
         }
         catch (JSDisconnectedException)
         {
+        }
+    }
+
+    private async Task<bool> IsNearBottomAsync(string containerId)
+    {
+        try
+        {
+            return await JS.InvokeAsync<bool>("quasarConfigs.isScrolledNearBottom", containerId, 48);
+        }
+        catch (JSDisconnectedException)
+        {
+            return false;
         }
     }
 
@@ -181,6 +279,91 @@
         Refresh();
         _firstRenderDone = false;
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshInfoLogAsync()
+    {
+        await LoadInfoLogAsync();
+    }
+
+    private async Task LoadInfoLogAsync()
+    {
+        try
+        {
+            if (!File.Exists(_infoLogPath))
+            {
+                _infoLogMissing = true;
+                _infoLogContent = string.Empty;
+                _infoLogLineCount = 0;
+                _infoLogTruncated = false;
+                _infoLogError = null;
+            }
+            else
+            {
+                var (text, truncated) = await ReadTailAsync(_infoLogPath, InfoLogTailBytes);
+                _infoLogContent = text;
+                _infoLogTruncated = truncated;
+                _infoLogLineCount = CountLines(text);
+                _infoLogMissing = false;
+                _infoLogError = null;
+            }
+        }
+        catch (Exception exception)
+        {
+            _infoLogError = exception.Message;
+            _infoLogContent = string.Empty;
+            _infoLogLineCount = 0;
+            _infoLogTruncated = false;
+            _infoLogMissing = false;
+        }
+
+        _infoLogLoaded = true;
+        _infoLogScrollPending = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static async Task<(string Text, bool Truncated)> ReadTailAsync(string path, int maxBytes)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+
+        var truncated = false;
+        if (stream.Length > maxBytes)
+        {
+            stream.Seek(-maxBytes, SeekOrigin.End);
+            truncated = true;
+        }
+
+        using var reader = new StreamReader(stream);
+        if (truncated)
+        {
+            // Drop the partial first line so output starts at a clean boundary.
+            await reader.ReadLineAsync();
+        }
+
+        var text = await reader.ReadToEndAsync();
+        return (text, truncated);
+    }
+
+    private static int CountLines(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return 0;
+
+        var count = 1;
+        foreach (var c in text)
+        {
+            if (c == '\n')
+                count++;
+        }
+
+        if (text.EndsWith('\n'))
+            count--;
+
+        return count;
     }
 
     private void Close() => MudDialog.Close();

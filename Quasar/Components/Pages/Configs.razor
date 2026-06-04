@@ -321,7 +321,7 @@
                             <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsPluginPanelExpanded(PluginListPanelKey)" ExpandedChanged="@(expanded => SetPluginPanelExpanded(PluginListPanelKey, expanded))">
                                 <TitleContent>
                                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                        <MudText Typo="Typo.subtitle2">Plugin list</MudText>
+                                        <MudText Typo="Typo.subtitle2">Plugins to load</MudText>
                                         <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_editor.Plugins.Count</MudChip>
                                     </MudStack>
                                 </TitleContent>
@@ -335,19 +335,22 @@
                                             Adornment="Adornment.Start"
                                             AdornmentIcon="@Icons.Material.Filled.Search"
                                             Class="configs-search-field" />
-                                        <MudChip T="string" Variant="Variant.Outlined">Selected plugins @_editor.Plugins.Count</MudChip>
                                     </MudStack>
 
                                     <MudTable T="QuasarPluginSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="FilteredPlugins">
                                         <HeaderContent>
                                             <MudTh>Name</MudTh>
                                             <MudTh>Plugin ID</MudTh>
-                                            <MudTh></MudTh>
+                                            <MudTh Style="width:88px;"></MudTh>
                                         </HeaderContent>
                                         <RowTemplate>
                                             <MudTd DataLabel="Name">@context.DisplayName</MudTd>
                                             <MudTd DataLabel="Plugin ID" Class="mono">@context.PluginId</MudTd>
                                             <MudTd Style="text-align:right;">
+                                                @if (!string.IsNullOrWhiteSpace(GetPluginSourceUrl(context)))
+                                                {
+                                                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetPluginSourceUrl(context)" Target="_blank" Size="Size.Small" title="Open GitHub repository" />
+                                                }
                                                 <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePlugin(context.PluginId))" />
                                             </MudTd>
                                         </RowTemplate>
@@ -404,6 +407,7 @@
                                                 <MudTh>Plugin Id</MudTh>
                                                 <MudTh>Author</MudTh>
                                                 <MudTh>Description</MudTh>
+                                                <MudTh Style="width:48px;"></MudTh>
                                             </HeaderContent>
                                             <RowTemplate>
                                                 <MudTd DataLabel="Use">
@@ -421,6 +425,12 @@
                                                 <MudTd DataLabel="Plugin Id" Class="mono">@context.PluginId</MudTd>
                                                 <MudTd DataLabel="Author">@context.Author</MudTd>
                                                 <MudTd DataLabel="Description">@GetPluginDescription(context)</MudTd>
+                                                <MudTd Style="text-align:right;">
+                                                    @if (!string.IsNullOrWhiteSpace(GetPluginSourceUrl(context)))
+                                                    {
+                                                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetPluginSourceUrl(context)" Target="_blank" Size="Size.Small" title="Open GitHub repository" />
+                                                    }
+                                                </MudTd>
                                             </RowTemplate>
                                             <NoRecordsContent>
                                                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
@@ -703,13 +713,18 @@
     }
 
     private List<QuasarPluginCatalogEntry> FilteredCatalogEntries => CatalogEntries
-        .Where(entry => !entry.Hidden)
+        .Where(IsCatalogEntryVisible)
         .Where(MatchesPluginSearch)
         .ToList();
 
     private int SelectableCatalogEntryCount => CatalogEntries.Count(entry => !entry.Hidden);
 
     private bool HasHiddenCatalogEntries => CatalogEntries.Any(entry => entry.Hidden);
+
+    private bool IsCatalogEntryVisible(QuasarPluginCatalogEntry entry) =>
+        !entry.Hidden ||
+        IsPluginSelected(entry.PluginId) ||
+        !string.IsNullOrWhiteSpace(_pluginSearch);
 
     private List<QuasarPluginSelection> FilteredPlugins => (_editor?.Plugins ?? [])
         .Where(plugin => MatchesPluginSearch(plugin))
@@ -1581,6 +1596,19 @@
             ? "-"
             : text;
     }
+
+    private string GetPluginSourceUrl(QuasarPluginSelection plugin)
+    {
+        var entry = CatalogEntries.FirstOrDefault(catalogEntry =>
+            string.Equals(catalogEntry.PluginId, plugin.PluginId, StringComparison.OrdinalIgnoreCase));
+
+        return entry is null
+            ? string.Empty
+            : GetPluginSourceUrl(entry);
+    }
+
+    private static string GetPluginSourceUrl(QuasarPluginCatalogEntry entry) =>
+        QuasarPluginCatalogService.GetRepositoryUrl(entry.SourceRepo);
 
     private void HandleProfilesChanged()
     {

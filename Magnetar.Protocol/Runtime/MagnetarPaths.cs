@@ -67,6 +67,9 @@ public static class MagnetarPaths
     public static string GetQuasarWorkshopOptionsPath() =>
         Path.Combine(GetQuasarDirectory(), "steam-workshop.json");
 
+    public static string GetQuasarDataProtectionKeyringDirectory() =>
+        Path.Combine(GetQuasarDirectory(), "DataProtection-Keys");
+
     // -------------------------------------------------------------------------
     // Magnetar instance data  (~/.config/Quasar/Magnetars/<unique-name>/)
     // -------------------------------------------------------------------------

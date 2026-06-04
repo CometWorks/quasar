@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject AgentRegistry Registry
 @inject PluginConfigService ConfigService
+@inject QuasarPluginCatalogService PluginCatalog
 
 <PageTitle>Plugins</PageTitle>
 
@@ -16,6 +17,7 @@
             <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.ServerName)">Server</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.NodeName)">Node</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.IsLoaded)">Status</MudTableSortLabel></MudTh>
+            <MudTh Style="width:48px;"></MudTh>
         </HeaderContent>
         <RowTemplate>
             <MudTd DataLabel="Plugin">@context.DisplayName</MudTd>
@@ -23,6 +25,12 @@
             <MudTd DataLabel="Server">@context.ServerName</MudTd>
             <MudTd DataLabel="Node">@context.NodeName</MudTd>
             <MudTd DataLabel="Status">@(context.IsLoaded ? "loaded" : "declared")</MudTd>
+            <MudTd Style="text-align:right;">
+                @if (!string.IsNullOrWhiteSpace(context.SourceUrl))
+                {
+                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@context.SourceUrl" Target="_blank" Size="Size.Small" title="Open GitHub repository" />
+                }
+            </MudTd>
         </RowTemplate>
         <NoRecordsContent>
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
@@ -87,6 +95,7 @@ else
                 ServerName = agent.ServerDisplayName,
                 NodeName = agent.NodeDisplayName,
                 IsLoaded = plugin.IsLoaded,
+                SourceUrl = GetPluginSourceUrl(plugin),
             }))
         .OrderBy(row => row.DisplayName, StringComparer.OrdinalIgnoreCase)
         .ThenBy(row => row.ServerName, StringComparer.OrdinalIgnoreCase)
@@ -96,6 +105,21 @@ else
     {
         Registry.Changed += HandleRegistryChanged;
         ConfigService.Changed += HandleRegistryChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || PluginCatalog.GetEntries().Count > 0)
+            return;
+
+        try
+        {
+            await PluginCatalog.RefreshAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+        }
     }
 
     public void Dispose()
@@ -109,6 +133,23 @@ else
         _ = InvokeAsync(StateHasChanged);
     }
 
+    private string GetPluginSourceUrl(PluginRuntimeInfo plugin)
+    {
+        var catalogEntry = PluginCatalog.GetEntries().FirstOrDefault(entry =>
+            IsPluginMatch(entry, plugin.PluginId) ||
+            IsPluginMatch(entry, plugin.DisplayName) ||
+            IsPluginMatch(entry, System.IO.Path.GetFileNameWithoutExtension(plugin.PluginId)));
+
+        return catalogEntry is null
+            ? string.Empty
+            : QuasarPluginCatalogService.GetRepositoryUrl(catalogEntry.SourceRepo);
+    }
+
+    private static bool IsPluginMatch(QuasarPluginCatalogEntry entry, string value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        (string.Equals(entry.PluginId, value, StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(entry.FriendlyName, value, StringComparison.OrdinalIgnoreCase));
+
     private sealed class PluginRow
     {
         public string DisplayName { get; set; } = string.Empty;
@@ -120,5 +161,7 @@ else
         public string NodeName { get; set; } = string.Empty;
 
         public bool IsLoaded { get; set; }
+
+        public string SourceUrl { get; set; } = string.Empty;
     }
 }

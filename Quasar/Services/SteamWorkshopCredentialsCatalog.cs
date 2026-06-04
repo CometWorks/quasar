@@ -1,11 +1,14 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Magnetar.Protocol.Runtime;
+using Microsoft.AspNetCore.DataProtection;
 
 namespace Quasar.Services;
 
 public sealed class SteamWorkshopCredentialsCatalog : IDisposable
 {
+    private const string DataProtectionPurpose = "Quasar.SteamWorkshopCredentials.v1";
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -14,16 +17,24 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
 
     private readonly object _sync = new();
     private readonly ILogger<SteamWorkshopCredentialsCatalog> _logger;
+    private readonly IDataProtector _protector;
     private SteamWorkshopCredentials _credentials;
     private string _snapshot;
     private FileSystemWatcher? _watcher;
     private CancellationTokenSource? _reloadDebounce;
 
-    public SteamWorkshopCredentialsCatalog(ILogger<SteamWorkshopCredentialsCatalog> logger)
+    public SteamWorkshopCredentialsCatalog(
+        ILogger<SteamWorkshopCredentialsCatalog> logger,
+        IDataProtectionProvider dataProtectionProvider)
     {
         _logger = logger;
-        _credentials = LoadCredentials();
+        _protector = dataProtectionProvider.CreateProtector(DataProtectionPurpose);
+        _credentials = LoadCredentials(out var requiresMigration);
         _snapshot = CreateSnapshot(_credentials);
+
+        if (requiresMigration)
+            _ = MigrateLegacyPlaintextAsync();
+
         StartWatching();
     }
 
@@ -51,7 +62,8 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
     public async Task SaveAsync(SteamWorkshopCredentials credentials, CancellationToken cancellationToken = default)
     {
         var normalized = SteamWorkshopCredentials.Normalize(credentials);
-        var json = JsonSerializer.Serialize(normalized, JsonOptions);
+        var persisted = PersistedCredentials.FromCredentials(normalized, _protector);
+        var json = JsonSerializer.Serialize(persisted, JsonOptions);
         var path = MagnetarPaths.GetQuasarWorkshopOptionsPath();
 
         await AtomicFileWriter.WriteTextAsync(path, json, cancellationToken);
@@ -59,7 +71,7 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
         lock (_sync)
         {
             _credentials = normalized.Clone();
-            _snapshot = json;
+            _snapshot = CreateSnapshot(_credentials);
         }
 
         _logger.LogInformation("Saved Steam Workshop credentials to {Path}", path);
@@ -73,8 +85,9 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
         _reloadDebounce?.Dispose();
     }
 
-    private SteamWorkshopCredentials LoadCredentials()
+    private SteamWorkshopCredentials LoadCredentials(out bool requiresMigration)
     {
+        requiresMigration = false;
         var path = MagnetarPaths.GetQuasarWorkshopOptionsPath();
 
         try
@@ -83,13 +96,37 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
                 return SteamWorkshopCredentials.Normalize(null);
 
             var json = File.ReadAllText(path);
-            var credentials = JsonSerializer.Deserialize<SteamWorkshopCredentials>(json, JsonOptions);
+            var persisted = JsonSerializer.Deserialize<PersistedCredentials>(json, JsonOptions);
+            if (persisted is null)
+                return SteamWorkshopCredentials.Normalize(null);
+
+            var credentials = persisted.ToCredentials(_protector, _logger, out var migrated);
+            requiresMigration = migrated;
             return SteamWorkshopCredentials.Normalize(credentials);
         }
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Failed loading Steam Workshop credentials from {Path}", path);
             return SteamWorkshopCredentials.Normalize(null);
+        }
+    }
+
+    private async Task MigrateLegacyPlaintextAsync()
+    {
+        try
+        {
+            SteamWorkshopCredentials snapshot;
+            lock (_sync)
+            {
+                snapshot = _credentials.Clone();
+            }
+
+            await SaveAsync(snapshot).ConfigureAwait(false);
+            _logger.LogInformation("Migrated legacy plaintext Steam Workshop credentials to protected storage.");
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed migrating legacy plaintext Steam Workshop credentials.");
         }
     }
 
@@ -153,7 +190,7 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
 
     private void ReloadFromDisk()
     {
-        var reloaded = LoadCredentials();
+        var reloaded = LoadCredentials(out var requiresMigration);
         var snapshot = CreateSnapshot(reloaded);
         var changed = false;
 
@@ -167,6 +204,9 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
             }
         }
 
+        if (requiresMigration)
+            _ = MigrateLegacyPlaintextAsync();
+
         if (!changed)
             return;
 
@@ -176,6 +216,61 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
 
     private static string CreateSnapshot(SteamWorkshopCredentials credentials) =>
         JsonSerializer.Serialize(SteamWorkshopCredentials.Normalize(credentials), JsonOptions);
+
+    private sealed class PersistedCredentials
+    {
+        public string? ProtectedWebApiKey { get; set; }
+
+        // Legacy plaintext field — read-only for backward compatibility.
+        // New writes only emit ProtectedWebApiKey.
+        public string? WebApiKey { get; set; }
+
+        public static PersistedCredentials FromCredentials(SteamWorkshopCredentials credentials, IDataProtector protector)
+        {
+            var key = credentials.WebApiKey;
+            return new PersistedCredentials
+            {
+                ProtectedWebApiKey = string.IsNullOrWhiteSpace(key) ? null : protector.Protect(key),
+            };
+        }
+
+        public SteamWorkshopCredentials ToCredentials(
+            IDataProtector protector,
+            ILogger logger,
+            out bool migratedFromPlaintext)
+        {
+            migratedFromPlaintext = false;
+
+            if (!string.IsNullOrWhiteSpace(ProtectedWebApiKey))
+            {
+                try
+                {
+                    return new SteamWorkshopCredentials
+                    {
+                        WebApiKey = protector.Unprotect(ProtectedWebApiKey),
+                    };
+                }
+                catch (Exception exception)
+                {
+                    logger.LogWarning(exception,
+                        "Failed unprotecting Steam Workshop Web API key. " +
+                        "The Data Protection keyring may have been rotated or replaced; clearing the stored key.");
+                    return new SteamWorkshopCredentials();
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(WebApiKey))
+            {
+                migratedFromPlaintext = true;
+                return new SteamWorkshopCredentials
+                {
+                    WebApiKey = WebApiKey,
+                };
+            }
+
+            return new SteamWorkshopCredentials();
+        }
+    }
 }
 
 public sealed class SteamWorkshopCredentials

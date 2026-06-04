@@ -8,6 +8,7 @@ using Quasar.Services.PluginSdk;
 using AspNet.Security.OpenId.Steam;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.FileProviders;
 using MudBlazor;
@@ -114,6 +115,11 @@ public class Program
                 AddRolePolicy(options, QuasarPolicyNames.CanManageSecurity, QuasarRoles.Admin);
                 AddRolePolicy(options, QuasarPolicyNames.CanShutdownQuasar, QuasarRoles.Admin);
             });
+            var dataProtectionKeyringDirectory = MagnetarPaths.GetQuasarDataProtectionKeyringDirectory();
+            Directory.CreateDirectory(dataProtectionKeyringDirectory);
+            builder.Services.AddDataProtection()
+                .SetApplicationName("Quasar")
+                .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyringDirectory));
             builder.Services.AddHttpClient();
             builder.Services.AddLocalStorageServices();
             builder.Services.AddMudServices(configuration =>
