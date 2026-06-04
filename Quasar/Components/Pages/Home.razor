@@ -467,8 +467,10 @@ else
     private int WorldTemplateCount => WorldTemplates.GetTemplates().Count;
 
     private const string SetupWizardDismissedStorageKey = "quasar.dashboard.setupWizardDismissed";
+    private const string SetupWizardCompletedStorageKey = "quasar.dashboard.setupWizardCompleted";
     private bool _setupWizardRequested;
     private bool _setupWizardDismissed;
+    private bool _setupWizardCompleted;
     private bool _setupWizardPreferenceLoaded;
     private readonly HashSet<int> _skippedSetupSteps = new();
     private int? _setupStepOverride;
@@ -535,11 +537,29 @@ else
 
     private bool ShowSetupWizard =>
         _setupWizardRequested ||
-        (_setupWizardPreferenceLoaded && IsSetupIncomplete && !_setupWizardDismissed);
+        (_setupWizardPreferenceLoaded && IsSetupIncomplete && !_setupWizardDismissed && !_setupWizardCompleted);
 
     private void ShowSetupWizardAgain()
     {
         _setupWizardRequested = true;
+    }
+
+    // Remember that first setup finished at least once so the wizard does not reappear
+    // after servers are stopped and Quasar is restarted. It only returns on explicit request.
+    private async Task PersistSetupCompletionIfNeededAsync()
+    {
+        if (!_setupWizardPreferenceLoaded || _setupWizardCompleted || IsSetupIncomplete)
+            return;
+
+        _setupWizardCompleted = true;
+        try
+        {
+            await LocalStorage.SetItemAsync(SetupWizardCompletedStorageKey, true);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed saving setup wizard preference: {exception.Message}", Severity.Warning);
+        }
     }
 
     private async Task HideSetupWizardAsync()
@@ -574,6 +594,7 @@ else
         try
         {
             _setupWizardDismissed = await LocalStorage.GetItemAsync<bool>(SetupWizardDismissedStorageKey);
+            _setupWizardCompleted = await LocalStorage.GetItemAsync<bool>(SetupWizardCompletedStorageKey);
         }
         catch (Exception exception)
         {
@@ -581,6 +602,7 @@ else
         }
 
         _setupWizardPreferenceLoaded = true;
+        await PersistSetupCompletionIfNeededAsync();
         await InvokeAsync(StateHasChanged);
     }
 
@@ -596,7 +618,11 @@ else
 
     private void HandleRegistryChanged()
     {
-        _ = InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(async () =>
+        {
+            await PersistSetupCompletionIfNeededAsync();
+            StateHasChanged();
+        });
     }
 
     private string GetSetupProgressText()
