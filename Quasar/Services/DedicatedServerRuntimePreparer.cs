@@ -203,7 +203,7 @@ public sealed class DedicatedServerRuntimePreparer
                     devFolders
                     .Select(devFolder => new XElement(
                         "LocalPlugin",
-                        new XElement("Name", string.IsNullOrWhiteSpace(devFolder.Name) ? devFolder.PluginId : devFolder.Name),
+                        new XElement("Name", devFolder.SourceFolderName),
                         new XElement("Folder", devFolder.FolderPath),
                         new XElement("Enabled", devFolder.Enabled ? "true" : "false")))),
                 new XElement(
@@ -237,7 +237,7 @@ public sealed class DedicatedServerRuntimePreparer
                     .Where(devFolder => devFolder.Enabled)
                     .Select(devFolder => new XElement(
                         "LocalFolderConfig",
-                        new XElement("Id", devFolder.PluginId),
+                        new XElement("Id", devFolder.SourceFolderName),
                         new XElement("DataFile", devFolder.DataFile),
                         new XElement("DebugBuild", devFolder.DebugBuild ? "true" : "false")))),
                 new XElement(
