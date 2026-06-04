@@ -10,10 +10,10 @@
 <MudPaper Class="server-card">
     <MudTable T="NodeRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="NodeRows">
         <HeaderContent>
-            <MudTh>Node</MudTh>
-            <MudTh>Servers</MudTh>
-            <MudTh>Connected Agents</MudTh>
-            <MudTh>Players</MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<NodeRow, object>(x => x.NodeName)">Node</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<NodeRow, object>(x => x.ServerCount)">Servers</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<NodeRow, object>(x => x.ConnectedAgents)">Connected Agents</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<NodeRow, object>(x => x.PlayersOnline)">Players</MudTableSortLabel></MudTh>
         </HeaderContent>
         <RowTemplate>
             <MudTd DataLabel="Node">@context.NodeName</MudTd>

@@ -8,11 +8,11 @@
 <PageTitle>Entities</PageTitle>
 
 <MudText Typo="Typo.h4" GutterBottom="true">Entities</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Live world entity list for a connected instance. Query grids, characters, floating objects and voxels, then inspect or delete them with full admin control.</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Live world entity list for a connected server. Query grids, characters, floating objects and voxels, then inspect or delete them with full admin control.</MudText>
 
 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
     <MudSelect T="string"
-               Label="Instance"
+               Label="Server"
                Value="_selectedAgentId"
                ValueChanged="OnInstanceChangedAsync"
                Variant="Variant.Outlined"
@@ -76,13 +76,13 @@
 @if (ConnectedAgents.Count == 0)
 {
     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-        No connected instances. Entities can only be listed for an instance with a live Quasar agent.
+        No connected servers. Entities can only be listed for a server with a live Quasar agent.
     </MudAlert>
 }
 else if (GetSelectedAgent() is null)
 {
     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-        The selected instance is no longer connected. Pick another instance above.
+        The selected server is no longer connected. Pick another server above.
     </MudAlert>
 }
 else if (_error is not null)
@@ -92,7 +92,7 @@ else if (_error is not null)
 else if (_lastResult is null)
 {
     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-        Select an instance and press Refresh to load the live entity list.
+        Select a server and press Refresh to load the live entity list.
     </MudAlert>
 }
 else if (FilteredEntities.Count == 0)

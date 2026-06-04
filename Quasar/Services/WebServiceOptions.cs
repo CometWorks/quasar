@@ -41,6 +41,8 @@ public sealed class WebServiceOptions
 
     public bool PreserveManagedInstancesOnShutdown { get; init; }
 
+    public bool AvoidSimultaneousScheduledRestarts { get; init; } = true;
+
     public string LauncherToken { get; init; } = string.Empty;
 
     public bool IsServiceMode => string.Equals(Mode, "service", StringComparison.OrdinalIgnoreCase);
@@ -127,6 +129,12 @@ public sealed class WebServiceOptions
         if (!bool.TryParse(preserveInstancesValue, out var preserveManagedInstancesOnShutdown))
             preserveManagedInstancesOnShutdown = false;
 
+        var avoidSimultaneousScheduledRestartsValue =
+            Environment.GetEnvironmentVariable("QUASAR_AVOID_SIMULTANEOUS_SCHEDULED_RESTARTS")
+            ?? section["AvoidSimultaneousScheduledRestarts"];
+        if (!bool.TryParse(avoidSimultaneousScheduledRestartsValue, out var avoidSimultaneousScheduledRestarts))
+            avoidSimultaneousScheduledRestarts = true;
+
         var launcherToken = Environment.GetEnvironmentVariable("QUASAR_LAUNCHER_TOKEN") ?? string.Empty;
 
         return new WebServiceOptions
@@ -146,6 +154,7 @@ public sealed class WebServiceOptions
             ListenUrl = $"http://{host}:{port}",
             OwnManifest = ownManifest,
             PreserveManagedInstancesOnShutdown = preserveManagedInstancesOnShutdown,
+            AvoidSimultaneousScheduledRestarts = avoidSimultaneousScheduledRestarts,
             LauncherToken = launcherToken,
         };
     }

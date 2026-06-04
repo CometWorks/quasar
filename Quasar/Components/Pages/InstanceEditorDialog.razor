@@ -2,7 +2,7 @@
     <TitleContent>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
             <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" OnClick="Cancel" title="Discard changes" />
-            <MudText Typo="Typo.h6">@(_isEditing ? "Edit Instance" : "Create Instance")</MudText>
+            <MudText Typo="Typo.h6">@(_isEditing ? "Edit Server" : "Create Server")</MudText>
         </MudStack>
     </TitleContent>
     <DialogContent>
@@ -10,7 +10,7 @@
         <MudForm @ref="_form" @bind-IsValid="_formIsValid">
         <MudStack Spacing="3">
             <MudText Typo="Typo.body2">
-                Define the full Quasar-managed instance here. Create and edit use the same workflow so paths, launch settings, and health policy stay in one place.
+                Define the full Quasar-managed server here. Create and edit use the same workflow so paths, launch settings, and health policy stay in one place.
             </MudText>
 
             <section>
@@ -55,7 +55,7 @@
                                          Required="true"
                                          RequiredError="Listen port required."
                                          Validation="@(new Func<int, string?>(ValidatePortField))"
-                                         HelperText="UDP port for clients. Default 27016. Must be unique across local instances." />
+                                         HelperText="UDP port for clients. Default 27016. Must be unique across local servers." />
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudTextField @bind-Value="_editor.ServerIP"
@@ -95,11 +95,13 @@
                                        @bind-Value="_editor.WorldTemplateId"
                                        Label="World template"
                                        Variant="Variant.Outlined"
-                                       HelperText="Blueprint world copied into instance world path on first launch if world directory does not already exist."
+                                       Required="true"
+                                       RequiredError="World template required."
+                                       Validation="@(new Func<string, string?>(ValidateWorldTemplateField))"
+                                       HelperText="Template world will be copied to instance world path on first launch if world directory does not already exist."
                                        Class="instance-editor-template-select"
                                        PopoverClass="instance-editor-select-popover"
                                        ListClass="instance-editor-select-list">
-                                <MudSelectItem T="string" Value="@string.Empty">(No world template)</MudSelectItem>
                                 @foreach (var template in WorldTemplates.GetTemplates())
                                 {
                                     <MudSelectItem T="string" Value="@template.WorldTemplateId">@template.Name</MudSelectItem>
@@ -127,7 +129,7 @@
                             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
                                 <MudStack Spacing="0">
                                     <MudText Typo="Typo.subtitle2">Restart Policy</MudText>
-                                    <MudText Typo="Typo.caption">Crash recovery and retry behavior for managed instance.</MudText>
+                                    <MudText Typo="Typo.caption">Crash recovery and retry behavior for managed server.</MudText>
                                 </MudStack>
                             </MudStack>
                         </TitleContent>
@@ -157,10 +159,6 @@
                                                   Placeholder="e.g. 06:00"
                                                   Validation="@(new Func<string, string?>(ValidateMaximumUptime))"
                                                   HelperText="Leave blank to disable. Restarts once process uptime reaches this duration." />
-                                </MudItem>
-                                <MudItem xs="12">
-                                    <MudCheckBox @bind-Value="_editor.AvoidSimultaneousScheduledRestarts"
-                                                 Label="Avoid restarting more than one server at once for scheduled or maximum-uptime restarts" />
                                 </MudItem>
                             </MudGrid>
                         </ChildContent>
@@ -316,7 +314,7 @@
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">@(_isEditing ? "Save Changes" : "Create Instance")</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">@(_isEditing ? "Save Changes" : "Create Server")</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -509,7 +507,9 @@
         if (!_formIsValid)
             return;
 
-        MudDialog.Close(DialogResult.Ok(_editor.Clone()));
+        var updated = _editor.Clone();
+        updated.DisplayName = NormalizeWhitespace(updated.DisplayName);
+        MudDialog.Close(DialogResult.Ok(updated));
     }
 
     private async Task OpenCreateConfigProfileDialogAsync()
@@ -645,4 +645,10 @@
 
         return duplicateExists ? $"An instance named '{trimmed}' already exists." : null;
     }
+
+    private static string? ValidateWorldTemplateField(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "World template required." : null;
+
+    private static string NormalizeWhitespace(string? value) =>
+        System.Text.RegularExpressions.Regex.Replace(value?.Trim() ?? string.Empty, @"\s+", " ");
 }

@@ -73,11 +73,10 @@ else
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.ServiceName)</MudChip>
             </MudTd>
             <MudTd DataLabel="Name">
-                <MudText Typo="Typo.body2">@CleanText(context.DisplayName)</MudText>
-                @if (!string.IsNullOrWhiteSpace(context.PlatformDisplayName) &&
-                     !string.Equals(context.PlatformDisplayName, context.DisplayName, StringComparison.Ordinal))
+                <MudText Typo="Typo.body2">@TextSanitizer.CleanGameText(context.DisplayName)</MudText>
+                @if (GetPlatformName(context) is { Length: > 0 } platformName)
                 {
-                    <MudText Typo="Typo.caption">@CleanText(context.PlatformDisplayName)</MudText>
+                    <MudText Typo="Typo.caption">Platform: @platformName</MudText>
                 }
             </MudTd>
             <MudTd DataLabel="Steam ID">
@@ -105,7 +104,7 @@ else
         {
             <div class="chat-row">
                 <MudText Typo="Typo.caption" Class="mono">@FormatTimestamp(message.TimestampTicksUtc)</MudText>
-                <MudText Typo="Typo.body2"><strong>@CleanText(message.AuthorName)</strong>: @CleanText(message.Content)</MudText>
+                <MudText Typo="Typo.body2"><strong>@TextSanitizer.CleanGameText(message.AuthorName)</strong>: @TextSanitizer.CleanGameText(message.Content)</MudText>
             </div>
         }
     </div>
@@ -258,21 +257,14 @@ else
         return "No live game snapshot. Start the instance to see metrics, players, chat, and plugins.";
     }
 
-    private static string CleanText(string? value)
+    private static string GetPlatformName(PlayerSnapshot player)
     {
-        if (string.IsNullOrEmpty(value))
-            return string.Empty;
-
-        var builder = new System.Text.StringBuilder(value.Length);
-        foreach (var ch in value)
-        {
-            if (char.IsControl(ch) && ch is not '\t' and not '\r' and not '\n')
-                continue;
-
-            builder.Append(ch == '\uFFFD' ? '?' : ch);
-        }
-
-        return builder.ToString();
+        var displayName = TextSanitizer.CleanGameText(player.DisplayName);
+        var platformName = TextSanitizer.CleanGameText(player.PlatformDisplayName);
+        return string.IsNullOrWhiteSpace(platformName) ||
+               string.Equals(platformName, displayName, StringComparison.Ordinal)
+            ? string.Empty
+            : platformName;
     }
 
     private static string GetRoleLabel(PlayerSnapshot player)

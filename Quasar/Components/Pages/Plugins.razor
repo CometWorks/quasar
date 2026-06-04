@@ -11,11 +11,11 @@
 <MudPaper Class="server-card">
     <MudTable T="PluginRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="PluginRows">
         <HeaderContent>
-            <MudTh>Plugin</MudTh>
-            <MudTh>Version</MudTh>
-            <MudTh>Server</MudTh>
-            <MudTh>Node</MudTh>
-            <MudTh>Status</MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.DisplayName)">Plugin</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.Version)">Version</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.ServerName)">Server</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.NodeName)">Node</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.IsLoaded)">Status</MudTableSortLabel></MudTh>
         </HeaderContent>
         <RowTemplate>
             <MudTd DataLabel="Plugin">@context.DisplayName</MudTd>

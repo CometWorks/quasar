@@ -1,5 +1,4 @@
 @page "/servers"
-@page "/instances"
 @implements IDisposable
 @inject DedicatedServerInstanceCatalog InstanceCatalog
 @inject DedicatedServerSupervisor Supervisor
@@ -13,18 +12,18 @@
 <PageTitle>Servers</PageTitle>
 
 <MudText Typo="Typo.h4" GutterBottom="true">Servers</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Persistent dedicated-server instances. Quasar launches, stops, and restarts processes from these definitions, and Quasar.Agent attaches once the server is up for live data.</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Persistent dedicated servers. Quasar launches, stops, and restarts processes from these definitions, and Quasar.Agent attaches once the server is up for live data.</MudText>
 
 <MudPaper Class="pa-4 server-card">
     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-4">
         <div>
-            <MudText Typo="Typo.h6">Configured Instances</MudText>
+            <MudText Typo="Typo.h6">Configured Servers</MudText>
             <MudText Typo="Typo.body2">Expand a row to see live agent data: players, chat, plugins, command results.</MudText>
         </div>
         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-            <MudChip T="string" Variant="Variant.Outlined">@($"{InstanceDefinitions.Count} instance(s)")</MudChip>
+            <MudChip T="string" Variant="Variant.Outlined">@($"{InstanceDefinitions.Count} server(s)")</MudChip>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialogAsync">
-                Create Instance
+                Create Server
             </MudButton>
         </MudStack>
     </MudStack>
@@ -32,7 +31,7 @@
     @if (InstanceDefinitions.Count == 0)
     {
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-            No instances defined yet.
+            No servers defined yet.
         </MudAlert>
     }
     else
@@ -40,13 +39,13 @@
         <MudTable T="DedicatedServerInstanceDefinition" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="InstanceDefinitions">
             <HeaderContent>
                 <MudTh Style="width: 36px;"></MudTh>
-                <MudTh>Status</MudTh>
-                <MudTh>Name</MudTh>
-                <MudTh>Port</MudTh>
-                <MudTh>Config</MudTh>
-                <MudTh>Players</MudTh>
-                <MudTh>Process</MudTh>
-                <MudTh>Agent</MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetStateText(x.UniqueName))">Status</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetDisplayName(x))">Name</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => x.ServerPort)">Port</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetConfigProfileName(x.ConfigProfileId))">Config</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetPlayerSortValue(x.UniqueName))">Players</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetProcessSortValue(x.UniqueName))">Process</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetAttachmentStatus(x.UniqueName))">Agent</MudTableSortLabel></MudTh>
                 <MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
@@ -57,9 +56,19 @@
                                    title="Show live data" />
                 </MudTd>
                 <MudTd DataLabel="Status">
-                    <MudChip T="string" Color="@GetStateColor(context.UniqueName)" Variant="Variant.Outlined">
-                        @GetStateText(context.UniqueName)
-                    </MudChip>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                        <MudChip T="string" Color="@GetStateColor(context.UniqueName)" Variant="Variant.Outlined">
+                            @GetStateText(context.UniqueName)
+                        </MudChip>
+                        @if (context.GoalState == DedicatedServerInstanceGoalState.On)
+                        {
+                            <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Warning" OnClick="@(() => StopAsync(context.UniqueName))">Stop</MudButton>
+                        }
+                        else
+                        {
+                            <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Success" OnClick="@(() => StartAsync(context.UniqueName))">Start</MudButton>
+                        }
+                    </MudStack>
                 </MudTd>
                 <MudTd DataLabel="Name">
                     <MudText Typo="Typo.body2">@GetDisplayName(context)</MudText>
@@ -74,15 +83,10 @@
                     <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.FlexEnd" Spacing="0">
                         @if (context.GoalState == DedicatedServerInstanceGoalState.On)
                         {
-                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Warning" OnClick="@(() => StopAsync(context.UniqueName))">Stop</MudButton>
                             @if (IsRunning(context.UniqueName))
                             {
                                 <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" OnClick="@(() => RestartAsync(context.UniqueName))">Restart</MudButton>
                             }
-                        }
-                        else
-                        {
-                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Success" OnClick="@(() => StartAsync(context.UniqueName))">Start</MudButton>
                         }
                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Terminal" Color="Color.Default" title="Show console output" OnClick="@(() => OpenConsoleDialogAsync(context.UniqueName))" />
                         <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => OpenCloneDialogAsync(context))">Clone</MudButton>
@@ -111,7 +115,7 @@
         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-3">
             <div>
                 <MudText Typo="Typo.h6">Unmanaged Agents</MudText>
-                <MudText Typo="Typo.body2">Quasar.Agent processes reporting in without a matching instance definition.</MudText>
+                <MudText Typo="Typo.body2">Quasar.Agent processes reporting in without a matching server definition.</MudText>
             </div>
             <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">@($"{UnmanagedAgents.Count} unmanaged")</MudChip>
         </MudStack>
@@ -137,6 +141,7 @@
 
     private IReadOnlyDictionary<string, AgentRuntimeState> AgentsByUniqueName => Registry
         .GetAgents()
+        .Where(agent => agent.IsConnected)
         .Where(agent => !string.IsNullOrWhiteSpace(agent.UniqueNameKey))
         .GroupBy(agent => agent.UniqueNameKey, StringComparer.OrdinalIgnoreCase)
         .ToDictionary(group => group.Key, group => group.OrderByDescending(a => a.LastSeenUtc).First(), StringComparer.OrdinalIgnoreCase);
@@ -150,6 +155,7 @@
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             return Registry.GetAgents()
+                .Where(agent => agent.IsConnected)
                 .Where(agent => !string.IsNullOrWhiteSpace(agent.UniqueNameKey))
                 .Where(agent => !defined.Contains(agent.UniqueNameKey))
                 .ToList();
@@ -194,19 +200,20 @@
         if (definition is null)
             return;
 
-        await SaveDefinitionAsync(definition, "Instance created.");
+        await SaveDefinitionAsync(definition, "Server created.");
     }
 
     private async Task OpenCloneDialogAsync(DedicatedServerInstanceDefinition definition)
     {
         var cloned = definition.Clone();
-        cloned.UniqueName = $"{definition.UniqueName}-copy";
+        cloned.DisplayName = NormalizeWhitespace($"{GetDisplayName(definition)} Copy");
+        cloned.UniqueName = MakeCopyIdentifier(definition.UniqueName);
         cloned.OriginalUniqueName = string.Empty;
         var created = await ShowEditorDialogAsync(cloned, isEditing: false);
         if (created is null)
             return;
 
-        await SaveDefinitionAsync(created, "Instance cloned.");
+        await SaveDefinitionAsync(created, "Server cloned.");
     }
 
     private async Task OpenEditDialogAsync(DedicatedServerInstanceDefinition definition)
@@ -215,7 +222,7 @@
         if (updated is null)
             return;
 
-        await SaveDefinitionAsync(updated, "Instance saved.");
+        await SaveDefinitionAsync(updated, "Server saved.");
     }
 
     private async Task OpenConsoleDialogAsync(string uniqueName)
@@ -251,7 +258,7 @@
             MaxWidth = MaxWidth.ExtraLarge,
         };
 
-        var dialog = await DialogService.ShowAsync<InstanceEditorDialog>(isEditing ? "Edit Instance" : "Create Instance", parameters, options);
+        var dialog = await DialogService.ShowAsync<InstanceEditorDialog>(isEditing ? "Edit Server" : "Create Server", parameters, options);
         var result = await dialog.Result;
         if (result is null || result.Canceled || result.Data is not DedicatedServerInstanceDefinition updated)
             return null;
@@ -266,7 +273,7 @@
             !string.Equals(previousUniqueName, definition.UniqueName, StringComparison.OrdinalIgnoreCase) &&
             IsRunning(previousUniqueName))
         {
-            Snackbar.Add("Stop the instance before renaming it.", Severity.Warning);
+            Snackbar.Add("Stop the server before renaming it.", Severity.Warning);
             return;
         }
 
@@ -286,7 +293,7 @@
         try
         {
             await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerInstanceGoalState.On);
-            Snackbar.Add("Instance start requested.", Severity.Success);
+            Snackbar.Add("Server start requested.", Severity.Success);
         }
         catch (Exception exception)
         {
@@ -299,7 +306,7 @@
         try
         {
             await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerInstanceGoalState.Off);
-            Snackbar.Add("Instance stop requested.", Severity.Info);
+            Snackbar.Add("Server stop requested.", Severity.Info);
         }
         catch (Exception exception)
         {
@@ -312,7 +319,7 @@
         try
         {
             await Supervisor.RestartInstanceAsync(uniqueName);
-            Snackbar.Add("Instance restart requested.", Severity.Info);
+            Snackbar.Add("Server restart requested.", Severity.Info);
         }
         catch (Exception exception)
         {
@@ -324,13 +331,13 @@
     {
         if (IsRunning(uniqueName))
         {
-            Snackbar.Add("Stop the instance before deleting its definition.", Severity.Warning);
+            Snackbar.Add("Stop the server before deleting its definition.", Severity.Warning);
             return;
         }
 
         var confirmed = await DialogService.ShowMessageBoxAsync(
-            "Delete instance?",
-            $"Instance definition '{uniqueName}' will be permanently removed. World files on disk are kept. This cannot be undone.",
+            "Delete server?",
+            $"Server definition '{uniqueName}' will be removed from the active catalog and archived in the server history folder as a deleted JSON snapshot. World files, rendered server config, logs, and server folders stay on disk; Quasar does not move them to the OS Trash yet.",
             yesText: "Delete",
             cancelText: "Cancel");
 
@@ -338,7 +345,8 @@
             return;
 
         await InstanceCatalog.DeleteAsync(uniqueName);
-        Snackbar.Add("Instance removed.", Severity.Info);
+        Registry.PruneDisconnectedByUniqueName(uniqueName);
+        Snackbar.Add("Server removed.", Severity.Info);
     }
 
     private string GetAttachmentStatus(string uniqueName)
@@ -374,11 +382,17 @@
         return $"{snapshot.Metrics.PlayersOnline}/{maxPlayers}";
     }
 
+    private int GetPlayerSortValue(string uniqueName) =>
+        GetAgent(uniqueName)?.Snapshot?.Metrics.PlayersOnline ?? -1;
+
     private string GetProcessDisplay(string uniqueName)
     {
         var runtime = GetRuntime(uniqueName);
         return runtime?.ProcessId?.ToString() ?? "stopped";
     }
+
+    private int GetProcessSortValue(string uniqueName) =>
+        GetRuntime(uniqueName)?.ProcessId ?? -1;
 
     private string GetConfigProfileName(string configProfileId)
     {
@@ -448,6 +462,24 @@
             RestartOnCrash = true,
         };
     }
+
+    private string MakeCopyIdentifier(string uniqueName)
+    {
+        var baseName = string.IsNullOrWhiteSpace(uniqueName) ? "instance" : uniqueName.Trim();
+        var candidate = $"{baseName}-copy";
+        var used = InstanceCatalog.GetInstances()
+            .Select(instance => instance.UniqueName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var suffix = 2;
+
+        while (used.Contains(candidate))
+            candidate = $"{baseName}-copy-{suffix++}";
+
+        return candidate;
+    }
+
+    private static string NormalizeWhitespace(string value) =>
+        System.Text.RegularExpressions.Regex.Replace(value.Trim(), @"\s+", " ");
 
     private int AllocateNextPort()
     {

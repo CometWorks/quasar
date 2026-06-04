@@ -31,7 +31,7 @@
             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
                 <div>
                     <MudText Typo="Typo.h6">First Setup</MudText>
-                    <MudText Typo="Typo.body2">Stay on dashboard. Create templates, create instance, launch instance, then watch the agent attach here.</MudText>
+                    <MudText Typo="Typo.body2">Stay on dashboard. Create templates, create server, launch server, then watch the agent attach here.</MudText>
                 </div>
                 <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Close" OnClick="HideSetupWizardAsync">
                     Hide Wizard
@@ -65,7 +65,7 @@
                                     }
                                     else
                                     {
-                                        @("Optional helper. Save reusable world rules, plugins, and mods before instance creation.")
+                                        @("Optional helper. Save reusable world rules, plugins, and mods before server creation.")
                                     }
                                 </MudText>
                             </MudStack>
@@ -163,7 +163,7 @@
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
                             <MudStack Spacing="0" Class="setup-wizard-copy">
                                 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-                                    <MudText Typo="Typo.subtitle2">Create instance</MudText>
+                                    <MudText Typo="Typo.subtitle2">Create server</MudText>
                                     <MudChip T="string" Variant="Variant.Outlined" Color="@(ConfiguredInstanceCount > 0 ? Color.Success : Color.Warning)" Size="Size.Small">
                                         @(ConfiguredInstanceCount > 0 ? "Done" : "Required")
                                     </MudChip>
@@ -171,7 +171,7 @@
                                 <MudText Typo="Typo.body2">
                                     @if (ConfiguredInstanceCount > 0)
                                     {
-                                        @($"{ConfiguredInstanceCount} instance definition(s) saved on dashboard.")
+                                        @($"{ConfiguredInstanceCount} server definition(s) saved on dashboard.")
                                     }
                                     else
                                     {
@@ -185,7 +185,7 @@
                                            Color="@(ConfiguredInstanceCount > 0 ? Color.Default : Color.Primary)"
                                            StartIcon="@Icons.Material.Filled.Storage"
                                            OnClick="OpenCreateInstanceDialogAsync">
-                                    @(ConfiguredInstanceCount > 0 ? "Add Instance" : "Create Instance")
+                                    @(ConfiguredInstanceCount > 0 ? "Add Server" : "Create Server")
                                 </MudButton>
                             </MudStack>
                         </MudStack>
@@ -220,7 +220,7 @@
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
                             <MudStack Spacing="0" Class="setup-wizard-copy">
                                 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-                                    <MudText Typo="Typo.subtitle2">Start instance</MudText>
+                                    <MudText Typo="Typo.subtitle2">Start server</MudText>
                                     <MudChip T="string" Variant="Variant.Outlined" Color="@(RunningInstanceCount > 0 ? Color.Success : Color.Warning)" Size="Size.Small">
                                         @(RunningInstanceCount > 0 ? "Done" : "Required")
                                     </MudChip>
@@ -228,15 +228,15 @@
                                 <MudText Typo="Typo.body2">
                                     @if (RunningInstanceCount > 0)
                                     {
-                                        @($"{RunningInstanceCount} instance(s) launching or running now.")
+                                        @($"{RunningInstanceCount} server(s) launching or running now.")
                                     }
                                     else if (ConfiguredInstanceCount == 0)
                                     {
-                                        @("Create instance first. Launch buttons appear here after save.")
+                                        @("Create server first. Launch buttons appear here after save.")
                                     }
                                     else
                                     {
-                                        @("Required. Launch saved instance here. Quasar prepares runtime and starts server from dashboard.")
+                                        @("Required. Launch saved server here. Quasar prepares runtime and starts server from dashboard.")
                                     }
                                 </MudText>
                             </MudStack>
@@ -248,7 +248,7 @@
                                                Color="Color.Default"
                                                Disabled="true"
                                                StartIcon="@Icons.Material.Filled.PlayArrow">
-                                        @(ConfiguredInstanceCount == 0 ? "Create Instance First" : "All Instances Running")
+                                        @(ConfiguredInstanceCount == 0 ? "Create Server First" : "All Servers Running")
                                     </MudButton>
                                 }
                                 else
@@ -384,7 +384,7 @@
     @if (!ShowSetupWizard)
     {
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-            No server instances configured yet. Create an instance to manage a Space Engineers dedicated server.
+            No servers configured yet. Create a server to manage a Space Engineers dedicated server.
         </MudAlert>
     }
 }
@@ -614,13 +614,13 @@ else
         if (ConfiguredInstanceCount == 0)
         {
             if (ConfigProfileCount == 0 && WorldTemplateCount == 0)
-                return "Optional: create config template or import world template here first. Then create first instance below.";
+                return "Optional: create config template or import world template here first. Then create first server below.";
 
-            return "Next: create first instance below. No page switch needed.";
+            return "Next: create first server below. No page switch needed.";
         }
 
         if (RunningInstanceCount == 0)
-            return "Next: start saved instance below. Quasar handles runtime prep on launch.";
+            return "Next: start saved server below. Quasar handles runtime prep on launch.";
 
         if (ConnectedAgentCount == 0)
             return "Last step: wait here for Quasar.Agent attach. Dashboard updates live when server reports in.";
@@ -635,7 +635,7 @@ else
         ShowFullScreenPageDialogAsync<WorldTemplatesPageDialog>("World Templates");
 
     private Task OpenCreateInstanceDialogAsync() =>
-        ShowFullScreenPageDialogAsync<InstancesPageDialog>("Instances");
+        ShowFullScreenPageDialogAsync<ServersPageDialog>("Servers");
 
     private async Task ShowFullScreenPageDialogAsync<TDialog>(string title) where TDialog : ComponentBase
     {

@@ -3,7 +3,7 @@ using Quasar.Models;
 namespace Quasar.Services;
 
 /// <summary>
-/// Orchestrates a graceful shutdown of all managed Magnetar instances before
+/// Orchestrates a graceful shutdown of all managed Magnetar servers before
 /// stopping the Quasar host process.
 /// </summary>
 public sealed class QuasarShutdownService

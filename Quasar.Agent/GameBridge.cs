@@ -89,15 +89,17 @@ namespace Quasar.Agent
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
 
-            if (command.CommandType == ServerCommandType.StopServer)
-            {
-                MySandboxGame.ExitThreadSafe();
-                return Task.FromResult(CreateResult(command, true, "Server shutdown requested."));
-            }
-
             var game = MySandboxGame.Static;
             if (game == null)
+            {
+                if (command.CommandType == ServerCommandType.StopServer)
+                {
+                    MySandboxGame.ExitThreadSafe();
+                    return Task.FromResult(CreateResult(command, true, "Server shutdown requested."));
+                }
+
                 return Task.FromResult(CreateResult(command, false, "Game instance not available."));
+            }
 
             var completion = new TaskCompletionSource<ServerCommandResult>();
 
@@ -467,7 +469,9 @@ namespace Quasar.Agent
 
         private ServerCommandResult ExecuteCommandOnGameThread(ServerCommandEnvelope command)
         {
-            if (command.CommandType != ServerCommandType.Refresh && (MySession.Static == null || !MySession.Static.Ready))
+            if (command.CommandType != ServerCommandType.Refresh &&
+                command.CommandType != ServerCommandType.StopServer &&
+                (MySession.Static == null || !MySession.Static.Ready))
                 return CreateResult(command, false, "Session not ready.");
 
             switch (command.CommandType)
@@ -480,8 +484,13 @@ namespace Quasar.Agent
                     return SendChat(command);
 
                 case ServerCommandType.SaveWorld:
-                    MySession.Static.Save(null);
+                    SaveWorldIfReady();
                     return CreateResult(command, true, "World save requested.");
+
+                case ServerCommandType.StopServer:
+                    SaveWorldIfReady();
+                    MySandboxGame.ExitThreadSafe();
+                    return CreateResult(command, true, "World save and server shutdown requested.");
 
                 case ServerCommandType.KickPlayer:
                     MyMultiplayer.Static?.KickClient((ulong)(command.SteamId ?? 0));
@@ -512,6 +521,15 @@ namespace Quasar.Agent
                 default:
                     return CreateResult(command, false, $"Unsupported command '{command.CommandType}'.");
             }
+        }
+
+        private static void SaveWorldIfReady()
+        {
+            var session = MySession.Static;
+            if (session == null || !session.Ready)
+                return;
+
+            session.Save(null);
         }
 
         private ServerCommandResult SendChat(ServerCommandEnvelope command)

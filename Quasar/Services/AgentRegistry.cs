@@ -33,6 +33,29 @@ public sealed class AgentRegistry
         }
     }
 
+    public void PruneDisconnectedByUniqueName(string uniqueName)
+    {
+        if (string.IsNullOrWhiteSpace(uniqueName))
+            return;
+
+        var changed = false;
+        lock (_sync)
+        {
+            foreach (var agentId in _agents.Values
+                         .Where(state => !state.IsConnected &&
+                             string.Equals(state.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase))
+                         .Select(state => state.AgentId)
+                         .ToList())
+            {
+                _agents.Remove(agentId);
+                changed = true;
+            }
+        }
+
+        if (changed)
+            NotifyChanged();
+    }
+
     public void UpsertHello(
         AgentHello hello,
         string connectionId,

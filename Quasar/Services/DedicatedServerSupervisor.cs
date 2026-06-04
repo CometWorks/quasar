@@ -281,9 +281,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             {
                 var processActive = IsProcessActive(state.Process);
                 var goalState = state.Definition.GoalState;
+                var agent = agents.TryGetValue(state.UniqueName, out var currentAgent) ? currentAgent : null;
                 var health = EvaluateHealth(
                     state,
-                    agents.TryGetValue(state.UniqueName, out var agent) ? agent : null,
+                    agent,
                     now,
                     _options.DisableInstanceHealthMonitoring);
 
@@ -300,11 +301,20 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 state.SimulationFramesAdvanced = health.SimulationFramesAdvanced;
 
                 if (processActive &&
+                    state.State is DedicatedServerInstanceProcessState.Starting or DedicatedServerInstanceProcessState.Restarting &&
+                    agent?.IsConnected == true &&
+                    agent.Snapshot?.IsRunning == true)
+                {
+                    state.State = DedicatedServerInstanceProcessState.Running;
+                    state.LastMessage = "Server online.";
+                    healthChanged = true;
+                }
+
+                if (processActive &&
                     state.State == DedicatedServerInstanceProcessState.Running &&
                     health.State is DedicatedServerInstanceHealthState.Healthy or DedicatedServerInstanceHealthState.Warning &&
-                    agents.TryGetValue(state.UniqueName, out var readyAgent) &&
-                    readyAgent.IsConnected &&
-                    readyAgent.Snapshot is not null)
+                    agent?.IsConnected == true &&
+                    agent.Snapshot is not null)
                 {
                     if (state.LastAppliedProcessPriority != state.Definition.ReadyProcessPriority)
                         priorityActions.Add((state.UniqueName, state.Definition.ReadyProcessPriority, "ready"));
@@ -396,6 +406,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private async Task StartProcessAsync(ManagedInstanceState state, CancellationToken cancellationToken)
     {
         var definition = state.Definition;
+        if (string.IsNullOrWhiteSpace(definition.WorldTemplateId))
+        {
+            SetFaulted(state.UniqueName, "World template required.");
+            return;
+        }
+
         ResolvedDedicatedServerRuntime runtime;
         SetRuntimeMessage(state.UniqueName, "Resolving managed runtime.");
         try
@@ -500,12 +516,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             }
 
             current.Process = process;
-            current.State = DedicatedServerInstanceProcessState.Running;
+            current.State = DedicatedServerInstanceProcessState.Starting;
             current.ProcessId = process.Id;
             current.StartedAtUtc = DateTimeOffset.UtcNow;
             current.StoppedAtUtc = null;
             current.LastExitCode = null;
-            current.LastMessage = "Process running.";
+            current.LastMessage = "Process started; waiting for server online signal.";
             current.StandardOutputLogPath = stdoutPath;
             current.StandardErrorLogPath = stderrPath;
             current.IsRestartPending = false;
@@ -753,6 +769,21 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         if (agent is null)
             return;
+
+        try
+        {
+            await _registry.SendCommandAndWaitAsync(new ServerCommandEnvelope
+            {
+                AgentId = agent.AgentId,
+                UniqueName = uniqueName,
+                ServerId = agent.ServerKey,
+                CommandType = ServerCommandType.SaveWorld,
+            }, TimeSpan.FromSeconds(15), cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogDebug(exception, "Failed to request world save before stopping instance {UniqueName}.", uniqueName);
+        }
 
         try
         {
@@ -1011,6 +1042,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private Dictionary<string, AgentRuntimeState> BuildAgentLookup()
     {
         return _registry.GetAgents()
+            .Where(agent => agent.IsConnected)
             .Where(agent => !string.IsNullOrWhiteSpace(agent.UniqueNameKey))
             .GroupBy(agent => agent.UniqueNameKey, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
@@ -1229,12 +1261,14 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private bool CanRunPlannedRestart(ManagedInstanceState state)
     {
-        if (!state.Definition.AvoidSimultaneousScheduledRestarts)
+        if (!_options.AvoidSimultaneousScheduledRestarts)
             return true;
 
         return !_states.Values.Any(current =>
             !string.Equals(current.UniqueName, state.UniqueName, StringComparison.OrdinalIgnoreCase) &&
-            current.State is DedicatedServerInstanceProcessState.Stopping or DedicatedServerInstanceProcessState.Restarting);
+            current.State is DedicatedServerInstanceProcessState.Starting
+                or DedicatedServerInstanceProcessState.Stopping
+                or DedicatedServerInstanceProcessState.Restarting);
     }
 
     private static bool ShouldScheduledRestartFire(ManagedInstanceState state, DateTimeOffset now, bool consume)
@@ -1421,6 +1455,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         return new DedicatedServerInstanceDefinition
         {
             UniqueName = definition.UniqueName,
+            DisplayName = definition.DisplayName,
             OriginalUniqueName = definition.OriginalUniqueName,
             GoalState = definition.GoalState,
             ExecutablePath = definition.ExecutablePath,
@@ -1432,6 +1467,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             ConfigProfileId = definition.ConfigProfileId,
             WorldTemplateId = definition.WorldTemplateId,
             LaunchArguments = definition.LaunchArguments,
+            ServerPort = definition.ServerPort,
+            ServerIP = definition.ServerIP,
             AutoStart = definition.AutoStart,
             EnableHealthMonitoring = definition.EnableHealthMonitoring,
             AutoRestartOnUnhealthy = definition.AutoRestartOnUnhealthy,

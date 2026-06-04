@@ -9,7 +9,7 @@
 <PageTitle>Discord</PageTitle>
 
 <MudText Typo="Typo.h4" GutterBottom="true">Discord</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">One bot, many Quasar instances. Bind command, chat, log, and analytics channels per instance.</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">One bot, many Quasar servers. Bind command, chat, log, and analytics channels per server.</MudText>
 
 <MudGrid>
     <MudItem xs="12" xl="4">
@@ -58,14 +58,14 @@
     <MudItem xs="12" xl="8">
         <MudPaper Class="pa-4 server-card">
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
-                <MudText Typo="Typo.h6">Per-Instance Bindings</MudText>
-                <MudText Typo="Typo.caption">@($"{InstanceDefinitions.Count} instance(s)")</MudText>
+                <MudText Typo="Typo.h6">Per-Server Bindings</MudText>
+                <MudText Typo="Typo.caption">@($"{InstanceDefinitions.Count} server(s)")</MudText>
             </MudStack>
 
             @if (InstanceDefinitions.Count == 0)
             {
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                    No Quasar instances defined yet.
+                    No Quasar servers defined yet.
                 </MudAlert>
             }
             else
@@ -128,7 +128,7 @@
                                 <MudCheckBox T="bool" @bind-Value="instanceOptions.RelayNonCommandMessages" Label="Relay non-command Discord messages to game chat" />
 
                                 <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SaveInstanceAsync(definition.UniqueName))">
-                                    Save Instance
+                                    Save Server
                                 </MudButton>
                             </MudStack>
                         </MudExpansionPanel>

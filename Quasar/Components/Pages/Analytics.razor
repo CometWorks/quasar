@@ -107,12 +107,12 @@
         <MudItem xs="12" xl="8">
             <MudStack Spacing="2">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                    <MudText Typo="Typo.h6">Instances</MudText>
+                    <MudText Typo="Typo.h6">Servers</MudText>
                     <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllInstancesAsync">Select all</MudButton>
                 </MudStack>
                 @if (_instanceOptions.Count == 0)
                 {
-                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No instances known yet.</MudAlert>
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No servers known yet.</MudAlert>
                 }
                 else
                 {
@@ -655,7 +655,7 @@ else
                 latestSamples.Add(latest[0]);
         }
 
-        _summaryChips.Add(new SummaryChipModel("Instances", selectedInstances.Count.ToString()));
+        _summaryChips.Add(new SummaryChipModel("Servers", selectedInstances.Count.ToString()));
         _summaryChips.Add(new SummaryChipModel("Tier", ResolveTierLabel(spanSeconds)));
 
         if (latestSamples.Count == 0)

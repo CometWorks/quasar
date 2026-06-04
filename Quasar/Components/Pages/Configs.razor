@@ -13,7 +13,7 @@
 
 <MudText Typo="Typo.h4" GutterBottom="true">Configs</MudText>
 <MudText Typo="Typo.body2" Class="mb-4">
-    Reusable world templates and Magnetar config templates. Save many presets, search world options fast, then assign templates to instances.
+    Reusable world templates and Magnetar config templates. Save many presets, search world options fast, then assign templates to servers.
 </MudText>
 
 <MudGrid>
@@ -108,7 +108,7 @@
                     <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-3">
                         <MudChip T="string" Variant="Variant.Outlined">Plugins @(_editor.Plugins.Count)</MudChip>
                         <MudChip T="string" Variant="Variant.Outlined">Mods @(_editor.Mods.Count)</MudChip>
-                        <MudChip T="string" Variant="Variant.Outlined">Assigned Instances @GetAssignedInstances(_editor.ConfigProfileId).Count</MudChip>
+                        <MudChip T="string" Variant="Variant.Outlined">Assigned Servers @GetAssignedInstances(_editor.ConfigProfileId).Count</MudChip>
                         @if (!string.IsNullOrWhiteSpace(PluginCatalog.LastError))
                         {
                             <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">Catalog stale</MudChip>
@@ -727,7 +727,7 @@
         var assignedInstances = GetAssignedInstances(configProfileId);
         if (assignedInstances.Count > 0)
         {
-            Snackbar.Add("Template still assigned to instances. Reassign or clear them first.", Severity.Warning);
+            Snackbar.Add("Template still assigned to servers. Reassign or clear them first.", Severity.Warning);
             return;
         }
 
@@ -1358,7 +1358,7 @@
 
     private string GetProfileSummary(QuasarConfigProfile template)
     {
-        return $"{template.Plugins.Count} plugins, {template.Mods.Count} mods, {GetAssignedInstances(template.ConfigProfileId).Count} instances";
+        return $"{template.Plugins.Count} plugins, {template.Mods.Count} mods, {GetAssignedInstances(template.ConfigProfileId).Count} servers";
     }
 
     private List<DedicatedServerInstanceDefinition> GetAssignedInstances(string configProfileId)

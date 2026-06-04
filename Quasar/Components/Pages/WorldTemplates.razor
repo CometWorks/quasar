@@ -17,14 +17,18 @@
             <MudStack Spacing="2">
                 <MudTextField @bind-Value="_name" Label="Template name" Variant="Variant.Outlined" />
                 <MudTextField @bind-Value="_description" Label="Description" Variant="Variant.Outlined" Lines="2" />
-                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.End">
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Start">
                     <MudTextField
                         @bind-Value="_sourcePath"
                         Label="Source world path"
                         Variant="Variant.Outlined"
                         Class="flex-grow-1"
                         HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc. Quasar copies all files into managed storage." />
-                    <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.FolderOpen" OnClick="OpenFolderPickerAsync">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Default"
+                               StartIcon="@Icons.Material.Filled.FolderOpen"
+                               Class="world-template-browse-button"
+                               OnClick="OpenFolderPickerAsync">
                         Browse
                     </MudButton>
                 </MudStack>
@@ -57,10 +61,10 @@
             {
                 <MudTable T="WorldTemplateRow" Dense="true" Hover="true" Items="Templates">
                     <HeaderContent>
-                        <MudTh>Name</MudTh>
-                        <MudTh>Description</MudTh>
-                        <MudTh>World files</MudTh>
-                        <MudTh>Updated</MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.Name)">Name</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.Description)">Description</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.FileSizeKb)">World files</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.UpdatedAtUtc)">Updated</MudTableSortLabel></MudTh>
                         <MudTh></MudTh>
                     </HeaderContent>
                     <RowTemplate>

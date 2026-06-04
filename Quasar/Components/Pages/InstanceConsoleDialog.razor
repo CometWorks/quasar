@@ -7,7 +7,10 @@
         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
             <MudText Typo="Typo.body2" Class="mud-text-secondary">@_entries.Count line(s)</MudText>
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                <MudSwitch T="bool" Value="MagnetarOnly" ValueChanged="OnMagnetarOnlyChanged" Color="Color.Primary" Label="Magnetar stdout only" />
+                <MudSwitch T="bool" Value="MagnetarOnly" ValueChanged="OnMagnetarOnlyChanged" Color="Color.Primary" Label="Magnetar process output only" />
+                <MudTooltip Text="When enabled, shows only Magnetar process stdout and stderr. Turn off to include structured plugin log entries emitted through PluginSdk.">
+                    <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Color="Color.Default" />
+                </MudTooltip>
                 <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.DeleteSweep" OnClick="ClearAsync">Clear</MudButton>
             </MudStack>
         </MudStack>

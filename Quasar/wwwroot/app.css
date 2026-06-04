@@ -102,6 +102,12 @@ h1:focus {
 
 .mud-expansion-panels > .mud-expand-panel .mud-expand-panel-header {
     border-bottom: 1px solid transparent;
+    transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.mud-expansion-panels > .mud-expand-panel .mud-expand-panel-header:hover,
+.mud-expansion-panels > .mud-expand-panel .mud-expand-panel-header:focus-visible {
+    background: var(--mud-palette-action-default-hover);
 }
 
 .mud-expansion-panels > .mud-expand-panel.mud-panel-expanded .mud-expand-panel-header {
@@ -113,6 +119,18 @@ h1:focus {
     background: var(--mud-palette-surface);
     box-shadow: none;
     overflow: hidden;
+}
+
+.mud-checkbox {
+    border-radius: var(--mud-default-borderradius);
+    padding-inline: 0.35rem;
+    margin-inline: -0.35rem;
+    transition: background-color 120ms ease;
+}
+
+.mud-checkbox:hover,
+.mud-checkbox:focus-within {
+    background: var(--mud-palette-action-default-hover);
 }
 
 .world-template-browse-button {
@@ -244,6 +262,10 @@ h1:focus {
 }
 
 @media (min-width: 1280px) {
+    body {
+        zoom: 0.9;
+    }
+
     :root {
         --mud-typography-h4-size: 1.75rem;
         --mud-typography-h4-lineheight: 2rem;
@@ -267,7 +289,7 @@ h1:focus {
     }
 
     .magnetar-body .mud-table-cell {
-        padding: 0.35rem 0.75rem;
+        padding: 0.3rem 0.65rem;
     }
 
     .magnetar-body .mud-button-root {

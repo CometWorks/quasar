@@ -63,10 +63,10 @@
     <MudMessageBox @ref="_shutdownMessageBox" Title="Shut down Quasar?">
         <MessageContent>
             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">
-                This will stop all running Magnetar instances before terminating Quasar.
+                This will stop all running Magnetar servers before terminating Quasar.
             </MudAlert>
             <MudText Typo="Typo.body2">
-                Each instance is sent a graceful shutdown command and waited on for a clean exit.
+                Each server is sent a graceful shutdown command and waited on for a clean exit.
                 If Quasar is running under <strong>Quasar Bootstrap</strong>, the service will be
                 automatically restarted afterwards. To prevent restart, stop the Bootstrap process
                 separately or relaunch with <code>--force</code>.

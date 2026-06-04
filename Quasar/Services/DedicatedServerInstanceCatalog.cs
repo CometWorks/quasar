@@ -15,6 +15,7 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
     };
 
     private static readonly Regex UniqueNameRegex = new("^[a-zA-Z0-9_-]+$", RegexOptions.Compiled);
+    private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
 
     private readonly object _sync = new();
     private readonly ILogger<DedicatedServerInstanceCatalog> _logger;
@@ -70,6 +71,9 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
         ArgumentNullException.ThrowIfNull(definition);
 
         var normalized = Normalize(Clone(definition));
+        if (string.IsNullOrWhiteSpace(normalized.WorldTemplateId))
+            throw new InvalidOperationException("World template required.");
+
         var previousUniqueName = string.IsNullOrWhiteSpace(normalized.OriginalUniqueName)
             ? normalized.UniqueName
             : normalized.OriginalUniqueName;
@@ -220,6 +224,7 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
     {
         instance.UniqueName = instance.UniqueName?.Trim() ?? string.Empty;
         ValidateUniqueName(instance.UniqueName);
+        instance.DisplayName = NormalizeDisplayName(instance.DisplayName, instance.UniqueName);
         instance.OriginalUniqueName = string.IsNullOrWhiteSpace(instance.OriginalUniqueName)
             ? instance.UniqueName
             : instance.OriginalUniqueName.Trim();
@@ -288,6 +293,7 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
         return new DedicatedServerInstanceDefinition
         {
             UniqueName = instance.UniqueName,
+            DisplayName = instance.DisplayName,
             OriginalUniqueName = instance.OriginalUniqueName,
             GoalState = instance.GoalState,
             ExecutablePath = instance.ExecutablePath,
@@ -299,6 +305,8 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
             ConfigProfileId = instance.ConfigProfileId,
             WorldTemplateId = instance.WorldTemplateId,
             LaunchArguments = instance.LaunchArguments,
+            ServerPort = instance.ServerPort,
+            ServerIP = instance.ServerIP,
             AutoStart = instance.AutoStart,
             EnableHealthMonitoring = instance.EnableHealthMonitoring,
             AutoRestartOnUnhealthy = instance.AutoRestartOnUnhealthy,
@@ -318,6 +326,12 @@ public sealed class DedicatedServerInstanceCatalog : IDisposable
             ReadyProcessPriority = instance.ReadyProcessPriority,
             UpdatedAtUtc = instance.UpdatedAtUtc,
         };
+    }
+
+    private static string NormalizeDisplayName(string? displayName, string uniqueName)
+    {
+        var normalized = WhitespaceRegex.Replace(displayName?.Trim() ?? string.Empty, " ");
+        return string.IsNullOrWhiteSpace(normalized) ? uniqueName : normalized;
     }
 
     private static void ValidateUniqueName(string uniqueName)
