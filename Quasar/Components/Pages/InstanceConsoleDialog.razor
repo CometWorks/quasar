@@ -369,7 +369,7 @@
     private void Close() => MudDialog.Close();
 
     private static bool IsMagnetar(PluginLogEntry entry) =>
-        string.Equals(entry.Plugin, "magnetar", StringComparison.OrdinalIgnoreCase);
+        string.Equals(entry.Plugin, "Magnetar", StringComparison.OrdinalIgnoreCase);
 
     private static string GetLineClass(PluginLogEntry entry) =>
         IsMagnetar(entry)

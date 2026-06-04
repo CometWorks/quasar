@@ -941,7 +941,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         NotifyChanged();
     }
 
-    private const string MagnetarLogSource = "magnetar";
+    private const string MagnetarLogSource = "Magnetar";
 
     private async Task PumpStandardOutputAsync(StreamReader reader, string path, string uniqueName, CancellationToken cancellationToken)
     {
