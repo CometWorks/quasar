@@ -3,6 +3,7 @@
 @using System.IO
 @using System.Text.Json
 @inject QuasarConfigProfileCatalog ConfigProfiles
+@inject QuasarDevFolderCatalog DevFolderCatalog
 @inject QuasarPluginCatalogService PluginCatalog
 @inject QuasarWorkshopModResolver WorkshopMods
 @inject SteamWorkshopCredentialsCatalog WorkshopCredentials
@@ -18,7 +19,7 @@
     Reusable world templates and Magnetar config templates. Save many presets, search world options fast, then assign templates to servers.
 </MudText>
 
-<MudGrid>
+<MudGrid Class="configs-page-shell">
     <MudItem xs="12" lg="3">
         <MudPaper Class="server-card pa-4 configs-sidebar">
             <MudStack Spacing="2" Class="configs-sidebar-inner">
@@ -86,8 +87,8 @@
         </MudPaper>
     </MudItem>
 
-    <MudItem xs="12" lg="9">
-        <div>
+    <MudItem xs="12" lg="9" Class="configs-main-column">
+        <div class="configs-editor-scroll">
         @if (_editor is null)
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
@@ -646,7 +647,7 @@
                             Register local plugin source folders so Magnetar loads them as dev builds. The plugin id is read from the manifest XML when you add the folder.
                         </MudText>
 
-                        <MudTable T="QuasarDevFolderSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_editor.DevFolders" RowClassFunc="GetDevFolderRowClass">
+                        <MudTable T="QuasarDevFolderSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="GlobalDevFolders" RowClassFunc="GetDevFolderRowClass">
                             <HeaderContent>
                                 <MudTh>Name</MudTh>
                                 <MudTh>Folder</MudTh>
@@ -667,10 +668,10 @@
                                 <MudTd DataLabel="Folder" Class="mono">@context.FolderPath</MudTd>
                                 <MudTd DataLabel="Manifest" Class="mono">@context.DataFile</MudTd>
                                 <MudTd DataLabel="Debug">
-                                    <MudSwitch T="bool" Value="@context.DebugBuild" ValueChanged="@(value => SetDevFolderDebug(context, value))" Color="Color.Primary" />
+                                    <MudSwitch T="bool" Value="@context.DebugBuild" ValueChanged="@(value => SetDevFolderDebugAsync(context, value))" Color="Color.Primary" />
                                 </MudTd>
                                 <MudTd DataLabel="Enabled">
-                                    <MudSwitch T="bool" Value="@context.Enabled" ValueChanged="@(value => SetDevFolderEnabled(context, value))" Color="Color.Primary" />
+                                    <MudSwitch T="bool" Value="@context.Enabled" ValueChanged="@(value => SetDevFolderEnabledAsync(context, value))" Color="Color.Primary" />
                                 </MudTd>
                                 <MudTd Style="text-align:right;">
                                     <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Default" OnClick="@(() => EditDevFolder(context))" />
@@ -714,7 +715,7 @@
                                 <MudSwitch @bind-Value="_newDevFolderEnabled" Color="Color.Primary" Label="Enabled" />
                             </MudItem>
                             <MudItem xs="12" md="4">
-                                <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" Class="configs-add-button" OnClick="SaveDevFolder" Disabled="@(string.IsNullOrWhiteSpace(_newDevFolderPath) || string.IsNullOrWhiteSpace(_newDevFolderDataFile))">
+                                <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" Class="configs-add-button" OnClick="SaveDevFolderAsync" Disabled="@(string.IsNullOrWhiteSpace(_newDevFolderPath) || string.IsNullOrWhiteSpace(_newDevFolderDataFile))">
                                     @(_selectedDevFolder is null ? "Create Entry" : "Save Entry")
                                 </MudButton>
                             </MudItem>
@@ -779,6 +780,7 @@
     public string? RequestedProfileId { get; set; }
 
     private IReadOnlyList<QuasarConfigProfile> Templates => ConfigProfiles.GetProfiles();
+    private IReadOnlyList<QuasarDevFolderSelection> GlobalDevFolders => DevFolderCatalog.GetDevFolders();
     private IReadOnlyList<QuasarPluginCatalogEntry> CatalogEntries => PluginCatalog.GetEntries();
 
     private List<QuasarConfigOptionDefinition> VisibleWorldOptions => QuasarConfigMetadata.Options
@@ -845,6 +847,7 @@
     protected override void OnInitialized()
     {
         ConfigProfiles.Changed += HandleProfilesChanged;
+        DevFolderCatalog.Changed += HandleProfilesChanged;
         InstanceCatalog.Changed += HandleInstancesChanged;
         WorkshopCredentials.Changed += HandleWorkshopCredentialsChanged;
         SelectProfile(GetInitialProfileId());
@@ -865,6 +868,7 @@
     public void Dispose()
     {
         ConfigProfiles.Changed -= HandleProfilesChanged;
+        DevFolderCatalog.Changed -= HandleProfilesChanged;
         InstanceCatalog.Changed -= HandleInstancesChanged;
         WorkshopCredentials.Changed -= HandleWorkshopCredentialsChanged;
     }
@@ -903,19 +907,6 @@
         {
             Snackbar.Add("Template name required.", Severity.Warning);
             return false;
-        }
-
-        foreach (var devFolder in _editor.DevFolders)
-        {
-            try
-            {
-                devFolder.PluginId = PluginManifestReader.ReadPluginId(Path.Combine(devFolder.FolderPath, devFolder.DataFile));
-            }
-            catch (InvalidOperationException exception)
-            {
-                Snackbar.Add(exception.Message, Severity.Error);
-                return false;
-            }
         }
 
         await ConfigProfiles.UpsertAsync(_editor);
@@ -1700,11 +1691,8 @@
             _newDevFolderPath = path;
     }
 
-    private void SaveDevFolder()
+    private async Task SaveDevFolderAsync()
     {
-        if (_editor is null)
-            return;
-
         var folderPath = _newDevFolderPath.Trim();
         var dataFile = _newDevFolderDataFile.Trim();
         if (string.IsNullOrWhiteSpace(folderPath) || string.IsNullOrWhiteSpace(dataFile))
@@ -1713,8 +1701,8 @@
             return;
         }
 
-        if (_editor.DevFolders.Any(devFolder =>
-                !ReferenceEquals(devFolder, _selectedDevFolder) &&
+        if (GlobalDevFolders.Any(devFolder =>
+                !IsSelectedDevFolder(devFolder) &&
                 string.Equals(devFolder.FolderPath, folderPath, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(devFolder.DataFile, dataFile, StringComparison.OrdinalIgnoreCase)))
         {
@@ -1733,24 +1721,28 @@
             return;
         }
 
-        var devFolder = _selectedDevFolder is not null && _editor.DevFolders.Contains(_selectedDevFolder)
-            ? _selectedDevFolder
-            : new QuasarDevFolderSelection();
+        var previousFolderPath = _selectedDevFolder?.FolderPath ?? string.Empty;
+        var previousDataFile = _selectedDevFolder?.DataFile ?? string.Empty;
+        var devFolder = new QuasarDevFolderSelection
+        {
+            Name = string.IsNullOrWhiteSpace(_newDevFolderName) ? pluginId : _newDevFolderName.Trim(),
+            FolderPath = folderPath,
+            DataFile = dataFile,
+            PluginId = pluginId,
+            DebugBuild = _newDevFolderDebug,
+            Enabled = _newDevFolderEnabled,
+        };
 
-        devFolder.Name = string.IsNullOrWhiteSpace(_newDevFolderName) ? pluginId : _newDevFolderName.Trim();
-        devFolder.FolderPath = folderPath;
-        devFolder.DataFile = dataFile;
-        devFolder.PluginId = pluginId;
-        devFolder.DebugBuild = _newDevFolderDebug;
-        devFolder.Enabled = _newDevFolderEnabled;
+        if (_selectedDevFolder is not null &&
+            (!string.Equals(previousFolderPath, folderPath, StringComparison.OrdinalIgnoreCase) ||
+             !string.Equals(previousDataFile, dataFile, StringComparison.OrdinalIgnoreCase)))
+        {
+            await DevFolderCatalog.DeleteAsync(previousFolderPath, previousDataFile);
+        }
 
-        if (!_editor.DevFolders.Contains(devFolder))
-            _editor.DevFolders.Add(devFolder);
-
-        _editor.DevFolders = _editor.DevFolders
-            .OrderBy(devFolder => devFolder.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        _selectedDevFolder = devFolder;
+        await DevFolderCatalog.UpsertAsync(devFolder);
+        _selectedDevFolder = DevFolderCatalog.GetDevFolder(folderPath, dataFile) ?? devFolder;
+        Snackbar.Add("Dev folder saved.", Severity.Success);
     }
 
     private void EditDevFolder(QuasarDevFolderSelection devFolder)
@@ -1773,36 +1765,40 @@
         _newDevFolderEnabled = true;
     }
 
-    private void SetDevFolderDebug(QuasarDevFolderSelection devFolder, bool value)
+    private async Task SetDevFolderDebugAsync(QuasarDevFolderSelection devFolder, bool value)
     {
         devFolder.DebugBuild = value;
-        if (ReferenceEquals(_selectedDevFolder, devFolder))
+        await DevFolderCatalog.UpsertAsync(devFolder);
+        if (IsSelectedDevFolder(devFolder))
             _newDevFolderDebug = value;
     }
 
-    private void SetDevFolderEnabled(QuasarDevFolderSelection devFolder, bool value)
+    private async Task SetDevFolderEnabledAsync(QuasarDevFolderSelection devFolder, bool value)
     {
         devFolder.Enabled = value;
-        if (ReferenceEquals(_selectedDevFolder, devFolder))
+        await DevFolderCatalog.UpsertAsync(devFolder);
+        if (IsSelectedDevFolder(devFolder))
             _newDevFolderEnabled = value;
     }
 
     private string GetDevFolderRowClass(QuasarDevFolderSelection devFolder, int rowNumber)
     {
-        return ReferenceEquals(devFolder, _selectedDevFolder)
+        return IsSelectedDevFolder(devFolder)
             ? "configs-dev-folder-row-selected"
             : string.Empty;
     }
 
-    private void RemoveDevFolder(QuasarDevFolderSelection devFolder)
+    private async Task RemoveDevFolder(QuasarDevFolderSelection devFolder)
     {
-        if (_editor is null)
-            return;
-
-        _editor.DevFolders.Remove(devFolder);
-        if (ReferenceEquals(_selectedDevFolder, devFolder))
+        await DevFolderCatalog.DeleteAsync(devFolder.FolderPath, devFolder.DataFile);
+        if (IsSelectedDevFolder(devFolder))
             ClearDevFolderEditor();
     }
+
+    private bool IsSelectedDevFolder(QuasarDevFolderSelection devFolder) =>
+        _selectedDevFolder is not null &&
+        string.Equals(_selectedDevFolder.FolderPath, devFolder.FolderPath, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(_selectedDevFolder.DataFile, devFolder.DataFile, StringComparison.OrdinalIgnoreCase);
 
     private async Task MergeModsFromWorldTemplateAsync()
     {

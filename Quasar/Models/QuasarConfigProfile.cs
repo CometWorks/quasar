@@ -48,8 +48,6 @@ public sealed class QuasarConfigProfile
 
     public List<QuasarModSelection> Mods { get; set; } = [];
 
-    public List<QuasarDevFolderSelection> DevFolders { get; set; } = [];
-
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 }
 

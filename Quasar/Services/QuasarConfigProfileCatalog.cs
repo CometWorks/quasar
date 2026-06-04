@@ -281,20 +281,6 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
             .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(mod => mod.WorkshopId)
             .ToList();
-        profile.DevFolders = (profile.DevFolders ?? [])
-            .Select(devFolder => new QuasarDevFolderSelection
-            {
-                Name = devFolder.Name?.Trim() ?? string.Empty,
-                FolderPath = devFolder.FolderPath?.Trim() ?? string.Empty,
-                DataFile = devFolder.DataFile?.Trim() ?? string.Empty,
-                PluginId = devFolder.PluginId?.Trim() ?? string.Empty,
-                DebugBuild = devFolder.DebugBuild,
-                Enabled = devFolder.Enabled,
-            })
-            .Where(devFolder => !string.IsNullOrWhiteSpace(devFolder.FolderPath) && !string.IsNullOrWhiteSpace(devFolder.DataFile))
-            .DistinctBy(devFolder => (devFolder.FolderPath, devFolder.DataFile))
-            .OrderBy(devFolder => devFolder.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
         if (profile.UpdatedAtUtc == default)
             profile.UpdatedAtUtc = DateTimeOffset.UtcNow;
         return profile;

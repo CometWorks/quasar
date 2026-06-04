@@ -25,19 +25,22 @@ public sealed class DedicatedServerRuntimePreparer
     private readonly QuasarConfigProfileCatalog _configProfiles;
     private readonly QuasarWorldTemplateCatalog _worldTemplates;
     private readonly QuasarPluginCatalogService _pluginCatalog;
+    private readonly QuasarDevFolderCatalog _devFolderCatalog;
 
     public DedicatedServerRuntimePreparer(
         ILogger<DedicatedServerRuntimePreparer> logger,
         WebServiceOptions options,
         QuasarConfigProfileCatalog configProfiles,
         QuasarWorldTemplateCatalog worldTemplates,
-        QuasarPluginCatalogService pluginCatalog)
+        QuasarPluginCatalogService pluginCatalog,
+        QuasarDevFolderCatalog devFolderCatalog)
     {
         _logger = logger;
         _options = options;
         _configProfiles = configProfiles;
         _worldTemplates = worldTemplates;
         _pluginCatalog = pluginCatalog;
+        _devFolderCatalog = devFolderCatalog;
     }
 
     public async Task<PreparedDedicatedServerLaunch> PrepareAsync(
@@ -178,6 +181,7 @@ public sealed class DedicatedServerRuntimePreparer
             ? "Quasar Current"
             : configProfile.Name.Trim();
         var remotePluginSources = await BuildRemotePluginSourcesAsync(configProfile, cancellationToken);
+        var devFolders = _devFolderCatalog.GetDevFolders();
 
         var sourcesDocument = new XDocument(
             new XDeclaration("1.0", "utf-8", null),
@@ -196,7 +200,7 @@ public sealed class DedicatedServerRuntimePreparer
                     remotePluginSources.Entries.Select(CreateRemotePluginElement)),
                 new XElement(
                     "LocalPluginSources",
-                    configProfile.DevFolders
+                    devFolders
                     .Select(devFolder => new XElement(
                         "LocalPlugin",
                         new XElement("Name", string.IsNullOrWhiteSpace(devFolder.Name) ? devFolder.PluginId : devFolder.Name),
@@ -229,7 +233,7 @@ public sealed class DedicatedServerRuntimePreparer
                         new XElement("SelectedVersion", plugin.SelectedVersion)))),
                 new XElement(
                     "DevFolder",
-                    configProfile.DevFolders
+                    devFolders
                     .Where(devFolder => devFolder.Enabled)
                     .Select(devFolder => new XElement(
                         "LocalFolderConfig",

@@ -1,7 +1,13 @@
+.configs-page-shell {
+    height: auto;
+    min-height: 0;
+}
+
 .configs-sidebar {
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-height: 0;
 }
 
 .configs-sidebar-inner {
@@ -14,6 +20,18 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+}
+
+.configs-main-column {
+    height: auto;
+    min-height: 0;
+}
+
+.configs-editor-scroll {
+    height: auto;
+    min-height: 0;
+    overflow-y: visible;
+    padding-right: 0.25rem;
 }
 
 .config-template-tile {
@@ -160,6 +178,17 @@
 }
 
 @media (min-width: 1280px) {
+    .configs-page-shell {
+        height: calc(100vh - 11rem);
+        min-height: 42rem;
+    }
+
+    .configs-main-column,
+    .configs-editor-scroll {
+        height: 100%;
+        overflow-y: auto;
+    }
+
     .configs-sidebar {
         position: sticky;
         top: calc(64px + 1rem);
@@ -167,6 +196,12 @@
 }
 
 @media (max-width: 599px) {
+    .configs-main-column,
+    .configs-editor-scroll {
+        height: auto;
+        overflow: visible;
+    }
+
     .configs-dev-folder-path-row {
         flex-direction: column;
     }
