@@ -3,7 +3,7 @@
 @using Microsoft.JSInterop
 @using MudBlazor.Charts
 @inject MetricsStoreService MetricsStore
-@inject DedicatedServerInstanceCatalog InstanceCatalog
+@inject DedicatedServerCatalog ServerCatalog
 @inject AgentRegistry Registry
 @inject ISnackbar Snackbar
 @inject ILocalStorageService LocalStorage
@@ -108,21 +108,21 @@
             <MudStack Spacing="2">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                     <MudText Typo="Typo.h6">Servers</MudText>
-                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllInstancesAsync">Select all</MudButton>
+                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllServersAsync">Select all</MudButton>
                 </MudStack>
-                @if (_instanceOptions.Count == 0)
+                @if (_serverOptions.Count == 0)
                 {
                     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No servers known yet.</MudAlert>
                 }
                 else
                 {
                     <MudGrid>
-                        @foreach (var option in _instanceOptions)
+                        @foreach (var option in _serverOptions)
                         {
                             <MudItem xs="12" sm="6">
                                 <MudCheckBox T="bool"
-                                             Value="@IsInstanceSelected(option.UniqueName)"
-                                             ValueChanged="@(value => HandleInstanceToggled(option.UniqueName, value))"
+                                             Value="@IsServerSelected(option.UniqueName)"
+                                             ValueChanged="@(value => HandleServerToggled(option.UniqueName, value))"
                                              Label="@option.DisplayName" />
                             </MudItem>
                         }
@@ -219,7 +219,7 @@ else
     private readonly List<ChartModel> _charts = [];
     private readonly List<SummaryChipModel> _summaryChips = [];
     private AnalyticsViewConfig _config = CreateDefaultConfig();
-    private IReadOnlyList<InstanceOption> _instanceOptions = [];
+    private IReadOnlyList<ServerOption> _serverOptions = [];
     private Timer? _refreshTimer;
     private CancellationTokenSource _refreshCts = new();
     private bool _disposed;
@@ -240,7 +240,7 @@ else
     protected override void OnInitialized()
     {
         Registry.Changed += HandleSourceChanged;
-        InstanceCatalog.Changed += HandleSourceChanged;
+        ServerCatalog.Changed += HandleSourceChanged;
         RefreshView();
         UpdateRefreshTimer();
     }
@@ -260,7 +260,7 @@ else
     {
         _disposed = true;
         Registry.Changed -= HandleSourceChanged;
-        InstanceCatalog.Changed -= HandleSourceChanged;
+        ServerCatalog.Changed -= HandleSourceChanged;
         _refreshTimer?.Dispose();
         _refreshCts.Cancel();
         _refreshCts.Dispose();
@@ -335,14 +335,14 @@ else
         await RefreshAsync();
     }
 
-    private async Task SelectAllInstancesAsync()
+    private async Task SelectAllServersAsync()
     {
-        _config.SelectedUniqueNames = _instanceOptions.Select(option => option.UniqueName).ToList();
+        _config.SelectedUniqueNames = _serverOptions.Select(option => option.UniqueName).ToList();
         _selectionInitialized = true;
         await RefreshAsync();
     }
 
-    private async Task HandleInstanceToggled(string uniqueName, bool value)
+    private async Task HandleServerToggled(string uniqueName, bool value)
     {
         if (value)
         {
@@ -492,14 +492,14 @@ else
 
     private void RefreshView()
     {
-        _instanceOptions = BuildInstanceOptions();
+        _serverOptions = BuildServerOptions();
         NormalizeSelection();
 
         var (fromUnix, toUnix) = ResolveRange();
-        var selectedInstances = GetSelectedUniqueNames();
-        var samplesByInstance = new Dictionary<string, MetricSample[]>(StringComparer.OrdinalIgnoreCase);
+        var selectedServers = GetSelectedUniqueNames();
+        var samplesByServer = new Dictionary<string, MetricSample[]>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var uniqueName in selectedInstances)
+        foreach (var uniqueName in selectedServers)
         {
             var store = MetricsStore.GetStore(uniqueName);
             if (store is null)
@@ -509,19 +509,19 @@ else
             if (samples.Length == 0)
                 continue;
 
-            samplesByInstance[uniqueName] = samples;
+            samplesByServer[uniqueName] = samples;
         }
 
-        BuildSummary(selectedInstances, samplesByInstance, toUnix - fromUnix);
-        BuildCharts(samplesByInstance, toUnix - fromUnix);
+        BuildSummary(selectedServers, samplesByServer, toUnix - fromUnix);
+        BuildCharts(samplesByServer, toUnix - fromUnix);
     }
 
-    private IReadOnlyList<InstanceOption> BuildInstanceOptions()
+    private IReadOnlyList<ServerOption> BuildServerOptions()
     {
         var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var instance in InstanceCatalog.GetInstances())
-            names[instance.UniqueName] = instance.UniqueName;
+        foreach (var server in ServerCatalog.GetServers())
+            names[server.UniqueName] = server.UniqueName;
 
         foreach (var agent in Registry.GetAgents())
         {
@@ -542,26 +542,26 @@ else
         return names
             .OrderBy(pair => pair.Value, StringComparer.OrdinalIgnoreCase)
             .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(pair => new InstanceOption(pair.Key, pair.Value))
+            .Select(pair => new ServerOption(pair.Key, pair.Value))
             .ToList();
     }
 
     private void NormalizeSelection()
     {
-        var validIds = _instanceOptions.Select(option => option.UniqueName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var validIds = _serverOptions.Select(option => option.UniqueName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         _config.SelectedUniqueNames = _config.SelectedUniqueNames
             .Where(validIds.Contains)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (!_selectionInitialized && _config.SelectedUniqueNames.Count == 0 && _instanceOptions.Count > 0)
+        if (!_selectionInitialized && _config.SelectedUniqueNames.Count == 0 && _serverOptions.Count > 0)
         {
-            _config.SelectedUniqueNames = _instanceOptions.Select(option => option.UniqueName).ToList();
+            _config.SelectedUniqueNames = _serverOptions.Select(option => option.UniqueName).ToList();
             _selectionInitialized = true;
         }
     }
 
-    private bool IsInstanceSelected(string uniqueName)
+    private bool IsServerSelected(string uniqueName)
     {
         return _config.SelectedUniqueNames.Any(id => string.Equals(id, uniqueName, StringComparison.OrdinalIgnoreCase));
     }
@@ -601,7 +601,7 @@ else
         return (new DateTimeOffset(fromLocal).ToUnixTimeSeconds(), new DateTimeOffset(toLocal).ToUnixTimeSeconds());
     }
 
-    private MetricSample[] QueryTier(InstanceMetricsStore store, long fromUnix, long toUnix)
+    private MetricSample[] QueryTier(ServerMetricsStore store, long fromUnix, long toUnix)
     {
         return _config.TierMode switch
         {
@@ -612,7 +612,7 @@ else
         };
     }
 
-    private static MetricSample[] QueryAutoTier(InstanceMetricsStore store, long fromUnix, long toUnix)
+    private static MetricSample[] QueryAutoTier(ServerMetricsStore store, long fromUnix, long toUnix)
     {
         var span = toUnix - fromUnix;
         if (span <= 2 * 3600)
@@ -641,21 +641,21 @@ else
     }
 
     private void BuildSummary(
-        IReadOnlyList<string> selectedInstances,
-        IReadOnlyDictionary<string, MetricSample[]> samplesByInstance,
+        IReadOnlyList<string> selectedServers,
+        IReadOnlyDictionary<string, MetricSample[]> samplesByServer,
         long spanSeconds)
     {
         _summaryChips.Clear();
 
         var latestSamples = new List<MetricSample>();
-        foreach (var uniqueName in selectedInstances)
+        foreach (var uniqueName in selectedServers)
         {
             var latest = MetricsStore.GetStore(uniqueName)?.Raw.ReadLatest(1);
             if (latest is { Length: > 0 })
                 latestSamples.Add(latest[0]);
         }
 
-        _summaryChips.Add(new SummaryChipModel("Servers", selectedInstances.Count.ToString()));
+        _summaryChips.Add(new SummaryChipModel("Servers", selectedServers.Count.ToString()));
         _summaryChips.Add(new SummaryChipModel("Tier", ResolveTierLabel(spanSeconds)));
 
         if (latestSamples.Count == 0)
@@ -686,19 +686,19 @@ else
         _summaryChips.Add(new SummaryChipModel("Grids", grids > 0 ? grids.ToString() : "-"));
         _summaryChips.Add(new SummaryChipModel("Entities", entities > 0 ? entities.ToString() : "-"));
 
-        if (samplesByInstance.Values.SelectMany(sampleSet => sampleSet).Any())
+        if (samplesByServer.Values.SelectMany(sampleSet => sampleSet).Any())
         {
-            var rangeSimAverage = samplesByInstance.Values
+            var rangeSimAverage = samplesByServer.Values
                 .SelectMany(sampleSet => sampleSet)
                 .Average(sample => sample.SimSpeed);
             _summaryChips.Add(new SummaryChipModel("Range Avg Sim", rangeSimAverage.ToString("0.000")));
         }
     }
 
-    private void BuildCharts(IReadOnlyDictionary<string, MetricSample[]> samplesByInstance, long spanSeconds)
+    private void BuildCharts(IReadOnlyDictionary<string, MetricSample[]> samplesByServer, long spanSeconds)
     {
         _charts.Clear();
-        if (samplesByInstance.Count == 0)
+        if (samplesByServer.Count == 0)
             return;
 
         foreach (var panel in _config.Panels
@@ -712,7 +712,7 @@ else
                 continue;
 
             var series = new List<ChartSeries<double>>();
-            foreach (var pair in samplesByInstance.OrderBy(pair => ResolveDisplayName(pair.Key), StringComparer.OrdinalIgnoreCase))
+            foreach (var pair in samplesByServer.OrderBy(pair => ResolveDisplayName(pair.Key), StringComparer.OrdinalIgnoreCase))
             {
                 var values = pair.Value
                     .Where(definition.IsAvailable)
@@ -798,7 +798,7 @@ else
 
     private string ResolveDisplayName(string uniqueName)
     {
-        return _instanceOptions.FirstOrDefault(option =>
+        return _serverOptions.FirstOrDefault(option =>
                    string.Equals(option.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
                ?.DisplayName ?? uniqueName;
     }
@@ -917,7 +917,7 @@ else
             .ToList();
     }
 
-    private sealed record InstanceOption(string UniqueName, string DisplayName);
+    private sealed record ServerOption(string UniqueName, string DisplayName);
 
     private sealed record SummaryChipModel(string Label, string Value);
 

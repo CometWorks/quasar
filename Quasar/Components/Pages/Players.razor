@@ -7,7 +7,7 @@
 <PageTitle>Players</PageTitle>
 
 <MudText Typo="Typo.h4" GutterBottom="true">Players</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Known players observed per instance, with client service and Steam/member id retained for moderation.</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Known players observed per server, with client service and Steam/member id retained for moderation.</MudText>
 
 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
     <MudTextField @bind-Value="_searchText"
@@ -152,7 +152,7 @@ else
     private List<KnownPlayerView> BuildKnownPlayerViews()
     {
         var agents = Registry.GetAgents();
-        var connectedAgentsByInstance = agents
+        var connectedAgentsByServer = agents
             .Where(agent => agent.IsConnected)
             .GroupBy(agent => agent.UniqueNameKey, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
@@ -170,7 +170,7 @@ else
         return KnownPlayers.GetPlayers()
             .Select(record =>
             {
-                connectedAgentsByInstance.TryGetValue(record.UniqueName, out var agent);
+                connectedAgentsByServer.TryGetValue(record.UniqueName, out var agent);
                 onlinePlayers.TryGetValue(record.PlayerKey, out var onlinePlayer);
 
                 return new KnownPlayerView

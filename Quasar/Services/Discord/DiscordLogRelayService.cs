@@ -29,11 +29,11 @@ public sealed class DiscordLogRelayService
         {
             _tasks.Clear();
 
-            foreach (var instanceOptions in options.Instances.Where(instance =>
-                         instance.EnableLogExport &&
-                         instance.LogChannelId.HasValue))
+            foreach (var serverOptions in options.Servers.Where(server =>
+                         server.EnableLogExport &&
+                         server.LogChannelId.HasValue))
             {
-                var cloned = instanceOptions.Clone();
+                var cloned = serverOptions.Clone();
                 _tasks.Add(Task.Run(() => RunLoopAsync(client, cloned, cancellationToken), CancellationToken.None));
             }
         }
@@ -50,39 +50,39 @@ public sealed class DiscordLogRelayService
         }
     }
 
-    private async Task RunLoopAsync(DiscordSocketClient client, DiscordInstanceOptions instanceOptions, CancellationToken cancellationToken)
+    private async Task RunLoopAsync(DiscordSocketClient client, DiscordServerOptions serverOptions, CancellationToken cancellationToken)
     {
         try
         {
-            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(Math.Max(1, instanceOptions.LogExportIntervalMinutes)));
+            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(Math.Max(1, serverOptions.LogExportIntervalMinutes)));
             while (await timer.WaitForNextTickAsync(cancellationToken))
-                await ExportAsync(client, instanceOptions, cancellationToken);
+                await ExportAsync(client, serverOptions, cancellationToken);
         }
         catch (OperationCanceledException)
         {
         }
     }
 
-    private async Task ExportAsync(DiscordSocketClient client, DiscordInstanceOptions instanceOptions, CancellationToken cancellationToken)
+    private async Task ExportAsync(DiscordSocketClient client, DiscordServerOptions serverOptions, CancellationToken cancellationToken)
     {
         try
         {
             var snapshot = _supervisor.GetSnapshots()
-                .FirstOrDefault(item => string.Equals(item.UniqueName, instanceOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(item => string.Equals(item.UniqueName, serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
             if (snapshot is null || string.IsNullOrWhiteSpace(snapshot.StandardOutputLogPath))
                 return;
 
-            var delta = await ReadDeltaAsync(instanceOptions.UniqueName, snapshot.StandardOutputLogPath, cancellationToken);
+            var delta = await ReadDeltaAsync(serverOptions.UniqueName, snapshot.StandardOutputLogPath, cancellationToken);
             if (string.IsNullOrWhiteSpace(delta))
                 return;
 
-            if (client.GetChannel(instanceOptions.LogChannelId!.Value) is not IMessageChannel channel)
+            if (client.GetChannel(serverOptions.LogChannelId!.Value) is not IMessageChannel channel)
                 return;
 
             foreach (var chunk in ChunkText(delta, ChunkSize))
             {
                 var codeBlock = $"```\n{EscapeCodeBlock(chunk)}\n```";
-                await _rateLimiter.RunAsync(instanceOptions.LogChannelId.Value, () => channel.SendMessageAsync(text: codeBlock), cancellationToken);
+                await _rateLimiter.RunAsync(serverOptions.LogChannelId.Value, () => channel.SendMessageAsync(text: codeBlock), cancellationToken);
             }
         }
         catch (OperationCanceledException)
@@ -91,7 +91,7 @@ public sealed class DiscordLogRelayService
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Discord log export failed for instance {UniqueName}", instanceOptions.UniqueName);
+            _logger.LogWarning(exception, "Discord log export failed for server {UniqueName}", serverOptions.UniqueName);
         }
     }
 

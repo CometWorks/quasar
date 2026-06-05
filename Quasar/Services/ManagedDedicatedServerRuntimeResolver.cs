@@ -55,7 +55,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     }
 
     public async Task<ResolvedDedicatedServerRuntime> ResolveAsync(
-        DedicatedServerInstanceDefinition definition,
+        DedicatedServerDefinition definition,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(definition);
@@ -194,7 +194,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         }
 
         throw new InvalidOperationException(
-            "DedicatedServer64 path not found. Set QUASAR_DS64_PATH, install steamcmd for managed DS download, or point instance executable at SpaceEngineersDedicated once so Quasar can infer -ds64.");
+            "DedicatedServer64 path not found. Set QUASAR_DS64_PATH, install steamcmd for managed DS download, or point server executable at SpaceEngineersDedicated once so Quasar can infer -ds64.");
     }
 
     private async Task<string> TryEnsureManagedDedicatedServerInstallAsync(CancellationToken cancellationToken)

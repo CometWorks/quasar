@@ -68,11 +68,11 @@ internal static class Program
 
             if (!quiet)
             {
-                Console.Error.WriteLine("Warning: a Quasar instance is already running.");
-                Console.Error.WriteLine("Terminating existing instance before relaunch (--force).");
+                Console.Error.WriteLine("Warning: a Quasar server is already running.");
+                Console.Error.WriteLine("Terminating existing server before relaunch (--force).");
             }
 
-            await KillExistingInstanceAsync().ConfigureAwait(false);
+            await KillExistingServerAsync().ConfigureAwait(false);
         }
 
         using var spawnMutex = new Mutex(false, SpawnMutexName);
@@ -91,8 +91,8 @@ internal static class Program
             if (!force)
                 return Complete(existing, quiet, openBrowser);
 
-            // Another instance surfaced during the mutex wait; kill it too.
-            await KillExistingInstanceAsync().ConfigureAwait(false);
+            // Another server surfaced during the mutex wait; kill it too.
+            await KillExistingServerAsync().ConfigureAwait(false);
         }
 
         // If the port is already bound but no healthy Quasar responded, something else owns it.
@@ -103,7 +103,7 @@ internal static class Program
             if (IsPortInUse(bootstrapOptions.Port, bootstrapOptions.AdvertisedHost))
             {
                 if (!quiet)
-                    Console.Error.WriteLine($"Error: port {bootstrapOptions.Port} is already bound by another process and no healthy Quasar instance was detected. Use --force to terminate the existing process and restart.");
+                    Console.Error.WriteLine($"Error: port {bootstrapOptions.Port} is already bound by another process and no healthy Quasar server was detected. Use --force to terminate the existing process and restart.");
                 return 5;
             }
         }
@@ -155,7 +155,7 @@ internal static class Program
         return 4;
     }
 
-    private static async Task KillExistingInstanceAsync()
+    private static async Task KillExistingServerAsync()
     {
         var manifest = ReadManifest();
         if (manifest is not null && manifest.ProcessId > 0)
@@ -195,7 +195,7 @@ internal static class Program
                 return 0;
 
             if (!quiet)
-                Console.Error.WriteLine($"Error: port {options.Port} is already bound by another process and is not a healthy Quasar instance.");
+                Console.Error.WriteLine($"Error: port {options.Port} is already bound by another process and is not a healthy Quasar server.");
             return 1;
         }
 
@@ -641,7 +641,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private readonly HttpClient _healthClient;
     private readonly SemaphoreSlim _activationLock = new(1, 1);
     private readonly object _sync = new();
-    private readonly string _instanceId = Guid.NewGuid().ToString("N");
+    private readonly string _workerId = Guid.NewGuid().ToString("N");
     private readonly string _launcherToken = Guid.NewGuid().ToString("N");
     private readonly DateTimeOffset _startedAtUtc = DateTimeOffset.UtcNow;
     private FileSystemWatcher? _watcher;
@@ -689,9 +689,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         return new
         {
             status = IsReady ? "ok" : "starting",
-            instanceId = _instanceId,
-            nodeId = Environment.MachineName.ToLowerInvariant(),
-            nodeName = Environment.MachineName,
+            workerId = _workerId,
+            hostId = Environment.MachineName.ToLowerInvariant(),
+            hostName = Environment.MachineName,
             baseUrl = _options.BaseUrl,
             activeWorkerVersion = workerVersion,
             activeWorkerBaseUrl = workerBaseUrl,
@@ -702,8 +702,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     {
         return new WebServiceDiscoveryManifest
         {
-            InstanceId = _instanceId,
-            NodeId = Environment.MachineName.ToLowerInvariant(),
+            WorkerId = _workerId,
+            HostId = Environment.MachineName.ToLowerInvariant(),
             MachineName = Environment.MachineName,
             ProcessId = Environment.ProcessId,
             BaseUrl = _options.BaseUrl,
@@ -735,7 +735,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
 
         if (worker is not null)
-            await DrainAndRetireWorkerAsync(worker, TimeSpan.Zero, stopManagedInstances: true, cancellationToken);
+            await DrainAndRetireWorkerAsync(worker, TimeSpan.Zero, stopManagedServers: true, cancellationToken);
     }
 
     public void Dispose()
@@ -841,7 +841,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             _logger.LogInformation("Activated Quasar worker version {Version} at {BaseUri}.", pointer.Version, nextWorker.BaseUri);
 
             if (previousWorker is not null)
-                _ = DrainAndRetireWorkerAsync(previousWorker, TimeSpan.FromSeconds(20), stopManagedInstances: false, CancellationToken.None);
+                _ = DrainAndRetireWorkerAsync(previousWorker, TimeSpan.FromSeconds(20), stopManagedServers: false, CancellationToken.None);
         }
         finally
         {
@@ -879,7 +879,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         startInfo.Environment["QUASAR_OPEN_BROWSER_ON_START"] = "false";
         startInfo.Environment["QUASAR_MODE"] = "service";
         startInfo.Environment["QUASAR_LAUNCHER_TOKEN"] = _launcherToken;
-        startInfo.Environment["QUASAR_PRESERVE_INSTANCES_ON_SHUTDOWN"] = "false";
+        startInfo.Environment["QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN"] = "false";
         if (_foregroundOptions.IsForeground)
             startInfo.Environment["QUASAR_CONSOLE_LOGGING"] = "true";
 
@@ -955,12 +955,12 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private async Task DrainAndRetireWorkerAsync(
         WorkerProcessHandle worker,
         TimeSpan graceDelay,
-        bool stopManagedInstances,
+        bool stopManagedServers,
         CancellationToken cancellationToken)
     {
         try
         {
-            var drainUri = new Uri(worker.BaseUri, $"/api/internal/drain?delaySeconds={(int)Math.Round(graceDelay.TotalSeconds)}&stopInstances={stopManagedInstances.ToString().ToLowerInvariant()}");
+            var drainUri = new Uri(worker.BaseUri, $"/api/internal/drain?delaySeconds={(int)Math.Round(graceDelay.TotalSeconds)}&stopServers={stopManagedServers.ToString().ToLowerInvariant()}");
             using var request = new HttpRequestMessage(HttpMethod.Post, drainUri);
             request.Headers.Add("X-Quasar-Launcher-Token", _launcherToken);
             using var response = await _healthClient.SendAsync(request, cancellationToken);
@@ -974,7 +974,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
         try
         {
-            if (stopManagedInstances)
+            if (stopManagedServers)
             {
                 await worker.Process.WaitForExitAsync(cancellationToken);
             }
@@ -985,7 +985,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 await worker.Process.WaitForExitAsync(timeout.Token);
             }
         }
-        catch (OperationCanceledException) when (!stopManagedInstances && !cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (!stopManagedServers && !cancellationToken.IsCancellationRequested)
         {
             try
             {

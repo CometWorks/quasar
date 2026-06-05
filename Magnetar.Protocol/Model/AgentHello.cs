@@ -8,9 +8,9 @@ public class AgentHello
 
     public string AgentId { get; set; } = string.Empty;
 
-    public string NodeId { get; set; } = string.Empty;
+    public string HostId { get; set; } = string.Empty;
 
-    public string NodeName { get; set; } = string.Empty;
+    public string HostName { get; set; } = string.Empty;
 
     public string ServerId { get; set; } = string.Empty;
 

@@ -1,6 +1,6 @@
 @page "/servers"
 @implements IDisposable
-@inject DedicatedServerInstanceCatalog InstanceCatalog
+@inject DedicatedServerCatalog ServerCatalog
 @inject DedicatedServerSupervisor Supervisor
 @inject AgentRegistry Registry
 @inject QuasarConfigProfileCatalog ConfigProfiles
@@ -22,14 +22,14 @@
             <MudText Typo="Typo.body2">Expand a row to see live agent data: players, chat, plugins, command results.</MudText>
         </div>
         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-            <MudChip T="string" Variant="Variant.Outlined">@($"{InstanceDefinitions.Count} server(s)")</MudChip>
+            <MudChip T="string" Variant="Variant.Outlined">@($"{ServerDefinitions.Count} server(s)")</MudChip>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialogAsync">
                 Create Server
             </MudButton>
         </MudStack>
     </MudStack>
 
-    @if (InstanceDefinitions.Count == 0)
+    @if (ServerDefinitions.Count == 0)
     {
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
             No servers defined yet.
@@ -37,16 +37,16 @@
     }
     else
     {
-        <MudTable T="DedicatedServerInstanceDefinition" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="InstanceDefinitions">
+        <MudTable T="DedicatedServerDefinition" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="ServerDefinitions">
             <HeaderContent>
                 <MudTh Style="width: 36px;"></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetStateText(x.UniqueName))">Status</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetDisplayName(x))">Name</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => x.ServerPort)">Port</MudTableSortLabel></MudTh>
-                <MudTh Style="text-align: center;"><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetConfigProfileName(x.ConfigProfileId))">Config</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetPlayerSortValue(x.UniqueName))">Players</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetProcessSortValue(x.UniqueName))">Process</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetAttachmentStatus(x.UniqueName))">Agent</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetStateText(x.UniqueName))">Status</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetDisplayName(x))">Name</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.ServerPort)">Port</MudTableSortLabel></MudTh>
+                <MudTh Style="text-align: center;"><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetConfigProfileName(x.ConfigProfileId))">Config</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetPlayerSortValue(x.UniqueName))">Players</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetProcessSortValue(x.UniqueName))">Process</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetAttachmentStatus(x.UniqueName))">Agent</MudTableSortLabel></MudTh>
                 <MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
@@ -61,7 +61,7 @@
                         <MudChip T="string" Color="@GetStateColor(context.UniqueName)" Variant="Variant.Outlined">
                             @GetStateText(context.UniqueName)
                         </MudChip>
-                        @if (context.GoalState == DedicatedServerInstanceGoalState.On)
+                        @if (context.GoalState == DedicatedServerGoalState.On)
                         {
                             <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Warning" OnClick="@(() => StopAsync(context.UniqueName))">Stop</MudButton>
                         }
@@ -96,7 +96,7 @@
                 <MudTd DataLabel="Agent">@GetAttachmentStatus(context.UniqueName)</MudTd>
                 <MudTd Style="text-align: right;">
                     <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.FlexEnd" Spacing="0">
-                        @if (context.GoalState == DedicatedServerInstanceGoalState.On)
+                        @if (context.GoalState == DedicatedServerGoalState.On)
                         {
                             @if (IsRunning(context.UniqueName))
                             {
@@ -153,9 +153,9 @@
     [Parameter]
     public EventCallback<string> ConfigProfileSelected { get; set; }
 
-    private IReadOnlyList<DedicatedServerInstanceDefinition> InstanceDefinitions => InstanceCatalog.GetInstances();
+    private IReadOnlyList<DedicatedServerDefinition> ServerDefinitions => ServerCatalog.GetServers();
 
-    private IReadOnlyDictionary<string, DedicatedServerInstanceRuntimeSnapshot> RuntimeSnapshots => Supervisor
+    private IReadOnlyDictionary<string, DedicatedServerRuntimeSnapshot> RuntimeSnapshots => Supervisor
         .GetSnapshots()
         .ToDictionary(snapshot => snapshot.UniqueName, StringComparer.OrdinalIgnoreCase);
 
@@ -170,7 +170,7 @@
     {
         get
         {
-            var defined = InstanceDefinitions
+            var defined = ServerDefinitions
                 .Select(definition => definition.UniqueName)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -184,7 +184,7 @@
 
     protected override void OnInitialized()
     {
-        InstanceCatalog.Changed += HandleChanged;
+        ServerCatalog.Changed += HandleChanged;
         Supervisor.Changed += HandleChanged;
         Registry.Changed += HandleChanged;
         ConfigProfiles.Changed += HandleChanged;
@@ -193,7 +193,7 @@
 
     public void Dispose()
     {
-        InstanceCatalog.Changed -= HandleChanged;
+        ServerCatalog.Changed -= HandleChanged;
         Supervisor.Changed -= HandleChanged;
         Registry.Changed -= HandleChanged;
         ConfigProfiles.Changed -= HandleChanged;
@@ -223,7 +223,7 @@
         await SaveDefinitionAsync(definition, "Server created.");
     }
 
-    private async Task OpenCloneDialogAsync(DedicatedServerInstanceDefinition definition)
+    private async Task OpenCloneDialogAsync(DedicatedServerDefinition definition)
     {
         var cloned = definition.Clone();
         cloned.DisplayName = NormalizeWhitespace($"{GetDisplayName(definition)} Copy");
@@ -236,7 +236,7 @@
         await SaveDefinitionAsync(created, "Server cloned.");
     }
 
-    private async Task OpenEditDialogAsync(DedicatedServerInstanceDefinition definition)
+    private async Task OpenEditDialogAsync(DedicatedServerDefinition definition)
     {
         var updated = await ShowEditorDialogAsync(definition, isEditing: true);
         if (updated is null)
@@ -263,7 +263,7 @@
     {
         var parameters = new DialogParameters
         {
-            [nameof(InstanceConsoleDialog.UniqueName)] = uniqueName,
+            [nameof(ServerConsoleDialog.UniqueName)] = uniqueName,
         };
 
         var options = new DialogOptions
@@ -273,10 +273,10 @@
             MaxWidth = MaxWidth.Large,
         };
 
-        await DialogService.ShowAsync<InstanceConsoleDialog>($"Console — {uniqueName}", parameters, options);
+        await DialogService.ShowAsync<ServerConsoleDialog>($"Console — {uniqueName}", parameters, options);
     }
 
-    private async Task CreateWorldTemplateAsync(DedicatedServerInstanceDefinition definition)
+    private async Task CreateWorldTemplateAsync(DedicatedServerDefinition definition)
     {
         if (!CanCreateWorldTemplate(definition))
         {
@@ -330,13 +330,13 @@
         }
     }
 
-    private async Task<DedicatedServerInstanceDefinition?> ShowEditorDialogAsync(DedicatedServerInstanceDefinition definition, bool isEditing)
+    private async Task<DedicatedServerDefinition?> ShowEditorDialogAsync(DedicatedServerDefinition definition, bool isEditing)
     {
         var parameters = new DialogParameters
         {
-            [nameof(InstanceEditorDialog.Definition)] = definition.Clone(),
-            [nameof(InstanceEditorDialog.IsEditing)] = isEditing,
-            [nameof(InstanceEditorDialog.UniqueNameLocked)] = isEditing && IsRunning(definition.UniqueName),
+            [nameof(ServerEditorDialog.Definition)] = definition.Clone(),
+            [nameof(ServerEditorDialog.IsEditing)] = isEditing,
+            [nameof(ServerEditorDialog.UniqueNameLocked)] = isEditing && IsRunning(definition.UniqueName),
         };
 
         var options = new DialogOptions
@@ -346,15 +346,15 @@
             MaxWidth = MaxWidth.ExtraLarge,
         };
 
-        var dialog = await DialogService.ShowAsync<InstanceEditorDialog>(isEditing ? "Edit Server" : "Create Server", parameters, options);
+        var dialog = await DialogService.ShowAsync<ServerEditorDialog>(isEditing ? "Edit Server" : "Create Server", parameters, options);
         var result = await dialog.Result;
-        if (result is null || result.Canceled || result.Data is not DedicatedServerInstanceDefinition updated)
+        if (result is null || result.Canceled || result.Data is not DedicatedServerDefinition updated)
             return null;
 
         return updated;
     }
 
-    private async Task SaveDefinitionAsync(DedicatedServerInstanceDefinition definition, string successMessage)
+    private async Task SaveDefinitionAsync(DedicatedServerDefinition definition, string successMessage)
     {
         var previousUniqueName = definition.OriginalUniqueName;
         if (!string.IsNullOrWhiteSpace(previousUniqueName) &&
@@ -367,7 +367,7 @@
 
         try
         {
-            await InstanceCatalog.UpsertAsync(definition);
+            await ServerCatalog.UpsertAsync(definition);
             Snackbar.Add(successMessage, Severity.Success);
         }
         catch (Exception exception)
@@ -380,7 +380,7 @@
     {
         try
         {
-            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerInstanceGoalState.On);
+            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.On);
             Snackbar.Add("Server start requested.", Severity.Success);
         }
         catch (Exception exception)
@@ -393,7 +393,7 @@
     {
         try
         {
-            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerInstanceGoalState.Off);
+            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.Off);
             Snackbar.Add("Server stop requested.", Severity.Info);
         }
         catch (Exception exception)
@@ -406,7 +406,7 @@
     {
         try
         {
-            await Supervisor.RestartInstanceAsync(uniqueName);
+            await Supervisor.RestartServerAsync(uniqueName);
             Snackbar.Add("Server restart requested.", Severity.Info);
         }
         catch (Exception exception)
@@ -432,7 +432,7 @@
         if (confirmed != true)
             return;
 
-        await InstanceCatalog.DeleteAsync(uniqueName);
+        await ServerCatalog.DeleteAsync(uniqueName);
         Registry.PruneDisconnectedByUniqueName(uniqueName);
         Snackbar.Add("Server removed.", Severity.Info);
     }
@@ -446,7 +446,7 @@
         return runtime.AgentAttached ? "attached" : "not attached";
     }
 
-    private static string GetDisplayName(DedicatedServerInstanceDefinition definition)
+    private static string GetDisplayName(DedicatedServerDefinition definition)
     {
         return string.IsNullOrWhiteSpace(definition.DisplayName) ? definition.UniqueName : definition.DisplayName;
     }
@@ -457,12 +457,12 @@
         if (snapshot is null)
             return "-";
 
-        var instance = InstanceCatalog
-            .GetInstances()
+        var server = ServerCatalog
+            .GetServers()
             .FirstOrDefault(item => string.Equals(item.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase));
-        var configuredMaxPlayers = string.IsNullOrWhiteSpace(instance?.ConfigProfileId)
+        var configuredMaxPlayers = string.IsNullOrWhiteSpace(server?.ConfigProfileId)
             ? null
-            : ConfigProfiles.GetProfile(instance.ConfigProfileId)?.SessionSettings.MaxPlayers;
+            : ConfigProfiles.GetProfile(server.ConfigProfileId)?.SessionSettings.MaxPlayers;
         var maxPlayers = configuredMaxPlayers is > 0
             ? configuredMaxPlayers.GetValueOrDefault()
             : snapshot.Metrics.MaxPlayers;
@@ -502,38 +502,38 @@
 
     private Color GetStateColor(string uniqueName)
     {
-        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerInstanceProcessState.Stopped;
+        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped;
         return state switch
         {
-            DedicatedServerInstanceProcessState.Running => Color.Success,
-            DedicatedServerInstanceProcessState.Starting => Color.Info,
-            DedicatedServerInstanceProcessState.Restarting => Color.Warning,
-            DedicatedServerInstanceProcessState.Stopping => Color.Warning,
-            DedicatedServerInstanceProcessState.Crashed => Color.Error,
-            DedicatedServerInstanceProcessState.Faulted => Color.Error,
+            DedicatedServerProcessState.Running => Color.Success,
+            DedicatedServerProcessState.Starting => Color.Info,
+            DedicatedServerProcessState.Restarting => Color.Warning,
+            DedicatedServerProcessState.Stopping => Color.Warning,
+            DedicatedServerProcessState.Crashed => Color.Error,
+            DedicatedServerProcessState.Faulted => Color.Error,
             _ => Color.Default,
         };
     }
 
     private bool IsRunning(string uniqueName)
     {
-        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerInstanceProcessState.Stopped;
-        return state is DedicatedServerInstanceProcessState.Starting
-            or DedicatedServerInstanceProcessState.Running
-            or DedicatedServerInstanceProcessState.Restarting
-            or DedicatedServerInstanceProcessState.Stopping;
+        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped;
+        return state is DedicatedServerProcessState.Starting
+            or DedicatedServerProcessState.Running
+            or DedicatedServerProcessState.Restarting
+            or DedicatedServerProcessState.Stopping;
     }
 
-    private bool CanCreateWorldTemplate(DedicatedServerInstanceDefinition definition)
+    private bool CanCreateWorldTemplate(DedicatedServerDefinition definition)
     {
-        if (_creatingWorldTemplate || definition.GoalState != DedicatedServerInstanceGoalState.Off)
+        if (_creatingWorldTemplate || definition.GoalState != DedicatedServerGoalState.Off)
             return false;
 
-        var state = GetRuntime(definition.UniqueName)?.State ?? DedicatedServerInstanceProcessState.Stopped;
-        return state == DedicatedServerInstanceProcessState.Stopped;
+        var state = GetRuntime(definition.UniqueName)?.State ?? DedicatedServerProcessState.Stopped;
+        return state == DedicatedServerProcessState.Stopped;
     }
 
-    private DedicatedServerInstanceRuntimeSnapshot? GetRuntime(string uniqueName)
+    private DedicatedServerRuntimeSnapshot? GetRuntime(string uniqueName)
     {
         RuntimeSnapshots.TryGetValue(uniqueName, out var runtime);
         return runtime;
@@ -544,12 +544,12 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private DedicatedServerInstanceDefinition CreateBlank()
+    private DedicatedServerDefinition CreateBlank()
     {
-        var healthMonitoringEnabled = !Options.DisableInstanceHealthMonitoring;
-        return new DedicatedServerInstanceDefinition
+        var healthMonitoringEnabled = !Options.DisableServerHealthMonitoring;
+        return new DedicatedServerDefinition
         {
-            GoalState = DedicatedServerInstanceGoalState.Off,
+            GoalState = DedicatedServerGoalState.Off,
             ServerPort = AllocateNextPort(),
             ServerIP = "0.0.0.0",
             EnableHealthMonitoring = healthMonitoringEnabled,
@@ -566,10 +566,10 @@
 
     private string MakeCopyIdentifier(string uniqueName)
     {
-        var baseName = string.IsNullOrWhiteSpace(uniqueName) ? "instance" : uniqueName.Trim();
+        var baseName = string.IsNullOrWhiteSpace(uniqueName) ? "server" : uniqueName.Trim();
         var candidate = $"{baseName}-copy";
-        var used = InstanceCatalog.GetInstances()
-            .Select(instance => instance.UniqueName)
+        var used = ServerCatalog.GetServers()
+            .Select(server => server.UniqueName)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var suffix = 2;
 
@@ -584,8 +584,8 @@
 
     private int AllocateNextPort()
     {
-        var used = InstanceCatalog.GetInstances()
-            .Select(instance => instance.ServerPort)
+        var used = ServerCatalog.GetServers()
+            .Select(server => server.ServerPort)
             .Where(port => port > 0)
             .ToHashSet();
 

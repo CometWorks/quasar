@@ -51,7 +51,7 @@
                     <MudStack Spacing="0">
                         <MudText Typo="Typo.body2" Class="mud-text-secondary">
                             @(_infoLogMissing
-                                ? "info.log not found — Magnetar has not produced one yet for this instance."
+                                ? "info.log not found — Magnetar has not produced one yet for this server."
                                 : $"{_infoLogLineCount} line(s){(_infoLogTruncated ? " (tail only)" : string.Empty)}")
                         </MudText>
                         <MudText Typo="Typo.caption" Class="mud-text-secondary quasar-info-log-path">@_infoLogPath</MudText>
@@ -182,7 +182,7 @@
     protected override void OnInitialized()
     {
         _infoLogPath = Path.Combine(
-            MagnetarPaths.GetQuasarInstanceMagnetarAppDataDirectory(UniqueName),
+            MagnetarPaths.GetQuasarServerMagnetarAppDataDirectory(UniqueName),
             "info.log");
         LogStream.Changed += HandleChanged;
         Refresh();

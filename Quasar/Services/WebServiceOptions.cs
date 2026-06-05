@@ -11,11 +11,11 @@ public sealed class WebServiceOptions
 
     public int Port { get; init; } = 58631;
 
-    public string InstanceId { get; init; } = Guid.NewGuid().ToString("N");
+    public string WorkerId { get; init; } = Guid.NewGuid().ToString("N");
 
-    public string NodeId { get; init; } = Environment.MachineName.ToLowerInvariant();
+    public string HostId { get; init; } = Environment.MachineName.ToLowerInvariant();
 
-    public string NodeName { get; init; } = Environment.MachineName;
+    public string HostName { get; init; } = Environment.MachineName;
 
     public string BaseUrl { get; init; } = "http://127.0.0.1:58631";
 
@@ -35,11 +35,11 @@ public sealed class WebServiceOptions
 
     public bool IsDevelopment { get; init; }
 
-    public bool DisableInstanceHealthMonitoring { get; init; }
+    public bool DisableServerHealthMonitoring { get; init; }
 
     public bool OwnManifest { get; init; } = true;
 
-    public bool PreserveManagedInstancesOnShutdown { get; init; } = true;
+    public bool PreserveManagedServersOnShutdown { get; init; } = true;
 
     public bool AvoidSimultaneousScheduledRestarts { get; init; } = true;
 
@@ -75,10 +75,11 @@ public sealed class WebServiceOptions
         if (!int.TryParse(portValue, out var port) || port <= 0)
             port = 58631;
 
-        var nodeName = Environment.MachineName;
-        var nodeId = Environment.GetEnvironmentVariable("MAGNETAR_NODE_ID");
-        if (string.IsNullOrWhiteSpace(nodeId))
-            nodeId = nodeName.ToLowerInvariant();
+        var hostName = Environment.MachineName;
+        var hostId = Environment.GetEnvironmentVariable("QUASAR_HOST_ID")
+                     ?? Environment.GetEnvironmentVariable("MAGNETAR_HOST_ID");
+        if (string.IsNullOrWhiteSpace(hostId))
+            hostId = hostName.ToLowerInvariant();
 
         var mode = Environment.GetEnvironmentVariable("QUASAR_MODE")
                    ?? section["Mode"]
@@ -111,10 +112,10 @@ public sealed class WebServiceOptions
                               ?? "Production";
         var isDevelopment = string.Equals(environmentName, "Development", StringComparison.OrdinalIgnoreCase);
 
-        var disableInstanceHealthMonitoringValue = Environment.GetEnvironmentVariable("QUASAR_DISABLE_INSTANCE_HEALTH_MONITORING")
-                                                  ?? section["DisableInstanceHealthMonitoring"];
-        if (!bool.TryParse(disableInstanceHealthMonitoringValue, out var disableInstanceHealthMonitoring))
-            disableInstanceHealthMonitoring = isDevelopment;
+        var disableServerHealthMonitoringValue = Environment.GetEnvironmentVariable("QUASAR_DISABLE_SERVER_HEALTH_MONITORING")
+                                                  ?? section["DisableServerHealthMonitoring"];
+        if (!bool.TryParse(disableServerHealthMonitoringValue, out var disableServerHealthMonitoring))
+            disableServerHealthMonitoring = isDevelopment;
 
         var advertisedHost = host switch
         {
@@ -133,11 +134,11 @@ public sealed class WebServiceOptions
         if (!bool.TryParse(ownManifestValue, out var ownManifest))
             ownManifest = true;
 
-        var preserveInstancesValue = Environment.GetEnvironmentVariable("QUASAR_PRESERVE_INSTANCES_ON_SHUTDOWN")
-                                     ?? section["PreserveManagedInstancesOnShutdown"]
+        var preserveServersValue = Environment.GetEnvironmentVariable("QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN")
+                                     ?? section["PreserveManagedServersOnShutdown"]
                                      ?? "true";
-        if (!bool.TryParse(preserveInstancesValue, out var preserveManagedInstancesOnShutdown))
-            preserveManagedInstancesOnShutdown = true;
+        if (!bool.TryParse(preserveServersValue, out var preserveManagedServersOnShutdown))
+            preserveManagedServersOnShutdown = true;
 
         var agentOfflineShutdownValue = Environment.GetEnvironmentVariable("QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS")
                                         ?? section["AgentOfflineShutdownSeconds"];
@@ -168,19 +169,19 @@ public sealed class WebServiceOptions
         {
             Host = host,
             Port = port,
-            NodeId = nodeId,
-            NodeName = nodeName,
+            HostId = hostId,
+            HostName = hostName,
             Mode = mode,
             OpenBrowserOnStart = openBrowserOnStart,
             LoggingDirectory = loggingDirectory,
             LoggingFormat = loggingFormat,
             LoggingMinimumLevel = loggingMinimumLevel,
             IsDevelopment = isDevelopment,
-            DisableInstanceHealthMonitoring = disableInstanceHealthMonitoring,
+            DisableServerHealthMonitoring = disableServerHealthMonitoring,
             BaseUrl = baseUrl,
             ListenUrl = $"http://{host}:{port}",
             OwnManifest = ownManifest,
-            PreserveManagedInstancesOnShutdown = preserveManagedInstancesOnShutdown,
+            PreserveManagedServersOnShutdown = preserveManagedServersOnShutdown,
             AvoidSimultaneousScheduledRestarts = avoidSimultaneousScheduledRestarts,
             AgentOfflineShutdownSeconds = agentOfflineShutdownSeconds,
             AgentReconnectIntervalSeconds = agentReconnectIntervalSeconds,

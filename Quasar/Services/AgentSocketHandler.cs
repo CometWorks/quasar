@@ -112,7 +112,7 @@ public sealed class AgentSocketHandler
                 if (_registry.TryGetUniqueName(connectionId, out var stoppedUniqueName))
                 {
                     _logger.LogInformation(
-                        "Admin stopped instance {UniqueName} in-game; setting goal state to Off.",
+                        "Admin stopped server {UniqueName} in-game; setting goal state to Off.",
                         stoppedUniqueName);
 
                     // State mutations use the app-lifetime token, NOT the
@@ -124,7 +124,7 @@ public sealed class AgentSocketHandler
                     // regardless of the socket.
                     await _supervisor.SetGoalStateAsync(
                         stoppedUniqueName,
-                        DedicatedServerInstanceGoalState.Off,
+                        DedicatedServerGoalState.Off,
                         _lifetime.ApplicationStopping);
                 }
                 else

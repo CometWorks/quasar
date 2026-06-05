@@ -33,23 +33,23 @@ public sealed class DiscordDeathRelayService
         var config = _deathMessagesCatalog.GetConfig();
         var agents = _registry.GetAgents();
 
-        foreach (var instanceOptions in options.Instances.Where(instance =>
-                     instance.EnableDeathMessages &&
-                     instance.DeathChannelId.HasValue))
+        foreach (var serverOptions in options.Servers.Where(server =>
+                     server.EnableDeathMessages &&
+                     server.DeathChannelId.HasValue))
         {
-            var deathChannelId = instanceOptions.DeathChannelId;
+            var deathChannelId = serverOptions.DeathChannelId;
             if (!deathChannelId.HasValue)
                 continue;
 
             var agent = agents.FirstOrDefault(item =>
                 item.IsConnected &&
                 item.Snapshot is not null &&
-                string.Equals(item.UniqueNameKey, instanceOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
+                string.Equals(item.UniqueNameKey, serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
 
             if (agent?.Snapshot is null)
                 continue;
 
-            var deaths = CollectFreshDeaths(instanceOptions.UniqueName, agent.Snapshot.RecentDeaths);
+            var deaths = CollectFreshDeaths(serverOptions.UniqueName, agent.Snapshot.RecentDeaths);
             if (deaths.Count == 0)
                 continue;
 
@@ -58,7 +58,7 @@ public sealed class DiscordDeathRelayService
 
             foreach (var death in deaths)
             {
-                var message = BuildMessage(config, instanceOptions, death);
+                var message = BuildMessage(config, serverOptions, death);
                 await _rateLimiter.RunAsync(deathChannelId.Value, () => channel.SendMessageAsync(text: message), cancellationToken);
             }
         }
@@ -105,14 +105,14 @@ public sealed class DiscordDeathRelayService
         }
     }
 
-    private string BuildMessage(DeathMessagesConfig config, DiscordInstanceOptions instanceOptions, DeathEventSnapshot death)
+    private string BuildMessage(DeathMessagesConfig config, DiscordServerOptions serverOptions, DeathEventSnapshot death)
     {
         var template = config.GetRandomMessage(death.DeathType);
         var killer = string.IsNullOrWhiteSpace(death.KillerName) ? "Unknown" : death.KillerName.Trim();
         var weapon = string.IsNullOrWhiteSpace(death.WeaponName) ? "Unknown" : death.WeaponName.Trim();
         var victim = string.IsNullOrWhiteSpace(death.VictimName) ? "Unknown" : death.VictimName.Trim();
 
-        var emotes = ParseEmotes(instanceOptions.DeathMessageEmotes);
+        var emotes = ParseEmotes(serverOptions.DeathMessageEmotes);
         var emote = emotes.Count == 0 ? "💀" : emotes[Random.Shared.Next(emotes.Count)];
 
         var message = template

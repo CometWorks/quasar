@@ -49,8 +49,8 @@ namespace Quasar.Agent
         private readonly object _sync = new object();
         private readonly int _processId = Process.GetCurrentProcess().Id;
         private readonly string _processName = Process.GetCurrentProcess().ProcessName;
-        private readonly string _nodeName = Environment.MachineName;
-        private readonly string _nodeId;
+        private readonly string _hostName = Environment.MachineName;
+        private readonly string _hostId;
         private readonly string _uniqueName;
         private readonly string _pluginVersion;
         private readonly ConcurrentQueue<DeathEventSnapshot> _deathQueue = new ConcurrentQueue<DeathEventSnapshot>();
@@ -68,13 +68,13 @@ namespace Quasar.Agent
         /// </summary>
         public bool QuasarRequestedStop => _quasarRequestedStop;
 
-        public GameBridge(object gameInstance)
+        public GameBridge(object gameServer)
         {
-            _nodeId = (Environment.GetEnvironmentVariable("MAGNETAR_NODE_ID") ?? _nodeName)
+            _hostId = (Environment.GetEnvironmentVariable("MAGNETAR_HOST_ID") ?? _hostName)
                 .Trim()
                 .ToLowerInvariant();
             _uniqueName = (Environment.GetEnvironmentVariable("QUASAR_UNIQUE_NAME")
-                    ?? $"unmanaged-{_nodeId}-{_processId}")
+                    ?? $"unmanaged-{_hostId}-{_processId}")
                 .Trim();
             _pluginVersion = typeof(AdminPlugin).Assembly.GetName().Version?.ToString() ?? "0.0.0";
         }
@@ -119,7 +119,7 @@ namespace Quasar.Agent
                     return Task.FromResult(CreateResult(command, true, "Server shutdown requested."));
                 }
 
-                return Task.FromResult(CreateResult(command, false, "Game instance not available."));
+                return Task.FromResult(CreateResult(command, false, "Game server not available."));
             }
 
             var completion = new TaskCompletionSource<ServerCommandResult>();
@@ -163,8 +163,8 @@ namespace Quasar.Agent
             {
                 UniqueName = _uniqueName,
                 AgentId = agentId,
-                NodeId = _nodeId,
-                NodeName = _nodeName,
+                HostId = _hostId,
+                HostName = _hostName,
                 ServerId = serverId,
                 ServerName = serverName,
                 WorldName = worldName,
@@ -186,8 +186,8 @@ namespace Quasar.Agent
             {
                 UniqueName = hello.UniqueName,
                 AgentId = hello.AgentId,
-                NodeId = hello.NodeId,
-                NodeName = hello.NodeName,
+                HostId = hello.HostId,
+                HostName = hello.HostName,
                 ServerId = hello.ServerId,
                 ServerName = hello.ServerName,
                 WorldName = hello.WorldName,
@@ -354,10 +354,10 @@ namespace Quasar.Agent
             if (!string.Equals(pluginType.FullName, "Pulsar.Legacy.Loader.PluginLoader", StringComparison.Ordinal))
                 yield break;
 
-            IEnumerable instances = null;
+            IEnumerable servers = null;
             try
             {
-                instances = pluginType
+                servers = pluginType
                     .GetProperty("Plugins", BindingFlags.Public | BindingFlags.Instance)
                     ?.GetValue(plugin) as IEnumerable;
             }
@@ -366,43 +366,43 @@ namespace Quasar.Agent
                 Console.Error.WriteLine($"[Quasar.Agent] Failed reading Pulsar plugin list: {exception.Message}");
             }
 
-            if (instances == null)
+            if (servers == null)
                 yield break;
 
-            foreach (var instance in instances)
+            foreach (var server in servers)
             {
-                var child = TryCreateLoadedPluginFromInstance(instance);
+                var child = TryCreateLoadedPluginFromServer(server);
                 if (child != null)
                     yield return child;
             }
         }
 
-        private static LoadedPlugin TryCreateLoadedPluginFromInstance(object instance)
+        private static LoadedPlugin TryCreateLoadedPluginFromServer(object server)
         {
-            if (instance == null)
+            if (server == null)
                 return null;
 
             try
             {
-                var instanceType = instance.GetType();
-                var plugin = instanceType
+                var serverType = server.GetType();
+                var plugin = serverType
                     .GetField("plugin", BindingFlags.NonPublic | BindingFlags.Instance)
-                    ?.GetValue(instance) as IPlugin;
+                    ?.GetValue(server) as IPlugin;
                 if (plugin == null)
                     return null;
 
-                var pluginId = instanceType
+                var pluginId = serverType
                     .GetProperty("Id", BindingFlags.Public | BindingFlags.Instance)
-                    ?.GetValue(instance) as string;
-                var displayName = instanceType
+                    ?.GetValue(server) as string;
+                var displayName = serverType
                     .GetProperty("FriendlyName", BindingFlags.Public | BindingFlags.Instance)
-                    ?.GetValue(instance) as string;
+                    ?.GetValue(server) as string;
 
                 return LoadedPlugin.FromPlugin(plugin, pluginId, displayName);
             }
             catch (Exception exception)
             {
-                Console.Error.WriteLine($"[Quasar.Agent] Failed reading Pulsar plugin instance: {exception.Message}");
+                Console.Error.WriteLine($"[Quasar.Agent] Failed reading Pulsar plugin server: {exception.Message}");
                 return null;
             }
         }

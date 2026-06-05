@@ -9,7 +9,7 @@ namespace Quasar.Services.PluginSdk;
 /// </summary>
 public sealed class PluginLogEntry
 {
-    /// <summary>Quasar unique name of the server instance that produced the entry.</summary>
+    /// <summary>Quasar unique name of the server server that produced the entry.</summary>
     public string UniqueName { get; init; } = string.Empty;
 
     /// <summary>Entry time in UTC (parsed from the sink's ISO-8601 timestamp).</summary>

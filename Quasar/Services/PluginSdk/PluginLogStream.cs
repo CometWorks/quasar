@@ -12,8 +12,8 @@ namespace Quasar.Services.PluginSdk;
 /// </summary>
 public sealed class PluginLogStream
 {
-    /// <summary>Maximum entries retained per server instance.</summary>
-    public const int MaxEntriesPerInstance = 10_000;
+    /// <summary>Maximum entries retained per server server.</summary>
+    public const int MaxEntriesPerServer = 10_000;
 
     private readonly object _sync = new();
     private readonly Dictionary<string, Queue<PluginLogEntry>> _byUniqueName =
@@ -21,7 +21,7 @@ public sealed class PluginLogStream
 
     public event Action? Changed;
 
-    /// <summary>Appends one entry, evicting the oldest beyond the per-instance cap.</summary>
+    /// <summary>Appends one entry, evicting the oldest beyond the per-server cap.</summary>
     public void Append(PluginLogEntry entry)
     {
         if (entry is null || string.IsNullOrWhiteSpace(entry.UniqueName))
@@ -31,19 +31,19 @@ public sealed class PluginLogStream
         {
             if (!_byUniqueName.TryGetValue(entry.UniqueName, out var queue))
             {
-                queue = new Queue<PluginLogEntry>(MaxEntriesPerInstance);
+                queue = new Queue<PluginLogEntry>(MaxEntriesPerServer);
                 _byUniqueName[entry.UniqueName] = queue;
             }
 
             queue.Enqueue(entry);
-            while (queue.Count > MaxEntriesPerInstance)
+            while (queue.Count > MaxEntriesPerServer)
                 queue.Dequeue();
         }
 
         Changed?.Invoke();
     }
 
-    /// <summary>Recent entries for one instance, oldest first (empty when unknown).</summary>
+    /// <summary>Recent entries for one server, oldest first (empty when unknown).</summary>
     public IReadOnlyList<PluginLogEntry> GetEntries(string uniqueName)
     {
         if (string.IsNullOrWhiteSpace(uniqueName))
@@ -57,7 +57,7 @@ public sealed class PluginLogStream
         }
     }
 
-    /// <summary>Recent entries across all instances, newest first, capped at <paramref name="limit"/>.</summary>
+    /// <summary>Recent entries across all servers, newest first, capped at <paramref name="limit"/>.</summary>
     public IReadOnlyList<PluginLogEntry> GetRecent(int limit = 200)
     {
         lock (_sync)
@@ -82,7 +82,7 @@ public sealed class PluginLogStream
 
     public IReadOnlyList<PluginLogEntry> Query(PluginLogQuery query)
     {
-        var limit = Math.Clamp(query.Limit, 1, MaxEntriesPerInstance);
+        var limit = Math.Clamp(query.Limit, 1, MaxEntriesPerServer);
         lock (_sync)
         {
             IEnumerable<PluginLogEntry> entries = _byUniqueName.Values.SelectMany(queue => queue);
@@ -115,7 +115,7 @@ public sealed class PluginLogStream
         }
     }
 
-    /// <summary>Drops buffered entries for an instance (e.g. when it is removed).</summary>
+    /// <summary>Drops buffered entries for a server when it is removed.</summary>
     public void Clear(string uniqueName)
     {
         if (string.IsNullOrWhiteSpace(uniqueName))

@@ -1,6 +1,6 @@
 # Quasar
 
-Supervisor and management stack for Space Engineers dedicated server instances.
+Supervisor and management stack for Space Engineers dedicated servers.
 
 Projects:
 

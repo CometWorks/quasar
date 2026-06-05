@@ -13,7 +13,7 @@
 Space Engineers Dedicated Server tracks all active world entities through
 `MyEntities` (static manager class). Admins currently have no visibility into
 the live entity list from the Quasar web UI. This feature adds a real-time
-entity browser: list, filter, inspect, and delete entities per instance, with
+entity browser: list, filter, inspect, and delete entities per server, with
 full admin controls.
 
 **Out of scope (later stage):** 3D render preview / world-space visualization
@@ -58,8 +58,8 @@ Deletions also require the game thread.
 
 [Quasar Web]
   ├── Protocol messages    ← new request/response types in Magnetar.Protocol
-  ├── EntityService        ← singleton, per-instance entity state cache
-  └── Entities.razor       ← new page at /instances/{id}/entities
+  ├── EntityService        ← singleton, per-server entity state cache
+  └── Entities.razor       ← new page at /servers/{id}/entities
 ```
 
 The existing WebSocket agent pipeline already handles request/response
@@ -115,9 +115,9 @@ LastSeen       DateTime
 
 Singleton service in `Quasar` project.
 
-- `GetEntitiesAsync(instanceId, filter)` — sends `EntityListRequest` over
+- `GetEntitiesAsync(workerId, filter)` — sends `EntityListRequest` over
   WebSocket, awaits response
-- `DeleteEntityAsync(instanceId, entityId)` — sends `EntityDeleteRequest`
+- `DeleteEntityAsync(workerId, entityId)` — sends `EntityDeleteRequest`
 - Optional: short TTL cache (5–10 s) to avoid hammering the agent on rapid
   UI refreshes
 - Exposes `event Action? Changed` if push-based updates are added later
@@ -125,14 +125,14 @@ Singleton service in `Quasar` project.
 
 ### 4. UI Page — `Entities.razor`
 
-Route: `@page "/instances/{InstanceId}/entities"`
+Route: `@page "/servers/{WorkerId}/entities"`
 
 Layout (consistent with existing Quasar pages):
 
 ```
-PageTitle: "Entities — {instanceName}"
+PageTitle: "Entities — {serverName}"
 MudText h4: "Entities"
-MudText body2: "Live entity list for this instance."
+MudText body2: "Live entity list for this server."
 
 Toolbar row:
   MudSelect: Type filter (All / Grids / Characters / Floating / Voxels)
@@ -146,7 +146,7 @@ MudDataGrid<EntitySummary>:
   Sortable: Name, BlockCount, PCU
   Virtual scrolling or pagination (server-side page if > 500 entities)
 
-Empty state: "No entities found" / "Instance offline"
+Empty state: "No entities found" / "Server offline"
 ```
 
 No render/minimap preview in this page. Position is shown as text coordinates
@@ -161,8 +161,8 @@ renderer.
 
 ### 5. NavMenu Entry
 
-Add "Entities" link under each instance context, or as a top-level nav item
-under the existing "Instances" section. Exact placement TBD based on nav
+Add "Entities" link under each server context, or as a top-level nav item
+under the existing "Servers" section. Exact placement TBD based on nav
 information architecture.
 
 ---
@@ -189,7 +189,7 @@ The `EntitySummary` DTO is designed to support this without schema changes.
 3. `EntityService` in Quasar (WebSocket send/receive wiring)
 4. `Entities.razor` UI page
 5. NavMenu integration
-6. Manual test: connect to live instance, list entities, delete a test grid
+6. Manual test: connect to live server, list entities, delete a test grid
 
 ---
 

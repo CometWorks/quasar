@@ -1,6 +1,6 @@
 namespace Quasar.Models;
 
-public enum DedicatedServerInstanceProcessState
+public enum DedicatedServerProcessState
 {
     Stopped = 0,
     Starting = 1,

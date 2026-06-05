@@ -74,7 +74,7 @@ public sealed class ConfigSchemaDto
     public Dictionary<string, List<EnumValueDto>> Enums { get; set; } = new();
 }
 
-/// <summary>One node of the layout tree (tab / section / group).</summary>
+/// <summary>One host of the layout tree (tab / section / group).</summary>
 public sealed class LayoutContainerDto
 {
     public string? Kind { get; set; }

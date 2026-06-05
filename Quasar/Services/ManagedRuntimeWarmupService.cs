@@ -38,7 +38,7 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
             await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
             SetState(ManagedRuntimeWarmupState.Running, "Preparing managed Magnetar and Dedicated Server runtime in background.");
 
-            await _runtimeResolver.ResolveAsync(new DedicatedServerInstanceDefinition
+            await _runtimeResolver.ResolveAsync(new DedicatedServerDefinition
             {
                 UniqueName = "warmup",
             }, stoppingToken);

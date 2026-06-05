@@ -148,15 +148,15 @@ Runtime RBAC config shape:
 
 System roles:
 
-- `viewer`: read-only access to dashboards, metrics, players, configs, instances, plugins, analytics, and node status.
-- `editor`: all viewer rights, plus edit configs, templates, plugins, instances, Discord settings, and normal operational changes.
+- `viewer`: read-only access to dashboards, metrics, players, configs, servers, plugins, analytics, and host status.
+- `editor`: all viewer rights, plus edit configs, templates, plugins, servers, Discord settings, and normal operational changes.
 - `admin`: full control, including user/RBAC mapping, trusted network bypass, external provider config, shutdown/drain controls, and security policy.
 
 Authorization should use policies instead of direct role checks in components:
 
 - `CanView`
 - `CanEditConfigs`
-- `CanEditInstances`
+- `CanEditServers`
 - `CanControlServers`
 - `CanManageDiscord`
 - `CanManageAppearance`
@@ -169,7 +169,7 @@ Default policy mapping:
 | --- | --- |
 | `CanView` | `viewer`, `editor`, `admin` |
 | `CanEditConfigs` | `editor`, `admin` |
-| `CanEditInstances` | `editor`, `admin` |
+| `CanEditServers` | `editor`, `admin` |
 | `CanControlServers` | `editor`, `admin` |
 | `CanManageDiscord` | `editor`, `admin` |
 | `CanManageAppearance` | `editor`, `admin` |

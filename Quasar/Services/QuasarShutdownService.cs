@@ -18,22 +18,22 @@ public sealed class QuasarShutdownService
     }
 
     /// <summary>
-    /// Gracefully stops every running Magnetar instance, then requests host shutdown.
+    /// Gracefully stops every running Magnetar server, then requests host shutdown.
     /// Progress messages are reported via <paramref name="progress"/> so the caller
     /// can update a UI while waiting.
     /// </summary>
     public async Task ShutdownAsync(IProgress<string>? progress = null, CancellationToken cancellationToken = default)
     {
         var running = _supervisor.GetSnapshots()
-            .Where(static s => s.State is DedicatedServerInstanceProcessState.Starting
-                or DedicatedServerInstanceProcessState.Running
-                or DedicatedServerInstanceProcessState.Restarting
-                or DedicatedServerInstanceProcessState.Stopping)
+            .Where(static s => s.State is DedicatedServerProcessState.Starting
+                or DedicatedServerProcessState.Running
+                or DedicatedServerProcessState.Restarting
+                or DedicatedServerProcessState.Stopping)
             .ToList();
 
         if (running.Count > 0)
         {
-            progress?.Report($"Stopping {running.Count} instance{(running.Count == 1 ? "" : "s")}…");
+            progress?.Report($"Stopping {running.Count} server{(running.Count == 1 ? "" : "s")}…");
 
             foreach (var snapshot in running)
             {
@@ -42,11 +42,11 @@ public sealed class QuasarShutdownService
 
                 try
                 {
-                    await _supervisor.StopInstanceAsync(snapshot.UniqueName, forceAfter: null, cancellationToken);
+                    await _supervisor.StopServerAsync(snapshot.UniqueName, forceAfter: null, cancellationToken);
                 }
                 catch
                 {
-                    // Best-effort: keep shutting down the remaining instances.
+                    // Best-effort: keep shutting down the remaining servers.
                 }
             }
         }

@@ -176,7 +176,7 @@ So Step 6 is implemented entirely on the **Quasar supervisor** side — no SDK,
 agent, or wire-protocol changes:
 
 1. **Activate the sink.** `DedicatedServerSupervisor.StartProcessAsync` sets the
-   `QUASAR_AGENT` env var (= the instance unique name) on the DS child process.
+   `QUASAR_AGENT` env var (= the server unique name) on the DS child process.
    Any non-empty value makes `LogEnvironment.IsManagedByQuasar()` return true, so
    every SDK-using plugin selects `QuasarLogSink` and emits JSON on stdout.
    (Note: while managed by Quasar, plugin logs route to stdout instead of the
@@ -187,7 +187,7 @@ agent, or wire-protocol changes:
    `{timestamp,level,plugin,thread,message,data?,exception?}` line into a
    `PluginLogEntry`. Raw lines still go to `stdout.log` as before; non-JSON game
    output is untouched.
-3. **Stream it.** `PluginLogStream` (new singleton) keeps a bounded per-instance
+3. **Stream it.** `PluginLogStream` (new singleton) keeps a bounded per-server
    ring buffer and raises `Changed`.
 4. **Display it.** `PluginLogPanel.razor` (new component, on the Plugins page)
    subscribes to `PluginLogStream.Changed` and renders recent entries
@@ -234,7 +234,7 @@ Reference pattern: `Quasar/Services/Discord/` (IHostedService + options catalog 
 
 ## Open Question
 
-**Plugin instance discovery in the agent:** `GetPlugins()` today reads `MySandboxGame.ConfigDedicated.Plugins` (file paths only, no instances). To get running `IQuasarConfigProvider` instances, the agent could:
+**Plugin server discovery in the agent:** `GetPlugins()` today reads `MySandboxGame.ConfigDedicated.Plugins` (file paths only, no servers). To get running `IQuasarConfigProvider` servers, the agent could:
 - Option A: Scan `AppDomain.CurrentDomain.GetAssemblies()` for `IPlugin` types and reflect for `IQuasarConfigProvider`
 - Option B: Use `VRage.Plugins.MyPlugins.Plugins` if that collection is accessible
 

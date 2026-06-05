@@ -2,7 +2,7 @@
 @implements IDisposable
 @inject DiscordOptionsCatalog DiscordOptionsCatalog
 @inject DeathMessagesCatalog DeathMessagesCatalog
-@inject DedicatedServerInstanceCatalog InstanceCatalog
+@inject DedicatedServerCatalog ServerCatalog
 @inject DiscordBotService DiscordBotService
 @inject ISnackbar Snackbar
 
@@ -59,10 +59,10 @@
         <MudPaper Class="pa-4 server-card">
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
                 <MudText Typo="Typo.h6">Per-Server Bindings</MudText>
-                <MudText Typo="Typo.caption">@($"{InstanceDefinitions.Count} server(s)")</MudText>
+                <MudText Typo="Typo.caption">@($"{ServerDefinitions.Count} server(s)")</MudText>
             </MudStack>
 
-            @if (InstanceDefinitions.Count == 0)
+            @if (ServerDefinitions.Count == 0)
             {
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
                     No Quasar servers defined yet.
@@ -71,63 +71,63 @@
             else
             {
                 <MudExpansionPanels MultiExpansion="true" Elevation="0" Outlined="true" Dense="true">
-                    @foreach (var definition in InstanceDefinitions)
+                    @foreach (var definition in ServerDefinitions)
                     {
-                        var instanceOptions = GetInstanceOptions(definition.UniqueName);
+                        var serverOptions = GetServerOptions(definition.UniqueName);
 
                         <MudExpansionPanel Text="@definition.UniqueName" @key="definition.UniqueName">
                             <MudStack Spacing="2" Class="pt-2">
                                 <MudText Typo="Typo.caption" Class="mono">@definition.UniqueName</MudText>
 
-                                <MudTextField @bind-Value="instanceOptions.CommandPrefix"
+                                <MudTextField @bind-Value="serverOptions.CommandPrefix"
                                               Label="Command prefix"
                                               Variant="Variant.Outlined" />
                                 <MudNumericField T="ulong?"
-                                                 @bind-Value="instanceOptions.CommandChannelId"
+                                                 @bind-Value="serverOptions.CommandChannelId"
                                                  Label="Command channel ID"
                                                  Variant="Variant.Outlined"
                                                  Min="0" />
                                 <MudNumericField T="ulong?"
-                                                 @bind-Value="instanceOptions.ChatRelayChannelId"
+                                                 @bind-Value="serverOptions.ChatRelayChannelId"
                                                  Label="Chat relay channel ID"
                                                  Variant="Variant.Outlined"
                                                  Min="0" />
                                 <MudNumericField T="ulong?"
-                                                 @bind-Value="instanceOptions.LogChannelId"
+                                                 @bind-Value="serverOptions.LogChannelId"
                                                  Label="Log channel ID"
                                                  Variant="Variant.Outlined"
                                                  Min="0" />
                                 <MudNumericField T="ulong?"
-                                                 @bind-Value="instanceOptions.AnalyticsChannelId"
+                                                 @bind-Value="serverOptions.AnalyticsChannelId"
                                                  Label="Analytics channel ID"
                                                  Variant="Variant.Outlined"
                                                  Min="0" />
                                 <MudNumericField T="ulong?"
-                                                 @bind-Value="instanceOptions.DeathChannelId"
+                                                 @bind-Value="serverOptions.DeathChannelId"
                                                  Label="Death messages channel ID"
                                                  Variant="Variant.Outlined"
                                                  Min="0" />
                                 <MudNumericField T="int"
-                                                 @bind-Value="instanceOptions.LogExportIntervalMinutes"
+                                                 @bind-Value="serverOptions.LogExportIntervalMinutes"
                                                  Label="Log export interval (minutes)"
                                                  Variant="Variant.Outlined"
                                                  Min="1" />
                                 <MudNumericField T="int"
-                                                 @bind-Value="instanceOptions.AnalyticsExportIntervalMinutes"
+                                                 @bind-Value="serverOptions.AnalyticsExportIntervalMinutes"
                                                  Label="Analytics export interval (minutes)"
                                                  Variant="Variant.Outlined"
                                                  Min="1" />
 
-                                <MudCheckBox T="bool" @bind-Value="instanceOptions.EnableChatRelay" Label="Enable chat relay" />
-                                <MudCheckBox T="bool" @bind-Value="instanceOptions.EnableLogExport" Label="Enable log export" />
-                                <MudCheckBox T="bool" @bind-Value="instanceOptions.EnableAnalyticsExport" Label="Enable analytics export" />
-                                <MudCheckBox T="bool" @bind-Value="instanceOptions.EnableDeathMessages" Label="Enable death messages" />
-                                <MudTextField @bind-Value="instanceOptions.DeathMessageEmotes"
+                                <MudCheckBox T="bool" @bind-Value="serverOptions.EnableChatRelay" Label="Enable chat relay" />
+                                <MudCheckBox T="bool" @bind-Value="serverOptions.EnableLogExport" Label="Enable log export" />
+                                <MudCheckBox T="bool" @bind-Value="serverOptions.EnableAnalyticsExport" Label="Enable analytics export" />
+                                <MudCheckBox T="bool" @bind-Value="serverOptions.EnableDeathMessages" Label="Enable death messages" />
+                                <MudTextField @bind-Value="serverOptions.DeathMessageEmotes"
                                               Label="Death emotes (comma-separated)"
                                               Variant="Variant.Outlined" />
-                                <MudCheckBox T="bool" @bind-Value="instanceOptions.RelayNonCommandMessages" Label="Relay non-command Discord messages to game chat" />
+                                <MudCheckBox T="bool" @bind-Value="serverOptions.RelayNonCommandMessages" Label="Relay non-command Discord messages to game chat" />
 
-                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SaveInstanceAsync(definition.UniqueName))">
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SaveServerAsync(definition.UniqueName))">
                                     Save Server
                                 </MudButton>
                             </MudStack>
@@ -216,7 +216,7 @@
     private DiscordOptions _options = new();
     private DeathMessagesConfig _deathMessageConfig = DeathMessagesConfig.CreateDefault();
 
-    private IReadOnlyList<DedicatedServerInstanceDefinition> InstanceDefinitions => InstanceCatalog.GetInstances();
+    private IReadOnlyList<DedicatedServerDefinition> ServerDefinitions => ServerCatalog.GetServers();
 
     private DiscordBotStatusSnapshot BotStatus => DiscordBotService.GetStatus();
 
@@ -226,7 +226,7 @@
         ReloadDeathMessageEditors();
         DiscordOptionsCatalog.Changed += HandleOptionsChanged;
         DeathMessagesCatalog.Changed += HandleDeathMessagesChanged;
-        InstanceCatalog.Changed += HandleInstanceCatalogChanged;
+        ServerCatalog.Changed += HandleServerCatalogChanged;
         DiscordBotService.Changed += HandleBotStatusChanged;
     }
 
@@ -234,7 +234,7 @@
     {
         DiscordOptionsCatalog.Changed -= HandleOptionsChanged;
         DeathMessagesCatalog.Changed -= HandleDeathMessagesChanged;
-        InstanceCatalog.Changed -= HandleInstanceCatalogChanged;
+        ServerCatalog.Changed -= HandleServerCatalogChanged;
         DiscordBotService.Changed -= HandleBotStatusChanged;
     }
 
@@ -243,19 +243,19 @@
         await SaveAsync("Discord bot settings saved.");
     }
 
-    private async Task SaveInstanceAsync(string uniqueName)
+    private async Task SaveServerAsync(string uniqueName)
     {
         if (string.IsNullOrWhiteSpace(uniqueName))
             return;
 
-        await SaveAsync($"Discord settings saved for {GetInstanceName(uniqueName)}.");
+        await SaveAsync($"Discord settings saved for {GetServerName(uniqueName)}.");
     }
 
     private async Task SaveAsync(string successMessage)
     {
         try
         {
-            SyncInstanceOptions();
+            SyncServerOptions();
             await DiscordOptionsCatalog.SaveAsync(_options);
             ReloadOptions();
             Snackbar.Add(successMessage, Severity.Success);
@@ -299,15 +299,15 @@
         _options.GuildId = value;
     }
 
-    private DiscordInstanceOptions GetInstanceOptions(string uniqueName)
+    private DiscordServerOptions GetServerOptions(string uniqueName)
     {
-        return _options.Instances.First(instance =>
-            string.Equals(instance.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase));
+        return _options.Servers.First(server =>
+            string.Equals(server.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase));
     }
 
-    private string GetInstanceName(string uniqueName)
+    private string GetServerName(string uniqueName)
     {
-        return InstanceDefinitions
+        return ServerDefinitions
             .FirstOrDefault(item => string.Equals(item.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
             ?.UniqueName ?? uniqueName;
     }
@@ -315,7 +315,7 @@
     private void ReloadOptions()
     {
         _options = DiscordOptionsCatalog.GetOptions();
-        SyncInstanceOptions();
+        SyncServerOptions();
     }
 
     private void ReloadDeathMessageEditors()
@@ -389,17 +389,17 @@
         return ParseDeathMessageLines(value).Count;
     }
 
-    private void SyncInstanceOptions()
+    private void SyncServerOptions()
     {
-        foreach (var definition in InstanceDefinitions)
+        foreach (var definition in ServerDefinitions)
         {
-            if (_options.Instances.Any(instance =>
-                    string.Equals(instance.UniqueName, definition.UniqueName, StringComparison.OrdinalIgnoreCase)))
+            if (_options.Servers.Any(server =>
+                    string.Equals(server.UniqueName, definition.UniqueName, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }
 
-            _options.Instances.Add(new DiscordInstanceOptions
+            _options.Servers.Add(new DiscordServerOptions
             {
                 UniqueName = definition.UniqueName,
             });
@@ -442,7 +442,7 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private void HandleInstanceCatalogChanged()
+    private void HandleServerCatalogChanged()
     {
         ReloadOptions();
         _ = InvokeAsync(StateHasChanged);

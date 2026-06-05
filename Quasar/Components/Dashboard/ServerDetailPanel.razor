@@ -154,10 +154,10 @@ else
     private static readonly string[] PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"];
 
     [Parameter]
-    public DedicatedServerInstanceDefinition? Instance { get; set; }
+    public DedicatedServerDefinition? Server { get; set; }
 
     [Parameter]
-    public DedicatedServerInstanceRuntimeSnapshot? Runtime { get; set; }
+    public DedicatedServerRuntimeSnapshot? Runtime { get; set; }
 
     [Parameter]
     public AgentRuntimeState? Agent { get; set; }
@@ -237,10 +237,10 @@ else
 
     private int GetMaxPlayers()
     {
-        if (!string.IsNullOrWhiteSpace(Instance?.ConfigProfileId))
+        if (!string.IsNullOrWhiteSpace(Server?.ConfigProfileId))
         {
             var configuredMaxPlayers = ConfigProfiles
-                .GetProfile(Instance.ConfigProfileId)
+                .GetProfile(Server.ConfigProfileId)
                 ?.SessionSettings
                 .MaxPlayers;
 
@@ -266,16 +266,16 @@ else
 
     private string GetWaitingText()
     {
-        if (Runtime?.State is DedicatedServerInstanceProcessState.Starting or DedicatedServerInstanceProcessState.Restarting)
+        if (Runtime?.State is DedicatedServerProcessState.Starting or DedicatedServerProcessState.Restarting)
             return "Starting. Waiting for Quasar.Agent and first game snapshot.";
 
-        if (Runtime?.State == DedicatedServerInstanceProcessState.Stopping)
+        if (Runtime?.State == DedicatedServerProcessState.Stopping)
             return "Stopping. Save and shutdown in progress.";
 
-        if (Runtime?.State is DedicatedServerInstanceProcessState.Crashed or DedicatedServerInstanceProcessState.Faulted)
+        if (Runtime?.State is DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted)
             return Runtime.LastMessage;
 
-        return "No live game snapshot. Start the instance to see metrics, players, chat, and plugins.";
+        return "No live game snapshot. Start the server to see metrics, players, chat, and plugins.";
     }
 
     private static string GetPlatformName(PlayerSnapshot player)

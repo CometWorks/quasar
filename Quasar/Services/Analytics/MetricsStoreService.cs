@@ -15,9 +15,9 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         WriteIndented = false,
     };
 
-    private readonly DedicatedServerInstanceCatalog _catalog;
+    private readonly DedicatedServerCatalog _catalog;
     private readonly ILogger<MetricsStoreService> _logger;
-    private readonly ConcurrentDictionary<string, InstanceMetricsStore> _stores = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ServerMetricsStore> _stores = new(StringComparer.OrdinalIgnoreCase);
     private readonly Channel<(string uniqueName, MetricSample sample)> _channel = Channel.CreateBounded<(string uniqueName, MetricSample sample)>(
         new BoundedChannelOptions(512)
         {
@@ -34,7 +34,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
     private int _disposed;
 
     public MetricsStoreService(
-        DedicatedServerInstanceCatalog catalog,
+        DedicatedServerCatalog catalog,
         ILogger<MetricsStoreService> logger)
     {
         _catalog = catalog;
@@ -59,10 +59,10 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        foreach (var instance in _catalog.GetInstances())
+        foreach (var server in _catalog.GetServers())
         {
-            var store = _stores.GetOrAdd(instance.UniqueName, _ => new InstanceMetricsStore());
-            await TryLoadFromDiskAsync(instance.UniqueName, store, cancellationToken);
+            var store = _stores.GetOrAdd(server.UniqueName, _ => new ServerMetricsStore());
+            await TryLoadFromDiskAsync(server.UniqueName, store, cancellationToken);
         }
 
         _lastPersistUtc = DateTimeOffset.UtcNow;
@@ -97,7 +97,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         _channel.Writer.TryWrite((uniqueName, sample));
     }
 
-    public InstanceMetricsStore? GetStore(string uniqueName)
+    public ServerMetricsStore? GetStore(string uniqueName)
     {
         if (string.IsNullOrWhiteSpace(uniqueName))
             return null;
@@ -146,7 +146,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
             {
                 while (_channel.Reader.TryRead(out var item))
                 {
-                    var store = _stores.GetOrAdd(item.uniqueName, _ => new InstanceMetricsStore());
+                    var store = _stores.GetOrAdd(item.uniqueName, _ => new ServerMetricsStore());
                     store.Ingest(item.sample);
 
                     _itemsSincePersistCheck++;
@@ -168,7 +168,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         }
     }
 
-    private async Task PersistStoreAsync(string uniqueName, InstanceMetricsStore store, CancellationToken cancellationToken)
+    private async Task PersistStoreAsync(string uniqueName, ServerMetricsStore store, CancellationToken cancellationToken)
     {
         var payload = new PersistedAnalyticsDocument
         {
@@ -178,13 +178,13 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         };
 
         var json = JsonSerializer.Serialize(payload, JsonOptions);
-        var path = MagnetarPaths.GetQuasarInstanceAnalyticsPath(uniqueName);
+        var path = MagnetarPaths.GetQuasarServerAnalyticsPath(uniqueName);
         await AtomicFileWriter.WriteTextAsync(path, json, cancellationToken);
     }
 
-    private async Task TryLoadFromDiskAsync(string uniqueName, InstanceMetricsStore store, CancellationToken cancellationToken)
+    private async Task TryLoadFromDiskAsync(string uniqueName, ServerMetricsStore store, CancellationToken cancellationToken)
     {
-        var path = MagnetarPaths.GetQuasarInstanceAnalyticsPath(uniqueName);
+        var path = MagnetarPaths.GetQuasarServerAnalyticsPath(uniqueName);
         if (!File.Exists(path))
             return;
 
@@ -206,7 +206,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Failed to load analytics history for instance {UniqueName}", uniqueName);
+            _logger.LogWarning(exception, "Failed to load analytics history for server {UniqueName}", uniqueName);
         }
     }
 

@@ -12,9 +12,9 @@ namespace Quasar.Agent
         private GameBridge _bridge;
         private AgentConnection _connection;
 
-        public void Init(object gameInstance)
+        public void Init(object gameServer)
         {
-            _bridge = new GameBridge(gameInstance);
+            _bridge = new GameBridge(gameServer);
             _connection = new AgentConnection(_bridge, new WebServiceLocator(), AgentOptions.FromEnvironment());
             _connection.Start();
             MyVisualScriptLogicProvider.PlayerDied += OnPlayerDied;

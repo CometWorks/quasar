@@ -44,7 +44,7 @@ public sealed class DedicatedServerRuntimePreparer
     }
 
     public async Task<PreparedDedicatedServerLaunch> PrepareAsync(
-        DedicatedServerInstanceDefinition definition,
+        DedicatedServerDefinition definition,
         string dedicatedServer64Path,
         CancellationToken cancellationToken = default)
     {
@@ -86,7 +86,7 @@ public sealed class DedicatedServerRuntimePreparer
     }
 
     private async Task PrepareRuntimeConfigAsync(
-        DedicatedServerInstanceDefinition definition,
+        DedicatedServerDefinition definition,
         QuasarConfigProfile configProfile,
         string runtimeConfigPath,
         CancellationToken cancellationToken)
@@ -132,11 +132,11 @@ public sealed class DedicatedServerRuntimePreparer
         var content = SerializeXml(document);
         await AtomicFileWriter.WriteTextAsync(runtimeConfigPath, content, cancellationToken);
 
-        _logger.LogInformation("Prepared runtime DS config for instance {UniqueName} at {Path}.", definition.UniqueName, runtimeConfigPath);
+        _logger.LogInformation("Prepared runtime DS config for server {UniqueName} at {Path}.", definition.UniqueName, runtimeConfigPath);
     }
 
     private async Task WriteLastSessionAsync(
-        DedicatedServerInstanceDefinition definition,
+        DedicatedServerDefinition definition,
         string worldPath,
         string dedicatedServerAppDataPath,
         string lastSessionPath,
@@ -160,7 +160,7 @@ public sealed class DedicatedServerRuntimePreparer
                 string.IsNullOrWhiteSpace(relativePath) ? null : new XElement("RelativePath", relativePath)));
 
         await AtomicFileWriter.WriteTextAsync(lastSessionPath, SerializeXml(document), cancellationToken);
-        _logger.LogInformation("Prepared LastSession.sbl for instance {UniqueName} at {Path}.", definition.UniqueName, lastSessionPath);
+        _logger.LogInformation("Prepared LastSession.sbl for server {UniqueName} at {Path}.", definition.UniqueName, lastSessionPath);
     }
 
     private async Task PrepareMagnetarConfigAsync(
@@ -471,23 +471,23 @@ public sealed class DedicatedServerRuntimePreparer
 
     private sealed record RemotePluginSourceSet(bool UseDefaultHub, IReadOnlyList<QuasarPluginCatalogEntry> Entries);
 
-    private QuasarConfigProfile ResolveConfigProfile(DedicatedServerInstanceDefinition definition)
+    private QuasarConfigProfile ResolveConfigProfile(DedicatedServerDefinition definition)
     {
         if (string.IsNullOrWhiteSpace(definition.ConfigProfileId))
             throw new InvalidOperationException(
-                $"Instance '{definition.UniqueName}' has no config profile assigned. " +
+                $"Server '{definition.UniqueName}' has no config profile assigned. " +
                 "Assign a profile from the Configs page before starting the server.");
 
         var template = _configProfiles.GetProfile(definition.ConfigProfileId);
         if (template is null)
             throw new InvalidOperationException(
-                $"Unknown Quasar config profile '{definition.ConfigProfileId}' for instance '{definition.UniqueName}'.");
+                $"Unknown Quasar config profile '{definition.ConfigProfileId}' for server '{definition.UniqueName}'.");
 
         return template;
     }
 
     private async Task PrepareWorldModListAsync(
-        DedicatedServerInstanceDefinition definition,
+        DedicatedServerDefinition definition,
         QuasarConfigProfile configProfile,
         string worldPath,
         CancellationToken cancellationToken)
@@ -496,7 +496,7 @@ public sealed class DedicatedServerRuntimePreparer
         if (!File.Exists(sandboxConfigPath))
         {
             _logger.LogWarning(
-                "Skipping mod list rewrite for instance {UniqueName}: {File} not found at {Path}.",
+                "Skipping mod list rewrite for server {UniqueName}: {File} not found at {Path}.",
                 definition.UniqueName, WorldSandboxConfigEditor.SandboxConfigFileName, sandboxConfigPath);
             return;
         }
@@ -547,7 +547,7 @@ public sealed class DedicatedServerRuntimePreparer
     }
 
     private static string BuildLaunchArguments(
-        DedicatedServerInstanceDefinition definition,
+        DedicatedServerDefinition definition,
         string dedicatedServerAppDataPath,
         string magnetarAppDataPath,
         string dedicatedServer64Path,
@@ -564,7 +564,7 @@ public sealed class DedicatedServerRuntimePreparer
             runtimeConfigPath,
             options);
         if (IgnoreLastSessionPattern.IsMatch(baseArguments))
-            throw new InvalidOperationException("Launch arguments cannot include -ignorelastsession for Quasar-managed instances.");
+            throw new InvalidOperationException("Launch arguments cannot include -ignorelastsession for Quasar-managed servers.");
 
         var sanitizedArguments = StripManagedArguments(baseArguments);
         var additions = new[]
@@ -582,7 +582,7 @@ public sealed class DedicatedServerRuntimePreparer
     }
 
     private static string ExpandLaunchArguments(
-        DedicatedServerInstanceDefinition definition,
+        DedicatedServerDefinition definition,
         string dedicatedServerAppDataPath,
         string magnetarAppDataPath,
         string dedicatedServer64Path,
@@ -595,7 +595,7 @@ public sealed class DedicatedServerRuntimePreparer
             .Replace("{uniqueName}", definition.UniqueName, StringComparison.OrdinalIgnoreCase)
             .Replace("{configPath}", QuoteArgument(runtimeConfigPath), StringComparison.OrdinalIgnoreCase)
             .Replace("{quasarBaseUrl}", QuoteArgument(options.BaseUrl), StringComparison.OrdinalIgnoreCase)
-            .Replace("{nodeId}", options.NodeId, StringComparison.OrdinalIgnoreCase)
+            .Replace("{hostId}", options.HostId, StringComparison.OrdinalIgnoreCase)
             .Replace("{dsAppDataPath}", QuoteArgument(dedicatedServerAppDataPath), StringComparison.OrdinalIgnoreCase)
             .Replace("{magnetarAppDataPath}", QuoteArgument(magnetarAppDataPath), StringComparison.OrdinalIgnoreCase)
             .Replace("{ds64Path}", QuoteArgument(dedicatedServer64Path), StringComparison.OrdinalIgnoreCase)
@@ -619,7 +619,7 @@ public sealed class DedicatedServerRuntimePreparer
     }
 
     private async Task<string> ResolveOrSeedWorldPathAsync(
-        DedicatedServerInstanceDefinition definition,
+        DedicatedServerDefinition definition,
         CancellationToken cancellationToken)
     {
         var worldPath = RequirePath(definition.WorldPath, "WorldPath");
@@ -632,11 +632,11 @@ public sealed class DedicatedServerRuntimePreparer
         if (!string.IsNullOrWhiteSpace(definition.WorldTemplateId))
         {
             var template = _worldTemplates.GetTemplate(definition.WorldTemplateId)
-                ?? throw new InvalidOperationException($"Unknown world template '{definition.WorldTemplateId}' for instance '{definition.UniqueName}'.");
+                ?? throw new InvalidOperationException($"Unknown world template '{definition.WorldTemplateId}' for server '{definition.UniqueName}'.");
 
             await SeedWorldFromTemplateAsync(definition.WorldTemplateId, worldPath, cancellationToken);
             _logger.LogInformation(
-                "Seeded world for instance {UniqueName} from template '{TemplateName}' at {WorldPath}.",
+                "Seeded world for server {UniqueName} from template '{TemplateName}' at {WorldPath}.",
                 definition.UniqueName, template.Name, worldPath);
             return worldPath;
         }
@@ -698,7 +698,7 @@ public sealed class DedicatedServerRuntimePreparer
         return value.Trim();
     }
 
-    private static string GetWorldDisplayName(DedicatedServerInstanceDefinition definition, string worldPath)
+    private static string GetWorldDisplayName(DedicatedServerDefinition definition, string worldPath)
     {
         if (!string.IsNullOrWhiteSpace(definition.UniqueName))
             return definition.UniqueName.Trim();

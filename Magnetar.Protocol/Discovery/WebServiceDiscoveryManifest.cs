@@ -4,9 +4,9 @@ namespace Magnetar.Protocol.Discovery;
 
 public class WebServiceDiscoveryManifest
 {
-    public string InstanceId { get; set; } = string.Empty;
+    public string WorkerId { get; set; } = string.Empty;
 
-    public string NodeId { get; set; } = string.Empty;
+    public string HostId { get; set; } = string.Empty;
 
     public string MachineName { get; set; } = string.Empty;
 

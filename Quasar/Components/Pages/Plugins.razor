@@ -15,7 +15,7 @@
             <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.DisplayName)">Plugin</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.Version)">Version</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.ServerName)">Server</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.NodeName)">Node</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.HostName)">Host</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.IsLoaded)">Status</MudTableSortLabel></MudTh>
             <MudTh Style="width:48px;"></MudTh>
         </HeaderContent>
@@ -23,7 +23,7 @@
             <MudTd DataLabel="Plugin">@context.DisplayName</MudTd>
             <MudTd DataLabel="Version">@context.Version</MudTd>
             <MudTd DataLabel="Server">@context.ServerName</MudTd>
-            <MudTd DataLabel="Node">@context.NodeName</MudTd>
+            <MudTd DataLabel="Host">@context.HostName</MudTd>
             <MudTd DataLabel="Status">@(context.IsLoaded ? "loaded" : "declared")</MudTd>
             <MudTd Style="text-align:right;">
                 @if (!string.IsNullOrWhiteSpace(context.SourceUrl))
@@ -63,7 +63,7 @@ else
     {
         <MudPaper Class="server-card mb-4 pa-4">
             <MudText Typo="Typo.h6">@agent.ServerDisplayName</MudText>
-            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-3">@agent.NodeDisplayName</MudText>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-3">@agent.HostDisplayName</MudText>
             @foreach (var plugin in ConfigService.GetConfigsForAgent(agent.AgentId))
             {
                 <MudExpansionPanels Class="mb-2" MultiExpansion="true">
@@ -78,7 +78,7 @@ else
 
 <MudText Typo="Typo.h5" Class="mt-8 mb-2">Plugin logs</MudText>
 <MudText Typo="Typo.body2" Class="mb-4 mud-text-secondary">
-    Structured logs emitted by plugins through the PluginSdk, captured from managed servers.
+    Structured logs emitted by plugins through the PluginSdk, captured from managed dedicated servers.
 </MudText>
 
 <PluginLogPanel />
@@ -93,7 +93,7 @@ else
                 DisplayName = plugin.DisplayName,
                 Version = plugin.Version,
                 ServerName = agent.ServerDisplayName,
-                NodeName = agent.NodeDisplayName,
+                HostName = agent.HostDisplayName,
                 IsLoaded = plugin.IsLoaded,
                 SourceUrl = GetPluginSourceUrl(plugin),
             }))
@@ -158,7 +158,7 @@ else
 
         public string ServerName { get; set; } = string.Empty;
 
-        public string NodeName { get; set; } = string.Empty;
+        public string HostName { get; set; } = string.Empty;
 
         public bool IsLoaded { get; set; }
 

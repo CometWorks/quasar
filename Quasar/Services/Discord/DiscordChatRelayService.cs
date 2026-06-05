@@ -32,21 +32,21 @@ public sealed class DiscordChatRelayService
 
         var agents = _registry.GetAgents();
 
-        foreach (var instanceOptions in options.Instances.Where(instance =>
-                     instance.EnableChatRelay &&
-                     instance.ChatRelayChannelId.HasValue))
+        foreach (var serverOptions in options.Servers.Where(server =>
+                     server.EnableChatRelay &&
+                     server.ChatRelayChannelId.HasValue))
         {
             var agent = agents.FirstOrDefault(item =>
                 item.IsConnected &&
                 item.Snapshot is not null &&
-                string.Equals(item.UniqueNameKey, instanceOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
+                string.Equals(item.UniqueNameKey, serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
 
             if (agent?.Snapshot is null)
                 continue;
 
-            var freshMessages = CollectFreshMessages(instanceOptions.UniqueName, agent.Snapshot.RecentChat);
+            var freshMessages = CollectFreshMessages(serverOptions.UniqueName, agent.Snapshot.RecentChat);
             foreach (var freshMessage in freshMessages)
-                Enqueue(client, instanceOptions.ChatRelayChannelId!.Value, freshMessage, cancellationToken);
+                Enqueue(client, serverOptions.ChatRelayChannelId!.Value, freshMessage, cancellationToken);
         }
 
         return Task.CompletedTask;

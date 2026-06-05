@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace Quasar.Models;
 
-public sealed class DedicatedServerInstanceDefinition
+public sealed class DedicatedServerDefinition
 {
     public string UniqueName { get; set; } = string.Empty;
 
@@ -11,7 +11,7 @@ public sealed class DedicatedServerInstanceDefinition
     [JsonIgnore]
     public string OriginalUniqueName { get; set; } = string.Empty;
 
-    public DedicatedServerInstanceGoalState GoalState { get; set; } = DedicatedServerInstanceGoalState.Off;
+    public DedicatedServerGoalState GoalState { get; set; } = DedicatedServerGoalState.Off;
 
     public string ExecutablePath { get; set; } = string.Empty;
 
@@ -71,9 +71,9 @@ public sealed class DedicatedServerInstanceDefinition
 
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 
-    public DedicatedServerInstanceDefinition Clone()
+    public DedicatedServerDefinition Clone()
     {
-        return new DedicatedServerInstanceDefinition
+        return new DedicatedServerDefinition
         {
             UniqueName = UniqueName,
             DisplayName = DisplayName,

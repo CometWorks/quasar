@@ -7,12 +7,12 @@ public sealed class WebServiceState
     public WebServiceState(
         WebServiceOptions options,
         AgentRegistry registry,
-        DedicatedServerInstanceCatalog instanceCatalog,
+        DedicatedServerCatalog serverCatalog,
         DedicatedServerSupervisor supervisor)
     {
         Options = options;
         Registry = registry;
-        InstanceCatalog = instanceCatalog;
+        ServerCatalog = serverCatalog;
         Supervisor = supervisor;
     }
 
@@ -20,7 +20,7 @@ public sealed class WebServiceState
 
     public AgentRegistry Registry { get; }
 
-    public DedicatedServerInstanceCatalog InstanceCatalog { get; }
+    public DedicatedServerCatalog ServerCatalog { get; }
 
     public DedicatedServerSupervisor Supervisor { get; }
 

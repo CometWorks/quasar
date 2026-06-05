@@ -14,18 +14,18 @@ Allow Quasar to start Space Engineers dedicated servers on prepared remote Linux
 ## Model Additions
 
 - Host definition: name, hostname, SSH user, SSH port, remote base directory, labels, enabled flag.
-- Instance placement: local host or remote host id.
+- Server placement: local host or remote host id.
 - Tunnel policy: local bind port, remote bind port, reconnect interval, max backoff.
 - Remote log policy: buffer size, drop-oldest behavior, last uploaded offset.
 
 ## Supervisor Flow
 
-1. Select host from instance definition.
+1. Select host from server definition.
 2. For local host, use existing process supervisor.
 3. For remote host:
    - Establish SSH control connection.
    - Ensure remote directories exist.
-   - Upload or render instance config files.
+   - Upload or render server config files.
    - Start SSH port forward for Quasar web/agent endpoint.
    - Start remote server detached from SSH session.
    - Track remote pid file and heartbeat file.
@@ -44,7 +44,7 @@ Allow Quasar to start Space Engineers dedicated servers on prepared remote Linux
 ## UI
 
 - Hosts page lists local and remote hosts.
-- Instance editor gets Host dropdown.
+- Server editor gets Host dropdown.
 - Server card shows host name and tunnel state.
 - Remote errors surface in dashboard problem banner.
 

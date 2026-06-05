@@ -71,9 +71,9 @@ public sealed class WebServiceManifestHostedService : IHostedService
         var baseUrl = ResolveBaseUrl();
         _state.CurrentManifest = new WebServiceDiscoveryManifest
         {
-            InstanceId = _options.InstanceId,
-            NodeId = _options.NodeId,
-            MachineName = _options.NodeName,
+            WorkerId = _options.WorkerId,
+            HostId = _options.HostId,
+            MachineName = _options.HostName,
             ProcessId = Environment.ProcessId,
             BaseUrl = baseUrl,
             StartedAtUtc = DateTimeOffset.UtcNow,

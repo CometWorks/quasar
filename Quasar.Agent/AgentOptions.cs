@@ -4,7 +4,7 @@ namespace Quasar.Agent
 {
     /// <summary>
     /// Connection-resilience settings for the agent's link to Quasar. Read from
-    /// environment variables that Quasar sets when it launches a managed instance,
+    /// environment variables that Quasar sets when it launches a managed server,
     /// or that an operator sets for a standalone server. Sensible defaults apply
     /// when nothing is configured, so an unmanaged server keeps working.
     /// </summary>

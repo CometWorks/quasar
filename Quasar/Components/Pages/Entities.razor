@@ -14,7 +14,7 @@
     <MudSelect T="string"
                Label="Server"
                Value="_selectedAgentId"
-               ValueChanged="OnInstanceChangedAsync"
+               ValueChanged="OnServerChangedAsync"
                Variant="Variant.Outlined"
                Dense="true"
                Disabled="@(ConnectedAgents.Count == 0)"
@@ -188,7 +188,7 @@ else
             await LoadAsync();
     }
 
-    private async Task OnInstanceChangedAsync(string agentId)
+    private async Task OnServerChangedAsync(string agentId)
     {
         _selectedAgentId = agentId;
         await LoadAsync();
@@ -247,7 +247,7 @@ else
         var agent = GetSelectedAgent();
         if (agent is null)
         {
-            Snackbar.Add("The selected instance is not connected.", Severity.Error);
+            Snackbar.Add("The selected server is not connected.", Severity.Error);
             return;
         }
 
@@ -303,7 +303,7 @@ else
 
     private void HandleChanged()
     {
-        // Connected-instance list and connection status can change underneath us; just
+        // Connected-server list and connection status can change underneath us; just
         // re-render. The entity list itself is only refreshed on explicit user action.
         _selectedAgentId ??= ConnectedAgents.FirstOrDefault()?.AgentId;
         _ = InvokeAsync(StateHasChanged);

@@ -113,7 +113,7 @@ public class Program
             {
                 AddRolePolicy(options, QuasarPolicyNames.CanView, QuasarRoles.Viewer, QuasarRoles.Editor, QuasarRoles.Admin);
                 AddRolePolicy(options, QuasarPolicyNames.CanEditConfigs, QuasarRoles.Editor, QuasarRoles.Admin);
-                AddRolePolicy(options, QuasarPolicyNames.CanEditInstances, QuasarRoles.Editor, QuasarRoles.Admin);
+                AddRolePolicy(options, QuasarPolicyNames.CanEditServers, QuasarRoles.Editor, QuasarRoles.Admin);
                 AddRolePolicy(options, QuasarPolicyNames.CanControlServers, QuasarRoles.Editor, QuasarRoles.Admin);
                 AddRolePolicy(options, QuasarPolicyNames.CanManageDiscord, QuasarRoles.Editor, QuasarRoles.Admin);
                 AddRolePolicy(options, QuasarPolicyNames.CanManageAppearance, QuasarRoles.Editor, QuasarRoles.Admin);
@@ -153,7 +153,7 @@ public class Program
             builder.Services.AddSingleton<ManagedDedicatedServerRuntimeResolver>();
             builder.Services.AddSingleton<ManagedRuntimeWarmupService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ManagedRuntimeWarmupService>());
-            builder.Services.AddSingleton<DedicatedServerInstanceCatalog>();
+            builder.Services.AddSingleton<DedicatedServerCatalog>();
             builder.Services.AddSingleton<DedicatedServerSupervisor>();
             builder.Services.AddSingleton<DedicatedServerRuntimePreparer>();
             builder.Services.AddSingleton<FileBrowserService>();
@@ -205,23 +205,23 @@ public class Program
             app.UseAuthorization();
             app.UseAntiforgery();
 
-            app.MapGet("/api/health", (WebServiceState state, DedicatedServerInstanceCatalog catalog) => Results.Json(new
+            app.MapGet("/api/health", (WebServiceState state, DedicatedServerCatalog catalog) => Results.Json(new
             {
                 status = "ok",
-                state.Options.InstanceId,
-                state.Options.NodeId,
-                state.Options.NodeName,
+                state.Options.WorkerId,
+                state.Options.HostId,
+                state.Options.HostName,
                 state.Options.Version,
                 baseUrl = string.IsNullOrWhiteSpace(state.CurrentManifest.BaseUrl)
                     ? state.Options.BaseUrl
                     : state.CurrentManifest.BaseUrl,
                 connectedAgents = state.Registry.GetAgents().Count(agent => agent.IsConnected),
-                configuredInstances = catalog.GetInstances().Count,
-                runningInstances = state.Supervisor.GetSnapshots().Count(snapshot =>
-                    snapshot.State is DedicatedServerInstanceProcessState.Starting
-                        or DedicatedServerInstanceProcessState.Running
-                        or DedicatedServerInstanceProcessState.Restarting
-                        or DedicatedServerInstanceProcessState.Stopping),
+                configuredServers = catalog.GetServers().Count,
+                runningServers = state.Supervisor.GetSnapshots().Count(snapshot =>
+                    snapshot.State is DedicatedServerProcessState.Starting
+                        or DedicatedServerProcessState.Running
+                        or DedicatedServerProcessState.Restarting
+                        or DedicatedServerProcessState.Stopping),
             }));
 
             app.MapGet("/api/discovery", (WebServiceState state) =>
@@ -274,8 +274,8 @@ public class Program
                 if (int.TryParse(context.Request.Query["delaySeconds"], out var parsedDelay))
                     delaySeconds = Math.Max(0, parsedDelay);
 
-                var stopInstances = bool.TryParse(context.Request.Query["stopInstances"], out var parsedStopInstances) && parsedStopInstances;
-                if (!stopInstances)
+                var stopServers = bool.TryParse(context.Request.Query["stopServers"], out var parsedStopServers) && parsedStopServers;
+                if (!stopServers)
                     supervisor.BeginLauncherDrain();
 
                 _ = Task.Run(async () =>
@@ -285,7 +285,7 @@ public class Program
                         if (delaySeconds > 0)
                             await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
 
-                        if (stopInstances)
+                        if (stopServers)
                             await shutdownService.ShutdownAsync(cancellationToken: CancellationToken.None);
                         else
                             lifetime.StopApplication();
@@ -295,7 +295,7 @@ public class Program
                     }
                     finally
                     {
-                        if (stopInstances)
+                        if (stopServers)
                             lifetime.StopApplication();
                     }
                 });
@@ -304,7 +304,7 @@ public class Program
                 {
                     status = "draining",
                     delaySeconds,
-                    stopInstances,
+                    stopServers,
                 });
             });
 
@@ -425,7 +425,7 @@ public class Program
     private static IDisposable RegisterGracefulShutdownSignals(IServiceProvider services)
     {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
-            return EmptyDisposable.Instance;
+            return EmptyDisposable.Shared;
 
         var shutdownService = services.GetRequiredService<QuasarShutdownService>();
         var lifetime = services.GetRequiredService<IHostApplicationLifetime>();
@@ -473,7 +473,7 @@ public class Program
 
     private sealed class EmptyDisposable : IDisposable
     {
-        public static readonly EmptyDisposable Instance = new();
+        public static readonly EmptyDisposable Shared = new();
 
         public void Dispose()
         {

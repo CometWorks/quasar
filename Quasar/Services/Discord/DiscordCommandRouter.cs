@@ -32,38 +32,38 @@ public sealed class DiscordCommandRouter
             if (!options.Enabled || options.GuildId == 0 || guildChannel.Guild.Id != options.GuildId)
                 return;
 
-            foreach (var instanceOptions in options.Instances)
+            foreach (var serverOptions in options.Servers)
             {
-                if (instanceOptions.CommandChannelId != guildChannel.Id || string.IsNullOrWhiteSpace(instanceOptions.CommandPrefix))
+                if (serverOptions.CommandChannelId != guildChannel.Id || string.IsNullOrWhiteSpace(serverOptions.CommandPrefix))
                     continue;
 
-                if (!message.Content.StartsWith(instanceOptions.CommandPrefix, StringComparison.OrdinalIgnoreCase))
+                if (!message.Content.StartsWith(serverOptions.CommandPrefix, StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                var remainder = message.Content[instanceOptions.CommandPrefix.Length..].Trim();
+                var remainder = message.Content[serverOptions.CommandPrefix.Length..].Trim();
                 if (string.IsNullOrWhiteSpace(remainder))
                 {
-                    await _dispatcher.DispatchAsync(instanceOptions, "help", string.Empty, message);
+                    await _dispatcher.DispatchAsync(serverOptions, "help", string.Empty, message);
                     return;
                 }
 
                 var tokens = remainder.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 var verb = tokens[0].ToLowerInvariant();
                 var args = tokens.Length > 1 ? tokens[1] : string.Empty;
-                await _dispatcher.DispatchAsync(instanceOptions, verb, args, message);
+                await _dispatcher.DispatchAsync(serverOptions, verb, args, message);
                 return;
             }
 
-            foreach (var instanceOptions in options.Instances)
+            foreach (var serverOptions in options.Servers)
             {
-                if (!instanceOptions.EnableChatRelay ||
-                    !instanceOptions.RelayNonCommandMessages ||
-                    instanceOptions.ChatRelayChannelId != guildChannel.Id)
+                if (!serverOptions.EnableChatRelay ||
+                    !serverOptions.RelayNonCommandMessages ||
+                    serverOptions.ChatRelayChannelId != guildChannel.Id)
                 {
                     continue;
                 }
 
-                await _dispatcher.RelayChatAsync(instanceOptions, message.Content.Trim(), message);
+                await _dispatcher.RelayChatAsync(serverOptions, message.Content.Trim(), message);
                 return;
             }
         }

@@ -237,7 +237,7 @@ else
                 {
                     <MudNumericField T="double?" Label="@field.Name"
                                      Value="@GetNumber(get())"
-                                     ValueChanged="@((double? value) => { set(CreateNumberNode(field.Type, value)); MarkDirty(); })"
+                                     ValueChanged="@((double? value) => { set(CreateNumberValue(field.Type, value)); MarkDirty(); })"
                                      Min="@field.Min" Max="@field.Max"
                                      HelperText="@field.Description" Immediate="false" />
                 }
@@ -571,7 +571,7 @@ else
     private RenderFragment RenderTreeParentSelector(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, TreeContext treeContext) => @<MudSelect T="string"
         Label="@field.Name"
         Value="@GetScalarKey(get())"
-        ValueChanged="@((string value) => { set(ParseKeyNode(field.Type, value)); MarkDirty(); })"
+        ValueChanged="@((string value) => { set(ParseKeyValue(field.Type, value)); MarkDirty(); })"
         HelperText="@field.Description">
         @foreach (var option in treeContext.Options)
         {
@@ -607,34 +607,34 @@ else
         return _envelope?.Schema.Structs.TryGetValue(name, out var value) == true ? value : null;
     }
 
-    private static bool GetBool(JsonNode? node)
+    private static bool GetBool(JsonNode? value)
     {
-        try { return node?.GetValue<bool>() ?? false; }
+        try { return value?.GetValue<bool>() ?? false; }
         catch { return false; }
     }
 
-    private static double? GetNumber(JsonNode? node)
+    private static double? GetNumber(JsonNode? value)
     {
-        if (node is null)
+        if (value is null)
             return null;
 
-        try { return node.GetValue<double>(); }
+        try { return value.GetValue<double>(); }
         catch { return null; }
     }
 
-    private static string GetString(JsonNode? node)
+    private static string GetString(JsonNode? value)
     {
-        if (node is null)
+        if (value is null)
             return string.Empty;
 
-        try { return node.GetValue<string>() ?? string.Empty; }
-        catch { return node.ToJsonString(); }
+        try { return value.GetValue<string>() ?? string.Empty; }
+        catch { return value.ToJsonString(); }
     }
 
-    private static string GetRaw(JsonNode? node)
-        => node is null ? "null" : node.ToJsonString(RawOptions);
+    private static string GetRaw(JsonNode? value)
+        => value is null ? "null" : value.ToJsonString(RawOptions);
 
-    private static JsonNode? CreateNumberNode(string type, double? value)
+    private static JsonNode? CreateNumberValue(string type, double? value)
     {
         if (value is null)
             return null;
@@ -648,7 +648,7 @@ else
         };
     }
 
-    private static JsonNode? ParseKeyNode(string type, string value)
+    private static JsonNode? ParseKeyValue(string type, string value)
     {
         value ??= string.Empty;
         return type switch
@@ -659,23 +659,23 @@ else
         };
     }
 
-    private static string GetScalarKey(JsonNode? node)
+    private static string GetScalarKey(JsonNode? value)
     {
-        if (node is null)
+        if (value is null)
             return string.Empty;
 
         try
         {
-            return node.GetValue<object>() switch
+            return value.GetValue<object>() switch
             {
                 null => string.Empty,
                 IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture) ?? string.Empty,
-                var value => value.ToString() ?? string.Empty,
+                var scalar => scalar.ToString() ?? string.Empty,
             };
         }
         catch
         {
-            return GetString(node);
+            return GetString(value);
         }
     }
 
@@ -709,9 +709,9 @@ else
         return (get() as JsonObject)?[key] as JsonObject;
     }
 
-    private static double? GetObjectNumber(JsonNode? node, string propertyName)
+    private static double? GetObjectNumber(JsonNode? value, string propertyName)
     {
-        if (node is not JsonObject obj)
+        if (value is not JsonObject obj)
             return null;
 
         return GetNumber(obj[propertyName]);
@@ -759,9 +759,9 @@ else
         ["up"] = new JsonObject { ["x"] = 0d, ["y"] = 1d, ["z"] = 0d },
     };
 
-    private static MudColor GetMudColor(JsonNode? node)
+    private static MudColor GetMudColor(JsonNode? value)
     {
-        var text = GetString(node);
+        var text = GetString(value);
         return string.IsNullOrWhiteSpace(text) ? new MudColor("#FFFFFFFF") : new MudColor(text);
     }
 
@@ -800,7 +800,7 @@ else
         if (field.MaxCount is > 0 && array.Count >= field.MaxCount.Value)
             return;
 
-        array.Add(CreateDefaultNode(FieldModel.FromListElement(field)));
+        array.Add(CreateDefaultValue(FieldModel.FromListElement(field)));
         MarkDirty();
     }
 
@@ -825,7 +825,7 @@ else
         MarkDirty();
     }
 
-    private JsonNode? CreateDefaultNode(FieldModel field)
+    private JsonNode? CreateDefaultValue(FieldModel field)
     {
         return field.Type switch
         {
@@ -859,7 +859,7 @@ else
         foreach (var member in structInfo.Members)
         {
             var field = FieldModel.FromMember(member);
-            obj[field.JsonKey] = CreateDefaultNode(field);
+            obj[field.JsonKey] = CreateDefaultValue(field);
         }
 
         return obj;
@@ -880,7 +880,7 @@ else
             return;
         }
 
-        dict[key] = CreateDefaultNode(FieldModel.FromDictValue(field));
+        dict[key] = CreateDefaultValue(FieldModel.FromDictValue(field));
         _newDictKeys[path] = string.Empty;
         MarkDirty();
     }
@@ -1052,11 +1052,11 @@ else
         return result;
     }
 
-    private string GetListItemCaption(FieldModel field, JsonNode? node, int index)
+    private string GetListItemCaption(FieldModel field, JsonNode? value, int index)
     {
         var structInfo = GetStruct(field.ElementStruct ?? field.StructName);
         if (structInfo?.CaptionMember is { Length: > 0 } captionMember
-            && node is JsonObject obj)
+            && value is JsonObject obj)
         {
             var caption = GetString(obj[ToJsonKey(captionMember)]);
             if (!string.IsNullOrWhiteSpace(caption))

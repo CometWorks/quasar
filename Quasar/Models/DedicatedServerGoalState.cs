@@ -1,6 +1,6 @@
 namespace Quasar.Models;
 
-public enum DedicatedServerInstanceGoalState
+public enum DedicatedServerGoalState
 {
     Off = 0,
     On = 1,

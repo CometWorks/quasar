@@ -11,23 +11,23 @@ public sealed class DiscordCommandDispatcher
 {
     private readonly AgentRegistry _registry;
     private readonly DedicatedServerSupervisor _supervisor;
-    private readonly DedicatedServerInstanceCatalog _instanceCatalog;
+    private readonly DedicatedServerCatalog _serverCatalog;
     private readonly ILogger<DiscordCommandDispatcher> _logger;
 
     public DiscordCommandDispatcher(
         AgentRegistry registry,
         DedicatedServerSupervisor supervisor,
-        DedicatedServerInstanceCatalog instanceCatalog,
+        DedicatedServerCatalog serverCatalog,
         ILogger<DiscordCommandDispatcher> logger)
     {
         _registry = registry;
         _supervisor = supervisor;
-        _instanceCatalog = instanceCatalog;
+        _serverCatalog = serverCatalog;
         _logger = logger;
     }
 
     public async Task DispatchAsync(
-        DiscordInstanceOptions instanceOptions,
+        DiscordServerOptions serverOptions,
         string verb,
         string args,
         SocketMessage message,
@@ -44,73 +44,73 @@ public sealed class DiscordCommandDispatcher
                         return;
                     }
 
-                    await SendAgentCommandAsync(instanceOptions.UniqueName, ServerCommandType.SendChat, text: args, cancellationToken: cancellationToken);
+                    await SendAgentCommandAsync(serverOptions.UniqueName, ServerCommandType.SendChat, text: args, cancellationToken: cancellationToken);
                     await ReplyAsync(message, "Chat sent.");
                     return;
 
                 case "save":
-                    await SendAgentCommandAsync(instanceOptions.UniqueName, ServerCommandType.SaveWorld, cancellationToken: cancellationToken);
+                    await SendAgentCommandAsync(serverOptions.UniqueName, ServerCommandType.SaveWorld, cancellationToken: cancellationToken);
                     await ReplyAsync(message, "Save requested.");
                     return;
 
                 case "stop":
-                    await _supervisor.StopInstanceAsync(instanceOptions.UniqueName, cancellationToken);
+                    await _supervisor.StopServerAsync(serverOptions.UniqueName, cancellationToken);
                     await ReplyAsync(message, "Stop requested.");
                     return;
 
                 case "start":
-                    await _supervisor.StartInstanceAsync(instanceOptions.UniqueName, cancellationToken);
+                    await _supervisor.StartServerAsync(serverOptions.UniqueName, cancellationToken);
                     await ReplyAsync(message, "Start requested.");
                     return;
 
                 case "restart":
-                    await _supervisor.RestartInstanceAsync(instanceOptions.UniqueName, cancellationToken);
+                    await _supervisor.RestartServerAsync(serverOptions.UniqueName, cancellationToken);
                     await ReplyAsync(message, "Restart requested.");
                     return;
 
                 case "kick":
-                    await DispatchSteamIdCommandAsync(message, instanceOptions.UniqueName, args, ServerCommandType.KickPlayer, "Kick requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, serverOptions.UniqueName, args, ServerCommandType.KickPlayer, "Kick requested.", cancellationToken);
                     return;
 
                 case "ban":
-                    await DispatchSteamIdCommandAsync(message, instanceOptions.UniqueName, args, ServerCommandType.BanPlayer, "Ban requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, serverOptions.UniqueName, args, ServerCommandType.BanPlayer, "Ban requested.", cancellationToken);
                     return;
 
                 case "unban":
-                    await DispatchSteamIdCommandAsync(message, instanceOptions.UniqueName, args, ServerCommandType.UnbanPlayer, "Unban requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, serverOptions.UniqueName, args, ServerCommandType.UnbanPlayer, "Unban requested.", cancellationToken);
                     return;
 
                 case "promote":
-                    await DispatchSteamIdCommandAsync(message, instanceOptions.UniqueName, args, ServerCommandType.PromotePlayer, "Promote requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, serverOptions.UniqueName, args, ServerCommandType.PromotePlayer, "Promote requested.", cancellationToken);
                     return;
 
                 case "demote":
-                    await DispatchSteamIdCommandAsync(message, instanceOptions.UniqueName, args, ServerCommandType.DemotePlayer, "Demote requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, serverOptions.UniqueName, args, ServerCommandType.DemotePlayer, "Demote requested.", cancellationToken);
                     return;
 
                 case "status":
-                    await message.Channel.SendMessageAsync(embed: BuildStatusEmbed(instanceOptions.UniqueName).Build());
+                    await message.Channel.SendMessageAsync(embed: BuildStatusEmbed(serverOptions.UniqueName).Build());
                     return;
 
                 case "help":
-                    await message.Channel.SendMessageAsync(embed: BuildHelpEmbed(instanceOptions).Build());
+                    await message.Channel.SendMessageAsync(embed: BuildHelpEmbed(serverOptions).Build());
                     return;
 
                 default:
                     await ReplyAsync(message, $"Unknown command `{verb}`.");
-                    await message.Channel.SendMessageAsync(embed: BuildHelpEmbed(instanceOptions).Build());
+                    await message.Channel.SendMessageAsync(embed: BuildHelpEmbed(serverOptions).Build());
                     return;
             }
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Discord command {Verb} failed for instance {UniqueName}", verb, instanceOptions.UniqueName);
+            _logger.LogWarning(exception, "Discord command {Verb} failed for server {UniqueName}", verb, serverOptions.UniqueName);
             await ReplyAsync(message, $"Error: {exception.Message}");
         }
     }
 
     public async Task RelayChatAsync(
-        DiscordInstanceOptions instanceOptions,
+        DiscordServerOptions serverOptions,
         string text,
         SocketMessage message,
         CancellationToken cancellationToken = default)
@@ -120,11 +120,11 @@ public sealed class DiscordCommandDispatcher
             if (string.IsNullOrWhiteSpace(text))
                 return;
 
-            await SendAgentCommandAsync(instanceOptions.UniqueName, ServerCommandType.SendChat, text: text.Trim(), cancellationToken: cancellationToken);
+            await SendAgentCommandAsync(serverOptions.UniqueName, ServerCommandType.SendChat, text: text.Trim(), cancellationToken: cancellationToken);
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Discord chat relay failed for instance {UniqueName}", instanceOptions.UniqueName);
+            _logger.LogWarning(exception, "Discord chat relay failed for server {UniqueName}", serverOptions.UniqueName);
             await ReplyAsync(message, $"Error: {exception.Message}");
         }
     }
@@ -156,7 +156,7 @@ public sealed class DiscordCommandDispatcher
     {
         var agent = ResolveConnectedAgent(uniqueName);
         if (agent is null)
-            throw new InvalidOperationException("Instance not connected.");
+            throw new InvalidOperationException("Server not connected.");
 
         await _registry.SendCommandAsync(new ServerCommandEnvelope
         {
@@ -179,7 +179,7 @@ public sealed class DiscordCommandDispatcher
 
     private EmbedBuilder BuildStatusEmbed(string uniqueName)
     {
-        var definition = _instanceCatalog.GetInstance(uniqueName);
+        var definition = _serverCatalog.GetServer(uniqueName);
         var runtime = _supervisor.GetSnapshots()
             .FirstOrDefault(snapshot => string.Equals(snapshot.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase));
         var agent = _registry.GetAgents().FirstOrDefault(item =>
@@ -192,7 +192,7 @@ public sealed class DiscordCommandDispatcher
             .WithTitle($"{title} status")
             .WithColor(agent?.IsConnected == true ? Color.Green : Color.Orange)
             .WithTimestamp(DateTimeOffset.UtcNow)
-            .AddField("Instance", $"`{uniqueName}`", inline: false)
+            .AddField("Server", $"`{uniqueName}`", inline: false)
             .AddField("Goal", runtime?.GoalState.ToString() ?? definition?.GoalState.ToString() ?? "Unknown", inline: true)
             .AddField("State", runtime?.State.ToString() ?? "Unknown", inline: true)
             .AddField("Agent", agent?.IsConnected == true ? "Connected" : "Disconnected", inline: true)
@@ -226,7 +226,7 @@ public sealed class DiscordCommandDispatcher
         return builder;
     }
 
-    private static string FormatUptime(DedicatedServerInstanceRuntimeSnapshot? runtime, ServerMetrics? metrics)
+    private static string FormatUptime(DedicatedServerRuntimeSnapshot? runtime, ServerMetrics? metrics)
     {
         if (runtime?.StartedAtUtc is not null)
             return FormatDuration(DateTimeOffset.UtcNow - runtime.StartedAtUtc.Value);
@@ -237,9 +237,9 @@ public sealed class DiscordCommandDispatcher
         return "n/a";
     }
 
-    private EmbedBuilder BuildHelpEmbed(DiscordInstanceOptions instanceOptions)
+    private EmbedBuilder BuildHelpEmbed(DiscordServerOptions serverOptions)
     {
-        var prefix = string.IsNullOrWhiteSpace(instanceOptions.CommandPrefix) ? "!" : instanceOptions.CommandPrefix;
+        var prefix = string.IsNullOrWhiteSpace(serverOptions.CommandPrefix) ? "!" : serverOptions.CommandPrefix;
 
         return new EmbedBuilder()
             .WithTitle("Quasar Discord Commands")

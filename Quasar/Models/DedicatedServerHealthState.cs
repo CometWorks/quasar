@@ -1,6 +1,6 @@
 namespace Quasar.Models;
 
-public enum DedicatedServerInstanceHealthState
+public enum DedicatedServerHealthState
 {
     Unknown = 0,
     Healthy = 1,

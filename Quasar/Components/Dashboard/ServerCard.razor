@@ -43,7 +43,7 @@
             </MudStack>
             <MudStack Spacing="0">
                 <MudText Typo="Typo.caption">@GetHostLabel() · @GetWorldLabel()</MudText>
-                <MudText Typo="Typo.caption" Class="mono">@Instance.UniqueName</MudText>
+                <MudText Typo="Typo.caption" Class="mono">@Server.UniqueName</MudText>
                 @if (!string.IsNullOrWhiteSpace(Runtime?.LastMessage))
                 {
                     <MudText Typo="Typo.caption">@Runtime.LastMessage</MudText>
@@ -57,17 +57,17 @@
     </MudCardHeader>
 
     <MudCardContent>
-        <ServerDetailPanel Instance="@Instance" Runtime="@Runtime" Agent="@Agent" />
+        <ServerDetailPanel Server="@Server" Runtime="@Runtime" Agent="@Agent" />
     </MudCardContent>
 </MudCard>
 
 @code
 {
     [Parameter, EditorRequired]
-    public DedicatedServerInstanceDefinition Instance { get; set; } = default!;
+    public DedicatedServerDefinition Server { get; set; } = default!;
 
     [Parameter]
-    public DedicatedServerInstanceRuntimeSnapshot? Runtime { get; set; }
+    public DedicatedServerRuntimeSnapshot? Runtime { get; set; }
 
     [Parameter]
     public AgentRuntimeState? Agent { get; set; }
@@ -81,41 +81,41 @@
     [Parameter]
     public EventCallback<string> RestartRequested { get; set; }
 
-    private DedicatedServerInstanceProcessState ProcessState => Runtime?.State ?? DedicatedServerInstanceProcessState.Stopped;
+    private DedicatedServerProcessState ProcessState => Runtime?.State ?? DedicatedServerProcessState.Stopped;
 
-    private bool IsProcessActive => ProcessState is DedicatedServerInstanceProcessState.Starting
-        or DedicatedServerInstanceProcessState.Running
-        or DedicatedServerInstanceProcessState.Restarting
-        or DedicatedServerInstanceProcessState.Stopping;
+    private bool IsProcessActive => ProcessState is DedicatedServerProcessState.Starting
+        or DedicatedServerProcessState.Running
+        or DedicatedServerProcessState.Restarting
+        or DedicatedServerProcessState.Stopping;
 
     private bool CanStart => !IsProcessActive;
 
-    private bool CanStop => ProcessState is DedicatedServerInstanceProcessState.Starting
-        or DedicatedServerInstanceProcessState.Running
-        or DedicatedServerInstanceProcessState.Restarting;
+    private bool CanStop => ProcessState is DedicatedServerProcessState.Starting
+        or DedicatedServerProcessState.Running
+        or DedicatedServerProcessState.Restarting;
 
-    private bool CanRestart => ProcessState == DedicatedServerInstanceProcessState.Running;
+    private bool CanRestart => ProcessState == DedicatedServerProcessState.Running;
 
-    private Task StartAsync() => StartRequested.InvokeAsync(Instance.UniqueName);
+    private Task StartAsync() => StartRequested.InvokeAsync(Server.UniqueName);
 
-    private Task StopAsync() => StopRequested.InvokeAsync(Instance.UniqueName);
+    private Task StopAsync() => StopRequested.InvokeAsync(Server.UniqueName);
 
-    private Task RestartAsync() => RestartRequested.InvokeAsync(Instance.UniqueName);
+    private Task RestartAsync() => RestartRequested.InvokeAsync(Server.UniqueName);
 
     private string GetDisplayName()
     {
-        if (!string.IsNullOrWhiteSpace(Instance.DisplayName))
-            return Instance.DisplayName.Trim();
+        if (!string.IsNullOrWhiteSpace(Server.DisplayName))
+            return Server.DisplayName.Trim();
 
-        return Agent?.ServerDisplayName ?? Instance.UniqueName;
+        return Agent?.ServerDisplayName ?? Server.UniqueName;
     }
 
     private string GetHostLabel()
     {
-        if (!string.IsNullOrWhiteSpace(Agent?.NodeDisplayName) &&
-            !string.Equals(Agent.NodeDisplayName, "Unknown node", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(Agent?.HostDisplayName) &&
+            !string.Equals(Agent.HostDisplayName, "Unknown host", StringComparison.OrdinalIgnoreCase))
         {
-            return Agent.NodeDisplayName;
+            return Agent.HostDisplayName;
         }
 
         return "Local host";
@@ -129,21 +129,21 @@
             return Agent.WorldDisplayName;
         }
 
-        if (!string.IsNullOrWhiteSpace(Instance.WorldPath))
-            return Path.GetFileName(Instance.WorldPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (!string.IsNullOrWhiteSpace(Server.WorldPath))
+            return Path.GetFileName(Server.WorldPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
         return "World pending";
     }
 
     private string GetStatusLabel()
     {
-        if (ProcessState == DedicatedServerInstanceProcessState.Stopping)
+        if (ProcessState == DedicatedServerProcessState.Stopping)
             return "STOPPING";
 
         if (!IsProcessActive)
             return "OFF";
 
-        if (ProcessState == DedicatedServerInstanceProcessState.Running && Agent?.IsConnected == true && Agent.Snapshot is not null)
+        if (ProcessState == DedicatedServerProcessState.Running && Agent?.IsConnected == true && Agent.Snapshot is not null)
             return "OPEN";
 
         return "STARTING";
@@ -151,7 +151,7 @@
 
     private Color GetStatusColor()
     {
-        if (ProcessState is DedicatedServerInstanceProcessState.Crashed or DedicatedServerInstanceProcessState.Faulted)
+        if (ProcessState is DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted)
             return Color.Error;
 
         return GetStatusLabel() switch

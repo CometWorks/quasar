@@ -1,29 +1,29 @@
-@page "/nodes"
+@page "/hosts"
 @implements IDisposable
 @inject AgentRegistry Registry
 
-<PageTitle>Nodes</PageTitle>
+<PageTitle>Hosts</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">Nodes</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Each node can host many server and plugin instances behind one shared Quasar supervisor endpoint.</MudText>
+<MudText Typo="Typo.h4" GutterBottom="true">Hosts</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Each host can run many dedicated servers and plugin agents behind one shared Quasar supervisor endpoint.</MudText>
 
 <MudPaper Class="server-card">
-    <MudTable T="NodeRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="NodeRows">
+    <MudTable T="HostRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="HostRows">
         <HeaderContent>
-            <MudTh><MudTableSortLabel SortBy="new Func<NodeRow, object>(x => x.NodeName)">Node</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<NodeRow, object>(x => x.ServerCount)">Servers</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<NodeRow, object>(x => x.ConnectedAgents)">Connected Agents</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<NodeRow, object>(x => x.PlayersOnline)">Players</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<HostRow, object>(x => x.HostName)">Host</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<HostRow, object>(x => x.ServerCount)">Servers</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<HostRow, object>(x => x.ConnectedAgents)">Connected Agents</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<HostRow, object>(x => x.PlayersOnline)">Players</MudTableSortLabel></MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd DataLabel="Node">@context.NodeName</MudTd>
+            <MudTd DataLabel="Host">@context.HostName</MudTd>
             <MudTd DataLabel="Servers">@context.ServerCount</MudTd>
             <MudTd DataLabel="Connected Agents">@context.ConnectedAgents</MudTd>
             <MudTd DataLabel="Players">@context.PlayersOnline</MudTd>
         </RowTemplate>
         <NoRecordsContent>
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
-                No node data yet.
+                No host data yet.
             </MudAlert>
         </NoRecordsContent>
     </MudTable>
@@ -31,17 +31,17 @@
 
 @code
 {
-    private IReadOnlyList<NodeRow> NodeRows => Registry
+    private IReadOnlyList<HostRow> HostRows => Registry
         .GetAgents()
-        .GroupBy(agent => agent.NodeKey, StringComparer.OrdinalIgnoreCase)
-        .Select(group => new NodeRow
+        .GroupBy(agent => agent.HostKey, StringComparer.OrdinalIgnoreCase)
+        .Select(group => new HostRow
         {
-            NodeName = group.First().NodeDisplayName,
+            HostName = group.First().HostDisplayName,
             ServerCount = group.Select(agent => agent.ServerKey).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
             ConnectedAgents = group.Count(agent => agent.IsConnected),
             PlayersOnline = group.Sum(agent => agent.Snapshot?.Metrics.PlayersOnline ?? 0),
         })
-        .OrderBy(row => row.NodeName, StringComparer.OrdinalIgnoreCase)
+        .OrderBy(row => row.HostName, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
     protected override void OnInitialized()
@@ -59,9 +59,9 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private sealed class NodeRow
+    private sealed class HostRow
     {
-        public string NodeName { get; set; } = string.Empty;
+        public string HostName { get; set; } = string.Empty;
 
         public int ServerCount { get; set; }
 

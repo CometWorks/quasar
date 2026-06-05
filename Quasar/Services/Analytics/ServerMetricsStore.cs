@@ -1,8 +1,8 @@
 namespace Quasar.Services.Analytics;
 
-public sealed class InstanceMetricsStore
+public sealed class ServerMetricsStore
 {
-    public InstanceMetricsStore()
+    public ServerMetricsStore()
     {
         Raw = new RrdCircularBuffer(3600);
         OneMinute = new RrdRollupBuffer(10080, 60);

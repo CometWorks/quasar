@@ -6,7 +6,7 @@
         </MudStack>
     </TitleContent>
     <DialogContent>
-        <div class="instance-editor-dialog-content">
+        <div class="server-editor-dialog-content">
         <MudForm @ref="_form" @bind-IsValid="_formIsValid">
         <MudStack Spacing="3">
             <MudText Typo="Typo.body2">
@@ -97,7 +97,7 @@
                                        Required="true"
                                        RequiredError="World template required."
                                        Validation="@(new Func<string, string?>(ValidateWorldTemplateField))"
-                                       HelperText="Template world will be copied to instance world path on first launch if world directory does not already exist.">
+                                       HelperText="Template world will be copied to server world path on first launch if world directory does not already exist.">
                                 @foreach (var template in WorldTemplates.GetTemplates())
                                 {
                                     <MudSelectItem T="string" Value="@template.WorldTemplateId">@template.Name</MudSelectItem>
@@ -311,7 +311,7 @@
                                         Label="Launch arguments"
                                         Variant="Variant.Outlined"
                                         Lines="3"
-                                        HelperText="Tokens: {uniqueName} {configPath} {quasarBaseUrl} {nodeId} {dsAppDataPath} {magnetarAppDataPath} {ds64Path} {worldPath}. Quasar enforces -noconsole, -path, -config, and -ds64 for managed instances." />
+                                        HelperText="Tokens: {uniqueName} {configPath} {quasarBaseUrl} {hostId} {dsAppDataPath} {magnetarAppDataPath} {ds64Path} {worldPath}. Quasar enforces -noconsole, -path, -config, and -ds64 for managed servers." />
                                 </MudItem>
                             </MudGrid>
                         </ChildContent>
@@ -340,7 +340,7 @@
     private QuasarWorldTemplateCatalog WorldTemplates { get; set; } = default!;
 
     [Inject]
-    private DedicatedServerInstanceCatalog InstanceCatalog { get; set; } = default!;
+    private DedicatedServerCatalog ServerCatalog { get; set; } = default!;
 
     [Inject]
     private IDialogService DialogService { get; set; } = default!;
@@ -350,7 +350,7 @@
     private bool _identifierManuallyEdited;
 
     [Parameter]
-    public DedicatedServerInstanceDefinition Definition { get; set; } = new();
+    public DedicatedServerDefinition Definition { get; set; } = new();
 
     [Parameter]
     public bool IsEditing { get; set; }
@@ -360,7 +360,7 @@
 
     private static readonly System.Text.RegularExpressions.Regex UniqueNameRegex = new("^[a-zA-Z0-9_-]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    private DedicatedServerInstanceDefinition _editor = new();
+    private DedicatedServerDefinition _editor = new();
     private bool _isEditing;
     private bool _restartPolicyExpanded;
     private bool _healthPolicyExpanded;
@@ -464,11 +464,11 @@
             return "Port must be between 1 and 65535.";
 
         var originalUniqueName = _editor.OriginalUniqueName?.Trim() ?? string.Empty;
-        var conflict = InstanceCatalog.GetInstances().FirstOrDefault(instance =>
-            instance.ServerPort == value &&
-            !string.Equals(instance.UniqueName, originalUniqueName, StringComparison.OrdinalIgnoreCase));
+        var conflict = ServerCatalog.GetServers().FirstOrDefault(server =>
+            server.ServerPort == value &&
+            !string.Equals(server.UniqueName, originalUniqueName, StringComparison.OrdinalIgnoreCase));
 
-        return conflict is null ? null : $"Port already used by instance '{conflict.UniqueName}'.";
+        return conflict is null ? null : $"Port already used by server '{conflict.UniqueName}'.";
     }
 
     private static string SlugifyForIdentifier(string source)
@@ -605,17 +605,17 @@
 
     private string GetDefaultDedicatedServerAppDataPath()
     {
-        return Path.Combine(GetDefaultInstanceDirectory(), "DedicatedServer");
+        return Path.Combine(GetDefaultServerDirectory(), "DedicatedServer");
     }
 
     private string GetDefaultMagnetarAppDataPath()
     {
-        return Path.Combine(GetDefaultInstanceDirectory(), "Magnetar");
+        return Path.Combine(GetDefaultServerDirectory(), "Magnetar");
     }
 
-    private string GetDefaultInstanceDirectory()
+    private string GetDefaultServerDirectory()
     {
-        return Path.Combine(MagnetarPaths.GetQuasarInstancesDirectory(), GetUniqueNamePreview());
+        return Path.Combine(MagnetarPaths.GetQuasarServersDirectory(), GetUniqueNamePreview());
     }
 
     private string GetUniqueNamePreview()
@@ -627,7 +627,7 @@
 
     private string GetUniqueNameHelperText() =>
         UniqueNameLocked
-            ? "Stop instance before renaming. Allowed: letters, numbers, underscore, hyphen. Used as canonical identity and Magnetars subdirectory name."
+            ? "Stop server before renaming. Allowed: letters, numbers, underscore, hyphen. Used as canonical identity and Magnetars subdirectory name."
             : "Required. Allowed: letters, numbers, underscore, hyphen. Used as canonical identity and Magnetars subdirectory name.";
 
     private static string FormatPriority(DedicatedServerProcessPriority priority) => priority switch
@@ -649,11 +649,11 @@
             return "Only letters, numbers, underscore, and hyphen are allowed.";
 
         var originalUniqueName = _editor.OriginalUniqueName?.Trim() ?? string.Empty;
-        var duplicateExists = InstanceCatalog.GetInstances().Any(instance =>
-            string.Equals(instance.UniqueName, trimmed, StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(instance.UniqueName, originalUniqueName, StringComparison.OrdinalIgnoreCase));
+        var duplicateExists = ServerCatalog.GetServers().Any(server =>
+            string.Equals(server.UniqueName, trimmed, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(server.UniqueName, originalUniqueName, StringComparison.OrdinalIgnoreCase));
 
-        return duplicateExists ? $"An instance named '{trimmed}' already exists." : null;
+        return duplicateExists ? $"A server named '{trimmed}' already exists." : null;
     }
 
     private static string? ValidateWorldTemplateField(string? value) =>

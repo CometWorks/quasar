@@ -162,8 +162,8 @@ public sealed class KnownPlayerCatalog
         changed |= Assign(record.ServerId, snapshot.ServerId?.Trim() ?? string.Empty, value => record.ServerId = value);
         changed |= Assign(record.ServerName, snapshot.ServerName?.Trim() ?? string.Empty, value => record.ServerName = value);
         changed |= Assign(record.WorldName, snapshot.WorldName?.Trim() ?? string.Empty, value => record.WorldName = value);
-        changed |= Assign(record.NodeId, snapshot.NodeId?.Trim() ?? string.Empty, value => record.NodeId = value);
-        changed |= Assign(record.NodeName, snapshot.NodeName?.Trim() ?? string.Empty, value => record.NodeName = value);
+        changed |= Assign(record.HostId, snapshot.HostId?.Trim() ?? string.Empty, value => record.HostId = value);
+        changed |= Assign(record.HostName, snapshot.HostName?.Trim() ?? string.Empty, value => record.HostName = value);
 
         changed |= Assign(record.IdentityId, player.IdentityId, value => record.IdentityId = value);
         changed |= Assign(record.SerialId, player.SerialId, value => record.SerialId = value);
@@ -335,8 +335,8 @@ public sealed class KnownPlayerCatalog
             ServerId = player.ServerId,
             ServerName = player.ServerName,
             WorldName = player.WorldName,
-            NodeId = player.NodeId,
-            NodeName = player.NodeName,
+            HostId = player.HostId,
+            HostName = player.HostName,
             SteamId = player.SteamId,
             IdentityId = player.IdentityId,
             SerialId = player.SerialId,

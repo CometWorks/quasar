@@ -43,7 +43,7 @@ public static class MagnetarPaths
     public static string GetQuasarLogDirectory() =>
         Path.Combine(GetQuasarDirectory(), "Logs");
 
-    public static string GetQuasarInstanceLogDirectory(string uniqueName) =>
+    public static string GetQuasarServerLogDirectory(string uniqueName) =>
         Path.Combine(GetQuasarLogDirectory(), "Magnetars", SanitizePathSegment(uniqueName));
 
     public static string GetQuasarSupervisorStatePath() =>
@@ -71,38 +71,38 @@ public static class MagnetarPaths
         Path.Combine(GetQuasarDirectory(), "DataProtection-Keys");
 
     // -------------------------------------------------------------------------
-    // Magnetar instance data  (~/.config/Quasar/Magnetars/<unique-name>/)
+    // Magnetar server data  (~/.config/Quasar/Magnetars/<unique-name>/)
     // -------------------------------------------------------------------------
 
-    /// <summary>Directory that contains one sub-folder per Magnetar instance.</summary>
-    public static string GetQuasarInstancesDirectory() =>
+    /// <summary>Directory that contains one sub-folder per Magnetar server.</summary>
+    public static string GetQuasarServersDirectory() =>
         Path.Combine(GetQuasarDirectory(), "Magnetars");
 
-    public static string GetQuasarInstanceDirectory(string uniqueName) =>
-        Path.Combine(GetQuasarInstancesDirectory(), SanitizePathSegment(uniqueName));
+    public static string GetQuasarServerDirectory(string uniqueName) =>
+        Path.Combine(GetQuasarServersDirectory(), SanitizePathSegment(uniqueName));
 
     /// <summary>
-    /// Space Engineers Dedicated Server app-data for this instance.
+    /// Space Engineers Dedicated Server app-data for this server.
     /// Passed to the DS launcher via <c>-path</c>.
     /// </summary>
-    public static string GetQuasarInstanceDedicatedServerAppDataDirectory(string uniqueName) =>
-        Path.Combine(GetQuasarInstanceDirectory(uniqueName), "DedicatedServer");
+    public static string GetQuasarServerDedicatedServerAppDataDirectory(string uniqueName) =>
+        Path.Combine(GetQuasarServerDirectory(uniqueName), "DedicatedServer");
 
     /// <summary>
-    /// Magnetar app-data (profiles, sources, local config) for this instance.
+    /// Magnetar app-data (profiles, sources, local config) for this server.
     /// Passed to the DS launcher via <c>-config</c>.
     /// </summary>
-    public static string GetQuasarInstanceMagnetarAppDataDirectory(string uniqueName) =>
-        Path.Combine(GetQuasarInstanceDirectory(uniqueName), "Magnetar");
+    public static string GetQuasarServerMagnetarAppDataDirectory(string uniqueName) =>
+        Path.Combine(GetQuasarServerDirectory(uniqueName), "Magnetar");
 
-    public static string GetQuasarInstanceDefinitionPath(string uniqueName) =>
-        Path.Combine(GetQuasarInstanceDirectory(uniqueName), "instance.json");
+    public static string GetQuasarServerDefinitionPath(string uniqueName) =>
+        Path.Combine(GetQuasarServerDirectory(uniqueName), "server.json");
 
-    public static string GetQuasarInstanceHistoryDirectory(string uniqueName) =>
-        Path.Combine(GetQuasarInstanceDirectory(uniqueName), "History");
+    public static string GetQuasarServerHistoryDirectory(string uniqueName) =>
+        Path.Combine(GetQuasarServerDirectory(uniqueName), "History");
 
-    public static string GetQuasarInstanceAnalyticsPath(string uniqueName) =>
-        Path.Combine(GetQuasarInstanceDirectory(uniqueName), "analytics.json");
+    public static string GetQuasarServerAnalyticsPath(string uniqueName) =>
+        Path.Combine(GetQuasarServerDirectory(uniqueName), "analytics.json");
 
     // -------------------------------------------------------------------------
     // World templates  (~/.config/Quasar/WorldTemplates/<id>/)

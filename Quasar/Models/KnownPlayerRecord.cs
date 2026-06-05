@@ -12,9 +12,9 @@ public sealed class KnownPlayerRecord
 
     public string WorldName { get; set; } = string.Empty;
 
-    public string NodeId { get; set; } = string.Empty;
+    public string HostId { get; set; } = string.Empty;
 
-    public string NodeName { get; set; } = string.Empty;
+    public string HostName { get; set; } = string.Empty;
 
     public long SteamId { get; set; }
 

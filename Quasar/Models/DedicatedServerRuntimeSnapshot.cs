@@ -1,14 +1,14 @@
 namespace Quasar.Models;
 
-public sealed class DedicatedServerInstanceRuntimeSnapshot
+public sealed class DedicatedServerRuntimeSnapshot
 {
     public string UniqueName { get; set; } = string.Empty;
 
-    public DedicatedServerInstanceGoalState GoalState { get; set; } = DedicatedServerInstanceGoalState.Off;
+    public DedicatedServerGoalState GoalState { get; set; } = DedicatedServerGoalState.Off;
 
-    public DedicatedServerInstanceProcessState State { get; set; } = DedicatedServerInstanceProcessState.Stopped;
+    public DedicatedServerProcessState State { get; set; } = DedicatedServerProcessState.Stopped;
 
-    public DedicatedServerInstanceHealthState HealthState { get; set; } = DedicatedServerInstanceHealthState.Unknown;
+    public DedicatedServerHealthState HealthState { get; set; } = DedicatedServerHealthState.Unknown;
 
     public string HealthSummary { get; set; } = string.Empty;
 

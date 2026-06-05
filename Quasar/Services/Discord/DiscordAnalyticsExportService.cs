@@ -32,11 +32,11 @@ public sealed class DiscordAnalyticsExportService
         {
             _tasks.Clear();
 
-            foreach (var instanceOptions in options.Instances.Where(instance =>
-                         instance.EnableAnalyticsExport &&
-                         instance.AnalyticsChannelId.HasValue))
+            foreach (var serverOptions in options.Servers.Where(server =>
+                         server.EnableAnalyticsExport &&
+                         server.AnalyticsChannelId.HasValue))
             {
-                var cloned = instanceOptions.Clone();
+                var cloned = serverOptions.Clone();
                 _tasks.Add(Task.Run(() => RunLoopAsync(client, cloned, cancellationToken), CancellationToken.None));
             }
         }
@@ -52,40 +52,40 @@ public sealed class DiscordAnalyticsExportService
         }
     }
 
-    private async Task RunLoopAsync(DiscordSocketClient client, DiscordInstanceOptions instanceOptions, CancellationToken cancellationToken)
+    private async Task RunLoopAsync(DiscordSocketClient client, DiscordServerOptions serverOptions, CancellationToken cancellationToken)
     {
         try
         {
-            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(Math.Max(1, instanceOptions.AnalyticsExportIntervalMinutes)));
+            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(Math.Max(1, serverOptions.AnalyticsExportIntervalMinutes)));
             while (await timer.WaitForNextTickAsync(cancellationToken))
-                await ExportAsync(client, instanceOptions, cancellationToken);
+                await ExportAsync(client, serverOptions, cancellationToken);
         }
         catch (OperationCanceledException)
         {
         }
     }
 
-    private async Task ExportAsync(DiscordSocketClient client, DiscordInstanceOptions instanceOptions, CancellationToken cancellationToken)
+    private async Task ExportAsync(DiscordSocketClient client, DiscordServerOptions serverOptions, CancellationToken cancellationToken)
     {
         try
         {
-            var store = _metricsStore.GetStore(instanceOptions.UniqueName);
+            var store = _metricsStore.GetStore(serverOptions.UniqueName);
             if (store is null)
                 return;
 
-            var intervalMinutes = Math.Max(1, instanceOptions.AnalyticsExportIntervalMinutes);
+            var intervalMinutes = Math.Max(1, serverOptions.AnalyticsExportIntervalMinutes);
             var samples = store.OneMinute.ReadLatest(intervalMinutes);
             if (samples.Length == 0)
                 return;
 
-            if (client.GetChannel(instanceOptions.AnalyticsChannelId!.Value) is not IMessageChannel channel)
+            if (client.GetChannel(serverOptions.AnalyticsChannelId!.Value) is not IMessageChannel channel)
                 return;
 
             var snapshot = _supervisor.GetSnapshots()
-                .FirstOrDefault(item => string.Equals(item.UniqueName, instanceOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(item => string.Equals(item.UniqueName, serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
             var latest = samples[^1];
             var embed = new EmbedBuilder()
-                .WithTitle($"{snapshot?.UniqueName ?? instanceOptions.UniqueName} analytics")
+                .WithTitle($"{snapshot?.UniqueName ?? serverOptions.UniqueName} analytics")
                 .WithColor(Color.DarkBlue)
                 .WithTimestamp(DateTimeOffset.FromUnixTimeSeconds(latest.TimestampUnixSeconds))
                 .AddField("Window", $"{intervalMinutes} minute(s)", inline: true)
@@ -99,7 +99,7 @@ public sealed class DiscordAnalyticsExportService
                 .AddField("Uptime", FormatUptime(snapshot), inline: true)
                 .AddField("State", snapshot?.State.ToString() ?? "Unknown", inline: true);
 
-            await _rateLimiter.RunAsync(instanceOptions.AnalyticsChannelId.Value, () => channel.SendMessageAsync(embed: embed.Build()), cancellationToken);
+            await _rateLimiter.RunAsync(serverOptions.AnalyticsChannelId.Value, () => channel.SendMessageAsync(embed: embed.Build()), cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -107,7 +107,7 @@ public sealed class DiscordAnalyticsExportService
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Discord analytics export failed for instance {UniqueName}", instanceOptions.UniqueName);
+            _logger.LogWarning(exception, "Discord analytics export failed for server {UniqueName}", serverOptions.UniqueName);
         }
     }
 
@@ -123,7 +123,7 @@ public sealed class DiscordAnalyticsExportService
         return total / samples.Count;
     }
 
-    private static string FormatUptime(DedicatedServerInstanceRuntimeSnapshot? snapshot)
+    private static string FormatUptime(DedicatedServerRuntimeSnapshot? snapshot)
     {
         if (snapshot?.StartedAtUtc is null)
             return "n/a";

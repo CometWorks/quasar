@@ -1,7 +1,7 @@
 ﻿@page "/"
 @implements IDisposable
 @inject AgentRegistry Registry
-@inject DedicatedServerInstanceCatalog InstanceCatalog
+@inject DedicatedServerCatalog ServerCatalog
 @inject DedicatedServerSupervisor Supervisor
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarWorldTemplateCatalog WorldTemplates
@@ -164,14 +164,14 @@
                             <MudStack Spacing="0" Class="setup-wizard-copy">
                                 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
                                     <MudText Typo="Typo.subtitle2">Create server</MudText>
-                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(ConfiguredInstanceCount > 0 ? Color.Success : Color.Warning)" Size="Size.Small">
-                                        @(ConfiguredInstanceCount > 0 ? "Done" : "Required")
+                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(ConfiguredServerCount > 0 ? Color.Success : Color.Warning)" Size="Size.Small">
+                                        @(ConfiguredServerCount > 0 ? "Done" : "Required")
                                     </MudChip>
                                 </MudStack>
                                 <MudText Typo="Typo.body2">
-                                    @if (ConfiguredInstanceCount > 0)
+                                    @if (ConfiguredServerCount > 0)
                                     {
-                                        @($"{ConfiguredInstanceCount} server definition(s) saved on dashboard.")
+                                        @($"{ConfiguredServerCount} server definition(s) saved on dashboard.")
                                     }
                                     else
                                     {
@@ -181,28 +181,28 @@
                             </MudStack>
 
                             <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="setup-wizard-actions">
-                                <MudButton Variant="@(ConfiguredInstanceCount > 0 ? Variant.Outlined : Variant.Filled)"
-                                           Color="@(ConfiguredInstanceCount > 0 ? Color.Default : Color.Primary)"
+                                <MudButton Variant="@(ConfiguredServerCount > 0 ? Variant.Outlined : Variant.Filled)"
+                                           Color="@(ConfiguredServerCount > 0 ? Color.Default : Color.Primary)"
                                            StartIcon="@Icons.Material.Filled.Storage"
-                                           OnClick="OpenCreateInstanceDialogAsync">
-                                    @(ConfiguredInstanceCount > 0 ? "Add Server" : "Create Server")
+                                           OnClick="OpenCreateServerDialogAsync">
+                                    @(ConfiguredServerCount > 0 ? "Add Server" : "Create Server")
                                 </MudButton>
                             </MudStack>
                         </MudStack>
 
-                        @if (Instances.Count > 0)
+                        @if (Servers.Count > 0)
                         {
                             <MudStack Spacing="1" Class="setup-wizard-status-list">
-                                @foreach (var instance in Instances.Take(4))
+                                @foreach (var server in Servers.Take(4))
                                 {
                                     <div class="setup-wizard-status-row">
                                         <MudStack Spacing="0" Class="setup-wizard-copy">
-                                            <MudText Typo="Typo.body2" Class="mono">@instance.UniqueName</MudText>
-                                            <MudText Typo="Typo.caption">@GetInstanceSetupSummary(instance)</MudText>
+                                            <MudText Typo="Typo.body2" Class="mono">@server.UniqueName</MudText>
+                                            <MudText Typo="Typo.caption">@GetServerSetupSummary(server)</MudText>
                                         </MudStack>
                                         <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                                            <MudChip T="string" Variant="Variant.Outlined" Color="@GetSetupStateColor(instance.UniqueName)">
-                                                @GetSetupStateText(instance.UniqueName)
+                                            <MudChip T="string" Variant="Variant.Outlined" Color="@GetSetupStateColor(server.UniqueName)">
+                                                @GetSetupStateText(server.UniqueName)
                                             </MudChip>
                                         </MudStack>
                                     </div>
@@ -221,16 +221,16 @@
                             <MudStack Spacing="0" Class="setup-wizard-copy">
                                 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
                                     <MudText Typo="Typo.subtitle2">Start server</MudText>
-                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(RunningInstanceCount > 0 ? Color.Success : Color.Warning)" Size="Size.Small">
-                                        @(RunningInstanceCount > 0 ? "Done" : "Required")
+                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(RunningServerCount > 0 ? Color.Success : Color.Warning)" Size="Size.Small">
+                                        @(RunningServerCount > 0 ? "Done" : "Required")
                                     </MudChip>
                                 </MudStack>
                                 <MudText Typo="Typo.body2">
-                                    @if (RunningInstanceCount > 0)
+                                    @if (RunningServerCount > 0)
                                     {
-                                        @($"{RunningInstanceCount} server(s) launching or running now.")
+                                        @($"{RunningServerCount} server(s) launching or running now.")
                                     }
-                                    else if (ConfiguredInstanceCount == 0)
+                                    else if (ConfiguredServerCount == 0)
                                     {
                                         @("Create server first. Launch buttons appear here after save.")
                                     }
@@ -242,24 +242,24 @@
                             </MudStack>
 
                             <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="setup-wizard-actions">
-                                @if (StartableInstances.Count == 0)
+                                @if (StartableServers.Count == 0)
                                 {
                                     <MudButton Variant="Variant.Outlined"
                                                Color="Color.Default"
                                                Disabled="true"
                                                StartIcon="@Icons.Material.Filled.PlayArrow">
-                                        @(ConfiguredInstanceCount == 0 ? "Create Server First" : "All Servers Running")
+                                        @(ConfiguredServerCount == 0 ? "Create Server First" : "All Servers Running")
                                     </MudButton>
                                 }
                                 else
                                 {
-                                    @foreach (var instance in StartableInstances)
+                                    @foreach (var server in StartableServers)
                                     {
                                         <MudButton Variant="Variant.Filled"
                                                    Color="Color.Primary"
                                                    StartIcon="@Icons.Material.Filled.PlayArrow"
-                                                   OnClick="@(() => StartAsync(instance.UniqueName))">
-                                            Start @instance.UniqueName
+                                                   OnClick="@(() => StartAsync(server.UniqueName))">
+                                            Start @server.UniqueName
                                         </MudButton>
                                     }
                                 }
@@ -286,9 +286,9 @@
                                     {
                                         @($"{ConnectedAgentCount} connected agent(s) reporting live server data.")
                                     }
-                                    else if (RunningInstanceCount == 0)
+                                    else if (RunningServerCount == 0)
                                     {
-                                        @("No running instance yet. Launch one above, then dashboard watches attach here.")
+                                        @("No running server yet. Launch one above, then dashboard watches attach here.")
                                     }
                                     else
                                     {
@@ -299,22 +299,22 @@
 
                         </MudStack>
 
-                        @if (LaunchedInstances.Count > 0)
+                        @if (LaunchedServers.Count > 0)
                         {
                             <MudStack Spacing="1" Class="setup-wizard-status-list">
-                                @foreach (var instance in LaunchedInstances)
+                                @foreach (var server in LaunchedServers)
                                 {
                                     <div class="setup-wizard-status-row">
                                         <MudStack Spacing="0" Class="setup-wizard-copy">
-                                            <MudText Typo="Typo.body2" Class="mono">@instance.UniqueName</MudText>
-                                            <MudText Typo="Typo.caption">@GetSetupRuntimeSummary(instance.UniqueName)</MudText>
+                                            <MudText Typo="Typo.body2" Class="mono">@server.UniqueName</MudText>
+                                            <MudText Typo="Typo.caption">@GetSetupRuntimeSummary(server.UniqueName)</MudText>
                                         </MudStack>
                                         <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                                            <MudChip T="string" Variant="Variant.Outlined" Color="@GetSetupStateColor(instance.UniqueName)">
-                                                @GetSetupStateText(instance.UniqueName)
+                                            <MudChip T="string" Variant="Variant.Outlined" Color="@GetSetupStateColor(server.UniqueName)">
+                                                @GetSetupStateText(server.UniqueName)
                                             </MudChip>
-                                            <MudChip T="string" Variant="Variant.Outlined" Color="@GetSetupAgentColor(instance.UniqueName)">
-                                                @GetSetupAgentText(instance.UniqueName)
+                                            <MudChip T="string" Variant="Variant.Outlined" Color="@GetSetupAgentColor(server.UniqueName)">
+                                                @GetSetupAgentText(server.UniqueName)
                                             </MudChip>
                                         </MudStack>
                                     </div>
@@ -366,20 +366,20 @@
         </MudPaper>
     </MudItem>
     <MudItem xs="12" sm="6" lg="3">
-        <MudPaper Class="@GetProblemCardClass(WarningInstanceCount, false)">
+        <MudPaper Class="@GetProblemCardClass(WarningServerCount, false)">
             <MudText Typo="Typo.overline">Health Warnings</MudText>
-            <MudText Typo="Typo.h4">@WarningInstanceCount</MudText>
+            <MudText Typo="Typo.h4">@WarningServerCount</MudText>
         </MudPaper>
     </MudItem>
     <MudItem xs="12" sm="6" lg="3">
-        <MudPaper Class="@GetProblemCardClass(UnhealthyInstanceCount, true)">
+        <MudPaper Class="@GetProblemCardClass(UnhealthyServerCount, true)">
             <MudText Typo="Typo.overline">Errors</MudText>
-            <MudText Typo="Typo.h4">@UnhealthyInstanceCount</MudText>
+            <MudText Typo="Typo.h4">@UnhealthyServerCount</MudText>
         </MudPaper>
     </MudItem>
 </MudGrid>
 
-@if (Instances.Count == 0)
+@if (Servers.Count == 0)
 {
     @if (!ShowSetupWizard)
     {
@@ -391,12 +391,12 @@
 else
 {
     <MudGrid>
-        @foreach (var instance in Instances)
+        @foreach (var server in Servers)
         {
             <MudItem xs="12" xl="6">
-                <ServerCard Instance="@instance"
-                            Runtime="@GetRuntime(instance.UniqueName)"
-                            Agent="@GetAgent(instance.UniqueName)"
+                <ServerCard Server="@server"
+                            Runtime="@GetRuntime(server.UniqueName)"
+                            Agent="@GetAgent(server.UniqueName)"
                             StartRequested="StartAsync"
                             StopRequested="StopAsync"
                             RestartRequested="RestartAsync" />
@@ -408,53 +408,53 @@ else
 @code
 {
     private IReadOnlyList<AgentRuntimeState> Agents => Registry.GetAgents();
-    private IReadOnlyList<DedicatedServerInstanceDefinition> Instances => InstanceCatalog.GetInstances();
-    private IReadOnlyList<DedicatedServerInstanceRuntimeSnapshot> RuntimeSnapshotList => Supervisor.GetSnapshots();
+    private IReadOnlyList<DedicatedServerDefinition> Servers => ServerCatalog.GetServers();
+    private IReadOnlyList<DedicatedServerRuntimeSnapshot> RuntimeSnapshotList => Supervisor.GetSnapshots();
     private ManagedRuntimeWarmupSnapshot RuntimeWarmupSnapshot => RuntimeWarmup.GetSnapshot();
-    private IReadOnlyDictionary<string, DedicatedServerInstanceRuntimeSnapshot> RuntimeSnapshots => Supervisor
+    private IReadOnlyDictionary<string, DedicatedServerRuntimeSnapshot> RuntimeSnapshots => Supervisor
         .GetSnapshots()
         .ToDictionary(snapshot => snapshot.UniqueName, StringComparer.OrdinalIgnoreCase);
 
     private IReadOnlyList<QuasarConfigProfile> ConfigProfilesPreview => ConfigProfiles.GetProfiles().Take(3).ToList();
     private IReadOnlyList<QuasarWorldTemplate> WorldTemplatesPreview => WorldTemplates.GetTemplates().Take(3).ToList();
-    private IReadOnlyList<DedicatedServerInstanceDefinition> StartableInstances => Instances.Where(instance => !IsRunning(instance.UniqueName)).ToList();
-    private IReadOnlyList<DedicatedServerInstanceDefinition> LaunchedInstances => Instances.Where(instance => IsRunning(instance.UniqueName)).ToList();
+    private IReadOnlyList<DedicatedServerDefinition> StartableServers => Servers.Where(server => !IsRunning(server.UniqueName)).ToList();
+    private IReadOnlyList<DedicatedServerDefinition> LaunchedServers => Servers.Where(server => IsRunning(server.UniqueName)).ToList();
 
     private int ConnectedAgentCount => Agents.Count(agent => agent.IsConnected);
 
-    private int OnlineServerCount => Instances.Count(instance => IsOpen(instance.UniqueName));
+    private int OnlineServerCount => Servers.Count(server => IsOpen(server.UniqueName));
 
-    private int PlayersOnline => Instances
-        .Select(instance => GetAgent(instance.UniqueName))
+    private int PlayersOnline => Servers
+        .Select(server => GetAgent(server.UniqueName))
         .Where(agent => agent?.IsConnected == true)
         .Sum(agent => agent?.Snapshot?.Metrics.PlayersOnline ?? 0);
 
-    private int ConfiguredInstanceCount => Instances.Count;
+    private int ConfiguredServerCount => Servers.Count;
 
-    private int RunningInstanceCount => RuntimeSnapshotList.Count(snapshot =>
-        snapshot.State is DedicatedServerInstanceProcessState.Starting
-            or DedicatedServerInstanceProcessState.Running
-            or DedicatedServerInstanceProcessState.Restarting
-            or DedicatedServerInstanceProcessState.Stopping);
+    private int RunningServerCount => RuntimeSnapshotList.Count(snapshot =>
+        snapshot.State is DedicatedServerProcessState.Starting
+            or DedicatedServerProcessState.Running
+            or DedicatedServerProcessState.Restarting
+            or DedicatedServerProcessState.Stopping);
 
-    private int WarningInstanceCount => RuntimeSnapshotList.Count(snapshot =>
-        snapshot.HealthState == DedicatedServerInstanceHealthState.Warning);
+    private int WarningServerCount => RuntimeSnapshotList.Count(snapshot =>
+        snapshot.HealthState == DedicatedServerHealthState.Warning);
 
-    private int UnhealthyInstanceCount => RuntimeSnapshotList.Count(snapshot =>
-        snapshot.HealthState == DedicatedServerInstanceHealthState.Unhealthy ||
-        snapshot.State is DedicatedServerInstanceProcessState.Crashed or DedicatedServerInstanceProcessState.Faulted);
+    private int UnhealthyServerCount => RuntimeSnapshotList.Count(snapshot =>
+        snapshot.HealthState == DedicatedServerHealthState.Unhealthy ||
+        snapshot.State is DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted);
 
     private (Severity Severity, string Message)? ProblemBanner
     {
         get
         {
             var error = RuntimeSnapshotList.FirstOrDefault(snapshot =>
-                snapshot.HealthState == DedicatedServerInstanceHealthState.Unhealthy ||
-                snapshot.State is DedicatedServerInstanceProcessState.Crashed or DedicatedServerInstanceProcessState.Faulted);
+                snapshot.HealthState == DedicatedServerHealthState.Unhealthy ||
+                snapshot.State is DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted);
             if (error is not null)
                 return (Severity.Error, $"{error.UniqueName}: {FirstNonEmpty(error.HealthSummary, error.LastMessage, "Server needs attention.")}");
 
-            var warning = RuntimeSnapshotList.FirstOrDefault(snapshot => snapshot.HealthState == DedicatedServerInstanceHealthState.Warning);
+            var warning = RuntimeSnapshotList.FirstOrDefault(snapshot => snapshot.HealthState == DedicatedServerHealthState.Warning);
             if (warning is not null)
                 return (Severity.Warning, $"{warning.UniqueName}: {FirstNonEmpty(warning.HealthSummary, warning.LastMessage, "Health warning.")}");
 
@@ -479,8 +479,8 @@ else
     {
         0 => ConfigProfileCount > 0 || _skippedSetupSteps.Contains(0),
         1 => WorldTemplateCount > 0 || _skippedSetupSteps.Contains(1),
-        2 => ConfiguredInstanceCount > 0,
-        3 => RunningInstanceCount > 0,
+        2 => ConfiguredServerCount > 0,
+        3 => RunningServerCount > 0,
         4 => ConnectedAgentCount > 0,
         _ => true,
     };
@@ -531,8 +531,8 @@ else
     }
 
     private bool IsSetupIncomplete =>
-        ConfiguredInstanceCount == 0
-        || RunningInstanceCount == 0
+        ConfiguredServerCount == 0
+        || RunningServerCount == 0
         || ConnectedAgentCount == 0;
 
     private bool ShowSetupWizard =>
@@ -579,7 +579,7 @@ else
     protected override void OnInitialized()
     {
         Registry.Changed += HandleRegistryChanged;
-        InstanceCatalog.Changed += HandleRegistryChanged;
+        ServerCatalog.Changed += HandleRegistryChanged;
         Supervisor.Changed += HandleRegistryChanged;
         ConfigProfiles.Changed += HandleRegistryChanged;
         WorldTemplates.Changed += HandleRegistryChanged;
@@ -609,7 +609,7 @@ else
     public void Dispose()
     {
         Registry.Changed -= HandleRegistryChanged;
-        InstanceCatalog.Changed -= HandleRegistryChanged;
+        ServerCatalog.Changed -= HandleRegistryChanged;
         Supervisor.Changed -= HandleRegistryChanged;
         ConfigProfiles.Changed -= HandleRegistryChanged;
         WorldTemplates.Changed -= HandleRegistryChanged;
@@ -637,7 +637,7 @@ else
 
     private string GetNextSetupHint()
     {
-        if (ConfiguredInstanceCount == 0)
+        if (ConfiguredServerCount == 0)
         {
             if (ConfigProfileCount == 0 && WorldTemplateCount == 0)
                 return "Optional: create config template or import world template here first. Then create first server below.";
@@ -645,7 +645,7 @@ else
             return "Next: create first server below. No page switch needed.";
         }
 
-        if (RunningInstanceCount == 0)
+        if (RunningServerCount == 0)
             return "Next: start saved server below. Quasar handles runtime prep on launch.";
 
         if (ConnectedAgentCount == 0)
@@ -660,7 +660,7 @@ else
     private Task OpenImportWorldTemplateDialogAsync() =>
         ShowFullScreenPageDialogAsync<WorldTemplatesPageDialog>("World Templates");
 
-    private Task OpenCreateInstanceDialogAsync() =>
+    private Task OpenCreateServerDialogAsync() =>
         ShowFullScreenPageDialogAsync<ServersPageDialog>("Servers");
 
     private async Task ShowFullScreenPageDialogAsync<TDialog>(string title) where TDialog : ComponentBase
@@ -679,7 +679,7 @@ else
     {
         try
         {
-            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerInstanceGoalState.On);
+            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.On);
             Snackbar.Add($"Start requested for '{uniqueName}'.", Severity.Success);
         }
         catch (Exception exception)
@@ -692,7 +692,7 @@ else
     {
         try
         {
-            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerInstanceGoalState.Off);
+            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.Off);
             Snackbar.Add($"Stop requested for '{uniqueName}'.", Severity.Warning);
         }
         catch (Exception exception)
@@ -705,7 +705,7 @@ else
     {
         try
         {
-            await Supervisor.RestartInstanceAsync(uniqueName);
+            await Supervisor.RestartServerAsync(uniqueName);
             Snackbar.Add($"Restart requested for '{uniqueName}'.", Severity.Info);
         }
         catch (Exception exception)
@@ -716,14 +716,14 @@ else
 
     private bool IsRunning(string uniqueName)
     {
-        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerInstanceProcessState.Stopped;
-        return state is DedicatedServerInstanceProcessState.Starting
-            or DedicatedServerInstanceProcessState.Running
-            or DedicatedServerInstanceProcessState.Restarting
-            or DedicatedServerInstanceProcessState.Stopping;
+        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped;
+        return state is DedicatedServerProcessState.Starting
+            or DedicatedServerProcessState.Running
+            or DedicatedServerProcessState.Restarting
+            or DedicatedServerProcessState.Stopping;
     }
 
-    private DedicatedServerInstanceRuntimeSnapshot? GetRuntime(string uniqueName)
+    private DedicatedServerRuntimeSnapshot? GetRuntime(string uniqueName)
     {
         RuntimeSnapshots.TryGetValue(uniqueName, out var runtime);
         return runtime;
@@ -740,7 +740,7 @@ else
     {
         var runtime = GetRuntime(uniqueName);
         var agent = GetAgent(uniqueName);
-        return runtime?.State == DedicatedServerInstanceProcessState.Running &&
+        return runtime?.State == DedicatedServerProcessState.Running &&
                agent?.IsConnected == true &&
                agent.Snapshot is not null;
     }
@@ -755,15 +755,15 @@ else
     private static string FirstNonEmpty(params string[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
 
-    private string GetInstanceSetupSummary(DedicatedServerInstanceDefinition instance)
+    private string GetServerSetupSummary(DedicatedServerDefinition server)
     {
-        var configProfileName = string.IsNullOrWhiteSpace(instance.ConfigProfileId)
+        var configProfileName = string.IsNullOrWhiteSpace(server.ConfigProfileId)
             ? "No config template"
-            : ConfigProfiles.GetProfile(instance.ConfigProfileId)?.Name ?? $"Missing config: {instance.ConfigProfileId}";
+            : ConfigProfiles.GetProfile(server.ConfigProfileId)?.Name ?? $"Missing config: {server.ConfigProfileId}";
 
-        var worldTemplateName = string.IsNullOrWhiteSpace(instance.WorldTemplateId)
+        var worldTemplateName = string.IsNullOrWhiteSpace(server.WorldTemplateId)
             ? "No world template"
-            : WorldTemplates.GetTemplate(instance.WorldTemplateId)?.Name ?? $"Missing world: {instance.WorldTemplateId}";
+            : WorldTemplates.GetTemplate(server.WorldTemplateId)?.Name ?? $"Missing world: {server.WorldTemplateId}";
 
         return $"{configProfileName} | {worldTemplateName}";
     }
@@ -785,22 +785,22 @@ else
 
     private string GetSetupStateText(string uniqueName)
     {
-        return (GetRuntime(uniqueName)?.State ?? DedicatedServerInstanceProcessState.Stopped)
+        return (GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped)
             .ToString()
             .ToLowerInvariant();
     }
 
     private Color GetSetupStateColor(string uniqueName)
     {
-        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerInstanceProcessState.Stopped;
+        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped;
         return state switch
         {
-            DedicatedServerInstanceProcessState.Running => Color.Success,
-            DedicatedServerInstanceProcessState.Starting => Color.Info,
-            DedicatedServerInstanceProcessState.Restarting => Color.Warning,
-            DedicatedServerInstanceProcessState.Stopping => Color.Warning,
-            DedicatedServerInstanceProcessState.Crashed => Color.Error,
-            DedicatedServerInstanceProcessState.Faulted => Color.Error,
+            DedicatedServerProcessState.Running => Color.Success,
+            DedicatedServerProcessState.Starting => Color.Info,
+            DedicatedServerProcessState.Restarting => Color.Warning,
+            DedicatedServerProcessState.Stopping => Color.Warning,
+            DedicatedServerProcessState.Crashed => Color.Error,
+            DedicatedServerProcessState.Faulted => Color.Error,
             _ => Color.Default,
         };
     }

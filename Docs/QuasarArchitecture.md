@@ -5,7 +5,7 @@ This document is the implementation reference for the supervisor-based managemen
 It captures the agreed hybrid flow:
 
 - `Quasar` is the primary long-running supervisor
-- `Quasar.Agent` runs inside each Dedicated Server instance
+- `Quasar.Agent` runs inside each Dedicated Server
 - agents attach to an already-running supervisor over raw WebSockets
 - if `Quasar` is missing, the agent may trigger bootstrap/setup
 - the agent must not become the long-running owner of the web host
@@ -47,11 +47,11 @@ The on-disk project layout now matches the runtime naming:
 
 That means `Quasar` is responsible for:
 
-- starting and stopping DS instances
-- storing desired goal state for each instance
+- starting and stopping DS servers
+- storing desired goal state for each server
 - reconciling actual state back to desired state
 - restart policy and crash recovery
-- persistent instance definitions
+- persistent server definitions
 - editing DS and Magnetar configuration
 - opening the Web UI
 - supervising the overall management session
@@ -70,16 +70,16 @@ Primary workflow:
 1. user starts `Quasar`
 2. `Quasar` prints a short banner and the UI URL
 3. `Quasar` optionally opens the browser in interactive console mode
-4. user edits one or more DS instance configurations
-5. user starts one or more DS instances from the UI
-6. each DS instance loads `Quasar.Agent`
+4. user edits one or more DS server configurations
+5. user starts one or more DS servers from the UI
+6. each DS server loads `Quasar.Agent`
 7. each agent connects to `Quasar`
-8. `Quasar` keeps DS instances running and restarts them as configured
+8. `Quasar` keeps DS servers running and restarts them as configured
 9. user can return later via bookmark or the printed URL
 
 Hybrid bootstrap workflow:
 
-1. a DS instance starts with `Quasar.Agent`
+1. a DS server starts with `Quasar.Agent`
 2. agent tries to discover `Quasar`
 3. if missing, agent may invoke `Quasar.Bootstrap`
 4. `Quasar.Bootstrap` ensures `Quasar` is installed and running
@@ -118,42 +118,42 @@ No GUI shell is required on either platform.
 
 ## Dedicated Server Scope
 
-All managed DS instances are headless.
+All managed DS servers are headless.
 
 `Quasar` must be able to supervise:
 
-- multiple DS instances on the same host
-- separate config/world/plugin setups per instance
-- separate DS app-data per instance
-- separate Magnetar app-data per instance
-- restart behavior per instance
+- multiple DS servers on the same host
+- separate config/world/plugin setups per server
+- separate DS app-data per server
+- separate Magnetar app-data per server
+- restart behavior per server
 
 Multi-server on one host is required now.
 
-True multi-node federation across multiple hosts is not required for the first delivery, but contracts should remain compatible with it.
+True multi-host federation across multiple hosts is not required for the first delivery, but contracts should remain compatible with it.
 
-## Instance Filesystem Isolation
+## Server Filesystem Isolation
 
-Each managed DS instance must have its own isolated runtime/configuration roots.
+Each managed DS server must have its own isolated runtime/configuration roots.
 
-Required separation per instance:
+Required separation per server:
 
 - DS app-data directory
 - Magnetar app-data directory
 - world/save directory
 - plugin/configuration surface
-- Quasar-captured instance logs
+- Quasar-captured server logs
 
-Quasar should treat these as explicit instance properties rather than assuming one shared machine-global app-data location.
+Quasar should treat these as explicit server properties rather than assuming one shared machine-global app-data location.
 
-This separation is required because different instances may:
+This separation is required because different servers may:
 
 - run different worlds
 - run different plugin sets
 - run different Magnetar configurations
 - be upgraded or restarted independently
 
-Command-line arguments may be used to direct Magnetar and DS to their instance-specific roots, but Quasar remains responsible for owning and reconciling the complete instance definition.
+Command-line arguments may be used to direct Magnetar and DS to their server-specific roots, but Quasar remains responsible for owning and reconciling the complete server definition.
 
 ## Transport Model
 
@@ -257,7 +257,7 @@ Expected local mechanism:
 
 - runtime manifest file
 - local health check
-- process identity / instance metadata
+- process identity / server metadata
 
 Bootstrap/setup should be handled by `Quasar.Bootstrap`.
 
@@ -276,12 +276,12 @@ The current direct agent-side process spawn is only an implementation stepping s
 
 It needs:
 
-- persistent instance definitions
-- stable `UniqueName` per DS instance
-- desired `GoalState` per DS instance
+- persistent server definitions
+- stable `UniqueName` per DS server
+- desired `GoalState` per DS server
 - desired state tracking
 - crash detection
-- instance health assessment
+- server health assessment
 - agent attach grace handling
 - agent heartbeat freshness checks
 - long-uptime warning and recycle policy
@@ -289,7 +289,7 @@ It needs:
 - restart policy
 - restart backoff
 - last exit code / last crash reason
-- captured stdout/stderr or redirected instance logs
+- captured stdout/stderr or redirected server logs
 
 Suggested state model:
 
@@ -307,10 +307,10 @@ Desired state is not the same thing as observed process state.
 
 Quasar should behave like infrastructure/configuration management:
 
-- if goal state is `On` and the instance is not running, Quasar starts it
-- if goal state is `On` and the instance crashes, Quasar restarts it according to policy
-- if goal state is `On` and the instance is unhealthy, Quasar evaluates the health policy and recovers it automatically where configured
-- if goal state is `Off` and the instance is running, Quasar stops it
+- if goal state is `On` and the server is not running, Quasar starts it
+- if goal state is `On` and the server crashes, Quasar restarts it according to policy
+- if goal state is `On` and the server is unhealthy, Quasar evaluates the health policy and recovers it automatically where configured
+- if goal state is `Off` and the server is running, Quasar stops it
 - if an admin stops the server from in-game (the Magnetar `!quit`/`!stop` command), the agent reports the shutdown intent and Quasar sets goal state to `Off`, so the server stays stopped instead of being treated as a crash and restarted
 - operator actions should usually mutate goal state first, then let reconciliation perform the transition
 
@@ -341,7 +341,7 @@ Process-derived IDs alone are not sufficient.
 
 ## Headless DS Startup Model
 
-Managed DS instances are headless.
+Managed DS servers are headless.
 
 That means:
 
@@ -349,22 +349,22 @@ That means:
 - Quasar selects the world to load
 - DS does not rely on an interactive DS UI
 
-`LastSession.sbl` is the world-selection mechanism and must be prepared by Quasar before the instance is started.
+`LastSession.sbl` is the world-selection mechanism and must be prepared by Quasar before the server is started.
 
 Quasar owns:
 
 - writing or updating `LastSession.sbl`
 - ensuring it points at the intended world/save
-- ensuring the DS and Magnetar app-data roots for that instance are consistent
+- ensuring the DS and Magnetar app-data roots for that server are consistent
 
-Launch arguments remain configurable per instance, but Quasar should treat `LastSession.sbl` preparation as part of instance reconciliation, not as a manual side-step.
+Launch arguments remain configurable per server, but Quasar should treat `LastSession.sbl` preparation as part of server reconciliation, not as a manual side-step.
 
 ### Splash behavior
 
 Quasar should minimize background-start clutter:
 
 - Quasar should launch Magnetar headless with `-noconsole`
-- Quasar should pass instance-specific `-path` and `-config` roots
+- Quasar should pass server-specific `-path` and `-config` roots
 - Quasar should pass explicit `-ds64` so Magnetar targets the intended DS install
 - `-nosplash` is no longer required for current Magnetar builds
 
@@ -391,7 +391,7 @@ Requirements:
 - separate `Quasar` log file
 - configurable text or JSON file format
 - configurable minimum level
-- separate supervisor logs from DS instance logs
+- separate supervisor logs from DS server logs
 
 Suggested layout:
 
@@ -426,7 +426,7 @@ The important nuance is what "seamless" actually means here.
 
 Required guarantees:
 
-- DS instances keep running throughout a Quasar supervisor upgrade
+- DS servers keep running throughout a Quasar supervisor upgrade
 - the control-plane URL stays stable
 - Quasar state survives worker turnover
 - agents and browsers reconnect against the new worker without operator repair
@@ -499,8 +499,8 @@ Quasar worker state needed after rollover must not live only in process memory.
 
 At minimum this includes:
 
-- instance definitions
-- goal state per instance
+- server definitions
+- goal state per server
 - current active version pointer
 - reconciliation-relevant config paths
 - enough runtime metadata for the new worker to resume control
@@ -508,7 +508,7 @@ At minimum this includes:
 Observed live process state can be rebuilt from:
 
 - process inspection
-- persisted instance definitions
+- persisted server definitions
 - reconnecting `Quasar.Agent` sessions
 
 ## Configuration Management
@@ -533,18 +533,18 @@ Rationale:
 - easy diffing
 - simple operator mental model
 
-The authoritative per-instance configuration should live in Quasar-managed files on disk.
+The authoritative per-server configuration should live in Quasar-managed files on disk.
 
 Recommended format:
 
-- JSON for Quasar-owned instance configuration
+- JSON for Quasar-owned server configuration
 
 The JSON does not need to mirror DS XML one-to-one.
 
 It is expected to extend the DS model with Quasar-specific data such as:
 
 - goal state
-- instance paths
+- server paths
 - restart policy
 - health policy
 - world selection
@@ -557,8 +557,8 @@ DS XML files are runtime artifacts, not the long-term source of truth.
 
 That means:
 
-- Quasar stores authoritative instance config as JSON
-- Quasar renders the DS-facing XML/config artifacts into the instance-specific app-data tree
+- Quasar stores authoritative server config as JSON
+- Quasar renders the DS-facing XML/config artifacts into the server-specific app-data tree
 - Quasar prepares `LastSession.sbl` before launch
 - Quasar starts DS against those rendered artifacts
 
@@ -569,8 +569,8 @@ This keeps the DS launch surface compatible with the game while letting Quasar o
 Config flow should work like this:
 
 1. Quasar stores desired config in JSON on disk
-2. Quasar renders effective DS/Magnetar runtime config into the instance app-data tree before launch
-3. DS starts headless with instance-specific paths/arguments
+2. Quasar renders effective DS/Magnetar runtime config into the server app-data tree before launch
+3. DS starts headless with server-specific paths/arguments
 4. `Quasar.Agent` attaches and can request effective config/state from Quasar on startup
 5. Quasar can push config updates to the DS where the DS/plugin can apply them dynamically
 6. if a change is not dynamically applicable, Quasar marks it as restart-required and reconciliation applies it on restart
@@ -621,7 +621,7 @@ Recommended approach:
 
 - keep the current authoritative JSON file at a stable path
 - write timestamped or versioned historical copies alongside it in a history directory
-- keep history per instance
+- keep history per server
 
 History retention policy can be simple at first, for example:
 
@@ -644,15 +644,15 @@ Important requirement:
 
 For migration/import paths, Quasar should avoid silently dropping data from existing DS XML where practical.
 
-But once an instance is under Quasar management, the primary model is no longer "round-trip whatever XML happened to be there"; it is "own the desired config in Quasar JSON and render deterministic DS runtime artifacts."
+But once a server is under Quasar management, the primary model is no longer "round-trip whatever XML happened to be there"; it is "own the desired config in Quasar JSON and render deterministic DS runtime artifacts."
 
 ## Security and Trust
 
 First delivery may remain host-local and pragmatic, but the protocol shape should leave room for:
 
-- per-instance tokens
+- per-server tokens
 - authenticated agent attachment
-- future multi-node trust boundaries
+- future multi-host trust boundaries
 
 Security hardening is not the first blocking stage, but identity and attachment should not be left completely undefined.
 
@@ -662,16 +662,16 @@ Required for the first meaningful delivery:
 
 - `Quasar` as primary supervisor
 - `Quasar.Agent` attachment over raw WebSockets
-- multiple DS instances on one host
-- isolated DS and Magnetar app-data per instance
+- multiple DS servers on one host
+- isolated DS and Magnetar app-data per server
 - goal-state reconciliation (`On` / `Off`)
 - DS process start/stop/restart supervision
-- strong instance health monitoring with agent attach grace, heartbeat freshness, uptime policy, and automated recovery
+- strong server health monitoring with agent attach grace, heartbeat freshness, uptime policy, and automated recovery
 - simulation-frame progress scoring aligned with the dedicated server watcher formula (`deltaFrames / (elapsedSeconds * 60)` versus a configurable minimum threshold)
 - `LastSession.sbl` preparation by Quasar
 - JSON file-backed authoritative config store
 - atomic config writes
-- per-instance config history
+- per-server config history
 - Blazor Server UI for management
 - NLog-based file logging with minimal console output
 - bootstrap/setup path from the agent side via `Quasar.Bootstrap`
@@ -713,24 +713,24 @@ The protocol and IDs should remain compatible with those later additions.
 - add light/dark mode toggle
 - persist theme preference in browser local storage
 
-### Stage 4: Instance model and persistence
+### Stage 4: Server model and persistence
 
-- define persistent DS instance records
+- define persistent DS server records
 - add stable `UniqueName`
 - define launch settings, world/config selection, restart policy
-- define isolated DS and Magnetar app-data roots per instance
-- define desired goal state per instance
+- define isolated DS and Magnetar app-data roots per server
+- define desired goal state per server
 
 ### Stage 5: DS supervisor
 
 - add process start/stop/restart
 - add crash monitoring and restart backoff
-- add instance health monitoring and health-state surfacing
+- add server health monitoring and health-state surfacing
 - detect missing/stale `Quasar.Agent` attachment with configurable grace/timeout thresholds
 - add simulation-frame progress scoring using the same threshold model as the dedicated server watcher
 - add long-uptime warning and recycle policy
-- trigger automated recovery when health policy marks an instance unhealthy
-- pass supervisor endpoint and instance identity into launched DS processes
+- trigger automated recovery when health policy marks a server unhealthy
+- pass supervisor endpoint and server identity into launched DS processes
 - reconcile actual state back to desired `On` / `Off` state
 - prepare `LastSession.sbl` before launch
 - apply headless / `-nosplash` policy correctly per platform and launch mode
@@ -747,7 +747,7 @@ The protocol and IDs should remain compatible with those later additions.
 - migrate Magnetar config/profile/source editing from `webui/`
 - define Quasar JSON config schemas
 - render DS XML/runtime artifacts from Quasar JSON
-- add atomic writes and per-instance config history
+- add atomic writes and per-server config history
 - add file watching and reload for manual operator edits
 - keep XML import/migration tolerant where practical
 
@@ -769,7 +769,7 @@ The protocol and IDs should remain compatible with those later additions.
 
 ### Stage 10: UI completion
 
-- complete management views around instances, configs, logs, lifecycle, and restart policy
+- complete management views around servers, configs, logs, lifecycle, and restart policy
 
 ### Stage 11: Cleanup
 
@@ -786,19 +786,19 @@ As of this document:
 - a first raw WebSocket `Quasar.Agent` path exists
 - `Quasar.Bootstrap` exists as an ensure-running helper
 - Quasar logging is now separated from console noise
-- per-instance JSON-backed instance definitions exist
-- atomic config history/versioning groundwork exists for instance definitions
+- per-server JSON-backed server definitions exist
+- atomic config history/versioning groundwork exists for server definitions
 - first desired goal-state reconciliation exists
-- first process supervision exists for start/stop/restart and per-instance logs
+- first process supervision exists for start/stop/restart and per-server logs
 - first health-monitoring and auto-recovery pass exists for agent attach grace, heartbeat freshness, simulation-frame progress scoring aligned with the DS watcher, and uptime-based warning/recycle policy
 - initial runtime launch preparation now exists for isolated app-data roots, runtime config sync, `LastSession.sbl`, and enforced headless launch shaping
 - neutral light/dark theming exists with local-storage persistence
 - config editing is now migrated out of Python into Quasar-managed JSON profiles and rendered runtime artifacts
-- file watching/reload now exists for manual edits to Quasar-managed instance/profile JSON
+- file watching/reload now exists for manual edits to Quasar-managed server/profile JSON
 - `Quasar.Bootstrap` now owns the stable public endpoint and proxies active worker cutover
 - staged relaunch now persists supervisor runtime state so managed DS processes survive worker turnover
 - obsolete `webui/` is removed from the repository
-- per-instance isolated app-data path handling groundwork exists
+- per-server isolated app-data path handling groundwork exists
 - Windows Service hosting is intentionally out of scope
 - future shared-memory local bulk-state transport is planned but not implemented
 

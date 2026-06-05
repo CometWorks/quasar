@@ -12,7 +12,7 @@ using VRageMath;
 namespace Quasar.Agent
 {
     /// <summary>
-    /// Maps live <see cref="MyEntity"/> instances to transport-friendly
+    /// Maps live <see cref="MyEntity"/> servers to transport-friendly
     /// <see cref="EntitySummary"/> DTOs and applies the admin entity filter.
     /// Every member must be called on the game thread.
     /// </summary>

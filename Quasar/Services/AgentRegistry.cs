@@ -27,7 +27,7 @@ public sealed class AgentRegistry
         {
             return _agents.Values
                 .Select(state => state.Clone())
-                .OrderBy(state => state.NodeDisplayName, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(state => state.HostDisplayName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(state => state.ServerDisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
@@ -368,11 +368,11 @@ public sealed class AgentRuntimeState
 
     public string UniqueNameKey => Snapshot?.UniqueName ?? Hello?.UniqueName ?? ServerKey;
 
-    public string NodeKey => Snapshot?.NodeId ?? Hello?.NodeId ?? string.Empty;
+    public string HostKey => Snapshot?.HostId ?? Hello?.HostId ?? string.Empty;
 
     public string ServerKey => Snapshot?.ServerId ?? Hello?.ServerId ?? AgentId;
 
-    public string NodeDisplayName => Snapshot?.NodeName ?? Hello?.NodeName ?? "Unknown node";
+    public string HostDisplayName => Snapshot?.HostName ?? Hello?.HostName ?? "Unknown host";
 
     public string ServerDisplayName => Snapshot?.ServerName ?? Hello?.ServerName ?? "Unknown server";
 

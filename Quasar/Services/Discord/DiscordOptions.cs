@@ -10,7 +10,7 @@ public sealed class DiscordOptions
 
     public bool Enabled { get; set; }
 
-    public List<DiscordInstanceOptions> Instances { get; set; } = [];
+    public List<DiscordServerOptions> Servers { get; set; } = [];
 
     public DiscordOptions Clone()
     {
@@ -19,7 +19,7 @@ public sealed class DiscordOptions
             BotToken = BotToken,
             GuildId = GuildId,
             Enabled = Enabled,
-            Instances = Instances.Select(instance => instance.Clone()).ToList(),
+            Servers = Servers.Select(server => server.Clone()).ToList(),
         };
     }
 
@@ -32,16 +32,16 @@ public sealed class DiscordOptions
             BotToken = options.BotToken?.Trim() ?? string.Empty,
             GuildId = options.GuildId,
             Enabled = options.Enabled,
-            Instances = (options.Instances ?? [])
-                .Select(DiscordInstanceOptions.Normalize)
-                .OrderBy(instance => instance.UniqueName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(instance => instance.CommandPrefix, StringComparer.OrdinalIgnoreCase)
+            Servers = (options.Servers ?? [])
+                .Select(DiscordServerOptions.Normalize)
+                .OrderBy(server => server.UniqueName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(server => server.CommandPrefix, StringComparer.OrdinalIgnoreCase)
                 .ToList(),
         };
     }
 }
 
-public sealed class DiscordInstanceOptions
+public sealed class DiscordServerOptions
 {
     public string UniqueName { get; set; } = string.Empty;
 
@@ -76,9 +76,9 @@ public sealed class DiscordInstanceOptions
     [JsonIgnore]
     public bool HasCommandBinding => CommandChannelId.HasValue && !string.IsNullOrWhiteSpace(CommandPrefix);
 
-    public DiscordInstanceOptions Clone()
+    public DiscordServerOptions Clone()
     {
-        return new DiscordInstanceOptions
+        return new DiscordServerOptions
         {
             UniqueName = UniqueName,
             CommandPrefix = CommandPrefix,
@@ -98,11 +98,11 @@ public sealed class DiscordInstanceOptions
         };
     }
 
-    public static DiscordInstanceOptions Normalize(DiscordInstanceOptions? options)
+    public static DiscordServerOptions Normalize(DiscordServerOptions? options)
     {
-        options ??= new DiscordInstanceOptions();
+        options ??= new DiscordServerOptions();
 
-        return new DiscordInstanceOptions
+        return new DiscordServerOptions
         {
             UniqueName = options.UniqueName?.Trim() ?? string.Empty,
             CommandPrefix = options.CommandPrefix?.Trim() ?? string.Empty,

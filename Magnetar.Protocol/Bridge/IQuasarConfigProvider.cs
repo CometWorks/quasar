@@ -27,7 +27,7 @@ public interface IQuasarConfigProvider
     /// Applies a configuration document produced by the editor. The document
     /// may be a full <c>SaveJson</c> envelope or a flat values-only object;
     /// implementations typically pass it to <c>ConfigStorage.LoadJson</c> and
-    /// copy the result onto the live config instance.
+    /// copy the result onto the live config server.
     /// </summary>
     void ApplyConfigJson(string json);
 }
