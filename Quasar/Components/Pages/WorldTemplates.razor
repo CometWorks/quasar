@@ -6,9 +6,6 @@
 
 <PageTitle>World Templates</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">World Templates</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Reusable world templates. Import an existing Space Engineers save folder and select it when creating a server — Quasar copies template world data into the server on first launch.</MudText>
-
 <MudGrid>
     <MudItem xs="12" xl="5">
         <MudPaper Class="pa-4 summary-card">
@@ -50,6 +47,10 @@
     <MudItem xs="12" xl="7">
         <MudPaper Class="pa-4 server-card">
             <MudText Typo="Typo.h6" GutterBottom="true">World Templates</MudText>
+            
+            <div>
+                <MudText Typo="Typo.body2" Class="mb-4">Reusable world templates. Import an existing Space Engineers save folder and select it when creating a server. Quasar copies template world data into the server on first launch.</MudText>
+            </div>
 
             @if (Templates.Count == 0)
             {

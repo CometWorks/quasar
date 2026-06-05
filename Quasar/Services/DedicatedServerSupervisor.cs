@@ -1029,10 +1029,20 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
             await writer.WriteLineAsync($"{DateTimeOffset.UtcNow:O} {line}");
 
-            if (PluginLogStream.TryParseSinkLine(uniqueName, line, out var entry) && entry is not null)
-                _pluginLogStream.Append(entry);
+            // Plugin SDK JSON lines now reach the live panel through the agent's
+            // network relay (see AgentSocketHandler), which survives Quasar
+            // restarts and reconnects to detached server daemons — unlike this
+            // stdout pump, which only exists for a child process we started.
+            // Skip them here to avoid double entries; still surface ordinary
+            // (non-plugin) server output.
+            if (PluginLogStream.TryParseSinkLine(uniqueName, line, out _))
+            {
+                // Handled via the agent relay.
+            }
             else if (!string.IsNullOrWhiteSpace(line))
+            {
                 _pluginLogStream.Append(BuildMagnetarEntry(uniqueName, line, "Info"));
+            }
         }
     }
 

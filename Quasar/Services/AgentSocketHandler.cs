@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Transport;
 using Quasar.Models;
 using Quasar.Services.PluginSdk;
@@ -18,6 +19,7 @@ public sealed class AgentSocketHandler
     private readonly AgentRegistry _registry;
     private readonly PluginConfigService _pluginConfigService;
     private readonly DedicatedServerSupervisor _supervisor;
+    private readonly PluginLogStream _pluginLogStream;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<AgentSocketHandler> _logger;
 
@@ -25,12 +27,14 @@ public sealed class AgentSocketHandler
         AgentRegistry registry,
         PluginConfigService pluginConfigService,
         DedicatedServerSupervisor supervisor,
+        PluginLogStream pluginLogStream,
         IHostApplicationLifetime lifetime,
         ILogger<AgentSocketHandler> logger)
     {
         _registry = registry;
         _pluginConfigService = pluginConfigService;
         _supervisor = supervisor;
+        _pluginLogStream = pluginLogStream;
         _lifetime = lifetime;
         _logger = logger;
     }
@@ -115,6 +119,10 @@ public sealed class AgentSocketHandler
                 _pluginConfigService.IngestSnapshot(message.PluginConfigSnapshot);
                 break;
 
+            case WireMessageKind.PluginLogs when message.PluginLogs is not null:
+                IngestPluginLogs(message.PluginLogs, connectionId);
+                break;
+
             case WireMessageKind.AdminStop:
                 if (_registry.TryGetUniqueName(connectionId, out var stoppedUniqueName))
                 {
@@ -154,6 +162,26 @@ public sealed class AgentSocketHandler
             default:
                 _logger.LogDebug("Ignoring unsupported wire message kind '{Kind}'.", message.Kind);
                 break;
+        }
+    }
+
+    // Plugin log lines arrive over the agent channel (rather than via the
+    // supervisor's stdout capture) so they keep flowing after Quasar restarts and
+    // reconnects to a detached server daemon. The unique name is resolved from the
+    // connection's Hello, the same way other agent messages are routed; each line
+    // is parsed by the shared sink-line parser and appended to the live buffer.
+    private void IngestPluginLogs(PluginLogBatch batch, string connectionId)
+    {
+        if (!_registry.TryGetUniqueName(connectionId, out var uniqueName))
+        {
+            _logger.LogDebug("Received plugin logs for unknown connection {ConnectionId}.", connectionId);
+            return;
+        }
+
+        foreach (var line in batch.Lines)
+        {
+            if (PluginLogStream.TryParseSinkLine(uniqueName, line, out var entry) && entry is not null)
+                _pluginLogStream.Append(entry);
         }
     }
 

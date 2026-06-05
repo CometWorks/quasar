@@ -12,22 +12,19 @@
 @inject IJSRuntime JS
 @inject IDialogService DialogService
 
-<PageTitle>Configs</PageTitle>
-
-<MudText Typo="Typo.h4" GutterBottom="true">Configs</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">
-    Reusable world templates and Magnetar config templates. Save many presets, search world options fast, then assign templates to servers.
-</MudText>
+<PageTitle>Config Templates</PageTitle>
 
 <MudGrid Class="configs-page-shell">
     <MudItem xs="12" lg="3">
         <MudPaper Class="server-card pa-4 configs-sidebar">
             <MudStack Spacing="2" Class="configs-sidebar-inner">
                 <div>
-                    <MudText Typo="Typo.h6">Templates</MudText>
-                    <MudText Typo="Typo.body2" Class="config-secondary">Stored Quasar presets for world rules, plugins, and mods.</MudText>
+                    <MudText Typo="Typo.h6">Config Templates</MudText>
+                    <MudText Typo="Typo.body2" Class="mb-4">
+                        Reusable Magnetar config templates. Applied to the assigned servers when they start.
+                    </MudText>
                 </div>
-
+                
                 <MudTextField
                     @bind-Value="_newProfileName"
                     Label="New template name"
@@ -348,12 +345,14 @@
                                         <RowTemplate>
                                             <MudTd DataLabel="Name">@context.DisplayName</MudTd>
                                             <MudTd DataLabel="Plugin ID" Class="mono">@context.PluginId</MudTd>
-                                            <MudTd Class="plugin-actions">
-                                                @if (!string.IsNullOrWhiteSpace(GetPluginSourceUrl(context)))
-                                                {
-                                                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetPluginSourceUrl(context)" Target="_blank" Size="Size.Small" title="Open GitHub repository" />
-                                                }
-                                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePlugin(context.PluginId))" Size="Size.Small" title="Remove plugin" />
+                                            <MudTd>
+                                                <div class="plugin-actions">
+                                                    @if (!string.IsNullOrWhiteSpace(GetPluginSourceUrl(context)))
+                                                    {
+                                                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetPluginSourceUrl(context)" Target="_blank" Size="Size.Small" title="Open GitHub repository" />
+                                                    }
+                                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePlugin(context.PluginId))" Size="Size.Small" title="Remove plugin" />
+                                                </div>
                                             </MudTd>
                                         </RowTemplate>
                                         <NoRecordsContent>

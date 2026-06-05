@@ -11,11 +11,18 @@ namespace Quasar.Agent
     {
         private GameBridge _bridge;
         private AgentConnection _connection;
+        private PluginLogOutbox _outbox;
 
         public void Init(object gameServer)
         {
             _bridge = new GameBridge(gameServer);
-            _connection = new AgentConnection(_bridge, new WebServiceLocator(), AgentOptions.FromEnvironment());
+
+            // Start capturing plugin log lines before the connection loop so any
+            // emitted during startup are buffered and shipped once connected.
+            _outbox = new PluginLogOutbox();
+            _outbox.Start();
+
+            _connection = new AgentConnection(_bridge, new WebServiceLocator(), AgentOptions.FromEnvironment(), _outbox);
             _connection.Start();
             MyVisualScriptLogicProvider.PlayerDied += OnPlayerDied;
             ServerControl.Terminating += OnServerTerminating;
@@ -32,6 +39,8 @@ namespace Quasar.Agent
             MyVisualScriptLogicProvider.PlayerDied -= OnPlayerDied;
             _connection?.Stop();
             _connection = null;
+            _outbox?.Dispose();
+            _outbox = null;
             _bridge = null;
         }
 

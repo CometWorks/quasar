@@ -19,6 +19,15 @@
             </MudSelect>
         </MudItem>
         <MudItem xs="12" sm="6" lg="2">
+            <MudSelect T="string" Label="Plugin" Value="_pluginFilter" ValueChanged="HandlePluginChanged" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">All</MudSelectItem>
+                @foreach (var plugin in LogStream.GetPlugins())
+                {
+                    <MudSelectItem T="string" Value="@plugin">@plugin</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="2">
             <MudSelect T="string" Label="Level" Value="_levelFilter" ValueChanged="HandleLevelChanged" Variant="Variant.Outlined">
                 <MudSelectItem T="string" Value="@string.Empty">All</MudSelectItem>
                 @foreach (var level in Levels)
@@ -38,7 +47,7 @@
         <MudItem xs="12" sm="6" lg="2">
             <MudNumericField T="int" Label="Limit" Value="_limit" ValueChanged="HandleLimitChanged" Variant="Variant.Outlined" Min="1" Max="@PluginLogStream.MaxEntriesPerServer" />
         </MudItem>
-        <MudItem xs="12" lg="4">
+        <MudItem xs="12" sm="6" lg="2">
             <MudTextField T="string" Value="_textFilter" ValueChanged="HandleTextChanged" Label="Filter text" Variant="Variant.Outlined" Immediate="true" />
         </MudItem>
     </MudGrid>
@@ -84,6 +93,7 @@
     private static readonly string[] Levels = ["Debug", "Info", "Warning", "Error", "Critical"];
     private IReadOnlyList<PluginLogEntry> _entries = Array.Empty<PluginLogEntry>();
     private string _uniqueNameFilter = string.Empty;
+    private string _pluginFilter = string.Empty;
     private string _levelFilter = string.Empty;
     private string _rangeKey = "24h";
     private string _textFilter = string.Empty;
@@ -111,6 +121,7 @@
         _entries = LogStream.Query(new PluginLogQuery
         {
             UniqueName = _uniqueNameFilter,
+            Plugin = _pluginFilter,
             Level = _levelFilter,
             Text = _textFilter,
             FromUtc = ResolveFromUtc(),
@@ -129,6 +140,13 @@
     private Task HandleUniqueNameChanged(string value)
     {
         _uniqueNameFilter = value;
+        Refresh();
+        return Task.CompletedTask;
+    }
+
+    private Task HandlePluginChanged(string value)
+    {
+        _pluginFilter = value;
         Refresh();
         return Task.CompletedTask;
     }

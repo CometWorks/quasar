@@ -19,4 +19,6 @@ public class AgentWireMessage
     public PluginConfigSnapshot? PluginConfigSnapshot { get; set; }
 
     public PluginConfigUpdateRequest? PluginConfigUpdateRequest { get; set; }
+
+    public PluginLogBatch? PluginLogs { get; set; }
 }

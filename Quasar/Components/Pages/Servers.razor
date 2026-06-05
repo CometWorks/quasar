@@ -12,15 +12,11 @@
 
 <PageTitle>Servers</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">Servers</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Persistent dedicated servers. Quasar launches, stops, and restarts processes from these definitions, and Quasar.Agent attaches once the server is up for live data.</MudText>
+<MudText Typo="Typo.h5" Class="mb-2">Servers</MudText>
+<MudText Typo="Typo.body2">Persistent dedicated servers. Quasar launches, stops, and restarts processes from these definitions, and Quasar.Agent attaches once the server is up for live data. Expand a row to see live agent data: players, chat, plugins, command results.</MudText>
 
-<MudPaper Class="pa-4 server-card">
+<MudPaper Class="pa-4 server-card mt-2">
     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-4">
-        <div>
-            <MudText Typo="Typo.h6">Configured Servers</MudText>
-            <MudText Typo="Typo.body2">Expand a row to see live agent data: players, chat, plugins, command results.</MudText>
-        </div>
         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
             <MudChip T="string" Variant="Variant.Outlined">@($"{ServerDefinitions.Count} server(s)")</MudChip>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialogAsync">

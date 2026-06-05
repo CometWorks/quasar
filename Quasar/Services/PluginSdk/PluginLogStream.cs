@@ -80,6 +80,20 @@ public sealed class PluginLogStream
         }
     }
 
+    public IReadOnlyList<string> GetPlugins()
+    {
+        lock (_sync)
+        {
+            return _byUniqueName.Values
+                .SelectMany(queue => queue)
+                .Select(entry => entry.Plugin)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
     public IReadOnlyList<PluginLogEntry> Query(PluginLogQuery query)
     {
         var limit = Math.Clamp(query.Limit, 1, MaxEntriesPerServer);
@@ -92,6 +106,9 @@ public sealed class PluginLogStream
 
             if (!string.IsNullOrWhiteSpace(query.Level))
                 entries = entries.Where(entry => string.Equals(entry.Level, query.Level, StringComparison.OrdinalIgnoreCase));
+
+            if (!string.IsNullOrWhiteSpace(query.Plugin))
+                entries = entries.Where(entry => string.Equals(entry.Plugin, query.Plugin, StringComparison.OrdinalIgnoreCase));
 
             if (query.FromUtc.HasValue)
                 entries = entries.Where(entry => entry.TimestampUtc >= query.FromUtc.Value);
@@ -216,6 +233,8 @@ public sealed record PluginLogQuery
     public string UniqueName { get; init; } = string.Empty;
 
     public string Level { get; init; } = string.Empty;
+
+    public string Plugin { get; init; } = string.Empty;
 
     public string Text { get; init; } = string.Empty;
 
