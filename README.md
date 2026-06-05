@@ -17,9 +17,10 @@ Solution:
 
 - `Quasar.sln`
 
-Current architecture reference:
+Documentation:
 
-- [Docs/QuasarArchitecture.md](Docs/QuasarArchitecture.md)
+- [Docs/Reference/TOC.md](Docs/Reference/TOC.md) — generated code handbook (per-file and per-module reference, with a flat [Index](Docs/Reference/Index.md))
+- [Docs/QuasarArchitecture.md](Docs/QuasarArchitecture.md) — architecture narrative and design rationale
 
 Build notes:
 

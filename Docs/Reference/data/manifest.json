@@ -1,0 +1,1634 @@
+{
+  "files": [
+    {
+      "path": "Magnetar.Protocol/Bridge/IQuasarConfigProvider.cs",
+      "name": "IQuasarConfigProvider.cs",
+      "ext": ".cs",
+      "size": 1370,
+      "sha256": "4ce0e56755d67443303471d6651912f9cceec7384b74fc8898004a5e6a9ee5e7",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Discovery/WebServiceDiscoveryManifest.cs",
+      "name": "WebServiceDiscoveryManifest.cs",
+      "ext": ".cs",
+      "size": 425,
+      "sha256": "eec12e30cab5fd53767f31ed4c3ed7a5c515a35e4a19430f3ff8bf1c10418a7c",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Magnetar.Protocol.csproj",
+      "name": "Magnetar.Protocol.csproj",
+      "ext": ".csproj",
+      "size": 211,
+      "sha256": "4a011b3cad1b652e3a69fe3235f088d5f2fdce9d761347dbe9d1d928ca447591",
+      "module": "Magnetar.Protocol",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Model/AgentHello.cs",
+      "name": "AgentHello.cs",
+      "ext": ".cs",
+      "size": 850,
+      "sha256": "99017938392a5e4614345feb2e1f72367f7e098298cc2e0f5339ddf052aa810f",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Model/AgentSnapshot.cs",
+      "name": "AgentSnapshot.cs",
+      "ext": ".cs",
+      "size": 1073,
+      "sha256": "81cd30b457451fa6bdc54b4825fbd51319821d1bab17af11daabaae302750f56",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Model/ChatMessageSnapshot.cs",
+      "name": "ChatMessageSnapshot.cs",
+      "ext": ".cs",
+      "size": 277,
+      "sha256": "2d9d6bbbefd69f614434de909e7c04f84ed7cb79044b03cedaeeeb52395bfb11",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Model/DeathEventSnapshot.cs",
+      "name": "DeathEventSnapshot.cs",
+      "ext": ".cs",
+      "size": 333,
+      "sha256": "2829616ef742315d19b6ca1a93bd03ac320be52e97c80e34fb2054b64ad5b594",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Model/EntityDeleteRequest.cs",
+      "name": "EntityDeleteRequest.cs",
+      "ext": ".cs",
+      "size": 301,
+      "sha256": "f07e08bc2de6f1489f8b32536845b11f9ee55428ab6ffc1889284c47fc428ab2",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Model/EntityListFilter.cs",
+      "name": "EntityListFilter.cs",
+      "ext": ".cs",
+      "size": 808,
+      "sha256": "3670eef951c79e334113a5cfaad9057ca6b6b7eb45258e848ba9de632908af96",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Model/EntityListResult.cs",
+      "name": "EntityListResult.cs",
+      "ext": ".cs",
+      "size": 783,
+      "sha256": "58bf9fc033bdd3151c251ac534367f1f5f251e74f9d6141c7f77d19c43bd76a9",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Model/EntitySummary.cs",
+      "name": "EntitySummary.cs",
+      "ext": ".cs",
+      "size": 2722,
+      "sha256": "04a6b43047ed4d432607864364c23d03c4d1e56c76121bcfd3d838434a89c197",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Model/PlayerSnapshot.cs",
+      "name": "PlayerSnapshot.cs",
+      "ext": ".cs",
+      "size": 699,
+      "sha256": "123d6839eba07ffbabf7db5957dd5b0d53879bcf48a4aafd9d9dbaa058fe3ef1",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Model/PluginConfigData.cs",
+      "name": "PluginConfigData.cs",
+      "ext": ".cs",
+      "size": 474,
+      "sha256": "7c925174c4d90409385383261e46887f2135f41f71541ef3b4fb70ba196d9a88",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Model/PluginConfigSnapshot.cs",
+      "name": "PluginConfigSnapshot.cs",
+      "ext": ".cs",
+      "size": 438,
+      "sha256": "7755344efe1bfcfa5b929f43a02e0b960a614b1db08dce696949b76d425c4d5c",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Model/PluginConfigUpdateRequest.cs",
+      "name": "PluginConfigUpdateRequest.cs",
+      "ext": ".cs",
+      "size": 523,
+      "sha256": "d753a34dea2c6c0ee2eb6c7ee393f2b51e5833ec2e61c56563111e6b95a81f91",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Model/PluginRuntimeInfo.cs",
+      "name": "PluginRuntimeInfo.cs",
+      "ext": ".cs",
+      "size": 286,
+      "sha256": "1245a3d0197b2f9b5d83c1f6b22cbab43302057d2b9f97e999407dc23857a3c2",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Model/ServerMetrics.cs",
+      "name": "ServerMetrics.cs",
+      "ext": ".cs",
+      "size": 751,
+      "sha256": "c8b5cc0322237ff729b8fa7eb223a301550425828e9362c3cc28ea7139b0c4f3",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
+      "name": "MagnetarPaths.cs",
+      "ext": ".cs",
+      "size": 8129,
+      "sha256": "732a64a1fa91d96213a03b91b6587d9a867f98473aea351bbc93f39499eb4e1d",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs",
+      "name": "QuasarActiveReleasePointer.cs",
+      "ext": ".cs",
+      "size": 424,
+      "sha256": "1c0be353edaa82a53143bd01c551fbd8c5638fa44fe5f5ccd38f42e7aeae7e97",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Transport/AgentWireMessage.cs",
+      "name": "AgentWireMessage.cs",
+      "ext": ".cs",
+      "size": 576,
+      "sha256": "fd696f6d9d418e21fb350ea212cf9d37dcdb0629da40aba02c20f92fb5f189a7",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Transport/ServerCommandEnvelope.cs",
+      "name": "ServerCommandEnvelope.cs",
+      "ext": ".cs",
+      "size": 978,
+      "sha256": "8af01c9d133e80dc7605883979c84b2088d37b9b9895a96dc07f19f6207302ee",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Transport/ServerCommandResult.cs",
+      "name": "ServerCommandResult.cs",
+      "ext": ".cs",
+      "size": 804,
+      "sha256": "948a2300a72ab7afff461304dd92b7295ebd02440bac6341baf572287ed083c1",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Transport/ServerCommandType.cs",
+      "name": "ServerCommandType.cs",
+      "ext": ".cs",
+      "size": 348,
+      "sha256": "7eb6aa5a3de1b99a62f91738c0ac7c583f809c3aebcf3cfa55efa305f0ce3ed5",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Transport/WireMessageKind.cs",
+      "name": "WireMessageKind.cs",
+      "ext": ".cs",
+      "size": 541,
+      "sha256": "035bc45387dabad3221a7f193be45c3ddd0d5a96716089b4fdc6f6b95d553c90",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar.Agent/AdminPlugin.cs",
+      "name": "AdminPlugin.cs",
+      "ext": ".cs",
+      "size": 2293,
+      "sha256": "c587f15a3a3e87ec95c127a4d6a34950279203ea0a43aad0da78a6e7138b6363",
+      "module": "Quasar.Agent",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar.Agent/AgentConnection.cs",
+      "name": "AgentConnection.cs",
+      "ext": ".cs",
+      "size": 14548,
+      "sha256": "018397e1f71a5b43da64714d872911174b1523191b4d76185b97ca4f0d1bf4cc",
+      "module": "Quasar.Agent",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar.Agent/AgentOptions.cs",
+      "name": "AgentOptions.cs",
+      "ext": ".cs",
+      "size": 2402,
+      "sha256": "3939d059bf88d39818d3d9368a19f5afd74b8ba45949cbcd368b6b4b3e1dd7fb",
+      "module": "Quasar.Agent",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar.Agent/EntityInspector.cs",
+      "name": "EntityInspector.cs",
+      "ext": ".cs",
+      "size": 10785,
+      "sha256": "14806374ad3f9106063c6e21e9fb1045d62bba8b9adf043a8ab515e595ca9e52",
+      "module": "Quasar.Agent",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar.Agent/GameBridge.cs",
+      "name": "GameBridge.cs",
+      "ext": ".cs",
+      "size": 34364,
+      "sha256": "b67ab8fc4e793aa4caa9c0d74232e5bc56f51f22c64ffe8f25a5a040f1e344b8",
+      "module": "Quasar.Agent",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar.Agent/Quasar.Agent.csproj",
+      "name": "Quasar.Agent.csproj",
+      "ext": ".csproj",
+      "size": 2748,
+      "sha256": "bdab56aeb592ae466aadacd6e87de7b7aa05465d6a68896cd2ec822c53053a4a",
+      "module": "Quasar.Agent",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar.Agent/WebServiceLocator.cs",
+      "name": "WebServiceLocator.cs",
+      "ext": ".cs",
+      "size": 8466,
+      "sha256": "b9d96079cad21d915f8fc4919f43406d86fdf6e3f377a793e915f580c5deff9f",
+      "module": "Quasar.Agent",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar.Bootstrap/Program.cs",
+      "name": "Program.cs",
+      "ext": ".cs",
+      "size": 45166,
+      "sha256": "d27b6cf03ff8737d75ca6b6e5a8b67f0c0623ee27891023126c3061894b61691",
+      "module": "Quasar.Bootstrap",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar.Bootstrap/Properties/launchSettings.json",
+      "name": "launchSettings.json",
+      "ext": ".json",
+      "size": 319,
+      "sha256": "b47cc9ea10c9559d96077d6ae2e0ad28684f5ee6d593dac418a4838d30f1369e",
+      "module": "Quasar.Bootstrap",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar.Bootstrap/Quasar.Bootstrap.csproj",
+      "name": "Quasar.Bootstrap.csproj",
+      "ext": ".csproj",
+      "size": 4006,
+      "sha256": "df4eafa93bc3168df802a1afda3cedd69ba1188339f6be65cce2c592feee7973",
+      "module": "Quasar.Bootstrap",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/App.razor",
+      "name": "App.razor",
+      "ext": ".razor",
+      "size": 1228,
+      "sha256": "4a9d1237d6eb7c6f717917d99575994d5f864d4f442790f9689adfba5ebef5f6",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Dashboard/ServerCard.razor",
+      "name": "ServerCard.razor",
+      "ext": ".razor",
+      "size": 6077,
+      "sha256": "18fa747e00b899db5fee4425c594d27177c09e985272b6292f898d1bfb73f6f5",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Dashboard/ServerDetailPanel.razor",
+      "name": "ServerDetailPanel.razor",
+      "ext": ".razor",
+      "size": 12620,
+      "sha256": "63e157131addd227ff2791c4d71deda0f7bbf0e01e8d14bab7283321ae32f41e",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Layout/BrandingHeadContent.razor",
+      "name": "BrandingHeadContent.razor",
+      "ext": ".razor",
+      "size": 530,
+      "sha256": "08256f8675758a96c64fb69ad9922955090ff07d755fedfa32047b0792875c49",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Layout/MainLayout.razor",
+      "name": "MainLayout.razor",
+      "ext": ".razor",
+      "size": 8017,
+      "sha256": "b1dde24d1a5a6d4bc6494c05fbd9beb9fdca81bf08a8a21639a4a06437d8fc2e",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Layout/MainLayout.razor.css",
+      "name": "MainLayout.razor.css",
+      "ext": ".css",
+      "size": 601,
+      "sha256": "bc7b3c5dba6227bc0155b6f2f513b39c31537ab531a746cdb372e04fe9b286a7",
+      "module": "Quasar.Components",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Layout/NavMenu.razor",
+      "name": "NavMenu.razor",
+      "ext": ".razor",
+      "size": 2187,
+      "sha256": "80918a97c61881fb8d5acd295fb3a6043a81f55ffc85fec0ca28ce62a8c7f4df",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Layout/ReconnectModal.razor",
+      "name": "ReconnectModal.razor",
+      "ext": ".razor",
+      "size": 1331,
+      "sha256": "06987994d4625c5c48cdd15373c05e3a2d81a3f92af790fcaabc7bbf80dbca5a",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Layout/ReconnectModal.razor.css",
+      "name": "ReconnectModal.razor.css",
+      "ext": ".css",
+      "size": 3885,
+      "sha256": "2bbe2669cfb876afcc4128d59537c1557bd9d6976b1e0a59c135a05ce2633e23",
+      "module": "Quasar.Components",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Layout/ReconnectModal.razor.js",
+      "name": "ReconnectModal.razor.js",
+      "ext": ".js",
+      "size": 2385,
+      "sha256": "bc924313acad6186b22e5331a52fe18a4e3186a5082185e40f2e89620932814e",
+      "module": "Quasar.Components",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Analytics.razor",
+      "name": "Analytics.razor",
+      "ext": ".razor",
+      "size": 36075,
+      "sha256": "4f78aed382ed53f95f15e2abc66e14aeb1c7aa49198a4e28582ece080d8ecb2e",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Analytics.razor.css",
+      "name": "Analytics.razor.css",
+      "ext": ".css",
+      "size": 785,
+      "sha256": "55da52e5ca1fa79681a5e1b738db257858d377ca2ad9a4ef5ab04a5cd06d32e9",
+      "module": "Quasar.Components",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/AnalyticsPanelDialog.razor",
+      "name": "AnalyticsPanelDialog.razor",
+      "ext": ".razor",
+      "size": 2252,
+      "sha256": "c044d06dd556168058b064ef07582fc8fa93dca257461602c6cbea5334cfd8f0",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Appearance.razor",
+      "name": "Appearance.razor",
+      "ext": ".razor",
+      "size": 14270,
+      "sha256": "57ac34c1328a1c4e1935f4042f3d70112bc0085b7f7ff1b69c348761ba5802d7",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/ConfigProfilePendingChangesDialog.razor",
+      "name": "ConfigProfilePendingChangesDialog.razor",
+      "ext": ".razor",
+      "size": 1197,
+      "sha256": "4e193dccecfb0f8b752b8dbcf8754a6f77530e39b86cfe030855ae4c403220bc",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/ConfigProfileQuickCreateDialog.razor",
+      "name": "ConfigProfileQuickCreateDialog.razor",
+      "ext": ".razor",
+      "size": 2401,
+      "sha256": "e43700862999437fab2dca8c6b893f3c333b3c2447f4df262431ece61f77fdd8",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Configs.razor",
+      "name": "Configs.razor",
+      "ext": ".razor",
+      "size": 103119,
+      "sha256": "2cd477ab882cb6d79e09a0858a4f246cc950d17e496572a2a381f80e2ddfb9b5",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Configs.razor.css",
+      "name": "Configs.razor.css",
+      "ext": ".css",
+      "size": 4465,
+      "sha256": "d0f7568d7921d4af678c24e7185ef789a37d956aacd4da32a55e33bdfcef19b1",
+      "module": "Quasar.Components",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/ConfigsPageDialog.razor",
+      "name": "ConfigsPageDialog.razor",
+      "ext": ".razor",
+      "size": 810,
+      "sha256": "530dd0937ddc8ac7616d2166a42017825ccffade350c5a2abeb652f476cddb64",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Discord.razor",
+      "name": "Discord.razor",
+      "ext": ".razor",
+      "size": 20416,
+      "sha256": "19919a4a66b439683d12f02004565229c83bc468e784fd347f432b44013ee371",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Entities.razor",
+      "name": "Entities.razor",
+      "ext": ".razor",
+      "size": 12117,
+      "sha256": "5d9bb01042c091c65c3eb8a00b96339f0d2aa87557294d2961b62a4fac348d3f",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Error.razor",
+      "name": "Error.razor",
+      "ext": ".razor",
+      "size": 1179,
+      "sha256": "5fc97b404692b11255d0c2b53e61304f2a7670dc9ff5fdcc2edae513b3ea283d",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/FolderPickerDialog.razor",
+      "name": "FolderPickerDialog.razor",
+      "ext": ".razor",
+      "size": 6965,
+      "sha256": "8b5137a460531d9e345dece347541c97d94b75ac7de41acc15fb0580244acfc4",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/FolderPickerDialog.razor.css",
+      "name": "FolderPickerDialog.razor.css",
+      "ext": ".css",
+      "size": 57,
+      "sha256": "ae94353b2a935faf69928e41485c04462ce835900a698651e38d3b84780b31d2",
+      "module": "Quasar.Components",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Home.razor",
+      "name": "Home.razor",
+      "ext": ".razor",
+      "size": 37493,
+      "sha256": "b777099d7b762a5adcf089a01c307099ef044e8ba6ba5108a9f515b7fee3b8f3",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Home.razor.css",
+      "name": "Home.razor.css",
+      "ext": ".css",
+      "size": 692,
+      "sha256": "d4a2494853031e59dfe4bf2e28a134dd4eb29ad06bb62e2178f46f2c9839dc44",
+      "module": "Quasar.Components",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Hosts.razor",
+      "name": "Hosts.razor",
+      "ext": ".razor",
+      "size": 2765,
+      "sha256": "e7a49e2ec3a4b3a4bced2b9cd6fd65ee0eb82e8cb0b24a45c03243a7ad55579d",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/MergeWorldTemplateModsDialog.razor",
+      "name": "MergeWorldTemplateModsDialog.razor",
+      "ext": ".razor",
+      "size": 4396,
+      "sha256": "1de076fb4391b547b38b89954e586a63afa778fea224d341e94246d01efdd52e",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/NotFound.razor",
+      "name": "NotFound.razor",
+      "ext": ".razor",
+      "size": 122,
+      "sha256": "9190005a944ca590bb17f58563d0e524ae419b448ee81a555f376195e4856071",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Players.razor",
+      "name": "Players.razor",
+      "ext": ".razor",
+      "size": 13624,
+      "sha256": "36a6a0bd627e46bc72f266eb99bf25d77cae52fe15a7ed7b40e1fa7b5f65bc89",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Plugins.razor",
+      "name": "Plugins.razor",
+      "ext": ".razor",
+      "size": 6447,
+      "sha256": "e1bab62c174284dfc175c1c7f24fbd17aa7ab9b1981bd0ff54373621de6a2939",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Security.razor",
+      "name": "Security.razor",
+      "ext": ".razor",
+      "size": 7004,
+      "sha256": "c57477c3ad9a0f203908097638d1befd9c81b4e0829c84c1cbd221512a18ae05",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/ServerConsoleDialog.razor",
+      "name": "ServerConsoleDialog.razor",
+      "ext": ".razor",
+      "size": 13283,
+      "sha256": "9a7da11ba7de29c9fdae0848dbb39f95b4883d4e001e8f05d83fe3784d9ee8d2",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/ServerEditorDialog.razor",
+      "name": "ServerEditorDialog.razor",
+      "ext": ".razor",
+      "size": 35578,
+      "sha256": "0b763383196c20ae06ffa61dc67ec8708b5faba80612f83c9228ffe23143ace8",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/ServerEditorDialog.razor.css",
+      "name": "ServerEditorDialog.razor.css",
+      "ext": ".css",
+      "size": 779,
+      "sha256": "8d5fa47c85f34c7899474982caa6757cf86b3c821f60c04cb867c4eda7075c7e",
+      "module": "Quasar.Components",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/Servers.razor",
+      "name": "Servers.razor",
+      "ext": ".razor",
+      "size": 24818,
+      "sha256": "9e8bd7d59252237c2e320be1cdcd08a7c7f6b22ee697fe392fc37d7d85ba195a",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/ServersPageDialog.razor",
+      "name": "ServersPageDialog.razor",
+      "ext": ".razor",
+      "size": 1351,
+      "sha256": "ba7cda8a0c137c9ffbd1925729bd226af129958c5399fb7fca63c9c0effb8886",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/SteamWorkshopApiKeyDialog.razor",
+      "name": "SteamWorkshopApiKeyDialog.razor",
+      "ext": ".razor",
+      "size": 1696,
+      "sha256": "9daa79dbe1735e6af03b11f0d991aeb94de56d5dc74200f51059fb4dc03cad62",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/WorldTemplateFromServerDialog.razor",
+      "name": "WorldTemplateFromServerDialog.razor",
+      "ext": ".razor",
+      "size": 2080,
+      "sha256": "6924f7f32fe631497c1e348bcda7ccf7b1b02ba03e0f717467f930bb48112a70",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/WorldTemplateQuickImportDialog.razor",
+      "name": "WorldTemplateQuickImportDialog.razor",
+      "ext": ".razor",
+      "size": 3952,
+      "sha256": "8db5187f0db48c9b5e0ff2364c1a0e403d79baabe4e90103b49776bbd3ac346c",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/WorldTemplates.razor",
+      "name": "WorldTemplates.razor",
+      "ext": ".razor",
+      "size": 8961,
+      "sha256": "a4182e5ae155f2d6a4c5d8c5a3163955c14a3b376acb68f9752dd4759c84099f",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/WorldTemplatesPageDialog.razor",
+      "name": "WorldTemplatesPageDialog.razor",
+      "ext": ".razor",
+      "size": 712,
+      "sha256": "28c6743a9d13a0286db8e09d5170c7c803273ab170470745bbd76111a7804fa5",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/PluginConfigEditor.razor",
+      "name": "PluginConfigEditor.razor",
+      "ext": ".razor",
+      "size": 49228,
+      "sha256": "220b74856bf8dca1eca57d46d61fb67b1d399ed99001a5ad872c60a9bf735c4e",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/PluginConfigEditor.razor.css",
+      "name": "PluginConfigEditor.razor.css",
+      "ext": ".css",
+      "size": 579,
+      "sha256": "62cde630692ce12cb958ab5c08c12807cb64a230d4b9f23a8c0805457e49b26a",
+      "module": "Quasar.Components",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/PluginLogPanel.razor",
+      "name": "PluginLogPanel.razor",
+      "ext": ".razor",
+      "size": 6996,
+      "sha256": "b8aaac3e63e9e13c46a9fbdfd788a3f19ccf00dfd9d9a02eeb165489d4f2b066",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Routes.razor",
+      "name": "Routes.razor",
+      "ext": ".razor",
+      "size": 1236,
+      "sha256": "b01da626d1f1f947b9303a680275515f7addeab070315b3a6e8090ec903074ec",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/_Imports.razor",
+      "name": "_Imports.razor",
+      "ext": ".razor",
+      "size": 821,
+      "sha256": "bce1f8fc70020b8cc7c5d3eac7baa62b1de69594165522ec24c995d1cf1f10bc",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Models/BrandingSettings.cs",
+      "name": "BrandingSettings.cs",
+      "ext": ".cs",
+      "size": 14095,
+      "sha256": "c88b9d62c1f2e47e0ca4ed1da1d77e785bf572bf4e3f72761b4a9a188fa322e2",
+      "module": "Quasar.Models",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Models/DedicatedServerDefinition.cs",
+      "name": "DedicatedServerDefinition.cs",
+      "ext": ".cs",
+      "size": 4210,
+      "sha256": "3676dd619f3f7bce86b84ad2eef1bddf701fcb3f16fba4133637c1f564f88187",
+      "module": "Quasar.Models",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Models/DedicatedServerGoalState.cs",
+      "name": "DedicatedServerGoalState.cs",
+      "ext": ".cs",
+      "size": 92,
+      "sha256": "22efd90a870ee667cbbc6f5e80f09bd94b0d34217b5c2a69e73c5e2bf08197b8",
+      "module": "Quasar.Models",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Models/DedicatedServerHealthState.cs",
+      "name": "DedicatedServerHealthState.cs",
+      "ext": ".cs",
+      "size": 139,
+      "sha256": "6294bbc8d8049a0a5fe902832d6677731a69a4bd227e917c6655e4466158dd94",
+      "module": "Quasar.Models",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Models/DedicatedServerProcessPriority.cs",
+      "name": "DedicatedServerProcessPriority.cs",
+      "ext": ".cs",
+      "size": 158,
+      "sha256": "2f0da26bc05ff239929da0e4f63ed7bbce6ebf995d027a3221ddb84cfb28ce78",
+      "module": "Quasar.Models",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Models/DedicatedServerProcessState.cs",
+      "name": "DedicatedServerProcessState.cs",
+      "ext": ".cs",
+      "size": 194,
+      "sha256": "7fe27b0030454f18bba1d0e3b86a2d35952e6bc90ca14f7769f82d4e49f63021",
+      "module": "Quasar.Models",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Models/DedicatedServerRuntimeSnapshot.cs",
+      "name": "DedicatedServerRuntimeSnapshot.cs",
+      "ext": ".cs",
+      "size": 1223,
+      "sha256": "1d2d2a02888e2ed4734df041b911a81500e55f7a31a21bf7dc212981ddcafdce",
+      "module": "Quasar.Models",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Models/KnownPlayerRecord.cs",
+      "name": "KnownPlayerRecord.cs",
+      "ext": ".cs",
+      "size": 1324,
+      "sha256": "6eaf4d314b859765fda2007bfdbad1f589b5ee20f60793185b9672b153acce88",
+      "module": "Quasar.Models",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Models/QuasarConfigProfile.cs",
+      "name": "QuasarConfigProfile.cs",
+      "ext": ".cs",
+      "size": 12164,
+      "sha256": "f549a61bf7c8e6bd8267930058c3c1113738c6ab01aa40abbd8f0cb90a2ee337",
+      "module": "Quasar.Models",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Models/QuasarWorldTemplate.cs",
+      "name": "QuasarWorldTemplate.cs",
+      "ext": ".cs",
+      "size": 344,
+      "sha256": "3650ab077caec8c28619c6dcbb3ce7b2365d33d3f5d1b1aa17914e17b75ba172",
+      "module": "Quasar.Models",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Program.cs",
+      "name": "Program.cs",
+      "ext": ".cs",
+      "size": 24804,
+      "sha256": "63565488bdc1d111176536d2f84d28ca9644347a71012755fedaf0fd44cd51c8",
+      "module": "Quasar.Host",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Properties/launchSettings.json",
+      "name": "launchSettings.json",
+      "ext": ".json",
+      "size": 340,
+      "sha256": "0c29194d8b1bda70ce33cb7b244c2e3ba3f3f686716f2cfc14ff67f2d538a766",
+      "module": "Quasar.Host",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Quasar.csproj",
+      "name": "Quasar.csproj",
+      "ext": ".csproj",
+      "size": 3522,
+      "sha256": "c20e3cbde973c0e433a1f6b487aeaaf52c01c74edfa748113a47566dab7f8286",
+      "module": "Quasar.Host",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/AgentRegistry.cs",
+      "name": "AgentRegistry.cs",
+      "ext": ".cs",
+      "size": 13412,
+      "sha256": "2f06c9d2e7ee204f28a8c1fb88f6d87d8c1578d48b59af2bb5f4359180608a20",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/AgentSocketHandler.cs",
+      "name": "AgentSocketHandler.cs",
+      "ext": ".cs",
+      "size": 7248,
+      "sha256": "911aed8dc8fd0a32473cdd0c23d33e090fbcbfde7a88567e628002e6d9d83b44",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Analytics/AnalyticsViewConfig.cs",
+      "name": "AnalyticsViewConfig.cs",
+      "ext": ".cs",
+      "size": 1481,
+      "sha256": "df54cd2792497023b6335fd08d69ccc35d9c547eeea5f62916947b030ad6bba2",
+      "module": "Quasar.Services.Analytics",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Analytics/MetricSample.cs",
+      "name": "MetricSample.cs",
+      "ext": ".cs",
+      "size": 1047,
+      "sha256": "2901f4b2e7eb1eec2d4e930bf7cf13a916fd4646f15e517735b40829d68dab8b",
+      "module": "Quasar.Services.Analytics",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Analytics/MetricSampleFactory.cs",
+      "name": "MetricSampleFactory.cs",
+      "ext": ".cs",
+      "size": 980,
+      "sha256": "48297223554f3b7533fa2dde8951f5b9b8ed731cce5bd25ab3201c8f148882be",
+      "module": "Quasar.Services.Analytics",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Analytics/MetricsStoreService.cs",
+      "name": "MetricsStoreService.cs",
+      "ext": ".cs",
+      "size": 9273,
+      "sha256": "22a37de64e1b2d8743730774fed6f0f34b6c1fc28ccfb1ddab3cefcb76aa7740",
+      "module": "Quasar.Services.Analytics",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Analytics/RrdCircularBuffer.cs",
+      "name": "RrdCircularBuffer.cs",
+      "ext": ".cs",
+      "size": 3493,
+      "sha256": "98f291c7061eb2fa48509e53ce9a7a376781151c13cdc4f2d4e9b9e68869594e",
+      "module": "Quasar.Services.Analytics",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Analytics/RrdRollupBuffer.cs",
+      "name": "RrdRollupBuffer.cs",
+      "ext": ".cs",
+      "size": 4336,
+      "sha256": "c19b973671d6340c467885e8fc8030cba485c9ab7d6fc9fb71c85851dae3b350",
+      "module": "Quasar.Services.Analytics",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Analytics/ServerMetricsStore.cs",
+      "name": "ServerMetricsStore.cs",
+      "ext": ".cs",
+      "size": 864,
+      "sha256": "e90d38ca28e98b60ca2022ad3add475dffc9c42f91f3a4eb0fa4a73d4113dae5",
+      "module": "Quasar.Services.Analytics",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/AtomicFileWriter.cs",
+      "name": "AtomicFileWriter.cs",
+      "ext": ".cs",
+      "size": 1789,
+      "sha256": "8e51041c2fe8002215ee9ae7901ae6298612b1c6014426577efe8589a59724db",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Auth/QuasarAuthConstants.cs",
+      "name": "QuasarAuthConstants.cs",
+      "ext": ".cs",
+      "size": 2244,
+      "sha256": "c3a8040d7d18a335425f8f2bdf2aff95544e92e4a8cf8d3257102bd0ce202c79",
+      "module": "Quasar.Services.Auth",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Auth/QuasarAuthOptions.cs",
+      "name": "QuasarAuthOptions.cs",
+      "ext": ".cs",
+      "size": 5725,
+      "sha256": "b07f9012cbb0e9e17ca02f5b302aaee16f98f4f1498c3704edc7e4c166d38b91",
+      "module": "Quasar.Services.Auth",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Auth/QuasarRoleMapper.cs",
+      "name": "QuasarRoleMapper.cs",
+      "ext": ".cs",
+      "size": 2018,
+      "sha256": "06f6b62925f0eeb0c191723b9f2eeb36e0c9ced1fb639284c8d3069ef77b86ee",
+      "module": "Quasar.Services.Auth",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Auth/RbacConfig.cs",
+      "name": "RbacConfig.cs",
+      "ext": ".cs",
+      "size": 4473,
+      "sha256": "f30d7e28ba0727119eb6356155cdeac76a597a1c27dbb63341784794b3671d4b",
+      "module": "Quasar.Services.Auth",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Auth/RbacConfigCatalog.cs",
+      "name": "RbacConfigCatalog.cs",
+      "ext": ".cs",
+      "size": 5867,
+      "sha256": "68a4ec55ee9a40cb8eb5e1da5e531896f9197dadd26b530c793abe185d89b4c0",
+      "module": "Quasar.Services.Auth",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Auth/TrustedNetworkEvaluator.cs",
+      "name": "TrustedNetworkEvaluator.cs",
+      "ext": ".cs",
+      "size": 2545,
+      "sha256": "129226ffae494dc07352f02c5fb1f4ed292d0cf1cac51ee04f98267e34ec802f",
+      "module": "Quasar.Services.Auth",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/BrandingPresets.cs",
+      "name": "BrandingPresets.cs",
+      "ext": ".cs",
+      "size": 7510,
+      "sha256": "bb209954f01cb62ff9a59034c5c40da882f5cc0cd06623e453b28af2a408130d",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/BrandingService.cs",
+      "name": "BrandingService.cs",
+      "ext": ".cs",
+      "size": 9910,
+      "sha256": "6e5f3638166dada2bde1036e458ae75cf5a17652f76da02e8a53f1d0f3f17973",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/BrowserLauncher.cs",
+      "name": "BrowserLauncher.cs",
+      "ext": ".cs",
+      "size": 1692,
+      "sha256": "2f3504d194a3c8a053d49a6f00d169de0e31692850677a6846054fc962a58a1c",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/DedicatedServerCatalog.cs",
+      "name": "DedicatedServerCatalog.cs",
+      "ext": ".cs",
+      "size": 20528,
+      "sha256": "166520b41a1dbf5a052fc9ccf5d42cdfbbcd385298b0a604a91f154c966b4ef6",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/DedicatedServerRuntimePreparer.cs",
+      "name": "DedicatedServerRuntimePreparer.cs",
+      "ext": ".cs",
+      "size": 35111,
+      "sha256": "a5bcda222ffb229d02a637ba84a9e05896f3aeceed92a0bf21187b675a8d35ba",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/DedicatedServerSupervisor.cs",
+      "name": "DedicatedServerSupervisor.cs",
+      "ext": ".cs",
+      "size": 66359,
+      "sha256": "dfebea9f8ae545f2798c2d564039d3240436df4b1f4ff31ec6ccd96f5299d779",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Discord/DeathMessagesCatalog.cs",
+      "name": "DeathMessagesCatalog.cs",
+      "ext": ".cs",
+      "size": 7003,
+      "sha256": "f507f2d03d57b4d7130073a923dede37b796380ae98bc73b99809cc8fa8886a6",
+      "module": "Quasar.Services.Discord",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Discord/DeathMessagesConfig.cs",
+      "name": "DeathMessagesConfig.cs",
+      "ext": ".cs",
+      "size": 4219,
+      "sha256": "c785f7db36b9b1364d501273978dcb745f5a5606590838b17870b2ec8678588a",
+      "module": "Quasar.Services.Discord",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Discord/DiscordAnalyticsExportService.cs",
+      "name": "DiscordAnalyticsExportService.cs",
+      "ext": ".cs",
+      "size": 5716,
+      "sha256": "bb9a10fa370277a6e8ba6e3ed7c85eca11f4efbf3454f722db02353abec16a92",
+      "module": "Quasar.Services.Discord",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Discord/DiscordBotService.cs",
+      "name": "DiscordBotService.cs",
+      "ext": ".cs",
+      "size": 9692,
+      "sha256": "cd189704b375bb54be3394f9b1f5c187d9bfb9c45e3fa8a153736231f9c16491",
+      "module": "Quasar.Services.Discord",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Discord/DiscordChatRelayService.cs",
+      "name": "DiscordChatRelayService.cs",
+      "ext": ".cs",
+      "size": 5791,
+      "sha256": "aca38f1f70c8ee258c3abbf44173d8266e0b8237c385037cfcdf927ad38205a7",
+      "module": "Quasar.Services.Discord",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Discord/DiscordCommandDispatcher.cs",
+      "name": "DiscordCommandDispatcher.cs",
+      "ext": ".cs",
+      "size": 12072,
+      "sha256": "7c8684a8a4ced4f019faeb4887fa0a64fb40e2ca4035702ca0bd6288ec32fa15",
+      "module": "Quasar.Services.Discord",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Discord/DiscordCommandRouter.cs",
+      "name": "DiscordCommandRouter.cs",
+      "ext": ".cs",
+      "size": 2770,
+      "sha256": "b1511c1c895b0b2ae9c9f5070674f6f1e30b55a426b6c0519be25f8f45d65dad",
+      "module": "Quasar.Services.Discord",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Discord/DiscordDeathRelayService.cs",
+      "name": "DiscordDeathRelayService.cs",
+      "ext": ".cs",
+      "size": 4980,
+      "sha256": "f9291bd64331a656fec18be8fae184f850830876eccc0fb0afcbbd5de6af27be",
+      "module": "Quasar.Services.Discord",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Discord/DiscordLogRelayService.cs",
+      "name": "DiscordLogRelayService.cs",
+      "ext": ".cs",
+      "size": 5457,
+      "sha256": "17b1694c475ebbf1148b311d2dff8e231a1e682f63021acf33974437df826822",
+      "module": "Quasar.Services.Discord",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Discord/DiscordOptions.cs",
+      "name": "DiscordOptions.cs",
+      "ext": ".cs",
+      "size": 4759,
+      "sha256": "af365583571b538a71e0c9caa5bb10c57e62feb5e90c4e7e5930f16ece7fd9c3",
+      "module": "Quasar.Services.Discord",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Discord/DiscordOptionsCatalog.cs",
+      "name": "DiscordOptionsCatalog.cs",
+      "ext": ".cs",
+      "size": 5394,
+      "sha256": "7382fa21889c9ddcfb74f96395a5fa84e9e245ee2a0dcb0be5f89f3fb9756ca7",
+      "module": "Quasar.Services.Discord",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Discord/DiscordRateLimiter.cs",
+      "name": "DiscordRateLimiter.cs",
+      "ext": ".cs",
+      "size": 1199,
+      "sha256": "ea8fe51808b642539f1f0c94eb450ca6d0607b88253015bacf1ad046451edf1f",
+      "module": "Quasar.Services.Discord",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/EntityService.cs",
+      "name": "EntityService.cs",
+      "ext": ".cs",
+      "size": 2480,
+      "sha256": "0a108ec41c5c780c4559e980d8ef38c847cd17e98279f80e3e863e5e6519cba2",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/FileBrowserService.cs",
+      "name": "FileBrowserService.cs",
+      "ext": ".cs",
+      "size": 3406,
+      "sha256": "3b0e1e6447369cfe21dbb2939d743585ba89a5a0da45de88548d25fa01a387e7",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/KnownPlayerCatalog.cs",
+      "name": "KnownPlayerCatalog.cs",
+      "ext": ".cs",
+      "size": 13954,
+      "sha256": "d76f94463898719b88a4e9eb83c181a80f4b83e867b9b51ee9789f67797602b8",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs",
+      "name": "ManagedDedicatedServerRuntimeResolver.cs",
+      "ext": ".cs",
+      "size": 32602,
+      "sha256": "625591e82d9f60932f8f3dec26456d096bcdd528653bf017d2337ca0370faf76",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/ManagedRuntimeOptions.cs",
+      "name": "ManagedRuntimeOptions.cs",
+      "ext": ".cs",
+      "size": 5221,
+      "sha256": "72792ed9a30c66b8f2416fd79da2788729d39e9f1da26e5c37bf559148b87b68",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/ManagedRuntimeWarmupService.cs",
+      "name": "ManagedRuntimeWarmupService.cs",
+      "ext": ".cs",
+      "size": 2476,
+      "sha256": "329fcc507bce8fd94ff4c6e61dc1876cb65cca344818c3790282e88c60e03f2e",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/PluginManifestReader.cs",
+      "name": "PluginManifestReader.cs",
+      "ext": ".cs",
+      "size": 2829,
+      "sha256": "1f6a5eaba8990c9bd375b9d993827f333411ac46d705a1e82771f377676ff4b1",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/PluginSdk/PluginConfigDtos.cs",
+      "name": "PluginConfigDtos.cs",
+      "ext": ".cs",
+      "size": 5165,
+      "sha256": "0bddf3952fddab8085b7488d5e53a4e50275da06e4aab120ffbb38b5f8b3ff7f",
+      "module": "Quasar.Services.PluginSdk",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/PluginSdk/PluginConfigService.cs",
+      "name": "PluginConfigService.cs",
+      "ext": ".cs",
+      "size": 4518,
+      "sha256": "f645bbad6f2beb95f7f2a02402f51e013f613e19977e2900c5ae5207c85dc1ac",
+      "module": "Quasar.Services.PluginSdk",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/PluginSdk/PluginLogEntry.cs",
+      "name": "PluginLogEntry.cs",
+      "ext": ".cs",
+      "size": 1516,
+      "sha256": "519f1b13c322a768b9cd865d2135b95dcb5eebaa98613a7696c2e9690bcce005",
+      "module": "Quasar.Services.PluginSdk",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/PluginSdk/PluginLogStream.cs",
+      "name": "PluginLogStream.cs",
+      "ext": ".cs",
+      "size": 8041,
+      "sha256": "54da204f0c879c2e7fcd2d16296d9b521811258fd050ea6884b9c04a306e24ac",
+      "module": "Quasar.Services.PluginSdk",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/QuasarConfigMetadata.cs",
+      "name": "QuasarConfigMetadata.cs",
+      "ext": ".cs",
+      "size": 27588,
+      "sha256": "477f0b2b7c32f3ec4f87448fe9cc66f7ff679abb97868dbe76bbcb7fc01b37ed",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/QuasarConfigProfileCatalog.cs",
+      "name": "QuasarConfigProfileCatalog.cs",
+      "ext": ".cs",
+      "size": 14473,
+      "sha256": "d780c6c8525dff622dacaaf7678988ddba17ca9fdff8f3072594a986283b6a1a",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/QuasarDevFolderCatalog.cs",
+      "name": "QuasarDevFolderCatalog.cs",
+      "ext": ".cs",
+      "size": 4906,
+      "sha256": "f1b373e6df45bdd73c9e41dd4ef19939fca9f3712c8df259a16847217a123f97",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/QuasarLoggingConfigurator.cs",
+      "name": "QuasarLoggingConfigurator.cs",
+      "ext": ".cs",
+      "size": 3470,
+      "sha256": "ffc7d16b75313046045ddfa11674c67b804ffae16c3e54d1d0e4007b30f963b6",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/QuasarPluginCatalogService.cs",
+      "name": "QuasarPluginCatalogService.cs",
+      "ext": ".cs",
+      "size": 11336,
+      "sha256": "cb6271d2c51d90245be31013b46704d412e1f117b1933fdbe081be2444b241b8",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/QuasarShutdownService.cs",
+      "name": "QuasarShutdownService.cs",
+      "ext": ".cs",
+      "size": 1975,
+      "sha256": "020400369595a421df2981f49b7018a33a958af4afdc4a52346b8ee22c340dca",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/QuasarTheme.cs",
+      "name": "QuasarTheme.cs",
+      "ext": ".cs",
+      "size": 2419,
+      "sha256": "a5776c1fbe287779a60fd466fdade2f20a257a5e9dcde239d94e8b4760adffdf",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/QuasarWorkshopModResolver.cs",
+      "name": "QuasarWorkshopModResolver.cs",
+      "ext": ".cs",
+      "size": 19926,
+      "sha256": "b10f99c8ff2b47936874778805032f077c52bc268e2d1ac2d041509b2aeb5448",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/QuasarWorldTemplateCatalog.cs",
+      "name": "QuasarWorldTemplateCatalog.cs",
+      "ext": ".cs",
+      "size": 16601,
+      "sha256": "31620e977ed0d56d2b787c3848fbe2f8bc4ac0675a5b68e17d428c5499afe47c",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/SteamWorkshopCredentialsCatalog.cs",
+      "name": "SteamWorkshopCredentialsCatalog.cs",
+      "ext": ".cs",
+      "size": 9232,
+      "sha256": "eadad9b75cc043ed72d52dbbe8b18628fdce2b6243d5e4c72bd0997e3f6a80a3",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/TextSanitizer.cs",
+      "name": "TextSanitizer.cs",
+      "ext": ".cs",
+      "size": 877,
+      "sha256": "7b96e083e0fb6398f74a07318a5e60e7bd98b4cdf4c439e10a61e52c9d29437c",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/ThemePreferenceService.cs",
+      "name": "ThemePreferenceService.cs",
+      "ext": ".cs",
+      "size": 3141,
+      "sha256": "30610d8add18d5cb6d94a0729ddc6c6de99340fccf9c6d175e7715010c3c4f39",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/WebServiceManifestHostedService.cs",
+      "name": "WebServiceManifestHostedService.cs",
+      "ext": ".cs",
+      "size": 5942,
+      "sha256": "9fd6d1435aa4b69647058533295eb3adf61f889f9e1f4d19f1b4310113bab84b",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/WebServiceOptions.cs",
+      "name": "WebServiceOptions.cs",
+      "ext": ".cs",
+      "size": 8891,
+      "sha256": "e2bf722facb93693141f5aede16c556e24ebd0d5287383d9cc3bc4dc48aa0909",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/WebServiceState.cs",
+      "name": "WebServiceState.cs",
+      "ext": ".cs",
+      "size": 717,
+      "sha256": "0d6021fe72fcabf0e0dad9d9b49d9601406bf5a33caf5838765fc26d95aee585",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/WorldSandboxConfigEditor.cs",
+      "name": "WorldSandboxConfigEditor.cs",
+      "ext": ".cs",
+      "size": 4661,
+      "sha256": "86c8b773e9b7c030098a1497f58c083fc0838b4edf49b6a9c908407ff82b4474",
+      "module": "Quasar.Services.Core",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/appsettings.Development.json",
+      "name": "appsettings.Development.json",
+      "ext": ".json",
+      "size": 119,
+      "sha256": "817db0bf2ecca78364c41dbaf7949bf2504cf47a1c3d0d54f3be8178fefc030b",
+      "module": "Quasar.Host",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/appsettings.json",
+      "name": "appsettings.json",
+      "ext": ".json",
+      "size": 1995,
+      "sha256": "4d19f7e478e28a5475325b460c22c6b74521262a518fbcc53b75bbb1ef5f5fc8",
+      "module": "Quasar.Host",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/wwwroot/Quasar-inverted-transparent.png",
+      "name": "Quasar-inverted-transparent.png",
+      "ext": ".png",
+      "size": 133317,
+      "sha256": "bb9df5a31e6c9db2998f61daa1178aadc443d976734f4f57e94d0eb572f2c061",
+      "module": "Quasar.Host",
+      "tier": 3,
+      "status": "skipped-binary"
+    },
+    {
+      "path": "Quasar/wwwroot/Quasar-inverted.ico",
+      "name": "Quasar-inverted.ico",
+      "ext": ".ico",
+      "size": 370070,
+      "sha256": "7245249bdceb07c046ae93c20b27354ac0b7e2418d408ca5f379caa913add8b1",
+      "module": "Quasar.Host",
+      "tier": 3,
+      "status": "skipped-binary"
+    },
+    {
+      "path": "Quasar/wwwroot/Quasar.ico",
+      "name": "Quasar.ico",
+      "ext": ".ico",
+      "size": 370070,
+      "sha256": "cb77be9ff31e0c9b0dfdd88bd1084fe10952c609c22726bebf9d54deb9d79f7f",
+      "module": "Quasar.Host",
+      "tier": 3,
+      "status": "skipped-binary"
+    },
+    {
+      "path": "Quasar/wwwroot/Quasar.png",
+      "name": "Quasar.png",
+      "ext": ".png",
+      "size": 1374013,
+      "sha256": "c58d6286a73371ffe109e718ee3a11aed4f37bd1afde51746d76417f73327d73",
+      "module": "Quasar.Host",
+      "tier": 3,
+      "status": "skipped-binary"
+    },
+    {
+      "path": "Quasar/wwwroot/app.css",
+      "name": "app.css",
+      "ext": ".css",
+      "size": 10818,
+      "sha256": "60e412b6eda796be95447f4ba9f27177e1af2334fc148d5a14d6e6ae2ff66faf",
+      "module": "Quasar.Host",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/wwwroot/quasar-configs.js",
+      "name": "quasar-configs.js",
+      "ext": ".js",
+      "size": 1249,
+      "sha256": "d46ecd1e844fb1404e8fff18a57613e13f4f21f744fceda190e00fa398eb34f2",
+      "module": "Quasar.Host",
+      "tier": 3,
+      "status": "documented"
+    }
+  ]
+}

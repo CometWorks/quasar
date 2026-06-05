@@ -1,0 +1,54 @@
+# Quasar/Models/DedicatedServerDefinition.cs
+
+**Module:** Quasar.Models  **Kind:** class  **Tier:** 1
+
+## Summary
+Persistent configuration record for a single managed Space Engineers dedicated server. Contains all fields needed to launch, supervise, health-monitor, and schedule restarts for a server, as well as process-priority settings. Serialized to disk as part of the server catalog.
+
+## Structure
+Namespace: `Quasar.Models`  
+`public sealed class DedicatedServerDefinition` — no base class, no interfaces.
+
+| Member | Description |
+|---|---|
+| `UniqueName` | Stable machine key for the server (filename-safe slug). |
+| `DisplayName` | Human-readable label shown in the UI. |
+| `OriginalUniqueName` | Pre-rename value used during rename operations; `[JsonIgnore]`, never persisted. |
+| `GoalState` | Desired on/off state (`DedicatedServerGoalState`). |
+| `ExecutablePath` | Path to the SE dedicated server executable. |
+| `WorkingDirectory` | Process working directory. |
+| `DedicatedServerAppDataPath` | SE server AppData path override. |
+| `MagnetarAppDataPath` | Magnetar plugin AppData path. |
+| `WorldPath` | Path to the world save directory. |
+| `ConfigFilePath` | Path to the server config XML. |
+| `ConfigProfileId` | Reference to a `QuasarConfigProfile` by ID. |
+| `WorldTemplateId` | Reference to a `QuasarWorldTemplate` by ID. |
+| `LaunchArguments` | Extra CLI arguments appended at launch. |
+| `ServerPort` | UDP game port (default 27016). |
+| `ServerIP` | Bind IP (default "0.0.0.0"). |
+| `AutoStart` | Whether Quasar starts this server on its own startup. |
+| `EnableHealthMonitoring` | Enables simulation-progress health checks. |
+| `AutoRestartOnUnhealthy` | Trigger restart when health degrades to Unhealthy. |
+| `AgentStartupGraceSeconds` | Seconds to wait for agent attach before declaring unhealthy (default 180). |
+| `AgentHeartbeatTimeoutSeconds` | Agent heartbeat timeout (default 20 s). |
+| `SimulationProgressWindowSeconds` | Rolling window for sim-progress score (default 30 s). |
+| `MinimumSimulationProgressScore` | Floor sim-progress score before unhealthy (default 0.1). |
+| `WarnAfterUptimeHours` | Hours before a warning health state is raised. |
+| `RecycleAfterUptimeHours` | Hours before a scheduled graceful restart (0 = disabled). |
+| `RestartOnCrash` | Whether to restart after an unexpected process exit. |
+| `RestartDelaySeconds` | Pause before restart attempt (default 5 s). |
+| `MaxRestartAttempts` | Restart attempt cap (0 = unlimited). |
+| `DailyRestartTimeLocal` | Local time string for a daily scheduled restart (empty = disabled). |
+| `MaximumUptime` | TimeSpan string for maximum uptime before forced restart (empty = disabled). |
+| `AvoidSimultaneousScheduledRestarts` | Staggers restarts so multiple servers don't stop at once. |
+| `StartupProcessPriority` | OS process priority while the server is starting up. |
+| `ReadyProcessPriority` | OS process priority once the server is running. |
+| `UpdatedAtUtc` | Timestamp of the last configuration save. |
+| `Clone()` | Shallow copy of all fields (used before mutations). |
+
+## Dependencies
+- [`Quasar/Models/DedicatedServerGoalState.cs`](DedicatedServerGoalState.cs.md)
+- `Quasar/Models/DedicatedServerProcessPriority.cs`
+
+## Notes
+`OriginalUniqueName` carries the pre-rename key across a rename transaction so the supervisor can clean up the old runtime entry; it must never be written to disk.

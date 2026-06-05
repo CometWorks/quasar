@@ -1,0 +1,51 @@
+# Quasar/Components/Dashboard/ServerDetailPanel.razor
+
+**Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
+
+## Summary
+Detail panel embedded inside `ServerCard`. When the agent snapshot is absent it shows a waiting/error message and basic process state chips. When a snapshot is present it renders live metrics chips, Refresh/Save buttons, a chat broadcast field, a players table with per-player action menus (kick/ban/set role), a recent-chat list, a plugins table, and recent command results.
+
+## Structure
+No `@page` route — used as a child component.
+
+**Injected services:**
+- `AgentRegistry Registry` — dispatches `ServerCommandEnvelope` messages to the agent.
+- `QuasarConfigProfileCatalog ConfigProfiles` — resolves configured `MaxPlayers` from the linked config profile.
+- `ISnackbar Snackbar` — success/error toast notifications.
+
+**Parameters:**
+| Parameter | Type |
+|---|---|
+| `Server` | `DedicatedServerDefinition?` |
+| `Runtime` | `DedicatedServerRuntimeSnapshot?` |
+| `Agent` | `AgentRuntimeState?` |
+
+**Key private state:**
+- `_chatText` — bound to the broadcast message field.
+- `_menuOpen` — suppresses re-render while a player action menu is open via `ShouldRender()`.
+
+**Key private methods:**
+- `SendCommandAsync(ServerCommandType, text, steamId?)` — builds and sends a `ServerCommandEnvelope` via `AgentRegistry`, shows a snackbar.
+- `SendChatAsync()` — validates and dispatches `ServerCommandType.SendChat`.
+- `HandleChatKeyDownAsync` — triggers send on Enter key.
+- `FormatDuration(int)` / `FormatTimestamp(long)` — display helpers.
+- `GetMaxPlayers()` — checks config profile first, falls back to snapshot metrics.
+- `GetWaitingText()` — state-dependent placeholder message.
+- `GetPlatformName` / `GetRoleLabel` / `IsCurrentPromoteLevel` / `GetServiceLabel` — player table helpers.
+
+**Static field:** `PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"]`.
+
+**MudBlazor components used:** `MudAlert`, `MudStack`, `MudChip`, `MudButton`, `MudTextField`, `MudTable`, `MudTh`, `MudTd`, `MudMenu`, `MudMenuItem`, `MudDivider`, `MudText`.
+
+## Dependencies
+- [`Quasar/Services/AgentRegistry.cs`](../../Services/AgentRegistry.cs.md) — command dispatch and agent lookup
+- `Quasar/Services/QuasarConfigProfileCatalog.cs` — max-player resolution
+- `Magnetar.Protocol.Model.ServerCommandEnvelope`, `ServerCommandType`
+- `Magnetar.Protocol.Model.DedicatedServerDefinition`
+- `Magnetar.Protocol.Model.DedicatedServerRuntimeSnapshot`, `DedicatedServerProcessState`
+- `Magnetar.Protocol.Model.AgentRuntimeState`, `PlayerSnapshot`, `PluginRuntimeInfo`
+- `Quasar.TextSanitizer` — game-text cleaning for player names and chat
+- MudBlazor
+
+## Notes
+`ShouldRender()` returns `false` while `_menuOpen` is `true`, preventing the live-update cycle from collapsing an open player action menu. The parent Dashboard page re-renders this panel on every agent snapshot tick.
