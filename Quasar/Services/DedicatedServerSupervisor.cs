@@ -52,6 +52,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _options = options;
         _pluginLogStream = pluginLogStream;
         _logger = logger;
+
+        // When set (the default), Quasar leaves managed servers running on its own
+        // shutdown instead of stopping them — they are detached (Magnetar -daemon /
+        // setsid) and reconnect when Quasar comes back. Without this wiring the field
+        // stayed false, so StopAsync stopped every server on a normal Ctrl-C.
+        _preserveManagedServersOnShutdown = options.PreserveManagedServersOnShutdown;
     }
 
     public event Action? Changed;
@@ -564,6 +570,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             current.State = DedicatedServerProcessState.Starting;
             current.ProcessId = process.Id;
             current.StartedAtUtc = DateTimeOffset.UtcNow;
+            current.AgentWatchSinceUtc = current.StartedAtUtc;
             current.StoppedAtUtc = null;
             current.LastExitCode = null;
             current.LastMessage = "Process started; waiting for server online signal.";
@@ -897,6 +904,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
                     state.Process = process;
                     state.ProcessId = process.Id;
+                    // Give the agent a fresh grace window to reconnect to this new
+                    // worker before health monitoring can judge the adopted server
+                    // unhealthy and restart (kill) it.
+                    state.AgentWatchSinceUtc = DateTimeOffset.UtcNow;
                     state.State = persistedState.State is DedicatedServerProcessState.Starting
                         or DedicatedServerProcessState.Running
                         or DedicatedServerProcessState.Restarting
@@ -1147,7 +1158,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         if (agent is null || !agent.IsConnected)
         {
-            if (uptime < TimeSpan.FromSeconds(state.Definition.AgentStartupGraceSeconds))
+            // Count the attach grace from when we started watching for the agent
+            // (adoption time for a re-adopted process), not the original start — an
+            // adopted long-running server must get time for its agent to reconnect.
+            var agentWatch = state.AgentWatchSinceUtc ?? state.StartedAtUtc;
+            var agentWait = agentWatch.HasValue ? now - agentWatch.Value : uptime;
+            if (agentWait < TimeSpan.FromSeconds(state.Definition.AgentStartupGraceSeconds))
             {
                 return new ServerHealthAssessment(
                     DedicatedServerHealthState.Warning,
@@ -1633,6 +1649,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public string LastMessage { get; set; } = string.Empty;
 
         public DateTimeOffset? StartedAtUtc { get; set; }
+
+        // When the supervisor began expecting an agent connection for the current
+        // process. Equals StartedAtUtc for a fresh launch, but is reset to "now" when
+        // a surviving process is adopted after a worker restart — so the agent-attach
+        // grace counts from adoption, not the (possibly hours-old) original start.
+        public DateTimeOffset? AgentWatchSinceUtc { get; set; }
 
         public DateTimeOffset? StoppedAtUtc { get; set; }
 

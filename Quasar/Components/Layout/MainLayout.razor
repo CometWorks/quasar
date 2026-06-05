@@ -2,7 +2,9 @@
 @implements IDisposable
 @inject ThemePreferenceService ThemePreference
 @inject QuasarShutdownService ShutdownService
+@inject WebServiceOptions WebServiceOptions
 @inject BrandingService BrandingService
+@inject IJSRuntime JS
 
 <MudThemeProvider Theme="@ThemePreference.Theme" IsDarkMode="@_isDarkMode" IsDarkModeChanged="OnSystemDarkModeChangedAsync" ObserveSystemDarkModeChange="@(_themeMode == ThemeMode.System)" />
 <MudPopoverProvider />
@@ -49,7 +51,17 @@
         </AuthorizeView>
         <AuthorizeView Policy="@QuasarPolicyNames.CanShutdownQuasar">
             <Authorized>
-                <MudTooltip Text="Shut down Quasar">
+                @if (IsUnderBootstrap)
+                {
+                    <MudTooltip Text="Restart Quasar worker (keeps servers running)">
+                        <MudIconButton
+                            Icon="@Icons.Material.Filled.RestartAlt"
+                            Color="Color.Inherit"
+                            Disabled="@_isShuttingDown"
+                            OnClick="HandleRestartWorkerClickAsync" />
+                    </MudTooltip>
+                }
+                <MudTooltip Text="Shut down all servers">
                     <MudIconButton
                         Icon="@Icons.Material.Filled.PowerSettingsNew"
                         Color="Color.Error"
@@ -60,23 +72,46 @@
         </AuthorizeView>
     </MudAppBar>
 
-    <MudMessageBox @ref="_shutdownMessageBox" Title="Shut down Quasar?">
+    <MudMessageBox @ref="_shutdownMessageBox" Title="Shut down all servers?">
         <MessageContent>
             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">
-                This will stop all running Magnetar servers before terminating Quasar.
+                This stops every running Magnetar server.
             </MudAlert>
             <MudText Typo="Typo.body2">
                 Each server is sent a graceful shutdown command and waited on for a clean exit.
-                If Quasar is running under <strong>Quasar Bootstrap</strong>, the service will be
-                automatically restarted afterwards. To prevent restart, stop the Bootstrap process
-                separately or relaunch with <code>--force</code>.
+                Quasar itself keeps running. To take Quasar fully offline, stop the Bootstrap
+                process separately or relaunch with <code>--force</code>.
             </MudText>
         </MessageContent>
         <YesButton>
             <MudButton Variant="Variant.Filled"
                        Color="Color.Error"
                        StartIcon="@Icons.Material.Filled.PowerSettingsNew">
-                Shut Down
+                Shut Down Servers
+            </MudButton>
+        </YesButton>
+        <CancelButton>
+            <MudButton Variant="Variant.Text" Color="Color.Default">Cancel</MudButton>
+        </CancelButton>
+    </MudMessageBox>
+
+    <MudMessageBox @ref="_restartWorkerMessageBox" Title="Restart Quasar worker?">
+        <MessageContent>
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">
+                Running Magnetar servers keep running — none are stopped.
+            </MudAlert>
+            <MudText Typo="Typo.body2">
+                The Quasar web worker restarts and re-adopts the detached servers by process id.
+                The web UI briefly disconnects and reconnects. Requires
+                <strong>Quasar Bootstrap</strong> to bring the worker back; without it the worker
+                only stops.
+            </MudText>
+        </MessageContent>
+        <YesButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Warning"
+                       StartIcon="@Icons.Material.Filled.RestartAlt">
+                Restart Worker
             </MudButton>
         </YesButton>
         <CancelButton>
@@ -123,6 +158,12 @@
     private bool _isShuttingDown = false;
     private string _shutdownStatus = string.Empty;
     private MudMessageBox? _shutdownMessageBox;
+    private MudMessageBox? _restartWorkerMessageBox;
+
+    // The worker is restartable only when it was launched by Quasar Bootstrap, which
+    // injects QUASAR_LAUNCHER_TOKEN (surfaced as WebServiceOptions.LauncherToken).
+    // Standalone runs have no launcher to respawn the worker, so hide the button.
+    private bool IsUnderBootstrap => !string.IsNullOrWhiteSpace(WebServiceOptions.LauncherToken);
 
     private string LogoSrc => _isDarkMode
         ? (BrandingService.Settings.LogoDarkPath ?? "/Quasar.png")
@@ -193,7 +234,7 @@
             return;
 
         _isShuttingDown = true;
-        _shutdownStatus = "Preparing shutdown…";
+        _shutdownStatus = "Stopping all servers…";
         await InvokeAsync(StateHasChanged);
 
         var progress = new Progress<string>(status =>
@@ -202,6 +243,34 @@
             _ = InvokeAsync(StateHasChanged);
         });
 
-        await ShutdownService.ShutdownAsync(progress);
+        try
+        {
+            await ShutdownService.StopAllServersAsync(progress);
+        }
+        finally
+        {
+            // Quasar keeps running, so re-enable the toolbar once servers are stopped.
+            _isShuttingDown = false;
+            _shutdownStatus = string.Empty;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task HandleRestartWorkerClickAsync()
+    {
+        var result = await _restartWorkerMessageBox!.ShowAsync();
+        if (result != true)
+            return;
+
+        _isShuttingDown = true;
+        _shutdownStatus = "Restarting Quasar worker… the page will reload when it is back.";
+        await InvokeAsync(StateHasChanged);
+
+        // The worker is about to stop, dropping this Blazor circuit, so hand off to a
+        // browser-side poller that reloads to the Dashboard once the new worker is
+        // healthy. Invoke it before stopping so the call reaches the client in time.
+        await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/");
+
+        ShutdownService.RestartWorker();
     }
 }
