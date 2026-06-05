@@ -18,17 +18,20 @@ public sealed class AgentSocketHandler
     private readonly AgentRegistry _registry;
     private readonly PluginConfigService _pluginConfigService;
     private readonly DedicatedServerSupervisor _supervisor;
+    private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<AgentSocketHandler> _logger;
 
     public AgentSocketHandler(
         AgentRegistry registry,
         PluginConfigService pluginConfigService,
         DedicatedServerSupervisor supervisor,
+        IHostApplicationLifetime lifetime,
         ILogger<AgentSocketHandler> logger)
     {
         _registry = registry;
         _pluginConfigService = pluginConfigService;
         _supervisor = supervisor;
+        _lifetime = lifetime;
         _logger = logger;
     }
 
@@ -74,6 +77,13 @@ public sealed class AgentSocketHandler
         }
     }
 
+    // NOTE on cancellation: `cancellationToken` here is the socket's
+    // RequestAborted. It is correct for reads and replies (they are meaningless
+    // once the agent is gone), but must NOT gate persistent state mutations: an
+    // agent disconnects the instant it finishes sending (its process is exiting),
+    // which would cancel the write mid-flight and silently drop the change.
+    // Handlers that mutate supervisor/catalog state use `_lifetime.ApplicationStopping`
+    // instead, so the change completes regardless of the socket.
     private async Task ProcessMessageAsync(
         AgentWireMessage message,
         string connectionId,
@@ -105,15 +115,17 @@ public sealed class AgentSocketHandler
                         "Admin stopped instance {UniqueName} in-game; setting goal state to Off.",
                         stoppedUniqueName);
 
-                    // Deliberately NOT the request-aborted token: the agent closes
-                    // this socket the instant it has sent the signal (its process is
-                    // shutting down), which would cancel the goal-state write
-                    // mid-flight and let the exit be treated as a crash and
-                    // restarted. This intent must persist regardless of the socket.
+                    // State mutations use the app-lifetime token, NOT the
+                    // request-aborted one (see note in ProcessMessageAsync): the
+                    // agent closes this socket the instant it has sent the signal
+                    // (its process is shutting down), which would otherwise cancel
+                    // the goal-state write mid-flight and let the exit be treated
+                    // as a crash and restarted. This intent must persist
+                    // regardless of the socket.
                     await _supervisor.SetGoalStateAsync(
                         stoppedUniqueName,
                         DedicatedServerInstanceGoalState.Off,
-                        CancellationToken.None);
+                        _lifetime.ApplicationStopping);
                 }
                 else
                 {
