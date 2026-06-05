@@ -18,6 +18,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private static readonly TimeSpan RestartCounterResetWindow = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan DefaultGracefulStopTimeout = TimeSpan.FromSeconds(30);
     private static readonly Regex PrefixedLogLinePattern = new(
         @"^(?<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,7})?)\s*[:\-]\s*(?<message>.*)$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -71,7 +72,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _shutdown.Cancel();
         _catalog.Changed -= HandleCatalogChanged;
 
-        if (_options.PreserveManagedInstancesOnShutdown || _preserveManagedInstancesOnShutdown)
+        if (_preserveManagedInstancesOnShutdown)
         {
             await PersistStateSnapshotAsync(CancellationToken.None);
             return;
@@ -89,7 +90,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         {
             try
             {
-                await StopInstanceAsync(uniqueName, cancellationToken);
+                await StopInstanceAsync(uniqueName, forceAfter: null, CancellationToken.None);
             }
             catch (Exception exception)
             {
@@ -143,6 +144,15 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (IsProcessActive(state.Process))
                 return;
 
+            // A start is already running for this instance (its process handle is
+            // assigned only late in StartProcessAsync). Without this guard two
+            // overlapping reconciles — the periodic loop and a catalog-change
+            // reconcile kicked off via Task.Run — both pass the IsProcessActive
+            // check and launch duplicate processes that then collide on the port.
+            if (state.StartInProgress)
+                return;
+
+            state.StartInProgress = true;
             state.StopRequested = false;
             state.State = state.IsRestartPending
                 ? DedicatedServerInstanceProcessState.Restarting
@@ -153,10 +163,23 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
 
         NotifyChanged();
-        await StartProcessAsync(state, cancellationToken);
+        try
+        {
+            await StartProcessAsync(state, cancellationToken);
+        }
+        finally
+        {
+            lock (_sync)
+            {
+                state.StartInProgress = false;
+            }
+        }
     }
 
-    public async Task StopInstanceAsync(string uniqueName, CancellationToken cancellationToken = default)
+    public Task StopInstanceAsync(string uniqueName, CancellationToken cancellationToken = default) =>
+        StopInstanceAsync(uniqueName, DefaultGracefulStopTimeout, cancellationToken);
+
+    public async Task StopInstanceAsync(string uniqueName, TimeSpan? forceAfter, CancellationToken cancellationToken = default)
     {
         ManagedInstanceState? state;
         Process? process;
@@ -191,18 +214,29 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(30));
-            await process.WaitForExitAsync(timeout.Token);
+            if (forceAfter is null)
+            {
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            else
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(forceAfter.Value);
+                await process.WaitForExitAsync(timeout.Token);
+            }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (forceAfter is not null && !cancellationToken.IsCancellationRequested)
         {
             if (IsProcessActive(process))
             {
                 _logger.LogWarning("Instance {UniqueName} did not stop gracefully. Killing process tree.", uniqueName);
                 process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(CancellationToken.None);
             }
         }
+
+        if (!IsProcessActive(process))
+            await HandleProcessExitedAsync(uniqueName);
     }
 
     public async Task RestartInstanceAsync(string uniqueName, CancellationToken cancellationToken = default)
@@ -316,7 +350,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     agent?.IsConnected == true &&
                     agent.Snapshot is not null)
                 {
-                    if (state.LastAppliedProcessPriority != state.Definition.ReadyProcessPriority)
+                    if (state.LastAppliedProcessPriority != state.Definition.ReadyProcessPriority &&
+                        state.LastFailedProcessPriority != state.Definition.ReadyProcessPriority)
                         priorityActions.Add((state.UniqueName, state.Definition.ReadyProcessPriority, "ready"));
                 }
 
@@ -483,6 +518,16 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         process.StartInfo.Environment["QUASAR_DS_CONFIG_PATH"] = launch.RuntimeConfigPath;
         process.StartInfo.Environment["QUASAR_LAST_SESSION_PATH"] = launch.LastSessionPath;
 
+        // How the agent should behave when it loses contact with Quasar: keep the
+        // server running and reconnect, and only save+stop after the configured
+        // offline window (zero/negative = stop promptly once Quasar is gone).
+        process.StartInfo.Environment["QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS"] =
+            _options.AgentOfflineShutdownSeconds.ToString(CultureInfo.InvariantCulture);
+        process.StartInfo.Environment["QUASAR_AGENT_RECONNECT_INTERVAL_SECONDS"] =
+            _options.AgentReconnectIntervalSeconds.ToString(CultureInfo.InvariantCulture);
+        process.StartInfo.Environment["QUASAR_AGENT_RECONNECT_JITTER_SECONDS"] =
+            _options.AgentReconnectJitterSeconds.ToString(CultureInfo.InvariantCulture);
+
         // Activate the PluginSdk QuasarLogSink inside the dedicated server: any
         // non-empty QUASAR_AGENT value makes plugins emit structured JSON log
         // lines on standard output (LogEnvironment.IsManagedByQuasar), which the
@@ -527,6 +572,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             current.IsRestartPending = false;
             current.StopRequested = false;
             current.LastAppliedProcessPriority = null;
+            current.LastFailedProcessPriority = null;
             ResetHealthTracking(current);
         }
 
@@ -562,18 +608,31 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (state.LastAppliedProcessPriority == priority)
                 return;
 
+            if (state.LastFailedProcessPriority == priority)
+                return;
+
             process = state.Process;
             if (!IsProcessActive(process))
                 return;
         }
 
         if (!TryApplyProcessPriority(uniqueName, process!, priority, phase))
+        {
+            lock (_sync)
+            {
+                if (_states.TryGetValue(uniqueName, out var state))
+                    state.LastFailedProcessPriority = priority;
+            }
             return;
+        }
 
         lock (_sync)
         {
             if (_states.TryGetValue(uniqueName, out var state))
+            {
                 state.LastAppliedProcessPriority = priority;
+                state.LastFailedProcessPriority = null;
+            }
         }
     }
 
@@ -1558,6 +1617,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         public bool IsRestartPending { get; set; }
 
+        // Set while a StartProcessAsync call is in flight for this instance.
+        // The OS process handle (Process) is only assigned late in that method,
+        // after the potentially slow managed-runtime resolve/copy, so this flag
+        // closes the window where two overlapping reconciles would both pass the
+        // IsProcessActive guard and launch duplicate processes.
+        public bool StartInProgress { get; set; }
+
         public int RestartAttempts { get; set; }
 
         public int? ProcessId { get; set; }
@@ -1581,6 +1647,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public string LastScheduledRestartKey { get; set; } = string.Empty;
 
         public DedicatedServerProcessPriority? LastAppliedProcessPriority { get; set; }
+
+        public DedicatedServerProcessPriority? LastFailedProcessPriority { get; set; }
 
         public ulong? LastSimulationFrameCounter { get; set; }
 

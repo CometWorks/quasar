@@ -42,11 +42,11 @@ public sealed class QuasarShutdownService
 
                 try
                 {
-                    await _supervisor.StopInstanceAsync(snapshot.UniqueName, cancellationToken);
+                    await _supervisor.StopInstanceAsync(snapshot.UniqueName, forceAfter: null, cancellationToken);
                 }
                 catch
                 {
-                    // Best-effort — the host shutdown will force-kill anything left.
+                    // Best-effort: keep shutting down the remaining instances.
                 }
             }
         }

@@ -8,6 +8,7 @@ using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Transport;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
+using PluginSdk;
 
 namespace Quasar.Agent
 {
@@ -21,16 +22,28 @@ namespace Quasar.Agent
 
         private readonly GameBridge _bridge;
         private readonly WebServiceLocator _locator;
+        private readonly AgentOptions _options;
+        private readonly Random _rng = new Random();
         private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
         private CancellationTokenSource _cancellation;
         private Task _runTask;
         private string _lastPluginConfigJson;
         private volatile ClientWebSocket _socket;
 
-        public AgentConnection(GameBridge bridge, WebServiceLocator locator)
+        // True once the agent has connected to Quasar at least once. The
+        // autonomous save-and-stop only arms after a prior connection, so a
+        // standalone server that never reached Quasar is never auto-stopped.
+        private bool _hasConnected;
+
+        // When the agent first noticed it had lost Quasar, used to measure how
+        // long Quasar has been unreachable. Null while connected.
+        private DateTime? _disconnectedSinceUtc;
+
+        public AgentConnection(GameBridge bridge, WebServiceLocator locator, AgentOptions options)
         {
             _bridge = bridge;
             _locator = locator;
+            _options = options ?? AgentOptions.FromEnvironment();
         }
 
         public void Start()
@@ -73,46 +86,48 @@ namespace Quasar.Agent
                 try
                 {
                     var baseUri = await _locator.EnsureWebServiceAsync(cancellationToken).ConfigureAwait(false);
-                    if (baseUri == null)
+                    if (baseUri != null)
                     {
-                        await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
-                        continue;
-                    }
-
-                    using (var socket = new ClientWebSocket())
-                    {
-                        socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
-                        socket.Options.AddSubProtocol("quasar.agent.v1");
-
-                        var socketUri = new UriBuilder(baseUri)
+                        using (var socket = new ClientWebSocket())
                         {
-                            Scheme = baseUri.Scheme == "https" ? "wss" : "ws",
-                            Path = "/ws/agent",
-                        }.Uri;
+                            socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
+                            socket.Options.AddSubProtocol("quasar.agent.v1");
 
-                        Log($"Connecting to {socketUri}");
-                        await socket.ConnectAsync(socketUri, cancellationToken).ConfigureAwait(false);
-
-                        _socket = socket;
-                        _lastPluginConfigJson = null;
-
-                        try
-                        {
-                            await SendAsync(socket, new AgentWireMessage
+                            var socketUri = new UriBuilder(baseUri)
                             {
-                                Kind = WireMessageKind.Hello,
-                                Hello = _bridge.GetHello(),
-                            }, cancellationToken).ConfigureAwait(false);
+                                Scheme = baseUri.Scheme == "https" ? "wss" : "ws",
+                                Path = "/ws/agent",
+                            }.Uri;
 
-                            await SendPluginConfigsAsync(socket, force: true, cancellationToken).ConfigureAwait(false);
+                            Log($"Connecting to {socketUri}");
+                            await socket.ConnectAsync(socketUri, cancellationToken).ConfigureAwait(false);
 
-                            var snapshotTask = SnapshotLoopAsync(socket, cancellationToken);
-                            var receiveTask = ReceiveLoopAsync(socket, cancellationToken);
-                            await Task.WhenAny(snapshotTask, receiveTask).ConfigureAwait(false);
-                        }
-                        finally
-                        {
-                            _socket = null;
+                            // We are connected: arm the autonomous self-stop and clear
+                            // any pending offline countdown from a previous outage.
+                            _hasConnected = true;
+                            _disconnectedSinceUtc = null;
+
+                            _socket = socket;
+                            _lastPluginConfigJson = null;
+
+                            try
+                            {
+                                await SendAsync(socket, new AgentWireMessage
+                                {
+                                    Kind = WireMessageKind.Hello,
+                                    Hello = _bridge.GetHello(),
+                                }, cancellationToken).ConfigureAwait(false);
+
+                                await SendPluginConfigsAsync(socket, force: true, cancellationToken).ConfigureAwait(false);
+
+                                var snapshotTask = SnapshotLoopAsync(socket, cancellationToken);
+                                var receiveTask = ReceiveLoopAsync(socket, cancellationToken);
+                                await Task.WhenAny(snapshotTask, receiveTask).ConfigureAwait(false);
+                            }
+                            finally
+                            {
+                                _socket = null;
+                            }
                         }
                     }
                 }
@@ -125,8 +140,80 @@ namespace Quasar.Agent
                     Log($"Connection error: {exception.Message}");
                 }
 
-                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+                if (!await HandleDisconnectedAndDelayAsync(cancellationToken).ConfigureAwait(false))
+                    break;
             }
+        }
+
+        /// <summary>
+        /// Called after the connection to Quasar dropped or could not be made.
+        /// Once the agent has been connected at least once, it counts how long
+        /// Quasar has been unreachable; when that exceeds the configured offline
+        /// window (or that window is zero/negative, meaning "stop promptly") it
+        /// saves the world and stops the server autonomously — no command from
+        /// Quasar required, so it also handles a crash, power loss or network
+        /// partition. Otherwise it waits a jittered interval before retrying.
+        /// Returns false when the loop should stop (self-stop triggered or the
+        /// agent is shutting down), true to keep reconnecting.
+        /// </summary>
+        private async Task<bool> HandleDisconnectedAndDelayAsync(CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                return false;
+
+            var now = DateTime.UtcNow;
+            if (_disconnectedSinceUtc == null)
+                _disconnectedSinceUtc = now;
+
+            if (_hasConnected && ShouldSelfStop(now))
+            {
+                var offline = now - _disconnectedSinceUtc.Value;
+                Log($"Quasar has been unreachable for {offline.TotalSeconds:F0} second(s); saving the world and stopping the server.");
+                try
+                {
+                    ServerControl.SaveAndQuit();
+                }
+                catch (Exception exception)
+                {
+                    Log($"Failed to save and stop the server: {exception.Message}");
+                }
+
+                return false;
+            }
+
+            try
+            {
+                await Task.Delay(NextReconnectDelay(), cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool ShouldSelfStop(DateTime now)
+        {
+            // Zero/negative means stop as soon as Quasar is gone (crash-safe
+            // equivalent of an immediate shutdown), but still only after a prior
+            // connection, which the caller has already checked.
+            if (_options.OfflineShutdownSeconds <= 0)
+                return true;
+
+            return now - _disconnectedSinceUtc.Value >= TimeSpan.FromSeconds(_options.OfflineShutdownSeconds);
+        }
+
+        private TimeSpan NextReconnectDelay()
+        {
+            double seconds = _options.ReconnectIntervalSeconds;
+            if (_options.ReconnectJitterSeconds > 0)
+                seconds += (_rng.NextDouble() * 2.0 - 1.0) * _options.ReconnectJitterSeconds;
+
+            if (seconds < 1.0)
+                seconds = 1.0;
+
+            return TimeSpan.FromSeconds(seconds);
         }
 
         /// <summary>

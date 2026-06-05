@@ -15,7 +15,7 @@ namespace Quasar.Agent
         public void Init(object gameInstance)
         {
             _bridge = new GameBridge(gameInstance);
-            _connection = new AgentConnection(_bridge, new WebServiceLocator());
+            _connection = new AgentConnection(_bridge, new WebServiceLocator(), AgentOptions.FromEnvironment());
             _connection.Start();
             MyVisualScriptLogicProvider.PlayerDied += OnPlayerDied;
             ServerControl.Terminating += OnServerTerminating;

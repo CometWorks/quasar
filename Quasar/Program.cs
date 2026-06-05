@@ -14,6 +14,7 @@ using Microsoft.Extensions.FileProviders;
 using MudBlazor;
 using MudBlazor.Services;
 using NLog;
+using System.Runtime.InteropServices;
 using System.Security.Claims;
 
 namespace Quasar;
@@ -45,6 +46,10 @@ public class Program
 
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents();
+            builder.Services.Configure<HostOptions>(options =>
+            {
+                options.ShutdownTimeout = TimeSpan.FromMinutes(30);
+            });
             builder.Services.AddCascadingAuthenticationState();
             builder.Services.AddAuthentication(options =>
                 {
@@ -253,7 +258,7 @@ public class Program
             app.MapGet("/access-denied", () => Results.Content(CreateAccessDeniedHtml(), "text/html"))
                 .AllowAnonymous();
 
-            app.MapPost("/api/internal/drain", (HttpContext context, DedicatedServerSupervisor supervisor, IHostApplicationLifetime lifetime, TrustedNetworkEvaluator trustedNetworkEvaluator) =>
+            app.MapPost("/api/internal/drain", (HttpContext context, DedicatedServerSupervisor supervisor, QuasarShutdownService shutdownService, IHostApplicationLifetime lifetime, TrustedNetworkEvaluator trustedNetworkEvaluator) =>
             {
                 var expectedToken = context.RequestServices.GetRequiredService<WebServiceOptions>().LauncherToken;
                 if (string.IsNullOrWhiteSpace(expectedToken) ||
@@ -269,20 +274,29 @@ public class Program
                 if (int.TryParse(context.Request.Query["delaySeconds"], out var parsedDelay))
                     delaySeconds = Math.Max(0, parsedDelay);
 
-                supervisor.BeginLauncherDrain();
+                var stopInstances = bool.TryParse(context.Request.Query["stopInstances"], out var parsedStopInstances) && parsedStopInstances;
+                if (!stopInstances)
+                    supervisor.BeginLauncherDrain();
+
                 _ = Task.Run(async () =>
                 {
                     try
                     {
                         if (delaySeconds > 0)
                             await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
+
+                        if (stopInstances)
+                            await shutdownService.ShutdownAsync(cancellationToken: CancellationToken.None);
+                        else
+                            lifetime.StopApplication();
                     }
                     catch
                     {
                     }
                     finally
                     {
-                        lifetime.StopApplication();
+                        if (stopInstances)
+                            lifetime.StopApplication();
                     }
                 });
 
@@ -290,6 +304,7 @@ public class Program
                 {
                     status = "draining",
                     delaySeconds,
+                    stopInstances,
                 });
             });
 
@@ -319,6 +334,7 @@ public class Program
             if (authOptions.Enabled)
                 razorComponents.RequireAuthorization(QuasarPolicyNames.CanView);
 
+            using var gracefulShutdownSignals = RegisterGracefulShutdownSignals(app.Services);
             app.Run();
         }
         catch (Exception exception)
@@ -406,9 +422,62 @@ public class Program
         }
     }
 
+    private static IDisposable RegisterGracefulShutdownSignals(IServiceProvider services)
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+            return EmptyDisposable.Instance;
+
+        var shutdownService = services.GetRequiredService<QuasarShutdownService>();
+        var lifetime = services.GetRequiredService<IHostApplicationLifetime>();
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        var started = 0;
+
+        void HandleSignal(PosixSignalContext context)
+        {
+            context.Cancel = true;
+            if (Interlocked.Exchange(ref started, 1) != 0)
+                return;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await shutdownService.ShutdownAsync(cancellationToken: CancellationToken.None);
+                }
+                catch (Exception exception)
+                {
+                    logger.LogError(exception, "Graceful Quasar signal shutdown failed.");
+                    lifetime.StopApplication();
+                }
+            });
+        }
+
+        return new CompositeDisposable(
+            PosixSignalRegistration.Create(PosixSignal.SIGINT, HandleSignal),
+            PosixSignalRegistration.Create(PosixSignal.SIGTERM, HandleSignal));
+    }
+
     private static void AddRolePolicy(AuthorizationOptions options, string policyName, params string[] roles)
     {
         options.AddPolicy(policyName, policy => policy.RequireRole(roles));
+    }
+
+    private sealed class CompositeDisposable(params IDisposable[] disposables) : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var disposable in disposables)
+                disposable.Dispose();
+        }
+    }
+
+    private sealed class EmptyDisposable : IDisposable
+    {
+        public static readonly EmptyDisposable Instance = new();
+
+        public void Dispose()
+        {
+        }
     }
 
     private static string SanitizeReturnUrl(string? returnUrl)

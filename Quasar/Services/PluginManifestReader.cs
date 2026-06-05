@@ -42,4 +42,37 @@ public static class PluginManifestReader
             throw new InvalidOperationException($"Plugin manifest could not be parsed: {manifestPath} ({exception.Message})");
         }
     }
+
+    public static PluginManifestMetadata ReadMetadata(string manifestPath)
+    {
+        if (string.IsNullOrWhiteSpace(manifestPath) || !File.Exists(manifestPath))
+            return new PluginManifestMetadata();
+
+        try
+        {
+            var root = XDocument.Load(manifestPath, LoadOptions.None).Root;
+            return root is null
+                ? new PluginManifestMetadata()
+                : new PluginManifestMetadata(
+                    GetValue(root, "FriendlyName"),
+                    GetValue(root, "Author"),
+                    GetValue(root, "Description"),
+                    GetValue(root, "Tooltip"),
+                    GetValue(root, "Runtimes"));
+        }
+        catch
+        {
+            return new PluginManifestMetadata();
+        }
+    }
+
+    private static string GetValue(XElement root, string name) =>
+        root.Element(name)?.Value?.Trim() ?? string.Empty;
 }
+
+public sealed record PluginManifestMetadata(
+    string FriendlyName = "",
+    string Author = "",
+    string Description = "",
+    string Tooltip = "",
+    string Runtimes = "");

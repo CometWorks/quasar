@@ -9,7 +9,7 @@ namespace Quasar.Services;
 
 public sealed class QuasarPluginCatalogService
 {
-    private const int CacheSchemaVersion = 5;
+    private const int CacheSchemaVersion = 6;
     public const string DotNetCompatPluginId = "se-dotnet-compat";
     public const string LinuxCompatPluginId = "se-linux-compat";
     public const string DefaultHubName = "MagnetarHub";
@@ -27,14 +27,17 @@ public sealed class QuasarPluginCatalogService
     private readonly object _sync = new();
     private readonly ILogger<QuasarPluginCatalogService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly QuasarDevFolderCatalog _devFolderCatalog;
     private List<QuasarPluginCatalogEntry> _entries;
 
     public QuasarPluginCatalogService(
         ILogger<QuasarPluginCatalogService> logger,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        QuasarDevFolderCatalog devFolderCatalog)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;
+        _devFolderCatalog = devFolderCatalog;
         _entries = LoadCache();
     }
 
@@ -44,8 +47,26 @@ public sealed class QuasarPluginCatalogService
 
     public IReadOnlyList<QuasarPluginCatalogEntry> GetEntries()
     {
+        var entries = new Dictionary<string, QuasarPluginCatalogEntry>(StringComparer.OrdinalIgnoreCase);
         lock (_sync)
-            return _entries.Select(Clone).ToList();
+        {
+            foreach (var entry in _entries)
+            {
+                if (string.IsNullOrWhiteSpace(entry.PluginId))
+                    continue;
+
+                entries[entry.PluginId] = Clone(entry);
+            }
+        }
+
+        foreach (var entry in BuildDevFolderEntries())
+            entries[entry.PluginId] = entry;
+
+        return entries.Values
+            .OrderBy(item => item.Hidden)
+            .ThenBy(item => item.FriendlyName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.PluginId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     public static bool IsManualSelectionAllowed(string pluginId) =>
@@ -218,8 +239,42 @@ public sealed class QuasarPluginCatalogService
             ManifestBranch = entry.ManifestBranch,
             ManifestFile = entry.ManifestFile,
             Hidden = entry.Hidden,
+            IsLocalDevFolder = entry.IsLocalDevFolder,
         };
     }
+
+    private IEnumerable<QuasarPluginCatalogEntry> BuildDevFolderEntries()
+    {
+        foreach (var devFolder in _devFolderCatalog.GetDevFolders())
+        {
+            var pluginId = GetDevFolderPluginId(devFolder);
+            if (string.IsNullOrWhiteSpace(pluginId))
+                continue;
+
+            var metadata = PluginManifestReader.ReadMetadata(Path.Combine(devFolder.FolderPath, devFolder.DataFile));
+            yield return new QuasarPluginCatalogEntry
+            {
+                PluginId = pluginId,
+                FriendlyName = FirstNonEmpty(metadata.FriendlyName, devFolder.Name, pluginId),
+                Author = metadata.Author,
+                Description = FirstNonEmpty(metadata.Description, $"Local dev folder: {devFolder.FolderPath}"),
+                Tooltip = metadata.Tooltip,
+                Runtimes = metadata.Runtimes,
+                IsLocalDevFolder = true,
+            };
+        }
+    }
+
+    public static string GetDevFolderPluginId(QuasarDevFolderSelection devFolder)
+    {
+        var pluginId = devFolder.PluginId?.Trim() ?? string.Empty;
+        return string.IsNullOrWhiteSpace(pluginId)
+            ? devFolder.SourceFolderName
+            : pluginId;
+    }
+
+    private static string FirstNonEmpty(params string[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
 
     private static string GetCachePath() =>
         Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Caches", "plugin-catalog.json");

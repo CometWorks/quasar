@@ -39,9 +39,17 @@ public sealed class WebServiceOptions
 
     public bool OwnManifest { get; init; } = true;
 
-    public bool PreserveManagedInstancesOnShutdown { get; init; }
+    public bool PreserveManagedInstancesOnShutdown { get; init; } = true;
 
     public bool AvoidSimultaneousScheduledRestarts { get; init; } = true;
+
+    // Passed to each launched Quasar.Agent so it knows how to behave when it
+    // loses contact with Quasar. See AgentOptions in the Quasar.Agent project.
+    public int AgentOfflineShutdownSeconds { get; init; } = 3600;
+
+    public int AgentReconnectIntervalSeconds { get; init; } = 10;
+
+    public int AgentReconnectJitterSeconds { get; init; } = 3;
 
     public string LauncherToken { get; init; } = string.Empty;
 
@@ -125,9 +133,28 @@ public sealed class WebServiceOptions
         if (!bool.TryParse(ownManifestValue, out var ownManifest))
             ownManifest = true;
 
-        var preserveInstancesValue = Environment.GetEnvironmentVariable("QUASAR_PRESERVE_INSTANCES_ON_SHUTDOWN") ?? "false";
+        var preserveInstancesValue = Environment.GetEnvironmentVariable("QUASAR_PRESERVE_INSTANCES_ON_SHUTDOWN")
+                                     ?? section["PreserveManagedInstancesOnShutdown"]
+                                     ?? "true";
         if (!bool.TryParse(preserveInstancesValue, out var preserveManagedInstancesOnShutdown))
-            preserveManagedInstancesOnShutdown = false;
+            preserveManagedInstancesOnShutdown = true;
+
+        var agentOfflineShutdownValue = Environment.GetEnvironmentVariable("QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS")
+                                        ?? section["AgentOfflineShutdownSeconds"];
+        // Zero/negative is meaningful (agent stops promptly when Quasar is gone),
+        // so only fall back to the default when the value is missing or unparsable.
+        if (!int.TryParse(agentOfflineShutdownValue, out var agentOfflineShutdownSeconds))
+            agentOfflineShutdownSeconds = 3600;
+
+        var agentReconnectIntervalValue = Environment.GetEnvironmentVariable("QUASAR_AGENT_RECONNECT_INTERVAL_SECONDS")
+                                          ?? section["AgentReconnectIntervalSeconds"];
+        if (!int.TryParse(agentReconnectIntervalValue, out var agentReconnectIntervalSeconds) || agentReconnectIntervalSeconds < 1)
+            agentReconnectIntervalSeconds = 10;
+
+        var agentReconnectJitterValue = Environment.GetEnvironmentVariable("QUASAR_AGENT_RECONNECT_JITTER_SECONDS")
+                                        ?? section["AgentReconnectJitterSeconds"];
+        if (!int.TryParse(agentReconnectJitterValue, out var agentReconnectJitterSeconds) || agentReconnectJitterSeconds < 0)
+            agentReconnectJitterSeconds = 3;
 
         var avoidSimultaneousScheduledRestartsValue =
             Environment.GetEnvironmentVariable("QUASAR_AVOID_SIMULTANEOUS_SCHEDULED_RESTARTS")
@@ -155,6 +182,9 @@ public sealed class WebServiceOptions
             OwnManifest = ownManifest,
             PreserveManagedInstancesOnShutdown = preserveManagedInstancesOnShutdown,
             AvoidSimultaneousScheduledRestarts = avoidSimultaneousScheduledRestarts,
+            AgentOfflineShutdownSeconds = agentOfflineShutdownSeconds,
+            AgentReconnectIntervalSeconds = agentReconnectIntervalSeconds,
+            AgentReconnectJitterSeconds = agentReconnectJitterSeconds,
             LauncherToken = launcherToken,
         };
     }

@@ -76,14 +76,20 @@
                     <MudText Typo="Typo.caption" Class="mono">@context.UniqueName</MudText>
                 </MudTd>
                 <MudTd DataLabel="Port" Class="mono">@context.ServerPort</MudTd>
-                <MudTd DataLabel="Config">
-                    <MudButton Variant="Variant.Text"
-                               Size="Size.Small"
-                               Color="Color.Primary"
-                               Disabled="@(!CanOpenConfigProfile(context.ConfigProfileId))"
-                               OnClick="@(() => OpenConfigProfileAsync(context.ConfigProfileId))">
-                        @GetConfigProfileName(context.ConfigProfileId)
-                    </MudButton>
+                <MudTd DataLabel="Config" Style="text-align: center;">
+                    @if (CanOpenConfigProfile(context.ConfigProfileId))
+                    {
+                        <MudLink Typo="Typo.body2"
+                                 Color="Color.Primary"
+                                 Underline="Underline.Hover"
+                                 @onclick="@(() => OpenConfigProfileAsync(context.ConfigProfileId))">
+                            @GetConfigProfileName(context.ConfigProfileId)
+                        </MudLink>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2">@GetConfigProfileName(context.ConfigProfileId)</MudText>
+                    }
                 </MudTd>
                 <MudTd DataLabel="Players">@GetPlayerCount(context.UniqueName)</MudTd>
                 <MudTd DataLabel="Process" Class="mono">@GetProcessDisplay(context.UniqueName)</MudTd>

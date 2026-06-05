@@ -119,7 +119,6 @@ public sealed class QuasarDevFolderCatalog
             DataFile = devFolder.DataFile?.Trim() ?? string.Empty,
             PluginId = devFolder.PluginId?.Trim() ?? string.Empty,
             DebugBuild = devFolder.DebugBuild,
-            Enabled = devFolder.Enabled,
         };
 
     private static bool IsSameDevFolder(QuasarDevFolderSelection devFolder, string folderPath, string dataFile) =>

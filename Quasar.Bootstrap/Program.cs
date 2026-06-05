@@ -163,7 +163,7 @@ internal static class Program
             try
             {
                 var process = Process.GetProcessById(manifest.ProcessId);
-                process.Kill(entireProcessTree: true);
+                process.Kill(entireProcessTree: false);
             }
             catch
             {
@@ -735,7 +735,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
 
         if (worker is not null)
-            await DrainAndRetireWorkerAsync(worker, TimeSpan.Zero, cancellationToken);
+            await DrainAndRetireWorkerAsync(worker, TimeSpan.Zero, stopManagedInstances: true, cancellationToken);
     }
 
     public void Dispose()
@@ -841,7 +841,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             _logger.LogInformation("Activated Quasar worker version {Version} at {BaseUri}.", pointer.Version, nextWorker.BaseUri);
 
             if (previousWorker is not null)
-                _ = DrainAndRetireWorkerAsync(previousWorker, TimeSpan.FromSeconds(20), CancellationToken.None);
+                _ = DrainAndRetireWorkerAsync(previousWorker, TimeSpan.FromSeconds(20), stopManagedInstances: false, CancellationToken.None);
         }
         finally
         {
@@ -912,7 +912,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         try
         {
             if (!process.HasExited)
-                process.Kill(entireProcessTree: true);
+                process.Kill(entireProcessTree: false);
         }
         catch
         {
@@ -952,11 +952,16 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         return false;
     }
 
-    private async Task DrainAndRetireWorkerAsync(WorkerProcessHandle worker, TimeSpan graceDelay, CancellationToken cancellationToken)
+    private async Task DrainAndRetireWorkerAsync(
+        WorkerProcessHandle worker,
+        TimeSpan graceDelay,
+        bool stopManagedInstances,
+        CancellationToken cancellationToken)
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(worker.BaseUri, $"/api/internal/drain?delaySeconds={(int)Math.Round(graceDelay.TotalSeconds)}"));
+            var drainUri = new Uri(worker.BaseUri, $"/api/internal/drain?delaySeconds={(int)Math.Round(graceDelay.TotalSeconds)}&stopInstances={stopManagedInstances.ToString().ToLowerInvariant()}");
+            using var request = new HttpRequestMessage(HttpMethod.Post, drainUri);
             request.Headers.Add("X-Quasar-Launcher-Token", _launcherToken);
             using var response = await _healthClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
@@ -969,16 +974,23 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(graceDelay + TimeSpan.FromSeconds(30));
-            await worker.Process.WaitForExitAsync(timeout.Token);
+            if (stopManagedInstances)
+            {
+                await worker.Process.WaitForExitAsync(cancellationToken);
+            }
+            else
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(graceDelay + TimeSpan.FromSeconds(30));
+                await worker.Process.WaitForExitAsync(timeout.Token);
+            }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (!stopManagedInstances && !cancellationToken.IsCancellationRequested)
         {
             try
             {
                 if (!worker.Process.HasExited)
-                    worker.Process.Kill(entireProcessTree: true);
+                    worker.Process.Kill(entireProcessTree: false);
             }
             catch (Exception exception)
             {

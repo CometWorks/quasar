@@ -63,8 +63,6 @@ public sealed class QuasarDevFolderSelection
 
     public bool DebugBuild { get; set; } = true;
 
-    public bool Enabled { get; set; } = true;
-
     /// <summary>
     /// The innermost folder name of <see cref="FolderPath"/>. This is the
     /// identity Magnetar uses for a dev-folder plugin: it is written to the
@@ -419,4 +417,6 @@ public sealed class QuasarPluginCatalogEntry
     public string ManifestFile { get; set; } = string.Empty;
 
     public bool Hidden { get; set; }
+
+    public bool IsLocalDevFolder { get; set; }
 }

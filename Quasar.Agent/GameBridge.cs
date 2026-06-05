@@ -1,9 +1,11 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Magnetar.Protocol.Bridge;
@@ -11,6 +13,7 @@ using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Transport;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
+using PluginSdk.Config;
 using Sandbox;
 using Sandbox.Engine.Multiplayer;
 using Sandbox.Game.Entities;
@@ -222,15 +225,17 @@ namespace Quasar.Agent
             foreach (var provider in EnumerateConfigProviders())
             {
                 string pluginId;
+                string displayName;
                 string json;
                 try
                 {
                     pluginId = provider.PluginId ?? string.Empty;
+                    displayName = provider.DisplayName ?? provider.PluginId ?? string.Empty;
                     json = provider.GetConfigJson();
                 }
                 catch (Exception exception)
                 {
-                    Console.Error.WriteLine($"[Quasar.Agent] Failed reading plugin config from {provider.GetType().Name}: {exception.Message}");
+                    Console.Error.WriteLine($"[Quasar.Agent] Failed reading plugin config from {provider.DisplayName}: {exception.Message}");
                     continue;
                 }
 
@@ -240,7 +245,7 @@ namespace Quasar.Agent
                 snapshot.Plugins.Add(new PluginConfigData
                 {
                     PluginId = pluginId,
-                    DisplayName = provider.GetType().Name,
+                    DisplayName = displayName,
                     ConfigJson = json,
                 });
             }
@@ -258,7 +263,7 @@ namespace Quasar.Agent
             if (string.IsNullOrWhiteSpace(pluginId))
                 return Task.CompletedTask;
 
-            IQuasarConfigProvider provider = null;
+            ConfigProviderAdapter provider = null;
             foreach (var candidate in EnumerateConfigProviders())
             {
                 if (string.Equals(candidate.PluginId, pluginId, StringComparison.OrdinalIgnoreCase))
@@ -299,28 +304,227 @@ namespace Quasar.Agent
             return completion.Task;
         }
 
-        private static IEnumerable<IQuasarConfigProvider> EnumerateConfigProviders()
+        private static IEnumerable<ConfigProviderAdapter> EnumerateConfigProviders()
         {
-            foreach (var plugin in EnumeratePlugins())
+            foreach (var loaded in EnumeratePlugins())
             {
+                var plugin = loaded.Plugin;
                 if (plugin is IQuasarConfigProvider provider)
-                    yield return provider;
+                {
+                    yield return ConfigProviderAdapter.ForExplicit(loaded, provider);
+                    continue;
+                }
+
+                var sdkProvider = ConfigProviderAdapter.TryCreateForSdkConfig(loaded);
+                if (sdkProvider != null)
+                    yield return sdkProvider;
             }
         }
 
-        private static IEnumerable<IPlugin> EnumeratePlugins()
+        private static IEnumerable<LoadedPlugin> EnumeratePlugins()
         {
+            List<IPlugin> roots;
             try
             {
-                // MyPlugins.Plugins is the live ListReader<IPlugin> aggregate of
-                // every loaded plugin (game, user and console). Boxing it to
-                // IEnumerable<IPlugin> keeps a live view without copying.
-                return MyPlugins.Plugins;
+                roots = MyPlugins.Plugins.Where(plugin => plugin != null).ToList();
             }
             catch (Exception exception)
             {
                 Console.Error.WriteLine($"[Quasar.Agent] Failed enumerating plugins: {exception.Message}");
-                return Array.Empty<IPlugin>();
+                yield break;
+            }
+
+            var seen = new HashSet<IPlugin>();
+            foreach (var plugin in roots)
+            {
+                if (seen.Add(plugin))
+                    yield return LoadedPlugin.FromPlugin(plugin);
+
+                foreach (var child in EnumerateChildPlugins(plugin))
+                {
+                    if (child.Plugin != null && seen.Add(child.Plugin))
+                        yield return child;
+                }
+            }
+        }
+
+        private static IEnumerable<LoadedPlugin> EnumerateChildPlugins(IPlugin plugin)
+        {
+            var pluginType = plugin.GetType();
+            if (!string.Equals(pluginType.FullName, "Pulsar.Legacy.Loader.PluginLoader", StringComparison.Ordinal))
+                yield break;
+
+            IEnumerable instances = null;
+            try
+            {
+                instances = pluginType
+                    .GetProperty("Plugins", BindingFlags.Public | BindingFlags.Instance)
+                    ?.GetValue(plugin) as IEnumerable;
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine($"[Quasar.Agent] Failed reading Pulsar plugin list: {exception.Message}");
+            }
+
+            if (instances == null)
+                yield break;
+
+            foreach (var instance in instances)
+            {
+                var child = TryCreateLoadedPluginFromInstance(instance);
+                if (child != null)
+                    yield return child;
+            }
+        }
+
+        private static LoadedPlugin TryCreateLoadedPluginFromInstance(object instance)
+        {
+            if (instance == null)
+                return null;
+
+            try
+            {
+                var instanceType = instance.GetType();
+                var plugin = instanceType
+                    .GetField("plugin", BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?.GetValue(instance) as IPlugin;
+                if (plugin == null)
+                    return null;
+
+                var pluginId = instanceType
+                    .GetProperty("Id", BindingFlags.Public | BindingFlags.Instance)
+                    ?.GetValue(instance) as string;
+                var displayName = instanceType
+                    .GetProperty("FriendlyName", BindingFlags.Public | BindingFlags.Instance)
+                    ?.GetValue(instance) as string;
+
+                return LoadedPlugin.FromPlugin(plugin, pluginId, displayName);
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine($"[Quasar.Agent] Failed reading Pulsar plugin instance: {exception.Message}");
+                return null;
+            }
+        }
+
+        private sealed class LoadedPlugin
+        {
+            public IPlugin Plugin { get; private set; }
+
+            public string PluginId { get; private set; }
+
+            public string DisplayName { get; private set; }
+
+            public static LoadedPlugin FromPlugin(IPlugin plugin, string pluginId = null, string displayName = null)
+            {
+                var assemblyName = plugin.GetType().Assembly.GetName().Name ?? plugin.GetType().Name;
+                return new LoadedPlugin
+                {
+                    Plugin = plugin,
+                    PluginId = string.IsNullOrWhiteSpace(pluginId) ? assemblyName : pluginId.Trim(),
+                    DisplayName = string.IsNullOrWhiteSpace(displayName) ? assemblyName : displayName.Trim(),
+                };
+            }
+        }
+
+        private sealed class ConfigProviderAdapter
+        {
+            private static readonly MethodInfo SaveJsonMethod = typeof(ConfigStorage)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Single(method => method.Name == nameof(ConfigStorage.SaveJson)
+                                  && method.IsGenericMethodDefinition);
+
+            private static readonly MethodInfo LoadJsonMethod = typeof(ConfigStorage)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Single(method => method.Name == nameof(ConfigStorage.LoadJson)
+                                  && method.IsGenericMethodDefinition);
+
+            private readonly IQuasarConfigProvider _explicitProvider;
+            private readonly PluginConfig _sdkConfig;
+
+            private ConfigProviderAdapter(
+                string pluginId,
+                string displayName,
+                IQuasarConfigProvider explicitProvider,
+                PluginConfig sdkConfig)
+            {
+                PluginId = pluginId;
+                DisplayName = displayName;
+                _explicitProvider = explicitProvider;
+                _sdkConfig = sdkConfig;
+            }
+
+            public string PluginId { get; }
+            public string DisplayName { get; }
+
+            public static ConfigProviderAdapter ForExplicit(LoadedPlugin loaded, IQuasarConfigProvider provider)
+            {
+                return new ConfigProviderAdapter(
+                    string.IsNullOrWhiteSpace(provider.PluginId) ? loaded.PluginId : provider.PluginId,
+                    loaded.DisplayName,
+                    provider,
+                    null);
+            }
+
+            public static ConfigProviderAdapter TryCreateForSdkConfig(LoadedPlugin loaded)
+            {
+                var config = GetSdkConfig(loaded.Plugin);
+                if (config == null)
+                    return null;
+
+                return new ConfigProviderAdapter(
+                    loaded.PluginId,
+                    loaded.DisplayName,
+                    null,
+                    config);
+            }
+
+            public string GetConfigJson()
+            {
+                if (_explicitProvider != null)
+                    return _explicitProvider.GetConfigJson();
+
+                return (string)SaveJsonMethod
+                    .MakeGenericMethod(_sdkConfig.GetType())
+                    .Invoke(null, new object[] { _sdkConfig });
+            }
+
+            public void ApplyConfigJson(string json)
+            {
+                if (_explicitProvider != null)
+                {
+                    _explicitProvider.ApplyConfigJson(json);
+                    return;
+                }
+
+                var updated = (PluginConfig)LoadJsonMethod
+                    .MakeGenericMethod(_sdkConfig.GetType())
+                    .Invoke(null, new object[] { json ?? string.Empty });
+
+                foreach (var property in GetOptionProperties(_sdkConfig.GetType()))
+                    property.SetValue(_sdkConfig, property.GetValue(updated));
+            }
+
+            private static PluginConfig GetSdkConfig(IPlugin plugin)
+            {
+                return plugin.GetType()
+                    .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Where(property => property.CanRead
+                                       && property.GetIndexParameters().Length == 0
+                                       && typeof(PluginConfig).IsAssignableFrom(property.PropertyType))
+                    .OrderByDescending(property => string.Equals(property.Name, "PluginConfig", StringComparison.OrdinalIgnoreCase))
+                    .ThenBy(property => property.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(property => property.GetValue(plugin) as PluginConfig)
+                    .FirstOrDefault(config => config != null);
+            }
+
+            private static IEnumerable<PropertyInfo> GetOptionProperties(Type configType)
+            {
+                return configType
+                    .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Where(property => property.CanRead
+                                       && property.CanWrite
+                                       && property.GetCustomAttribute<ConfigOptionAttribute>(inherit: true) != null);
             }
         }
 
