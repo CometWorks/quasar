@@ -8,7 +8,6 @@
 @inject ManagedRuntimeWarmupService RuntimeWarmup
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
-@inject ILocalStorageService LocalStorage
 
 <PageTitle>Dashboard</PageTitle>
 
@@ -16,7 +15,7 @@
     <div>
         <MudText Typo="Typo.h4" GutterBottom="true">Dashboard</MudText>
     </div>
-    @if (_setupWizardPreferenceLoaded && !ShowSetupWizard)
+    @if (!ShowSetupWizard)
     {
         <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="ShowSetupWizardAgain">
             Restart Setup Wizard
@@ -33,7 +32,7 @@
                     <MudText Typo="Typo.h6">First Setup</MudText>
                     <MudText Typo="Typo.body2">Stay on dashboard. Create templates, create server, launch server, then watch the agent attach here.</MudText>
                 </div>
-                <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Close" OnClick="HideSetupWizardAsync">
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Close" OnClick="HideSetupWizard">
                     Hide Wizard
                 </MudButton>
             </MudStack>
@@ -466,12 +465,9 @@ else
 
     private int WorldTemplateCount => WorldTemplates.GetTemplates().Count;
 
-    private const string SetupWizardDismissedStorageKey = "quasar.dashboard.setupWizardDismissed";
-    private const string SetupWizardCompletedStorageKey = "quasar.dashboard.setupWizardCompleted";
     private bool _setupWizardRequested;
     private bool _setupWizardDismissed;
-    private bool _setupWizardCompleted;
-    private bool _setupWizardPreferenceLoaded;
+    private bool _setupWizardActive;
     private readonly HashSet<int> _skippedSetupSteps = new();
     private int? _setupStepOverride;
 
@@ -530,50 +526,26 @@ else
         _setupStepOverride = step - 1;
     }
 
-    private bool IsSetupIncomplete =>
-        ConfiguredServerCount == 0
-        || RunningServerCount == 0
-        || ConnectedAgentCount == 0;
-
+    // The wizard opens automatically only while no dedicated server has been created yet.
+    // Server existence is the authoritative, persisted signal, so once the first server
+    // exists the wizard never opens automatically again - it can still be reopened with the
+    // "Restart Setup Wizard" button. Once shown it stays visible for the rest of the session
+    // so the remaining steps (start server, attach agent) can be followed even after the
+    // first server is created.
     private bool ShowSetupWizard =>
-        _setupWizardRequested ||
-        (_setupWizardPreferenceLoaded && IsSetupIncomplete && !_setupWizardDismissed && !_setupWizardCompleted);
+        (_setupWizardActive || _setupWizardRequested) && !_setupWizardDismissed;
 
     private void ShowSetupWizardAgain()
     {
         _setupWizardRequested = true;
+        _setupWizardDismissed = false;
     }
 
-    // Remember that first setup finished at least once so the wizard does not reappear
-    // after servers are stopped and Quasar is restarted. It only returns on explicit request.
-    private async Task PersistSetupCompletionIfNeededAsync()
-    {
-        if (!_setupWizardPreferenceLoaded || _setupWizardCompleted || IsSetupIncomplete)
-            return;
-
-        _setupWizardCompleted = true;
-        try
-        {
-            await LocalStorage.SetItemAsync(SetupWizardCompletedStorageKey, true);
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add($"Failed saving setup wizard preference: {exception.Message}", Severity.Warning);
-        }
-    }
-
-    private async Task HideSetupWizardAsync()
+    private void HideSetupWizard()
     {
         _setupWizardRequested = false;
+        _setupWizardActive = false;
         _setupWizardDismissed = true;
-        try
-        {
-            await LocalStorage.SetItemAsync(SetupWizardDismissedStorageKey, true);
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add($"Failed saving setup wizard preference: {exception.Message}", Severity.Warning);
-        }
     }
 
     protected override void OnInitialized()
@@ -584,26 +556,9 @@ else
         ConfigProfiles.Changed += HandleRegistryChanged;
         WorldTemplates.Changed += HandleRegistryChanged;
         RuntimeWarmup.Changed += HandleRegistryChanged;
-    }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!firstRender)
-            return;
-
-        try
-        {
-            _setupWizardDismissed = await LocalStorage.GetItemAsync<bool>(SetupWizardDismissedStorageKey);
-            _setupWizardCompleted = await LocalStorage.GetItemAsync<bool>(SetupWizardCompletedStorageKey);
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add($"Failed loading setup wizard preference: {exception.Message}", Severity.Warning);
-        }
-
-        _setupWizardPreferenceLoaded = true;
-        await PersistSetupCompletionIfNeededAsync();
-        await InvokeAsync(StateHasChanged);
+        // Auto-open the first-setup wizard until the first server has been created.
+        _setupWizardActive = ConfiguredServerCount == 0;
     }
 
     public void Dispose()
@@ -618,11 +573,7 @@ else
 
     private void HandleRegistryChanged()
     {
-        _ = InvokeAsync(async () =>
-        {
-            await PersistSetupCompletionIfNeededAsync();
-            StateHasChanged();
-        });
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private string GetSetupProgressText()
