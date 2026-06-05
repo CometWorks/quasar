@@ -561,6 +561,11 @@ internal sealed class BootstrapOptions
 
     public int Port { get; init; } = 58631;
 
+    // When true (the default), Quasar leaves managed Magnetar servers running on its
+    // own shutdown — they are detached (Magnetar -daemon / setsid) and re-adopted on
+    // restart. Set QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN=false to stop them on exit.
+    public bool PreserveServersOnShutdown { get; init; } = true;
+
     public string BaseUrl => $"http://{AdvertisedHost}:{Port}";
 
     public string ListenUrl => $"http://{Host}:{Port}";
@@ -589,11 +594,20 @@ internal sealed class BootstrapOptions
             _ => host,
         };
 
+        // Mirror the worker's WebServiceOptions key/env so the launcher and worker
+        // agree on the policy and the launcher can propagate it to the worker.
+        var preserveValue = Environment.GetEnvironmentVariable("QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN")
+                            ?? section["PreserveManagedServersOnShutdown"]
+                            ?? "true";
+        if (!bool.TryParse(preserveValue, out var preserveServersOnShutdown))
+            preserveServersOnShutdown = true;
+
         return new BootstrapOptions
         {
             Host = host,
             AdvertisedHost = advertisedHost,
             Port = port,
+            PreserveServersOnShutdown = preserveServersOnShutdown,
         };
     }
 
@@ -735,7 +749,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
 
         if (worker is not null)
-            await DrainAndRetireWorkerAsync(worker, TimeSpan.Zero, stopManagedServers: true, cancellationToken);
+            await DrainAndRetireWorkerAsync(worker, TimeSpan.Zero, stopManagedServers: !_options.PreserveServersOnShutdown, cancellationToken);
     }
 
     public void Dispose()
@@ -879,7 +893,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         startInfo.Environment["QUASAR_OPEN_BROWSER_ON_START"] = "false";
         startInfo.Environment["QUASAR_MODE"] = "service";
         startInfo.Environment["QUASAR_LAUNCHER_TOKEN"] = _launcherToken;
-        startInfo.Environment["QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN"] = "false";
+        startInfo.Environment["QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN"] = _options.PreserveServersOnShutdown ? "true" : "false";
         if (_foregroundOptions.IsForeground)
             startInfo.Environment["QUASAR_CONSOLE_LOGGING"] = "true";
 

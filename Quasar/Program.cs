@@ -429,6 +429,7 @@ public class Program
 
         var shutdownService = services.GetRequiredService<QuasarShutdownService>();
         var lifetime = services.GetRequiredService<IHostApplicationLifetime>();
+        var options = services.GetRequiredService<WebServiceOptions>();
         var logger = services.GetRequiredService<ILogger<Program>>();
         var started = 0;
 
@@ -442,7 +443,14 @@ public class Program
             {
                 try
                 {
-                    await shutdownService.ShutdownAsync(cancellationToken: CancellationToken.None);
+                    // When preserving managed servers, just trigger a graceful host
+                    // stop and let the preserve-aware DedicatedServerSupervisor.StopAsync
+                    // leave the detached Magnetars running. Only stop the servers when
+                    // the policy says to take them down with Quasar.
+                    if (options.PreserveManagedServersOnShutdown)
+                        lifetime.StopApplication();
+                    else
+                        await shutdownService.ShutdownAsync(cancellationToken: CancellationToken.None);
                 }
                 catch (Exception exception)
                 {
