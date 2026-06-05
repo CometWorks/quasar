@@ -53,7 +53,7 @@ No `@page` route — used as a child component on plugin management pages.
 **MudBlazor components used:** `MudTabs`, `MudTabPanel`, `MudExpansionPanels`, `MudExpansionPanel`, `MudGrid`, `MudItem`, `MudPaper`, `MudStack`, `MudText`, `MudCheckBox`, `MudNumericField`, `MudTextField`, `MudSelect`, `MudSelectItem`, `MudColorPicker`, `MudAlert`, `MudButton`, `MudIconButton`, `MudChip`.
 
 ## Dependencies
-- `Quasar/Services/PluginSdk/PluginConfigService.cs` — async config update submission
+- [`Quasar/Services/PluginSdk/PluginConfigService.cs`](../Services/PluginSdk/PluginConfigService.cs.md) — async config update submission
 - `Quasar/Services/PluginSdk/PluginConfigEnvelope.cs` — parses schema + clones values/defaults
 - `Magnetar.Protocol.Model.PluginConfigData` — plugin parameter type
 - `Magnetar.Protocol.Model` DTOs: `LayoutContainerDto`, `ConfigPropertyDto`, `StructDto`, `StructMemberDto`, `EnumValueDto`

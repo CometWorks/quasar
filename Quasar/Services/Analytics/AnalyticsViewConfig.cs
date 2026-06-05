@@ -1,28 +1,16 @@
 namespace Quasar.Services.Analytics;
 
-public enum AnalyticsTierMode
-{
-    Auto = 0,
-    Raw = 1,
-    OneMinute = 2,
-    OneHour = 3,
-}
-
 public sealed class AnalyticsViewConfig
 {
     public string SelectedRangeKey { get; set; } = "1h";
 
     public int AutoRefreshSeconds { get; set; }
 
-    public int PointLimit { get; set; } = 500;
-
     public int GridColumns { get; set; } = 2;
 
     public int GridRows { get; set; } = 4;
 
     public int RowHeightPx { get; set; } = 320;
-
-    public AnalyticsTierMode TierMode { get; set; } = AnalyticsTierMode.Auto;
 
     public List<string> SelectedUniqueNames { get; set; } = [];
 

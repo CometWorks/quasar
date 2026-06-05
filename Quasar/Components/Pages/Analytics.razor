@@ -1,13 +1,14 @@
 @page "/analytics"
 @implements IDisposable
+@using ApexCharts
 @using Microsoft.JSInterop
-@using MudBlazor.Charts
 @inject MetricsStoreService MetricsStore
 @inject DedicatedServerCatalog ServerCatalog
 @inject AgentRegistry Registry
 @inject ISnackbar Snackbar
 @inject ILocalStorageService LocalStorage
 @inject IDialogService DialogService
+@inject ThemePreferenceService ThemePreference
 
 <PageTitle>Analytics</PageTitle>
 
@@ -24,14 +25,6 @@
         </MudSelect>
     </div>
     <div style="flex: 1 1 180px; min-width: 180px;">
-        <MudSelect T="AnalyticsTierMode" Label="Tier" Value="_config.TierMode" ValueChanged="HandleTierChanged" Variant="Variant.Outlined">
-            <MudSelectItem T="AnalyticsTierMode" Value="AnalyticsTierMode.Auto">Auto</MudSelectItem>
-            <MudSelectItem T="AnalyticsTierMode" Value="AnalyticsTierMode.Raw">Raw</MudSelectItem>
-            <MudSelectItem T="AnalyticsTierMode" Value="AnalyticsTierMode.OneMinute">1 minute</MudSelectItem>
-            <MudSelectItem T="AnalyticsTierMode" Value="AnalyticsTierMode.OneHour">1 hour</MudSelectItem>
-        </MudSelect>
-    </div>
-    <div style="flex: 1 1 180px; min-width: 180px;">
         <MudSelect T="int" Label="Auto refresh" Value="_config.AutoRefreshSeconds" ValueChanged="HandleAutoRefreshChanged" Variant="Variant.Outlined">
             <MudSelectItem T="int" Value="0">Off</MudSelectItem>
             <MudSelectItem T="int" Value="5">5s</MudSelectItem>
@@ -39,15 +32,6 @@
             <MudSelectItem T="int" Value="30">30s</MudSelectItem>
             <MudSelectItem T="int" Value="60">60s</MudSelectItem>
         </MudSelect>
-    </div>
-    <div style="flex: 1 1 160px; min-width: 160px;">
-        <MudNumericField T="int"
-                         Label="Point limit"
-                         Value="_config.PointLimit"
-                         ValueChanged="HandlePointLimitChanged"
-                         Variant="Variant.Outlined"
-                         Min="50"
-                         Max="5000" />
     </div>
     <MudSpacer />
     <MudStack Row="true"
@@ -60,19 +44,19 @@
                   Wrap="Wrap.Wrap"
                   Justify="Justify.FlexEnd"
                   AlignItems="AlignItems.Center">
-            <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync">
+            <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync">
                 Refresh
             </MudButton>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Download" OnClick="ExportAsync">
+            <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" StartIcon="@Icons.Material.Filled.Download" OnClick="ExportAsync">
                 Export
             </MudButton>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SettingsBackupRestore" OnClick="ResetLayoutAsync">
+            <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" StartIcon="@Icons.Material.Filled.SettingsBackupRestore" OnClick="ResetLayoutAsync">
                 Reset layout
             </MudButton>
             <MudMenu StartIcon="@Icons.Material.Filled.Visibility"
                      Label="Add panel"
                      Variant="Variant.Outlined"
-                     Color="Color.Default"
+                     Color="MudBlazor.Color.Default"
                      Dense="true"
                      Disabled="@(HiddenPanels.Count == 0)">
                 @foreach (var panel in HiddenPanels)
@@ -108,7 +92,7 @@
             <MudStack Spacing="2">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                     <MudText Typo="Typo.h6">Servers</MudText>
-                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="SelectAllServersAsync">Select all</MudButton>
+                    <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" OnClick="SelectAllServersAsync">Select all</MudButton>
                 </MudStack>
                 @if (_serverOptions.Count == 0)
                 {
@@ -134,7 +118,7 @@
             <MudStack Spacing="2">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                     <MudText Typo="Typo.h6">Grid</MudText>
-                    <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ResetPanelsAsync">Reset panels</MudButton>
+                    <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" OnClick="ResetPanelsAsync">Reset panels</MudButton>
                 </MudStack>
                 <MudNumericField T="int" Label="Columns" Value="_config.GridColumns" ValueChanged="HandleGridColumnsChanged" Variant="Variant.Outlined" Min="1" Max="6" />
                 <MudNumericField T="int" Label="Rows" Value="_config.GridRows" ValueChanged="HandleGridRowsChanged" Variant="Variant.Outlined" Min="1" Max="12" />
@@ -147,7 +131,7 @@
 <MudStack Row="true" Spacing="1" Class="mb-4 analytics-chip-row">
     @foreach (var chip in _summaryChips)
     {
-        <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">@chip.Label: @chip.Value</MudChip>
+        <MudChip T="string" Color="MudBlazor.Color.Primary" Variant="Variant.Outlined">@chip.Label: @chip.Value</MudChip>
     }
 </MudStack>
 
@@ -171,19 +155,28 @@ else
                         </MudStack>
                         <MudTooltip Text="Panel settings">
                             <MudIconButton Icon="@Icons.Material.Filled.Tune"
-                                           Size="Size.Small"
-                                           Color="Color.Default"
+                                           Size="MudBlazor.Size.Small"
+                                           Color="MudBlazor.Color.Default"
                                            OnClick="@(() => OpenPanelDialogAsync(chart.Panel))" />
                         </MudTooltip>
                     </MudStack>
-                    <MudChart T="double"
-                              ChartType="ChartType.Timeseries"
-                              ChartSeries="@chart.Series"
-                              ChartOptions="@chart.Options"
-                              CanHideSeries="true"
-                              MatchBoundsToSize="true"
-                              Width="100%"
-                              Height="100%" />
+                    <div class="analytics-apex-chart">
+                        <ApexChart TItem="AnalyticsChartPoint"
+                                   Options="@chart.Options"
+                                   Width="@("100%")"
+                                   Height="@chart.Height">
+                            @foreach (var series in chart.Series)
+                            {
+                                <ApexPointSeries TItem="AnalyticsChartPoint"
+                                                 Items="@series.Points"
+                                                 Name="@series.Name"
+                                                 SeriesType="SeriesType.Line"
+                                                 XValue="@(point => point.Timestamp)"
+                                                 YValue="@(point => point.Value)"
+                                                 OrderBy="@(point => point.X)" />
+                            }
+                        </ApexChart>
+                    </div>
                 </MudPaper>
             </div>
         }
@@ -193,9 +186,16 @@ else
 @code
 {
     private const string StorageKey = "quasar.analytics.view.v2";
+    private const int MaxRenderPoints = 5000;
 
     private static readonly (string Key, string Label)[] RangeOptions =
     [
+        ("30s", "30s"),
+        ("1m", "1m"),
+        ("2m", "2m"),
+        ("5m", "5m"),
+        ("15m", "15m"),
+        ("30m", "30m"),
         ("1h", "1h"),
         ("6h", "6h"),
         ("24h", "24h"),
@@ -226,6 +226,7 @@ else
     private bool _configLoaded;
     private bool _selectionInitialized;
     private int _refreshing;
+    private bool _isDarkTheme = true;
 
     private bool IsCustomRange => string.Equals(_config.SelectedRangeKey, "custom", StringComparison.OrdinalIgnoreCase);
 
@@ -241,6 +242,7 @@ else
     {
         Registry.Changed += HandleSourceChanged;
         ServerCatalog.Changed += HandleSourceChanged;
+        ThemePreference.ThemeModeChanged += HandleThemeModeChanged;
         RefreshView();
         UpdateRefreshTimer();
     }
@@ -250,6 +252,8 @@ else
         if (!firstRender)
             return;
 
+        await ThemePreference.InitializeAsync();
+        _isDarkTheme = ThemePreference.IsDarkMode;
         await LoadConfigAsync();
         RefreshView();
         UpdateRefreshTimer();
@@ -261,6 +265,7 @@ else
         _disposed = true;
         Registry.Changed -= HandleSourceChanged;
         ServerCatalog.Changed -= HandleSourceChanged;
+        ThemePreference.ThemeModeChanged -= HandleThemeModeChanged;
         _refreshTimer?.Dispose();
         _refreshCts.Cancel();
         _refreshCts.Dispose();
@@ -364,23 +369,11 @@ else
         return RefreshAsync();
     }
 
-    private Task HandleTierChanged(AnalyticsTierMode value)
-    {
-        _config.TierMode = value;
-        return RefreshAsync();
-    }
-
     private Task HandleAutoRefreshChanged(int value)
     {
         _config.AutoRefreshSeconds = Math.Max(0, value);
         UpdateRefreshTimer();
         return PersistConfigAsync();
-    }
-
-    private Task HandlePointLimitChanged(int value)
-    {
-        _config.PointLimit = Math.Clamp(value, 50, 5000);
-        return RefreshAsync();
     }
 
     private Task HandleCustomFromDateChanged(DateTime? value)
@@ -462,6 +455,16 @@ else
         });
     }
 
+    private void HandleThemeModeChanged(bool isDark)
+    {
+        if (_disposed)
+            return;
+
+        _isDarkTheme = isDark;
+        RefreshView();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
     private void UpdateRefreshTimer()
     {
         _refreshTimer?.Dispose();
@@ -505,15 +508,15 @@ else
             if (store is null)
                 continue;
 
-            var samples = Downsample(QueryTier(store, fromUnix, toUnix), _config.PointLimit);
+            var samples = Downsample(store.Raw.Read(fromUnix, toUnix), MaxRenderPoints);
             if (samples.Length == 0)
                 continue;
 
             samplesByServer[uniqueName] = samples;
         }
 
-        BuildSummary(selectedServers, samplesByServer, toUnix - fromUnix);
-        BuildCharts(samplesByServer, toUnix - fromUnix);
+        BuildSummary(selectedServers, samplesByServer);
+        BuildCharts(samplesByServer, toUnix - fromUnix, fromUnix, toUnix);
     }
 
     private IReadOnlyList<ServerOption> BuildServerOptions()
@@ -576,6 +579,24 @@ else
     private (long FromUnix, long ToUnix) ResolveRange()
     {
         var nowUtc = DateTimeOffset.UtcNow;
+        if (string.Equals(_config.SelectedRangeKey, "30s", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddSeconds(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        if (string.Equals(_config.SelectedRangeKey, "1m", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddMinutes(-1).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        if (string.Equals(_config.SelectedRangeKey, "2m", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddMinutes(-2).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        if (string.Equals(_config.SelectedRangeKey, "5m", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddMinutes(-5).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        if (string.Equals(_config.SelectedRangeKey, "15m", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddMinutes(-15).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        if (string.Equals(_config.SelectedRangeKey, "30m", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddMinutes(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
         if (string.Equals(_config.SelectedRangeKey, "1h", StringComparison.OrdinalIgnoreCase))
             return (nowUtc.AddHours(-1).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
 
@@ -601,29 +622,6 @@ else
         return (new DateTimeOffset(fromLocal).ToUnixTimeSeconds(), new DateTimeOffset(toLocal).ToUnixTimeSeconds());
     }
 
-    private MetricSample[] QueryTier(ServerMetricsStore store, long fromUnix, long toUnix)
-    {
-        return _config.TierMode switch
-        {
-            AnalyticsTierMode.Raw => store.Raw.Read(fromUnix, toUnix),
-            AnalyticsTierMode.OneMinute => store.OneMinute.Read(fromUnix, toUnix),
-            AnalyticsTierMode.OneHour => store.OneHour.Read(fromUnix, toUnix),
-            _ => QueryAutoTier(store, fromUnix, toUnix),
-        };
-    }
-
-    private static MetricSample[] QueryAutoTier(ServerMetricsStore store, long fromUnix, long toUnix)
-    {
-        var span = toUnix - fromUnix;
-        if (span <= 2 * 3600)
-            return store.Raw.Read(fromUnix, toUnix);
-
-        if (span <= 7 * 86400)
-            return store.OneMinute.Read(fromUnix, toUnix);
-
-        return store.OneHour.Read(fromUnix, toUnix);
-    }
-
     private static MetricSample[] Downsample(MetricSample[] samples, int maxPoints)
     {
         if (samples.Length <= maxPoints)
@@ -642,8 +640,7 @@ else
 
     private void BuildSummary(
         IReadOnlyList<string> selectedServers,
-        IReadOnlyDictionary<string, MetricSample[]> samplesByServer,
-        long spanSeconds)
+        IReadOnlyDictionary<string, MetricSample[]> samplesByServer)
     {
         _summaryChips.Clear();
 
@@ -656,7 +653,6 @@ else
         }
 
         _summaryChips.Add(new SummaryChipModel("Servers", selectedServers.Count.ToString()));
-        _summaryChips.Add(new SummaryChipModel("Tier", ResolveTierLabel(spanSeconds)));
 
         if (latestSamples.Count == 0)
         {
@@ -695,7 +691,7 @@ else
         }
     }
 
-    private void BuildCharts(IReadOnlyDictionary<string, MetricSample[]> samplesByServer, long spanSeconds)
+    private void BuildCharts(IReadOnlyDictionary<string, MetricSample[]> samplesByServer, long spanSeconds, long fromUnix, long toUnix)
     {
         _charts.Clear();
         if (samplesByServer.Count == 0)
@@ -711,25 +707,16 @@ else
             if (definition is null)
                 continue;
 
-            var series = new List<ChartSeries<double>>();
+            var series = new List<AnalyticsChartSeries>();
             foreach (var pair in samplesByServer.OrderBy(pair => ResolveDisplayName(pair.Key), StringComparer.OrdinalIgnoreCase))
             {
-                var values = pair.Value
-                    .Where(definition.IsAvailable)
-                    .Select(sample => new TimeValue<double>(
-                        DateTimeOffset.FromUnixTimeSeconds(sample.TimestampUnixSeconds).LocalDateTime,
-                        definition.Selector(sample)))
-                    .ToArray();
+                var gapThresholdSeconds = ResolveGapThresholdSeconds(pair.Value);
+                var values = BuildSeriesPoints(pair.Value, definition, gapThresholdSeconds);
 
-                if (values.Length == 0)
+                if (values.Count == 0 || values.All(point => point.Value is null))
                     continue;
 
-                series.Add(new ChartSeries<double>
-                {
-                    Name = ResolveDisplayName(pair.Key),
-                    Data = values,
-                    Visible = true,
-                });
+                series.Add(new AnalyticsChartSeries(ResolveDisplayName(pair.Key), values));
             }
 
             if (series.Count == 0)
@@ -739,7 +726,8 @@ else
                 Title: definition.Title,
                 Subtitle: definition.Subtitle,
                 Series: series,
-                Options: CreateChartOptions(definition, spanSeconds),
+                Options: CreateChartOptions(definition, spanSeconds, fromUnix, toUnix),
+                Height: ResolveChartHeight(panel),
                 LayoutStyle: $"grid-column: span {Math.Clamp(panel.ColumnSpan, 1, _config.GridColumns)}; grid-row: span {Math.Clamp(panel.RowSpan, 1, Math.Max(1, _config.GridRows))};",
                 Panel: panel));
         }
@@ -778,22 +766,216 @@ else
         await RefreshAsync();
     }
 
-    private TimeSeriesChartOptions CreateChartOptions(MetricDefinition definition, long spanSeconds)
+    private static double? ResolveUnixMs(long unixSeconds)
     {
-        return new TimeSeriesChartOptions
+        return DateTimeOffset.FromUnixTimeSeconds(unixSeconds).ToUnixTimeMilliseconds();
+    }
+
+    private ApexCharts.ApexChartOptions<AnalyticsChartPoint> CreateChartOptions(
+        MetricDefinition definition,
+        long spanSeconds,
+        long fromUnix,
+        long toUnix)
+    {
+        return new ApexCharts.ApexChartOptions<AnalyticsChartPoint>
         {
-            YAxisLines = false,
-            XAxisLines = false,
-            ShowDataMarkers = _config.PointLimit <= 150,
-            LineStrokeWidth = 2,
-            MaxNumYAxisTicks = 8,
-            YAxisRequireZeroPoint = definition.RequiresZero,
-            TooltipTimeLabelFormat = ResolveTooltipTimeFormat(spanSeconds),
-            TimeLabelFormat = ResolveTimeLabelFormat(spanSeconds),
-            TimeLabelSpacing = ResolveTimeLabelSpacing(spanSeconds),
-            XAxisTitle = "Time",
-            YAxisTitle = definition.Title,
+            Chart = new ApexCharts.Chart
+            {
+                Background = "var(--mud-palette-surface)",
+                Animations = new ApexCharts.Animations { Enabled = false },
+                ForeColor = "var(--mud-palette-text-primary)",
+                FontFamily = "var(--mud-typography-default-family)",
+                Toolbar = new ApexCharts.Toolbar { Show = true },
+                Zoom = new ApexCharts.Zoom { Enabled = true, AutoScaleYaxis = true },
+                RedrawOnParentResize = true,
+                RedrawOnWindowResize = true,
+            },
+            Theme = new ApexCharts.Theme
+            {
+                Mode = _isDarkTheme ? ApexCharts.Mode.Dark : ApexCharts.Mode.Light,
+            },
+            Colors =
+            [
+                "#3b82f6",
+                "#7dd3fc",
+                "#a7f3d0",
+                "#fde68a",
+                "#f0abfc",
+                "#c4b5fd",
+            ],
+            DataLabels = new ApexCharts.DataLabels { Enabled = false },
+            Grid = new ApexCharts.Grid
+            {
+                BorderColor = "rgba(128,128,128,0.24)",
+                StrokeDashArray = 3,
+                Xaxis = new ApexCharts.GridXAxis { Lines = new ApexCharts.Lines { Show = false } },
+                Yaxis = new ApexCharts.GridYAxis { Lines = new ApexCharts.Lines { Show = true } },
+            },
+            Legend = new ApexCharts.Legend
+            {
+                Show = true,
+                Position = ApexCharts.LegendPosition.Bottom,
+                HorizontalAlign = ApexCharts.Align.Left,
+                ShowForSingleSeries = true,
+                ShowForNullSeries = false,
+            },
+            Markers = new ApexCharts.Markers
+            {
+                Size = 3,
+                ShowNullDataPoints = false,
+            },
+            Stroke = new ApexCharts.Stroke
+            {
+                Curve = ApexCharts.Curve.Straight,
+                Width = 2,
+            },
+            Tooltip = new ApexCharts.Tooltip
+            {
+                Shared = true,
+                HideEmptySeries = true,
+                Theme = _isDarkTheme ? ApexCharts.Mode.Dark : ApexCharts.Mode.Light,
+                X = new ApexCharts.TooltipX
+                {
+                    Format = ResolveTooltipTimeFormat(spanSeconds),
+                },
+            },
+            Xaxis = new ApexCharts.XAxis
+            {
+                Type = ApexCharts.XAxisType.Datetime,
+                Min = ResolveUnixMs(fromUnix),
+                Max = ResolveUnixMs(toUnix),
+                Labels = new ApexCharts.XAxisLabels
+                {
+                    Style = new ApexCharts.AxisLabelStyle
+                    {
+                        Colors = "var(--mud-palette-text-secondary)",
+                        FontFamily = "var(--mud-typography-default-family)",
+                    },
+                    DatetimeUTC = false,
+                    Format = ResolveTimeLabelFormat(spanSeconds),
+                },
+            },
+            Yaxis =
+            [
+                new ApexCharts.YAxis
+                {
+                    Labels = new ApexCharts.YAxisLabels
+                    {
+                        Style = new ApexCharts.AxisLabelStyle
+                        {
+                            Colors = "var(--mud-palette-text-secondary)",
+                            FontFamily = "var(--mud-typography-default-family)",
+                        },
+                    },
+                    DecimalsInFloat = ResolveYAxisDecimals(definition),
+                    ForceNiceScale = true,
+                    Min = definition.RequiresZero ? 0 : null,
+                    Max = ResolveYAxisMax(definition),
+                    ShowForNullSeries = false,
+                    TickAmount = 5,
+                }
+            ],
         };
+    }
+
+    private static IReadOnlyList<AnalyticsChartPoint> BuildSeriesPoints(
+        IReadOnlyList<MetricSample> samples,
+        MetricDefinition definition,
+        long gapThresholdSeconds)
+    {
+        var points = new List<AnalyticsChartPoint>(samples.Count);
+        long? previousTimestamp = null;
+
+        foreach (var sample in samples.OrderBy(sample => sample.TimestampUnixSeconds))
+        {
+            if (previousTimestamp is { } previous &&
+                sample.TimestampUnixSeconds - previous > gapThresholdSeconds)
+            {
+                var gapTimestamp = previous + Math.Max(1, Math.Min(gapThresholdSeconds, (sample.TimestampUnixSeconds - previous) / 2));
+                points.Add(new AnalyticsChartPoint(ToLocalDateTime(gapTimestamp), null));
+            }
+
+            points.Add(new AnalyticsChartPoint(
+                ToLocalDateTime(sample.TimestampUnixSeconds),
+                TrySelectDecimal(definition, sample)));
+
+            previousTimestamp = sample.TimestampUnixSeconds;
+        }
+
+        return points;
+    }
+
+    private static decimal? TrySelectDecimal(MetricDefinition definition, MetricSample sample)
+    {
+        if (!definition.IsAvailable(sample))
+            return null;
+
+        var value = definition.Selector(sample);
+        return double.IsFinite(value) ? (decimal)value : null;
+    }
+
+    private static DateTime ToLocalDateTime(long timestampUnixSeconds) =>
+        DateTimeOffset.FromUnixTimeSeconds(timestampUnixSeconds).LocalDateTime;
+
+    private static long ResolveGapThresholdSeconds(IReadOnlyList<MetricSample> samples)
+    {
+        const long expectedSeconds = 2;
+        var medianIntervalSeconds = ResolveMedianIntervalSeconds(samples);
+        var cadenceSeconds = Math.Max(expectedSeconds, medianIntervalSeconds);
+        return cadenceSeconds * 3L;
+    }
+
+    private static long ResolveMedianIntervalSeconds(IReadOnlyList<MetricSample> samples)
+    {
+        if (samples.Count < 2)
+            return 0;
+
+        var deltas = new List<long>(samples.Count - 1);
+        long? previousTimestamp = null;
+        foreach (var sample in samples.OrderBy(sample => sample.TimestampUnixSeconds))
+        {
+            if (previousTimestamp is { } previous)
+            {
+                var delta = sample.TimestampUnixSeconds - previous;
+                if (delta > 0)
+                    deltas.Add(delta);
+            }
+
+            previousTimestamp = sample.TimestampUnixSeconds;
+        }
+
+        if (deltas.Count == 0)
+            return 0;
+
+        deltas.Sort();
+        return deltas[deltas.Count / 2];
+    }
+
+    private static int ResolveYAxisDecimals(MetricDefinition definition)
+    {
+        return definition.Key switch
+        {
+            "simspeed" => 3,
+            "cpu" or "memory" or "frametime" => 1,
+            _ => 0,
+        };
+    }
+
+    private static decimal? ResolveYAxisMax(MetricDefinition definition)
+    {
+        return definition.Key switch
+        {
+            "frametime" => 100,
+            _ => null,
+        };
+    }
+
+    private string ResolveChartHeight(AnalyticsPanelConfig panel)
+    {
+        var rowHeight = Math.Max(180, _config.RowHeightPx);
+        var rowSpan = Math.Max(1, panel.RowSpan);
+        var chartHeight = Math.Max(280, (rowHeight * rowSpan) - 88);
+        return chartHeight.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private string ResolveDisplayName(string uniqueName)
@@ -807,19 +989,6 @@ else
     {
         return MetricDefinitions.FirstOrDefault(metric => string.Equals(metric.Key, key, StringComparison.OrdinalIgnoreCase))
                ?.Title ?? key;
-    }
-
-    private string ResolveTierLabel(long spanSeconds)
-    {
-        return _config.TierMode switch
-        {
-            AnalyticsTierMode.Raw => "Raw",
-            AnalyticsTierMode.OneMinute => "1 minute",
-            AnalyticsTierMode.OneHour => "1 hour",
-            _ when spanSeconds <= 2 * 3600 => "Auto/raw",
-            _ when spanSeconds <= 7 * 86400 => "Auto/1 minute",
-            _ => "Auto/1 hour",
-        };
     }
 
     private static string ResolveTimeLabelFormat(long spanSeconds)
@@ -861,7 +1030,6 @@ else
         normalized.SelectedRangeKey = RangeOptions.Any(option => string.Equals(option.Key, normalized.SelectedRangeKey, StringComparison.OrdinalIgnoreCase))
             ? normalized.SelectedRangeKey
             : "1h";
-        normalized.PointLimit = Math.Clamp(normalized.PointLimit <= 0 ? 500 : normalized.PointLimit, 50, 5000);
         normalized.GridColumns = Math.Clamp(normalized.GridColumns <= 0 ? 2 : normalized.GridColumns, 1, 6);
         normalized.GridRows = Math.Clamp(normalized.GridRows <= 0 ? 4 : normalized.GridRows, 1, 12);
         normalized.RowHeightPx = Math.Clamp(normalized.RowHeightPx <= 0 ? 320 : normalized.RowHeightPx, 180, 960);
@@ -932,8 +1100,13 @@ else
     private sealed record ChartModel(
         string Title,
         string Subtitle,
-        List<ChartSeries<double>> Series,
-        TimeSeriesChartOptions Options,
+        List<AnalyticsChartSeries> Series,
+        ApexCharts.ApexChartOptions<AnalyticsChartPoint> Options,
+        string Height,
         string LayoutStyle,
         AnalyticsPanelConfig Panel);
+
+    private sealed record AnalyticsChartSeries(string Name, IReadOnlyList<AnalyticsChartPoint> Points);
+
+    private sealed record AnalyticsChartPoint(DateTime Timestamp, decimal? Value);
 }

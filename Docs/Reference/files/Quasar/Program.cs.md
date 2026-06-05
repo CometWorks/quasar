@@ -29,6 +29,7 @@ If `ASPNETCORE_URLS` is not set, Kestrel binds to `{host}:{port}` from `WebServi
 | Auth | `AddAuthentication` (cookie scheme + Steam OpenId), `AddAuthorization` (8 named policies) |
 | Data Protection | Keys persisted to `MagnetarPaths.GetQuasarDataProtectionKeyringDirectory()`, app name `"Quasar"` |
 | HTTP | `AddHttpClient`, `AddLocalStorageServices` |
+| ApexCharts | `AddApexCharts` |
 | MudBlazor | `AddMudServices` (snackbar bottom-start, no duplicates, newest-on-top) |
 | Options singletons | `WebServiceOptions`, `ManagedRuntimeOptions`, `QuasarAuthOptions` |
 | RBAC | `RbacConfigCatalog`, `QuasarRoleMapper`, `TrustedNetworkEvaluator` |
@@ -109,7 +110,7 @@ On Linux/macOS, `SIGINT` and `SIGTERM` are intercepted via `PosixSignalRegistrat
 - [`Quasar/Services/WebServiceManifestHostedService.cs`](Services/WebServiceManifestHostedService.cs.md), `WebServiceOptions.cs`, `WebServiceState.cs`
 - `Quasar/Services/ManagedRuntimeOptions.cs`
 - `Magnetar.Protocol` (`MagnetarPaths`)
-- External: `AspNet.Security.OpenId.Steam`, `MudBlazor`, `NLog`, `Blazor.LocalStorage`
+- External: `ApexCharts`, `AspNet.Security.OpenId.Steam`, `MudBlazor`, `NLog`, `Blazor.LocalStorage`
 
 ## Notes
 - The `/api/internal/drain` endpoint requires both a `X-Quasar-Launcher-Token` header match and trusted-network origin — this is the Quasar Bootstrap launcher's shutdown/update hook. The `stopServers` query param distinguishes between stopping only the Quasar process (drain) vs. stopping all managed servers first via `QuasarShutdownService.ShutdownAsync`.

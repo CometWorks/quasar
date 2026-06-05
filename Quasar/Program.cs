@@ -5,6 +5,7 @@ using Quasar.Services.Analytics;
 using Quasar.Services.Auth;
 using Quasar.Services.Discord;
 using Quasar.Services.PluginSdk;
+using ApexCharts;
 using AspNet.Security.OpenId.Steam;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.Authentication;
@@ -127,6 +128,7 @@ public class Program
                 .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyringDirectory));
             builder.Services.AddHttpClient();
             builder.Services.AddLocalStorageServices();
+            builder.Services.AddApexCharts();
             builder.Services.AddMudServices(configuration =>
             {
                 configuration.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomStart;

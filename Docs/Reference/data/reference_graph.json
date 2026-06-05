@@ -230,6 +230,10 @@
     "Quasar/Services/AgentRegistry.cs",
     "Quasar/Services/KnownPlayerCatalog.cs"
   ],
+  "Quasar/Components/Pages/PluginManifestPickerDialog.razor": [
+    "Quasar/Components/Pages/Configs.razor",
+    "Quasar/Services/FileBrowserService.cs"
+  ],
   "Quasar/Components/Pages/Plugins.razor": [
     "Quasar/Services/AgentRegistry.cs",
     "Quasar/Services/QuasarPluginCatalogService.cs"
