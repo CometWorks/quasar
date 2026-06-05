@@ -72,7 +72,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _shutdown.Cancel();
         _catalog.Changed -= HandleCatalogChanged;
 
-        if (_options.PreserveManagedInstancesOnShutdown || _preserveManagedInstancesOnShutdown)
+        if (_preserveManagedInstancesOnShutdown)
         {
             await PersistStateSnapshotAsync(CancellationToken.None);
             return;
@@ -90,7 +90,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         {
             try
             {
-                await StopInstanceAsync(uniqueName, cancellationToken);
+                await StopInstanceAsync(uniqueName, forceAfter: null, CancellationToken.None);
             }
             catch (Exception exception)
             {
@@ -231,8 +231,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             {
                 _logger.LogWarning("Instance {UniqueName} did not stop gracefully. Killing process tree.", uniqueName);
                 process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(CancellationToken.None);
             }
         }
+
+        if (!IsProcessActive(process))
+            await HandleProcessExitedAsync(uniqueName);
     }
 
     public async Task RestartInstanceAsync(string uniqueName, CancellationToken cancellationToken = default)

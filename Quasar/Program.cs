@@ -14,6 +14,7 @@ using Microsoft.Extensions.FileProviders;
 using MudBlazor;
 using MudBlazor.Services;
 using NLog;
+using System.Runtime.InteropServices;
 using System.Security.Claims;
 
 namespace Quasar;
@@ -45,6 +46,10 @@ public class Program
 
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents();
+            builder.Services.Configure<HostOptions>(options =>
+            {
+                options.ShutdownTimeout = TimeSpan.FromMinutes(30);
+            });
             builder.Services.AddCascadingAuthenticationState();
             builder.Services.AddAuthentication(options =>
                 {
@@ -329,6 +334,7 @@ public class Program
             if (authOptions.Enabled)
                 razorComponents.RequireAuthorization(QuasarPolicyNames.CanView);
 
+            using var gracefulShutdownSignals = RegisterGracefulShutdownSignals(app.Services);
             app.Run();
         }
         catch (Exception exception)
@@ -416,9 +422,62 @@ public class Program
         }
     }
 
+    private static IDisposable RegisterGracefulShutdownSignals(IServiceProvider services)
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+            return EmptyDisposable.Instance;
+
+        var shutdownService = services.GetRequiredService<QuasarShutdownService>();
+        var lifetime = services.GetRequiredService<IHostApplicationLifetime>();
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        var started = 0;
+
+        void HandleSignal(PosixSignalContext context)
+        {
+            context.Cancel = true;
+            if (Interlocked.Exchange(ref started, 1) != 0)
+                return;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await shutdownService.ShutdownAsync(cancellationToken: CancellationToken.None);
+                }
+                catch (Exception exception)
+                {
+                    logger.LogError(exception, "Graceful Quasar signal shutdown failed.");
+                    lifetime.StopApplication();
+                }
+            });
+        }
+
+        return new CompositeDisposable(
+            PosixSignalRegistration.Create(PosixSignal.SIGINT, HandleSignal),
+            PosixSignalRegistration.Create(PosixSignal.SIGTERM, HandleSignal));
+    }
+
     private static void AddRolePolicy(AuthorizationOptions options, string policyName, params string[] roles)
     {
         options.AddPolicy(policyName, policy => policy.RequireRole(roles));
+    }
+
+    private sealed class CompositeDisposable(params IDisposable[] disposables) : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var disposable in disposables)
+                disposable.Dispose();
+        }
+    }
+
+    private sealed class EmptyDisposable : IDisposable
+    {
+        public static readonly EmptyDisposable Instance = new();
+
+        public void Dispose()
+        {
+        }
     }
 
     private static string SanitizeReturnUrl(string? returnUrl)

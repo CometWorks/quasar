@@ -166,7 +166,7 @@ Restart=on-failure
 RestartSec=5
 KillSignal=SIGINT
 KillMode=process
-TimeoutStopSec=300
+TimeoutStopSec=1800
 SuccessExitStatus=130 143
 Environment=QUASAR_MODE=Service
 Environment=QUASAR_OPEN_BROWSER_ON_START=false
