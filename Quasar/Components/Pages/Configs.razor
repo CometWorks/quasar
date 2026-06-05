@@ -348,12 +348,14 @@
                                         <RowTemplate>
                                             <MudTd DataLabel="Name">@context.DisplayName</MudTd>
                                             <MudTd DataLabel="Plugin ID" Class="mono">@context.PluginId</MudTd>
-                                            <MudTd Class="plugin-actions">
-                                                @if (!string.IsNullOrWhiteSpace(GetPluginSourceUrl(context)))
-                                                {
-                                                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetPluginSourceUrl(context)" Target="_blank" Size="Size.Small" title="Open GitHub repository" />
-                                                }
-                                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePlugin(context.PluginId))" Size="Size.Small" title="Remove plugin" />
+                                            <MudTd>
+                                                <div class="plugin-actions">
+                                                    @if (!string.IsNullOrWhiteSpace(GetPluginSourceUrl(context)))
+                                                    {
+                                                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetPluginSourceUrl(context)" Target="_blank" Size="Size.Small" title="Open GitHub repository" />
+                                                    }
+                                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePlugin(context.PluginId))" Size="Size.Small" title="Remove plugin" />
+                                                </div>
                                             </MudTd>
                                         </RowTemplate>
                                         <NoRecordsContent>
