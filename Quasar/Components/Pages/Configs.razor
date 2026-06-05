@@ -689,22 +689,23 @@
                             <MudItem xs="12">
                                 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="1">
                                     <MudText Typo="Typo.subtitle2">@(_selectedDevFolder is null ? "New dev folder" : $"Editing {_selectedDevFolder.Name}")</MudText>
-                                    <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="ClearDevFolderEditor" Disabled="@(_selectedDevFolder is null && string.IsNullOrWhiteSpace(_newDevFolderName) && string.IsNullOrWhiteSpace(_newDevFolderPath) && string.IsNullOrWhiteSpace(_newDevFolderDataFile))">
+                                    <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="ClearDevFolderEditor" Disabled="@(_selectedDevFolder is null && string.IsNullOrWhiteSpace(_newDevFolderPath) && string.IsNullOrWhiteSpace(_newDevFolderDataFile))">
                                         New Entry
                                     </MudButton>
                                 </MudStack>
                             </MudItem>
-                            <MudItem xs="12" md="6">
-                                <MudTextField @bind-Value="_newDevFolderName" Label="Name" Variant="Variant.Outlined" Immediate="true" />
-                            </MudItem>
-                            <MudItem xs="12" md="6">
-                                <MudTextField @bind-Value="_newDevFolderDataFile" Label="Manifest file" Variant="Variant.Outlined" Immediate="true" HelperText="Manifest XML filename relative to the folder (e.g. Plugin.xml)." />
-                            </MudItem>
                             <MudItem xs="12">
-                                <MudStack Row="true" AlignItems="AlignItems.Stretch" Spacing="2" Class="configs-dev-folder-path-row">
-                                    <MudTextField @bind-Value="_newDevFolderPath" Label="Folder" Variant="Variant.Outlined" Immediate="true" Class="configs-dev-folder-path-field" />
-                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Class="configs-add-button configs-dev-folder-browse" StartIcon="@Icons.Material.Filled.FolderOpen" OnClick="OpenDevFolderPickerAsync">
-                                        Browse
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="configs-dev-folder-path-row">
+                                    <MudStack Spacing="0" Class="configs-dev-folder-path-field flex-grow-1">
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">Manifest</MudText>
+                                        <MudText Typo="Typo.body2" Class="mono">
+                                            @(string.IsNullOrWhiteSpace(_newDevFolderDataFile)
+                                                ? "No manifest selected"
+                                                : Path.Combine(_newDevFolderPath, _newDevFolderDataFile))
+                                        </MudText>
+                                    </MudStack>
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Class="configs-add-button configs-dev-folder-browse" StartIcon="@Icons.Material.Filled.Description" OnClick="OpenManifestPickerAsync">
+                                        Choose manifest...
                                     </MudButton>
                                 </MudStack>
                             </MudItem>
@@ -751,7 +752,6 @@
     private string _workshopInput = string.Empty;
     private string _newModName = string.Empty;
     private long _newModWorkshopId;
-    private string _newDevFolderName = string.Empty;
     private string _newDevFolderPath = string.Empty;
     private string _newDevFolderDataFile = string.Empty;
     private bool _newDevFolderDebug = true;
@@ -1677,23 +1677,25 @@
         _editor.Mods.RemoveAll(mod => mod.WorkshopId == workshopId);
     }
 
-    private async Task OpenDevFolderPickerAsync()
+    private async Task OpenManifestPickerAsync()
     {
         var parameters = new DialogParameters
         {
-            [nameof(FolderPickerDialog.InitialPath)] = _newDevFolderPath,
-            [nameof(FolderPickerDialog.DialogTitle)] = "Pick plugin source folder",
-            [nameof(FolderPickerDialog.RequireWorldFolder)] = false,
+            [nameof(PluginManifestPickerDialog.InitialPath)] = _newDevFolderPath,
+            [nameof(PluginManifestPickerDialog.DialogTitle)] = "Pick plugin manifest",
         };
 
-        var dialog = await DialogService.ShowAsync<FolderPickerDialog>(
-            "Pick plugin source folder",
+        var dialog = await DialogService.ShowAsync<PluginManifestPickerDialog>(
+            "Pick plugin manifest",
             parameters,
             new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Medium, FullWidth = true });
 
         var result = await dialog.Result;
-        if (result is { Canceled: false, Data: string path })
-            _newDevFolderPath = path;
+        if (result is { Canceled: false, Data: string xmlPath })
+        {
+            _newDevFolderPath = Path.GetDirectoryName(xmlPath) ?? string.Empty;
+            _newDevFolderDataFile = Path.GetFileName(xmlPath);
+        }
     }
 
     private async Task SaveDevFolderAsync()
@@ -1726,12 +1728,14 @@
         }
 
         var folderName = QuasarDevFolderSelection.GetSourceFolderName(folderPath);
+        var metadata = PluginManifestReader.ReadMetadata(Path.Combine(folderPath, dataFile));
+        var displayName = string.IsNullOrWhiteSpace(metadata.FriendlyName) ? folderName : metadata.FriendlyName;
 
         var previousFolderPath = _selectedDevFolder?.FolderPath ?? string.Empty;
         var previousDataFile = _selectedDevFolder?.DataFile ?? string.Empty;
         var devFolder = new QuasarDevFolderSelection
         {
-            Name = string.IsNullOrWhiteSpace(_newDevFolderName) ? folderName : _newDevFolderName.Trim(),
+            Name = displayName,
             FolderPath = folderPath,
             DataFile = dataFile,
             PluginId = folderName,
@@ -1753,7 +1757,6 @@
     private void EditDevFolder(QuasarDevFolderSelection devFolder)
     {
         _selectedDevFolder = devFolder;
-        _newDevFolderName = devFolder.Name;
         _newDevFolderPath = devFolder.FolderPath;
         _newDevFolderDataFile = devFolder.DataFile;
         _newDevFolderDebug = devFolder.DebugBuild;
@@ -1762,7 +1765,6 @@
     private void ClearDevFolderEditor()
     {
         _selectedDevFolder = null;
-        _newDevFolderName = string.Empty;
         _newDevFolderPath = string.Empty;
         _newDevFolderDataFile = string.Empty;
         _newDevFolderDebug = true;

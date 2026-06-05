@@ -33,6 +33,33 @@ public sealed class FileBrowserService
             .ToList();
     }
 
+    public IReadOnlyList<FileBrowserFileEntry> ListXmlFiles(string path, bool showHidden = false)
+    {
+        var resolved = ResolvePath(path);
+        if (!Directory.Exists(resolved))
+            throw new DirectoryNotFoundException($"Directory not found: {resolved}");
+
+        var entries = new List<FileBrowserFileEntry>();
+        foreach (var file in Directory.EnumerateFiles(resolved, "*.xml"))
+        {
+            try
+            {
+                var info = new FileInfo(file);
+                if (!showHidden && (info.Attributes & FileAttributes.Hidden) != 0)
+                    continue;
+
+                entries.Add(new FileBrowserFileEntry(info.Name, info.FullName));
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        return entries
+            .OrderBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     public IReadOnlyList<FileBrowserShortcut> GetShortcuts()
     {
         var shortcuts = new List<FileBrowserShortcut>();
@@ -90,6 +117,8 @@ public sealed class FileBrowserService
 }
 
 public sealed record FileBrowserEntry(string Name, string FullPath, bool IsWorldFolder);
+
+public sealed record FileBrowserFileEntry(string Name, string FullPath);
 
 public sealed record FileBrowserShortcut(string Label, string FullPath);
 
