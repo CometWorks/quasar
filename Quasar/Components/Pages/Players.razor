@@ -6,8 +6,10 @@
 
 <PageTitle>Players</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">Players</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Known players observed per server, with client service and Steam/member id retained for moderation.</MudText>
+<div>
+    <MudText Typo="Typo.h5" Class="mb-2">Known Players</MudText>
+    <MudText Typo="Typo.body2" Class="mb-4">Known players observed per server, with client service and Steam/member id retained for moderation.</MudText>
+</div>
 
 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
     <MudTextField @bind-Value="_searchText"
@@ -26,289 +28,293 @@
     }
 </MudStack>
 
-@if (KnownPlayerViews.Count == 0)
-{
-    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-        No known players yet. Quasar records players after they appear in a live server snapshot.
-    </MudAlert>
-}
-else if (FilteredPlayers.Count == 0)
-{
-    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-        No players match the current search.
-    </MudAlert>
-}
-else
-{
-    <MudTable T="KnownPlayerView" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredPlayers">
-        <HeaderContent>
-            <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.ServerDisplayName)">Server</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetPlayerName(x.Record))">Player</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetServiceLabel(x.Record.ServiceName))">Service</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.SteamId)">Steam ID</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.FactionTag)">Faction</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetRoleLabel(x.Record))">Role</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.LastSeenUtc)">Last Seen</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.IsOnline)">Status</MudTableSortLabel></MudTh>
-            <MudTh></MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd DataLabel="Server">
-                <MudText Typo="Typo.body2">@context.ServerDisplayName</MudText>
-                <MudText Typo="Typo.caption">@context.Record.UniqueName</MudText>
-            </MudTd>
-            <MudTd DataLabel="Player">
-                <MudText Typo="Typo.body2">@GetPlayerName(context.Record)</MudText>
-                @if (GetPlatformName(context.Record) is { Length: > 0 } platformName)
+<MudPaper Class="pa-4 server-card">
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-4">
+        @if (KnownPlayerViews.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                No known players yet. Quasar records players after they appear in a live server snapshot.
+            </MudAlert>
+        }
+        else if (FilteredPlayers.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                No players match the current search.
+            </MudAlert>
+        }
+        else
+        {
+            <MudTable T="KnownPlayerView" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredPlayers">
+                <HeaderContent>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.ServerDisplayName)">Server</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetPlayerName(x.Record))">Player</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetServiceLabel(x.Record.ServiceName))">Service</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.SteamId)">Steam ID</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.FactionTag)">Faction</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetRoleLabel(x.Record))">Role</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.LastSeenUtc)">Last Seen</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.IsOnline)">Status</MudTableSortLabel></MudTh>
+                    <MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Server">
+                        <MudText Typo="Typo.body2">@context.ServerDisplayName</MudText>
+                        <MudText Typo="Typo.caption">@context.Record.UniqueName</MudText>
+                    </MudTd>
+                    <MudTd DataLabel="Player">
+                        <MudText Typo="Typo.body2">@GetPlayerName(context.Record)</MudText>
+                        @if (GetPlatformName(context.Record) is { Length: > 0 } platformName)
+                        {
+                            <MudText Typo="Typo.caption">Platform: @platformName</MudText>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Service">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.Record.ServiceName)</MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Steam ID">
+                        <MudText Typo="Typo.body2" Class="mono">@context.Record.SteamId</MudText>
+                    </MudTd>
+                    <MudTd DataLabel="Faction">@context.Record.FactionTag</MudTd>
+                    <MudTd DataLabel="Role">@GetRoleLabel(context.Record)</MudTd>
+                    <MudTd DataLabel="Last Seen">@FormatLastSeen(context.Record.LastSeenUtc)</MudTd>
+                    <MudTd DataLabel="Status">
+                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                            <MudChip T="string" Size="Size.Small" Color="@(context.IsOnline ? Color.Success : Color.Default)">
+                                @(context.IsOnline ? "online" : "offline")
+                            </MudChip>
+                            @if (context.Record.IsBanned)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Error">banned</MudChip>
+                            }
+                            @if (!context.CanModerate)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">agent offline</MudChip>
+                            }
+                        </MudStack>
+                    </MudTd>
+                    <MudTd Style="text-align: right;">
+                        <MudMenu Dense="true"
+                                 Icon="@Icons.Material.Filled.MoreVert"
+                                 Disabled="@(!context.CanModerate)"
+                                 OpenChanged="@(open => _menuOpen = open)"
+                                 AnchorOrigin="Origin.BottomRight"
+                                 TransformOrigin="Origin.TopRight">
+                            <MudMenuItem Disabled="true">Set role</MudMenuItem>
+                            @foreach (var promoteLevel in PromoteLevels)
+                            {
+                                <MudMenuItem Disabled="@IsCurrentPromoteLevel(context.Record, promoteLevel)"
+                                             OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.SetPlayerPromoteLevel, promoteLevel))">
+                                    @promoteLevel
+                                </MudMenuItem>
+                            }
+                            <MudDivider />
+                            <MudMenuItem Disabled="@(!context.IsOnline)"
+                                         OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.KickPlayer))">
+                                Kick
+                            </MudMenuItem>
+                            <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(context, context.Record.IsBanned ? ServerCommandType.UnbanPlayer : ServerCommandType.BanPlayer))">
+                                @(context.Record.IsBanned ? "Unban" : "Ban")
+                            </MudMenuItem>
+                        </MudMenu>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+
+        @code
+        {
+            private static readonly string[] PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"];
+
+            private string _searchText = string.Empty;
+
+            // True while a row's action menu is open. The live data feed keeps pushing updates;
+            // re-rendering the table underneath an open menu would close it, so we hold renders
+            // until the menu is dismissed (click outside / Escape / selection close it natively).
+            private bool _menuOpen;
+
+            private IReadOnlyList<KnownPlayerView> KnownPlayerViews => BuildKnownPlayerViews();
+
+            private List<KnownPlayerView> FilteredPlayers => KnownPlayerViews
+                .Where(MatchesSearch)
+                .ToList();
+
+            protected override void OnInitialized()
+            {
+                Registry.Changed += HandleChanged;
+                KnownPlayers.Changed += HandleChanged;
+            }
+
+            public void Dispose()
+            {
+                Registry.Changed -= HandleChanged;
+                KnownPlayers.Changed -= HandleChanged;
+            }
+
+            // Skip live-update renders while a menu is open so the popup is not torn down underneath it.
+            protected override bool ShouldRender() => !_menuOpen;
+
+            private List<KnownPlayerView> BuildKnownPlayerViews()
+            {
+                var agents = Registry.GetAgents();
+                var connectedAgentsByServer = agents
+                    .Where(agent => agent.IsConnected)
+                    .GroupBy(agent => agent.UniqueNameKey, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+                var onlinePlayers = agents
+                    .Where(agent => agent.IsConnected && agent.Snapshot is not null)
+                    .SelectMany(agent => agent.Snapshot!.Players.Select(player => new
+                    {
+                        Agent = agent,
+                        Player = player,
+                        PlayerKey = BuildPlayerKey(agent.UniqueNameKey, player.SteamId),
+                    }))
+                    .ToDictionary(item => item.PlayerKey, item => item.Player, StringComparer.OrdinalIgnoreCase);
+
+                return KnownPlayers.GetPlayers()
+                    .Select(record =>
+                    {
+                        connectedAgentsByServer.TryGetValue(record.UniqueName, out var agent);
+                        onlinePlayers.TryGetValue(record.PlayerKey, out var onlinePlayer);
+
+                        return new KnownPlayerView
+                        {
+                            Record = record,
+                            Agent = agent,
+                            OnlinePlayer = onlinePlayer,
+                        };
+                    })
+                    .OrderByDescending(view => view.IsOnline)
+                    .ThenBy(view => view.ServerDisplayName, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(view => GetPlayerName(view.Record), StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(view => view.Record.SteamId)
+                    .ToList();
+            }
+
+            private bool MatchesSearch(KnownPlayerView view)
+            {
+                var search = _searchText?.Trim();
+                if (string.IsNullOrWhiteSpace(search))
+                    return true;
+
+                return Contains(view.Record.ServerName, search)
+                       || Contains(view.Record.UniqueName, search)
+                       || Contains(GetPlayerName(view.Record), search)
+                       || Contains(GetPlatformName(view.Record), search)
+                       || Contains(view.Record.ServiceName, search)
+                       || Contains(view.Record.FactionTag, search)
+                       || view.Record.SteamId.ToString().Contains(search, StringComparison.OrdinalIgnoreCase);
+            }
+
+            private async Task SendPlayerCommandAsync(KnownPlayerView view, ServerCommandType commandType, string text = "")
+            {
+                if (view.Agent is null)
                 {
-                    <MudText Typo="Typo.caption">Platform: @platformName</MudText>
+                    Snackbar.Add($"Server '{view.Record.UniqueName}' is not connected.", Severity.Error);
+                    return;
                 }
-            </MudTd>
-            <MudTd DataLabel="Service">
-                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.Record.ServiceName)</MudChip>
-            </MudTd>
-            <MudTd DataLabel="Steam ID">
-                <MudText Typo="Typo.body2" Class="mono">@context.Record.SteamId</MudText>
-            </MudTd>
-            <MudTd DataLabel="Faction">@context.Record.FactionTag</MudTd>
-            <MudTd DataLabel="Role">@GetRoleLabel(context.Record)</MudTd>
-            <MudTd DataLabel="Last Seen">@FormatLastSeen(context.Record.LastSeenUtc)</MudTd>
-            <MudTd DataLabel="Status">
-                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                    <MudChip T="string" Size="Size.Small" Color="@(context.IsOnline ? Color.Success : Color.Default)">
-                        @(context.IsOnline ? "online" : "offline")
-                    </MudChip>
-                    @if (context.Record.IsBanned)
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="Color.Error">banned</MudChip>
-                    }
-                    @if (!context.CanModerate)
-                    {
-                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">agent offline</MudChip>
-                    }
-                </MudStack>
-            </MudTd>
-            <MudTd Style="text-align: right;">
-                <MudMenu Dense="true"
-                         Icon="@Icons.Material.Filled.MoreVert"
-                         Disabled="@(!context.CanModerate)"
-                         OpenChanged="@(open => _menuOpen = open)"
-                         AnchorOrigin="Origin.BottomRight"
-                         TransformOrigin="Origin.TopRight">
-                    <MudMenuItem Disabled="true">Set role</MudMenuItem>
-                    @foreach (var promoteLevel in PromoteLevels)
-                    {
-                        <MudMenuItem Disabled="@IsCurrentPromoteLevel(context.Record, promoteLevel)"
-                                     OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.SetPlayerPromoteLevel, promoteLevel))">
-                            @promoteLevel
-                        </MudMenuItem>
-                    }
-                    <MudDivider />
-                    <MudMenuItem Disabled="@(!context.IsOnline)"
-                                 OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.KickPlayer))">
-                        Kick
-                    </MudMenuItem>
-                    <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(context, context.Record.IsBanned ? ServerCommandType.UnbanPlayer : ServerCommandType.BanPlayer))">
-                        @(context.Record.IsBanned ? "Unban" : "Ban")
-                    </MudMenuItem>
-                </MudMenu>
-            </MudTd>
-        </RowTemplate>
-    </MudTable>
-}
 
-@code
-{
-    private static readonly string[] PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"];
-
-    private string _searchText = string.Empty;
-
-    // True while a row's action menu is open. The live data feed keeps pushing updates;
-    // re-rendering the table underneath an open menu would close it, so we hold renders
-    // until the menu is dismissed (click outside / Escape / selection close it natively).
-    private bool _menuOpen;
-
-    private IReadOnlyList<KnownPlayerView> KnownPlayerViews => BuildKnownPlayerViews();
-
-    private List<KnownPlayerView> FilteredPlayers => KnownPlayerViews
-        .Where(MatchesSearch)
-        .ToList();
-
-    protected override void OnInitialized()
-    {
-        Registry.Changed += HandleChanged;
-        KnownPlayers.Changed += HandleChanged;
-    }
-
-    public void Dispose()
-    {
-        Registry.Changed -= HandleChanged;
-        KnownPlayers.Changed -= HandleChanged;
-    }
-
-    // Skip live-update renders while a menu is open so the popup is not torn down underneath it.
-    protected override bool ShouldRender() => !_menuOpen;
-
-    private List<KnownPlayerView> BuildKnownPlayerViews()
-    {
-        var agents = Registry.GetAgents();
-        var connectedAgentsByServer = agents
-            .Where(agent => agent.IsConnected)
-            .GroupBy(agent => agent.UniqueNameKey, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-
-        var onlinePlayers = agents
-            .Where(agent => agent.IsConnected && agent.Snapshot is not null)
-            .SelectMany(agent => agent.Snapshot!.Players.Select(player => new
-            {
-                Agent = agent,
-                Player = player,
-                PlayerKey = BuildPlayerKey(agent.UniqueNameKey, player.SteamId),
-            }))
-            .ToDictionary(item => item.PlayerKey, item => item.Player, StringComparer.OrdinalIgnoreCase);
-
-        return KnownPlayers.GetPlayers()
-            .Select(record =>
-            {
-                connectedAgentsByServer.TryGetValue(record.UniqueName, out var agent);
-                onlinePlayers.TryGetValue(record.PlayerKey, out var onlinePlayer);
-
-                return new KnownPlayerView
+                try
                 {
-                    Record = record,
-                    Agent = agent,
-                    OnlinePlayer = onlinePlayer,
-                };
-            })
-            .OrderByDescending(view => view.IsOnline)
-            .ThenBy(view => view.ServerDisplayName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(view => GetPlayerName(view.Record), StringComparer.OrdinalIgnoreCase)
-            .ThenBy(view => view.Record.SteamId)
-            .ToList();
-    }
+                    await Registry.SendCommandAsync(new ServerCommandEnvelope
+                    {
+                        UniqueName = view.Agent.UniqueNameKey,
+                        AgentId = view.Agent.AgentId,
+                        ServerId = view.Agent.ServerKey,
+                        CommandType = commandType,
+                        Text = text,
+                        SteamId = view.Record.SteamId,
+                    });
 
-    private bool MatchesSearch(KnownPlayerView view)
-    {
-        var search = _searchText?.Trim();
-        if (string.IsNullOrWhiteSpace(search))
-            return true;
+                    Snackbar.Add($"{commandType} sent for {GetPlayerName(view.Record)} ({view.Record.SteamId}).", Severity.Info);
+                }
+                catch (Exception exception)
+                {
+                    Snackbar.Add(exception.Message, Severity.Error);
+                }
+            }
 
-        return Contains(view.Record.ServerName, search)
-               || Contains(view.Record.UniqueName, search)
-               || Contains(GetPlayerName(view.Record), search)
-               || Contains(GetPlatformName(view.Record), search)
-               || Contains(view.Record.ServiceName, search)
-               || Contains(view.Record.FactionTag, search)
-               || view.Record.SteamId.ToString().Contains(search, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private async Task SendPlayerCommandAsync(KnownPlayerView view, ServerCommandType commandType, string text = "")
-    {
-        if (view.Agent is null)
-        {
-            Snackbar.Add($"Server '{view.Record.UniqueName}' is not connected.", Severity.Error);
-            return;
-        }
-
-        try
-        {
-            await Registry.SendCommandAsync(new ServerCommandEnvelope
+            private void HandleChanged()
             {
-                UniqueName = view.Agent.UniqueNameKey,
-                AgentId = view.Agent.AgentId,
-                ServerId = view.Agent.ServerKey,
-                CommandType = commandType,
-                Text = text,
-                SteamId = view.Record.SteamId,
-            });
+                _ = InvokeAsync(StateHasChanged);
+            }
 
-            Snackbar.Add($"{commandType} sent for {GetPlayerName(view.Record)} ({view.Record.SteamId}).", Severity.Info);
+            private static bool Contains(string? value, string search)
+            {
+                return !string.IsNullOrWhiteSpace(value)
+                       && value.Contains(search, StringComparison.OrdinalIgnoreCase);
+            }
+
+            private static string GetPlayerName(KnownPlayerRecord record)
+            {
+                var displayName = TextSanitizer.CleanGameText(record.DisplayName);
+                return string.IsNullOrWhiteSpace(displayName)
+                    ? record.SteamId.ToString()
+                    : displayName;
+            }
+
+            private static string GetPlatformName(KnownPlayerRecord record)
+            {
+                var platformName = TextSanitizer.CleanGameText(record.PlatformDisplayName);
+                return string.IsNullOrWhiteSpace(platformName) ||
+                       string.Equals(platformName, GetPlayerName(record), StringComparison.Ordinal)
+                    ? string.Empty
+                    : platformName;
+            }
+
+            private static string GetRoleLabel(KnownPlayerRecord record)
+            {
+                var promoteLevel = record.PromoteLevel?.Trim();
+                if (!string.IsNullOrWhiteSpace(promoteLevel) &&
+                    !string.Equals(promoteLevel, "None", StringComparison.OrdinalIgnoreCase))
+                {
+                    return promoteLevel;
+                }
+
+                return record.IsAdmin ? "Admin" : "Player";
+            }
+
+            private static bool IsCurrentPromoteLevel(KnownPlayerRecord record, string promoteLevel) =>
+                string.Equals(GetRoleLabel(record), promoteLevel, StringComparison.OrdinalIgnoreCase) ||
+                (string.Equals(promoteLevel, "None", StringComparison.OrdinalIgnoreCase) &&
+                 string.Equals(GetRoleLabel(record), "Player", StringComparison.OrdinalIgnoreCase));
+
+            private static string GetServiceLabel(string? serviceName)
+            {
+                return string.IsNullOrWhiteSpace(serviceName) ? "Unknown" : serviceName.Trim();
+            }
+
+            private static string FormatLastSeen(DateTimeOffset value)
+            {
+                if (value == default)
+                    return "never";
+
+                return value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+            }
+
+            private static string BuildPlayerKey(string uniqueName, long steamId)
+            {
+                return $"{uniqueName?.Trim() ?? string.Empty}::{steamId}";
+            }
+
+            private sealed class KnownPlayerView
+            {
+                public KnownPlayerRecord Record { get; init; } = new();
+
+                public AgentRuntimeState? Agent { get; init; }
+
+                public PlayerSnapshot? OnlinePlayer { get; init; }
+
+                public bool IsOnline => OnlinePlayer is not null;
+
+                public bool CanModerate => Agent?.IsConnected == true;
+
+                public string ServerDisplayName => !string.IsNullOrWhiteSpace(Agent?.ServerDisplayName)
+                    ? Agent.ServerDisplayName
+                    : !string.IsNullOrWhiteSpace(Record.ServerName)
+                        ? Record.ServerName
+                        : Record.UniqueName;
+            }
         }
-        catch (Exception exception)
-        {
-            Snackbar.Add(exception.Message, Severity.Error);
-        }
-    }
-
-    private void HandleChanged()
-    {
-        _ = InvokeAsync(StateHasChanged);
-    }
-
-    private static bool Contains(string? value, string search)
-    {
-        return !string.IsNullOrWhiteSpace(value)
-               && value.Contains(search, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string GetPlayerName(KnownPlayerRecord record)
-    {
-        var displayName = TextSanitizer.CleanGameText(record.DisplayName);
-        return string.IsNullOrWhiteSpace(displayName)
-            ? record.SteamId.ToString()
-            : displayName;
-    }
-
-    private static string GetPlatformName(KnownPlayerRecord record)
-    {
-        var platformName = TextSanitizer.CleanGameText(record.PlatformDisplayName);
-        return string.IsNullOrWhiteSpace(platformName) ||
-               string.Equals(platformName, GetPlayerName(record), StringComparison.Ordinal)
-            ? string.Empty
-            : platformName;
-    }
-
-    private static string GetRoleLabel(KnownPlayerRecord record)
-    {
-        var promoteLevel = record.PromoteLevel?.Trim();
-        if (!string.IsNullOrWhiteSpace(promoteLevel) &&
-            !string.Equals(promoteLevel, "None", StringComparison.OrdinalIgnoreCase))
-        {
-            return promoteLevel;
-        }
-
-        return record.IsAdmin ? "Admin" : "Player";
-    }
-
-    private static bool IsCurrentPromoteLevel(KnownPlayerRecord record, string promoteLevel) =>
-        string.Equals(GetRoleLabel(record), promoteLevel, StringComparison.OrdinalIgnoreCase) ||
-        (string.Equals(promoteLevel, "None", StringComparison.OrdinalIgnoreCase) &&
-         string.Equals(GetRoleLabel(record), "Player", StringComparison.OrdinalIgnoreCase));
-
-    private static string GetServiceLabel(string? serviceName)
-    {
-        return string.IsNullOrWhiteSpace(serviceName) ? "Unknown" : serviceName.Trim();
-    }
-
-    private static string FormatLastSeen(DateTimeOffset value)
-    {
-        if (value == default)
-            return "never";
-
-        return value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
-    }
-
-    private static string BuildPlayerKey(string uniqueName, long steamId)
-    {
-        return $"{uniqueName?.Trim() ?? string.Empty}::{steamId}";
-    }
-
-    private sealed class KnownPlayerView
-    {
-        public KnownPlayerRecord Record { get; init; } = new();
-
-        public AgentRuntimeState? Agent { get; init; }
-
-        public PlayerSnapshot? OnlinePlayer { get; init; }
-
-        public bool IsOnline => OnlinePlayer is not null;
-
-        public bool CanModerate => Agent?.IsConnected == true;
-
-        public string ServerDisplayName => !string.IsNullOrWhiteSpace(Agent?.ServerDisplayName)
-            ? Agent.ServerDisplayName
-            : !string.IsNullOrWhiteSpace(Record.ServerName)
-                ? Record.ServerName
-                : Record.UniqueName;
-    }
-}
+    </MudStack>
+</MudPaper>
