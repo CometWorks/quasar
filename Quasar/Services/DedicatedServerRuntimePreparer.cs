@@ -182,6 +182,11 @@ public sealed class DedicatedServerRuntimePreparer
             : configProfile.Name.Trim();
         var remotePluginSources = await BuildRemotePluginSourcesAsync(configProfile, cancellationToken);
         var devFolders = _devFolderCatalog.GetDevFolders();
+        var localDevFolderIds = GetDevFolderPluginIdSet(devFolders);
+        var selectedPluginIds = GetSelectedPluginIdSet(configProfile);
+        var selectedDevFolders = devFolders
+            .Where(devFolder => selectedPluginIds.Contains(QuasarPluginCatalogService.GetDevFolderPluginId(devFolder)))
+            .ToList();
 
         var sourcesDocument = new XDocument(
             new XDeclaration("1.0", "utf-8", null),
@@ -203,9 +208,9 @@ public sealed class DedicatedServerRuntimePreparer
                     devFolders
                     .Select(devFolder => new XElement(
                         "LocalPlugin",
-                        new XElement("Name", devFolder.SourceFolderName),
+                        new XElement("Name", QuasarPluginCatalogService.GetDevFolderPluginId(devFolder)),
                         new XElement("Folder", devFolder.FolderPath),
-                        new XElement("Enabled", devFolder.Enabled ? "true" : "false")))),
+                        new XElement("Enabled", "true")))),
                 new XElement(
                     "ModSources",
                     configProfile.Mods
@@ -227,17 +232,17 @@ public sealed class DedicatedServerRuntimePreparer
                     "GitHub",
                     configProfile.Plugins
                     .Where(plugin => QuasarPluginCatalogService.IsManualSelectionAllowed(plugin.PluginId))
+                    .Where(plugin => !localDevFolderIds.Contains(plugin.PluginId.Trim()))
                     .Select(plugin => new XElement(
                         "GitHubPluginConfig",
                         new XElement("Id", plugin.PluginId),
                         new XElement("SelectedVersion", plugin.SelectedVersion)))),
                 new XElement(
                     "DevFolder",
-                    devFolders
-                    .Where(devFolder => devFolder.Enabled)
+                    selectedDevFolders
                     .Select(devFolder => new XElement(
                         "LocalFolderConfig",
-                        new XElement("Id", devFolder.SourceFolderName),
+                        new XElement("Id", QuasarPluginCatalogService.GetDevFolderPluginId(devFolder)),
                         new XElement("DataFile", devFolder.DataFile),
                         new XElement("DebugBuild", devFolder.DebugBuild ? "true" : "false")))),
                 new XElement(
@@ -261,10 +266,12 @@ public sealed class DedicatedServerRuntimePreparer
         CancellationToken cancellationToken)
     {
         var catalogEntries = _pluginCatalog.GetEntries();
+        var localDevFolderIds = GetDevFolderPluginIdSet(_devFolderCatalog.GetDevFolders());
         var selectedPluginIds = configProfile.Plugins
             .Where(plugin => QuasarPluginCatalogService.IsManualSelectionAllowed(plugin.PluginId))
             .Select(plugin => plugin.PluginId.Trim())
             .Where(pluginId => !string.IsNullOrWhiteSpace(pluginId))
+            .Where(pluginId => !localDevFolderIds.Contains(pluginId))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         var catalogById = ToCatalogById(catalogEntries);
@@ -308,6 +315,19 @@ public sealed class DedicatedServerRuntimePreparer
         entries
             .Where(entry => !string.IsNullOrWhiteSpace(entry.PluginId))
             .ToDictionary(entry => entry.PluginId, StringComparer.OrdinalIgnoreCase);
+
+    private static HashSet<string> GetSelectedPluginIdSet(QuasarConfigProfile configProfile) =>
+        configProfile.Plugins
+            .Where(plugin => QuasarPluginCatalogService.IsManualSelectionAllowed(plugin.PluginId))
+            .Select(plugin => plugin.PluginId.Trim())
+            .Where(pluginId => !string.IsNullOrWhiteSpace(pluginId))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private static HashSet<string> GetDevFolderPluginIdSet(IReadOnlyList<QuasarDevFolderSelection> devFolders) =>
+        devFolders
+            .Select(QuasarPluginCatalogService.GetDevFolderPluginId)
+            .Where(pluginId => !string.IsNullOrWhiteSpace(pluginId))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     private static bool HasCatalogRemoteManifest(
         IReadOnlyDictionary<string, QuasarPluginCatalogEntry> catalogById,

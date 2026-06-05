@@ -418,7 +418,11 @@
                                                 <MudTd DataLabel="Name">
                                                     <MudStack Spacing="0">
                                                         <MudText Typo="Typo.subtitle2">@context.FriendlyName</MudText>
-                                                        @if (context.Hidden)
+                                                        @if (context.IsLocalDevFolder)
+                                                        {
+                                                            <MudText Typo="Typo.caption" Class="config-secondary">Local dev folder</MudText>
+                                                        }
+                                                        else if (context.Hidden)
                                                         {
                                                             <MudText Typo="Typo.caption" Class="config-secondary">Hidden in hub</MudText>
                                                         }
@@ -644,7 +648,7 @@
                     <MudExpansionPanel Class="configs-expansion-panel" Text="Developer" Expanded="false">
                         <ChildContent>
                         <MudText Typo="Typo.body2" Class="mb-3 mt-2">
-                            Register local plugin source folders so Magnetar loads them as dev builds. The plugin is identified by its source folder name (e.g. se-test-plugin).
+                            Register local plugin source folders so they appear in the plugin catalog. Enable them per config profile before Magnetar loads them.
                         </MudText>
 
                         <MudTable T="QuasarDevFolderSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="GlobalDevFolders" RowClassFunc="GetDevFolderRowClass">
@@ -653,7 +657,6 @@
                                 <MudTh>Folder</MudTh>
                                 <MudTh>Manifest</MudTh>
                                 <MudTh>Debug</MudTh>
-                                <MudTh>Enabled</MudTh>
                                 <MudTh></MudTh>
                             </HeaderContent>
                             <RowTemplate>
@@ -669,9 +672,6 @@
                                 <MudTd DataLabel="Manifest" Class="mono">@context.DataFile</MudTd>
                                 <MudTd DataLabel="Debug">
                                     <MudSwitch T="bool" Value="@context.DebugBuild" ValueChanged="@(value => SetDevFolderDebugAsync(context, value))" Color="Color.Primary" />
-                                </MudTd>
-                                <MudTd DataLabel="Enabled">
-                                    <MudSwitch T="bool" Value="@context.Enabled" ValueChanged="@(value => SetDevFolderEnabledAsync(context, value))" Color="Color.Primary" />
                                 </MudTd>
                                 <MudTd Style="text-align:right;">
                                     <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Default" OnClick="@(() => EditDevFolder(context))" />
@@ -708,13 +708,10 @@
                                     </MudButton>
                                 </MudStack>
                             </MudItem>
-                            <MudItem xs="12" md="4">
+                            <MudItem xs="12" md="6">
                                 <MudSwitch @bind-Value="_newDevFolderDebug" Color="Color.Primary" Label="Debug build" />
                             </MudItem>
-                            <MudItem xs="12" md="4">
-                                <MudSwitch @bind-Value="_newDevFolderEnabled" Color="Color.Primary" Label="Enabled" />
-                            </MudItem>
-                            <MudItem xs="12" md="4">
+                            <MudItem xs="12" md="6">
                                 <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" Class="configs-add-button" OnClick="SaveDevFolderAsync" Disabled="@(string.IsNullOrWhiteSpace(_newDevFolderPath) || string.IsNullOrWhiteSpace(_newDevFolderDataFile))">
                                     @(_selectedDevFolder is null ? "Create Entry" : "Save Entry")
                                 </MudButton>
@@ -758,7 +755,6 @@
     private string _newDevFolderPath = string.Empty;
     private string _newDevFolderDataFile = string.Empty;
     private bool _newDevFolderDebug = true;
-    private bool _newDevFolderEnabled = true;
     private QuasarDevFolderSelection? _selectedDevFolder;
     private List<QuasarWorkshopSearchResult> _workshopResults = [];
     private bool _catalogRefreshing;
@@ -1417,9 +1413,18 @@
         if (_editor is null)
             return;
 
-        if (selected && (entry.Hidden || !QuasarPluginCatalogService.IsManualSelectionAllowed(entry.PluginId)))
+        if (selected && !QuasarPluginCatalogService.IsManualSelectionAllowed(entry.PluginId))
         {
             Snackbar.Add("This plugin is managed automatically by Magnetar and cannot be selected manually.", Severity.Info);
+            return;
+        }
+
+        if (selected && entry.Hidden)
+        {
+            var message = entry.IsLocalDevFolder
+                ? "Enable the dev folder source before selecting it in a config profile."
+                : "This plugin is hidden in MagnetarHub and cannot be selected manually.";
+            Snackbar.Add(message, Severity.Info);
             return;
         }
 
@@ -1731,7 +1736,6 @@
             DataFile = dataFile,
             PluginId = folderName,
             DebugBuild = _newDevFolderDebug,
-            Enabled = _newDevFolderEnabled,
         };
 
         if (_selectedDevFolder is not null &&
@@ -1753,7 +1757,6 @@
         _newDevFolderPath = devFolder.FolderPath;
         _newDevFolderDataFile = devFolder.DataFile;
         _newDevFolderDebug = devFolder.DebugBuild;
-        _newDevFolderEnabled = devFolder.Enabled;
     }
 
     private void ClearDevFolderEditor()
@@ -1763,7 +1766,6 @@
         _newDevFolderPath = string.Empty;
         _newDevFolderDataFile = string.Empty;
         _newDevFolderDebug = true;
-        _newDevFolderEnabled = true;
     }
 
     private async Task SetDevFolderDebugAsync(QuasarDevFolderSelection devFolder, bool value)
@@ -1772,14 +1774,6 @@
         await DevFolderCatalog.UpsertAsync(devFolder);
         if (IsSelectedDevFolder(devFolder))
             _newDevFolderDebug = value;
-    }
-
-    private async Task SetDevFolderEnabledAsync(QuasarDevFolderSelection devFolder, bool value)
-    {
-        devFolder.Enabled = value;
-        await DevFolderCatalog.UpsertAsync(devFolder);
-        if (IsSelectedDevFolder(devFolder))
-            _newDevFolderEnabled = value;
     }
 
     private string GetDevFolderRowClass(QuasarDevFolderSelection devFolder, int rowNumber)
@@ -1916,7 +1910,9 @@
     }
 
     private static string GetPluginSourceUrl(QuasarPluginCatalogEntry entry) =>
-        QuasarPluginCatalogService.GetRepositoryUrl(entry.SourceRepo);
+        entry.IsLocalDevFolder
+            ? string.Empty
+            : QuasarPluginCatalogService.GetRepositoryUrl(entry.SourceRepo);
 
     private void HandleProfilesChanged()
     {
