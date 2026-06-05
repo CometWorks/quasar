@@ -94,18 +94,22 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     private async Task<string> EnsureManagedMagnetarInstallAsync(CancellationToken cancellationToken)
     {
         var installDirectory = _options.MagnetarInstallDirectory;
-        var launcherPath = FindImmediateFile(installDirectory, MagnetarLauncherFileNames);
+
+        // Resolve to the actual apphost binary under Bin/, never the top-level
+        // MagnetarInterim wrapper script. The wrapper only `cd`s into Bin/ and execs
+        // this binary; Quasar runs the binary directly with Bin/ as the working
+        // directory (Path.GetDirectoryName of the returned path), so no extra shell
+        // is spawned to set up the environment and the tracked PID is the server's.
         var binaryLauncherPath = FindImmediateFile(Path.Combine(installDirectory, "Bin"), MagnetarLauncherFileNames);
-        if (!string.IsNullOrWhiteSpace(launcherPath) && !string.IsNullOrWhiteSpace(binaryLauncherPath))
-            return launcherPath;
+        if (!string.IsNullOrWhiteSpace(binaryLauncherPath))
+            return binaryLauncherPath;
 
         await _magnetarInstallLock.WaitAsync(cancellationToken);
         try
         {
-            launcherPath = FindImmediateFile(installDirectory, MagnetarLauncherFileNames);
             binaryLauncherPath = FindImmediateFile(Path.Combine(installDirectory, "Bin"), MagnetarLauncherFileNames);
-            if (!string.IsNullOrWhiteSpace(launcherPath) && !string.IsNullOrWhiteSpace(binaryLauncherPath))
-                return launcherPath;
+            if (!string.IsNullOrWhiteSpace(binaryLauncherPath))
+                return binaryLauncherPath;
 
             Directory.CreateDirectory(MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory());
             var extractRoot = Path.Combine(MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory(), $"magnetar-{Guid.NewGuid():N}");
@@ -144,15 +148,13 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
                 Directory.CreateDirectory(installDirectory);
                 CopyDirectory(source.BinDirectory, Path.Combine(installDirectory, "Bin"));
-                launcherPath = Path.Combine(installDirectory, Path.GetFileName(source.LauncherPath));
-                File.Copy(source.LauncherPath, launcherPath, overwrite: true);
-                EnsureExecutableBit(launcherPath);
-                binaryLauncherPath = FindImmediateFile(Path.Combine(installDirectory, "Bin"), MagnetarLauncherFileNames);
-                if (!string.IsNullOrWhiteSpace(binaryLauncherPath))
-                    EnsureExecutableBit(binaryLauncherPath);
+                binaryLauncherPath = FindImmediateFile(Path.Combine(installDirectory, "Bin"), MagnetarLauncherFileNames)
+                    ?? throw new InvalidOperationException(
+                        $"Magnetar apphost binary not found under {Path.Combine(installDirectory, "Bin")} after install.");
+                EnsureExecutableBit(binaryLauncherPath);
 
                 _logger.LogInformation("Installed managed Magnetar runtime into {Path}.", installDirectory);
-                return launcherPath;
+                return binaryLauncherPath;
             }
             finally
             {
