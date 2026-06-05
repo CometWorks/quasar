@@ -4,6 +4,7 @@
 @inject QuasarShutdownService ShutdownService
 @inject WebServiceOptions WebServiceOptions
 @inject BrandingService BrandingService
+@inject IJSRuntime JS
 
 <MudThemeProvider Theme="@ThemePreference.Theme" IsDarkMode="@_isDarkMode" IsDarkModeChanged="OnSystemDarkModeChangedAsync" ObserveSystemDarkModeChange="@(_themeMode == ThemeMode.System)" />
 <MudPopoverProvider />
@@ -262,15 +263,14 @@
             return;
 
         _isShuttingDown = true;
-        _shutdownStatus = "Restarting Quasar worker…";
+        _shutdownStatus = "Restarting Quasar worker… the page will reload when it is back.";
         await InvokeAsync(StateHasChanged);
 
-        var progress = new Progress<string>(status =>
-        {
-            _shutdownStatus = status;
-            _ = InvokeAsync(StateHasChanged);
-        });
+        // The worker is about to stop, dropping this Blazor circuit, so hand off to a
+        // browser-side poller that reloads to the Dashboard once the new worker is
+        // healthy. Invoke it before stopping so the call reaches the client in time.
+        await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/");
 
-        ShutdownService.RestartWorker(progress);
+        ShutdownService.RestartWorker();
     }
 }
