@@ -2,6 +2,9 @@ window.quasarConfigs = window.quasarConfigs || {
     getSystemDarkMode() {
         return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
     },
+    getViewportWidth() {
+        return Math.max(320, Math.floor(window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth || 1280));
+    },
     focusElement(id) {
         const element = document.getElementById(id);
         if (!element) {

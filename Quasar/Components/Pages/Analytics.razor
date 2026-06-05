@@ -9,6 +9,7 @@
 @inject ILocalStorageService LocalStorage
 @inject IDialogService DialogService
 @inject ThemePreferenceService ThemePreference
+@inject IJSRuntime JS
 
 <PageTitle>Analytics</PageTitle>
 
@@ -123,6 +124,8 @@
                 <MudNumericField T="int" Label="Columns" Value="_config.GridColumns" ValueChanged="HandleGridColumnsChanged" Variant="Variant.Outlined" Min="1" Max="6" />
                 <MudNumericField T="int" Label="Rows" Value="_config.GridRows" ValueChanged="HandleGridRowsChanged" Variant="Variant.Outlined" Min="1" Max="12" />
                 <MudNumericField T="int" Label="Row height (px)" Value="_config.RowHeightPx" ValueChanged="HandleRowHeightChanged" Variant="Variant.Outlined" Min="180" Max="960" />
+                <MudNumericField T="int" Label="Max visible lines" Value="_config.MaxVisibleServersForCharts" ValueChanged="HandleMaxVisibleServersChanged" Variant="Variant.Outlined" Min="1" Max="40" Disabled="_config.ShowAllServers" />
+                <MudCheckBox T="bool" Label="Show all selected server lines" Value="_config.ShowAllServers" ValueChanged="HandleShowAllServersChanged" />
             </MudStack>
         </MudItem>
     </MudGrid>
@@ -162,6 +165,7 @@ else
                     </MudStack>
                     <div class="analytics-apex-chart">
                         <ApexChart TItem="AnalyticsChartPoint"
+                                   @key="chart.Panel.Key"
                                    Options="@chart.Options"
                                    Width="@("100%")"
                                    Height="@chart.Height">
@@ -186,7 +190,10 @@ else
 @code
 {
     private const string StorageKey = "quasar.analytics.view.v2";
-    private const int MaxRenderPoints = 5000;
+    private const string ViewportWidthFunction = "quasarConfigs.getViewportWidth";
+    private const int DefaultViewportWidthPx = 1280;
+    private const int MinSeriesPoints = 300;
+    private const int MaxSeriesPoints = 1000;
 
     private static readonly (string Key, string Label)[] RangeOptions =
     [
@@ -227,6 +234,7 @@ else
     private bool _selectionInitialized;
     private int _refreshing;
     private bool _isDarkTheme = true;
+    private int _cachedViewportWidthPx = DefaultViewportWidthPx;
 
     private bool IsCustomRange => string.Equals(_config.SelectedRangeKey, "custom", StringComparison.OrdinalIgnoreCase);
 
@@ -243,7 +251,7 @@ else
         Registry.Changed += HandleSourceChanged;
         ServerCatalog.Changed += HandleSourceChanged;
         ThemePreference.ThemeModeChanged += HandleThemeModeChanged;
-        RefreshView();
+        _ = RefreshViewAsync();
         UpdateRefreshTimer();
     }
 
@@ -255,7 +263,7 @@ else
         await ThemePreference.InitializeAsync();
         _isDarkTheme = ThemePreference.IsDarkMode;
         await LoadConfigAsync();
-        RefreshView();
+        await RefreshViewAsync();
         UpdateRefreshTimer();
         await InvokeAsync(StateHasChanged);
     }
@@ -308,7 +316,7 @@ else
 
     private async Task RefreshAsync()
     {
-        RefreshView();
+        await RefreshViewAsync();
         await PersistConfigAsync();
         await InvokeAsync(StateHasChanged);
     }
@@ -366,6 +374,7 @@ else
     private Task HandleRangeChanged(string value)
     {
         _config.SelectedRangeKey = string.IsNullOrWhiteSpace(value) ? "1h" : value;
+        UpdateRefreshTimer();
         return RefreshAsync();
     }
 
@@ -424,6 +433,18 @@ else
         return RefreshAsync();
     }
 
+    private Task HandleMaxVisibleServersChanged(int value)
+    {
+        _config.MaxVisibleServersForCharts = Math.Clamp(value, 1, 40);
+        return RefreshAsync();
+    }
+
+    private Task HandleShowAllServersChanged(bool value)
+    {
+        _config.ShowAllServers = value;
+        return RefreshAsync();
+    }
+
     private async Task RestorePanelAsync(AnalyticsPanelConfig panel)
     {
         panel.Visible = true;
@@ -445,7 +466,7 @@ else
 
             try
             {
-                RefreshView();
+                await RefreshViewAsync();
                 await InvokeAsync(StateHasChanged);
             }
             finally
@@ -461,8 +482,11 @@ else
             return;
 
         _isDarkTheme = isDark;
-        RefreshView();
-        _ = InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(async () =>
+        {
+            await RefreshViewAsync();
+            await InvokeAsync(StateHasChanged);
+        });
     }
 
     private void UpdateRefreshTimer()
@@ -487,36 +511,47 @@ else
                 if (_disposed || _refreshCts.IsCancellationRequested)
                     return;
 
-                RefreshView();
+                await RefreshViewAsync();
                 await InvokeAsync(StateHasChanged);
             });
         }, null, TimeSpan.FromSeconds(_config.AutoRefreshSeconds), TimeSpan.FromSeconds(_config.AutoRefreshSeconds));
     }
 
-    private void RefreshView()
+    private async Task RefreshViewAsync()
     {
         _serverOptions = BuildServerOptions();
         NormalizeSelection();
 
         var (fromUnix, toUnix) = ResolveRange();
+        var spanSeconds = toUnix - fromUnix;
         var selectedServers = GetSelectedUniqueNames();
+        var maxChartPoints = await ResolveChartTargetPointsAsync(spanSeconds);
+        var effectiveServers = ResolveChartServers(selectedServers);
         var samplesByServer = new Dictionary<string, MetricSample[]>(StringComparer.OrdinalIgnoreCase);
+        var renderSamplesByServer = new Dictionary<string, MetricSample[]>(StringComparer.OrdinalIgnoreCase);
+        var maxPointsPerSeries = ResolveMaxPointsPerSeries(maxChartPoints, effectiveServers.Count);
 
-        foreach (var uniqueName in selectedServers)
+        foreach (var uniqueName in effectiveServers)
         {
             var store = MetricsStore.GetStore(uniqueName);
             if (store is null)
                 continue;
 
-            var samples = Downsample(store.Raw.Read(fromUnix, toUnix), MaxRenderPoints);
+            var samples = ReadSamplesForRange(store, fromUnix, toUnix, spanSeconds);
             if (samples.Length == 0)
                 continue;
 
             samplesByServer[uniqueName] = samples;
         }
 
-        BuildSummary(selectedServers, samplesByServer);
-        BuildCharts(samplesByServer, toUnix - fromUnix, fromUnix, toUnix);
+        foreach (var pair in samplesByServer)
+        {
+            renderSamplesByServer[pair.Key] = DownsampleToPointLimit(pair.Value, maxPointsPerSeries);
+        }
+
+        var pointCache = new Dictionary<SeriesTransformCacheKey, IReadOnlyList<AnalyticsChartPoint>>();
+        BuildSummary(selectedServers, samplesByServer, effectiveServers.Count);
+        BuildCharts(renderSamplesByServer, toUnix - fromUnix, fromUnix, toUnix, maxChartPoints, pointCache);
     }
 
     private IReadOnlyList<ServerOption> BuildServerOptions()
@@ -576,6 +611,86 @@ else
             : [];
     }
 
+    private IReadOnlyList<string> ResolveChartServers(IReadOnlyList<string> selectedServers)
+    {
+        if (_config.ShowAllServers || selectedServers.Count <= _config.MaxVisibleServersForCharts)
+            return selectedServers;
+
+        var limit = Math.Clamp(_config.MaxVisibleServersForCharts, 1, 40);
+        if (selectedServers.Count <= limit)
+            return selectedServers;
+
+        if (_serverOptions.Count == 0)
+            return selectedServers.Take(limit).ToList();
+
+        var selectedSet = selectedServers.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var visible = _serverOptions
+            .Where(option => selectedSet.Contains(option.UniqueName))
+            .Select(option => option.UniqueName)
+            .Take(limit)
+            .ToList();
+
+        return visible.Count > 0
+            ? visible
+            : selectedServers.Take(limit).ToList();
+    }
+
+    private async Task<int> ResolveChartTargetPointsAsync(long spanSeconds)
+    {
+        var viewportWidth = await ResolveViewportWidthAsync();
+        var chartWidth = ResolveChartWidth(viewportWidth, _config.GridColumns);
+
+        var target = (int)Math.Round(chartWidth * 1.5);
+        if (spanSeconds > 6 * 3600)
+            target = (int)(target * 0.95);
+
+        if (spanSeconds > 24 * 3600)
+            target = (int)(target * 0.8);
+
+        if (spanSeconds > 7 * 86400)
+            target = (int)(target * 0.5);
+
+        if (spanSeconds > 30 * 86400)
+            target = (int)(target * 0.35);
+
+        return Math.Clamp(target, MinSeriesPoints, MaxSeriesPoints);
+    }
+
+    private int ResolveChartWidth(int viewportWidth, int gridColumns)
+    {
+        var columns = Math.Max(1, gridColumns);
+        var available = Math.Max(0, viewportWidth - 48);
+        var gap = 16;
+        var width = (available - gap * (columns - 1)) / columns;
+        return Math.Max(260, width);
+    }
+
+    private async Task<int> ResolveViewportWidthAsync()
+    {
+        try
+        {
+            var width = await JS.InvokeAsync<double>(ViewportWidthFunction);
+            if (width > 0)
+            {
+                _cachedViewportWidthPx = (int)Math.Round(width);
+                return _cachedViewportWidthPx;
+            }
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+
+        return _cachedViewportWidthPx > 0
+            ? _cachedViewportWidthPx
+            : DefaultViewportWidthPx;
+    }
+
+    private static int ResolveMaxPointsPerSeries(int chartTargetPoints, int visibleSeriesCount)
+        => Math.Max(1, chartTargetPoints / Math.Max(1, visibleSeriesCount));
+
     private (long FromUnix, long ToUnix) ResolveRange()
     {
         var nowUtc = DateTimeOffset.UtcNow;
@@ -622,25 +737,101 @@ else
         return (new DateTimeOffset(fromLocal).ToUnixTimeSeconds(), new DateTimeOffset(toLocal).ToUnixTimeSeconds());
     }
 
-    private static MetricSample[] Downsample(MetricSample[] samples, int maxPoints)
+    private static MetricSample[] ReadSamplesForRange(ServerMetricsStore store, long fromUnix, long toUnix, long spanSeconds)
+    {
+        if (spanSeconds <= 2 * 3600)
+            return store.Raw.Read(fromUnix, toUnix);
+
+        if (spanSeconds <= 24 * 3600)
+            return store.OneMinute.Read(fromUnix, toUnix);
+
+        return store.OneHour.Read(fromUnix, toUnix);
+    }
+
+    private static MetricSample[] DownsampleToPointLimit(MetricSample[] samples, int maxPoints)
     {
         if (samples.Length <= maxPoints)
             return samples;
 
-        var step = Math.Max(1, (int)Math.Ceiling(samples.Length / (double)maxPoints));
-        var result = new List<MetricSample>((samples.Length / step) + 1);
-        for (var i = 0; i < samples.Length; i += step)
-            result.Add(samples[i]);
+        var chunkSize = Math.Max(1, (int)Math.Ceiling(samples.Length / (double)maxPoints));
+        var chunkCount = samples.Length / chunkSize;
+        if (chunkCount == 0)
+            return [];
 
-        if (result.Count == 0 || result[^1].TimestampUnixSeconds != samples[^1].TimestampUnixSeconds)
-            result.Add(samples[^1]);
+        var result = new MetricSample[chunkCount];
+        for (var chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++)
+        {
+            var offset = chunkIndex * chunkSize;
+            result[chunkIndex] = AverageSamples(samples, offset, chunkSize);
+        }
 
-        return result.ToArray();
+        return result;
+    }
+
+    private static MetricSample AverageSamples(MetricSample[] samples, int offset, int count)
+    {
+        var end = offset + count;
+        long timestampTotal = 0;
+        var simSpeedTotal = 0.0;
+        var cpuTotal = 0.0;
+        var memoryTotal = 0.0;
+        var frameTimeTotal = 0.0;
+        var playersTotal = 0.0;
+        var usedPcuTotal = 0.0;
+        long activeGridTotal = 0;
+        long activeEntityTotal = 0;
+        var activeGridSamples = 0;
+        var activeEntitySamples = 0;
+
+        for (var i = offset; i < end; i++)
+        {
+            var sample = samples[i];
+            timestampTotal += sample.TimestampUnixSeconds;
+            simSpeedTotal += sample.SimSpeed;
+            cpuTotal += sample.CpuPercent;
+            memoryTotal += sample.MemoryMb;
+            frameTimeTotal += sample.FrameTimeMs;
+            playersTotal += sample.PlayersOnline;
+            usedPcuTotal += sample.UsedPcu;
+
+            if (sample.ActiveGridCount >= 0)
+            {
+                activeGridTotal += sample.ActiveGridCount;
+                activeGridSamples++;
+            }
+
+            if (sample.ActiveEntityCount >= 0)
+            {
+                activeEntityTotal += sample.ActiveEntityCount;
+                activeEntitySamples++;
+            }
+        }
+
+        var activeGridCount = activeGridSamples > 0
+            ? (int)Math.Round((double)activeGridTotal / activeGridSamples)
+            : -1;
+
+        var activeEntityCount = activeEntitySamples > 0
+            ? (int)Math.Round((double)activeEntityTotal / activeEntitySamples)
+            : -1;
+
+        var averageTimestamp = timestampTotal / count;
+        return new MetricSample(
+            timestampUnixSeconds: averageTimestamp,
+            simSpeed: (float)(simSpeedTotal / count),
+            cpuPercent: (float)(cpuTotal / count),
+            memoryMb: (float)(memoryTotal / count),
+            frameTimeMs: (float)(frameTimeTotal / count),
+            playersOnline: (int)Math.Round(playersTotal / count),
+            usedPcu: (int)Math.Round(usedPcuTotal / count),
+            activeGridCount: activeGridCount,
+            activeEntityCount: activeEntityCount);
     }
 
     private void BuildSummary(
         IReadOnlyList<string> selectedServers,
-        IReadOnlyDictionary<string, MetricSample[]> samplesByServer)
+        IReadOnlyDictionary<string, MetricSample[]> samplesByServer,
+        int visibleServerCount)
     {
         _summaryChips.Clear();
 
@@ -652,7 +843,14 @@ else
                 latestSamples.Add(latest[0]);
         }
 
-        _summaryChips.Add(new SummaryChipModel("Servers", selectedServers.Count.ToString()));
+        if (selectedServers.Count == visibleServerCount)
+        {
+            _summaryChips.Add(new SummaryChipModel("Servers", selectedServers.Count.ToString()));
+        }
+        else
+        {
+            _summaryChips.Add(new SummaryChipModel("Servers", $"{visibleServerCount} of {selectedServers.Count}"));
+        }
 
         if (latestSamples.Count == 0)
         {
@@ -691,11 +889,21 @@ else
         }
     }
 
-    private void BuildCharts(IReadOnlyDictionary<string, MetricSample[]> samplesByServer, long spanSeconds, long fromUnix, long toUnix)
+    private void BuildCharts(
+        IReadOnlyDictionary<string, MetricSample[]> samplesByServer,
+        long spanSeconds,
+        long fromUnix,
+        long toUnix,
+        int denseThreshold,
+        Dictionary<SeriesTransformCacheKey, IReadOnlyList<AnalyticsChartPoint>> pointCache)
     {
         _charts.Clear();
         if (samplesByServer.Count == 0)
             return;
+
+        var orderedSamplesByServer = samplesByServer
+            .OrderBy(pair => ResolveDisplayName(pair.Key), StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         foreach (var panel in _config.Panels
                      .Where(panel => panel.Visible)
@@ -708,10 +916,15 @@ else
                 continue;
 
             var series = new List<AnalyticsChartSeries>();
-            foreach (var pair in samplesByServer.OrderBy(pair => ResolveDisplayName(pair.Key), StringComparer.OrdinalIgnoreCase))
+            foreach (var pair in orderedSamplesByServer)
             {
                 var gapThresholdSeconds = ResolveGapThresholdSeconds(pair.Value);
-                var values = BuildSeriesPoints(pair.Value, definition, gapThresholdSeconds);
+                var cacheKey = new SeriesTransformCacheKey(pair.Key, definition.Key, fromUnix, toUnix);
+                if (!pointCache.TryGetValue(cacheKey, out var values))
+                {
+                    values = BuildSeriesPoints(pair.Value, definition, gapThresholdSeconds);
+                    pointCache[cacheKey] = values;
+                }
 
                 if (values.Count == 0 || values.All(point => point.Value is null))
                     continue;
@@ -722,11 +935,13 @@ else
             if (series.Count == 0)
                 continue;
 
+            var isDenseChart = series.Sum(s => s.Points.Count) >= denseThreshold;
+
             _charts.Add(new ChartModel(
                 Title: definition.Title,
                 Subtitle: definition.Subtitle,
                 Series: series,
-                Options: CreateChartOptions(definition, spanSeconds, fromUnix, toUnix),
+                Options: CreateChartOptions(definition, spanSeconds, fromUnix, toUnix, isDenseChart),
                 Height: ResolveChartHeight(panel),
                 LayoutStyle: $"grid-column: span {Math.Clamp(panel.ColumnSpan, 1, _config.GridColumns)}; grid-row: span {Math.Clamp(panel.RowSpan, 1, Math.Max(1, _config.GridRows))};",
                 Panel: panel));
@@ -775,7 +990,8 @@ else
         MetricDefinition definition,
         long spanSeconds,
         long fromUnix,
-        long toUnix)
+        long toUnix,
+        bool isDenseChart)
     {
         return new ApexCharts.ApexChartOptions<AnalyticsChartPoint>
         {
@@ -821,8 +1037,10 @@ else
             },
             Markers = new ApexCharts.Markers
             {
-                Size = 3,
+                Size = isDenseChart ? 0 : 3,
                 ShowNullDataPoints = false,
+                StrokeWidth = 0,
+                StrokeOpacity = 0,
             },
             Stroke = new ApexCharts.Stroke
             {
@@ -831,7 +1049,7 @@ else
             },
             Tooltip = new ApexCharts.Tooltip
             {
-                Shared = true,
+                Shared = !isDenseChart,
                 HideEmptySeries = true,
                 Theme = _isDarkTheme ? ApexCharts.Mode.Dark : ApexCharts.Mode.Light,
                 X = new ApexCharts.TooltipX
@@ -883,10 +1101,13 @@ else
         MetricDefinition definition,
         long gapThresholdSeconds)
     {
+        if (samples.Count == 0)
+            return [];
+
         var points = new List<AnalyticsChartPoint>(samples.Count);
         long? previousTimestamp = null;
 
-        foreach (var sample in samples.OrderBy(sample => sample.TimestampUnixSeconds))
+        foreach (var sample in samples)
         {
             if (previousTimestamp is { } previous &&
                 sample.TimestampUnixSeconds - previous > gapThresholdSeconds)
@@ -922,7 +1143,10 @@ else
         const long expectedSeconds = 2;
         var medianIntervalSeconds = ResolveMedianIntervalSeconds(samples);
         var cadenceSeconds = Math.Max(expectedSeconds, medianIntervalSeconds);
-        return cadenceSeconds * 3L;
+
+        // Avoid tiny synthetic gap rows caused by sample jitter; keep a gap point only for
+        // clearly meaningful discontinuities.
+        return Math.Max(cadenceSeconds * 3, cadenceSeconds + Math.Max(1, cadenceSeconds / 2));
     }
 
     private static long ResolveMedianIntervalSeconds(IReadOnlyList<MetricSample> samples)
@@ -931,17 +1155,11 @@ else
             return 0;
 
         var deltas = new List<long>(samples.Count - 1);
-        long? previousTimestamp = null;
-        foreach (var sample in samples.OrderBy(sample => sample.TimestampUnixSeconds))
+        for (var i = 1; i < samples.Count; i++)
         {
-            if (previousTimestamp is { } previous)
-            {
-                var delta = sample.TimestampUnixSeconds - previous;
-                if (delta > 0)
-                    deltas.Add(delta);
-            }
-
-            previousTimestamp = sample.TimestampUnixSeconds;
+            var delta = samples[i].TimestampUnixSeconds - samples[i - 1].TimestampUnixSeconds;
+            if (delta > 0)
+                deltas.Add(delta);
         }
 
         if (deltas.Count == 0)
@@ -1010,20 +1228,6 @@ else
         return "yyyy-MM-dd HH:mm";
     }
 
-    private static TimeSpan ResolveTimeLabelSpacing(long spanSeconds)
-    {
-        if (spanSeconds <= 2 * 3600)
-            return TimeSpan.FromMinutes(5);
-
-        if (spanSeconds <= 24 * 3600)
-            return TimeSpan.FromMinutes(30);
-
-        if (spanSeconds <= 7 * 86400)
-            return TimeSpan.FromHours(6);
-
-        return TimeSpan.FromDays(1);
-    }
-
     private static AnalyticsViewConfig NormalizeConfig(AnalyticsViewConfig? config)
     {
         var normalized = config ?? CreateDefaultConfig();
@@ -1033,6 +1237,8 @@ else
         normalized.GridColumns = Math.Clamp(normalized.GridColumns <= 0 ? 2 : normalized.GridColumns, 1, 6);
         normalized.GridRows = Math.Clamp(normalized.GridRows <= 0 ? 4 : normalized.GridRows, 1, 12);
         normalized.RowHeightPx = Math.Clamp(normalized.RowHeightPx <= 0 ? 320 : normalized.RowHeightPx, 180, 960);
+        normalized.MaxVisibleServersForCharts = normalized.MaxVisibleServersForCharts <= 0 ? 6 : normalized.MaxVisibleServersForCharts;
+        normalized.MaxVisibleServersForCharts = Math.Clamp(normalized.MaxVisibleServersForCharts, 1, 40);
         normalized.AutoRefreshSeconds = normalized.AutoRefreshSeconds switch
         {
             0 or 5 or 15 or 30 or 60 => normalized.AutoRefreshSeconds,
@@ -1105,6 +1311,8 @@ else
         string Height,
         string LayoutStyle,
         AnalyticsPanelConfig Panel);
+
+    private readonly record struct SeriesTransformCacheKey(string Server, string Metric, long FromUnix, long ToUnix);
 
     private sealed record AnalyticsChartSeries(string Name, IReadOnlyList<AnalyticsChartPoint> Points);
 
