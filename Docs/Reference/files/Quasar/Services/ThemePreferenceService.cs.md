@@ -15,6 +15,7 @@ Per-session (scoped) service that manages the user's theme preference (System / 
 | Member | Description |
 |---|---|
 | `Theme` | Returns `MudTheme` from `BrandingService.BuildMudTheme()`. |
+| `ThemeModeChanged` | Event invoked when effective dark/light theme changes, including system-mode updates. |
 | `Mode` | Current `ThemeMode` (default: `System`). |
 | `IsDarkMode` | Resolved boolean (default: `true`). |
 | `InitializeAsync()` | Reads stored preference from localStorage; resolves system mode via JS if needed. Idempotent. |

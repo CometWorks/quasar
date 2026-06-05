@@ -24,7 +24,7 @@ Routable page (`/analytics`) that renders rolling, interruptible ApexCharts time
 - **Key methods:**
   - `RefreshView()` — rebuilds server options, normalises selection, queries the right tier, downsamples, builds summary chips and `ChartModel` list.
   - `BuildSeriesPoints()` — sorts metric samples by timestamp, inserts null-valued gap points when sample spacing exceeds the tier cadence threshold, and emits null values for unavailable/non-finite metric samples.
-  - `CreateChartOptions()` — configures ApexCharts line rendering, a near-white-first series palette, datetime axes without duplicate axis titles, tooltip formatting, markers, legends, null-point behaviour, and the fixed 0..100 ms Y-axis for the frame-time panel.
+- `CreateChartOptions()` — configures ApexCharts line rendering, a blue-first series palette, datetime axes without duplicate axis titles, tooltip formatting, markers, legends, null-point behaviour, fixed 0..100 ms Y-axis for frame-time, and theme mode from `ThemePreferenceService` (light/dark).
   - `ResolveChartHeight()` — derives an explicit pixel chart height from the panel row span and configured row height so ApexCharts does not collapse inside the flex card.
   - `ResolveGapThresholdSeconds()` — maps raw/1-minute/1-hour tiers to an interruption threshold of three intervals, using the larger of the tier cadence and the displayed series' median sample spacing so downsampling does not create false chart breaks.
   - `QueryAutoTier()` — selects raw/1-minute/1-hour tier based on time span.

@@ -21,6 +21,7 @@ public sealed class ThemePreferenceService
     }
 
     public MudTheme Theme => _brandingService.BuildMudTheme();
+    public event Action<bool>? ThemeModeChanged;
 
     public ThemeMode Mode { get; private set; } = ThemeMode.System;
     public bool IsDarkMode { get; private set; } = true;
@@ -30,6 +31,7 @@ public sealed class ThemePreferenceService
         if (_initialized)
             return (Mode, IsDarkMode);
 
+        var previousDarkMode = IsDarkMode;
         try
         {
             var stored = await _localStorage.GetItemAsync<string>(StorageKey);
@@ -58,6 +60,9 @@ public sealed class ThemePreferenceService
                 };
             }
 
+            if (previousDarkMode != IsDarkMode)
+                ThemeModeChanged?.Invoke(IsDarkMode);
+
             _initialized = true;
         }
         catch (InvalidOperationException)
@@ -72,12 +77,17 @@ public sealed class ThemePreferenceService
 
     public void SyncSystemDarkMode(bool isDark)
     {
+        var previous = IsDarkMode;
         if (Mode == ThemeMode.System)
             IsDarkMode = isDark;
+
+        if (previous != IsDarkMode)
+            ThemeModeChanged?.Invoke(IsDarkMode);
     }
 
     public async Task SetModeAsync(ThemeMode mode)
     {
+        var previous = IsDarkMode;
         Mode = mode;
         IsDarkMode = mode switch
         {
@@ -89,6 +99,9 @@ public sealed class ThemePreferenceService
 
         try
         {
+            if (previous != IsDarkMode)
+                ThemeModeChanged?.Invoke(IsDarkMode);
+
             var value = mode switch
             {
                 ThemeMode.Light => "light",

@@ -8,6 +8,7 @@
 @inject ISnackbar Snackbar
 @inject ILocalStorageService LocalStorage
 @inject IDialogService DialogService
+@inject ThemePreferenceService ThemePreference
 
 <PageTitle>Analytics</PageTitle>
 
@@ -235,6 +236,7 @@ else
     private bool _configLoaded;
     private bool _selectionInitialized;
     private int _refreshing;
+    private bool _isDarkTheme = true;
 
     private bool IsCustomRange => string.Equals(_config.SelectedRangeKey, "custom", StringComparison.OrdinalIgnoreCase);
 
@@ -250,6 +252,7 @@ else
     {
         Registry.Changed += HandleSourceChanged;
         ServerCatalog.Changed += HandleSourceChanged;
+        ThemePreference.ThemeModeChanged += HandleThemeModeChanged;
         RefreshView();
         UpdateRefreshTimer();
     }
@@ -259,6 +262,8 @@ else
         if (!firstRender)
             return;
 
+        await ThemePreference.InitializeAsync();
+        _isDarkTheme = ThemePreference.IsDarkMode;
         await LoadConfigAsync();
         RefreshView();
         UpdateRefreshTimer();
@@ -270,6 +275,7 @@ else
         _disposed = true;
         Registry.Changed -= HandleSourceChanged;
         ServerCatalog.Changed -= HandleSourceChanged;
+        ThemePreference.ThemeModeChanged -= HandleThemeModeChanged;
         _refreshTimer?.Dispose();
         _refreshCts.Cancel();
         _refreshCts.Dispose();
@@ -469,6 +475,16 @@ else
                 Interlocked.Exchange(ref _refreshing, 0);
             }
         });
+    }
+
+    private void HandleThemeModeChanged(bool isDark)
+    {
+        if (_disposed)
+            return;
+
+        _isDarkTheme = isDark;
+        RefreshView();
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private void UpdateRefreshTimer()
@@ -785,15 +801,22 @@ else
         {
             Chart = new ApexCharts.Chart
             {
+                Background = "var(--mud-palette-surface)",
                 Animations = new ApexCharts.Animations { Enabled = false },
+                ForeColor = "var(--mud-palette-text-primary)",
+                FontFamily = "var(--mud-typography-default-family)",
                 Toolbar = new ApexCharts.Toolbar { Show = true },
                 Zoom = new ApexCharts.Zoom { Enabled = true, AutoScaleYaxis = true },
                 RedrawOnParentResize = true,
                 RedrawOnWindowResize = true,
             },
+            Theme = new ApexCharts.Theme
+            {
+                Mode = _isDarkTheme ? ApexCharts.Mode.Dark : ApexCharts.Mode.Light,
+            },
             Colors =
             [
-                "#f7f9ff",
+                "#3b82f6",
                 "#7dd3fc",
                 "#a7f3d0",
                 "#fde68a",
@@ -830,6 +853,7 @@ else
             {
                 Shared = true,
                 HideEmptySeries = true,
+                Theme = _isDarkTheme ? ApexCharts.Mode.Dark : ApexCharts.Mode.Light,
                 X = new ApexCharts.TooltipX
                 {
                     Format = ResolveTooltipTimeFormat(spanSeconds),
@@ -840,6 +864,11 @@ else
                 Type = ApexCharts.XAxisType.Datetime,
                 Labels = new ApexCharts.XAxisLabels
                 {
+                    Style = new ApexCharts.AxisLabelStyle
+                    {
+                        Colors = "var(--mud-palette-text-secondary)",
+                        FontFamily = "var(--mud-typography-default-family)",
+                    },
                     DatetimeUTC = false,
                     Format = ResolveTimeLabelFormat(spanSeconds),
                 },
@@ -848,6 +877,14 @@ else
             [
                 new ApexCharts.YAxis
                 {
+                    Labels = new ApexCharts.YAxisLabels
+                    {
+                        Style = new ApexCharts.AxisLabelStyle
+                        {
+                            Colors = "var(--mud-palette-text-secondary)",
+                            FontFamily = "var(--mud-typography-default-family)",
+                        },
+                    },
                     DecimalsInFloat = ResolveYAxisDecimals(definition),
                     ForceNiceScale = true,
                     Min = definition.RequiresZero ? 0 : null,

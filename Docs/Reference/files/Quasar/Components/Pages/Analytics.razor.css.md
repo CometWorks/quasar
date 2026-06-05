@@ -12,7 +12,6 @@ Scoped stylesheet for `Analytics.razor`. Defines the responsive CSS grid layout 
 - `.analytics-chart-paper` — `height: 100%; display: flex; flex-direction: column` so the `MudPaper` card stretches to fill its cell.
 - `.analytics-apex-chart` — flexible chart host with an explicit minimum height that fills the remaining card space and prevents width/height blowout.
 - `.analytics-apex-chart :global(.apexcharts-canvas)` / `.analytics-apex-chart :global(.apexcharts-svg)` — cap rendered ApexCharts surfaces at the available card width.
-- `.analytics-apex-chart :global(.apexcharts-menu)` / `.apexcharts-menu-item` — styles the ApexCharts toolbar export menu as white text on a black background with a darker hover/focus state.
 - `@media (max-width: 1279.98px)` — collapses to a single column and forces `grid-column: span 1` on all cards, overriding inline span styles.
 
 ## Dependencies
