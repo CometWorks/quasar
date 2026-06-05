@@ -52,6 +52,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _options = options;
         _pluginLogStream = pluginLogStream;
         _logger = logger;
+
+        // When set (the default), Quasar leaves managed servers running on its own
+        // shutdown instead of stopping them — they are detached (Magnetar -daemon /
+        // setsid) and reconnect when Quasar comes back. Without this wiring the field
+        // stayed false, so StopAsync stopped every server on a normal Ctrl-C.
+        _preserveManagedServersOnShutdown = options.PreserveManagedServersOnShutdown;
     }
 
     public event Action? Changed;
