@@ -346,7 +346,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     agent?.IsConnected == true &&
                     agent.Snapshot is not null)
                 {
-                    if (state.LastAppliedProcessPriority != state.Definition.ReadyProcessPriority)
+                    if (state.LastAppliedProcessPriority != state.Definition.ReadyProcessPriority &&
+                        state.LastFailedProcessPriority != state.Definition.ReadyProcessPriority)
                         priorityActions.Add((state.UniqueName, state.Definition.ReadyProcessPriority, "ready"));
                 }
 
@@ -567,6 +568,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             current.IsRestartPending = false;
             current.StopRequested = false;
             current.LastAppliedProcessPriority = null;
+            current.LastFailedProcessPriority = null;
             ResetHealthTracking(current);
         }
 
@@ -602,18 +604,31 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (state.LastAppliedProcessPriority == priority)
                 return;
 
+            if (state.LastFailedProcessPriority == priority)
+                return;
+
             process = state.Process;
             if (!IsProcessActive(process))
                 return;
         }
 
         if (!TryApplyProcessPriority(uniqueName, process!, priority, phase))
+        {
+            lock (_sync)
+            {
+                if (_states.TryGetValue(uniqueName, out var state))
+                    state.LastFailedProcessPriority = priority;
+            }
             return;
+        }
 
         lock (_sync)
         {
             if (_states.TryGetValue(uniqueName, out var state))
+            {
                 state.LastAppliedProcessPriority = priority;
+                state.LastFailedProcessPriority = null;
+            }
         }
     }
 
@@ -1628,6 +1643,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public string LastScheduledRestartKey { get; set; } = string.Empty;
 
         public DedicatedServerProcessPriority? LastAppliedProcessPriority { get; set; }
+
+        public DedicatedServerProcessPriority? LastFailedProcessPriority { get; set; }
 
         public ulong? LastSimulationFrameCounter { get; set; }
 
