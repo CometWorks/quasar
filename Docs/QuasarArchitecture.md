@@ -394,7 +394,7 @@ Requirements:
 Suggested layout:
 
 - `logs/quasar/`
-- `logs/instances/{uniqueName}/`
+- `logs/magnetars/{uniqueName}/`
 
 ### Service mode behavior
 

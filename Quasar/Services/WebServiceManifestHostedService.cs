@@ -129,7 +129,11 @@ public sealed class WebServiceManifestHostedService : IHostedService
 
     private QuasarActiveReleasePointer? BuildActiveReleasePointer()
     {
+        // In a single-file app Location returns an empty string; that case is handled
+        // below by falling through to the processPath branch, so the IL3000 is benign.
+#pragma warning disable IL3000
         var entryAssemblyPath = Assembly.GetEntryAssembly()?.Location;
+#pragma warning restore IL3000
         var processPath = Environment.ProcessPath;
 
         if (string.IsNullOrWhiteSpace(processPath) && string.IsNullOrWhiteSpace(entryAssemblyPath))

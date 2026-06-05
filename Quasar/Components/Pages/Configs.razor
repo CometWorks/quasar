@@ -644,7 +644,7 @@
                     <MudExpansionPanel Class="configs-expansion-panel" Text="Developer" Expanded="false">
                         <ChildContent>
                         <MudText Typo="Typo.body2" Class="mb-3 mt-2">
-                            Register local plugin source folders so Magnetar loads them as dev builds. The plugin id is read from the manifest XML when you add the folder.
+                            Register local plugin source folders so Magnetar loads them as dev builds. The plugin is identified by its source folder name (e.g. se-test-plugin).
                         </MudText>
 
                         <MudTable T="QuasarDevFolderSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="GlobalDevFolders" RowClassFunc="GetDevFolderRowClass">
@@ -1710,10 +1710,9 @@
             return;
         }
 
-        string pluginId;
         try
         {
-            pluginId = PluginManifestReader.ReadPluginId(Path.Combine(folderPath, dataFile));
+            PluginManifestReader.ValidateManifest(Path.Combine(folderPath, dataFile));
         }
         catch (InvalidOperationException exception)
         {
@@ -1721,14 +1720,16 @@
             return;
         }
 
+        var folderName = QuasarDevFolderSelection.GetSourceFolderName(folderPath);
+
         var previousFolderPath = _selectedDevFolder?.FolderPath ?? string.Empty;
         var previousDataFile = _selectedDevFolder?.DataFile ?? string.Empty;
         var devFolder = new QuasarDevFolderSelection
         {
-            Name = string.IsNullOrWhiteSpace(_newDevFolderName) ? pluginId : _newDevFolderName.Trim(),
+            Name = string.IsNullOrWhiteSpace(_newDevFolderName) ? folderName : _newDevFolderName.Trim(),
             FolderPath = folderPath,
             DataFile = dataFile,
-            PluginId = pluginId,
+            PluginId = folderName,
             DebugBuild = _newDevFolderDebug,
             Enabled = _newDevFolderEnabled,
         };

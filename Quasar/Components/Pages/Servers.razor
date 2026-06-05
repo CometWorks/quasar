@@ -43,7 +43,7 @@
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetStateText(x.UniqueName))">Status</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetDisplayName(x))">Name</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => x.ServerPort)">Port</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetConfigProfileName(x.ConfigProfileId))">Config</MudTableSortLabel></MudTh>
+                <MudTh Style="text-align: center;"><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetConfigProfileName(x.ConfigProfileId))">Config</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetPlayerSortValue(x.UniqueName))">Players</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetProcessSortValue(x.UniqueName))">Process</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerInstanceDefinition, object>(x => GetAttachmentStatus(x.UniqueName))">Agent</MudTableSortLabel></MudTh>
