@@ -23,6 +23,7 @@ namespace Quasar.Agent
         private readonly GameBridge _bridge;
         private readonly WebServiceLocator _locator;
         private readonly AgentOptions _options;
+        private readonly PluginLogOutbox _outbox;
         private readonly Random _rng = new Random();
         private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
         private CancellationTokenSource _cancellation;
@@ -39,11 +40,12 @@ namespace Quasar.Agent
         // long Quasar has been unreachable. Null while connected.
         private DateTime? _disconnectedSinceUtc;
 
-        public AgentConnection(GameBridge bridge, WebServiceLocator locator, AgentOptions options)
+        public AgentConnection(GameBridge bridge, WebServiceLocator locator, AgentOptions options, PluginLogOutbox outbox)
         {
             _bridge = bridge;
             _locator = locator;
             _options = options ?? AgentOptions.FromEnvironment();
+            _outbox = outbox;
         }
 
         public void Start()
@@ -253,7 +255,43 @@ namespace Quasar.Agent
 
                 await SendPluginConfigsAsync(socket, force: false, cancellationToken).ConfigureAwait(false);
 
+                await FlushPluginLogsAsync(socket, cancellationToken).ConfigureAwait(false);
+
                 await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Ships any buffered plugin log lines to Quasar, draining the outbox in
+        /// capped batches (so a large backlog accumulated while Quasar was down is
+        /// flushed promptly on reconnect). On a send failure the batch is returned
+        /// to the outbox and the error propagates so the connection is re-established.
+        /// </summary>
+        private async Task FlushPluginLogsAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+        {
+            if (_outbox == null)
+                return;
+
+            while (socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+            {
+                var batch = _outbox.DrainBatch();
+                if (batch.Count == 0)
+                    return;
+
+                try
+                {
+                    await SendAsync(socket, new AgentWireMessage
+                    {
+                        Kind = WireMessageKind.PluginLogs,
+                        PluginLogs = new PluginLogBatch { Lines = batch },
+                    }, cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Keep the lines so the next connection retries them.
+                    _outbox.Requeue(batch);
+                    throw;
+                }
             }
         }
 
