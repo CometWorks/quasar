@@ -33,6 +33,7 @@ Linux service install:
 - The service grants `CAP_SYS_NICE` with systemd ambient capabilities so Quasar can raise managed server priority through `renice`.
 - The installer enables the service but does not start/restart it unless `--start` is passed.
 - Start or restart it with `sudo systemctl restart quasar.service` when ready.
+- `sudo ./uninstall.sh` removes the systemd service; add `--purge` to remove `/opt/quasar` too.
 
 Agent workflow note:
 
