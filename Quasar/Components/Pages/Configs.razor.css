@@ -113,13 +113,6 @@
     flex: 0 0 10rem;
 }
 
-.configs-dev-folder-debug-cell {
-    align-items: center;
-    display: flex;
-    min-height: 56px;
-    padding-bottom: 0.5rem;
-}
-
 .configs-dev-folder-row-selected,
 ::deep .configs-dev-folder-row-selected {
     background: rgba(250, 204, 21, 0.08);

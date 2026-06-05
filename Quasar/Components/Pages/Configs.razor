@@ -685,7 +685,7 @@
                             </NoRecordsContent>
                         </MudTable>
 
-                        <MudGrid Class="mt-2" Spacing="2">
+                        <MudGrid Class="mt-3" Spacing="3">
                             <MudItem xs="12">
                                 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="1">
                                     <MudText Typo="Typo.subtitle2">@(_selectedDevFolder is null ? "New dev folder" : $"Editing {_selectedDevFolder.Name}")</MudText>
@@ -708,7 +708,7 @@
                                     </MudButton>
                                 </MudStack>
                             </MudItem>
-                            <MudItem xs="12" md="6" Class="configs-dev-folder-debug-cell">
+                            <MudItem xs="12" md="6">
                                 <MudSwitch @bind-Value="_newDevFolderDebug" Color="Color.Primary" Label="Debug build" />
                             </MudItem>
                             <MudItem xs="12" md="6">
