@@ -17,6 +17,7 @@ Three strongly-typed options objects are read up-front from `IConfiguration`:
 - `WebServiceOptions` (`Quasar.Host` / listen host+port, launcher token, etc.)
 - `ManagedRuntimeOptions` (SteamCmd, Magnetar, DS install paths)
 - `QuasarAuthOptions` (auth enabled flag, Steam, OIDC, trusted-network bypass, Workshop settings)
+- `AnalyticsStoreOptions` (`Quasar:AnalyticsRetentionDays`, `Quasar:Analytics.RetentionDays`, env `QUASAR_ANALYTICS_RETENTION_DAYS`)
 
 ### Kestrel binding
 If `ASPNETCORE_URLS` is not set, Kestrel binds to `{host}:{port}` from `WebServiceOptions`; wildcard hosts (`0.0.0.0`, `[::]`, `*`, `+`) use `ListenAnyIP`.

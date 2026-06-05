@@ -16,6 +16,7 @@ Default application configuration file for the Quasar host. Provides baseline va
 - `OpenBrowserOnStart`: `true`
 - `AvoidSimultaneousScheduledRestarts`: `true`
 - `PreserveManagedServersOnShutdown`: `true`
+- `Analytics.RetentionDays`: `30` (allowed values: `30`, `45`, `60`, `90`)
 - `AgentOfflineShutdownSeconds`: `3600`
 - `AgentReconnectIntervalSeconds`: `10`, `AgentReconnectJitterSeconds`: `3`
 

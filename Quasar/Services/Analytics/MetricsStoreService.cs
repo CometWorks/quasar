@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Channels;
@@ -9,15 +10,25 @@ namespace Quasar.Services.Analytics;
 
 public sealed class MetricsStoreService : IHostedService, IDisposable
 {
+    private const int CompactEveryMinutes = 12 * 60;
+    private const int CompactionMaxFileSizeBytes = 32 * 1024 * 1024;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         WriteIndented = false,
     };
 
+    private static readonly string[] ValidBuckets = ["r", "m", "h"];
+    private const string RawBucket = "r";
+    private const string OneMinuteBucket = "m";
+    private const string OneHourBucket = "h";
+
     private readonly DedicatedServerCatalog _catalog;
+    private readonly AnalyticsStoreOptions _analyticsStoreOptions;
     private readonly ILogger<MetricsStoreService> _logger;
     private readonly ConcurrentDictionary<string, ServerMetricsStore> _stores = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, PersistProgress> _persistProgress = new(StringComparer.OrdinalIgnoreCase);
     private readonly Channel<(string uniqueName, MetricSample sample)> _channel = Channel.CreateBounded<(string uniqueName, MetricSample sample)>(
         new BoundedChannelOptions(512)
         {
@@ -29,15 +40,18 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private Task? _ingestLoopTask;
     private DateTimeOffset _lastPersistUtc = DateTimeOffset.UtcNow;
+    private DateTimeOffset _nextCompactionUtc;
     private int _itemsSincePersistCheck;
     private int _persistInFlight;
     private int _disposed;
 
     public MetricsStoreService(
         DedicatedServerCatalog catalog,
+        AnalyticsStoreOptions analyticsStoreOptions,
         ILogger<MetricsStoreService> logger)
     {
         _catalog = catalog;
+        _analyticsStoreOptions = analyticsStoreOptions;
         _logger = logger;
     }
 
@@ -61,11 +75,14 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
     {
         foreach (var server in _catalog.GetServers())
         {
-            var store = _stores.GetOrAdd(server.UniqueName, _ => new ServerMetricsStore());
-            await TryLoadFromDiskAsync(server.UniqueName, store, cancellationToken);
+            var store = GetOrCreateStore(server.UniqueName);
+            var progress = _persistProgress.GetOrAdd(server.UniqueName, _ => new PersistProgress());
+            await TryLoadFromDiskAsync(server.UniqueName, store, progress, cancellationToken);
         }
 
-        _lastPersistUtc = DateTimeOffset.UtcNow;
+        var now = DateTimeOffset.UtcNow;
+        _lastPersistUtc = now;
+        _nextCompactionUtc = now.AddMinutes(CompactEveryMinutes);
         _ingestLoopTask = Task.Run(() => IngestLoopAsync(_shutdown.Token), CancellationToken.None);
     }
 
@@ -94,6 +111,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         if (string.IsNullOrWhiteSpace(uniqueName))
             return;
 
+        GetOrCreateStore(uniqueName);
         _channel.Writer.TryWrite((uniqueName, sample));
     }
 
@@ -120,7 +138,10 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         try
         {
             foreach (var pair in _stores.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
-                await PersistStoreAsync(pair.Key, pair.Value, ct);
+            {
+                if (_persistProgress.TryGetValue(pair.Key, out var progress))
+                    await PersistStoreAsync(pair.Key, pair.Value, progress, ct);
+            }
 
             _lastPersistUtc = DateTimeOffset.UtcNow;
         }
@@ -146,7 +167,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
             {
                 while (_channel.Reader.TryRead(out var item))
                 {
-                    var store = _stores.GetOrAdd(item.uniqueName, _ => new ServerMetricsStore());
+                    var store = GetOrCreateStore(item.uniqueName);
                     store.Ingest(item.sample);
 
                     _itemsSincePersistCheck++;
@@ -168,37 +189,188 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         }
     }
 
-    private async Task PersistStoreAsync(string uniqueName, ServerMetricsStore store, CancellationToken cancellationToken)
+    private ServerMetricsStore GetOrCreateStore(string uniqueName)
     {
-        var payload = new PersistedAnalyticsDocument
-        {
-            Raw = store.Raw.ReadAll().Select(PersistedMetricSample.FromMetricSample).ToArray(),
-            OneMinute = store.OneMinute.ReadAll().Select(PersistedMetricSample.FromMetricSample).ToArray(),
-            OneHour = store.OneHour.ReadAll().Select(PersistedMetricSample.FromMetricSample).ToArray(),
-        };
-
-        var json = JsonSerializer.Serialize(payload, JsonOptions);
-        var path = MagnetarPaths.GetQuasarServerAnalyticsPath(uniqueName);
-        await AtomicFileWriter.WriteTextAsync(path, json, cancellationToken);
+        return _stores.GetOrAdd(
+            uniqueName,
+            key =>
+            {
+                _persistProgress.TryAdd(key, new PersistProgress());
+                return new ServerMetricsStore(_analyticsStoreOptions);
+            });
     }
 
-    private async Task TryLoadFromDiskAsync(string uniqueName, ServerMetricsStore store, CancellationToken cancellationToken)
+    private async Task PersistStoreAsync(string uniqueName, ServerMetricsStore store, PersistProgress progress, CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var retentionCutoff = GetRetentionCutoffUnixSeconds(now);
+        var path = MagnetarPaths.GetQuasarServerAnalyticsPath(uniqueName);
+
+        var rawSamples = store.Raw.ReadAll();
+        var oneMinuteSamples = store.OneMinute.ReadAll();
+        var oneHourSamples = store.OneHour.ReadAll();
+
+        var rawLines = BuildSeriesLines(RawBucket, rawSamples, progress.RawLastPersistedTimestamp, retentionCutoff);
+        var oneMinuteLines = BuildSeriesLines(OneMinuteBucket, oneMinuteSamples, progress.OneMinuteLastPersistedTimestamp, retentionCutoff);
+        var oneHourLines = BuildSeriesLines(OneHourBucket, oneHourSamples, progress.OneHourLastPersistedTimestamp, retentionCutoff);
+
+        if (rawLines.Count > 0 || oneMinuteLines.Count > 0 || oneHourLines.Count > 0)
+        {
+            await AppendSeriesLinesAsync(path, rawLines, oneMinuteLines, oneHourLines, cancellationToken);
+            if (rawLines.Count > 0)
+                progress.RawLastPersistedTimestamp = rawLines[^1].TimestampUnixSeconds;
+            if (oneMinuteLines.Count > 0)
+                progress.OneMinuteLastPersistedTimestamp = oneMinuteLines[^1].TimestampUnixSeconds;
+            if (oneHourLines.Count > 0)
+                progress.OneHourLastPersistedTimestamp = oneHourLines[^1].TimestampUnixSeconds;
+        }
+
+        if (now >= _nextCompactionUtc || IsAnalyticsFileOvergrown(path))
+        {
+            await RewriteStoreAsJsonlAsync(store, path, progress, now, cancellationToken);
+            _nextCompactionUtc = now.AddMinutes(CompactEveryMinutes);
+        }
+    }
+
+    private async Task AppendSeriesLinesAsync(
+        string path,
+        List<PersistedMetricLogLine> rawLines,
+        List<PersistedMetricLogLine> oneMinuteLines,
+        List<PersistedMetricLogLine> oneHourLines,
+        CancellationToken cancellationToken)
+    {
+        if (rawLines.Count == 0 && oneMinuteLines.Count == 0 && oneHourLines.Count == 0)
+            return;
+
+        var directory = Path.GetDirectoryName(path);
+        if (string.IsNullOrWhiteSpace(directory))
+            throw new InvalidOperationException($"Cannot resolve directory for path '{path}'.");
+
+        Directory.CreateDirectory(directory);
+
+        await using var stream = new FileStream(
+            path,
+            FileMode.Append,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 16 * 1024,
+            useAsync: true);
+        await using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        foreach (var line in rawLines)
+            await writer.WriteLineAsync(JsonSerializer.Serialize(line, JsonOptions));
+
+        foreach (var line in oneMinuteLines)
+            await writer.WriteLineAsync(JsonSerializer.Serialize(line, JsonOptions));
+
+        foreach (var line in oneHourLines)
+            await writer.WriteLineAsync(JsonSerializer.Serialize(line, JsonOptions));
+
+        await writer.FlushAsync(cancellationToken);
+        await stream.FlushAsync(cancellationToken);
+    }
+
+    private async Task RewriteStoreAsJsonlAsync(
+        ServerMetricsStore store,
+        string destinationPath,
+        PersistProgress progress,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var retentionCutoff = GetRetentionCutoffUnixSeconds(now);
+        var rawSamples = store.Raw.ReadAll();
+        var oneMinuteSamples = store.OneMinute.ReadAll();
+        var oneHourSamples = store.OneHour.ReadAll();
+
+        var rawLines = BuildSeriesLines(RawBucket, rawSamples, 0, retentionCutoff);
+        var oneMinuteLines = BuildSeriesLines(OneMinuteBucket, oneMinuteSamples, 0, retentionCutoff);
+        var oneHourLines = BuildSeriesLines(OneHourBucket, oneHourSamples, 0, retentionCutoff);
+
+        if (rawLines.Count == 0 && oneMinuteLines.Count == 0 && oneHourLines.Count == 0)
+        {
+            TryDelete(destinationPath);
+            progress.RawLastPersistedTimestamp = 0;
+            progress.OneMinuteLastPersistedTimestamp = 0;
+            progress.OneHourLastPersistedTimestamp = 0;
+            return;
+        }
+
+        var tempPath = BuildTempPath(destinationPath);
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            await using (var stream = new FileStream(
+                tempPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 16 * 1024,
+                useAsync: true))
+            await using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+            {
+                foreach (var line in rawLines)
+                    await writer.WriteLineAsync(JsonSerializer.Serialize(line, JsonOptions));
+
+                foreach (var line in oneMinuteLines)
+                    await writer.WriteLineAsync(JsonSerializer.Serialize(line, JsonOptions));
+
+                foreach (var line in oneHourLines)
+                    await writer.WriteLineAsync(JsonSerializer.Serialize(line, JsonOptions));
+
+                await writer.FlushAsync(cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+            }
+
+            File.Move(tempPath, destinationPath, overwrite: true);
+
+            if (rawLines.Count > 0)
+                progress.RawLastPersistedTimestamp = rawLines[^1].TimestampUnixSeconds;
+            if (oneMinuteLines.Count > 0)
+                progress.OneMinuteLastPersistedTimestamp = oneMinuteLines[^1].TimestampUnixSeconds;
+            if (oneHourLines.Count > 0)
+                progress.OneHourLastPersistedTimestamp = oneHourLines[^1].TimestampUnixSeconds;
+        }
+        catch
+        {
+            TryDelete(tempPath);
+            throw;
+        }
+    }
+
+    private async Task TryLoadFromDiskAsync(
+        string uniqueName,
+        ServerMetricsStore store,
+        PersistProgress progress,
+        CancellationToken cancellationToken)
     {
         var path = MagnetarPaths.GetQuasarServerAnalyticsPath(uniqueName);
-        if (!File.Exists(path))
+        var retentionCutoff = GetRetentionCutoffUnixSeconds(DateTimeOffset.UtcNow);
+
+        var data = await TryLoadJsonlFromDiskAsync(path, retentionCutoff, cancellationToken);
+        var shouldCompact = data?.HasOutOfRetentionData ?? false;
+
+        if (data is null)
             return;
 
         try
         {
-            var json = await File.ReadAllTextAsync(path, cancellationToken);
-            var payload = JsonSerializer.Deserialize<PersistedAnalyticsDocument>(json, JsonOptions);
-            if (payload is null)
-                return;
-
             store.Restore(
-                raw: payload.Raw.Select(item => item.ToMetricSample()).ToArray(),
-                oneMinute: payload.OneMinute.Select(item => item.ToMetricSample()).ToArray(),
-                oneHour: payload.OneHour.Select(item => item.ToMetricSample()).ToArray());
+                raw: data.Raw.ToArray(),
+                oneMinute: data.OneMinute.ToArray(),
+                oneHour: data.OneHour.ToArray());
+
+            if (data.Raw.Count > 0)
+                progress.RawLastPersistedTimestamp = data.Raw[^1].TimestampUnixSeconds;
+            if (data.OneMinute.Count > 0)
+                progress.OneMinuteLastPersistedTimestamp = data.OneMinute[^1].TimestampUnixSeconds;
+            if (data.OneHour.Count > 0)
+                progress.OneHourLastPersistedTimestamp = data.OneHour[^1].TimestampUnixSeconds;
+
+            if (shouldCompact)
+                await RewriteStoreAsJsonlAsync(store, path, progress, DateTimeOffset.UtcNow, cancellationToken);
+
+            if (shouldCompact || IsAnalyticsFileOvergrown(path))
+                _nextCompactionUtc = DateTimeOffset.UtcNow.AddMinutes(CompactEveryMinutes);
         }
         catch (OperationCanceledException)
         {
@@ -210,20 +382,139 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         }
     }
 
-    private sealed class PersistedAnalyticsDocument
+    private static async Task<LoadedAnalyticsData?> TryLoadJsonlFromDiskAsync(
+        string path,
+        long retentionCutoffUnix,
+        CancellationToken cancellationToken)
     {
-        [JsonPropertyName("r")]
-        public PersistedMetricSample[] Raw { get; set; } = [];
+        if (!File.Exists(path))
+            return null;
 
-        [JsonPropertyName("m")]
-        public PersistedMetricSample[] OneMinute { get; set; } = [];
+        var loaded = new LoadedAnalyticsData();
 
-        [JsonPropertyName("h")]
-        public PersistedMetricSample[] OneHour { get; set; } = [];
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024, useAsync: true);
+        using var reader = new StreamReader(stream);
+        while (await reader.ReadLineAsync(cancellationToken) is { } line)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            PersistedMetricLogLine? entry;
+            try
+            {
+                entry = JsonSerializer.Deserialize<PersistedMetricLogLine>(line, JsonOptions);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+
+            if (entry is null || string.IsNullOrWhiteSpace(entry.Bucket) || !IsValidBucket(entry.Bucket))
+                continue;
+
+            var sample = entry.ToMetricSample();
+            if (sample.TimestampUnixSeconds < retentionCutoffUnix)
+            {
+                loaded.HasOutOfRetentionData = true;
+                continue;
+            }
+
+            switch (entry.Bucket)
+            {
+                case RawBucket:
+                    loaded.Raw.Add(sample);
+                    break;
+                case OneMinuteBucket:
+                    loaded.OneMinute.Add(sample);
+                    break;
+                case OneHourBucket:
+                    loaded.OneHour.Add(sample);
+                    break;
+            }
+        }
+
+        return loaded;
     }
 
-    private sealed class PersistedMetricSample
+    private static List<PersistedMetricLogLine> BuildSeriesLines(
+        string bucket,
+        IReadOnlyList<MetricSample> samples,
+        long lastPersistedTimestamp,
+        long retentionCutoffUnix)
     {
+        var lines = new List<PersistedMetricLogLine>(Math.Max(0, samples.Count));
+        foreach (var sample in samples)
+        {
+            if (sample.TimestampUnixSeconds < retentionCutoffUnix)
+                continue;
+
+            if (sample.TimestampUnixSeconds <= lastPersistedTimestamp)
+                continue;
+
+            lines.Add(PersistedMetricLogLine.From(bucket, sample));
+        }
+
+        return lines;
+    }
+
+    private static bool IsAnalyticsFileOvergrown(string path)
+    {
+        try
+        {
+            return File.Exists(path) && new FileInfo(path).Length > CompactionMaxFileSizeBytes;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsValidBucket(string bucket) => Array.IndexOf(ValidBuckets, bucket) >= 0;
+
+    private static string BuildTempPath(string path)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (string.IsNullOrWhiteSpace(directory))
+            throw new InvalidOperationException($"Cannot resolve directory for path '{path}'.");
+
+        return Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+        }
+    }
+
+    private long GetRetentionCutoffUnixSeconds(DateTimeOffset nowUtc) =>
+        nowUtc.ToUnixTimeSeconds() - _analyticsStoreOptions.RetentionDays * 24L * 60L * 60L;
+
+    private sealed class PersistProgress
+    {
+        public long RawLastPersistedTimestamp;
+        public long OneMinuteLastPersistedTimestamp;
+        public long OneHourLastPersistedTimestamp;
+    }
+
+    private sealed class LoadedAnalyticsData
+    {
+        public List<MetricSample> Raw { get; } = [];
+        public List<MetricSample> OneMinute { get; } = [];
+        public List<MetricSample> OneHour { get; } = [];
+        public bool HasOutOfRetentionData { get; set; }
+    }
+
+    private sealed class PersistedMetricLogLine
+    {
+        [JsonPropertyName("b")]
+        public string Bucket { get; set; } = string.Empty;
+
         [JsonPropertyName("T")]
         public long TimestampUnixSeconds { get; set; }
 
@@ -251,10 +542,11 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         [JsonPropertyName("E")]
         public int ActiveEntityCount { get; set; }
 
-        public static PersistedMetricSample FromMetricSample(MetricSample sample)
+        public static PersistedMetricLogLine From(string bucket, MetricSample sample)
         {
-            return new PersistedMetricSample
+            return new PersistedMetricLogLine
             {
+                Bucket = bucket,
                 TimestampUnixSeconds = sample.TimestampUnixSeconds,
                 SimSpeed = sample.SimSpeed,
                 CpuPercent = sample.CpuPercent,
@@ -281,4 +573,5 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
                 activeEntityCount: ActiveEntityCount);
         }
     }
+
 }

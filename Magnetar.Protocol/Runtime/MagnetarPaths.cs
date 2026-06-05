@@ -102,7 +102,7 @@ public static class MagnetarPaths
         Path.Combine(GetQuasarServerDirectory(uniqueName), "History");
 
     public static string GetQuasarServerAnalyticsPath(string uniqueName) =>
-        Path.Combine(GetQuasarServerDirectory(uniqueName), "analytics.json");
+        Path.Combine(GetQuasarServerDirectory(uniqueName), "analytics.jsonl");
 
     // -------------------------------------------------------------------------
     // World templates  (~/.config/Quasar/WorldTemplates/<id>/)

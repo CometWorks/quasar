@@ -37,7 +37,7 @@ Class `MagnetarPaths` (static):
 - `GetQuasarServerMagnetarAppDataDirectory(uniqueName)` → `.../Magnetar/`
 - `GetQuasarServerDefinitionPath(uniqueName)` → `.../server.json`
 - `GetQuasarServerHistoryDirectory(uniqueName)` → `.../History/`
-- `GetQuasarServerAnalyticsPath(uniqueName)` → `.../analytics.json`
+- `GetQuasarServerAnalyticsPath(uniqueName)` → `.../analytics.jsonl`
 
 **World templates** (under `WorldTemplates/<id>/`)
 - `GetQuasarWorldTemplatesDirectory()`

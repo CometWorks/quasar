@@ -34,6 +34,7 @@ public class Program
             var webServiceOptions = WebServiceOptions.Create(builder.Configuration);
             var managedRuntimeOptions = ManagedRuntimeOptions.Create(builder.Configuration);
             var authOptions = QuasarAuthOptions.Create(builder.Configuration);
+            var analyticsStoreOptions = AnalyticsStoreOptions.Create(builder.Configuration);
 
             QuasarLoggingConfigurator.Configure(builder, webServiceOptions);
 
@@ -139,6 +140,7 @@ public class Program
             builder.Services.AddSingleton(managedRuntimeOptions);
             builder.Services.AddSingleton(authOptions);
             builder.Services.AddSingleton<RbacConfigCatalog>();
+            builder.Services.AddSingleton(analyticsStoreOptions);
             builder.Services.AddSingleton<QuasarRoleMapper>();
             builder.Services.AddSingleton<TrustedNetworkEvaluator>();
             builder.Services.AddSingleton<KnownPlayerCatalog>();

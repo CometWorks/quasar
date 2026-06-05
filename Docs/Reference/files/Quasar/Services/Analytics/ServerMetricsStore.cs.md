@@ -4,7 +4,7 @@
 
 ## Summary
 
-Holds the three-tier RRD-style metric history for one dedicated server: a raw per-second circular buffer (1 hour), a one-minute rollup buffer (7 days), and a one-hour rollup buffer (90 days). Owned and managed by `MetricsStoreService`; not thread-safe on its own — callers are responsible for serialisation.
+Holds the three-tier RRD-style metric history for one dedicated server: a raw per-second circular buffer (1 hour), and rollup buffers sized from analytics retention policy (`RetentionDays`) for one-minute and one-hour snapshots.
 
 ## Structure
 
@@ -14,8 +14,8 @@ Namespace: `Quasar.Services.Analytics`
 
 Properties:
 - `Raw : RrdCircularBuffer` — 3600-slot circular buffer of raw `MetricSample` values (one per second)
-- `OneMinute : RrdRollupBuffer` — 10080-slot rollup buffer with 60-second aggregation window (7 days)
-- `OneHour : RrdRollupBuffer` — 2160-slot rollup buffer with 3600-second aggregation window (90 days)
+- `OneMinute : RrdRollupBuffer` — `RetentionDays * 24 * 60` slots, with 60-second aggregation window
+- `OneHour : RrdRollupBuffer` — `RetentionDays * 24` slots, with 3600-second aggregation window
 
 Methods:
 - `Ingest(in MetricSample)` — pushes a sample into `Raw`; if `Raw.Push` returns `true` (slot advanced), forwards to `OneMinute.Observe` and `OneHour.Observe`
