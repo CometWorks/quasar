@@ -55,6 +55,15 @@ namespace Quasar.Agent
         private DateTime _lastSnapshotUtc = DateTime.MinValue;
         private AgentHello _latestHello;
         private AgentSnapshot _latestSnapshot;
+        private volatile bool _quasarRequestedStop;
+
+        /// <summary>
+        /// True once Quasar itself asked this server to stop (via a
+        /// <see cref="ServerCommandType.StopServer"/> command). Used to tell an
+        /// admin-issued in-game stop apart from a Quasar-initiated one when the
+        /// Magnetar host raises its termination event.
+        /// </summary>
+        public bool QuasarRequestedStop => _quasarRequestedStop;
 
         public GameBridge(object gameInstance)
         {
@@ -102,6 +111,7 @@ namespace Quasar.Agent
             {
                 if (command.CommandType == ServerCommandType.StopServer)
                 {
+                    _quasarRequestedStop = true;
                     MySandboxGame.ExitThreadSafe();
                     return Task.FromResult(CreateResult(command, true, "Server shutdown requested."));
                 }
@@ -496,6 +506,7 @@ namespace Quasar.Agent
                     return CreateResult(command, true, "World save requested.");
 
                 case ServerCommandType.StopServer:
+                    _quasarRequestedStop = true;
                     SaveWorldIfReady();
                     MySandboxGame.ExitThreadSafe();
                     return CreateResult(command, true, "World save and server shutdown requested.");

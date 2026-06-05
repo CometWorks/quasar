@@ -25,6 +25,7 @@ namespace Quasar.Agent
         private CancellationTokenSource _cancellation;
         private Task _runTask;
         private string _lastPluginConfigJson;
+        private volatile ClientWebSocket _socket;
 
         public AgentConnection(GameBridge bridge, WebServiceLocator locator)
         {
@@ -92,19 +93,27 @@ namespace Quasar.Agent
                         Log($"Connecting to {socketUri}");
                         await socket.ConnectAsync(socketUri, cancellationToken).ConfigureAwait(false);
 
+                        _socket = socket;
                         _lastPluginConfigJson = null;
 
-                        await SendAsync(socket, new AgentWireMessage
+                        try
                         {
-                            Kind = WireMessageKind.Hello,
-                            Hello = _bridge.GetHello(),
-                        }, cancellationToken).ConfigureAwait(false);
+                            await SendAsync(socket, new AgentWireMessage
+                            {
+                                Kind = WireMessageKind.Hello,
+                                Hello = _bridge.GetHello(),
+                            }, cancellationToken).ConfigureAwait(false);
 
-                        await SendPluginConfigsAsync(socket, force: true, cancellationToken).ConfigureAwait(false);
+                            await SendPluginConfigsAsync(socket, force: true, cancellationToken).ConfigureAwait(false);
 
-                        var snapshotTask = SnapshotLoopAsync(socket, cancellationToken);
-                        var receiveTask = ReceiveLoopAsync(socket, cancellationToken);
-                        await Task.WhenAny(snapshotTask, receiveTask).ConfigureAwait(false);
+                            var snapshotTask = SnapshotLoopAsync(socket, cancellationToken);
+                            var receiveTask = ReceiveLoopAsync(socket, cancellationToken);
+                            await Task.WhenAny(snapshotTask, receiveTask).ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            _socket = null;
+                        }
                     }
                 }
                 catch (OperationCanceledException)
@@ -117,6 +126,31 @@ namespace Quasar.Agent
                 }
 
                 await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Best-effort, synchronous signal sent when the server is shutting down
+        /// because of an admin/console stop that Quasar did not request. Invoked
+        /// on the game thread during session unload, while the socket is still
+        /// open and before the process exits. Never hangs shutdown.
+        /// </summary>
+        public void TrySendAdminStop()
+        {
+            var socket = _socket;
+            if (socket == null || socket.State != WebSocketState.Open)
+                return;
+
+            try
+            {
+                SendAsync(socket, new AgentWireMessage
+                {
+                    Kind = WireMessageKind.AdminStop,
+                }, CancellationToken.None).Wait(TimeSpan.FromSeconds(2));
+            }
+            catch (Exception exception)
+            {
+                Log($"Failed sending admin-stop signal: {exception.Message}");
             }
         }
 

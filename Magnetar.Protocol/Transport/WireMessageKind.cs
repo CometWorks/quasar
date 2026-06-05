@@ -10,4 +10,5 @@ public static class WireMessageKind
     public const string Pong = "pong";
     public const string PluginConfigSnapshot = "plugin-config-snapshot";
     public const string PluginConfigUpdate = "plugin-config-update";
+    public const string AdminStop = "admin-stop";
 }

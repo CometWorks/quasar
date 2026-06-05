@@ -1063,8 +1063,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         if (goalState == DedicatedServerInstanceGoalState.Off)
         {
             return processActive
-                ? new InstanceHealthAssessment(DedicatedServerInstanceHealthState.Warning, "Process still running while goal state is off.")
-                : new InstanceHealthAssessment(DedicatedServerInstanceHealthState.Healthy, "Goal state is off and the instance is stopped.");
+                ? new InstanceHealthAssessment(DedicatedServerInstanceHealthState.Warning, "Process still running while goal state is OFF.")
+                : new InstanceHealthAssessment(DedicatedServerInstanceHealthState.Healthy, "" /* normal state, no notification needed */);
         }
 
         if (!processActive)
@@ -1075,7 +1075,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     : DedicatedServerInstanceHealthState.Unhealthy,
                 state.State == DedicatedServerInstanceProcessState.Starting
                     ? "Process is starting."
-                    : "Goal state is on but the process is not running.");
+                    : "Goal state is ON but the process is not running.");
         }
 
         if (disableHealthMonitoring)

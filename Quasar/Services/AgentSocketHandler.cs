@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Magnetar.Protocol.Transport;
+using Quasar.Models;
 using Quasar.Services.PluginSdk;
 
 namespace Quasar.Services;
@@ -16,15 +17,21 @@ public sealed class AgentSocketHandler
 
     private readonly AgentRegistry _registry;
     private readonly PluginConfigService _pluginConfigService;
+    private readonly DedicatedServerSupervisor _supervisor;
+    private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<AgentSocketHandler> _logger;
 
     public AgentSocketHandler(
         AgentRegistry registry,
         PluginConfigService pluginConfigService,
+        DedicatedServerSupervisor supervisor,
+        IHostApplicationLifetime lifetime,
         ILogger<AgentSocketHandler> logger)
     {
         _registry = registry;
         _pluginConfigService = pluginConfigService;
+        _supervisor = supervisor;
+        _lifetime = lifetime;
         _logger = logger;
     }
 
@@ -70,6 +77,13 @@ public sealed class AgentSocketHandler
         }
     }
 
+    // NOTE on cancellation: `cancellationToken` here is the socket's
+    // RequestAborted. It is correct for reads and replies (they are meaningless
+    // once the agent is gone), but must NOT gate persistent state mutations: an
+    // agent disconnects the instant it finishes sending (its process is exiting),
+    // which would cancel the write mid-flight and silently drop the change.
+    // Handlers that mutate supervisor/catalog state use `_lifetime.ApplicationStopping`
+    // instead, so the change completes regardless of the socket.
     private async Task ProcessMessageAsync(
         AgentWireMessage message,
         string connectionId,
@@ -92,6 +106,34 @@ public sealed class AgentSocketHandler
 
             case WireMessageKind.PluginConfigSnapshot when message.PluginConfigSnapshot is not null:
                 _pluginConfigService.IngestSnapshot(message.PluginConfigSnapshot);
+                break;
+
+            case WireMessageKind.AdminStop:
+                if (_registry.TryGetUniqueName(connectionId, out var stoppedUniqueName))
+                {
+                    _logger.LogInformation(
+                        "Admin stopped instance {UniqueName} in-game; setting goal state to Off.",
+                        stoppedUniqueName);
+
+                    // State mutations use the app-lifetime token, NOT the
+                    // request-aborted one (see note in ProcessMessageAsync): the
+                    // agent closes this socket the instant it has sent the signal
+                    // (its process is shutting down), which would otherwise cancel
+                    // the goal-state write mid-flight and let the exit be treated
+                    // as a crash and restarted. This intent must persist
+                    // regardless of the socket.
+                    await _supervisor.SetGoalStateAsync(
+                        stoppedUniqueName,
+                        DedicatedServerInstanceGoalState.Off,
+                        _lifetime.ApplicationStopping);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Received admin-stop signal for unknown connection {ConnectionId}.",
+                        connectionId);
+                }
+
                 break;
 
             case WireMessageKind.Ping:

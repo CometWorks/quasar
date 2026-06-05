@@ -296,6 +296,25 @@ public sealed class AgentRegistry
         return state;
     }
 
+    public bool TryGetUniqueName(string connectionId, out string uniqueName)
+    {
+        uniqueName = string.Empty;
+        if (string.IsNullOrWhiteSpace(connectionId))
+            return false;
+
+        lock (_sync)
+        {
+            var state = _agents.Values.FirstOrDefault(current =>
+                string.Equals(current.ConnectionId, connectionId, StringComparison.OrdinalIgnoreCase));
+
+            if (state is null || string.IsNullOrWhiteSpace(state.UniqueNameKey))
+                return false;
+
+            uniqueName = state.UniqueNameKey;
+            return true;
+        }
+    }
+
     private string ResolveAgentId(string? agentId, string connectionId)
     {
         if (!string.IsNullOrWhiteSpace(agentId))
