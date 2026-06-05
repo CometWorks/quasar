@@ -41,15 +41,6 @@
             <MudSelectItem T="int" Value="60">60s</MudSelectItem>
         </MudSelect>
     </div>
-    <div style="flex: 1 1 160px; min-width: 160px;">
-        <MudNumericField T="int"
-                         Label="Point limit"
-                         Value="_config.PointLimit"
-                         ValueChanged="HandlePointLimitChanged"
-                         Variant="Variant.Outlined"
-                         Min="50"
-                         Max="5000" />
-    </div>
     <MudSpacer />
     <MudStack Row="true"
               Spacing="1"
@@ -203,9 +194,16 @@ else
 @code
 {
     private const string StorageKey = "quasar.analytics.view.v2";
+    private const int MaxRenderPoints = 5000;
 
     private static readonly (string Key, string Label)[] RangeOptions =
     [
+        ("30s", "30s"),
+        ("1m", "1m"),
+        ("2m", "2m"),
+        ("5m", "5m"),
+        ("15m", "15m"),
+        ("30m", "30m"),
         ("1h", "1h"),
         ("6h", "6h"),
         ("24h", "24h"),
@@ -392,12 +390,6 @@ else
         return PersistConfigAsync();
     }
 
-    private Task HandlePointLimitChanged(int value)
-    {
-        _config.PointLimit = Math.Clamp(value, 50, 5000);
-        return RefreshAsync();
-    }
-
     private Task HandleCustomFromDateChanged(DateTime? value)
     {
         _config.CustomFromDate = value;
@@ -530,7 +522,7 @@ else
             if (store is null)
                 continue;
 
-            var samples = Downsample(QueryTier(store, fromUnix, toUnix), _config.PointLimit);
+            var samples = Downsample(QueryTier(store, fromUnix, toUnix), MaxRenderPoints);
             if (samples.Length == 0)
                 continue;
 
@@ -538,7 +530,7 @@ else
         }
 
         BuildSummary(selectedServers, samplesByServer, toUnix - fromUnix);
-        BuildCharts(samplesByServer, toUnix - fromUnix);
+        BuildCharts(samplesByServer, toUnix - fromUnix, fromUnix, toUnix);
     }
 
     private IReadOnlyList<ServerOption> BuildServerOptions()
@@ -601,6 +593,24 @@ else
     private (long FromUnix, long ToUnix) ResolveRange()
     {
         var nowUtc = DateTimeOffset.UtcNow;
+        if (string.Equals(_config.SelectedRangeKey, "30s", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddSeconds(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        if (string.Equals(_config.SelectedRangeKey, "1m", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddMinutes(-1).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        if (string.Equals(_config.SelectedRangeKey, "2m", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddMinutes(-2).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        if (string.Equals(_config.SelectedRangeKey, "5m", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddMinutes(-5).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        if (string.Equals(_config.SelectedRangeKey, "15m", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddMinutes(-15).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
+        if (string.Equals(_config.SelectedRangeKey, "30m", StringComparison.OrdinalIgnoreCase))
+            return (nowUtc.AddMinutes(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+
         if (string.Equals(_config.SelectedRangeKey, "1h", StringComparison.OrdinalIgnoreCase))
             return (nowUtc.AddHours(-1).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
 
@@ -720,7 +730,7 @@ else
         }
     }
 
-    private void BuildCharts(IReadOnlyDictionary<string, MetricSample[]> samplesByServer, long spanSeconds)
+    private void BuildCharts(IReadOnlyDictionary<string, MetricSample[]> samplesByServer, long spanSeconds, long fromUnix, long toUnix)
     {
         _charts.Clear();
         if (samplesByServer.Count == 0)
@@ -755,7 +765,7 @@ else
                 Title: definition.Title,
                 Subtitle: definition.Subtitle,
                 Series: series,
-                Options: CreateChartOptions(definition, spanSeconds),
+                Options: CreateChartOptions(definition, spanSeconds, fromUnix, toUnix),
                 Height: ResolveChartHeight(panel),
                 LayoutStyle: $"grid-column: span {Math.Clamp(panel.ColumnSpan, 1, _config.GridColumns)}; grid-row: span {Math.Clamp(panel.RowSpan, 1, Math.Max(1, _config.GridRows))};",
                 Panel: panel));
@@ -795,7 +805,16 @@ else
         await RefreshAsync();
     }
 
-    private ApexCharts.ApexChartOptions<AnalyticsChartPoint> CreateChartOptions(MetricDefinition definition, long spanSeconds)
+    private static double? ResolveUnixMs(long unixSeconds)
+    {
+        return DateTimeOffset.FromUnixTimeSeconds(unixSeconds).ToUnixTimeMilliseconds();
+    }
+
+    private ApexCharts.ApexChartOptions<AnalyticsChartPoint> CreateChartOptions(
+        MetricDefinition definition,
+        long spanSeconds,
+        long fromUnix,
+        long toUnix)
     {
         return new ApexCharts.ApexChartOptions<AnalyticsChartPoint>
         {
@@ -841,7 +860,7 @@ else
             },
             Markers = new ApexCharts.Markers
             {
-                Size = _config.PointLimit <= 150 ? 3 : 0,
+                Size = 3,
                 ShowNullDataPoints = false,
             },
             Stroke = new ApexCharts.Stroke
@@ -862,6 +881,8 @@ else
             Xaxis = new ApexCharts.XAxis
             {
                 Type = ApexCharts.XAxisType.Datetime,
+                Min = ResolveUnixMs(fromUnix),
+                Max = ResolveUnixMs(toUnix),
                 Labels = new ApexCharts.XAxisLabels
                 {
                     Style = new ApexCharts.AxisLabelStyle
@@ -1068,7 +1089,6 @@ else
         normalized.SelectedRangeKey = RangeOptions.Any(option => string.Equals(option.Key, normalized.SelectedRangeKey, StringComparison.OrdinalIgnoreCase))
             ? normalized.SelectedRangeKey
             : "1h";
-        normalized.PointLimit = Math.Clamp(normalized.PointLimit <= 0 ? 500 : normalized.PointLimit, 50, 5000);
         normalized.GridColumns = Math.Clamp(normalized.GridColumns <= 0 ? 2 : normalized.GridColumns, 1, 6);
         normalized.GridRows = Math.Clamp(normalized.GridRows <= 0 ? 4 : normalized.GridRows, 1, 12);
         normalized.RowHeightPx = Math.Clamp(normalized.RowHeightPx <= 0 ? 320 : normalized.RowHeightPx, 180, 960);

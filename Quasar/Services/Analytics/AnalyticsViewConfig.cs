@@ -14,8 +14,6 @@ public sealed class AnalyticsViewConfig
 
     public int AutoRefreshSeconds { get; set; }
 
-    public int PointLimit { get; set; } = 500;
-
     public int GridColumns { get; set; } = 2;
 
     public int GridRows { get; set; } = 4;

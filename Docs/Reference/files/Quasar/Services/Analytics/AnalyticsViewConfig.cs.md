@@ -19,7 +19,6 @@ Namespace: `Quasar.Services.Analytics`
 **`AnalyticsViewConfig`** (sealed class) — top-level view preferences
 - `SelectedRangeKey` — display-range identifier (default `"1h"`)
 - `AutoRefreshSeconds` — polling interval (0 = disabled)
-- `PointLimit` — max data points rendered per chart (default 500)
 - `GridColumns` / `GridRows` / `RowHeightPx` — dashboard grid dimensions
 - `TierMode` — which RRD tier to query (default `Auto`)
 - `SelectedUniqueNames` — instance filter list
