@@ -249,7 +249,7 @@
       "name": "App.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "The root HTML document component for the Blazor Server application. It renders the full `<html>` skeleton, wires MudBlazor and app CSS, loads the Blazor WebAssembly/server JS runtime, and hosts `<Routes>` and `<ReconnectModal>` as the two top-level interactive components."
+      "summary": "The root HTML document component for the Blazor Server application. It renders the full `<html>` skeleton, wires MudBlazor, ApexCharts and app CSS, loads the Blazor WebAssembly/server JS runtime, and hosts `<Routes>` and `<ReconnectModal>` as the two top-level interactive components."
     },
     {
       "path": "Quasar/Components/Dashboard/ServerCard.razor",
@@ -319,14 +319,14 @@
       "name": "Analytics.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page (`/analytics`) that renders rolling time-series charts for Space Engineers server metrics (SimSpeed, CPU, memory, player count, frame time, PCU, active grids, active entities). Supports multi-server selection, preset and custom time ranges, three data tiers (raw, 1-minute, 1-hour rollup), configurable grid layout, auto-refresh, export trigger, and per-panel layout editing via `AnalyticsPanelDialog`. The full view configuration is persisted in browser local storage under the key `quasar.analytics.view.v2`."
+      "summary": "Routable page (`/analytics`) that renders rolling, interruptible ApexCharts time-series charts for Space Engineers server metrics (SimSpeed, CPU, memory, player count, frame time, PCU, active grids, active entities). Supports multi-server selection, preset and custom time ranges, three data tiers (raw, 1-minute, 1-hour rollup), configurable grid layout, auto-refresh, export trigger, and per-panel layout editing via `AnalyticsPanelDialog`. The full view configuration is persisted in browser local storage under the key `quasar.analytics.view.v2`."
     },
     {
       "path": "Quasar/Components/Pages/Analytics.razor.css",
       "name": "Analytics.razor.css",
       "kind": "CSS",
       "tier": 3,
-      "summary": "Scoped stylesheet for `Analytics.razor`. Defines the responsive CSS grid layout for the analytics chart area and ensures each chart card fills its cell fully."
+      "summary": "Scoped stylesheet for `Analytics.razor`. Defines the responsive CSS grid layout for the analytics chart area and ensures each ApexCharts card fills its cell fully."
     },
     {
       "path": "Quasar/Components/Pages/AnalyticsPanelDialog.razor",
@@ -453,6 +453,13 @@
       "kind": "Blazor component",
       "tier": 2,
       "summary": "Routable page at `/players` listing all known players across managed servers. Combines persisted `KnownPlayerRecord` data with live agent snapshots to show online/offline status, faction, role, and last-seen time, and allows moderation actions (kick, ban/unban, set promote level) via per-row action menus."
+    },
+    {
+      "path": "Quasar/Components/Pages/PluginManifestPickerDialog.razor",
+      "name": "PluginManifestPickerDialog.razor",
+      "kind": "Blazor component",
+      "tier": 2,
+      "summary": "Modal MudBlazor dialog used by the config-template editor to browse the server filesystem and select a plugin XML manifest. It supports path entry, folder navigation, breadcrumbs, shortcut chips, hidden-entry toggling, automatic selection when a folder has exactly one XML file, and returns the selected manifest path via `DialogResult.Ok`."
     },
     {
       "path": "Quasar/Components/Pages/Plugins.razor",
@@ -666,7 +673,7 @@
       "name": "Quasar.csproj",
       "kind": "project file",
       "tier": 3,
-      "summary": "MSBuild project file for the Quasar Blazor Server host. Targets `net10.0` using the `Microsoft.NET.Sdk.Web` SDK, references the shared `Magnetar.Protocol` project, and declares NuGet packages for Steam auth, local storage, Discord, MudBlazor, NLog, and SharpCompress. Includes custom build targets to compile `Quasar.Agent` and stage its DLLs alongside the host output."
+      "summary": "MSBuild project file for the Quasar Blazor Server host. Targets `net10.0` using the `Microsoft.NET.Sdk.Web` SDK, references the shared `Magnetar.Protocol` project, and declares NuGet packages for Steam auth, local storage, Discord, MudBlazor, Blazor-ApexCharts, NLog, and SharpCompress. Includes custom build targets to compile `Quasar.Agent` and stage its DLLs alongside the host output."
     },
     {
       "path": "Quasar/appsettings.Development.json",

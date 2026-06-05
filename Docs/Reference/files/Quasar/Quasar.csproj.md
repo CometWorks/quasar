@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** project file  **Tier:** 3
 
 ## Summary
-MSBuild project file for the Quasar Blazor Server host. Targets `net10.0` using the `Microsoft.NET.Sdk.Web` SDK, references the shared `Magnetar.Protocol` project, and declares NuGet packages for Steam auth, local storage, Discord, MudBlazor, NLog, and SharpCompress. Includes custom build targets to compile `Quasar.Agent` and stage its DLLs alongside the host output.
+MSBuild project file for the Quasar Blazor Server host. Targets `net10.0` using the `Microsoft.NET.Sdk.Web` SDK, references the shared `Magnetar.Protocol` project, and declares NuGet packages for Steam auth, local storage, Discord, MudBlazor, Blazor-ApexCharts, NLog, and SharpCompress. Includes custom build targets to compile `Quasar.Agent` and stage its DLLs alongside the host output.
 
 ## Structure
 
@@ -21,6 +21,7 @@ MSBuild project file for the Quasar Blazor Server host. Targets `net10.0` using 
 | Package | Version |
 |---|---|
 | `AspNet.Security.OpenId.Steam` | 10.0.0 |
+| `Blazor-ApexCharts` | 6.1.0 |
 | `Blazor.LocalStorage` | 10.0.0 |
 | `Discord.Net` | 3.16.0 |
 | `MudBlazor` | 9.4.0 |
@@ -34,8 +35,8 @@ MSBuild project file for the Quasar Blazor Server host. Targets `net10.0` using 
 - `StageQuasarAgentForPublish` (AfterTargets=Publish) — same copy but to `$(PublishDir)Agent\`.
 
 ## Dependencies
-- `Magnetar.Protocol/Magnetar.Protocol.csproj`
-- `Quasar.Agent/Quasar.Agent.csproj` (built as a side-effect, not a `<ProjectReference>`)
+- [`Magnetar.Protocol/Magnetar.Protocol.csproj`](../Magnetar.Protocol/Magnetar.Protocol.csproj.md)
+- [`Quasar.Agent/Quasar.Agent.csproj`](../Quasar.Agent/Quasar.Agent.csproj.md) (built as a side-effect, not a `<ProjectReference>`)
 
 ## Notes
 `Quasar.Agent` is intentionally a build-time side-effect rather than a `<ProjectReference>` because the agent targets `netstandard2.0` (to load inside Space Engineers) while the host targets `net10.0`. The agent DLLs are staged into `Agent/` and deployed at runtime by `DedicatedServerRuntimePreparer`.

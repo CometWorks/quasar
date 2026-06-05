@@ -344,8 +344,8 @@
       "path": "Quasar/Components/App.razor",
       "name": "App.razor",
       "ext": ".razor",
-      "size": 1228,
-      "sha256": "4a9d1237d6eb7c6f717917d99575994d5f864d4f442790f9689adfba5ebef5f6",
+      "size": 1311,
+      "sha256": "e7babbe87a0509a0fe652e1f84e3082c399e2182fef9e8a5c43b969c6576f313",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "documented"
@@ -444,8 +444,8 @@
       "path": "Quasar/Components/Pages/Analytics.razor",
       "name": "Analytics.razor",
       "ext": ".razor",
-      "size": 36075,
-      "sha256": "4f78aed382ed53f95f15e2abc66e14aeb1c7aa49198a4e28582ece080d8ecb2e",
+      "size": 42632,
+      "sha256": "3dfdf4d00d7695de8777675ee16bef341dca02219d1f673a30eea1be3651fa3c",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "documented"
@@ -454,8 +454,8 @@
       "path": "Quasar/Components/Pages/Analytics.razor.css",
       "name": "Analytics.razor.css",
       "ext": ".css",
-      "size": 785,
-      "sha256": "55da52e5ca1fa79681a5e1b738db257858d377ca2ad9a4ef5ab04a5cd06d32e9",
+      "size": 1381,
+      "sha256": "ff5fea55f5b7f65b26c71fabad350822158015ea973495d885362046edff0cfb",
       "module": "Quasar.Components",
       "tier": 3,
       "status": "documented"
@@ -504,8 +504,8 @@
       "path": "Quasar/Components/Pages/Configs.razor",
       "name": "Configs.razor",
       "ext": ".razor",
-      "size": 103119,
-      "sha256": "2cd477ab882cb6d79e09a0858a4f246cc950d17e496572a2a381f80e2ddfb9b5",
+      "size": 103095,
+      "sha256": "9e637f73f53fbf5d84b3a3fc8a27dc31abb15255bb03d2927bd5c0cf8f53cad8",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "documented"
@@ -636,6 +636,16 @@
       "ext": ".razor",
       "size": 13624,
       "sha256": "36a6a0bd627e46bc72f266eb99bf25d77cae52fe15a7ed7b40e1fa7b5f65bc89",
+      "module": "Quasar.Components",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Components/Pages/PluginManifestPickerDialog.razor",
+      "name": "PluginManifestPickerDialog.razor",
+      "ext": ".razor",
+      "size": 7789,
+      "sha256": "806aef3828d0e06f400baa22f801ec95a9413bd1060d80aaa981715cdc1fb91c",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "documented"
@@ -914,8 +924,8 @@
       "path": "Quasar/Program.cs",
       "name": "Program.cs",
       "ext": ".cs",
-      "size": 24804,
-      "sha256": "63565488bdc1d111176536d2f84d28ca9644347a71012755fedaf0fd44cd51c8",
+      "size": 24868,
+      "sha256": "da71e7af266440ffc7ed0b6732c6899b7c20adfb859c428ca66b4de21b48ebdd",
       "module": "Quasar.Host",
       "tier": 1,
       "status": "documented"
@@ -934,8 +944,8 @@
       "path": "Quasar/Quasar.csproj",
       "name": "Quasar.csproj",
       "ext": ".csproj",
-      "size": 3522,
-      "sha256": "c20e3cbde973c0e433a1f6b487aeaaf52c01c74edfa748113a47566dab7f8286",
+      "size": 3591,
+      "sha256": "0a2e062224045e4e7dc9641c7d6992708c211ac17641b11b2786d209c2d37436",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "documented"
@@ -1294,8 +1304,8 @@
       "path": "Quasar/Services/FileBrowserService.cs",
       "name": "FileBrowserService.cs",
       "ext": ".cs",
-      "size": 3406,
-      "sha256": "3b0e1e6447369cfe21dbb2939d743585ba89a5a0da45de88548d25fa01a387e7",
+      "size": 4396,
+      "sha256": "0553985419812d3b980e9a5ef80a57655b590fd37475fad0ff4c1146835aa609",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "documented"

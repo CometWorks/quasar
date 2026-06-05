@@ -21,9 +21,34 @@
     flex-direction: column;
 }
 
-.analytics-chart-paper :global(.mud-chart) {
+.analytics-apex-chart {
     flex: 1 1 auto;
-    min-height: 0;
+    height: 100%;
+    min-height: 280px;
+    min-width: 0;
+}
+
+.analytics-apex-chart :global(.apexcharts-canvas),
+.analytics-apex-chart :global(.apexcharts-svg) {
+    max-width: 100%;
+}
+
+.analytics-apex-chart :global(.apexcharts-menu) {
+    background: #111;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #fff;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.42);
+}
+
+.analytics-apex-chart :global(.apexcharts-menu-item) {
+    background: #111;
+    color: #fff;
+}
+
+.analytics-apex-chart :global(.apexcharts-menu-item:hover),
+.analytics-apex-chart :global(.apexcharts-menu-item:focus) {
+    background: #2a2a2a;
+    color: #fff;
 }
 
 @media (max-width: 1279.98px) {
