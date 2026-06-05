@@ -14,6 +14,8 @@ Namespace: `Quasar.Services.Analytics`
 - `SelectedRangeKey` — display-range identifier (default `"1h"`)
 - `AutoRefreshSeconds` — polling interval (0 = disabled)
 - `GridColumns` / `GridRows` / `RowHeightPx` — dashboard grid dimensions
+- `MaxVisibleServersForCharts` — hard cap on simultaneous rendered server lines per chart (default 6)
+- `ShowAllServers` — bypass `MaxVisibleServersForCharts` and render all selected lines
 - `SelectedUniqueNames` — instance filter list
 - `CustomFromDate` / `CustomFromTime` / `CustomToDate` / `CustomToTime` — custom date-range bounds
 - `Panels` — ordered list of `AnalyticsPanelConfig`
