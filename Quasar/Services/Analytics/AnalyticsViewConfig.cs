@@ -1,13 +1,5 @@
 namespace Quasar.Services.Analytics;
 
-public enum AnalyticsTierMode
-{
-    Auto = 0,
-    Raw = 1,
-    OneMinute = 2,
-    OneHour = 3,
-}
-
 public sealed class AnalyticsViewConfig
 {
     public string SelectedRangeKey { get; set; } = "1h";
@@ -19,8 +11,6 @@ public sealed class AnalyticsViewConfig
     public int GridRows { get; set; } = 4;
 
     public int RowHeightPx { get; set; } = 320;
-
-    public AnalyticsTierMode TierMode { get; set; } = AnalyticsTierMode.Auto;
 
     public List<string> SelectedUniqueNames { get; set; } = [];
 

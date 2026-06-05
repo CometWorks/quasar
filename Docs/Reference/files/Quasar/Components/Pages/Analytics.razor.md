@@ -3,14 +3,14 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Routable page (`/analytics`) that renders rolling, interruptible ApexCharts time-series charts for Space Engineers server metrics (SimSpeed, CPU, memory, player count, frame time, PCU, active grids, active entities). Supports multi-server selection, preset and custom time ranges, three data tiers (raw, 1-minute, 1-hour rollup), configurable grid layout, auto-refresh, export trigger, and per-panel layout editing via `AnalyticsPanelDialog`. The full view configuration is persisted in browser local storage under the key `quasar.analytics.view.v2`.
+Routable page (`/analytics`) that renders rolling, interruptible ApexCharts time-series charts for Space Engineers server metrics (SimSpeed, CPU, memory, player count, frame time, PCU, active grids, active entities). Supports multi-server selection, preset and custom time ranges, configurable grid layout, auto-refresh, export trigger, and per-panel layout editing via `AnalyticsPanelDialog`. The full view configuration is persisted in browser local storage under the key `quasar.analytics.view.v2`.
 
 ## Structure
 - **Route:** `@page "/analytics"`
 - **Implements:** `IDisposable`
 - **Injected services:** `MetricsStoreService`, `DedicatedServerCatalog`, `AgentRegistry`, `ISnackbar`, `ILocalStorageService`, `IDialogService`
 - **Key UI sections:**
-  - Toolbar: `MudSelect` for time range (30s/1m/2m/5m/15m/30m/1h/6h/24h/7d/30d/custom), tier mode, auto-refresh interval; Refresh, Export, Reset layout buttons; Add panel menu for hidden panels.
+- Toolbar: `MudSelect` for time range (30s/1m/2m/5m/15m/30m/1h/6h/24h/7d/30d/custom), auto-refresh interval; Refresh, Export, Reset layout buttons; Add panel menu for hidden panels.
   - Custom range pickers: `MudDatePicker` + `MudTimePicker` for from/to (shown when range = "custom").
   - Server/Grid settings panel: `MudCheckBox` per discovered server, numeric fields for grid columns, rows, row height.
   - Summary chip row: live aggregate values (SimSpeed, CPU, Memory, Players, PCU, Grids, Entities, Range Avg Sim).
@@ -22,12 +22,11 @@ Routable page (`/analytics`) that renders rolling, interruptible ApexCharts time
   - `AnalyticsViewConfig` — persisted config (loaded via `ILocalStorageService`).
   - `AnalyticsPanelConfig` — per-panel visibility, order, column/row span.
 - **Key methods:**
-  - `RefreshView()` — rebuilds server options, normalises selection, queries the right tier, downsamples, builds summary chips and `ChartModel` list.
-  - `BuildSeriesPoints()` — sorts metric samples by timestamp, inserts null-valued gap points when sample spacing exceeds the tier cadence threshold, and emits null values for unavailable/non-finite metric samples.
+- `RefreshView()` — rebuilds server options, normalises selection, reads raw samples, downsamples, builds summary chips and `ChartModel` list.
+  - `BuildSeriesPoints()` — sorts metric samples by timestamp, inserts null-valued gap points when sample spacing exceeds the disruption threshold, and emits null values for unavailable/non-finite metric samples.
 - `CreateChartOptions()` — configures ApexCharts line rendering, a blue-first series palette, datetime axes fixed to the selected time window (keeps moving scale), tooltip formatting, markers, legends, null-point behaviour, fixed 0..100 ms Y-axis for frame-time, and theme mode from `ThemePreferenceService` (light/dark).
   - `ResolveChartHeight()` — derives an explicit pixel chart height from the panel row span and configured row height so ApexCharts does not collapse inside the flex card.
-  - `ResolveGapThresholdSeconds()` — maps raw/1-minute/1-hour tiers to an interruption threshold of three intervals, using the larger of the tier cadence and the displayed series' median sample spacing so downsampling does not create false chart breaks.
-  - `QueryAutoTier()` — selects raw/1-minute/1-hour tier based on time span.
+- `ResolveGapThresholdSeconds()` — uses observed sample cadence and a raw baseline to detect missing periods and insert interruption points without false breaks.
 - `Downsample()` — uniform stride decimation capped at a fixed `MaxRenderPoints` constant (`5000`) to avoid rendering overload.
   - `OpenPanelDialogAsync()` — shows `AnalyticsPanelDialog` and writes back panel settings.
   - `UpdateRefreshTimer()` — creates/disposes a `System.Threading.Timer` for auto-refresh; guarded with `Interlocked.Exchange` to prevent overlapping refreshes.

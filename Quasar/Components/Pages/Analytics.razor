@@ -25,14 +25,6 @@
         </MudSelect>
     </div>
     <div style="flex: 1 1 180px; min-width: 180px;">
-        <MudSelect T="AnalyticsTierMode" Label="Tier" Value="_config.TierMode" ValueChanged="HandleTierChanged" Variant="Variant.Outlined">
-            <MudSelectItem T="AnalyticsTierMode" Value="AnalyticsTierMode.Auto">Auto</MudSelectItem>
-            <MudSelectItem T="AnalyticsTierMode" Value="AnalyticsTierMode.Raw">Raw</MudSelectItem>
-            <MudSelectItem T="AnalyticsTierMode" Value="AnalyticsTierMode.OneMinute">1 minute</MudSelectItem>
-            <MudSelectItem T="AnalyticsTierMode" Value="AnalyticsTierMode.OneHour">1 hour</MudSelectItem>
-        </MudSelect>
-    </div>
-    <div style="flex: 1 1 180px; min-width: 180px;">
         <MudSelect T="int" Label="Auto refresh" Value="_config.AutoRefreshSeconds" ValueChanged="HandleAutoRefreshChanged" Variant="Variant.Outlined">
             <MudSelectItem T="int" Value="0">Off</MudSelectItem>
             <MudSelectItem T="int" Value="5">5s</MudSelectItem>
@@ -377,12 +369,6 @@ else
         return RefreshAsync();
     }
 
-    private Task HandleTierChanged(AnalyticsTierMode value)
-    {
-        _config.TierMode = value;
-        return RefreshAsync();
-    }
-
     private Task HandleAutoRefreshChanged(int value)
     {
         _config.AutoRefreshSeconds = Math.Max(0, value);
@@ -522,14 +508,14 @@ else
             if (store is null)
                 continue;
 
-            var samples = Downsample(QueryTier(store, fromUnix, toUnix), MaxRenderPoints);
+            var samples = Downsample(store.Raw.Read(fromUnix, toUnix), MaxRenderPoints);
             if (samples.Length == 0)
                 continue;
 
             samplesByServer[uniqueName] = samples;
         }
 
-        BuildSummary(selectedServers, samplesByServer, toUnix - fromUnix);
+        BuildSummary(selectedServers, samplesByServer);
         BuildCharts(samplesByServer, toUnix - fromUnix, fromUnix, toUnix);
     }
 
@@ -636,29 +622,6 @@ else
         return (new DateTimeOffset(fromLocal).ToUnixTimeSeconds(), new DateTimeOffset(toLocal).ToUnixTimeSeconds());
     }
 
-    private MetricSample[] QueryTier(ServerMetricsStore store, long fromUnix, long toUnix)
-    {
-        return _config.TierMode switch
-        {
-            AnalyticsTierMode.Raw => store.Raw.Read(fromUnix, toUnix),
-            AnalyticsTierMode.OneMinute => store.OneMinute.Read(fromUnix, toUnix),
-            AnalyticsTierMode.OneHour => store.OneHour.Read(fromUnix, toUnix),
-            _ => QueryAutoTier(store, fromUnix, toUnix),
-        };
-    }
-
-    private static MetricSample[] QueryAutoTier(ServerMetricsStore store, long fromUnix, long toUnix)
-    {
-        var span = toUnix - fromUnix;
-        if (span <= 2 * 3600)
-            return store.Raw.Read(fromUnix, toUnix);
-
-        if (span <= 7 * 86400)
-            return store.OneMinute.Read(fromUnix, toUnix);
-
-        return store.OneHour.Read(fromUnix, toUnix);
-    }
-
     private static MetricSample[] Downsample(MetricSample[] samples, int maxPoints)
     {
         if (samples.Length <= maxPoints)
@@ -677,8 +640,7 @@ else
 
     private void BuildSummary(
         IReadOnlyList<string> selectedServers,
-        IReadOnlyDictionary<string, MetricSample[]> samplesByServer,
-        long spanSeconds)
+        IReadOnlyDictionary<string, MetricSample[]> samplesByServer)
     {
         _summaryChips.Clear();
 
@@ -691,7 +653,6 @@ else
         }
 
         _summaryChips.Add(new SummaryChipModel("Servers", selectedServers.Count.ToString()));
-        _summaryChips.Add(new SummaryChipModel("Tier", ResolveTierLabel(spanSeconds)));
 
         if (latestSamples.Count == 0)
         {
@@ -749,7 +710,7 @@ else
             var series = new List<AnalyticsChartSeries>();
             foreach (var pair in samplesByServer.OrderBy(pair => ResolveDisplayName(pair.Key), StringComparer.OrdinalIgnoreCase))
             {
-                var gapThresholdSeconds = ResolveGapThresholdSeconds(spanSeconds, pair.Value);
+                var gapThresholdSeconds = ResolveGapThresholdSeconds(pair.Value);
                 var values = BuildSeriesPoints(pair.Value, definition, gapThresholdSeconds);
 
                 if (values.Count == 0 || values.All(point => point.Value is null))
@@ -956,19 +917,12 @@ else
     private static DateTime ToLocalDateTime(long timestampUnixSeconds) =>
         DateTimeOffset.FromUnixTimeSeconds(timestampUnixSeconds).LocalDateTime;
 
-    private long ResolveGapThresholdSeconds(long spanSeconds, IReadOnlyList<MetricSample> samples)
+    private static long ResolveGapThresholdSeconds(IReadOnlyList<MetricSample> samples)
     {
-        var expectedSeconds = _config.TierMode switch
-        {
-            AnalyticsTierMode.Raw => 2,
-            AnalyticsTierMode.OneMinute => 60,
-            AnalyticsTierMode.OneHour => 3600,
-            _ when spanSeconds <= 2 * 3600 => 2,
-            _ when spanSeconds <= 7 * 86400 => 60,
-            _ => 3600,
-        };
-
-        return Math.Max(expectedSeconds, ResolveMedianIntervalSeconds(samples)) * 3L;
+        const long expectedSeconds = 2;
+        var medianIntervalSeconds = ResolveMedianIntervalSeconds(samples);
+        var cadenceSeconds = Math.Max(expectedSeconds, medianIntervalSeconds);
+        return cadenceSeconds * 3L;
     }
 
     private static long ResolveMedianIntervalSeconds(IReadOnlyList<MetricSample> samples)
@@ -1035,19 +989,6 @@ else
     {
         return MetricDefinitions.FirstOrDefault(metric => string.Equals(metric.Key, key, StringComparison.OrdinalIgnoreCase))
                ?.Title ?? key;
-    }
-
-    private string ResolveTierLabel(long spanSeconds)
-    {
-        return _config.TierMode switch
-        {
-            AnalyticsTierMode.Raw => "Raw",
-            AnalyticsTierMode.OneMinute => "1 minute",
-            AnalyticsTierMode.OneHour => "1 hour",
-            _ when spanSeconds <= 2 * 3600 => "Auto/raw",
-            _ when spanSeconds <= 7 * 86400 => "Auto/1 minute",
-            _ => "Auto/1 hour",
-        };
     }
 
     private static string ResolveTimeLabelFormat(long spanSeconds)
