@@ -17,6 +17,7 @@ public sealed class DedicatedServerRuntimePreparer
     private static readonly Regex ConfigOptionPattern = new(@"(?<!\S)-config(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex Ds64OptionPattern = new(@"(?<!\S)-ds64(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex NoSplashPattern = new(@"(?<!\S)-nosplash(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex DaemonPattern = new(@"(?<!\S)-daemon(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly XNamespace XsiNamespace = "http://www.w3.org/2001/XMLSchema-instance";
     private static readonly XNamespace XsdNamespace = "http://www.w3.org/2001/XMLSchema";
 
@@ -570,6 +571,10 @@ public sealed class DedicatedServerRuntimePreparer
         var additions = new[]
         {
             "-noconsole",
+            // Detach Magnetar from Quasar's session (Linux setsid / Windows FreeConsole),
+            // in place so the PID and stdout/stderr pipes stay valid. This keeps managed
+            // servers alive when Quasar stops and shields them from terminal-driven signals.
+            "-daemon",
             $"-path {QuoteArgument(dedicatedServerAppDataPath)}",
             $"-config {QuoteArgument(magnetarAppDataPath)}",
             $"-ds64 {QuoteArgument(dedicatedServer64Path)}",
@@ -614,6 +619,7 @@ public sealed class DedicatedServerRuntimePreparer
         sanitized = ConfigOptionPattern.Replace(sanitized, string.Empty);
         sanitized = Ds64OptionPattern.Replace(sanitized, string.Empty);
         sanitized = NoSplashPattern.Replace(sanitized, string.Empty);
+        sanitized = DaemonPattern.Replace(sanitized, string.Empty);
         sanitized = Regex.Replace(sanitized, @"\s{2,}", " ");
         return sanitized.Trim();
     }

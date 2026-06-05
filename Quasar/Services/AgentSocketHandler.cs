@@ -49,15 +49,22 @@ public sealed class AgentSocketHandler
 
         _logger.LogInformation("Agent socket connected: {ConnectionId}", connectionId);
 
+        // End the blocking read loop promptly when the host starts shutting down.
+        // RequestAborted alone is not tripped until the host's shutdown timeout, so
+        // the in-flight ReceiveAsync would otherwise stall graceful shutdown for ~30s.
+        using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(
+            context.RequestAborted, _lifetime.ApplicationStopping);
+        var loopToken = loopCts.Token;
+
         try
         {
-            while (socket.State == WebSocketState.Open && !context.RequestAborted.IsCancellationRequested)
+            while (socket.State == WebSocketState.Open && !loopToken.IsCancellationRequested)
             {
-                var message = await ReceiveAsync(socket, context.RequestAborted);
+                var message = await ReceiveAsync(socket, loopToken);
                 if (message is null)
                     break;
 
-                await ProcessMessageAsync(message, connectionId, socket, context.RequestAborted);
+                await ProcessMessageAsync(message, connectionId, socket, loopToken);
             }
         }
         catch (OperationCanceledException)
