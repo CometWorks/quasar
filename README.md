@@ -27,6 +27,13 @@ Build notes:
 - A local-only override can live at `Quasar.Agent/Directory.Build.props`.
 - This repo keeps the machine-specific override out of source control.
 
+Linux service install:
+
+- `sudo ./install.sh` publishes Quasar to `/opt/quasar` and installs `quasar.service`.
+- The service grants `CAP_SYS_NICE` with systemd ambient capabilities so Quasar can raise managed server priority through `renice`.
+- The installer enables the service but does not start/restart it unless `--start` is passed.
+- Start or restart it with `sudo systemctl restart quasar.service` when ready.
+
 Agent workflow note:
 
 - Do not launch the Quasar web service process (`dotnet run --project Quasar/Quasar.csproj`) unless the user explicitly asks for a smoketest.
