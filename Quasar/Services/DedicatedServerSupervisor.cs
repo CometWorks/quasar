@@ -143,6 +143,15 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (IsProcessActive(state.Process))
                 return;
 
+            // A start is already running for this instance (its process handle is
+            // assigned only late in StartProcessAsync). Without this guard two
+            // overlapping reconciles — the periodic loop and a catalog-change
+            // reconcile kicked off via Task.Run — both pass the IsProcessActive
+            // check and launch duplicate processes that then collide on the port.
+            if (state.StartInProgress)
+                return;
+
+            state.StartInProgress = true;
             state.StopRequested = false;
             state.State = state.IsRestartPending
                 ? DedicatedServerInstanceProcessState.Restarting
@@ -153,7 +162,17 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
 
         NotifyChanged();
-        await StartProcessAsync(state, cancellationToken);
+        try
+        {
+            await StartProcessAsync(state, cancellationToken);
+        }
+        finally
+        {
+            lock (_sync)
+            {
+                state.StartInProgress = false;
+            }
+        }
     }
 
     public async Task StopInstanceAsync(string uniqueName, CancellationToken cancellationToken = default)
@@ -1567,6 +1586,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public bool StopRequested { get; set; }
 
         public bool IsRestartPending { get; set; }
+
+        // Set while a StartProcessAsync call is in flight for this instance.
+        // The OS process handle (Process) is only assigned late in that method,
+        // after the potentially slow managed-runtime resolve/copy, so this flag
+        // closes the window where two overlapping reconciles would both pass the
+        // IsProcessActive guard and launch duplicate processes.
+        public bool StartInProgress { get; set; }
 
         public int RestartAttempts { get; set; }
 
