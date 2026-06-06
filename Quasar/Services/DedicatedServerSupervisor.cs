@@ -62,6 +62,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     public event Action? Changed;
 
+    /// <summary>
+    /// True when health monitoring is disabled instance-wide (development mode or
+    /// configuration). The Dashboard surfaces this once at the top rather than on
+    /// every server card.
+    /// </summary>
+    public bool HealthMonitoringDisabled => _options.DisableServerHealthMonitoring;
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
         SyncDefinitions();
@@ -1380,7 +1387,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
 
         if (disableHealthMonitoring)
-            return new ServerHealthAssessment(DedicatedServerHealthState.Unknown, "Health monitoring disabled for local/dev launch.");
+            // Instance-wide condition, surfaced once at the top of the Dashboard
+            // (see HealthMonitoringDisabled) rather than repeated on every card.
+            return new ServerHealthAssessment(DedicatedServerHealthState.Unknown, "");
 
         if (!state.Definition.EnableHealthMonitoring)
             return new ServerHealthAssessment(DedicatedServerHealthState.Unknown, "Health monitoring disabled.");
