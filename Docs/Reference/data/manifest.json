@@ -344,8 +344,8 @@
       "path": "Quasar.Bootstrap/Program.cs",
       "name": "Program.cs",
       "ext": ".cs",
-      "size": 66699,
-      "sha256": "4577c81a106bd364d59b2a90cf21a51f5a6f7bd52025412516a9de16a2c66b7d",
+      "size": 67151,
+      "sha256": "d5b206f8dd3630cbc589b28e61528ffe0243f49b325184d04cae2b08c790adbb",
       "module": "Quasar.Bootstrap",
       "tier": 1,
       "status": "documented"

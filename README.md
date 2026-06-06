@@ -28,6 +28,7 @@ Build notes:
 - A local-only override can live at `Quasar.Agent/Directory.Build.props`.
 - This repo keeps the machine-specific override out of source control.
 - On Windows the solution builds out-of-the-box: `Directory.Build.props` auto-resolves `DS64` from the Steam registry `InstallLocation` (falling back to the default `C:\Program Files (x86)\Steam\...\DedicatedServer64` library) and `MagnetarBin` to `$(Magnetar)\Libraries\MagnetarLegacy`. On Linux `MagnetarBin` resolves to `$(Magnetar)/Bin`.
+- The Linux release workflow forces SteamCMD to the Windows platform before installing app `298740`, because Space Engineers Dedicated Server references come from the Windows depot.
 
 Managed runtime notes:
 
@@ -52,7 +53,7 @@ Linux release packaging and updates:
 - The Quasar UI checks GitHub releases every 5 minutes by default. New Linux UI assets are downloaded into `~/.config/Quasar/Updates/Staged/<version>` and queued for activation on the Updates page.
 - Activating a staged UI update causes a short web listener disconnect: Bootstrap drains the old worker first, starts the staged worker on the same port, and managed Magnetar servers stay alive because they run detached.
 - Bootstrap checks the primary Quasar release stream every 5 minutes. When `quasar-linux-x64.tar.gz` has a newer version, Bootstrap verifies `SHA256SUMS`, replaces its installed launcher files, drains the UI worker, and exits so systemd restarts the updated launcher.
-- The release workflow is `.github/workflows/release-linux.yml`; tag pushes publish separate Quasar UI and primary Quasar releases (`quasar-ui/v<version>` and `v<version>`), while pushes to `main` create matching draft prerelease builds named `v0.1.0-main.<run-number>`.
+- The release workflow is `.github/workflows/release-linux.yml`; tag pushes publish both Quasar UI and primary Quasar releases (`quasar-ui/v<version>` and `v<version>`). Pushes to `main` create draft prerelease builds only for the touched stream: UI paths publish `quasar-ui/v0.1.0-main.<run-number>`, Bootstrap paths publish `v0.1.0-main.<run-number>`, and shared/package paths publish both. Manual runs can choose `all`, `ui`, or `bootstrap`.
 
 Agent workflow note:
 

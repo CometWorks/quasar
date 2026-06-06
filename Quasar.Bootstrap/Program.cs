@@ -1111,6 +1111,17 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             throw new InvalidOperationException($"SHA256 mismatch for {Path.GetFileName(path)}.");
     }
 
+    private static bool IsNewerVersion(string candidate, string current)
+    {
+        if (Version.TryParse(NormalizeVersion(candidate), out var candidateVersion) &&
+            Version.TryParse(NormalizeVersion(current), out var currentVersion))
+        {
+            return candidateVersion > currentVersion;
+        }
+
+        return !string.Equals(NormalizeVersion(candidate), NormalizeVersion(current), StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string NormalizeVersion(string value)
     {
         value = value.Trim();

@@ -2,9 +2,30 @@ name: release-linux
 
 on:
   workflow_dispatch:
+    inputs:
+      component:
+        description: Release stream to publish
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - ui
+          - bootstrap
   push:
     branches:
       - main
+    paths:
+      - ".github/workflows/release-linux.yml"
+      - "Directory.Build.props"
+      - "Magnetar.Protocol/**"
+      - "Quasar/**"
+      - "Quasar.Agent/**"
+      - "Quasar.Bootstrap/**"
+      - "Quasar.sln"
+      - "install.sh"
+      - "scripts/package-linux-release.sh"
+      - "uninstall.sh"
     tags:
       - "v*"
 
@@ -16,6 +37,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -36,12 +59,18 @@ jobs:
           /usr/games/steamcmd \
             +force_install_dir "$HOME/.steam/steam/steamapps/common/SpaceEngineersDedicatedServer" \
             +login anonymous \
+            +@sSteamCmdForcePlatformType windows \
             +app_update 298740 validate \
             +quit
 
       - name: Resolve Quasar release metadata
         id: release
+        env:
+          DISPATCH_COMPONENT: ${{ github.event.inputs.component || 'all' }}
         run: |
+          publish_ui="false"
+          publish_bootstrap="false"
+
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             tag="$GITHUB_REF_NAME"
             version="${tag#v}"
@@ -51,6 +80,32 @@ jobs:
             bootstrap_name="Quasar v${version}"
             draft="false"
             prerelease="false"
+            publish_ui="true"
+            publish_bootstrap="true"
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            version="0.1.0-manual.${GITHUB_RUN_NUMBER}"
+            ui_tag="quasar-ui/v${version}"
+            bootstrap_tag="v${version}"
+            ui_name="Quasar UI manual ${GITHUB_SHA::7}"
+            bootstrap_name="Quasar manual ${GITHUB_SHA::7}"
+            draft="true"
+            prerelease="true"
+            case "$DISPATCH_COMPONENT" in
+              all)
+                publish_ui="true"
+                publish_bootstrap="true"
+                ;;
+              ui)
+                publish_ui="true"
+                ;;
+              bootstrap)
+                publish_bootstrap="true"
+                ;;
+              *)
+                echo "Unknown component: $DISPATCH_COMPONENT" >&2
+                exit 1
+                ;;
+            esac
           elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
             version="0.1.0-main.${GITHUB_RUN_NUMBER}"
             ui_tag="quasar-ui/v${version}"
@@ -59,6 +114,30 @@ jobs:
             bootstrap_name="Quasar main ${GITHUB_SHA::7}"
             draft="true"
             prerelease="true"
+            base="${{ github.event.before }}"
+            if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+              changed_files="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA")"
+            else
+              changed_files="$(git diff --name-only "$base" "$GITHUB_SHA")"
+            fi
+            while IFS= read -r path; do
+              case "$path" in
+                .github/workflows/release-linux.yml|Directory.Build.props|Magnetar.Protocol/*|Quasar.sln|scripts/package-linux-release.sh)
+                  publish_ui="true"
+                  publish_bootstrap="true"
+                  ;;
+                Quasar.Bootstrap/*|install.sh|uninstall.sh)
+                  publish_bootstrap="true"
+                  ;;
+                Quasar/appsettings.json)
+                  publish_ui="true"
+                  publish_bootstrap="true"
+                  ;;
+                Quasar/*|Quasar.Agent/*)
+                  publish_ui="true"
+                  ;;
+              esac
+            done <<< "$changed_files"
           else
             version="$(git rev-parse --short HEAD)"
             ui_tag="quasar-ui/$version"
@@ -67,6 +146,12 @@ jobs:
             bootstrap_name="Quasar $version"
             draft="true"
             prerelease="true"
+            publish_ui="true"
+            publish_bootstrap="true"
+          fi
+          if [[ "$publish_ui" != "true" && "$publish_bootstrap" != "true" ]]; then
+            echo "No release stream selected for this change set." >&2
+            exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "ui_tag=$ui_tag" >> "$GITHUB_OUTPUT"
@@ -75,6 +160,9 @@ jobs:
           echo "bootstrap_name=$bootstrap_name" >> "$GITHUB_OUTPUT"
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "publish_ui=$publish_ui" >> "$GITHUB_OUTPUT"
+          echo "publish_bootstrap=$publish_bootstrap" >> "$GITHUB_OUTPUT"
+          echo "Release streams: ui=$publish_ui bootstrap=$publish_bootstrap"
 
       - name: Install Magnetar PluginSdk reference
         run: |
@@ -124,7 +212,7 @@ jobs:
             artifacts/linux/SHA256SUMS
 
       - name: Attach UI artifact to GitHub release
-        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
+        if: steps.release.outputs.publish_ui == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release.outputs.ui_tag }}
@@ -137,7 +225,7 @@ jobs:
             artifacts/linux/SHA256SUMS
 
       - name: Attach Bootstrap artifact to GitHub release
-        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
+        if: steps.release.outputs.publish_bootstrap == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release.outputs.bootstrap_tag }}
