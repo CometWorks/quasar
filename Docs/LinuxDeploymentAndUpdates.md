@@ -21,6 +21,9 @@ web UI worker.
 
 The GitHub release workflow builds these assets on Linux and attaches them to
 tagged GitHub releases.
+`Version` is taken from `scripts/package-linux-release.sh` and can fall back to a git value.
+For assembly/file metadata, the script always emits a valid `major.minor.build.revision`
+version even when the base version is build-number style.
 
 ## First Start
 
