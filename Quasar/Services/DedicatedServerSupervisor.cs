@@ -129,13 +129,28 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         return snapshots;
     }
 
+    public Task SetGoalStateAsync(
+        string uniqueName,
+        DedicatedServerGoalState goalState,
+        CancellationToken cancellationToken = default) =>
+        SetGoalStateAsync(uniqueName, goalState, reconcile: true, cancellationToken);
+
+    /// <summary>
+    /// Persists the desired <paramref name="goalState"/> for a server. When
+    /// <paramref name="reconcile"/> is <c>true</c> the supervisor immediately
+    /// reconciles to enforce it. Callers that drive their own graceful stop
+    /// (e.g. shutting down every server at once) can pass <c>false</c> to record
+    /// the new intent without kicking off a competing reconcile-driven stop.
+    /// </summary>
     public async Task SetGoalStateAsync(
         string uniqueName,
         DedicatedServerGoalState goalState,
+        bool reconcile,
         CancellationToken cancellationToken = default)
     {
         await _catalog.SetGoalStateAsync(uniqueName, goalState, cancellationToken);
-        await ReconcileAsync(cancellationToken);
+        if (reconcile)
+            await ReconcileAsync(cancellationToken);
     }
 
     public async Task StartServerAsync(string uniqueName, CancellationToken cancellationToken = default)
