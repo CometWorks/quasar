@@ -23,6 +23,13 @@
     }
 </MudStack>
 
+@if (Supervisor.HealthMonitoringDisabled)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+        Health monitoring disabled for this Quasar instance (development mode or configuration).
+    </MudAlert>
+}
+
 @if (ShowSetupWizard)
 {
     <MudPaper Class="pa-4 summary-card mb-6">

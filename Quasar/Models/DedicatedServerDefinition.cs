@@ -69,6 +69,12 @@ public sealed class DedicatedServerDefinition
 
     public DedicatedServerProcessPriority ReadyProcessPriority { get; set; } = DedicatedServerProcessPriority.Normal;
 
+    // Canonical cpuset string (e.g. "0-7" or "0-7,16-23") pinning the server process to a
+    // fixed set of logical cores. Empty = no affinity (all cores allowed). When set, must
+    // contain at least 2 cores. Applied locally by the supervisor every time the process
+    // starts; see CpuAffinitySpec.
+    public string CpuAffinity { get; set; } = string.Empty;
+
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 
     public DedicatedServerDefinition Clone()
@@ -107,6 +113,7 @@ public sealed class DedicatedServerDefinition
             AvoidSimultaneousScheduledRestarts = AvoidSimultaneousScheduledRestarts,
             StartupProcessPriority = StartupProcessPriority,
             ReadyProcessPriority = ReadyProcessPriority,
+            CpuAffinity = CpuAffinity,
             UpdatedAtUtc = UpdatedAtUtc,
         };
     }

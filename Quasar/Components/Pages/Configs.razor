@@ -411,6 +411,7 @@
                                                 <MudTh>Author</MudTh>
                                                 <MudTh>Description</MudTh>
                                                 <MudTh Style="width:48px;"></MudTh>
+                                                <MudTh Style="width:48px;"></MudTh>
                                             </HeaderContent>
                                             <RowTemplate>
                                                 <MudTd DataLabel="Use">
@@ -432,19 +433,19 @@
                                                 </MudTd>
                                                 <MudTd DataLabel="Author">@context.Author</MudTd>
                                                 <MudTd DataLabel="Description">
-                                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="plugin-description-cell">
-                                                        <MudText Typo="Typo.body2" Class="plugin-description-line">@GetPluginDescriptionPreview(context)</MudText>
-                                                        @if (ShouldShowPluginDescriptionDialog(context))
-                                                        {
-                                                            <MudIconButton
-                                                                Icon="@Icons.Material.Filled.MoreHoriz"
-                                                                Color="Color.Default"
-                                                                Size="Size.Small"
-                                                                Class="plugin-description-more"
-                                                                OnClick="@(() => ShowPluginDescriptionAsync(context))"
-                                                                title="Show full description" />
-                                                        }
-                                                    </MudStack>
+                                                    <MudText Typo="Typo.body2" Class="plugin-description-line">@GetPluginTooltipText(context)</MudText>
+                                                </MudTd>
+                                                <MudTd Style="text-align:right;">
+                                                    @if (ShouldShowPluginDescriptionDialog(context))
+                                                    {
+                                                        <MudIconButton
+                                                            Icon="@Icons.Material.Filled.MoreHoriz"
+                                                            Color="Color.Default"
+                                                            Size="Size.Small"
+                                                            Class="plugin-description-more"
+                                                            OnClick="@(() => ShowPluginDescriptionAsync(context))"
+                                                            title="Show full description" />
+                                                    }
                                                 </MudTd>
                                                 <MudTd Style="text-align:right;">
                                                     @if (!string.IsNullOrWhiteSpace(GetPluginSourceUrl(context)))
@@ -725,7 +726,7 @@
     private const string PluginListPanelKey = "plugin-list";
     private const string PluginCatalogPanelKey = "plugin-catalog";
     private const string AdvancedPluginsPanelKey = "advanced-plugins";
-    private const int PluginDescriptionPreviewMaxLength = 280;
+    private const int PluginDescriptionFallbackMaxLength = 50;
     private string _selectedProfileId = string.Empty;
     private QuasarConfigProfile? _editor;
     private string _newProfileName = string.Empty;
@@ -1827,39 +1828,34 @@
         return tags.Count == 0 ? "-" : string.Join(", ", tags);
     }
 
-    private string GetPluginDescription(QuasarPluginCatalogEntry entry)
+    // The catalog column shows the full Tooltip (short, usually single line). When the
+    // Tooltip is empty it falls back to a short word-boundary preview of the Description.
+    private string GetPluginTooltipText(QuasarPluginCatalogEntry entry)
     {
-        var text = string.IsNullOrWhiteSpace(entry.Description)
-            ? entry.Tooltip
-            : entry.Description;
+        if (!string.IsNullOrWhiteSpace(entry.Tooltip))
+            return NormalizePluginDescription(entry.Tooltip);
 
-        return string.IsNullOrWhiteSpace(text)
-            ? "-"
-            : text;
-    }
-
-    private string GetPluginDescriptionPreview(QuasarPluginCatalogEntry entry)
-    {
-        var description = GetPluginDescription(entry);
-        if (description == "-")
-            return description;
-
-        var preview = NormalizePluginDescription(description);
-        if (string.IsNullOrWhiteSpace(preview))
+        if (string.IsNullOrWhiteSpace(entry.Description))
             return "-";
 
-        return preview.Length <= PluginDescriptionPreviewMaxLength
-            ? preview
-            : TruncatePluginDescriptionPreview(preview);
+        var description = NormalizePluginDescription(entry.Description);
+        return description.Length <= PluginDescriptionFallbackMaxLength
+            ? description
+            : TruncateAtWordBoundary(description, PluginDescriptionFallbackMaxLength);
     }
 
     private bool ShouldShowPluginDescriptionDialog(QuasarPluginCatalogEntry entry)
     {
-        var description = GetPluginDescription(entry);
-        if (description == "-")
+        // The dialog shows the full Description, so there must be one to show.
+        if (string.IsNullOrWhiteSpace(entry.Description))
             return false;
 
-        return NormalizePluginDescription(description).Length > PluginDescriptionPreviewMaxLength;
+        // When a Tooltip is shown inline the full Description is not visible, so always offer it.
+        if (!string.IsNullOrWhiteSpace(entry.Tooltip))
+            return true;
+
+        // Otherwise the Description is shown inline; only offer the dialog when it was truncated.
+        return NormalizePluginDescription(entry.Description).Length > PluginDescriptionFallbackMaxLength;
     }
 
     private static string NormalizePluginDescription(string description) =>
@@ -1868,13 +1864,16 @@
             .Select(line => line.Trim())
             .Where(line => !string.IsNullOrWhiteSpace(line)));
 
-    private static string TruncatePluginDescriptionPreview(string description)
+    private static string TruncateAtWordBoundary(string text, int maxLength)
     {
-        var cutoff = description.LastIndexOf('.', PluginDescriptionPreviewMaxLength - 1);
-        if (cutoff >= 0)
-            return description[..(cutoff + 1)].TrimEnd();
+        if (text.Length <= maxLength)
+            return text;
 
-        return $"{description[..PluginDescriptionPreviewMaxLength].TrimEnd()}...";
+        var cutoff = text.LastIndexOf(' ', maxLength - 1);
+        if (cutoff <= 0)
+            cutoff = maxLength;
+
+        return $"{text[..cutoff].TrimEnd()}...";
     }
 
     private async Task ShowPluginDescriptionAsync(QuasarPluginCatalogEntry entry)
@@ -1883,7 +1882,7 @@
         {
             [nameof(PluginCatalogDescriptionDialog.DisplayName)] = string.IsNullOrWhiteSpace(entry.FriendlyName) ? entry.PluginId : entry.FriendlyName,
             [nameof(PluginCatalogDescriptionDialog.PluginId)] = entry.PluginId,
-            [nameof(PluginCatalogDescriptionDialog.Description)] = GetPluginDescription(entry),
+            [nameof(PluginCatalogDescriptionDialog.Description)] = string.IsNullOrWhiteSpace(entry.Description) ? "-" : entry.Description,
         };
 
         await DialogService.ShowAsync<PluginCatalogDescriptionDialog>(

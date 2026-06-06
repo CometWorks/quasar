@@ -62,6 +62,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     public event Action? Changed;
 
+    /// <summary>
+    /// True when health monitoring is disabled instance-wide (development mode or
+    /// configuration). The Dashboard surfaces this once at the top rather than on
+    /// every server card.
+    /// </summary>
+    public bool HealthMonitoringDisabled => _options.DisableServerHealthMonitoring;
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
         SyncDefinitions();
@@ -129,13 +136,28 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         return snapshots;
     }
 
+    public Task SetGoalStateAsync(
+        string uniqueName,
+        DedicatedServerGoalState goalState,
+        CancellationToken cancellationToken = default) =>
+        SetGoalStateAsync(uniqueName, goalState, reconcile: true, cancellationToken);
+
+    /// <summary>
+    /// Persists the desired <paramref name="goalState"/> for a server. When
+    /// <paramref name="reconcile"/> is <c>true</c> the supervisor immediately
+    /// reconciles to enforce it. Callers that drive their own graceful stop
+    /// (e.g. shutting down every server at once) can pass <c>false</c> to record
+    /// the new intent without kicking off a competing reconcile-driven stop.
+    /// </summary>
     public async Task SetGoalStateAsync(
         string uniqueName,
         DedicatedServerGoalState goalState,
+        bool reconcile,
         CancellationToken cancellationToken = default)
     {
         await _catalog.SetGoalStateAsync(uniqueName, goalState, cancellationToken);
-        await ReconcileAsync(cancellationToken);
+        if (reconcile)
+            await ReconcileAsync(cancellationToken);
     }
 
     public async Task StartServerAsync(string uniqueName, CancellationToken cancellationToken = default)
@@ -325,6 +347,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     {
         List<(string UniqueName, ReconcileAction Action, string Reason)> actions = new();
         List<(string UniqueName, DedicatedServerProcessPriority Priority, string Phase)> priorityActions = new();
+        List<(string UniqueName, string Affinity, string Phase)> affinityActions = new();
         var agents = BuildAgentLookup();
         var now = DateTimeOffset.UtcNow;
         var healthChanged = false;
@@ -373,6 +396,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     if (state.LastAppliedProcessPriority != state.Definition.ReadyProcessPriority &&
                         state.LastFailedProcessPriority != state.Definition.ReadyProcessPriority)
                         priorityActions.Add((state.UniqueName, state.Definition.ReadyProcessPriority, "ready"));
+
+                    // Re-pin threads spawned during world load and pick up live config edits
+                    // (a saved change kicks a reconcile via HandleCatalogChanged), all without
+                    // restarting the process.
+                    if (state.LastAppliedCpuAffinity != state.Definition.CpuAffinity &&
+                        state.LastFailedCpuAffinity != state.Definition.CpuAffinity)
+                        affinityActions.Add((state.UniqueName, state.Definition.CpuAffinity, "ready"));
                 }
 
                 if (goalState == DedicatedServerGoalState.On)
@@ -434,6 +464,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         foreach (var (uniqueName, priority, phase) in priorityActions)
             TryApplyProcessPriority(uniqueName, priority, phase);
+
+        foreach (var (uniqueName, affinity, phase) in affinityActions)
+            TryApplyCpuAffinity(uniqueName, affinity, phase);
 
         foreach (var (uniqueName, action, reason) in actions)
         {
@@ -594,11 +627,14 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             current.StopRequested = false;
             current.LastAppliedProcessPriority = null;
             current.LastFailedProcessPriority = null;
+            current.LastAppliedCpuAffinity = null;
+            current.LastFailedCpuAffinity = null;
             ResetHealthTracking(current);
         }
 
         _logger.LogInformation("Started server {UniqueName} with pid {Pid}.", state.UniqueName, process.Id);
         TryApplyProcessPriority(state.UniqueName, process, definition.StartupProcessPriority, "startup");
+        TryApplyCpuAffinity(state.UniqueName, definition.CpuAffinity, "startup");
         NotifyChanged();
 
         _ = PumpStandardOutputAsync(process.StandardOutput, stdoutPath, state.UniqueName, cancellationToken);
@@ -740,6 +776,148 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Failed running renice for server {UniqueName}.", uniqueName);
+        }
+
+        return false;
+    }
+
+    private void TryApplyCpuAffinity(string uniqueName, string affinity, string phase)
+    {
+        var normalized = affinity?.Trim() ?? string.Empty;
+        Process? process;
+        string? previousApplied;
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out var state))
+                return;
+
+            if (state.LastAppliedCpuAffinity == normalized)
+                return;
+
+            if (state.LastFailedCpuAffinity == normalized)
+                return;
+
+            process = state.Process;
+            if (!IsProcessActive(process))
+                return;
+
+            previousApplied = state.LastAppliedCpuAffinity;
+        }
+
+        if (!TryApplyCpuAffinity(uniqueName, process!, normalized, previousApplied, phase))
+        {
+            lock (_sync)
+            {
+                if (_states.TryGetValue(uniqueName, out var state))
+                    state.LastFailedCpuAffinity = normalized;
+            }
+            return;
+        }
+
+        lock (_sync)
+        {
+            if (_states.TryGetValue(uniqueName, out var state))
+            {
+                state.LastAppliedCpuAffinity = normalized;
+                state.LastFailedCpuAffinity = null;
+            }
+        }
+    }
+
+    private bool TryApplyCpuAffinity(string uniqueName, Process process, string affinity, string? previousApplied, string phase)
+    {
+        try
+        {
+            if (affinity.Length == 0)
+            {
+                // No affinity requested. Release a previously pinned process back to all cores;
+                // if it was never pinned there is nothing to do.
+                if (string.IsNullOrEmpty(previousApplied))
+                    return true;
+
+                var allCores = Enumerable.Range(0, Environment.ProcessorCount).ToArray();
+                return ApplyCpuAffinityCores(uniqueName, process, allCores, $"{phase} (clear)");
+            }
+
+            if (!CpuAffinitySpec.TryParse(affinity, Environment.ProcessorCount, out var cores, out var error))
+            {
+                _logger.LogWarning("Invalid CPU affinity '{Affinity}' for server {UniqueName}: {Error}", affinity, uniqueName, error);
+                return false;
+            }
+
+            return ApplyCpuAffinityCores(uniqueName, process, cores, phase);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed applying {Phase} CPU affinity {Affinity} to server {UniqueName}.", phase, affinity, uniqueName);
+            return false;
+        }
+    }
+
+    private bool ApplyCpuAffinityCores(string uniqueName, Process process, IReadOnlyList<int> cores, string phase)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var mask = CpuAffinitySpec.ToWindowsMask(cores);
+            if (mask == 0)
+            {
+                _logger.LogWarning("Computed empty CPU affinity mask for server {UniqueName}; skipping.", uniqueName);
+                return false;
+            }
+
+            process.ProcessorAffinity = (nint)mask;
+            _logger.LogInformation("Applied {Phase} CPU affinity {Cores} to server {UniqueName}.", phase, CpuAffinitySpec.Format(cores), uniqueName);
+            return true;
+        }
+
+        if (OperatingSystem.IsLinux())
+            return TryApplyTaskset(uniqueName, process.Id, CpuAffinitySpec.Format(cores), phase);
+
+        _logger.LogWarning("CPU affinity is not supported on this platform for server {UniqueName}.", uniqueName);
+        return false;
+    }
+
+    private bool TryApplyTaskset(string uniqueName, int processId, string coreList, string phase)
+    {
+        try
+        {
+            using var taskset = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "taskset",
+                    Arguments = $"-a -p -c {coreList} {processId}",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                },
+            };
+
+            if (!taskset.Start())
+                return false;
+
+            var stdout = taskset.StandardOutput.ReadToEnd();
+            var stderr = taskset.StandardError.ReadToEnd();
+            taskset.WaitForExit(3000);
+            if (taskset.ExitCode == 0)
+            {
+                _logger.LogInformation("Applied {Phase} CPU affinity {Cores} to server {UniqueName}.", phase, coreList, uniqueName);
+                return true;
+            }
+
+            _logger.LogWarning(
+                "taskset failed applying {Phase} CPU affinity {Cores} to server {UniqueName}. ExitCode={ExitCode}. Stdout={Stdout}. Stderr={Stderr}",
+                phase,
+                coreList,
+                uniqueName,
+                taskset.ExitCode,
+                TrimForLog(stdout),
+                TrimForLog(stderr));
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed running taskset for server {UniqueName}.", uniqueName);
         }
 
         return false;
@@ -930,6 +1108,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                         : DedicatedServerProcessState.Running;
                     state.LastMessage = "Process adopted after Quasar worker turnover.";
                     state.StoppedAtUtc = null;
+                    // The adopted process was already pinned by the previous worker from the
+                    // same persisted config, so treat the current affinity as applied. This
+                    // keeps reconcile a no-op and honours "no need to set after reconnect".
+                    state.LastAppliedCpuAffinity = state.Definition.CpuAffinity;
                 }
                 else
                 {
@@ -1205,7 +1387,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
 
         if (disableHealthMonitoring)
-            return new ServerHealthAssessment(DedicatedServerHealthState.Unknown, "Health monitoring disabled for local/dev launch.");
+            // Instance-wide condition, surfaced once at the top of the Dashboard
+            // (see HealthMonitoringDisabled) rather than repeated on every card.
+            return new ServerHealthAssessment(DedicatedServerHealthState.Unknown, "");
 
         if (!state.Definition.EnableHealthMonitoring)
             return new ServerHealthAssessment(DedicatedServerHealthState.Unknown, "Health monitoring disabled.");
@@ -1617,6 +1801,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             AvoidSimultaneousScheduledRestarts = definition.AvoidSimultaneousScheduledRestarts,
             StartupProcessPriority = definition.StartupProcessPriority,
             ReadyProcessPriority = definition.ReadyProcessPriority,
+            CpuAffinity = definition.CpuAffinity,
             UpdatedAtUtc = definition.UpdatedAtUtc,
         };
     }
@@ -1727,6 +1912,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public DedicatedServerProcessPriority? LastAppliedProcessPriority { get; set; }
 
         public DedicatedServerProcessPriority? LastFailedProcessPriority { get; set; }
+
+        // Canonical affinity string last successfully applied to the running process, and the
+        // last one that failed to apply (so we don't retry it every reconcile). Null means
+        // "not yet applied this process lifetime".
+        public string? LastAppliedCpuAffinity { get; set; }
+
+        public string? LastFailedCpuAffinity { get; set; }
 
         public ulong? LastSimulationFrameCounter { get; set; }
 

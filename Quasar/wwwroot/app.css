@@ -176,6 +176,10 @@ h1:focus {
     font-family: "JetBrains Mono", "Cascadia Code", monospace;
 }
 
+.mud-typography-caption.mono {
+    opacity: 0.5;
+}
+
 .branding-logo-preview {
     display: flex;
     align-items: center;

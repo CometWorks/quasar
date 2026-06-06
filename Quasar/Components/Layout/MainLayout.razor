@@ -245,7 +245,7 @@
 
         try
         {
-            await ShutdownService.StopAllServersAsync(progress);
+            await ShutdownService.StopAllServersAsync(progress, setGoalStateOff: true);
         }
         finally
         {

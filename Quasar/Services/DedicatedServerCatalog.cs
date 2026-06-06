@@ -271,6 +271,12 @@ public sealed class DedicatedServerCatalog : IDisposable
             server.StartupProcessPriority = DedicatedServerProcessPriority.BelowNormal;
         if (!Enum.IsDefined(server.ReadyProcessPriority))
             server.ReadyProcessPriority = DedicatedServerProcessPriority.Normal;
+        // Re-store the canonical form of a valid affinity; drop anything invalid (or with
+        // fewer than the required cores) back to "no affinity" so a bad persisted value can
+        // never wedge process startup.
+        server.CpuAffinity = CpuAffinitySpec.TryParse(server.CpuAffinity, Environment.ProcessorCount, out var affinityCores, out _)
+            ? CpuAffinitySpec.Format(affinityCores)
+            : string.Empty;
         if (server.UpdatedAtUtc == default)
             server.UpdatedAtUtc = DateTimeOffset.UtcNow;
         return server;
@@ -324,6 +330,7 @@ public sealed class DedicatedServerCatalog : IDisposable
             AvoidSimultaneousScheduledRestarts = server.AvoidSimultaneousScheduledRestarts,
             StartupProcessPriority = server.StartupProcessPriority,
             ReadyProcessPriority = server.ReadyProcessPriority,
+            CpuAffinity = server.CpuAffinity,
             UpdatedAtUtc = server.UpdatedAtUtc,
         };
     }

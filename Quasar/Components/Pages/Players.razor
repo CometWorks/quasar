@@ -86,6 +86,10 @@
                             {
                                 <MudChip T="string" Size="Size.Small" Color="Color.Error">banned</MudChip>
                             }
+                            @if (context.IsKickCooldownActive)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Warning">kicked (@(context.KickCooldownRemainingSeconds)s)</MudChip>
+                            }
                             @if (!context.CanModerate)
                             {
                                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">agent offline</MudChip>
@@ -111,6 +115,10 @@
                             <MudMenuItem Disabled="@(!context.IsOnline)"
                                          OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.KickPlayer))">
                                 Kick
+                            </MudMenuItem>
+                            <MudMenuItem Disabled="@(!context.IsKickCooldownActive)"
+                                         OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.ClearKickCooldown))">
+                                Clear kick cooldown
                             </MudMenuItem>
                             <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(context, context.Record.IsBanned ? ServerCommandType.UnbanPlayer : ServerCommandType.BanPlayer))">
                                 @(context.Record.IsBanned ? "Unban" : "Ban")
@@ -171,17 +179,34 @@
                     }))
                     .ToDictionary(item => item.PlayerKey, item => item.Player, StringComparer.OrdinalIgnoreCase);
 
+                // Kicked players are offline, so they arrive in a separate snapshot collection.
+                // Convert each remaining cooldown into an absolute expiry so the countdown keeps
+                // ticking down on the client between the ~1s snapshot refreshes.
+                var now = DateTimeOffset.UtcNow;
+                var kickCooldowns = agents
+                    .Where(agent => agent.IsConnected && agent.Snapshot is not null)
+                    .SelectMany(agent => agent.Snapshot!.KickedPlayers.Select(kicked => new
+                    {
+                        PlayerKey = BuildPlayerKey(agent.UniqueNameKey, kicked.SteamId),
+                        ExpiresUtc = now.AddMilliseconds(kicked.RemainingCooldownMs),
+                    }))
+                    .ToDictionary(item => item.PlayerKey, item => item.ExpiresUtc, StringComparer.OrdinalIgnoreCase);
+
                 return KnownPlayers.GetPlayers()
                     .Select(record =>
                     {
                         connectedAgentsByServer.TryGetValue(record.UniqueName, out var agent);
                         onlinePlayers.TryGetValue(record.PlayerKey, out var onlinePlayer);
+                        var kickCooldownExpiresUtc = kickCooldowns.TryGetValue(record.PlayerKey, out var expires)
+                            ? expires
+                            : (DateTimeOffset?)null;
 
                         return new KnownPlayerView
                         {
                             Record = record,
                             Agent = agent,
                             OnlinePlayer = onlinePlayer,
+                            KickCooldownExpiresUtc = kickCooldownExpiresUtc,
                         };
                     })
                     .OrderByDescending(view => view.IsOnline)
@@ -305,7 +330,17 @@
 
                 public PlayerSnapshot? OnlinePlayer { get; init; }
 
+                // Absolute time the server's kick cooldown expires for this player, or null when
+                // the player is not currently on a kick cooldown. Derived from the live snapshot.
+                public DateTimeOffset? KickCooldownExpiresUtc { get; init; }
+
                 public bool IsOnline => OnlinePlayer is not null;
+
+                public bool IsKickCooldownActive => KickCooldownExpiresUtc is { } expires && expires > DateTimeOffset.UtcNow;
+
+                public int KickCooldownRemainingSeconds => KickCooldownExpiresUtc is { } expires
+                    ? Math.Max(0, (int)Math.Ceiling((expires - DateTimeOffset.UtcNow).TotalSeconds))
+                    : 0;
 
                 public bool CanModerate => Agent?.IsConnected == true;
 

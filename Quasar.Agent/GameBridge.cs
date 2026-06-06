@@ -195,6 +195,7 @@ namespace Quasar.Agent
                 CapturedAtUtc = DateTimeOffset.UtcNow,
                 Metrics = BuildMetrics(session),
                 Players = GetPlayers(session),
+                KickedPlayers = GetKickedPlayers(session),
                 RecentChat = GetRecentChat(),
                 RecentDeaths = GetRecentDeaths(),
                 Plugins = GetPlugins(),
@@ -633,6 +634,40 @@ namespace Quasar.Agent
             return result;
         }
 
+        // Mirrors the game's own kick-cooldown bookkeeping (see MyKickedPlayersController in
+        // VRage.Dedicated): the server keeps kicked SteamIds in MyMultiplayer.Static.KickedClients
+        // mapped to the game-time they were kicked, and clears them KICK_TIMEOUT_MS later.
+        private List<KickedPlayerSnapshot> GetKickedPlayers(MySession session)
+        {
+            var result = new List<KickedPlayerSnapshot>();
+            var multiplayer = MyMultiplayer.Static;
+            if (session == null || !session.Ready || multiplayer == null)
+                return result;
+
+            try
+            {
+                var now = MySandboxGame.TotalTimeInMilliseconds;
+                foreach (var kicked in multiplayer.KickedClients)
+                {
+                    var remaining = kicked.Value + MyMultiplayerBase.KICK_TIMEOUT_MS - now;
+                    if (remaining <= 0)
+                        continue;
+
+                    result.Add(new KickedPlayerSnapshot
+                    {
+                        SteamId = (long)kicked.Key,
+                        DisplayName = session.Players.TryGetIdentityNameFromSteamId(kicked.Key) ?? string.Empty,
+                        RemainingCooldownMs = remaining,
+                    });
+                }
+            }
+            catch
+            {
+            }
+
+            return result;
+        }
+
         private List<ChatMessageSnapshot> GetRecentChat()
         {
             var result = new List<ChatMessageSnapshot>();
@@ -718,6 +753,10 @@ namespace Quasar.Agent
                 case ServerCommandType.KickPlayer:
                     MyMultiplayer.Static?.KickClient((ulong)(command.SteamId ?? 0));
                     return CreateResult(command, true, $"Kick requested for {command.SteamId}.");
+
+                case ServerCommandType.ClearKickCooldown:
+                    MyMultiplayer.Static?.KickClient((ulong)(command.SteamId ?? 0), kicked: false);
+                    return CreateResult(command, true, $"Kick cooldown cleared for {command.SteamId}.");
 
                 case ServerCommandType.BanPlayer:
                     MyMultiplayer.Static?.BanClient((ulong)(command.SteamId ?? 0), true);

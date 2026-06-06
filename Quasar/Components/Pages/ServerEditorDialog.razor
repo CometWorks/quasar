@@ -305,6 +305,16 @@
                                         }
                                     </MudSelect>
                                 </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField
+                                        @bind-Value="_editor.CpuAffinity"
+                                        Label="@($"CPU affinity (this host has {Environment.ProcessorCount} logical cores: 0-{Environment.ProcessorCount - 1})")"
+                                        Placeholder="e.g. 0-7 or 0-7,16-23"
+                                        Variant="Variant.Outlined"
+                                        Validation="@(new Func<string, string?>(ValidateCpuAffinityField))"
+                                        HelperTextOnFocus="false"
+                                        HelperText="@($"Comma-separated core numbers and ranges. Empty = all cores. Minimum {CpuAffinitySpec.MinimumCores} cores.")" />
+                                </MudItem>
                                 <MudItem xs="12">
                                     <MudTextField
                                         @bind-Value="_editor.LaunchArguments"
@@ -655,6 +665,9 @@
 
         return duplicateExists ? $"A server named '{trimmed}' already exists." : null;
     }
+
+    private static string? ValidateCpuAffinityField(string? value) =>
+        CpuAffinitySpec.TryParse(value, Environment.ProcessorCount, out _, out var error) ? null : error;
 
     private static string? ValidateWorldTemplateField(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "World template required." : null;

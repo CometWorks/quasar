@@ -70,6 +70,13 @@ public static class MagnetarPaths
     public static string GetQuasarDataProtectionKeyringDirectory() =>
         Path.Combine(GetQuasarDirectory(), "DataProtection-Keys");
 
+    public static string GetQuasarBackupSettingsPath() =>
+        Path.Combine(GetQuasarDirectory(), "backup-settings.json");
+
+    // Folder that holds generated configuration backup ZIPs (manual + scheduled).
+    public static string GetQuasarBackupsDirectory() =>
+        Path.Combine(GetQuasarDirectory(), "Backups");
+
     // -------------------------------------------------------------------------
     // Magnetar server data  (~/.config/Quasar/Magnetars/<unique-name>/)
     // -------------------------------------------------------------------------

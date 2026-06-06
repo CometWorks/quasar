@@ -31,6 +31,16 @@ public sealed class QuasarDevFolderCatalog
             return _devFolders.Select(Clone).ToList();
     }
 
+    /// <summary>Re-reads dev folders from disk (used after a backup restore).</summary>
+    public void ReloadFromDisk()
+    {
+        var reloaded = Load();
+        lock (_sync)
+            _devFolders = reloaded;
+
+        Changed?.Invoke();
+    }
+
     public QuasarDevFolderSelection? GetDevFolder(string folderPath, string dataFile)
     {
         lock (_sync)

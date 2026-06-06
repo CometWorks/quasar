@@ -22,7 +22,14 @@ public sealed class QuasarShutdownService
     /// the worker is not restarted. Progress messages are reported via
     /// <paramref name="progress"/> so the caller can update a UI while waiting.
     /// </summary>
-    public async Task StopAllServersAsync(IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+    /// <param name="setGoalStateOff">
+    /// When <c>true</c> the goal state of each server is set to Off before stopping
+    /// it, so the reconcile loop treats the shutdown as intentional and does not
+    /// auto-restart the server. Used by the admin "Shut down all servers" action,
+    /// where Quasar stays up. Left <c>false</c> for full Quasar shutdown, so the
+    /// servers resume on the next worker boot per their configured goal state.
+    /// </param>
+    public async Task StopAllServersAsync(IProgress<string>? progress = null, bool setGoalStateOff = false, CancellationToken cancellationToken = default)
     {
         var running = _supervisor.GetSnapshots()
             .Where(static s => s.State is DedicatedServerProcessState.Starting
@@ -43,6 +50,11 @@ public sealed class QuasarShutdownService
 
             try
             {
+                // Record the intent first (without a competing reconcile-driven stop)
+                // so the supervisor never auto-restarts the server we are about to stop.
+                if (setGoalStateOff)
+                    await _supervisor.SetGoalStateAsync(snapshot.UniqueName, DedicatedServerGoalState.Off, reconcile: false, cancellationToken);
+
                 await _supervisor.StopServerAsync(snapshot.UniqueName, forceAfter: null, cancellationToken);
             }
             catch
@@ -58,7 +70,7 @@ public sealed class QuasarShutdownService
     /// </summary>
     public async Task ShutdownAsync(IProgress<string>? progress = null, CancellationToken cancellationToken = default)
     {
-        await StopAllServersAsync(progress, cancellationToken);
+        await StopAllServersAsync(progress, cancellationToken: cancellationToken);
         progress?.Report("Shutting down Quasar…");
         _lifetime.StopApplication();
     }

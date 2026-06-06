@@ -18,6 +18,10 @@
         {
             <MudChip T="string" Variant="Variant.Outlined">Uptime @FormatDuration((int)Math.Max(0, (DateTimeOffset.UtcNow - started).TotalSeconds))</MudChip>
         }
+        @if (!string.IsNullOrWhiteSpace(Server?.CpuAffinity))
+        {
+            <MudChip T="string" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Memory">Affinity @Server.CpuAffinity</MudChip>
+        }
     </MudStack>
 }
 else
@@ -30,6 +34,10 @@ else
         <MudChip T="string" Variant="Variant.Outlined">Mods @Agent.Snapshot.Metrics.ModsLoaded</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">Plugins @Agent.Snapshot.Metrics.PluginsLoaded</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">Uptime @FormatDuration(Agent.Snapshot.Metrics.UptimeSeconds)</MudChip>
+        @if (!string.IsNullOrWhiteSpace(Server?.CpuAffinity))
+        {
+            <MudChip T="string" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Memory">Affinity @Server.CpuAffinity</MudChip>
+        }
     </MudStack>
 
     <MudStack Row="true" Spacing="1" Class="mb-3">

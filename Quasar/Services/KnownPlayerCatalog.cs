@@ -37,6 +37,25 @@ public sealed class KnownPlayerCatalog
 
     public event Action? Changed;
 
+    /// <summary>Re-reads the known players from disk, replacing the in-memory set (used after a backup restore).</summary>
+    public void ReloadFromDisk()
+    {
+        var reloaded = LoadPlayers();
+        lock (_sync)
+        {
+            _players.Clear();
+            foreach (var player in reloaded)
+            {
+                if (string.IsNullOrWhiteSpace(player.PlayerKey))
+                    continue;
+
+                _players[player.PlayerKey] = NormalizeRecord(Clone(player));
+            }
+        }
+
+        Changed?.Invoke();
+    }
+
     public IReadOnlyList<KnownPlayerRecord> GetPlayers()
     {
         lock (_sync)
