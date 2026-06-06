@@ -45,7 +45,7 @@
                   Wrap="Wrap.Wrap"
                   Justify="Justify.FlexEnd"
                   AlignItems="AlignItems.Center">
-            <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="@(() => RefreshAsync())">
+            <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="@(() => RefreshAsync(remountCharts: true))">
                 Refresh
             </MudButton>
             <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" StartIcon="@Icons.Material.Filled.Download" OnClick="ExportAsync">
@@ -274,6 +274,12 @@ else
 
         if (_pendingChartUpdate)
         {
+            if (!IsAutoRefreshEnabled())
+            {
+                _pendingChartUpdate = false;
+                return;
+            }
+
             _pendingChartUpdate = false;
             await UpdateRenderedChartsAsync();
         }
@@ -328,7 +334,7 @@ else
     private async Task RefreshAsync(bool remountCharts = false)
     {
         await RefreshViewAsync(remountCharts);
-        if (!remountCharts)
+        if (!remountCharts && IsAutoRefreshEnabled())
             RequestChartUpdate();
 
         await PersistConfigAsync();
@@ -470,9 +476,14 @@ else
         if (_disposed)
             return;
 
+        if (!IsAutoRefreshEnabled())
+            return;
+
         Interlocked.Exchange(ref _refreshRequested, 1);
         _ = InvokeAsync(ProcessQueuedRefreshAsync);
     }
+
+    private bool IsAutoRefreshEnabled() => _config.AutoRefreshSeconds > 0;
 
     private async Task ProcessQueuedRefreshAsync()
     {
@@ -571,9 +582,8 @@ else
 
             try
             {
-                await chartRef.UpdateOptionsAsync(redrawPaths: false, animate: false, updateSyncedCharts: false, zoom: null);
-                await chartRef.UpdateSeriesAsync(animate: false);
-                await chartRef.ZoomXAsync(chart.XMin, chart.XMax);
+                await chartRef.UpdateOptionsAsync(redrawPaths: false, animate: false, updateSyncedCharts: false);
+                await chartRef.UpdateSeriesAsync(animate: true);
             }
             catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException)
             {
@@ -619,7 +629,15 @@ else
 
         var pointCache = new Dictionary<SeriesTransformCacheKey, IReadOnlyList<AnalyticsChartPoint>>();
         BuildSummary(selectedServers, samplesByServer, effectiveServers.Count);
-        BuildCharts(renderSamplesByServer, toUnix - fromUnix, fromUnix, toUnix, maxChartPoints, chartRenderVersion, remountCharts, pointCache);
+        BuildCharts(
+            renderSamplesByServer,
+            toUnix - fromUnix,
+            fromUnix,
+            toUnix,
+            maxChartPoints,
+            chartRenderVersion,
+            remountCharts,
+            pointCache);
     }
 
     private IReadOnlyList<ServerOption> BuildServerOptions()
@@ -715,8 +733,11 @@ else
         if (spanSeconds > 6 * 3600)
             target = (int)(target * 0.95);
 
-        if (spanSeconds > 24 * 3600)
+        if (spanSeconds >= 24 * 3600)
             target = (int)(target * 0.8);
+
+        if (spanSeconds >= 24 * 3600 && spanSeconds < 7 * 86400)
+            target = (int)(target * 0.6);
 
         if (spanSeconds > 7 * 86400)
             target = (int)(target * 0.5);
@@ -1016,11 +1037,13 @@ else
                 continue;
 
             var isDenseChart = series.Sum(s => s.Points.Count) >= denseThreshold;
-            var options = CreateChartOptions(definition, spanSeconds, fromUnix, toUnix, isDenseChart);
+            var options = CreateChartOptions(
+                definition,
+                spanSeconds,
+                isDenseChart,
+                series);
             var height = ResolveChartHeight(panel);
             var layoutStyle = $"grid-column: span {Math.Clamp(panel.ColumnSpan, 1, _config.GridColumns)}; grid-row: span {Math.Clamp(panel.RowSpan, 1, Math.Max(1, _config.GridRows))};";
-            var xMin = DateTimeOffset.FromUnixTimeSeconds(fromUnix).ToUnixTimeMilliseconds();
-            var xMax = DateTimeOffset.FromUnixTimeSeconds(toUnix).ToUnixTimeMilliseconds();
 
             if (!remountCharts && existingCharts.TryGetValue(panel.Key, out var existing))
             {
@@ -1031,8 +1054,6 @@ else
                     options: options,
                     height: height,
                     layoutStyle: layoutStyle,
-                    xMin: xMin,
-                    xMax: xMax,
                     panel: panel);
                 nextCharts.Add(existing);
             }
@@ -1046,8 +1067,6 @@ else
                     Options: options,
                     Height: height,
                     LayoutStyle: layoutStyle,
-                    XMin: xMin,
-                    XMax: xMax,
                     Panel: panel));
             }
         }
@@ -1089,23 +1108,33 @@ else
         await RefreshAsync(remountCharts: true);
     }
 
-    private static double? ResolveUnixMs(long unixSeconds)
-    {
-        return DateTimeOffset.FromUnixTimeSeconds(unixSeconds).ToUnixTimeMilliseconds();
-    }
-
     private ApexCharts.ApexChartOptions<AnalyticsChartPoint> CreateChartOptions(
         MetricDefinition definition,
         long spanSeconds,
-        long fromUnix,
-        long toUnix,
-        bool isDenseChart)
+        bool isDenseChart,
+        IReadOnlyList<AnalyticsChartSeries> series)
     {
+        var xAxis = new ApexCharts.XAxis
+        {
+            Type = ApexCharts.XAxisType.Datetime,
+            Labels = new ApexCharts.XAxisLabels
+            {
+                Style = new ApexCharts.AxisLabelStyle
+                {
+                    Colors = "var(--mud-palette-text-secondary)",
+                    FontFamily = "var(--mud-typography-default-family)",
+                },
+                DatetimeUTC = false,
+                Format = ResolveTimeLabelFormat(spanSeconds),
+            },
+        };
+
         return new ApexCharts.ApexChartOptions<AnalyticsChartPoint>
         {
             Chart = new ApexCharts.Chart
             {
                 Background = "var(--mud-palette-surface)",
+                Group = "analytics-sync",
                 Animations = new ApexCharts.Animations { Enabled = false },
                 ForeColor = "var(--mud-palette-text-primary)",
                 FontFamily = "var(--mud-typography-default-family)",
@@ -1165,22 +1194,7 @@ else
                     Format = ResolveTooltipTimeFormat(spanSeconds),
                 },
             },
-            Xaxis = new ApexCharts.XAxis
-            {
-                Type = ApexCharts.XAxisType.Datetime,
-                Min = ResolveUnixMs(fromUnix),
-                Max = ResolveUnixMs(toUnix),
-                Labels = new ApexCharts.XAxisLabels
-                {
-                    Style = new ApexCharts.AxisLabelStyle
-                    {
-                        Colors = "var(--mud-palette-text-secondary)",
-                        FontFamily = "var(--mud-typography-default-family)",
-                    },
-                    DatetimeUTC = false,
-                    Format = ResolveTimeLabelFormat(spanSeconds),
-                },
-            },
+            Xaxis = xAxis,
             Yaxis =
             [
                 new ApexCharts.YAxis
@@ -1197,7 +1211,7 @@ else
                     DecimalsInFloat = ResolveYAxisDecimals(definition),
                     ForceNiceScale = true,
                     Min = definition.RequiresZero ? 0 : null,
-                    Max = ResolveYAxisMax(definition),
+                    Max = ResolveYAxisMax(definition, series),
                     ShowForNullSeries = false,
                     TickAmount = 5,
                 }
@@ -1301,10 +1315,42 @@ else
     {
         return definition.Key switch
         {
-            "simspeed" => 1,
+            "simspeed" => 1.1m,
             "frametime" => 100,
             _ => null,
         };
+    }
+
+    private static decimal? ResolveYAxisMax(MetricDefinition definition, IReadOnlyList<AnalyticsChartSeries> series)
+    {
+        return definition.Key switch
+        {
+            "players" => ResolveYAxisMaxForPlayers(series),
+            _ => ResolveYAxisMax(definition),
+        };
+    }
+
+    private static decimal? ResolveYAxisMaxForPlayers(IReadOnlyList<AnalyticsChartSeries> series)
+    {
+        var maxPlayers = series
+            .SelectMany(seriesPointGroup => seriesPointGroup.Points)
+            .Select(point => point.Value)
+            .OfType<decimal>()
+            .DefaultIfEmpty(0m)
+            .Max();
+
+        if (maxPlayers <= 0m)
+            return 5m;
+
+        return RoundUpToNearestMultiple(maxPlayers, 5m);
+    }
+
+    private static decimal RoundUpToNearestMultiple(decimal value, decimal multiple)
+    {
+        if (multiple <= 0m)
+            return value;
+
+        return Math.Ceiling(value / multiple) * multiple;
     }
 
     private string ResolveChartHeight(AnalyticsPanelConfig panel)
@@ -1422,7 +1468,7 @@ else
         Func<MetricSample, bool> IsAvailable,
         bool RequiresZero);
 
-    private sealed class ChartModel(string RenderKey, string Title, string Subtitle, List<AnalyticsChartSeries> Series, ApexCharts.ApexChartOptions<AnalyticsChartPoint> Options, string Height, string LayoutStyle, decimal XMin, decimal XMax, AnalyticsPanelConfig Panel)
+    private sealed class ChartModel(string RenderKey, string Title, string Subtitle, List<AnalyticsChartSeries> Series, ApexCharts.ApexChartOptions<AnalyticsChartPoint> Options, string Height, string LayoutStyle, AnalyticsPanelConfig Panel)
     {
         public string RenderKey { get; } = RenderKey;
         public string Title { get; private set; } = Title;
@@ -1431,8 +1477,6 @@ else
         public ApexCharts.ApexChartOptions<AnalyticsChartPoint> Options { get; set; } = Options;
         public string Height { get; private set; } = Height;
         public string LayoutStyle { get; private set; } = LayoutStyle;
-        public decimal XMin { get; private set; } = XMin;
-        public decimal XMax { get; private set; } = XMax;
         public AnalyticsPanelConfig Panel { get; private set; } = Panel;
         public ApexChart<AnalyticsChartPoint>? ChartRef { get; set; }
 
@@ -1443,8 +1487,6 @@ else
             ApexCharts.ApexChartOptions<AnalyticsChartPoint> options,
             string height,
             string layoutStyle,
-            decimal xMin,
-            decimal xMax,
             AnalyticsPanelConfig panel)
         {
             Title = title;
@@ -1452,8 +1494,6 @@ else
             Options = options;
             Height = height;
             LayoutStyle = layoutStyle;
-            XMin = xMin;
-            XMax = xMax;
             Panel = panel;
 
             var existingSeries = Series.ToDictionary(item => item.Name, StringComparer.OrdinalIgnoreCase);

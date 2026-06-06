@@ -221,7 +221,7 @@
                                                      Label="Minimum average simulation rate"
                                                      Variant="Variant.Outlined"
                                                      Min="0m"
-                                                     Max="1m"
+                                                     Max="1.1m"
                                                      Step="0.1m"
                                                      Format="0.###"
                                                      HelperText="Rate = frames advanced / (seconds * 60). 1.00 = full sim speed." />
@@ -445,7 +445,7 @@
 
     private void HandleMinimumSimulationRateChanged(decimal value)
     {
-        _editor.MinimumSimulationProgressScore = (float)Math.Clamp(value, 0m, 1m);
+        _editor.MinimumSimulationProgressScore = (float)Math.Clamp(value, 0m, 1.1m);
     }
 
     private static string? ValidateRestartSchedule(string? value)

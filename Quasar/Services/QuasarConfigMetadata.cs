@@ -112,7 +112,7 @@ public static class QuasarConfigMetadata
         RootInt("AutoUpdateRestartDelayInMin", "AutoUpdateRestartDelayInMin", "automation", "Update Restart Delay (min)", 60, min: 0),
         RootText("AutoUpdateSteamBranch", "AutoUpdateSteamBranch", "automation", "Steam Branch", 70),
         RootDecimal("WatcherInterval", "WatcherInterval", "automation", "Watcher Interval (sec)", 80, min: 1, step: 1),
-        RootDecimal("WatcherSimulationSpeedMinimum", "WatcherSimulationSpeedMinimum", "automation", "Min Simulation Speed", 90, min: 0, max: 1, step: 0.01),
+        RootDecimal("WatcherSimulationSpeedMinimum", "WatcherSimulationSpeedMinimum", "automation", "Min Simulation Speed", 90, min: 0, max: 1.1, step: 0.01),
         RootInt("ManualActionDelay", "ManualActionDelay", "automation", "Manual Action Delay (min)", 100, min: 0),
         RootText("ManualActionChatMessage", "ManualActionChatMessage", "automation", "Manual Action Chat Message", 110, helperText: "Use {0} for minute countdown."),
         RootBool("AutodetectDependencies", "AutodetectDependencies", "automation", "Autodetect Dependencies", 120),
