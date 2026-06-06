@@ -795,6 +795,8 @@ As of this document:
 - neutral light/dark theming exists with local-storage persistence
 - config editing is now migrated out of Python into Quasar-managed JSON profiles and rendered runtime artifacts
 - file watching/reload now exists for manual edits to Quasar-managed server/profile JSON
+- configuration backup/restore now exists as versioned ZIP archives of Quasar's own configuration (servers, config profiles, world-template definitions, branding, and the singleton settings files), with manual download/upload, semantic-version compatibility checks, and a scheduled automatic-backup service with retention pruning
+- per-server CPU affinity pinning now exists (cpuset strings applied via `taskset` on Linux and `Process.ProcessorAffinity` on Windows), enforced by the supervisor on process start and reconcile alongside process priority
 - `Quasar.Bootstrap` now owns the stable public endpoint and proxies active worker cutover
 - staged relaunch now persists supervisor runtime state so managed DS processes survive worker turnover
 - obsolete `webui/` is removed from the repository

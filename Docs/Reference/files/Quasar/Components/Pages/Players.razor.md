@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Routable page at `/players` listing all known players observed across managed servers. Merges the persisted `KnownPlayerCatalog` with live agent snapshots to show online/offline status, role, faction, service and Steam id, and offers per-row moderation actions (set promote level, kick, ban/unban) dispatched to the owning agent.
+Routable page at `/players` listing all known players observed across managed servers. Merges the persisted `KnownPlayerCatalog` with live agent snapshots to show online/offline status, role, faction, service and Steam id, and offers per-row moderation actions (set promote level, kick, clear-kick-cooldown, ban/unban) dispatched to the owning agent. While a kicked player's cooldown is active it shows a warning "kicked (Ns)" countdown chip; the expiry (`KickCooldownExpiresUtc`) is derived from the agent snapshot's `KickedPlayers` (converting `RemainingCooldownMs` to an absolute time) so the countdown keeps ticking between ~1s snapshot refreshes.
 
 ## Structure
 - **`@page "/players"`**, **`@implements IDisposable`**

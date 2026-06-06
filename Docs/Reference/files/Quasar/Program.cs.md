@@ -21,6 +21,7 @@ Namespace `Quasar`; `public class Program` with `static void Main(string[] args)
 - Web/agent: `FileBrowserService`, `WebServiceState`, `PluginLogStream`, `PluginConfigService` (+hosted), `AgentSocketHandler`, `WebServiceManifestHostedService` (hosted).
 - Discord: options/rate-limiter/death-messages catalogs, command dispatcher+router, chat/death/log/analytics relays, `DiscordBotService` (+hosted).
 - Branding/theme/shutdown: `BrandingService`, `ThemePreferenceService` (scoped), `QuasarShutdownService`.
+- Backup: `QuasarBackupSettingsService`, `QuasarBackupService`, `AutomaticBackupService` (+hosted).
 
 ### Authentication / Authorization
 - Default scheme `QuasarAuthSchemes.Cookie`; challenge = Steam OpenID. On Steam authenticated, `QuasarRoleMapper` validates the Steam ID (extracted from identifier/principal); disallowed → ticket cleared; otherwise claims normalized and role claims added.
@@ -28,7 +29,7 @@ Namespace `Quasar`; `public class Program` with `static void Main(string[] args)
 
 ### Middleware + endpoints
 Pipeline: exception handler (prod) → status-code re-execute (`/not-found`) → `UseWebSockets` (30 s keep-alive) → `UseAuthentication` → inline trusted-network principal injection → `UseAuthorization` → `UseAntiforgery`.
-Endpoints: `GET /api/health` (status/worker/host/version/baseUrl/connectedAgents/configuredServers/runningServers), `GET /api/discovery` (manifest), `GET /login` (Steam challenge or unavailable page), `GET /logout`, `GET /access-denied`, `POST /api/internal/drain` (launcher-token + trusted-network gated; `delaySeconds`/`stopServers` params), `Map /ws/agent` → `AgentSocketHandler`, `MapStaticAssets()`, `/branding` physical static files, `MapRazorComponents<App>()` (interactive server; `RequireAuthorization(CanView)` when auth enabled).
+Endpoints: `GET /api/health` (status/worker/host/version/baseUrl/connectedAgents/configuredServers/runningServers), `GET /api/discovery` (manifest), `GET /login` (Steam challenge or unavailable page), `GET /logout`, `GET /access-denied`, `POST /api/internal/drain` (launcher-token + trusted-network gated; `delaySeconds`/`stopServers` params), `GET /api/backup/download` (`QuasarBackupService.CreateBackup` → streams a fresh ZIP), `GET /api/backup/download/{name}` (downloads an existing backup by name from the Backups dir) — both `RequireAuthorization(CanManageSecurity)` when auth enabled, `Map /ws/agent` → `AgentSocketHandler`, `MapStaticAssets()`, `/branding` physical static files, `MapRazorComponents<App>()` (interactive server; `RequireAuthorization(CanView)` when auth enabled).
 
 ### POSIX signals + helpers
 On Linux/macOS, SIGINT/SIGTERM handlers either `StopApplication` (when preserving managed servers) or `QuasarShutdownService.ShutdownAsync`. Helpers: `CompositeDisposable`, `EmptyDisposable`, `SanitizeReturnUrl`, `ExtractSteamId`, `AddOrReplaceClaim`, `ShouldUseSourceStaticWebAssets`, `ShouldListenOnAnyInterface`.
@@ -39,6 +40,7 @@ On Linux/macOS, SIGINT/SIGTERM handlers either `StopApplication` (when preservin
 - `Quasar/Services/Auth/*` (`QuasarAuthOptions`, `QuasarRoleMapper`, `RbacConfigCatalog`, `TrustedNetworkEvaluator`, `QuasarAuthSchemes`, `QuasarClaimTypes`, `QuasarPolicyNames`, `QuasarRoles`)
 - `Quasar/Services/DedicatedServerCatalog.cs`, `DedicatedServerSupervisor.cs`, `DedicatedServerRuntimePreparer.cs`, `QuasarShutdownService.cs`, `WebServiceState.cs`, `WebServiceOptions.cs`, `WebServiceManifestHostedService.cs`, `ManagedRuntimeOptions.cs`
 - `Quasar/Services/Analytics/*`, `Quasar/Services/Discord/*`, `Quasar/Services/PluginSdk/QuasarPluginCatalogService.cs`
+- `Quasar/Services/Backup/*` (`QuasarBackupService`, `QuasarBackupSettingsService`, `AutomaticBackupService`)
 - `Quasar/Models/DedicatedServerProcessState.cs`
 - [`Magnetar.Protocol/Runtime/MagnetarPaths.cs`](../Magnetar.Protocol/Runtime/MagnetarPaths.cs.md)
 - External: `ApexCharts`, `AspNet.Security.OpenId.Steam`, `MudBlazor`, `NLog`, Blazored LocalStorage, ASP.NET Core Data Protection

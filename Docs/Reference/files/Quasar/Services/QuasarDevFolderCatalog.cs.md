@@ -17,6 +17,7 @@ Manages a persisted list of local developer plugin folders used during plugin de
 | `GetDevFolder(folderPath, dataFile)` | Looks up by case-insensitive (folderPath, dataFile) pair. |
 | `UpsertAsync(devFolder, ct)` | Normalizes, inserts or replaces, saves atomically. |
 | `DeleteAsync(folderPath, dataFile, ct)` | Removes matching entries, saves atomically. |
+| `void ReloadFromDisk()` | Re-reads dev folders from disk and fires `Changed`; used after a backup restore. |
 
 Private helpers:
 - `Load()` — reads `dev-folders.json`; returns empty list if file absent or invalid

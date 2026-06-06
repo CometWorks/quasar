@@ -248,7 +248,10 @@ Generated_Code/
 # to a newer Visual Studio version. Backup files are not needed,
 # because we have git ;-)
 _UpgradeReport_Files/
-Backup*/
+# Anchored to the repo root: these VS project-upgrade backup folders are only
+# ever created at the solution root, and an unanchored Backup*/ would also catch
+# unrelated directories such as Docs/Reference/files/Quasar/Services/Backup/.
+/Backup*/
 UpgradeLog*.XML
 UpgradeLog*.htm
 ServiceFabricBackup/

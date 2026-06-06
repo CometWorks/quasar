@@ -3,7 +3,7 @@
 **Module:** Quasar.Agent  **Kind:** class  **Tier:** 1
 
 ## Summary
-`GameBridge` is the central game-thread façade for `AgentConnection`. It collects session telemetry (metrics, players, chat, deaths, plugins), builds `AgentHello` / `AgentSnapshot` wire messages, and executes server commands (chat, save, stop, kick, ban, promote, entity list/delete) by marshalling work onto the game thread via `MySandboxGame.Invoke`. It also enumerates all loaded plugins and exposes their configuration through `IQuasarConfigProvider` or Magnetar PluginSdk `PluginConfig` reflection.
+`GameBridge` is the central game-thread façade for `AgentConnection`. It collects session telemetry (metrics, players, kicked players, chat, deaths, plugins), builds `AgentHello` / `AgentSnapshot` wire messages, and executes server commands (chat, save, stop, kick, ban, promote, clear-kick-cooldown, entity list/delete) by marshalling work onto the game thread via `MySandboxGame.Invoke`. It also enumerates all loaded plugins and exposes their configuration through `IQuasarConfigProvider` or Magnetar PluginSdk `PluginConfig` reflection.
 
 ## Structure
 **Namespace:** `Quasar.Agent`  
@@ -30,7 +30,7 @@
 
 **Commands handled by `ExecuteCommandOnGameThread`:**
 
-`Refresh`, `SendChat`, `SaveWorld`, `StopServer`, `KickPlayer`, `BanPlayer`, `UnbanPlayer`, `PromotePlayer`, `DemotePlayer`, `SetPlayerPromoteLevel`, `ListEntities`, `DeleteEntity`
+`Refresh`, `SendChat`, `SaveWorld`, `StopServer`, `KickPlayer`, `BanPlayer`, `UnbanPlayer`, `PromotePlayer`, `DemotePlayer`, `SetPlayerPromoteLevel`, `ClearKickCooldown` (calls `MyMultiplayer.Static.KickClient(steamId, kicked: false)`), `ListEntities`, `DeleteEntity`
 
 **Pulsar interop:** `EnumerateChildPlugins` reflects into `Pulsar.Legacy.Loader.PluginLoader` to discover child plugins by reading its `Plugins` property and each entry's `plugin` field, `Id`, and `FriendlyName`.
 
@@ -54,5 +54,6 @@
 - Constructor reads `MAGNETAR_HOST_ID` (not `MAGNETAR_NODE_ID`) to populate `_hostId`; this reflects the Node→Host rename.
 - Snapshot state is guarded by `_sync` (object lock); `_quasarRequestedStop` is `volatile` for lock-free reads from the termination handler.
 - Plugin config reads (`GetPluginConfigs`) are intentionally off-thread for responsiveness; applies are marshalled to the game thread.
+- Private `GetKickedPlayers(MySession)` populates `AgentSnapshot.KickedPlayers` by reading `MyMultiplayer.Static.KickedClients` and `MyMultiplayerBase.KICK_TIMEOUT_MS` to compute the remaining cooldown per SteamId.
 - `ConfigProviderAdapter` uses `MethodInfo` reflection to invoke generic `ConfigStorage.SaveJson<T>` / `LoadJson<T>` because `T` is only known at runtime.
 - `ApplyConfigJson` for SDK configs copies only properties decorated with `[ConfigOption]` to preserve non-option fields.

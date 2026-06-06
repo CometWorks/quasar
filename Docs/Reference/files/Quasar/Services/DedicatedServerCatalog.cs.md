@@ -25,7 +25,7 @@ Namespace: `Quasar.Services`
 **Internal:**
 
 - `LoadServers()` / `LoadServerDefinition(path)` — loads all `server.json` under the servers directory; migrates legacy `worldProfileId` field inline.
-- `Normalize(server)` — validates unique name (regex `^[a-zA-Z0-9_-]+$`), fills default paths via `MagnetarPaths`, clamps numeric fields, syncs `AutoStart`/`GoalState`.
+- `Normalize(server)` — validates unique name (regex `^[a-zA-Z0-9_-]+$`), fills default paths via `MagnetarPaths`, clamps numeric fields, syncs `AutoStart`/`GoalState`. Re-stores the canonical form of a valid `CpuAffinity` (via `CpuAffinitySpec.TryParse` + `Format`) and drops any invalid value (or one with fewer than the required cores) back to empty ("no affinity"), so a bad persisted value can't wedge process startup.
 - `PrepareStorageForSave(definition, previousUniqueName)` — handles server rename: rewrites managed sub-paths, moves directory via `Directory.Move`.
 - `StartWatching()` / `ScheduleReload()` / `ReloadFromDisk()` — `FileSystemWatcher` on `*.json` in the servers directory; debounced reload compares a JSON snapshot to suppress no-op notifications.
 - `SaveServerAsync` — writes atomically via `AtomicFileWriter` to `server.json` and to a history directory copy.
@@ -33,9 +33,10 @@ Namespace: `Quasar.Services`
 ## Dependencies
 
 - [`Quasar/Models/DedicatedServerDefinition.cs`](../Models/DedicatedServerDefinition.cs.md) — the definition model written/read as JSON
+- [`Quasar/Models/CpuAffinitySpec.cs`](../Models/CpuAffinitySpec.cs.md) — canonicalises/validates the `CpuAffinity` field on normalize
 - `Quasar/Services/AtomicFileWriter.cs` — all atomic file writes
 - `Magnetar.Protocol.Runtime` — `MagnetarPaths` for directory resolution
 
 ## Notes
 
-Unique names are validated against `^[a-zA-Z0-9_-]+$`. On rename, all managed sub-paths that fall under the old server directory are rewritten to the new directory, and `Directory.Move` is used for the root. The file-system watcher debounce uses a cancellable `Task.Delay(250ms)` pattern; rapid external edits collapse into a single reload. The snapshot comparison (JSON-serialised sorted list) suppresses spurious `Changed` events when the on-disk content is unchanged.
+Unique names are validated against `^[a-zA-Z0-9_-]+$`. On rename, all managed sub-paths that fall under the old server directory are rewritten to the new directory, and `Directory.Move` is used for the root. The file-system watcher debounce uses a cancellable `Task.Delay(250ms)` pattern; rapid external edits collapse into a single reload. The snapshot comparison (JSON-serialised sorted list) suppresses spurious `Changed` events when the on-disk content is unchanged. The `CpuAffinity` field is carried through the definition clone.

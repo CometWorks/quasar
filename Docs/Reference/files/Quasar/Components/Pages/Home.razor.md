@@ -17,6 +17,7 @@ Routable root page (`/`) serving as the main dashboard. Shows a five-step first-
     4. Start server — inline Start buttons per `StartableServers`, disabled states for "Create Server First" / "All Servers Running".
     5. Wait for Quasar.Agent — live state + agent-attach chips per `LaunchedServers`.
     Plus a Back button when past step 0.
+  - Global health-monitoring info alert (`MudAlert`) — a single top-of-dashboard "Health monitoring disabled for this Quasar instance (development mode or configuration)" shown when `Supervisor.HealthMonitoringDisabled` is true, instead of repeating the message on every server card.
   - Problem banner (`MudAlert`) — first unhealthy/crashed/faulted, else first warning instance message.
   - Runtime warmup alert — shown when `RuntimeWarmupSnapshot.State` is Running or Failed.
   - KPI summary grid (4 cards): Online Servers, Players Online, Health Warnings (warning tint when > 0), Errors (error tint when > 0).

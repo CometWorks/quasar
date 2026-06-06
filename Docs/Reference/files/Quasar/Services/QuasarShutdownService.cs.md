@@ -14,7 +14,7 @@ Namespace: `Quasar.Services`
 
 | Member | Description |
 |---|---|
-| `StopAllServersAsync(progress?, ct)` | Selects servers in Starting/Running/Restarting/Stopping states and stops each sequentially (best-effort, exceptions swallowed). Quasar keeps running; the worker is not restarted. |
+| `StopAllServersAsync(progress?, ct, bool setGoalStateOff = false)` | Selects servers in Starting/Running/Restarting/Stopping states and stops each sequentially (best-effort, exceptions swallowed). Quasar keeps running; the worker is not restarted. When `setGoalStateOff` is true, each server's goal state is set to Off (via `supervisor.SetGoalStateAsync` with `reconcile:false`) **before** stopping it, so the reconcile loop treats the shutdown as intentional and won't auto-restart — used by the admin "Shut down all servers" action where Quasar stays up. Left false for full Quasar shutdown so servers resume on next worker boot per their goal state. |
 | `ShutdownAsync(progress?, ct)` | Calls `StopAllServersAsync`, then `IHostApplicationLifetime.StopApplication()`. Used by the launcher-driven full shutdown (drain endpoint / POSIX signals). |
 | `RestartWorker(progress?)` | Leaves managed servers running: calls `_supervisor.BeginLauncherDrain()` (marks preserve-on-stop and persists the runtime PID snapshot) then `StopApplication()` so the Bootstrap launcher respawns the worker and re-adopts servers by PID. Standalone (no launcher) this simply stops the worker. |
 

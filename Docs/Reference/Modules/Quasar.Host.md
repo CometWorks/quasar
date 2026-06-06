@@ -2,7 +2,7 @@
 
 *Module `Quasar.Host` — 7 files.* See the [handbook TOC](../TOC.md) and the [file Index](../Index.md).
 
-The Blazor Server application host and composition root. `Program.cs` builds the dependency-injection graph (the singletons and hosted services that make up the supervisor), configures Steam OpenID authentication with role-based authorization policies and a trusted-network bypass, registers the Razor components and MudBlazor, and maps the HTTP/WebSocket endpoints — `/ws/agent` for agents, `/api/health` and `/api/discovery` for discovery/health, `/api/internal/drain` for graceful handoff, and the login/logout flow. This module also holds the project file, `appsettings`, launch profile, and the `wwwroot` static assets (global CSS and the JS-interop helpers).
+The Blazor Server application host and composition root. `Program.cs` builds the dependency-injection graph (the singletons and hosted services that make up the supervisor), configures Steam OpenID authentication with role-based authorization policies and a trusted-network bypass, registers the Razor components and MudBlazor, and maps the HTTP/WebSocket endpoints — `/ws/agent` for agents, `/api/health` and `/api/discovery` for discovery/health, `/api/internal/drain` for graceful handoff, the policy-gated `/api/backup/download[/{name}]` configuration-backup downloads, and the login/logout flow. This module also holds the project file, `appsettings`, launch profile, and the `wwwroot` static assets (global CSS and the JS-interop helpers).
 
 ## Files
 
@@ -23,3 +23,4 @@ The Blazor Server application host and composition root. `Program.cs` builds the
 - [Quasar.Components](Quasar.Components.md)
 - [Quasar.Models](Quasar.Models.md)
 - [Quasar.Services.Core](Quasar.Services.Core.md)
+- [Quasar.Services.Backup](Quasar.Services.Backup.md)

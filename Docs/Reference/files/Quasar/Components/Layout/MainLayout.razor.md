@@ -35,7 +35,7 @@ Implements: `IDisposable`
 - `<AuthorizeView>` — Logout icon button (tooltip from `GetAuthTooltip`, uses `ClaimsPrincipal.GetQuasarDisplayName`) for authenticated users; Login button for guests.
 - `<AuthorizeView Policy="CanShutdownQuasar">` — when `IsUnderBootstrap`, a restart-worker icon (`HandleRestartWorkerClickAsync`); always a red power-off icon (`HandleShutdownClickAsync`). Both disabled while `_isShuttingDown`.
 
-**Shutdown flow:** `HandleShutdownClickAsync` shows `_shutdownMessageBox`; on confirm sets `_isShuttingDown = true`, shows `MudOverlay`, and calls `ShutdownService.StopAllServersAsync(Progress<string>)` streaming status. Quasar itself stays up, so the toolbar is re-enabled in a `finally`.
+**Shutdown flow:** `HandleShutdownClickAsync` shows `_shutdownMessageBox`; on confirm sets `_isShuttingDown = true`, shows `MudOverlay`, and calls `ShutdownService.StopAllServersAsync(Progress<string>, setGoalStateOff: true)` streaming status — `setGoalStateOff: true` flips each server's goal state to Off so the supervisor does not auto-restart them while Quasar stays up. Quasar itself stays up, so the toolbar is re-enabled in a `finally`.
 
 **Restart-worker flow:** `HandleRestartWorkerClickAsync` shows `_restartWorkerMessageBox`; on confirm sets `_isShuttingDown`, invokes JS `quasarConfigs.reloadWhenHealthy("/")` so the browser reloads to the Dashboard once the new worker is healthy, then calls `ShutdownService.RestartWorker()` (the circuit drops as the worker stops). Only meaningful under Bootstrap.
 

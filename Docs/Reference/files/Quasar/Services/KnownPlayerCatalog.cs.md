@@ -18,6 +18,7 @@ Namespace: `Quasar.Services`
 | `GetPlayers()` | Returns a cloned list sorted by server name, display name, Steam ID. |
 | `ObserveSnapshot(AgentSnapshot)` | Upserts player records from a snapshot's `Players` list; updates identity/faction/ping fields; advances `LastSeenUtc` and `LastOnlineUtc`. |
 | `ApplyCommandOutcome(ServerCommandEnvelope, ServerCommandResult)` | On successful `BanPlayer`/`UnbanPlayer`/`PromotePlayer`/`DemotePlayer`/`SetPlayerPromoteLevel`, updates `IsBanned`/`PromoteLevel`/`IsAdmin`. |
+| `void ReloadFromDisk()` | Re-reads known players from disk, replacing the in-memory set, and fires `Changed`; used after a backup restore (this catalog has no file watcher). |
 
 Internal helpers:
 - `ApplySnapshot` / `ApplyCommand` — field-level change detection via generic `Assign<T>` helper (returns `true` if changed).

@@ -18,22 +18,25 @@ Namespace: `Quasar.Services`
 | `StartAsync(ct)` | Syncs definitions from catalog, restores persisted state (adopting live PIDs), subscribes to catalog `Changed`, launches the reconcile loop, persists. |
 | `StopAsync(ct)` | If `_preserveManagedServersOnShutdown` (default), only persists a snapshot and leaves servers running; otherwise stops all running servers then persists. |
 | `GetSnapshots()` | Cloned `DedicatedServerRuntimeSnapshot` per server, merged with current agent connectivity. |
-| `SetGoalStateAsync(...)` | Delegates to catalog then reconciles immediately. |
+| `bool HealthMonitoringDisabled` | `=> _options.DisableServerHealthMonitoring` — instance-wide flag surfaced once at the top of the Dashboard (`Home.razor`) instead of per-card. |
+| `SetGoalStateAsync(...)` | Delegates to catalog then reconciles immediately. The 3-arg overload delegates to a `(…, bool reconcile)` overload with `reconcile:true`; callers driving their own graceful stop (e.g. `QuasarShutdownService` shutting down all servers) pass `reconcile:false` to record intent without a competing reconcile-driven stop. |
 | `StartServerAsync(...)` | Guarded by `StartInProgress`; resolves runtime, prepares files, spawns the process with full env vars, applies startup priority, starts stdout/stderr pumps. |
 | `StopServerAsync(uniqueName, forceAfter?, ct)` | Sends `SaveWorld` + `StopServer` to the agent, waits for exit, kills the process tree if the grace window expires. |
 | `RestartServerAsync(...)` | Sets goal On + AutoStart, stops, starts. |
 | `BeginLauncherDrain()` | Sets `_preserveManagedServersOnShutdown = true` and persists synchronously — called before a worker-only restart so the next worker can re-adopt. |
 | `Dispose()` | Cancels the persist-debounce CTS and the shutdown CTS. |
 
-**`ReconcileAsync`** — per server: liveness vs goal state → Start/Stop/Restart; unhealthy auto-restart (`AutoRestartOnUnhealthy`, throttled by `CanScheduleHealthRestart`); maximum-uptime restart; daily scheduled restart; both planned restarts honour `AvoidSimultaneousScheduledRestarts` via `CanRunPlannedRestart`. Also promotes Starting/Restarting → Running once the agent reports `IsRunning`, and applies `ReadyProcessPriority` once healthy.
+**`ReconcileAsync`** — per server: liveness vs goal state → Start/Stop/Restart; unhealthy auto-restart (`AutoRestartOnUnhealthy`, throttled by `CanScheduleHealthRestart`); maximum-uptime restart; daily scheduled restart; both planned restarts honour `AvoidSimultaneousScheduledRestarts` via `CanRunPlannedRestart`. Also promotes Starting/Restarting → Running once the agent reports `IsRunning`, and applies `ReadyProcessPriority` once healthy. The reconcile loop and start path also apply per-server CPU affinity to the live process.
 
-**`EvaluateHealth` / `EvaluateSimulationProgress`** — agent connectivity, heartbeat staleness, simulation frame-progress score (frames/sec normalised to 60 Hz), uptime warn/recycle thresholds. Honours `DisableServerHealthMonitoring` and per-definition `EnableHealthMonitoring`. Agent-attach grace counts from `AgentWatchSinceUtc`.
+**`TryApplyCpuAffinity` / `ApplyCpuAffinityCores` / `TryApplyTaskset`** — private methods that apply `DedicatedServerDefinition.CpuAffinity` to the running process. On Windows they set `process.ProcessorAffinity` (`CpuAffinitySpec.ToWindowsMask`); on Linux they run `taskset -a -p -c <cores> <pid>`. Empty affinity releases a previously-pinned process back to all cores. Failed values are recorded in `ManagedServerState.LastFailedCpuAffinity` and not retried each reconcile; the last successfully applied value is tracked in `LastAppliedCpuAffinity`. Both reset on process start; adopted processes treat current affinity as already applied.
+
+**`EvaluateHealth` / `EvaluateSimulationProgress`** — agent connectivity, heartbeat staleness, simulation frame-progress score (frames/sec normalised to 60 Hz), uptime warn/recycle thresholds. Honours `DisableServerHealthMonitoring` and per-definition `EnableHealthMonitoring`. Agent-attach grace counts from `AgentWatchSinceUtc`. When health monitoring is disabled the per-server health message is now an empty string (the Dashboard surfaces the disabled state once via `HealthMonitoringDisabled`).
 
 **`RestorePersistedRuntimeState` / `TryAdoptProcess`** — on startup, `Process.GetProcessById` re-adopts still-running DS processes from a prior worker, re-attaches the `Exited` handler, and resets `AgentWatchSinceUtc` to "now" so the agent gets a fresh reconnect grace; processes no longer alive are marked Stopped.
 
 **`PumpStandardOutputAsync` / `PumpStandardErrorAsync`** — append timestamped lines to per-server log files. Plugin-SDK JSON lines (`TryParseSinkLine`) are **skipped** here because they now arrive via the agent network relay (`AgentSocketHandler`); only non-plugin output is wrapped as Magnetar-source `PluginLogEntry`. stderr lines log at Error.
 
-Private nested types: `ManagedServerState` (full mutable per-server state incl. `Process`, `StartInProgress`, `AgentWatchSinceUtc`, simulation/priority/scheduled-restart tracking); `PersistedSupervisorState` / `PersistedManagedServerState` (JSON-serialised subset incl. `ProcessId`); `ReconcileAction` enum; `ServerHealthAssessment` readonly record struct.
+Private nested types: `ManagedServerState` (full mutable per-server state incl. `Process`, `StartInProgress`, `AgentWatchSinceUtc`, simulation/priority/scheduled-restart tracking, plus `string? LastAppliedCpuAffinity` / `string? LastFailedCpuAffinity`); `PersistedSupervisorState` / `PersistedManagedServerState` (JSON-serialised subset incl. `ProcessId`); `ReconcileAction` enum; `ServerHealthAssessment` readonly record struct.
 
 ## Dependencies
 
@@ -45,8 +48,9 @@ Private nested types: `ManagedServerState` (full mutable per-server state incl. 
 - `Quasar/Services/AtomicFileWriter.cs` — persisted state writes
 - `Quasar/Services/WebServiceOptions.cs` — agent env-var values, `PreserveManagedServersOnShutdown`, `DisableServerHealthMonitoring`, `AvoidSimultaneousScheduledRestarts`
 - `Quasar/Models/DedicatedServerDefinition.cs`, process/health/goal enums
+- [`Quasar/Models/CpuAffinitySpec.cs`](../Models/CpuAffinitySpec.cs.md) — parse / Windows mask for per-server CPU affinity
 - `Magnetar.Protocol.Runtime` (`MagnetarPaths`), `Magnetar.Protocol.Transport` (`ServerCommandEnvelope`, `ServerCommandType`)
-- BCL `System.Diagnostics.Process`; Linux `renice`
+- BCL `System.Diagnostics.Process`; Linux `renice`, `taskset`
 
 ## Notes
 

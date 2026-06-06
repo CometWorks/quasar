@@ -43,12 +43,14 @@ Namespace: `Quasar.Models`
 | `AvoidSimultaneousScheduledRestarts` | Staggers restarts so multiple servers don't stop at once. |
 | `StartupProcessPriority` | OS process priority while the server is starting up. |
 | `ReadyProcessPriority` | OS process priority once the server is running. |
+| `CpuAffinity` | Canonical cpuset string (e.g. "0-7" or "0-7,16-23") pinning the server process to a fixed set of logical cores; empty = no affinity (all cores); when set must contain >=2 cores; applied locally by the supervisor each time the process starts (see `CpuAffinitySpec`). Default empty. |
 | `UpdatedAtUtc` | Timestamp of the last configuration save. |
-| `Clone()` | Shallow copy of all fields (used before mutations). |
+| `Clone()` | Shallow copy of all fields (including `CpuAffinity`, used before mutations). |
 
 ## Dependencies
 - [`Quasar/Models/DedicatedServerGoalState.cs`](DedicatedServerGoalState.cs.md)
 - `Quasar/Models/DedicatedServerProcessPriority.cs`
+- `Quasar/Models/CpuAffinitySpec.cs`
 
 ## Notes
 `OriginalUniqueName` carries the pre-rename key across a rename transaction so the supervisor can clean up the old runtime entry; it must never be written to disk.

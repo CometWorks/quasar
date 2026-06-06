@@ -32,7 +32,7 @@ Global stylesheet for the Quasar Blazor Server UI. Overrides MudBlazor's elevati
 - `.mud-main-content`, `.mud-drawer` / `.magnetar-drawer` — background and right-border styling
 
 **Utility / feature classes:**
-- `.mono` — JetBrains Mono / Cascadia Code monospace font
+- `.mono` — JetBrains Mono / Cascadia Code monospace font; `.mud-typography-caption.mono` renders monospace ID captions at 50% opacity (`opacity: 0.5`)
 - `.chat-list` / `.chat-row` — scrollable chat log column with row separators
 - `.world-template-browse-button` — 1rem top margin
 - `.branding-logo-preview` (+ `-dark`, `-light`) and `.branding-favicon-preview` — bordered preview containers for logo/favicon images
