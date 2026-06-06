@@ -1,0 +1,212 @@
+@page "/settings/updates"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
+@implements IDisposable
+@inject QuasarUpdateService UpdateService
+@inject QuasarUpdateOptions Options
+@inject WebServiceOptions WebOptions
+@inject ISnackbar Snackbar
+
+<PageTitle>Updates</PageTitle>
+
+<MudStack Spacing="3">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+        <MudText Typo="Typo.h5">Updates</MudText>
+        <MudSpacer />
+        <MudButton Variant="Variant.Outlined"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Upgrade"
+                   Disabled="_busy"
+                   OnClick="CheckNowAsync">
+            Check now
+        </MudButton>
+    </MudStack>
+
+    <MudAlert Severity="@GetStatusSeverity()" Variant="Variant.Outlined">
+        @_snapshot.Message
+    </MudAlert>
+
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4" Style="height:100%">
+                <MudStack Spacing="3">
+                    <MudText Typo="Typo.h6">Quasar UI</MudText>
+                    <MudText Typo="Typo.body2">
+                        Current version: <strong>@_snapshot.CurrentVersion</strong>
+                    </MudText>
+
+                    @if (_snapshot.Web is null)
+                    {
+                        <MudText Typo="Typo.body2">No staged UI update.</MudText>
+                    }
+                    else
+                    {
+                        <MudTable Items="new[] { _snapshot.Web }" Dense="true" Hover="true">
+                            <HeaderContent>
+                                <MudTh>Version</MudTh>
+                                <MudTh>Asset</MudTh>
+                                <MudTh>Status</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Version">@context.Version</MudTd>
+                                <MudTd DataLabel="Asset">@context.AssetName</MudTd>
+                                <MudTd DataLabel="Status">@(context.IsStaged ? "Staged" : "Queued")</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+
+                        @if (!string.IsNullOrWhiteSpace(_snapshot.Web.StagedDirectory))
+                        {
+                            <MudText Typo="Typo.caption">Staged at @_snapshot.Web.StagedDirectory</MudText>
+                        }
+
+                        <MudStack Row="true" Spacing="2">
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Download"
+                                       Disabled="_busy || _snapshot.Web.IsStaged"
+                                       OnClick="StageAsync">
+                                Stage
+                            </MudButton>
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Warning"
+                                       StartIcon="@Icons.Material.Filled.RestartAlt"
+                                       Disabled="_busy || !_snapshot.Web.IsStaged"
+                                       OnClick="ActivateAsync">
+                                Activate
+                            </MudButton>
+                        </MudStack>
+                    }
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4" Style="height:100%">
+                <MudStack Spacing="3">
+                    <MudText Typo="Typo.h6">Bootstrap</MudText>
+                    <MudText Typo="Typo.body2">
+                        Bootstrap updates are detected from the same GitHub release, but Linux service replacement requires the installer path.
+                    </MudText>
+
+                    @if (_snapshot.Bootstrap is null)
+                    {
+                        <MudText Typo="Typo.body2">No bootstrap update detected.</MudText>
+                    }
+                    else
+                    {
+                        <MudTable Items="new[] { _snapshot.Bootstrap }" Dense="true" Hover="true">
+                            <HeaderContent>
+                                <MudTh>Version</MudTh>
+                                <MudTh>Asset</MudTh>
+                                <MudTh>Action</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Version">@context.Version</MudTd>
+                                <MudTd DataLabel="Asset">@context.AssetName</MudTd>
+                                <MudTd DataLabel="Action">Run Linux installer package</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12">
+            <MudPaper Class="pa-4">
+                <MudStack Spacing="2">
+                    <MudText Typo="Typo.h6">Source</MudText>
+                    <MudText Typo="Typo.body2">
+                        GitHub: @Options.Owner/@Options.Repository
+                    </MudText>
+                    <MudText Typo="Typo.body2">
+                        Check interval: @Options.CheckInterval.TotalMinutes.ToString("0") min
+                    </MudText>
+                    <MudText Typo="Typo.body2">
+                        Last check: @(FormatTimestamp(_snapshot.LastCheckedUtc))
+                    </MudText>
+                    <MudText Typo="Typo.body2">
+                        Linux UI asset: @Options.LinuxWebAssetName
+                    </MudText>
+                    <MudText Typo="Typo.body2">
+                        Linux bootstrap asset: @Options.LinuxBootstrapAssetName
+                    </MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+</MudStack>
+
+@code {
+    private QuasarUpdateSnapshot _snapshot = new();
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        _snapshot = UpdateService.GetSnapshot();
+        UpdateService.Changed += OnUpdatesChanged;
+    }
+
+    public void Dispose()
+    {
+        UpdateService.Changed -= OnUpdatesChanged;
+    }
+
+    private void OnUpdatesChanged() => _ = InvokeAsync(() =>
+    {
+        _snapshot = UpdateService.GetSnapshot();
+        StateHasChanged();
+    });
+
+    private async Task CheckNowAsync()
+    {
+        await RunBusyAsync(
+            () => UpdateService.CheckNowAsync(),
+            "Update check complete.",
+            "Update check failed");
+    }
+
+    private async Task StageAsync()
+    {
+        await RunBusyAsync(
+            () => UpdateService.StageWebUpdateAsync(),
+            "Quasar UI update staged.",
+            "Failed staging update");
+    }
+
+    private async Task ActivateAsync()
+    {
+        await RunBusyAsync(
+            () => UpdateService.ActivateStagedWebUpdateAsync(),
+            "Quasar UI update activation requested. The page will reconnect shortly.",
+            "Failed activating update");
+    }
+
+    private async Task RunBusyAsync(Func<Task> action, string successMessage, string failurePrefix)
+    {
+        _busy = true;
+        try
+        {
+            await action();
+            _snapshot = UpdateService.GetSnapshot();
+            Snackbar.Add(successMessage, Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"{failurePrefix}: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Severity GetStatusSeverity() => _snapshot.Status switch
+    {
+        QuasarUpdateStatus.Failed => Severity.Error,
+        QuasarUpdateStatus.Staged => Severity.Success,
+        QuasarUpdateStatus.UpdateQueued or QuasarUpdateStatus.Staging or QuasarUpdateStatus.Activating => Severity.Info,
+        _ => _snapshot.Enabled ? Severity.Normal : Severity.Warning,
+    };
+
+    private static string FormatTimestamp(DateTimeOffset? timestamp) =>
+        timestamp is null ? "never" : timestamp.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+}

@@ -6,6 +6,7 @@ using Quasar.Services.Auth;
 using Quasar.Services.Backup;
 using Quasar.Services.Discord;
 using Quasar.Services.PluginSdk;
+using Quasar.Services.Updates;
 using ApexCharts;
 using AspNet.Security.OpenId.Steam;
 using Magnetar.Protocol.Runtime;
@@ -34,6 +35,7 @@ public class Program
 
             var webServiceOptions = WebServiceOptions.Create(builder.Configuration);
             var managedRuntimeOptions = ManagedRuntimeOptions.Create(builder.Configuration);
+            var updateOptions = QuasarUpdateOptions.Create(builder.Configuration);
             var authOptions = QuasarAuthOptions.Create(builder.Configuration);
             var analyticsStoreOptions = AnalyticsStoreOptions.Create(builder.Configuration);
 
@@ -139,6 +141,7 @@ public class Program
             });
             builder.Services.AddSingleton(webServiceOptions);
             builder.Services.AddSingleton(managedRuntimeOptions);
+            builder.Services.AddSingleton(updateOptions);
             builder.Services.AddSingleton(authOptions);
             builder.Services.AddSingleton<RbacConfigCatalog>();
             builder.Services.AddSingleton(analyticsStoreOptions);
@@ -185,6 +188,8 @@ public class Program
             builder.Services.AddSingleton<BrandingService>();
             builder.Services.AddScoped<ThemePreferenceService>();
             builder.Services.AddSingleton<QuasarShutdownService>();
+            builder.Services.AddSingleton<QuasarUpdateService>();
+            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUpdateService>());
             builder.Services.AddSingleton<QuasarBackupSettingsService>();
             builder.Services.AddSingleton<QuasarBackupService>();
             builder.Services.AddSingleton<AutomaticBackupService>();

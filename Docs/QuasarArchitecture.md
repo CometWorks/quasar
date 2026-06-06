@@ -420,14 +420,14 @@ If the user closes the browser, `Quasar` keeps running and the user can return v
 
 ## Self-Update and Version Rollover
 
-`Quasar` should be able to stage its own updates and roll forward without control-plane endpoint downtime.
+`Quasar` should be able to stage its own updates and roll forward without stopping managed Dedicated Server processes.
 
 The important nuance is what "seamless" actually means here.
 
-Required guarantees:
+Required guarantees for the Linux-first update path:
 
 - DS servers keep running throughout a Quasar supervisor upgrade
-- the control-plane URL stays stable
+- the control-plane URL stays stable after the short worker restart window
 - Quasar state survives worker turnover
 - agents and browsers reconnect against the new worker without operator repair
 
@@ -440,48 +440,58 @@ Required model:
 
 - stage new versions side-by-side
 - validate staged payload before cutover
-- start the new version before retiring the old version
+- retire the old worker before starting the new worker when both use the same public port
 - preserve a stable entrypoint for the browser and `Quasar.Agent` attachments
-- drain and retire the old worker after the new one is healthy
+- keep managed Magnetar servers detached so worker turnover does not kill them
 
 Expected layout:
 
 - active runtime under a versioned release directory
-- staged payloads under `Runtime/Quasar/Updates/Staged/`
+- staged payloads under `~/.config/Quasar/Updates/Staged/`
 - stable release pointer / manifest for the currently active version
 
-Recommended cutover ownership:
+Linux-first cutover ownership:
 
-- `Quasar.Bootstrap` or an equivalent small stable launcher owns the public entrypoint
-- the launcher starts the active `Quasar` worker on an internal port
-- the launcher acts as the stable front door for browser and agent traffic
-- updates stage a new worker side-by-side
-- the new worker warms on a separate internal port
-- cutover switches the stable front door to the new healthy worker
-- old worker drains and exits after a grace period
+- `Quasar.Bootstrap` owns the systemd service entrypoint
+- the replaceable `Quasar` worker owns the public port
+- updates stage a new worker side-by-side under the Quasar data root
+- activation writes `Updates/active-release.json`
+- Bootstrap observes the pointer change, drains the old worker, then starts the staged worker
+- the browser and `Quasar.Agent` reconnect after the short listener gap
 
-This implies a two-layer design:
+This implies a two-layer deployment:
 
 1. stable lightweight launcher/proxy layer
 2. replaceable Quasar worker layer
 
-Without a stable front-door layer, replacing the process bound to the public port will create a listener gap. That is not good enough if we actually mean seamless rollover.
+The current Linux implementation deliberately uses Bootstrap as a launcher, not
+as a reverse proxy. Replacing the worker creates a short listener gap, which is
+acceptable because `Quasar.Agent` reconnects and managed Magnetar processes run
+detached.
 
-Important constraint:
+Future strict no-downtime rollover would still require Bootstrap to become a
+stable proxy/front door and run workers on internal ports.
 
-- zero public endpoint downtime is required
-- seamless browser and agent reconnect is required
-- lossless migration of an already-live Blazor Server circuit across a version boundary is not realistic
+Practical guarantee:
 
-So the practical guarantee is:
-
-- no listener outage for the control-plane URL
 - browser sessions may briefly reconnect
 - `Quasar.Agent` sockets may briefly reconnect
 - the supervisor must preserve enough state that reconnect is operationally seamless
 - managed DS processes continue running independently during the rollover
 
-### Recommended update flow
+### Linux update flow
+
+1. Bootstrap downloads the latest web asset on startup if no usable worker exists
+2. Quasar checks GitHub releases every 5 minutes while running
+3. new Linux web assets are downloaded into a staged version directory
+4. UI notifies admins that the update is queued/staged
+5. admin activates the staged UI update from `/settings/updates`
+6. activation writes the active-release pointer
+7. Bootstrap drains the old worker without stopping managed servers
+8. Bootstrap starts the staged worker on the same port
+9. browsers and agents reconnect
+
+### Future proxy update flow
 
 1. download or place a new Quasar release into a staged version directory
 2. validate package shape and version metadata

@@ -4,6 +4,8 @@
 @inject QuasarShutdownService ShutdownService
 @inject WebServiceOptions WebServiceOptions
 @inject BrandingService BrandingService
+@inject QuasarUpdateService UpdateService
+@inject ISnackbar Snackbar
 @inject IJSRuntime JS
 
 <MudThemeProvider Theme="@ThemePreference.Theme" IsDarkMode="@_isDarkMode" IsDarkModeChanged="OnSystemDarkModeChangedAsync" ObserveSystemDarkModeChange="@(_themeMode == ThemeMode.System)" />
@@ -157,6 +159,7 @@
     private ThemeMode _themeMode = ThemeMode.System;
     private bool _isShuttingDown = false;
     private string _shutdownStatus = string.Empty;
+    private string _lastUpdateNotice = string.Empty;
     private MudMessageBox? _shutdownMessageBox;
     private MudMessageBox? _restartWorkerMessageBox;
 
@@ -172,16 +175,44 @@
     protected override void OnInitialized()
     {
         BrandingService.Changed += OnBrandingChanged;
+        UpdateService.Changed += OnUpdatesChanged;
     }
 
     public void Dispose()
     {
         BrandingService.Changed -= OnBrandingChanged;
+        UpdateService.Changed -= OnUpdatesChanged;
     }
 
     private void OnBrandingChanged()
     {
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void OnUpdatesChanged()
+    {
+        var snapshot = UpdateService.GetSnapshot();
+        var web = snapshot.Web;
+        var bootstrap = snapshot.Bootstrap;
+        var noticeKey = $"{web?.Version}:{web?.IsStaged}:{bootstrap?.Version}";
+        if (noticeKey == _lastUpdateNotice)
+            return;
+
+        _lastUpdateNotice = noticeKey;
+        if (web is not null && web.IsStaged)
+        {
+            _ = InvokeAsync(() => Snackbar.Add($"Quasar UI {web.Version} is staged. Open Updates to activate.", Severity.Info));
+            return;
+        }
+
+        if (web is not null)
+        {
+            _ = InvokeAsync(() => Snackbar.Add($"Quasar UI {web.Version} update queued.", Severity.Info));
+            return;
+        }
+
+        if (bootstrap is not null)
+            _ = InvokeAsync(() => Snackbar.Add($"Quasar Bootstrap {bootstrap.Version} update available.", Severity.Info));
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

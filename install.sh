@@ -78,6 +78,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [[ "$SKIP_BUILD" == "false" && -x "$SCRIPT_DIR/Quasar" && ! -f "$SCRIPT_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj" ]]; then
+    SKIP_BUILD=true
+fi
+
 if [[ "$(uname -s)" != "Linux" ]]; then
     echo "install.sh currently supports Linux/systemd only." >&2
     exit 1
@@ -119,12 +123,19 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ "$SKIP_BUILD" == "true" ]]; then
-    SOURCE_DIR="$SCRIPT_DIR/Quasar.Bootstrap/bin/$CONFIGURATION/net10.0/$RUNTIME/publish"
+    if [[ -x "$SCRIPT_DIR/Quasar" ]]; then
+        SOURCE_DIR="$SCRIPT_DIR"
+    else
+        SOURCE_DIR="$SCRIPT_DIR/Quasar.Bootstrap/bin/$CONFIGURATION/net10.0/$RUNTIME/publish"
+    fi
     if [[ ! -x "$SOURCE_DIR/Quasar" ]]; then
         echo "Existing publish output not found: $SOURCE_DIR" >&2
         exit 1
     fi
-    cp -a "$SOURCE_DIR/." "$PUBLISH_DIR/"
+    find "$SOURCE_DIR" -mindepth 1 -maxdepth 1 \
+        ! -name "quasar-*.tar.gz" \
+        ! -name "quasar-*.zip" \
+        -exec cp -a -- {} "$PUBLISH_DIR/" \;
 else
     chown "$RUN_USER:$RUN_GROUP" "$PUBLISH_DIR"
     echo "Publishing Quasar ($CONFIGURATION, $RUNTIME)..."

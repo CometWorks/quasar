@@ -1,8 +1,12 @@
 using System.Diagnostics;
+using System.Formats.Tar;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Magnetar.Protocol.Discovery;
 using Magnetar.Protocol.Runtime;
 using Microsoft.Extensions.Configuration;
@@ -570,6 +574,16 @@ internal sealed class BootstrapOptions
 
     public string ListenUrl => $"http://{Host}:{Port}";
 
+    public bool UpdatesEnabled { get; init; } = true;
+
+    public string UpdatesOwner { get; init; } = "viktor-ferenczi";
+
+    public string UpdatesRepository { get; init; } = "Quasar";
+
+    public bool UpdatesIncludePrerelease { get; init; }
+
+    public string LinuxWebAssetName { get; init; } = "quasar-web-linux-x64.tar.gz";
+
     public static BootstrapOptions Create()
     {
         var configuration = BuildConfiguration();
@@ -602,12 +616,36 @@ internal sealed class BootstrapOptions
         if (!bool.TryParse(preserveValue, out var preserveServersOnShutdown))
             preserveServersOnShutdown = true;
 
+        var updatesSection = section.GetSection("Updates");
+        var updatesEnabledValue = Environment.GetEnvironmentVariable("QUASAR_UPDATES_ENABLED")
+                                  ?? updatesSection["Enabled"]
+                                  ?? "true";
+        if (!bool.TryParse(updatesEnabledValue, out var updatesEnabled))
+            updatesEnabled = true;
+
+        var includePrereleaseValue = Environment.GetEnvironmentVariable("QUASAR_UPDATES_INCLUDE_PRERELEASE")
+                                     ?? updatesSection["IncludePrerelease"]
+                                     ?? "false";
+        if (!bool.TryParse(includePrereleaseValue, out var includePrerelease))
+            includePrerelease = false;
+
         return new BootstrapOptions
         {
             Host = host,
             AdvertisedHost = advertisedHost,
             Port = port,
             PreserveServersOnShutdown = preserveServersOnShutdown,
+            UpdatesEnabled = updatesEnabled,
+            UpdatesOwner = Environment.GetEnvironmentVariable("QUASAR_UPDATES_OWNER")
+                           ?? updatesSection["Owner"]
+                           ?? "viktor-ferenczi",
+            UpdatesRepository = Environment.GetEnvironmentVariable("QUASAR_UPDATES_REPOSITORY")
+                                ?? updatesSection["Repository"]
+                                ?? "Quasar",
+            UpdatesIncludePrerelease = includePrerelease,
+            LinuxWebAssetName = Environment.GetEnvironmentVariable("QUASAR_UPDATES_LINUX_WEB_ASSET")
+                                ?? updatesSection["LinuxWebAssetName"]
+                                ?? "quasar-web-linux-x64.tar.gz",
         };
     }
 
@@ -653,6 +691,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private readonly LauncherForegroundOptions _foregroundOptions;
     private readonly ILogger<LauncherCoordinator> _logger;
     private readonly HttpClient _healthClient;
+    private readonly HttpClient _downloadClient;
     private readonly SemaphoreSlim _activationLock = new(1, 1);
     private readonly object _sync = new();
     private readonly string _workerId = Guid.NewGuid().ToString("N");
@@ -672,7 +711,11 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         {
             Timeout = TimeSpan.FromSeconds(2),
         };
-
+        _downloadClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromMinutes(10),
+        };
+        _downloadClient.DefaultRequestHeaders.UserAgent.ParseAdd("Quasar.Bootstrap");
     }
 
     public bool IsReady
@@ -729,6 +772,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     {
         Directory.CreateDirectory(MagnetarPaths.GetWebServiceDirectory());
         Directory.CreateDirectory(MagnetarPaths.GetQuasarUpdatesDirectory());
+        await EnsureInitialWebReleaseAvailableAsync(cancellationToken).ConfigureAwait(false);
         EnsureActiveReleasePointerExists();
         await ActivateCurrentReleaseAsync(force: false, cancellationToken).ConfigureAwait(false);
         StartWatchingReleasePointer();
@@ -759,6 +803,195 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         _reloadDebounce?.Dispose();
         _activationLock.Dispose();
         _healthClient.Dispose();
+        _downloadClient.Dispose();
+    }
+
+    private async Task EnsureInitialWebReleaseAvailableAsync(CancellationToken cancellationToken)
+    {
+        var existing = ReadActiveReleasePointer();
+        if (existing is not null && IsReleasePointerUsable(existing))
+            return;
+
+        if (FindPackagedWorkerCandidate() is not null)
+            return;
+
+        if (!_options.UpdatesEnabled)
+            return;
+
+        if (!OperatingSystem.IsLinux())
+        {
+            _logger.LogWarning("Quasar web auto-download is currently implemented for Linux only.");
+            return;
+        }
+
+        try
+        {
+            var release = await GetLatestReleaseAsync(cancellationToken).ConfigureAwait(false);
+            var asset = release?.Assets.FirstOrDefault(asset =>
+                string.Equals(asset.Name, _options.LinuxWebAssetName, StringComparison.OrdinalIgnoreCase));
+            var checksums = release is null
+                ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                : await GetChecksumsAsync(release, cancellationToken).ConfigureAwait(false);
+            if (release is null || asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
+            {
+                _logger.LogWarning("No Linux Quasar web release asset named {AssetName} was found.", _options.LinuxWebAssetName);
+                return;
+            }
+
+            var version = NormalizeVersion(release.TagName);
+            var releaseDirectory = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), version);
+            var workerPath = Path.Combine(releaseDirectory, "Quasar");
+            if (!File.Exists(workerPath))
+            {
+                if (Directory.Exists(releaseDirectory))
+                    Directory.Delete(releaseDirectory, recursive: true);
+
+                Directory.CreateDirectory(releaseDirectory);
+                var archivePath = Path.Combine(MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory(), asset.Name);
+                Directory.CreateDirectory(Path.GetDirectoryName(archivePath)!);
+
+                using (var response = await _downloadClient.GetAsync(asset.BrowserDownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+                {
+                    response.EnsureSuccessStatusCode();
+                    await using var archiveFile = File.Create(archivePath);
+                    await response.Content.CopyToAsync(archiveFile, cancellationToken).ConfigureAwait(false);
+                }
+
+                await VerifySha256Async(archivePath, GetChecksum(checksums, asset.Name), cancellationToken).ConfigureAwait(false);
+                ExtractArchive(archivePath, releaseDirectory);
+                TryDeleteFile(archivePath);
+            }
+
+            if (!File.Exists(workerPath))
+            {
+                _logger.LogWarning("Downloaded Quasar web asset did not contain executable {Path}.", workerPath);
+                return;
+            }
+
+            EnsureExecutableBit(workerPath);
+            WriteActiveReleasePointer(new QuasarActiveReleasePointer
+            {
+                Version = version,
+                FileName = workerPath,
+                Arguments = string.Empty,
+                WorkingDirectory = releaseDirectory,
+                ActivatedAtUtc = DateTimeOffset.UtcNow,
+            });
+            _logger.LogInformation("Downloaded initial Quasar web release {Version}.", version);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed downloading initial Quasar web release.");
+        }
+    }
+
+    private async Task<GitHubRelease?> GetLatestReleaseAsync(CancellationToken cancellationToken)
+    {
+        var url = _options.UpdatesIncludePrerelease
+            ? $"https://api.github.com/repos/{_options.UpdatesOwner}/{_options.UpdatesRepository}/releases"
+            : $"https://api.github.com/repos/{_options.UpdatesOwner}/{_options.UpdatesRepository}/releases/latest";
+        using var response = await _downloadClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!_options.UpdatesIncludePrerelease)
+            return await JsonSerializer.DeserializeAsync<GitHubRelease>(stream, JsonOptions, cancellationToken).ConfigureAwait(false);
+
+        var releases = await JsonSerializer.DeserializeAsync<List<GitHubRelease>>(stream, JsonOptions, cancellationToken).ConfigureAwait(false);
+        return releases?.FirstOrDefault(release => !release.Draft);
+    }
+
+    private async Task<IReadOnlyDictionary<string, string>> GetChecksumsAsync(GitHubRelease release, CancellationToken cancellationToken)
+    {
+        var asset = release.Assets.FirstOrDefault(asset => string.Equals(asset.Name, "SHA256SUMS", StringComparison.OrdinalIgnoreCase));
+        if (asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        var text = await _downloadClient.GetStringAsync(asset.BrowserDownloadUrl, cancellationToken).ConfigureAwait(false);
+        return ParseSha256Sums(text);
+    }
+
+    private static Dictionary<string, string> ParseSha256Sums(string text)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length >= 2 && parts[0].Length == 64)
+                result[parts[^1]] = parts[0];
+        }
+
+        return result;
+    }
+
+    private static string GetChecksum(IReadOnlyDictionary<string, string> checksums, string assetName) =>
+        checksums.TryGetValue(assetName, out var checksum) ? checksum : string.Empty;
+
+    private static async Task VerifySha256Async(string path, string expectedSha256, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(expectedSha256))
+            throw new InvalidOperationException("Release asset has no SHA256SUMS entry.");
+
+        await using var stream = File.OpenRead(path);
+        var hash = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
+        var actual = Convert.ToHexString(hash).ToLowerInvariant();
+        if (!string.Equals(actual, expectedSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"SHA256 mismatch for {Path.GetFileName(path)}.");
+    }
+
+    private static string NormalizeVersion(string value)
+    {
+        value = value.Trim();
+        return value.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? value[1..] : value;
+    }
+
+    private static void ExtractArchive(string archivePath, string destinationDirectory)
+    {
+        if (archivePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            ZipFile.ExtractToDirectory(archivePath, destinationDirectory, overwriteFiles: true);
+            return;
+        }
+
+        if (archivePath.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase) ||
+            archivePath.EndsWith(".tgz", StringComparison.OrdinalIgnoreCase))
+        {
+            using var file = File.OpenRead(archivePath);
+            using var gzip = new GZipStream(file, CompressionMode.Decompress);
+            TarFile.ExtractToDirectory(gzip, destinationDirectory, overwriteFiles: true);
+            return;
+        }
+
+        throw new InvalidOperationException($"Unsupported Quasar web archive format: {archivePath}");
+    }
+
+    private static void EnsureExecutableBit(string path)
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+            return;
+
+        try
+        {
+            File.SetUnixFileMode(path,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+        }
     }
 
     private void EnsureActiveReleasePointerExists()
@@ -841,21 +1074,59 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 }
             }
 
-            var nextWorker = await StartWorkerAsync(pointer, cancellationToken);
-            if (nextWorker is null)
-                return;
+            if (current is not null && !current.Process.HasExited)
+            {
+                lock (_sync)
+                {
+                    if (ReferenceEquals(_currentWorker, current))
+                        _currentWorker = null;
+                }
 
-            WorkerProcessHandle? previousWorker;
+                await DrainAndRetireWorkerAsync(
+                    current,
+                    TimeSpan.FromSeconds(2),
+                    stopManagedServers: false,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            var nextWorker = await StartWorkerAsync(pointer, cancellationToken).ConfigureAwait(false);
+            if (nextWorker is null)
+            {
+                if (current is not null && !IsSameRelease(current.Release, pointer))
+                    _ = Task.Run(() => ActivateSpecificReleaseAsync(current.Release, CancellationToken.None), CancellationToken.None);
+
+                return;
+            }
+
             lock (_sync)
             {
-                previousWorker = _currentWorker;
                 _currentWorker = nextWorker;
             }
 
             _logger.LogInformation("Activated Quasar worker version {Version} at {BaseUri}.", pointer.Version, nextWorker.BaseUri);
+        }
+        finally
+        {
+            _activationLock.Release();
+        }
+    }
 
-            if (previousWorker is not null)
-                _ = DrainAndRetireWorkerAsync(previousWorker, TimeSpan.FromSeconds(20), stopManagedServers: false, CancellationToken.None);
+    private async Task ActivateSpecificReleaseAsync(QuasarActiveReleasePointer pointer, CancellationToken cancellationToken)
+    {
+        await _activationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var worker = await StartWorkerAsync(pointer, cancellationToken).ConfigureAwait(false);
+            if (worker is null)
+                return;
+
+            lock (_sync)
+            {
+                _currentWorker = worker;
+            }
+
+            WriteActiveReleasePointer(pointer);
+            _logger.LogInformation("Rolled Quasar worker back to version {Version}.", pointer.Version);
         }
         finally
         {
@@ -1295,6 +1566,24 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         {
             // Worker exit closes the pipe; stop pumping silently.
         }
+    }
+
+    private sealed class GitHubRelease
+    {
+        [JsonPropertyName("tag_name")]
+        public string TagName { get; set; } = string.Empty;
+
+        public bool Draft { get; set; }
+
+        public IReadOnlyList<GitHubAsset> Assets { get; set; } = [];
+    }
+
+    private sealed class GitHubAsset
+    {
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("browser_download_url")]
+        public string BrowserDownloadUrl { get; set; } = string.Empty;
     }
 
     private sealed record WorkerProcessHandle(Process Process, Uri BaseUri, QuasarActiveReleasePointer Release);

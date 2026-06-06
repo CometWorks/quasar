@@ -1,0 +1,71 @@
+name: release-linux
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install packaging dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo add-apt-repository multiverse
+          sudo apt-get update
+          echo steam steam/question select "I AGREE" | sudo debconf-set-selections
+          echo steam steam/license note "" | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y p7zip-full steamcmd
+
+      - name: Install Space Engineers Dedicated Server references
+        run: |
+          mkdir -p "$HOME/.steam/steam/steamapps/common/SpaceEngineersDedicatedServer"
+          /usr/games/steamcmd \
+            +force_install_dir "$HOME/.steam/steam/steamapps/common/SpaceEngineersDedicatedServer" \
+            +login anonymous \
+            +app_update 298740 validate \
+            +quit
+
+      - name: Install Magnetar PluginSdk reference
+        run: |
+          mkdir -p "$HOME/.local/share/Magnetar"
+          curl -L "https://nas.ferenczi.eu/public.php/dav/files/q4godba6fXH6w74/MagnetarForLinux.7z" -o /tmp/magnetar.7z
+          7z x /tmp/magnetar.7z "-o$HOME/.local/share/Magnetar" -y
+          PLUGIN_SDK="$(find "$HOME/.local/share/Magnetar" -path "*/Bin/PluginSdk.dll" -print -quit)"
+          if [ -z "$PLUGIN_SDK" ]; then
+            echo "PluginSdk.dll not found in Magnetar archive" >&2
+            exit 1
+          fi
+          echo "MagnetarBin=$(dirname "$PLUGIN_SDK")" >> "$GITHUB_ENV"
+
+      - name: Package Linux release
+        run: scripts/package-linux-release.sh
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: quasar-linux
+          path: |
+            artifacts/linux/quasar-web-linux-x64.tar.gz
+            artifacts/linux/quasar-bootstrap-linux-x64.tar.gz
+            artifacts/linux/SHA256SUMS
+
+      - name: Attach artifacts to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/linux/quasar-web-linux-x64.tar.gz
+            artifacts/linux/quasar-bootstrap-linux-x64.tar.gz
+            artifacts/linux/SHA256SUMS
