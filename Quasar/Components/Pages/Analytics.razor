@@ -214,9 +214,9 @@ else
 
     private static readonly MetricDefinition[] MetricDefinitions =
     [
-        new("simspeed", "SimSpeed", "Simulation ratio", sample => sample.SimSpeed, sample => true, RequiresZero: false),
+        new("simspeed", "SimSpeed", "Simulation ratio", sample => sample.SimSpeed, sample => true, RequiresZero: true),
         new("cpu", "CPU %", "Server process load", sample => sample.CpuPercent, sample => true, RequiresZero: true),
-        new("memory", "Memory MB", "Working set", sample => sample.MemoryMb, sample => sample.MemoryMb > 0f, RequiresZero: false),
+        new("memory", "Memory GB", "Working set", sample => sample.MemoryMb / 1024f, sample => sample.MemoryMb > 0f, RequiresZero: false),
         new("players", "Player Count", "Players online", sample => sample.PlayersOnline, sample => true, RequiresZero: true),
         new("frametime", "Frame Time ms", "Derived from sim speed", sample => sample.FrameTimeMs, sample => sample.FrameTimeMs > 0f, RequiresZero: true),
         new("pcu", "PCU Used", "Used PCU", sample => sample.UsedPcu, sample => true, RequiresZero: true),
@@ -1189,6 +1189,7 @@ else
                             Colors = "var(--mud-palette-text-secondary)",
                             FontFamily = "var(--mud-typography-default-family)",
                         },
+                        Formatter = ResolveYAxisLabelFormatter(definition),
                     },
                     DecimalsInFloat = ResolveYAxisDecimals(definition),
                     ForceNiceScale = true,
@@ -1278,9 +1279,18 @@ else
     {
         return definition.Key switch
         {
-            "simspeed" => 3,
+            "simspeed" => 2,
             "cpu" or "memory" or "frametime" => 1,
             _ => 0,
+        };
+    }
+
+    private static string? ResolveYAxisLabelFormatter(MetricDefinition definition)
+    {
+        return definition.Key switch
+        {
+            "pcu" => "function (value) { return value == null ? '' : Math.round(value / 1000) + 'k'; }",
+            _ => null,
         };
     }
 
@@ -1288,6 +1298,7 @@ else
     {
         return definition.Key switch
         {
+            "simspeed" => 1,
             "frametime" => 100,
             _ => null,
         };

@@ -42,7 +42,9 @@ else
     </MudStack>
 
     <MudText Typo="Typo.subtitle2" Class="mb-2">Send Chat</MudText>
-    <MudStack Row="true" AlignItems="AlignItems.End" Spacing="1" Class="mb-3">
+    @* Align to the top: the outlined text field reserves space below its input box for
+       helper text, so AlignItems.End would push the button below the visible input. *@
+    <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="1" Class="mb-3">
         <MudTextField @bind-Value="_chatText"
                       Label="Broadcast message"
                       Variant="Variant.Outlined"
@@ -50,7 +52,7 @@ else
                       Immediate="true"
                       OnKeyDown="HandleChatKeyDownAsync"
                       Disabled="@(!Agent.IsConnected)" />
-        <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="SendChatAsync" Disabled="@(!Agent.IsConnected || string.IsNullOrWhiteSpace(_chatText))">
+        <MudButton Variant="Variant.Filled" Color="Color.Success" Class="mt-3" Style="height: 40px;" OnClick="SendChatAsync" Disabled="@(!Agent.IsConnected || string.IsNullOrWhiteSpace(_chatText))">
             Send
         </MudButton>
     </MudStack>

@@ -67,7 +67,28 @@ h1:focus {
 }
 
 .magnetar-nav-menu .mud-nav-link.active {
-    background: var(--mud-palette-action-default-hover);
+    /* MudBlazor's own .mud-navmenu-default .mud-nav-link.active rule sets the
+       background at higher specificity (and again on hover/focus/active), so
+       !important is required for this override to take effect. */
+    background-color: rgba(var(--mud-palette-primary-rgb), 0.18) !important;
+    color: var(--mud-palette-primary);
+    font-weight: 600;
+}
+
+.magnetar-nav-menu .mud-nav-link.active .mud-nav-link-icon {
+    color: var(--mud-palette-primary);
+}
+
+/* Config template selection lives in global CSS (not Configs.razor.css) because
+   MudBlazor components don't reliably receive the scoped-CSS attribute, so the
+   selected highlight would not paint and only the click ripple would show. */
+.mud-paper.config-template-tile {
+    background-color: var(--mud-palette-background-gray);
+    transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.mud-paper.config-template-tile.config-template-selected {
+    background-color: rgba(var(--mud-palette-primary-rgb), 0.3) !important;
 }
 
 .summary-card {

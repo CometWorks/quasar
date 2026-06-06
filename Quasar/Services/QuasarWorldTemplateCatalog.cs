@@ -103,6 +103,13 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             var relative = Path.GetRelativePath(sourcePath, sourceFile);
+
+            // Skip the world's Backup/ subdirectory — it holds only historical backup
+            // copies of the save, which are unused as long as the top-level save is good.
+            var firstSegment = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
+            if (string.Equals(firstSegment, "Backup", StringComparison.OrdinalIgnoreCase))
+                continue;
+
             var destFile = Path.Combine(destWorldDir, relative);
             Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
             File.Copy(sourceFile, destFile, overwrite: true);

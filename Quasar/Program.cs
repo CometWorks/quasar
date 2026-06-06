@@ -152,6 +152,8 @@ public class Program
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
             builder.Services.AddSingleton<QuasarWorldTemplateCatalog>();
             builder.Services.AddSingleton<QuasarPluginCatalogService>();
+            builder.Services.AddSingleton<PluginCatalogRefreshService>();
+            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PluginCatalogRefreshService>());
             builder.Services.AddSingleton<SteamWorkshopCredentialsCatalog>();
             builder.Services.AddSingleton<QuasarWorkshopModResolver>();
             builder.Services.AddSingleton<ManagedDedicatedServerRuntimeResolver>();

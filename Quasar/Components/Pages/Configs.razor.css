@@ -48,10 +48,8 @@
     transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 
-.config-template-selected {
-    background: var(--mud-palette-primary);
-    color: var(--mud-palette-primary-text);
-}
+/* .config-template-selected (the persistent selected highlight) lives in the
+   global app.css — scoped CSS does not reliably reach the MudPaper tile. */
 
 .config-template-row {
     flex-wrap: nowrap;
