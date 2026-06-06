@@ -1,0 +1,375 @@
+@page "/backup"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
+@using Quasar.Services.Backup
+@implements IDisposable
+@inject QuasarBackupService BackupService
+@inject QuasarBackupSettingsService BackupSettingsService
+@inject AutomaticBackupService AutomaticBackup
+@inject WebServiceOptions WebServiceOptions
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>Backup</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-2">Backup</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    Save and restore all of Quasar's own configuration as a single ZIP file, stamped with the
+    Quasar version it was taken from (currently <strong>@WebServiceOptions.Version</strong>).
+</MudText>
+
+<MudGrid>
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4" Style="height:100%">
+            <MudStack Spacing="3">
+                <MudText Typo="Typo.h6">Create &amp; restore</MudText>
+                <MudText Typo="Typo.body2">
+                    A backup contains servers, config profiles, world templates and all application settings
+                    (Discord, branding, players, security/RBAC and more). It does <strong>not</strong> include the
+                    actual game servers, worlds or plugin configurations — back those up separately from the server
+                    folders, ideally while the server is offline to guarantee consistency.
+                </MudText>
+
+                <MudButton Href="/api/backup/download"
+                           Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Download">
+                    Create backup
+                </MudButton>
+
+                <MudDivider />
+
+                <MudText Typo="Typo.subtitle2">Restore</MudText>
+                <MudText Typo="Typo.body2">
+                    Restoring <strong>merges</strong> the backup into the current configuration: items are matched by
+                    ID, so configs, templates and servers with new IDs are added while matching IDs are overwritten.
+                    For a clean restore, delete Quasar's configs first, then restore.
+                </MudText>
+                <MudFileUpload T="IBrowserFile" Accept=".zip" FilesChanged="RestoreFromUploadAsync" Disabled="_busy">
+                    <CustomContent Context="upload">
+                        <MudButton Variant="Variant.Outlined"
+                                   StartIcon="@Icons.Material.Filled.Restore"
+                                   Disabled="_busy"
+                                   OnClick="@(() => upload.OpenFilePickerAsync())">
+                            Restore from file…
+                        </MudButton>
+                    </CustomContent>
+                </MudFileUpload>
+
+                @if (_lastReport is not null)
+                {
+                    <MudAlert Severity="@(_lastReport.Success ? Severity.Success : Severity.Error)" Dense="true">
+                        @_lastReport.Message
+                        @if (_lastReport.Success && _lastReport.RestartRecommended)
+                        {
+                            <text> Restart Quasar to be sure every component reloads.</text>
+                        }
+                    </MudAlert>
+                }
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4" Style="height:100%">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Version compatibility</MudText>
+                <MudText Typo="Typo.body2">
+                    Backups follow semantic versioning:
+                </MudText>
+                <MudList T="string" Dense="true" Class="pl-2">
+                    <MudListItem T="string" Icon="@Icons.Material.Filled.CheckCircle" IconColor="Color.Success">
+                        Same major.minor version restores in full; patch versions are compatible both ways.
+                    </MudListItem>
+                    <MudListItem T="string" Icon="@Icons.Material.Filled.Upgrade" IconColor="Color.Info">
+                        Older backups are upgraded through a forward migration path when one is available.
+                    </MudListItem>
+                    <MudListItem T="string" Icon="@Icons.Material.Filled.Block" IconColor="Color.Error">
+                        Restoring a backup from a newer major.minor version is not supported (no downgrade).
+                    </MudListItem>
+                </MudList>
+                <MudText Typo="Typo.caption">
+                    Note: data-protection keys are not included, so a restored Steam Workshop API key must be
+                    re-entered when moving the backup to a different machine.
+                </MudText>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12">
+        <MudPaper Class="pa-4">
+            <MudStack Spacing="3">
+                <MudText Typo="Typo.h6">Automatic backups</MudText>
+                <MudText Typo="Typo.body2">
+                    Periodically write backups into Quasar's <code>Backups</code> folder so accidental config changes can
+                    be reverted, and so an external backup system has a consistent folder to pick up.
+                </MudText>
+
+                <MudSwitch @bind-Value="_settings.Enabled" Color="Color.Primary" Label="Enable automatic backups" />
+
+                <MudGrid>
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudSelect T="BackupFrequency" @bind-Value="_settings.Frequency" Label="Frequency"
+                                   Variant="Variant.Outlined" Disabled="!_settings.Enabled">
+                            <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Hourly">Hourly</MudSelectItem>
+                            <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Daily">Daily</MudSelectItem>
+                            <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Weekly">Weekly</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+
+                    @if (_settings.Frequency != BackupFrequency.Hourly)
+                    {
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudTimePicker Label="Time of day" @bind-Time="_timeOfDay"
+                                           Variant="Variant.Outlined" Disabled="!_settings.Enabled" />
+                        </MudItem>
+                    }
+
+                    @if (_settings.Frequency == BackupFrequency.Weekly)
+                    {
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudSelect T="DayOfWeek" @bind-Value="_settings.DayOfWeek" Label="Day of week"
+                                       Variant="Variant.Outlined" Disabled="!_settings.Enabled">
+                                @foreach (var day in Enum.GetValues<DayOfWeek>())
+                                {
+                                    <MudSelectItem T="DayOfWeek" Value="day">@day</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                    }
+
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudNumericField T="int" @bind-Value="_settings.RetentionCount" Label="Keep last N backups"
+                                         Min="QuasarBackupSettings.MinRetentionCount"
+                                         Max="QuasarBackupSettings.MaxRetentionCount"
+                                         Variant="Variant.Outlined" Disabled="!_settings.Enabled" />
+                    </MudItem>
+                </MudGrid>
+
+                <MudStack Row="true" Spacing="2">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Save" OnClick="SaveSettingsAsync" Disabled="_busy">
+                        Save schedule
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.BackupTable" OnClick="MakeBackupNowAsync" Disabled="_busy">
+                        Make a backup now
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12">
+        <MudPaper Class="pa-4">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Stored backups</MudText>
+                @if (_backups.Count == 0)
+                {
+                    <MudText Typo="Typo.body2">No backups in the Backups folder yet.</MudText>
+                }
+                else
+                {
+                    <MudTable Items="_backups" Hover="true" Dense="true">
+                        <HeaderContent>
+                            <MudTh>Name</MudTh>
+                            <MudTh>Type</MudTh>
+                            <MudTh>Size</MudTh>
+                            <MudTh>Created</MudTh>
+                            <MudTh Style="text-align:right">Actions</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Name">@context.Name</MudTd>
+                            <MudTd DataLabel="Type">@(context.Automatic ? "Automatic" : "Manual")</MudTd>
+                            <MudTd DataLabel="Size">@FormatSize(context.SizeBytes)</MudTd>
+                            <MudTd DataLabel="Created">@context.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
+                            <MudTd Style="text-align:right">
+                                <MudIconButton Icon="@Icons.Material.Filled.Download"
+                                               Href="@($"/api/backup/download/{context.Name}")"
+                                               Title="Download" Size="Size.Small" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Restore"
+                                               OnClick="@(() => RestoreFromStoredAsync(context.Name))"
+                                               Disabled="_busy" Title="Restore" Size="Size.Small" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                               OnClick="@(() => DeleteAsync(context.Name))"
+                                               Disabled="_busy" Title="Delete" Size="Size.Small" Color="Color.Error" />
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private const long MaxUploadBytes = 256L * 1024 * 1024;
+
+    private QuasarBackupSettings _settings = new();
+    private TimeSpan? _timeOfDay;
+    private IReadOnlyList<QuasarBackupFileInfo> _backups = [];
+    private QuasarRestoreReport? _lastReport;
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        LoadSettingsDraft();
+        RefreshBackups();
+        BackupSettingsService.Changed += OnSettingsChanged;
+    }
+
+    public void Dispose()
+    {
+        BackupSettingsService.Changed -= OnSettingsChanged;
+    }
+
+    private void LoadSettingsDraft()
+    {
+        _settings = BackupSettingsService.GetSettings();
+        _timeOfDay = _settings.TimeOfDay.ToTimeSpan();
+    }
+
+    private void RefreshBackups() => _backups = BackupService.ListBackups();
+
+    private void OnSettingsChanged() => InvokeAsync(() =>
+    {
+        RefreshBackups();
+        StateHasChanged();
+    });
+
+    private async Task SaveSettingsAsync()
+    {
+        _settings.TimeOfDay = _timeOfDay is { } time ? TimeOnly.FromTimeSpan(time) : new TimeOnly(3, 0);
+
+        _busy = true;
+        try
+        {
+            await BackupSettingsService.SaveAsync(_settings);
+            Snackbar.Add("Backup schedule saved.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed to save schedule: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task MakeBackupNowAsync()
+    {
+        _busy = true;
+        try
+        {
+            await AutomaticBackup.RunBackupNowAsync();
+            RefreshBackups();
+            Snackbar.Add("Backup created in the Backups folder.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Backup failed: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RestoreFromUploadAsync(IBrowserFile? file)
+    {
+        if (file is null || !await ConfirmRestoreAsync())
+            return;
+
+        _busy = true;
+        try
+        {
+            await using var stream = file.OpenReadStream(MaxUploadBytes);
+            _lastReport = await BackupService.RestoreAsync(stream);
+            ReportRestore();
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Restore failed: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RestoreFromStoredAsync(string name)
+    {
+        if (!await ConfirmRestoreAsync())
+            return;
+
+        _busy = true;
+        try
+        {
+            _lastReport = await BackupService.RestoreFromFileAsync(name);
+            ReportRestore();
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Restore failed: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteAsync(string name)
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Delete backup?",
+            $"Permanently delete '{name}'?",
+            yesText: "Delete",
+            cancelText: "Cancel");
+        if (confirmed != true)
+            return;
+
+        try
+        {
+            BackupService.DeleteBackup(name);
+            RefreshBackups();
+            Snackbar.Add("Backup deleted.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed to delete backup: {exception.Message}", Severity.Error);
+        }
+    }
+
+    private async Task<bool> ConfirmRestoreAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Restore backup?",
+            "This overwrites Quasar settings that share an ID with the backup. Items with different IDs are kept (merge). Continue?",
+            yesText: "Restore",
+            cancelText: "Cancel");
+        return confirmed == true;
+    }
+
+    private void ReportRestore()
+    {
+        RefreshBackups();
+        if (_lastReport is null)
+            return;
+
+        Snackbar.Add(_lastReport.Message, _lastReport.Success ? Severity.Success : Severity.Error);
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB"];
+        double size = bytes;
+        var unit = 0;
+        while (size >= 1024 && unit < units.Length - 1)
+        {
+            size /= 1024;
+            unit++;
+        }
+
+        return $"{size:0.#} {units[unit]}";
+    }
+}

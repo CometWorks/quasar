@@ -3,6 +3,7 @@ using Quasar.Models;
 using Quasar.Services;
 using Quasar.Services.Analytics;
 using Quasar.Services.Auth;
+using Quasar.Services.Backup;
 using Quasar.Services.Discord;
 using Quasar.Services.PluginSdk;
 using ApexCharts;
@@ -184,6 +185,10 @@ public class Program
             builder.Services.AddSingleton<BrandingService>();
             builder.Services.AddScoped<ThemePreferenceService>();
             builder.Services.AddSingleton<QuasarShutdownService>();
+            builder.Services.AddSingleton<QuasarBackupSettingsService>();
+            builder.Services.AddSingleton<QuasarBackupService>();
+            builder.Services.AddSingleton<AutomaticBackupService>();
+            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<AutomaticBackupService>());
 
             var app = builder.Build();
 
@@ -232,6 +237,28 @@ public class Program
 
             app.MapGet("/api/discovery", (WebServiceState state) =>
                 Results.Json(state.CurrentManifest));
+
+            // Generates a fresh configuration backup and streams it as a download.
+            var backupDownload = app.MapGet("/api/backup/download", (QuasarBackupService backup) =>
+            {
+                var archive = backup.CreateBackup(DateTimeOffset.Now);
+                return Results.File(archive.Content, "application/zip", archive.FileName);
+            });
+
+            // Downloads an existing backup ZIP from the Backups directory by file name.
+            var backupDownloadByName = app.MapGet("/api/backup/download/{name}", (string name, QuasarBackupService backup) =>
+            {
+                var path = backup.ResolveBackupPath(name);
+                return path is null
+                    ? Results.NotFound()
+                    : Results.File(path, "application/zip", name);
+            });
+
+            if (authOptions.Enabled)
+            {
+                backupDownload.RequireAuthorization(QuasarPolicyNames.CanManageSecurity);
+                backupDownloadByName.RequireAuthorization(QuasarPolicyNames.CanManageSecurity);
+            }
 
             app.MapGet("/login", (HttpContext context) =>
             {
