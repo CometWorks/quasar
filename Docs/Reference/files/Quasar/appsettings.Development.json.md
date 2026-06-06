@@ -3,9 +3,10 @@
 **Module:** Quasar.Host  **Kind:** JSON config  **Tier:** 3
 
 ## Summary
-Development-environment override for `appsettings.json`. Currently contains only the standard `Logging` section with no effective changes from the base file (same log levels). Loaded when `ASPNETCORE_ENVIRONMENT=Development`.
+Development-environment override for `appsettings.json`, loaded when `ASPNETCORE_ENVIRONMENT=Development`. Enables `DetailedErrors` for Blazor circuit diagnostics and carries a standard `Logging` block with the same log levels as the base file.
 
 ## Structure
+- `DetailedErrors`: `true` — surfaces full server-side exception details to the browser during development
 - `Logging.LogLevel.Default`: `Information`
 - `Logging.LogLevel.Microsoft.AspNetCore`: `Warning`
 

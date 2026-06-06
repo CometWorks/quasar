@@ -3,58 +3,49 @@
 **Module:** Quasar.Bootstrap  **Kind:** class  **Tier:** 1
 
 ## Summary
-`Program.cs` is the entry point and core logic for the `Quasar.Bootstrap` launcher. It implements three CLI commands (`ensure-running`, `serve`, `activate-release`) and two supporting types: `BootstrapOptions` (reads host/port from `appsettings.json`) and `LauncherCoordinator` (`IHostedService` that manages the Quasar worker process, watches the active-release pointer file, and handles zero-downtime hot-reload when a new release is activated).
+Entry point and core logic for the `Quasar.Bootstrap` ensure-running helper. It implements three CLI commands (`ensure-running`, `serve`, `activate-release`) and the supporting types `BootstrapOptions` (host/port + preserve-servers policy from `appsettings.json`) and `LauncherCoordinator` (an `IHostedService` that supervises the Quasar worker process, watches the active-release pointer file, and performs zero-downtime hot-reload when a new release is activated).
 
 ## Structure
 **Namespace:** `Quasar.Bootstrap`  
-**Top-level types:** `Program` (internal static), `BootstrapOptions` (internal sealed), `LauncherCoordinator` (internal sealed, implements `IHostedService`, `IDisposable`), `LauncherForegroundOptions` (sealed record), `WorkerProcessHandle` (sealed record)
+**Top-level types:** `Program` (internal static), `BootstrapOptions` (internal sealed), `LauncherCoordinator` (internal sealed, `IHostedService`/`IDisposable`), `LauncherForegroundOptions` (sealed record), `WorkerProcessHandle` (sealed record nested in coordinator).
 
 ### `Program` (static)
 | Member | Description |
 |---|---|
-| `Main(string[] args)` | Parses flags (`--quiet`, `--open-browser`, `--force`, `--foreground`/`--console`) and dispatches to command handlers |
-| `EnsureRunningAsync` | Checks health; acquires `Quasar.Bootstrap` mutex to prevent concurrent spawns; checks port availability; in foreground mode calls `ServeAsync` directly; otherwise spawns a detached `serve` process and polls for health (60 attempts × 1 s) |
-| `ServeAsync` | Starts `LauncherCoordinator`; blocks until Ctrl+C; handles clean stop |
-| `ActivateReleaseAsync` | Writes a `QuasarActiveReleasePointer` JSON file; calls `EnsureRunningAsync` to guarantee the launcher is running |
-| `KillExistingServerAsync` | Reads manifest PID, calls `Process.Kill`, polls for health to disappear (15 s) |
-| `TryGetHealthyServiceUriAsync` | Reads discovery manifest, HTTP-GETs `/api/health`, returns `Uri?` on 200 |
-| `TryBuildBootstrapLaunchSpec` | Determines how to re-spawn itself as a detached `serve` worker; prefers `dotnet <assembly>` when DLL + runtimeconfig exist; guards against the dotnet host without a valid assembly path |
-| `IsHeadless` | Returns true on Linux/macOS when neither `DISPLAY` nor `WAYLAND_DISPLAY` is set |
-| `TryOpenBrowser` | Cross-platform best-effort browser open (xdg-open / gio / sensible-browser on Linux) |
+| `Main(args)` | Parses flags (`--quiet`, `--open-browser`, `--force`, `--foreground`/`--console`), picks command (default `ensure-running`), decides foreground vs detached based on an attached interactive console. |
+| `EnsureRunningAsync` | Returns existing healthy service (or `--force`-kills it); acquires `Quasar.Bootstrap` named mutex; fails fast if the port is bound by a non-Quasar process; in foreground runs `ServeAsync` directly (optionally opening a browser once healthy); otherwise spawns a detached `serve` process and polls health (60×1 s). |
+| `ServeAsync` | Builds a `LauncherCoordinator`, starts it, blocks on Ctrl+C, then drains/stops. |
+| `ActivateReleaseAsync` | Writes a `QuasarActiveReleasePointer` (from `--file`/`--working-dir`/`--args`/`--version`), then `EnsureRunningAsync`. |
+| `KillExistingServerAsync` | Kills the manifest PID, waits up to 15 s for `/api/health` to stop responding. |
+| `TryGetHealthyServiceUriAsync` | Reads discovery manifest, GETs `/api/health`, returns `Uri?` on success. |
+| `TryBuildBootstrapLaunchSpec` | Chooses how to re-spawn the worker; prefers `dotnet <assembly>` when a DLL + sibling `runtimeconfig.json` exist; guards against the dotnet host without a valid assembly. |
+| `IsHeadless` / `TryOpenBrowser` / `TryStartBrowserCommand` | Display-server detection + cross-platform best-effort browser launch (Linux: xdg-open/gio/sensible-browser). |
+| `StartDetachedProcess` | Spawns the detached worker with redirected (drained) stdout/stderr so output does not bleed into the parent terminal. |
 
 ### `BootstrapOptions` (sealed)
-- Reads `Quasar` (or fallback `MagnetarWeb`) section from `appsettings.json` / `appsettings.{env}.json` searched up to 8 parent directories from `AppContext.BaseDirectory` plus a `WebService` sibling.
-- Properties: `Host` (default `127.0.0.1`), `AdvertisedHost` (remaps `0.0.0.0`/`*`/`+` to `127.0.0.1`), `Port` (default 58631), `BaseUrl`, `ListenUrl`
-- `SupervisorName` constant: `"Quasar"`
+- Reads the `Quasar` (fallback `MagnetarWeb`) config section from `appsettings.json` / `appsettings.{env}.json`, searched in `AppContext.BaseDirectory`, a `WebService` sibling, and up to 8 ancestor `Quasar/` source dirs.
+- Properties: `Host` (default `127.0.0.1`), `AdvertisedHost` (remaps `0.0.0.0`/`*`/`+` → `127.0.0.1`), `Port` (default 58631), `PreserveServersOnShutdown` (default true; env `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN` or `PreserveManagedServersOnShutdown`), `BaseUrl`, `ListenUrl`; const `SupervisorName = "Quasar"`.
 
 ### `LauncherCoordinator` (IHostedService, IDisposable)
 | Member | Description |
 |---|---|
-| `IsReady` | True if current worker process has not exited |
-| `GetHealthPayload()` | Returns anonymous object with status, workerId, hostId, hostName, baseUrl, active worker version/URL |
-| `GetManifest()` | Builds `WebServiceDiscoveryManifest` (written to disk by the caller) |
-| `StartAsync` | Creates directories, ensures active-release pointer exists, activates current release, starts `FileSystemWatcher` on the pointer file |
-| `StopAsync` | Sets `_isStopping`, drains and retires current worker with `stopManagedServers: true` |
-| `ActivateCurrentReleaseAsync` | Protected by `_activationLock`; starts new worker process, waits for `/api/health` (60 s), then gracefully drains old worker (20 s grace + 30 s kill timeout) |
-| `StartWorkerAsync` | Launches worker process with env vars (`QUASAR_MODE=service`, `QUASAR_LAUNCHER_TOKEN`, etc.); in foreground mode pumps stdout/stderr to console |
-| `HandleWorkerExited` | If the current worker exits unexpectedly, triggers `ActivateCurrentReleaseAsync(force: true)` restart |
-| `HandleReleasePointerChanged` | Debounces file-change events by 250 ms, then re-activates |
-| `DrainAndRetireWorkerAsync` | POSTs `/api/internal/drain` with `X-Quasar-Launcher-Token`, waits for clean exit, force-kills on timeout |
-| `TryBuildInitialReleasePointer` | Searches for Quasar worker in priority: `QUASAR_WEB_EXE`/`MAGNETAR_WEB_EXE` env → `QUASAR_WEB_DLL`/`MAGNETAR_WEB_DLL` → `WebService/` sibling → directory-walk for `Quasar.dll`/`Quasar.exe` |
+| `IsReady` / `GetHealthPayload()` / `GetManifest()` | Worker liveness, health summary object (status/workerId/hostId/hostName/baseUrl/active worker version+url), and `WebServiceDiscoveryManifest`. |
+| `StartAsync` | Creates dirs, ensures an active-release pointer exists, activates it, starts a `FileSystemWatcher` on the pointer. |
+| `StopAsync` | Sets `_isStopping`, drains/retires the current worker, stopping managed servers only when `!PreserveServersOnShutdown`. |
+| `ActivateCurrentReleaseAsync` | Under `_activationLock`: starts the new worker, waits for `/api/health` (60 s), swaps it in, then drains the previous worker (20 s grace). |
+| `StartWorkerAsync` | Launches the worker with env vars (`QUASAR_MODE=service`, `QUASAR_LAUNCHER_TOKEN`, `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN`, foreground console-logging); pumps stdout/stderr in foreground. |
+| `DrainAndRetireWorkerAsync` | POSTs `/api/internal/drain?delaySeconds=&stopServers=` with `X-Quasar-Launcher-Token`, waits for exit, force-kills on timeout. |
+| `HandleWorkerExited` | On unexpected worker exit (not stopping), restarts via `ActivateCurrentReleaseAsync(force: true)`. |
+| `HandleReleasePointerChanged` | Debounces pointer file changes 250 ms then re-activates. |
+| `TryBuildInitialReleasePointer` | Resolves worker by priority: `QUASAR_WEB_EXE`/`MAGNETAR_WEB_EXE` → `QUASAR_WEB_DLL`/`MAGNETAR_WEB_DLL` → packaged `WebService/Quasar(.exe)` → ancestor-walk for `Quasar.dll`/`Quasar.exe`. |
 
 ## Dependencies
-- `Magnetar.Protocol.Discovery` — `WebServiceDiscoveryManifest`
-- `Magnetar.Protocol.Runtime` — `MagnetarPaths`, `QuasarActiveReleasePointer`
-- `Microsoft.Extensions.Configuration` — `IConfigurationRoot`, `ConfigurationBuilder`
-- `Microsoft.Extensions.Hosting` — `IHostedService`
-- `Microsoft.Extensions.Logging` — `ILogger`, `LoggerFactory`
-- `System.Text.Json` — manifest and pointer serialization
-- `System.Net.Sockets` — `TcpClient` for port-in-use check
+- `Magnetar.Protocol/Discovery/WebServiceDiscoveryManifest.cs`
+- [`Magnetar.Protocol/Runtime/MagnetarPaths.cs`](../Magnetar.Protocol/Runtime/MagnetarPaths.cs.md), `Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs`
+- `Microsoft.Extensions.Configuration` / `.Hosting` / `.Logging`
+- `System.Text.Json` (manifest + pointer), `System.Net.Sockets` (`TcpClient` port check)
 
 ## Notes
-- The `Quasar.Bootstrap` named mutex prevents multiple concurrent spawn attempts from different processes on the same machine.
-- Port-in-use check (`TcpClient.Connect`) runs before spawning to give a clear error rather than a silent EADDRINUSE crash.
-- `IsCurrentBootstrapAssembly` / `IsCurrentBootstrapExecutable` guards prevent the coordinator from pointing the worker at itself.
-- On RID-targeted builds, the bootstrap checks for a sibling `runtimeconfig.json` before using a DLL path — this avoids libhostpolicy errors when invoked from the `obj/` intermediate tree.
-- Windows/Linux cross-platform: browser open, process names, and RID publish are all handled.
-- `GetHealthPayload` uses `hostId`/`hostName` (not `nodeId`/`nodeName`), reflecting the Node→Host rename in the manifest.
+- The `Quasar.Bootstrap` named mutex serializes spawn attempts across processes on a machine.
+- `IsCurrentBootstrapAssembly` / `IsCurrentBootstrapExecutable` prevent pointing the worker at the bootstrap itself; RID-targeted DLL paths are rejected when no sibling `runtimeconfig.json` exists (avoids libhostpolicy failures from the `obj/` tree).
+- `PreserveServersOnShutdown` is propagated to the worker so the launcher and worker agree on whether detached Magnetars stay running across a Quasar restart.

@@ -4,46 +4,62 @@
 
 ## Summary
 
-`IHostedService` that owns the per-server metric stores, drives the single-reader ingest loop via a bounded `Channel`, raises a `Changed` event after samples are actually ingested, and persists samples to disk in an append-only JSONL format. On startup it loads from `analytics.jsonl`, then lazily appends only new points.
+Hosted background service that owns one `ServerMetricsStore` per dedicated server, ingests metric samples off a bounded channel, and persists/loads each server's history to a per-server JSONL analytics file. Handles retention pruning, incremental append, periodic/size-triggered compaction (full rewrite), and crash-safe atomic file replacement. The single hub that analytics charts and the metrics writer pipeline both talk to.
 
 ## Structure
 
 Namespace: `Quasar.Services.Analytics`
 
-**`MetricsStoreService`** (sealed class) — implements `IHostedService`, `IDisposable`
+**`MetricsStoreService`** (sealed class) implements `IHostedService`, `IDisposable`.
 
-Public API:
-- `StartAsync(CancellationToken)` — loads persisted data for all known servers, then starts the background ingest loop task
-- `StopAsync(CancellationToken)` — completes the channel writer, awaits the loop, then calls `PersistAllAsync`
-- `Dispose()` — cancels the shutdown token (idempotent via `Interlocked.Exchange`)
-- `Enqueue(string uniqueName, in MetricSample)` — fire-and-forget write into the bounded channel (drops oldest when full)
-- `GetStore(string uniqueName) : ServerMetricsStore?` — returns the in-memory store for a server
-- `GetUniqueNames() : IReadOnlyList<string>` — sorted list of all server names with stores
-- `PersistAllAsync(CancellationToken) : Task` — appends new points to disk, guarded by `_persistInFlight` flag to avoid concurrent persists
-- `PersistAllAsync(CancellationToken) : Task` — appends only new sample points since last successful flush; periodically rewrites JSONL file for retention-bound compaction
-- `Changed` — raised after a queued sample has been written into the in-memory RRD buffers so UI subscribers can refresh against current data
+Constants/config:
+- `CompactEveryMinutes = 720` (12h), `CompactionMaxFileSizeBytes = 32 MiB` — compaction triggers
+- `ValidBuckets = ["r","m","h"]` with `RawBucket`/`OneMinuteBucket`/`OneHourBucket` constants
+- `JsonOptions` — Web defaults, ignore-null, compact
 
-Private internals:
-- `IngestLoopAsync` — single-reader loop; ingests samples, raises `Changed`, then after every 100 items checks if 7 minutes have elapsed since last persist and fires `PersistAllAsync` fire-and-forget
-- `PersistStoreAsync` — reads in-memory buffers, writes only new points (`PersistedMetricLogLine`) since last persist watermark, and periodically rewrites into bounded-retention JSONL
-- `TryLoadFromDiskAsync` — reads `analytics.jsonl` by lines, then calls `store.Restore` with retention-filtered data
+State/fields:
+- `_catalog : DedicatedServerCatalog`, `_analyticsStoreOptions : AnalyticsStoreOptions`, `_logger`
+- `_stores : ConcurrentDictionary<string, ServerMetricsStore>` (case-insensitive)
+- `_persistProgress : ConcurrentDictionary<string, PersistProgress>` — last-persisted timestamp per bucket per server
+- `_channel : Channel<(string, MetricSample)>` — bounded(512), `DropOldest`, single-reader/multi-writer
+- `_shutdown`, `_ingestLoopTask`, `_lastPersistUtc`, `_nextCompactionUtc`, `_itemsSincePersistCheck`, `_persistInFlight`, `_disposed`
+
+Public members:
+- `event Action? Changed` — raised after each ingested sample
+- `StartAsync` — creates/loads stores from disk for catalog servers, sets compaction clock, then launches the ingest loop
+- `StopAsync` — completes the channel, awaits the loop, then `PersistAllAsync`
+- `Dispose()` — idempotent (`Interlocked.Exchange`); cancels and disposes the shutdown token
+- `Enqueue(string, in MetricSample)` — ensures a store exists and writes the sample to the channel (non-blocking, drops oldest under back-pressure)
+- `GetStore(string) : ServerMetricsStore?`, `GetUniqueNames() : IReadOnlyList<string>`
+- `PersistAllAsync(CancellationToken)` — guarded by `_persistInFlight`; persists every store in name order
+
+Private logic:
+- `IngestLoopAsync` — drains channel, `store.Ingest`, raises `Changed`; every 100 items, if >7 min since last persist, fires `PersistAllAsync` fire-and-forget
+- `GetOrCreateStore` — creates `ServerMetricsStore(_analyticsStoreOptions)` + progress entry
+- `PersistStoreAsync` — appends new lines since each bucket's last-persisted timestamp, then compacts (rewrite) if due or file overgrown
+- `AppendSeriesLinesAsync` — async append-mode `FileStream`, one JSON line per sample, explicit flush
+- `RewriteStoreAsJsonlAsync` — full rewrite to a temp file then `File.Move(overwrite: true)`; deletes the file if no in-retention data remains
+- `TryLoadFromDiskAsync` / `TryLoadJsonlFromDiskAsync` — parse JSONL, drop out-of-retention lines, `store.Restore`, compact if stale data found
+- `BuildSeriesLines`, `GetRetentionCutoffUnixSeconds`, `IsAnalyticsFileOvergrown`, `IsValidBucket`, `BuildTempPath`, `TryDelete`
+
+Nested types:
+- `PersistProgress` — per-bucket last-persisted unix timestamps
+- `LoadedAnalyticsData` — parsed raw/minute/hour lists + `HasOutOfRetentionData`
+- `PersistedMetricLogLine` — on-disk JSON shape (short property names `b`,`T`,`Ss`,`Cpu`,`Mem`,`Ft`,`P`,`Pcu`,`G`,`E`) with `From`/`ToMetricSample` converters
 
 ## Dependencies
 
 - [`Quasar/Services/Analytics/ServerMetricsStore.cs`](ServerMetricsStore.cs.md)
 - [`Quasar/Services/Analytics/MetricSample.cs`](MetricSample.cs.md)
-- [`Quasar/Services/DedicatedServerCatalog.cs`](../DedicatedServerCatalog.cs.md) (to enumerate servers at startup)
-- `Magnetar.Protocol.Runtime.MagnetarPaths` (for analytics file path resolution)
-- BCL: `System.Threading.Channels`, `System.Text.Json`, `System.Collections.Concurrent`
+- [`Quasar/Services/Analytics/AnalyticsStoreOptions.cs`](AnalyticsStoreOptions.cs.md)
+- [`Quasar/Services/DedicatedServerCatalog.cs`](../DedicatedServerCatalog.cs.md) — enumerates servers at startup
+- `Magnetar.Protocol/Runtime/MagnetarPaths.cs` — `GetQuasarServerAnalyticsPath(uniqueName)`
+- `Quasar/Models` (namespace import)
+- External: `System.Threading.Channels`, `System.Text.Json`, `System.Collections.Concurrent`, `Microsoft.Extensions.Hosting` (`IHostedService`), `Microsoft.Extensions.Logging`
 
 ## Notes
 
-- The channel is bounded at 512 with `DropOldest` so the ingest loop never blocks callers, but very fast producers under sustained overload will lose the oldest samples before they are stored.
-- `PersistAllAsync` uses an `Interlocked.Exchange` flag to prevent concurrent persist runs; a background fire-and-forget call from the ingest loop ignores the return value, meaning persist errors are only logged with `LogWarning`.
-- JSONL lines use short fields (`"b"`/`"r"`, `"m"`, `"h"` and compact metric keys), then optional compaction rewrites into retention-limited JSONL.
-
-## Internal types
-
-- `PersistedMetricLogLine` — per-line JSONL record including bucket discriminator (`r` raw, `m` one-minute, `h` one-hour)
-- `PersistProgress` — per-server watermark of last persisted timestamp per bucket for incremental writes
-- `LoadedAnalyticsData` — in-memory loader container with per-bucket samples
+- Concurrency: writers call `Enqueue` from anywhere; a single reader (`IngestLoopAsync`) mutates stores, so `ServerMetricsStore` needs no internal locking. The channel drops the oldest sample under sustained back-pressure rather than blocking the producer.
+- Persistence is append-first (cheap, incremental) with periodic full compaction; compaction and the final shutdown persist use a temp-file + atomic `File.Move(overwrite: true)` to avoid partial files.
+- Retention (`AnalyticsStoreOptions.RetentionDays`) is enforced on both load and write; out-of-retention data found on load forces an immediate compaction.
+- `PersistAllAsync` is re-entrancy guarded via `Interlocked` (`_persistInFlight`), so overlapping triggers coalesce; the fire-and-forget call from the ingest loop ignores results, so persist failures surface only as `LogWarning`.

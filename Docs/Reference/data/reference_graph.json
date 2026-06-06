@@ -54,6 +54,9 @@
     "Magnetar.Protocol/Bridge/IQuasarConfigProvider.cs",
     "Magnetar.Protocol/Transport/AgentWireMessage.cs"
   ],
+  "Magnetar.Protocol/Model/PluginLogBatch.cs": [
+    "Magnetar.Protocol/Transport/AgentWireMessage.cs"
+  ],
   "Magnetar.Protocol/Model/PluginRuntimeInfo.cs": [
     "Magnetar.Protocol/Model/AgentSnapshot.cs"
   ],
@@ -72,6 +75,7 @@
     "Magnetar.Protocol/Model/AgentSnapshot.cs",
     "Magnetar.Protocol/Model/PluginConfigSnapshot.cs",
     "Magnetar.Protocol/Model/PluginConfigUpdateRequest.cs",
+    "Magnetar.Protocol/Model/PluginLogBatch.cs",
     "Magnetar.Protocol/Transport/ServerCommandEnvelope.cs",
     "Magnetar.Protocol/Transport/ServerCommandResult.cs",
     "Magnetar.Protocol/Transport/WireMessageKind.cs"
@@ -97,14 +101,21 @@
     "Magnetar.Protocol/Transport/AgentWireMessage.cs"
   ],
   "Quasar.Agent/AdminPlugin.cs": [
+    "Magnetar.Protocol/Model/DeathEventSnapshot.cs",
     "Quasar.Agent/AgentConnection.cs",
     "Quasar.Agent/AgentOptions.cs",
     "Quasar.Agent/GameBridge.cs",
+    "Quasar.Agent/PluginLogOutbox.cs",
     "Quasar.Agent/WebServiceLocator.cs"
   ],
   "Quasar.Agent/AgentConnection.cs": [
+    "Magnetar.Protocol/Model/PluginConfigSnapshot.cs",
+    "Magnetar.Protocol/Model/PluginLogBatch.cs",
+    "Magnetar.Protocol/Transport/AgentWireMessage.cs",
+    "Magnetar.Protocol/Transport/WireMessageKind.cs",
     "Quasar.Agent/AgentOptions.cs",
     "Quasar.Agent/GameBridge.cs",
+    "Quasar.Agent/PluginLogOutbox.cs",
     "Quasar.Agent/WebServiceLocator.cs"
   ],
   "Quasar.Agent/AgentOptions.cs": [],
@@ -112,9 +123,17 @@
   "Quasar.Agent/GameBridge.cs": [
     "Quasar.Agent/EntityInspector.cs"
   ],
+  "Quasar.Agent/PluginLogOutbox.cs": [
+    "Magnetar.Protocol/Model/PluginLogBatch.cs",
+    "Quasar.Agent/AgentConnection.cs"
+  ],
   "Quasar.Agent/Quasar.Agent.csproj": [],
   "Quasar.Agent/WebServiceLocator.cs": [],
-  "Quasar.Bootstrap/Program.cs": [],
+  "Quasar.Bootstrap/Program.cs": [
+    "Magnetar.Protocol/Discovery/WebServiceDiscoveryManifest.cs",
+    "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
+    "Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs"
+  ],
   "Quasar.Bootstrap/Properties/launchSettings.json": [],
   "Quasar.Bootstrap/Quasar.Bootstrap.csproj": [
     "Quasar/Quasar.csproj"
@@ -138,7 +157,8 @@
     "Quasar/Components/Layout/NavMenu.razor",
     "Quasar/Services/BrandingService.cs",
     "Quasar/Services/QuasarShutdownService.cs",
-    "Quasar/Services/ThemePreferenceService.cs"
+    "Quasar/Services/ThemePreferenceService.cs",
+    "Quasar/Services/WebServiceOptions.cs"
   ],
   "Quasar/Components/Layout/MainLayout.razor.css": [],
   "Quasar/Components/Layout/NavMenu.razor": [],
@@ -151,10 +171,11 @@
     "Quasar/Components/Layout/ReconnectModal.razor"
   ],
   "Quasar/Components/Pages/Analytics.razor": [
+    "Quasar/Components/Pages/Analytics.razor.css",
     "Quasar/Components/Pages/AnalyticsPanelDialog.razor",
     "Quasar/Services/AgentRegistry.cs",
-    "Quasar/Services/Analytics/MetricsStoreService.cs",
-    "Quasar/Services/DedicatedServerCatalog.cs"
+    "Quasar/Services/DedicatedServerCatalog.cs",
+    "Quasar/Services/ThemePreferenceService.cs"
   ],
   "Quasar/Components/Pages/Analytics.razor.css": [
     "Quasar/Components/Pages/Analytics.razor"
@@ -174,9 +195,8 @@
     "Quasar/Services/QuasarConfigProfileCatalog.cs"
   ],
   "Quasar/Components/Pages/Configs.razor": [
-    "Quasar/Components/Pages/ConfigProfilePendingChangesDialog.razor",
-    "Quasar/Components/Pages/FolderPickerDialog.razor",
-    "Quasar/Models/QuasarConfigProfile.cs",
+    "Quasar/Components/Pages/Configs.razor.css",
+    "Quasar/Components/Pages/PluginManifestPickerDialog.razor",
     "Quasar/Services/DedicatedServerCatalog.cs",
     "Quasar/Services/QuasarConfigProfileCatalog.cs",
     "Quasar/Services/QuasarDevFolderCatalog.cs",
@@ -226,10 +246,10 @@
     "Quasar/Components/Layout/MainLayout.razor"
   ],
   "Quasar/Components/Pages/Players.razor": [
-    "Quasar/Models/KnownPlayerRecord.cs",
     "Quasar/Services/AgentRegistry.cs",
     "Quasar/Services/KnownPlayerCatalog.cs"
   ],
+  "Quasar/Components/Pages/PluginCatalogDescriptionDialog.razor": [],
   "Quasar/Components/Pages/PluginManifestPickerDialog.razor": [
     "Quasar/Components/Pages/Configs.razor",
     "Quasar/Services/FileBrowserService.cs"
@@ -253,15 +273,13 @@
     "Quasar/Components/Pages/ServerEditorDialog.razor"
   ],
   "Quasar/Components/Pages/Servers.razor": [
-    "Quasar/Components/Pages/ServerConsoleDialog.razor",
     "Quasar/Components/Pages/ServerEditorDialog.razor",
-    "Quasar/Components/Pages/WorldTemplateFromServerDialog.razor",
-    "Quasar/Models/DedicatedServerDefinition.cs",
     "Quasar/Services/AgentRegistry.cs",
     "Quasar/Services/DedicatedServerCatalog.cs",
     "Quasar/Services/DedicatedServerSupervisor.cs",
     "Quasar/Services/QuasarConfigProfileCatalog.cs",
-    "Quasar/Services/QuasarWorldTemplateCatalog.cs"
+    "Quasar/Services/QuasarWorldTemplateCatalog.cs",
+    "Quasar/Services/WebServiceOptions.cs"
   ],
   "Quasar/Components/Pages/ServersPageDialog.razor": [
     "Quasar/Components/Pages/Servers.razor"
@@ -333,21 +351,13 @@
     "Quasar/Services/QuasarWorldTemplateCatalog.cs"
   ],
   "Quasar/Program.cs": [
+    "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
     "Quasar/Components/App.razor",
     "Quasar/Models/DedicatedServerProcessState.cs",
     "Quasar/Services/AgentRegistry.cs",
-    "Quasar/Services/Auth/QuasarAuthOptions.cs",
-    "Quasar/Services/BrandingService.cs",
+    "Quasar/Services/AgentSocketHandler.cs",
     "Quasar/Services/DedicatedServerCatalog.cs",
-    "Quasar/Services/FileBrowserService.cs",
-    "Quasar/Services/KnownPlayerCatalog.cs",
-    "Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs",
-    "Quasar/Services/ManagedRuntimeOptions.cs",
-    "Quasar/Services/QuasarConfigProfileCatalog.cs",
-    "Quasar/Services/QuasarLoggingConfigurator.cs",
-    "Quasar/Services/QuasarShutdownService.cs",
-    "Quasar/Services/SteamWorkshopCredentialsCatalog.cs",
-    "Quasar/Services/WebServiceManifestHostedService.cs"
+    "Quasar/Services/EntityService.cs"
   ],
   "Quasar/Properties/launchSettings.json": [],
   "Quasar/Quasar.csproj": [
@@ -361,17 +371,20 @@
   "Quasar/Services/AgentSocketHandler.cs": [
     "Quasar/Services/AgentRegistry.cs",
     "Quasar/Services/DedicatedServerSupervisor.cs",
-    "Quasar/Services/PluginSdk/PluginConfigService.cs"
+    "Quasar/Services/PluginSdk/PluginConfigService.cs",
+    "Quasar/Services/PluginSdk/PluginLogStream.cs"
   ],
+  "Quasar/Services/Analytics/AnalyticsStoreOptions.cs": [],
   "Quasar/Services/Analytics/AnalyticsViewConfig.cs": [],
   "Quasar/Services/Analytics/MetricSample.cs": [],
   "Quasar/Services/Analytics/MetricSampleFactory.cs": [
     "Quasar/Services/Analytics/MetricSample.cs"
   ],
   "Quasar/Services/Analytics/MetricsStoreService.cs": [
+    "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
+    "Quasar/Services/Analytics/AnalyticsStoreOptions.cs",
     "Quasar/Services/Analytics/MetricSample.cs",
     "Quasar/Services/Analytics/ServerMetricsStore.cs",
-    "Quasar/Services/AtomicFileWriter.cs",
     "Quasar/Services/DedicatedServerCatalog.cs"
   ],
   "Quasar/Services/Analytics/RrdCircularBuffer.cs": [
@@ -382,6 +395,7 @@
     "Quasar/Services/Analytics/RrdCircularBuffer.cs"
   ],
   "Quasar/Services/Analytics/ServerMetricsStore.cs": [
+    "Quasar/Services/Analytics/AnalyticsStoreOptions.cs",
     "Quasar/Services/Analytics/MetricSample.cs",
     "Quasar/Services/Analytics/RrdCircularBuffer.cs",
     "Quasar/Services/Analytics/RrdRollupBuffer.cs"
@@ -500,6 +514,9 @@
     "Quasar/Models/DedicatedServerDefinition.cs",
     "Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs"
   ],
+  "Quasar/Services/PluginCatalogRefreshService.cs": [
+    "Quasar/Services/QuasarPluginCatalogService.cs"
+  ],
   "Quasar/Services/PluginManifestReader.cs": [],
   "Quasar/Services/PluginSdk/PluginConfigDtos.cs": [],
   "Quasar/Services/PluginSdk/PluginConfigService.cs": [
@@ -530,7 +547,8 @@
     "Quasar/Services/SteamWorkshopCredentialsCatalog.cs"
   ],
   "Quasar/Services/QuasarWorldTemplateCatalog.cs": [
-    "Quasar/Models/QuasarWorldTemplate.cs"
+    "Quasar/Models/QuasarWorldTemplate.cs",
+    "Quasar/Services/AtomicFileWriter.cs"
   ],
   "Quasar/Services/SteamWorkshopCredentialsCatalog.cs": [],
   "Quasar/Services/TextSanitizer.cs": [],
@@ -554,11 +572,10 @@
     "Quasar/appsettings.json"
   ],
   "Quasar/appsettings.json": [
-    "Quasar/Program.cs",
-    "Quasar/Services/Auth/QuasarAuthOptions.cs",
-    "Quasar/Services/ManagedRuntimeOptions.cs",
-    "Quasar/Services/WebServiceOptions.cs"
+    "Quasar/Program.cs"
   ],
   "Quasar/wwwroot/app.css": [],
-  "Quasar/wwwroot/quasar-configs.js": []
+  "Quasar/wwwroot/quasar-configs.js": [
+    "Quasar/wwwroot/app.css"
+  ]
 }

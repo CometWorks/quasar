@@ -9,7 +9,7 @@ Routable page (`/settings/appearance`) for live branding customisation. Allows e
 - **Route:** `@page "/settings/appearance"`
 - **Implements:** `IDisposable`
 - **Injected services:** `BrandingService`, `ISnackbar`
-- **State:** `_draft` — a `BrandingSettings` clone initialised from `BrandingService.GetSettings()` and mutated locally until Save.
+- **State:** `_draft` — a `BrandingSettings` (initialised to `BrandingSettings.Normalize(null)`, then to `BrandingService.GetSettings()` in `OnInitialized`) mutated locally until Save. Constants `CustomPresetValue = "__custom"` and `MaxUploadBytes = 10 MB`.
 - **UI sections:**
   - Branding card: `MudTextField` for `AppName` and `AppSubtitle`.
   - Preset theme card: `MudSelect` over `BrandingPresets.All`; selecting a preset replaces both `LightPalette` and `DarkPalette` in the draft; a disabled "Custom (edited)" sentinel appears when any color was manually changed.

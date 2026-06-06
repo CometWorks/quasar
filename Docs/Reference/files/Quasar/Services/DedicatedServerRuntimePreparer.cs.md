@@ -4,7 +4,7 @@
 
 ## Summary
 
-`DedicatedServerRuntimePreparer` transforms a `DedicatedServerDefinition` into a fully staged on-disk runtime immediately before a dedicated server process is launched. It writes the runtime DS config XML, the Magnetar plugin sources/profile XML, the world mod list, and the `LastSession.sbl` pointer file; deploys the Quasar.Agent DLL; and computes the final command-line arguments string. The output is a `PreparedDedicatedServerLaunch` record.
+`DedicatedServerRuntimePreparer` transforms a `DedicatedServerDefinition` into a fully staged on-disk runtime immediately before a dedicated server process is launched. It writes the runtime DS config XML, the Magnetar plugin sources/profile XML, the world mod list, and the `LastSession.sbl` pointer file; deploys the Quasar.Agent DLL; seeds the world from a template if needed; and computes the final command-line arguments string. The output is a `PreparedDedicatedServerLaunch` record.
 
 ## Structure
 
@@ -15,33 +15,35 @@ Namespace: `Quasar.Services`
 | Member | Description |
 |---|---|
 | `PrepareAsync(DedicatedServerDefinition, dedicatedServer64Path, ct)` | Orchestrates all sub-steps; returns `PreparedDedicatedServerLaunch`. |
-| `PrepareRuntimeConfigAsync(...)` | Loads or creates `SpaceEngineers-Dedicated.cfg` as `XDocument`; upserts `IgnoreLastSession`, port, IP, and all config-profile settings; writes atomically. |
-| `WriteLastSessionAsync(...)` | Writes `LastSession.sbl` XML pointing to the world path. |
-| `PrepareMagnetarConfigAsync(...)` | Writes `sources.xml` (remote hub/plugin/dev-folder/mod sources) and `Current.xml` profile; deploys the agent via `DeployQuasarAgentAsync`. |
-| `PrepareWorldModListAsync(...)` | Delegates to `WorldSandboxConfigEditor.WriteModsAsync` to update `Sandbox_config.sbc`. |
-| `BuildLaunchArguments(...)` | Strips managed args (`-path`, `-config`, `-ds64`, `-console`, `-nosplash`), expands `{uniqueName}`/`{configPath}`/`{quasarBaseUrl}`/`{hostId}` etc. tokens, then appends `-noconsole -path … -config … -ds64 …`. |
-| `DeployQuasarAgentAsync(...)` | Locates `Quasar.Agent.dll` (staged `Agent/` subdir or dev build tree up to 8 levels); copies changed files using SHA-256 comparison. |
-| `BuildRemotePluginSourcesAsync(...)` | Refreshes plugin catalog if needed; constructs `RemotePluginSourceSet` with per-plugin manifest coordinates; always injects DotNetCompat and (on Linux) LinuxCompat core plugins. |
-| `SeedWorldFromTemplateAsync(...)` | Copies world template files into the server world directory (no-overwrite). |
+| `PrepareRuntimeConfigAsync(...)` | Loads or creates `SpaceEngineers-Dedicated.cfg` as `XDocument`; upserts `IgnoreLastSession=false`, port, IP, and all config-profile settings; writes atomically. |
+| `WriteLastSessionAsync(...)` | Writes `Saves/LastSession.sbl` XML pointing at the world path (absolute + relative). |
+| `PrepareMagnetarConfigAsync(...)` | Writes `Sources/sources.xml` and `Profiles/Current.xml`; deploys the agent via `DeployQuasarAgentAsync`. |
+| `BuildRemotePluginSourcesAsync(...)` | Builds `RemotePluginSourceSet` from selected plugins resolved against the catalog; refreshes the catalog once if any selection lacks a remote manifest; falls back to the default hub for unresolved plugins; always injects DotNetCompat and (on Linux) LinuxCompat core sources. |
+| `PrepareWorldModListAsync(...)` | Delegates to `WorldSandboxConfigEditor.WriteModsAsync` to write the profile's mods authoritatively into the world's `Sandbox_config.sbc`. |
+| `DeployQuasarAgentAsync(...)` | Locates `Quasar.Agent.dll` (staged `Agent/` subdir, else dev `Quasar.Agent/bin` tree up to 8 levels up); copies `Quasar.Agent.dll` + `Magnetar.Protocol.dll` only when SHA-256 differs; returns the enabled local plugin file names. |
+| `ResolveOrSeedWorldPathAsync(...)` | Uses an existing world if it has `Sandbox.sbc`; otherwise seeds from `WorldTemplateId` via `SeedWorldFromTemplateAsync`; otherwise standard validation. |
+| `BuildLaunchArguments(...)` | Expands tokens, rejects `-ignorelastsession`, strips managed flags, then appends `-noconsole -daemon -path … -config … -ds64 …`. |
 
-**`PreparedDedicatedServerLaunch`** — sealed record with paths: `DedicatedServerAppDataPath`, `MagnetarAppDataPath`, `DedicatedServer64Path`, `WorldPath`, `RuntimeConfigPath`, `LastSessionPath`, `Arguments`.
+**`PreparedDedicatedServerLaunch`** — sealed record: `DedicatedServerAppDataPath`, `MagnetarAppDataPath`, `DedicatedServer64Path`, `WorldPath`, `RuntimeConfigPath`, `LastSessionPath`, `Arguments`.
 
-Key compiled regexes strip or reject specific CLI flags (`-ignorelastsession`, `-console`, `-noconsole`, `-path`, `-config`, `-ds64`, `-nosplash`).
+Private `RemotePluginSourceSet` record (`UseDefaultHub`, `Entries`). Compiled regexes strip/reject CLI flags: `-ignorelastsession`, `-console`, `-noconsole`, `-path`, `-config`, `-ds64`, `-nosplash`, `-daemon`.
+
+## Structure — Magnetar config detail
+
+`sources.xml` lists `RemoteHubSources` (default hub only when needed), `RemotePluginSources` (per-plugin manifest coordinates), `LocalPluginSources` (every dev folder from `QuasarDevFolderCatalog`), and `ModSources`. `Current.xml` lists `GitHub` plugins (manual-selection-allowed, excluding dev-folder IDs), `DevFolder` entries — **only those dev folders whose synthetic plugin id is in the profile's selected plugin set** — `Local` (the deployed agent DLLs), and an intentionally empty `Mods`.
 
 ## Dependencies
 
-- `Quasar/Services/AtomicFileWriter.cs` — all atomic file writes
-- [`Quasar/Services/WebServiceOptions.cs`](WebServiceOptions.cs.md) — `BaseUrl`, `HostId`
+- `Quasar/Services/AtomicFileWriter.cs` — atomic XML writes
+- `Quasar/Services/WebServiceOptions.cs` — `BaseUrl`, `HostId`
 - `Quasar/Services/QuasarConfigProfileCatalog.cs` — profile lookup
-- `Quasar/Services/QuasarWorldTemplateCatalog.cs` — template lookup and world directory
-- `Quasar/Services/QuasarPluginCatalogService.cs` — plugin catalog and dev folder IDs
-- `Quasar/Services/QuasarDevFolderCatalog.cs` — dev folder selections
-- [`Quasar/Models/DedicatedServerDefinition.cs`](../Models/DedicatedServerDefinition.cs.md) — input definition
-- `Quasar/Models/QuasarConfigMetadata.cs` — config option enumeration and formatting
-- `Quasar/Models/WorldSandboxConfigEditor.cs` — `WriteModsAsync`
-- `Magnetar.Protocol.Runtime` — `MagnetarPaths`
+- [`Quasar/Services/QuasarWorldTemplateCatalog.cs`](QuasarWorldTemplateCatalog.cs.md) — template lookup, world directory, seeding
+- `Quasar/Services/QuasarPluginCatalogService.cs` — catalog entries, refresh, dev-folder id helpers, core-plugin constants
+- `Quasar/Services/QuasarDevFolderCatalog.cs` — dev-folder selections
+- `Quasar/Models/DedicatedServerDefinition.cs`, `Quasar/Models/QuasarConfigMetadata.cs`, `Quasar/Models/WorldSandboxConfigEditor.cs`
+- `Magnetar.Protocol.Runtime` — `MagnetarPaths` (indirectly via catalogs)
 - BCL `System.Xml.Linq`, `System.Security.Cryptography.SHA256`
 
 ## Notes
 
-Mods are written authoritatively into the world's `Sandbox_config.sbc` by `PrepareWorldModListAsync`; the Magnetar profile's `<Mods>` element is intentionally left empty to prevent drift. The agent DLL copy uses SHA-256 comparison to avoid unnecessary writes. The `-ignorelastsession` flag is explicitly forbidden and throws if present in user-supplied launch arguments. Launch argument tokens (`{quasarBaseUrl}`, `{hostId}`, etc.) use case-insensitive replacement.
+Mods are written authoritatively into the world's `Sandbox_config.sbc`; the Magnetar profile's `<Mods>` is left empty to prevent drift. `-ignorelastsession` is forbidden and throws if user-supplied. The `-daemon` flag detaches Magnetar from Quasar's session (Linux `setsid` / Windows `FreeConsole`) in place, so the PID and stdout/stderr pipes stay valid and managed servers survive Quasar stopping — the basis for cross-restart adoption. Launch-argument token replacement (`{uniqueName}`, `{quasarBaseUrl}`, `{hostId}`, `{worldPath}`, …) is case-insensitive.

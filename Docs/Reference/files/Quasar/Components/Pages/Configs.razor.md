@@ -3,44 +3,29 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Routable page (`/configs`) and the primary config-template editor. Provides a sidebar list of `QuasarConfigProfile` templates and a main editor pane with three tabs — World (categorised world-option expansion panels with live search and jump-to), Plugins (selected plugins table + MagnetarHub catalog table + manual input), and Mods (selected mods table + Steam Workshop search + manual/bulk input). Plugin IDs render as small captions under names, and the plugin catalog refreshes when opened, shows one-line character-count description previews, and opens `PluginCatalogDescriptionDialog` only when full text is hidden. Also contains a Developer section for registering local plugin dev folders. Supports pending-change detection with an interstitial dialog before switching templates.
+The `/configs` page: a full editor for reusable Magnetar config templates (`QuasarConfigProfile`) that are applied to assigned dedicated servers at startup. A sidebar lists/creates/clones/deletes templates; the main column edits World settings, Plugins, Mods, and Developer dev-folders across tabbed and collapsible panels. QoL features include searchable/jump-to world options, a refreshable plugin catalog, Steam Workshop search, world-template mod merge, unsaved-change guarding, and integration with the plugin-manifest picker dialog for registering local dev folders. (This page has no charts; the analytics charting work lives in `Analytics.razor`.)
 
 ## Structure
-- **Route:** `@page "/configs"`
-- **Implements:** `IDisposable`
-- **Injected services:** `QuasarConfigProfileCatalog`, `QuasarDevFolderCatalog`, `QuasarPluginCatalogService`, `QuasarWorkshopModResolver`, `SteamWorkshopCredentialsCatalog`, `DedicatedServerCatalog`, `ISnackbar`, `IJSRuntime` (JS), `IDialogService`
-- **Parameters:**
-  - `InitialProfileId` (string?) — profile to select on mount (passed from `ConfigsPageDialog`).
-  - `RequestedProfileId` (string?) — from query string `?profileId=`.
-- **Key UI sections:**
-  - Sidebar: create-template text field + button, scrollable list of template tiles with clone/delete icon buttons, selection highlight.
-  - World tab: search field with "Jump to First Match" button + match count chip; `MudExpansionPanels` per category; special-cased Access section (group ID, admin IDs, reserved, banned); option cards render `MudCheckBox`, `MudNumericField`, `MudSelect`, or `MudTextField` depending on `QuasarConfigOptionKind`.
-  - Plugins tab: expansion panels for "Plugins to load" table (plugin ID caption under display name), "Plugin catalog" table (auto-refreshes when opened, plugin ID caption under friendly name, one-line 280-character sentence-boundary description preview + conditional full-description dialog), and "Advanced/manual" custom plugin-ID input.
-  - Mods tab: expansion panels for "Mod list" table, "Steam Workshop" search/results table with thumbnail images, and "Advanced/manual" bulk URL/ID input + single add form.
-  - Developer section: dev-folder table with debug toggle; inline editor for name, manifest file, folder path (with Browse button → `FolderPickerDialog`).
-  - Summary header chips (plugin count, mod count, assigned server count).
-  - Save/Reset buttons per template.
-- **JS interop:** `JS.InvokeVoidAsync("quasarConfigs.focusElement", anchorId)` to scroll-focus matched world options.
-- **Pending-change detection:** JSON-serialised snapshot (`CreateProfileSnapshot`) compared on template switch; if different, shows `ConfigProfilePendingChangesDialog` (Save/Discard/Cancel).
-- **Key methods:** `SelectProfileFromListAsync`, `ConfirmPendingChangesBeforeSwitchAsync`, `SaveTemplateAsync`, `CloneProfileAsync`, `DeleteProfileAsync`, `SetPluginPanelExpandedAsync`, `RefreshPluginCatalogAsync`, `SearchWorkshopModsAsync`, `LoadPopularWorkshopModsAsync`, `ResolveWorkshopModsAsync`, `OpenWorkshopApiKeyDialogAsync` (`SteamWorkshopApiKeyDialog`), `OpenDevFolderPickerAsync` (`FolderPickerDialog`), `JumpToFirstOptionAsync`.
-- **Event subscriptions:** `QuasarConfigProfileCatalog.Changed`, `QuasarDevFolderCatalog.Changed`, `DedicatedServerCatalog.Changed`, `SteamWorkshopCredentialsCatalog.Changed`.
+- `@page "/configs"`, `@implements IDisposable`.
+- **`[Inject]`ed services:** `QuasarConfigProfileCatalog ConfigProfiles`, `QuasarDevFolderCatalog DevFolderCatalog`, `QuasarPluginCatalogService PluginCatalog`, `QuasarWorkshopModResolver WorkshopMods`, `SteamWorkshopCredentialsCatalog WorkshopCredentials`, `DedicatedServerCatalog ServerCatalog`, `ISnackbar Snackbar`, `IJSRuntime JS`, `IDialogService DialogService`.
+- **`[Parameter]`s:** `InitialProfileId`; `RequestedProfileId` (`[SupplyParameterFromQuery(Name="profileId")]`) — selects the initial template.
+- **Sidebar:** new-template name field (Enter to create), template tiles (subtitle summary "N plugins, N mods, N servers"), clone/delete icon buttons; selection guarded by `ConfirmPendingChangesBeforeSwitchAsync`.
+- **Header paper:** name/description fields, count chips (Plugins/Mods/Assigned Servers, "Catalog stale" warning), Save / Reset buttons.
+- **World tab:** search field + "Jump to First Match" + match-count chip; categories as `MudExpansionPanel`s (single-expansion) driven by `QuasarConfigMetadata.Categories`/`Options`. Each option renders by `QuasarConfigOptionKind` (Boolean/Integer/Decimal/SelectInteger/SelectText/LongText/Text). A synthetic **Access** panel edits whitelist Group ID, Admin/Reserved/Banned ID lists (numeric-filtered, parsed via `ParseUnsignedLongList`/`SplitListTokens`).
+- **Plugins tab:** "Plugins to load" table (filter, GitHub link, remove); "Plugin catalog" panel (search, Refresh Catalog, selection checkboxes, hidden/local-dev/auto-managed handling, description preview + `PluginCatalogDescriptionDialog`); "Advanced/manual plugin setup" (add custom plugin ID).
+- **Mods tab:** "Mod list" table (+ "Merge from World Template" → `MergeWorldTemplateModsDialog`); "Steam Workshop" panel (search/popular, API-key chip + `SteamWorkshopApiKeyDialog`, results table with thumbnails); "Advanced/manual mod setup" (resolve URLs/IDs/collections via `WorkshopMods.ResolveAsync`, manual add).
+- **Developer panel:** dev-folder table (debug switch, remove) and "Add dev folder..." → `PluginManifestPickerDialog`; the picked XML manifest is validated/read via `PluginManifestReader` and registered in `DevFolderCatalog`.
+- **State helpers:** profile snapshot/`HasPendingChanges` (JSON diff ignoring `UpdatedAtUtc`), category/panel expansion tracking, search matching (`MatchesSearchTerms`), option get/set via reflection through `QuasarConfigMetadata`, `JumpToFirstOptionAsync` uses JS interop `quasarConfigs.focusElement`.
 
 ## Dependencies
-- `Quasar/Services/QuasarConfigProfileCatalog.cs`
-- `Quasar/Services/QuasarDevFolderCatalog.cs`
-- `Quasar/Services/QuasarPluginCatalogService.cs`
-- `Quasar/Services/QuasarWorkshopModResolver.cs`
-- `Quasar/Services/SteamWorkshopCredentialsCatalog.cs`
-- [`Quasar/Services/DedicatedServerCatalog.cs`](../../Services/DedicatedServerCatalog.cs.md)
-- `Quasar/Models/QuasarConfigProfile.cs`
-- `Quasar/Models/QuasarConfigMetadata.cs` (option definitions and categories)
-- `Quasar/Components/Pages/ConfigProfilePendingChangesDialog.razor`
-- `Quasar/Components/Pages/PluginCatalogDescriptionDialog.razor`
-- `Quasar/Components/Pages/FolderPickerDialog.razor`
-- MudBlazor (`MudExpansionPanels`, `MudTable`, `MudTabs`, `MudCheckBox`, `MudNumericField`, `MudSelect`, `MudTextField`, `IDialogService`)
+- `Quasar/Services/QuasarConfigProfileCatalog.cs`, `Quasar/Services/QuasarDevFolderCatalog.cs`, `Quasar/Services/QuasarPluginCatalogService.cs`, `Quasar/Services/QuasarWorkshopModResolver.cs`, `Quasar/Services/SteamWorkshopCredentialsCatalog.cs`, `Quasar/Services/DedicatedServerCatalog.cs`
+- Models: `QuasarConfigProfile`, `QuasarConfigMetadata` / `QuasarConfigOptionDefinition` / `QuasarConfigOptionCategory` / `QuasarConfigOptionKind` / `QuasarConfigOptionScope`, `QuasarPluginSelection`, `QuasarPluginCatalogEntry`, `QuasarModSelection`, `QuasarDevFolderSelection`, `QuasarWorkshopSearchResult(Set)`, `QuasarNetworkType`, `DedicatedServerDefinition`, `SteamWorkshopCredentials`, `PluginManifestReader`
+- Dialogs: `Quasar/Components/Pages/PluginManifestPickerDialog.razor`, `MergeWorldTemplateModsDialog.razor`, `PluginCatalogDescriptionDialog.razor`, `SteamWorkshopApiKeyDialog.razor`, `ConfigProfilePendingChangesDialog.razor`
+- [`Quasar/Components/Pages/Configs.razor.css`](Configs.razor.css.md) (scoped styles)
+- External: **MudBlazor**, `System.Text.Json`, `Microsoft.JSInterop`.
 
 ## Notes
-- Pending-change detection compares JSON snapshots after zeroing `UpdatedAtUtc`, so timestamps do not cause false positives.
-- The Workshop search requires a Steam Web API key stored in `SteamWorkshopCredentialsCatalog`; if absent, search/popular buttons are disabled.
-- `QuasarPluginCatalogService.IsManualSelectionAllowed` is checked before adding a plugin; automatic and hidden plugins display informational snackbars.
-- Dev folder entries are global (shared across all config profiles); enabling them per-profile is done by selecting the dev-folder plugin in the Plugins tab.
+- Switching/resetting templates is guarded against unsaved edits via a snapshot JSON comparison and the pending-changes dialog.
+- Plugin selection respects MagnetarHub rules: auto-managed plugins (`IsManualSelectionAllowed`) and hidden/local-dev entries cannot be manually selected.
+- The plugin catalog auto-refreshes on first render and when its panel is expanded; popular workshop mods auto-load if an API key is configured.
+- ID list inputs are filtered to digits/separators and validated; invalid tokens are reported via snackbar.

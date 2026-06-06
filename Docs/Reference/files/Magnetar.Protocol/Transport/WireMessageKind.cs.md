@@ -1,29 +1,28 @@
 # Magnetar.Protocol/Transport/WireMessageKind.cs
 
-**Module:** Magnetar.Protocol  **Kind:** class  **Tier:** 1
+**Module:** Magnetar.Protocol  **Kind:** class (static)  **Tier:** 1
 
 ## Summary
-Static class of string constants used as the `Kind` discriminator in `AgentWireMessage`. These string values are transmitted on the wire, so they must remain stable across versions.
+String constants for the `AgentWireMessage.Kind` discriminator — the shared vocabulary of message types on the Quasar ↔ agent WebSocket channel. Both ends compare against these constants to route each envelope to the correct handler. Values travel on the wire, so they must stay stable across versions.
 
 ## Structure
-Namespace: `Magnetar.Protocol.Transport`
-
-Class `WireMessageKind` (static):
+Namespace `Magnetar.Protocol.Transport`; `public static class WireMessageKind`. All `public const string`:
 
 | Constant | Value | Direction | Description |
 |---|---|---|---|
-| `Hello` | `"hello"` | Agent→Supervisor | Initial handshake after WebSocket connect. |
-| `Snapshot` | `"snapshot"` | Agent→Supervisor | Periodic full-state snapshot push. |
-| `Command` | `"command"` | Supervisor→Agent | Command request envelope. |
-| `CommandResult` | `"command-result"` | Agent→Supervisor | Command response. |
-| `Ping` | `"ping"` | Either | Keepalive ping. |
-| `Pong` | `"pong"` | Either | Keepalive pong reply. |
-| `PluginConfigSnapshot` | `"plugin-config-snapshot"` | Agent→Supervisor | Full plugin configuration push. |
-| `PluginConfigUpdate` | `"plugin-config-update"` | Supervisor→Agent | Apply updated plugin config values. |
-| `AdminStop` | `"admin-stop"` | Supervisor→Agent | Signal agent to shut down gracefully. |
+| `Hello` | `"hello"` | Agent→Quasar | Handshake/identity after connect. |
+| `Snapshot` | `"snapshot"` | Agent→Quasar | Periodic server state push. |
+| `Command` | `"command"` | Quasar→Agent | Command request envelope. |
+| `CommandResult` | `"command-result"` | Agent→Quasar | Command response. |
+| `Ping` | `"ping"` | Either | Keep-alive ping. |
+| `Pong` | `"pong"` | Either | Keep-alive pong reply. |
+| `PluginConfigSnapshot` | `"plugin-config-snapshot"` | Agent→Quasar | Current plugin config state. |
+| `PluginConfigUpdate` | `"plugin-config-update"` | Quasar→Agent | Apply updated plugin config values. |
+| `AdminStop` | `"admin-stop"` | Agent→Quasar | Admin/console-initiated stop Quasar did not request. |
+| `PluginLogs` | `"plugin-logs"` | Agent→Quasar | Batch of streamed plugin log lines. |
 
 ## Dependencies
-- [`Magnetar.Protocol/Transport/AgentWireMessage.cs`](AgentWireMessage.cs.md) — `Kind` field is set to one of these constants.
+- [`Magnetar.Protocol/Transport/AgentWireMessage.cs`](AgentWireMessage.cs.md) — `Kind` is set to one of these constants.
 
 ## Notes
-Values are wire-stable strings; renaming them is a breaking protocol change.
+`PluginLogs` is the newer kind backing the live plugin-log streaming channel (pairs with `AgentWireMessage.PluginLogs`); it replaces stdout capture for the log panel and tolerates Quasar restarts/reconnects. Renaming any value is a breaking protocol change.

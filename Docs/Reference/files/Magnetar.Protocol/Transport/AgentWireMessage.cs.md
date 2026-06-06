@@ -3,32 +3,32 @@
 **Module:** Magnetar.Protocol  **Kind:** class  **Tier:** 1
 
 ## Summary
-Top-level wire envelope for all WebSocket messages exchanged between `Quasar.Agent` and the Quasar supervisor. Uses a tagged-union pattern: `Kind` (a `WireMessageKind` constant) discriminates which payload field is populated; unused fields are `null`.
+The single envelope type for every JSON message exchanged over the agent WebSocket channel between Quasar (`/ws/agent`) and the in-DS `Quasar.Agent` plugin. A `Kind` discriminator (a `WireMessageKind` constant) selects which optional payload property is populated; serialization uses camelCase with null values omitted, so only the relevant payload travels on the wire.
 
 ## Structure
-Namespace: `Magnetar.Protocol.Transport`
+Namespace `Magnetar.Protocol.Transport`; `public class AgentWireMessage`. Tagged-union-style payload bag (only one payload field non-null per message):
 
-Class `AgentWireMessage` (concrete, no base type):
-
-| Property | Type | Description |
+| Property | Type | Populated for `Kind` |
 |---|---|---|
-| `Kind` | `string` | Discriminator matching a `WireMessageKind` constant. |
-| `Message` | `string` | Optional plain-text message or error description. |
-| `Hello` | `AgentHello?` | Populated for `WireMessageKind.Hello`. |
-| `Snapshot` | `AgentSnapshot?` | Populated for `WireMessageKind.Snapshot`. |
-| `Command` | `ServerCommandEnvelope?` | Populated for `WireMessageKind.Command` (supervisor→agent). |
-| `CommandResult` | `ServerCommandResult?` | Populated for `WireMessageKind.CommandResult` (agent→supervisor). |
-| `PluginConfigSnapshot` | `PluginConfigSnapshot?` | Populated for `WireMessageKind.PluginConfigSnapshot`. |
-| `PluginConfigUpdateRequest` | `PluginConfigUpdateRequest?` | Populated for `WireMessageKind.PluginConfigUpdate`. |
+| `Kind` | `string` | discriminator (default empty) |
+| `Message` | `string` | free text, e.g. the `"pong"` reply (default empty) |
+| `Hello` | `AgentHello?` | `Hello` |
+| `Snapshot` | `AgentSnapshot?` | `Snapshot` |
+| `Command` | `ServerCommandEnvelope?` | `Command` (Quasar→agent) |
+| `CommandResult` | `ServerCommandResult?` | `CommandResult` (agent→Quasar) |
+| `PluginConfigSnapshot` | `PluginConfigSnapshot?` | `PluginConfigSnapshot` |
+| `PluginConfigUpdateRequest` | `PluginConfigUpdateRequest?` | `PluginConfigUpdate` |
+| `PluginLogs` | `PluginLogBatch?` | `PluginLogs` |
 
 ## Dependencies
-- [`Magnetar.Protocol/Transport/WireMessageKind.cs`](WireMessageKind.cs.md)
-- [`Magnetar.Protocol/Model/AgentHello.cs`](../Model/AgentHello.cs.md)
-- [`Magnetar.Protocol/Model/AgentSnapshot.cs`](../Model/AgentSnapshot.cs.md)
-- [`Magnetar.Protocol/Transport/ServerCommandEnvelope.cs`](ServerCommandEnvelope.cs.md)
-- [`Magnetar.Protocol/Transport/ServerCommandResult.cs`](ServerCommandResult.cs.md)
-- [`Magnetar.Protocol/Model/PluginConfigSnapshot.cs`](../Model/PluginConfigSnapshot.cs.md)
-- [`Magnetar.Protocol/Model/PluginConfigUpdateRequest.cs`](../Model/PluginConfigUpdateRequest.cs.md)
+- [`Magnetar.Protocol/Transport/WireMessageKind.cs`](WireMessageKind.cs.md) (discriminator values)
+- `Magnetar.Protocol/Model/AgentHello.cs`
+- `Magnetar.Protocol/Model/AgentSnapshot.cs`
+- `Magnetar.Protocol/Transport/ServerCommandEnvelope.cs`
+- `Magnetar.Protocol/Transport/ServerCommandResult.cs`
+- `Magnetar.Protocol/Model/PluginConfigSnapshot.cs`
+- `Magnetar.Protocol/Model/PluginConfigUpdateRequest.cs`
+- [`Magnetar.Protocol/Model/PluginLogBatch.cs`](../Model/PluginLogBatch.cs.md)
 
 ## Notes
-Only one payload field should be non-null per message. Ping/Pong and AdminStop messages use only `Kind` (and optionally `Message`); all other fields remain null.
+`PluginLogs` / `PluginLogBatch` is the newer plugin-log streaming payload; it carries pre-formatted sink lines rather than structured entries. `Ping`, `Pong`, and `AdminStop` messages carry no payload object — only `Kind` (and optionally `Message`).

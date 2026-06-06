@@ -3,54 +3,32 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Routable page (`/analytics`) that renders rolling, interruptible ApexCharts time-series charts for Space Engineers server metrics (SimSpeed, CPU, memory, player count, frame time, PCU, active grids, active entities). Supports multi-server selection, preset and custom time ranges, configurable grid layout, auto-refresh, post-ingest live metric refresh, export trigger, and per-panel layout editing via `AnalyticsPanelDialog`. The full view configuration is persisted in browser local storage under the key `quasar.analytics.view.v2`.
+Interactive `/analytics` dashboard that renders rolling Space Engineers server metrics as ApexCharts time-series line charts. It reads downsampled samples from `MetricsStoreService`, supports per-server selection, a configurable CSS-grid panel layout, persisted view config (localStorage), auto-refresh, custom time ranges, theme-aware chart styling, and a per-panel settings dialog. The whole charting stack was migrated to ApexCharts with new summary chips, an "Add panel" menu, and auto-refresh.
 
 ## Structure
-- **Route:** `@page "/analytics"`
-- **Implements:** `IDisposable`
-- **Injected services:** `MetricsStoreService`, `DedicatedServerCatalog`, `AgentRegistry`, `ISnackbar`, `ILocalStorageService`, `IDialogService`, `ThemePreferenceService`, `IJSRuntime`
-- **Key UI sections:**
-- Toolbar: `MudSelect` for time range (30s/1m/2m/5m/15m/30m/1h/6h/24h/7d/30d/custom), auto-refresh interval; Refresh, Export, Reset layout buttons; Add panel menu for hidden panels.
-  - Custom range pickers: `MudDatePicker` + `MudTimePicker` for from/to (shown when range = "custom").
-  - Server/Grid settings panel: `MudCheckBox` per discovered server, numeric fields for grid columns, rows, row height, and line capping controls (`Max visible lines`, `Show all selected server lines`).
-  - Summary chip row: live aggregate values (SimSpeed, CPU, Memory, Players, PCU, Grids, Entities, Range Avg Sim).
-  - Chart grid: CSS grid (`--analytics-grid-columns`, `--analytics-grid-rows`, `--analytics-row-height`) of ApexCharts line-chart cards; each card has a settings icon that opens `AnalyticsPanelDialog`.
-- **Significant private types:**
-  - `MetricDefinition` record — key, title, subtitle, value selector, availability predicate, requires-zero flag.
-  - `ChartModel` record — built chart series, ApexCharts options, layout style, and panel ref.
-  - `AnalyticsChartSeries` / `AnalyticsChartPoint` records — per-server line-series data with nullable Y values so missing samples and explicit gaps interrupt the rendered line.
-  - `AnalyticsViewConfig` — persisted config (loaded via `ILocalStorageService`).
-  - `AnalyticsPanelConfig` — per-panel visibility, order, column/row span.
-- **Key methods:**
-- `RefreshViewAsync()` — rebuilds server options, normalises selection, resolves time range and viewport-derived point budget, loads sampled data, down-samples and caches transformed points, and builds summary chips plus chart models.
-  - Chart render keys include a structural refresh version for time-range/layout/theme changes; live data refreshes keep the same chart/series/list instances, mutate point lists in place, use ApexCharts dynamic update APIs after render, and explicitly slide the visible X-axis with `ZoomXAsync`.
-  - `BuildSeriesPoints()` — sorts metric samples by timestamp, inserts null-valued gap points when sample spacing exceeds the disruption threshold, and emits null values for unavailable/non-finite metric samples.
-- `CreateChartOptions()` — configures ApexCharts line rendering, a blue-first series palette, datetime axes fixed to the selected time window (keeps moving scale), tooltip formatting, markers, legends, null-point behaviour, fixed 0..100 ms Y-axis for frame-time, and theme mode from `ThemePreferenceService` (light/dark).
-  - `ResolveChartHeight()` — derives an explicit pixel chart height from the panel row span and configured row height so ApexCharts does not collapse inside the flex card.
-- `ResolveGapThresholdSeconds()` — uses observed sample cadence and a raw baseline to detect missing periods and insert interruption points without false breaks.
-- `DownsampleToPointLimit()` — chunk-based averaging decimation to keep each series within budget while preserving the final partial chunk so the newest live samples remain visible.
-  - point budget is resolved per chart by viewport width (`chartPxWidth * 1.5`), capped by `[300, 1000]`, then divided by visible server count to keep total chart points bounded.
-  - `OpenPanelDialogAsync()` — shows `AnalyticsPanelDialog` and writes back panel settings.
-  - `UpdateRefreshTimer()` — creates/disposes a `System.Threading.Timer` for auto-refresh; guarded with `Interlocked.Exchange` to prevent overlapping refreshes.
-- **JS interop:** `IJSRuntime` is used for viewport width via `quasarConfigs.getViewportWidth` for dynamic chart point budgets; `JSDisconnectedException` is still handled for local-storage operations and width lookup fallbacks.
-- **Event subscriptions:** `MetricsStoreService.Changed`, `AgentRegistry.Changed`, `DedicatedServerCatalog.Changed` — all call `HandleSourceChanged` which marshals to the Blazor thread via `InvokeAsync` and coalesces overlapping refresh requests. The metrics-store event fires after queued samples are ingested, avoiding stale live-refresh reads.
+- `@page "/analytics"`, `@implements IDisposable`.
+- **`[Inject]`ed services:** `MetricsStoreService MetricsStore`, `DedicatedServerCatalog ServerCatalog`, `AgentRegistry Registry`, `ISnackbar Snackbar`, `ILocalStorageService LocalStorage`, `IDialogService DialogService`, `ThemePreferenceService ThemePreference`, `IJSRuntime JS`. No `[Parameter]`s.
+- **Toolbar:** time-range `MudSelect` (30s..30d + Custom), auto-refresh `MudSelect` (Off/5/15/30/60s), Refresh / Export / Reset-layout buttons, and an "Add panel" `MudMenu` listing hidden panels. Custom range shows date/time pickers.
+- **Filters paper:** server checkbox grid with "Select all"; grid controls (`Columns`, `Rows`, `Row height`, `Max visible lines`, "Show all selected server lines") plus "Reset panels".
+- **Summary chips row:** Servers, SimSpeed, CPU, Memory, Players, PCU, Grids, Entities, Range Avg Sim.
+- **Chart grid:** CSS-grid (`analytics-chart-grid`) of `MudPaper` cards, each an `ApexChart<AnalyticsChartPoint>` with `ApexPointSeries` (one Line series per server) and a "Tune" `MudIconButton` opening `AnalyticsPanelDialog`.
+- **Metrics (`MetricDefinitions`):** simspeed, cpu, memory (GB), players, frametime, pcu, grids, entities — each with selector/availability/RequiresZero.
+- **Refresh pipeline:** `RefreshViewAsync` resolves range/servers, picks raw/1-minute/1-hour rollup tier by span, downsamples to a per-series point budget derived from viewport width (`quasarConfigs.getViewportWidth` JS interop), builds series with gap-insertion, and either remounts charts (keyed by render version) or updates existing charts in place via `UpdateOptionsAsync`/`UpdateSeriesAsync`/`ZoomXAsync`. Source-change events are coalesced through `ProcessQueuedRefreshAsync`; auto-refresh runs a `PeriodicTimer` loop.
+- **Persistence/config:** `AnalyticsViewConfig` (storage key `quasar.analytics.view.v2`) with `NormalizeConfig`, `CreateDefaultPanels`, panel visibility/order/spans.
+- **Chart options:** `CreateChartOptions` builds theme-aware (`_isDarkTheme`) `ApexChartOptions` — datetime X axis, formatted labels/tooltips by span, per-metric Y-axis decimals/max/formatter, dense-chart marker suppression.
+- **Helper records/classes:** `ServerOption`, `SummaryChipModel`, `MetricDefinition`, `ChartModel`, `AnalyticsChartSeries`, `AnalyticsChartPoint`, `SeriesTransformCacheKey`.
 
 ## Dependencies
-- [`Quasar/Services/Analytics/MetricsStoreService.cs`](../../Services/Analytics/MetricsStoreService.cs.md)
-- [`Quasar/Services/AgentRegistry.cs`](../../Services/AgentRegistry.cs.md)
-- [`Quasar/Services/DedicatedServerCatalog.cs`](../../Services/DedicatedServerCatalog.cs.md)
-- `Quasar/Components/Pages/AnalyticsPanelDialog.razor`
-- ApexCharts (`ApexChart`, `ApexPointSeries`, `ApexChartOptions`)
-- MudBlazor (`MudSelect`, `MudNumericField`, `MudDatePicker`, `MudTimePicker`, `MudCheckBox`, `MudChip`, `MudMenu`, `MudButton`)
-- Blazored.LocalStorage (`ILocalStorageService`)
+- `Quasar/Components/Pages/AnalyticsPanelDialog.razor` (panel settings dialog)
+- `Quasar/Services/MetricsStoreService.cs` (and `ServerMetricsStore` / `MetricSample`)
+- `Quasar/Services/DedicatedServerCatalog.cs`
+- `Quasar/Services/AgentRegistry.cs`
+- [`Quasar/Services/ThemePreferenceService.cs`](../../Services/ThemePreferenceService.cs.md)
+- [`Quasar/Components/Pages/Analytics.razor.css`](Analytics.razor.css.md) (scoped styles)
+- External: **ApexCharts** (`ApexChart`, `ApexPointSeries`, `ApexChartOptions`), **MudBlazor**, **Blazored.LocalStorage** (`ILocalStorageService`), `Microsoft.JSInterop`.
 
 ## Notes
-- Auto-refresh uses an async `PeriodicTimer` loop that marshals back to Blazor's sync context via `InvokeAsync` and calls the same refresh path as the toolbar Refresh button. Source-change refreshes use `Interlocked` flags to coalesce overlapping requests so a post-ingest metrics refresh is not dropped behind an earlier registry refresh.
-- ApexCharts components are keyed by panel plus structural refresh version. Live data and timer refreshes keep chart identity stable, mutate each existing series' `Points` list, call the wrapper's dynamic update APIs after render, then call `ZoomXAsync` so the time window moves forward without remount flicker. Time-range/layout/theme changes can still remount with fresh series/options.
-- ApexCharts receives nullable decimal Y values and `ShowNullDataPoints = false`; null points create visible interruptions instead of connecting across bad or missing metric data. Gap detection is downsample-aware, so a low point limit alone does not split otherwise continuous data.
-- Frame time is always rendered on a 0..100 ms Y-axis to keep rare outliers from flattening normal samples against the bottom of the chart.
-- Per-chart point budget scales with chart width and visible lines: the same selected time range can be displayed with more detail on wider charts and fewer points when many server lines are visible.
-- Large server selections can be capped in-page via `Max visible lines` to control concurrent line rendering, with a `Show all selected server lines` override.
-- ApexCharts axis titles are intentionally omitted because the surrounding panel already shows the metric title/subtitle.
-- The chart grid is driven entirely by CSS custom properties injected inline (`ChartGridStyle`); on screens narrower than 1280 px the CSS collapses to a single column (`Analytics.razor.css`).
-- Local-storage failures (circuit disconnected, JS errors) are silently swallowed so the page still functions.
+- ApexChart instances are held by reference (`ChartRef`) so series/options/zoom can be updated without a full remount; `RenderKey` (`{panel}:{version}`) forces a remount when layout/range changes.
+- Chart point budget adapts to viewport width and time span; rollup tier is chosen by span (<=2h raw, <=24h 1-minute, else 1-hour).
+- All JS interop and localStorage access guard against `InvalidOperationException`/`JSDisconnectedException` (prerender / circuit-disconnected) and silently degrade.
+- `Dispose` cancels the auto-refresh `CancellationTokenSource` and detaches all source `Changed` / theme events.

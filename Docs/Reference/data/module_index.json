@@ -106,6 +106,13 @@
       "summary": "Request DTO sent by Quasar to the agent to apply new configuration values to a specific plugin. The agent routes it to the matching `IQuasarConfigProvider` by `PluginId` and calls `ApplyConfigJson`."
     },
     {
+      "path": "Magnetar.Protocol/Model/PluginLogBatch.cs",
+      "name": "PluginLogBatch.cs",
+      "kind": "class (DTO)",
+      "tier": 1,
+      "summary": "DTO carrying a batch of plugin log lines the agent ships to Quasar over its WebSocket channel (as `AgentWireMessage.PluginLogs`, kind `WireMessageKind.PluginLogs`). Each entry is one formatted JSON line exactly as the PluginSdk `QuasarLogSink` renders it, so Quasar reuses its existing sink-line parser to turn them back into log entries. This channel replaces stdout capture for the live log panel: it keeps flowing after Quasar restarts and reconnects to a detached daemon, and the agent buffers lines while Quasar is unreachable so they are backfilled on reconnect."
+    },
+    {
       "path": "Magnetar.Protocol/Model/PluginRuntimeInfo.cs",
       "name": "PluginRuntimeInfo.cs",
       "kind": "class",
@@ -122,9 +129,9 @@
     {
       "path": "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
       "name": "MagnetarPaths.cs",
-      "kind": "class",
+      "kind": "class (static)",
       "tier": 1,
-      "summary": "Static helper class that centralises all filesystem path resolution for the Quasar ecosystem. The root directory defaults to `~/.config/Quasar` (Linux/macOS) or `%APPDATA%\\Quasar` (Windows) and can be overridden with the `QUASAR_DATA_DIR` environment variable. Every other path in the system derives from this root."
+      "summary": "Central, shared resolver for every on-disk path Quasar and its helpers use. All locations hang off a single Quasar data root (`~/.config/Quasar` on Linux/macOS, `%APPDATA%\\Quasar` on Windows), overridable via the `QUASAR_DATA_DIR` environment variable. Used by the supervisor, bootstrap launcher, and other components so they agree on file layout."
     },
     {
       "path": "Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs",
@@ -138,7 +145,7 @@
       "name": "AgentWireMessage.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Top-level wire envelope for all WebSocket messages exchanged between `Quasar.Agent` and the Quasar supervisor. Uses a tagged-union pattern: `Kind` (a `WireMessageKind` constant) discriminates which payload field is populated; unused fields are `null`."
+      "summary": "The single envelope type for every JSON message exchanged over the agent WebSocket channel between Quasar (`/ws/agent`) and the in-DS `Quasar.Agent` plugin. A `Kind` discriminator (a `WireMessageKind` constant) selects which optional payload property is populated; serialization uses camelCase with null values omitted, so only the relevant payload travels on the wire."
     },
     {
       "path": "Magnetar.Protocol/Transport/ServerCommandEnvelope.cs",
@@ -164,9 +171,9 @@
     {
       "path": "Magnetar.Protocol/Transport/WireMessageKind.cs",
       "name": "WireMessageKind.cs",
-      "kind": "class",
+      "kind": "class (static)",
       "tier": 1,
-      "summary": "Static class of string constants used as the `Kind` discriminator in `AgentWireMessage`. These string values are transmitted on the wire, so they must remain stable across versions."
+      "summary": "String constants for the `AgentWireMessage.Kind` discriminator \u2014 the shared vocabulary of message types on the Quasar \u2194 agent WebSocket channel. Both ends compare against these constants to route each envelope to the correct handler. Values travel on the wire, so they must stay stable across versions."
     }
   ],
   "Quasar.Agent": [
@@ -175,14 +182,14 @@
       "name": "AdminPlugin.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`AdminPlugin` is the Magnetar `IPlugin` entry point for the Quasar agent. It wires together `GameBridge`, `AgentConnection`, and `WebServiceLocator` on `Init`, drives the game-thread snapshot refresh on each `Update` tick, and handles the two server-lifetime events: player death (forwarded as a `DeathEventSnapshot`) and server termination (sends an `AdminStop` signal to Quasar when the shutdown was admin-initiated rather than Quasar-requested)."
+      "summary": "`AdminPlugin` is the Magnetar `IPlugin` entry point for the Quasar agent that runs inside the Space Engineers dedicated server. On `Init` it builds the `GameBridge`, starts a `PluginLogOutbox` (begun before the connection so startup log lines are buffered), and starts an `AgentConnection`. It drives the game-thread snapshot refresh on each `Update`, and handles two lifetime events: player death (forwarded as a `DeathEventSnapshot`) and server termination (sends an `AdminStop` signal to Quasar when the shutdown was admin-initiated, not Quasar-requested)."
     },
     {
       "path": "Quasar.Agent/AgentConnection.cs",
       "name": "AgentConnection.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`AgentConnection` manages the raw WebSocket connection from the in-game agent to the Quasar supervisor. It runs a reconnect loop on a background task, sends a `Hello` handshake and periodic `Snapshot` messages, receives and dispatches `Command` / `PluginConfigUpdate` / `Ping` messages from Quasar, and implements autonomous save-and-stop if Quasar has been unreachable beyond a configurable window."
+      "summary": "`AgentConnection` manages the WebSocket connection from the in-DS agent to the Quasar supervisor. It runs a reconnect loop on a background task, sends a `Hello` handshake plus periodic `Snapshot` messages, streams buffered plugin log batches from a `PluginLogOutbox`, receives and dispatches `Command` / `PluginConfigUpdate` / `Ping` messages from Quasar, and performs an autonomous save-and-stop if Quasar stays unreachable past a configurable window."
     },
     {
       "path": "Quasar.Agent/AgentOptions.cs",
@@ -206,6 +213,13 @@
       "summary": "`GameBridge` is the central game-thread fa\u00e7ade for `AgentConnection`. It collects session telemetry (metrics, players, chat, deaths, plugins), builds `AgentHello` / `AgentSnapshot` wire messages, and executes server commands (chat, save, stop, kick, ban, promote, entity list/delete) by marshalling work onto the game thread via `MySandboxGame.Invoke`. It also enumerates all loaded plugins and exposes their configuration through `IQuasarConfigProvider` or Magnetar PluginSdk `PluginConfig` reflection."
     },
     {
+      "path": "Quasar.Agent/PluginLogOutbox.cs",
+      "name": "PluginLogOutbox.cs",
+      "kind": "class",
+      "tier": 1,
+      "summary": "Bounded, thread-safe buffer that captures plugin log lines emitted in-process by the PluginSdk Quasar log sink and hands them to `AgentConnection` in batches for streaming to Quasar (as `PluginLogBatch` / `WireMessageKind.PluginLogs`). The buffer survives Quasar outages: lines accumulate while disconnected and are flushed on reconnect, so the supervisor's \"Recent plugin logs\" panel is backfilled rather than losing everything captured while Quasar was down."
+    },
+    {
       "path": "Quasar.Agent/Quasar.Agent.csproj",
       "name": "Quasar.Agent.csproj",
       "kind": "project file",
@@ -226,7 +240,7 @@
       "name": "Program.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`Program.cs` is the entry point and core logic for the `Quasar.Bootstrap` launcher. It implements three CLI commands (`ensure-running`, `serve`, `activate-release`) and two supporting types: `BootstrapOptions` (reads host/port from `appsettings.json`) and `LauncherCoordinator` (`IHostedService` that manages the Quasar worker process, watches the active-release pointer file, and handles zero-downtime hot-reload when a new release is activated)."
+      "summary": "Entry point and core logic for the `Quasar.Bootstrap` ensure-running helper. It implements three CLI commands (`ensure-running`, `serve`, `activate-release`) and the supporting types `BootstrapOptions` (host/port + preserve-servers policy from `appsettings.json`) and `LauncherCoordinator` (an `IHostedService` that supervises the Quasar worker process, watches the active-release pointer file, and performs zero-downtime hot-reload when a new release is activated)."
     },
     {
       "path": "Quasar.Bootstrap/Properties/launchSettings.json",
@@ -277,7 +291,7 @@
       "name": "MainLayout.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Top-level application shell layout. Provides the MudBlazor theme/provider setup, a responsive app bar with branding, theme-mode switcher, auth (login/logout) and Quasar-shutdown controls, a collapsible side drawer with `NavMenu`, and the main content area that renders `@Body`. Also renders a full-screen shutdown overlay and a confirmation dialog."
+      "summary": "Top-level application shell layout. Provides the MudBlazor theme/provider setup, a responsive app bar with branding, a theme-mode switcher, auth (login/logout) controls, and Quasar shutdown / worker-restart controls. It hosts a collapsible side drawer with `NavMenu`, the main content area that renders `@Body`, a full-screen shutdown/restart overlay, and two confirmation `MudMessageBox` dialogs (shut-down-all-servers and restart-worker)."
     },
     {
       "path": "Quasar/Components/Layout/MainLayout.razor.css",
@@ -291,7 +305,7 @@
       "name": "NavMenu.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Side-drawer navigation menu. Renders two `MudNavMenu` groups \u2014 a \"Control Surface\" group with the main app routes and a \"Settings\" group with appearance and (policy-gated) security links."
+      "summary": "Side-drawer navigation menu. Renders two `MudNavMenu` groups separated by a `MudDivider` \u2014 a primary group with the main app routes and a settings group with the appearance link plus a policy-gated security link."
     },
     {
       "path": "Quasar/Components/Layout/ReconnectModal.razor",
@@ -319,14 +333,14 @@
       "name": "Analytics.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page (`/analytics`) that renders rolling, interruptible ApexCharts time-series charts for Space Engineers server metrics (SimSpeed, CPU, memory, player count, frame time, PCU, active grids, active entities). Supports multi-server selection, preset and custom time ranges, three data tiers (raw, 1-minute, 1-hour rollup), configurable grid layout, auto-refresh, export trigger, and per-panel layout editing via `AnalyticsPanelDialog`. The full view configuration is persisted in browser local storage under the key `quasar.analytics.view.v2`."
+      "summary": "Interactive `/analytics` dashboard that renders rolling Space Engineers server metrics as ApexCharts time-series line charts. It reads downsampled samples from `MetricsStoreService`, supports per-server selection, a configurable CSS-grid panel layout, persisted view config (localStorage), auto-refresh, custom time ranges, theme-aware chart styling, and a per-panel settings dialog. The whole charting stack was migrated to ApexCharts with new summary chips, an \"Add panel\" menu, and auto-refresh."
     },
     {
       "path": "Quasar/Components/Pages/Analytics.razor.css",
       "name": "Analytics.razor.css",
       "kind": "CSS",
       "tier": 3,
-      "summary": "Scoped stylesheet for `Analytics.razor`. Defines the responsive CSS grid layout for the analytics chart area and ensures each ApexCharts card fills its cell fully."
+      "summary": "Scoped stylesheet for `Analytics.razor`. Defines the responsive CSS-grid layout for the analytics chart panels and constrains the embedded ApexCharts canvases."
     },
     {
       "path": "Quasar/Components/Pages/AnalyticsPanelDialog.razor",
@@ -361,14 +375,14 @@
       "name": "Configs.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page (`/configs`) and the primary config-template editor. Provides a sidebar list of `QuasarConfigProfile` templates and a main editor pane with three tabs \u2014 World (categorised world-option expansion panels with live search and jump-to), Plugins (selected plugins table + MagnetarHub catalog table + manual input), and Mods (selected mods table + Steam Workshop search + manual/bulk input). Also contains a Developer section for registering local plugin dev folders. Supports pending-change detection with an interstitial dialog before switching templates."
+      "summary": "The `/configs` page: a full editor for reusable Magnetar config templates (`QuasarConfigProfile`) that are applied to assigned dedicated servers at startup. A sidebar lists/creates/clones/deletes templates; the main column edits World settings, Plugins, Mods, and Developer dev-folders across tabbed and collapsible panels. QoL features include searchable/jump-to world options, a refreshable plugin catalog, Steam Workshop search, world-template mod merge, unsaved-change guarding, and integration with the plugin-manifest picker dialog for registering local dev folders. (This page has no charts; the analytics charting work lives in `Analytics.razor`.)"
     },
     {
       "path": "Quasar/Components/Pages/Configs.razor.css",
       "name": "Configs.razor.css",
       "kind": "CSS",
       "tier": 3,
-      "summary": "Scoped stylesheet for `Configs.razor`. Implements the two-column sticky-sidebar layout, styled template-tile list, option cards with search-highlight states, and Workshop thumbnail sizing."
+      "summary": "Scoped stylesheet for `Configs.razor`. Styles the two-column page shell (sticky template sidebar + scrollable editor), the template tiles, collapsible config/world panels, option cards (with search-highlight and focus states), workshop thumbnails, and plugin description cells."
     },
     {
       "path": "Quasar/Components/Pages/ConfigsPageDialog.razor",
@@ -417,7 +431,7 @@
       "name": "Home.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable root page (`/`) serving as the main dashboard. Shows a five-step first-run setup wizard (persisted dismissed/completed state in browser local storage), summary KPI cards (online servers, players, health warnings, errors), an optional problem banner, a managed-runtime warmup status alert, and a `ServerCard` grid for all configured instances. Supports starting, stopping, and restarting servers directly from the dashboard, and opens full-screen page dialogs for config-template, world-template, and server creation from within the setup wizard."
+      "summary": "Routable root page (`/`) serving as the main dashboard. Shows a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, a managed-runtime warmup status alert, and a `ServerCard` grid for all configured instances. Servers can be started, stopped, and restarted directly from the dashboard, and the wizard opens full-screen page dialogs for config-template, world-template, and server creation."
     },
     {
       "path": "Quasar/Components/Pages/Home.razor.css",
@@ -452,7 +466,14 @@
       "name": "Players.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page at `/players` listing all known players across managed servers. Combines persisted `KnownPlayerRecord` data with live agent snapshots to show online/offline status, faction, role, and last-seen time, and allows moderation actions (kick, ban/unban, set promote level) via per-row action menus."
+      "summary": "Routable page at `/players` listing all known players observed across managed servers. Merges the persisted `KnownPlayerCatalog` with live agent snapshots to show online/offline status, role, faction, service and Steam id, and offers per-row moderation actions (set promote level, kick, ban/unban) dispatched to the owning agent."
+    },
+    {
+      "path": "Quasar/Components/Pages/PluginCatalogDescriptionDialog.razor",
+      "name": "PluginCatalogDescriptionDialog.razor",
+      "kind": "Blazor component",
+      "tier": 2,
+      "summary": "Small read-only MudBlazor dialog that shows a plugin catalog entry's full description. The title displays the plugin display name with the plugin id as a caption, and the body renders the description text with preserved line breaks; a single primary button closes it."
     },
     {
       "path": "Quasar/Components/Pages/PluginManifestPickerDialog.razor",
@@ -466,7 +487,7 @@
       "name": "Plugins.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page at `/plugins` with three sections: a plugin inventory table across all connected servers, a live plugin configuration section that renders `PluginConfigEditor` for each connected agent with exposed configs, and a `PluginLogPanel` showing structured plugin log output. On first render it triggers a background refresh of the `QuasarPluginCatalogService` to resolve GitHub source URLs."
+      "summary": "Routable page at `/plugins` with three sections: a plugin-inventory table aggregated across all connected servers, a live plugin-configuration section that renders a `PluginConfigEditor` per plugin for each connected agent exposing configs, and a `PluginLogPanel` of structured plugin logs. On first render it triggers a background refresh of `QuasarPluginCatalogService` to resolve GitHub source URLs for inventory rows."
     },
     {
       "path": "Quasar/Components/Pages/Security.razor",
@@ -501,7 +522,7 @@
       "name": "Servers.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page at `/servers` that is the primary control surface for Quasar-managed dedicated servers. Displays an expandable table of all defined servers with live runtime status, and a secondary section for unmanaged agents. Provides Create, Clone, Edit, Delete, Start, Stop, Restart, \"Template\" (create world template from stopped server), and console-open actions."
+      "summary": "Routable page at `/servers` managing persistent dedicated-server definitions. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status, start/stop/restart controls, and create/clone/edit/delete/console/world-template actions; expandable rows embed a `ServerDetailPanel` with live agent data. A separate panel lists \"unmanaged\" agents that report in without a matching server definition."
     },
     {
       "path": "Quasar/Components/Pages/ServersPageDialog.razor",
@@ -536,7 +557,7 @@
       "name": "WorldTemplates.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page at `/world-templates` for managing reusable Space Engineers world templates. Provides an inline import form (name, description, source path with folder browser), a sortable table of existing templates with size and status, and Clone / Delete actions. Template files are stored in managed Quasar storage via `QuasarWorldTemplateCatalog`."
+      "summary": "Routable page at `/world-templates` for managing reusable Space Engineers world templates. Provides an inline import form (name, description, source path with folder browser), and a sortable table of existing templates showing size and a missing-world indicator with Clone and Delete actions. Template world files are copied into managed Quasar storage via `QuasarWorldTemplateCatalog`."
     },
     {
       "path": "Quasar/Components/Pages/WorldTemplatesPageDialog.razor",
@@ -564,7 +585,7 @@
       "name": "PluginLogPanel.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Reusable panel that displays live plugin log entries from `PluginLogStream`. Provides filter controls for server, log level, time range, row limit, and free-text search. Subscribes to the stream's `Changed` event to refresh automatically as new entries arrive."
+      "summary": "Reusable panel that displays live plugin log entries from `PluginLogStream`. Provides filter controls for server, plugin, log level, time range, row limit, and free-text search. Subscribes to the stream's `Changed` event to refresh automatically as new entries arrive."
     },
     {
       "path": "Quasar/Components/Routes.razor",
@@ -659,7 +680,7 @@
       "name": "Program.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "The ASP.NET Core / Blazor Server entry point for the Quasar supervisor host. `Program.Main` builds the `WebApplication`, registers all DI services, configures authentication and authorization, wires middleware, maps HTTP/WebSocket endpoints, and runs the application. It is the system wiring hub \u2014 every significant service in the process is registered here."
+      "summary": "The ASP.NET Core / Blazor Server entry point for the Quasar supervisor host. `Program.Main` builds the `WebApplication`, registers every DI service, configures authentication and authorization, wires the middleware pipeline, maps HTTP/WebSocket endpoints, and runs the app. It is the system wiring hub \u2014 essentially every service in the process is registered here."
     },
     {
       "path": "Quasar/Properties/launchSettings.json",
@@ -680,14 +701,14 @@
       "name": "appsettings.Development.json",
       "kind": "JSON config",
       "tier": 3,
-      "summary": "Development-environment override for `appsettings.json`. Currently contains only the standard `Logging` section with no effective changes from the base file (same log levels). Loaded when `ASPNETCORE_ENVIRONMENT=Development`."
+      "summary": "Development-environment override for `appsettings.json`, loaded when `ASPNETCORE_ENVIRONMENT=Development`. Enables `DetailedErrors` for Blazor circuit diagnostics and carries a standard `Logging` block with the same log levels as the base file."
     },
     {
       "path": "Quasar/appsettings.json",
       "name": "appsettings.json",
       "kind": "JSON config",
       "tier": 3,
-      "summary": "Default application configuration file for the Quasar host. Provides baseline values for the `Quasar` options section (network, managed runtime paths, logging, auth) and ASP.NET Core logging. All keys are overridable via environment-specific `appsettings.{env}.json`, environment variables, or command-line arguments as resolved by `Program.AddDeploymentConfigurationSources`."
+      "summary": "Default application configuration for the Quasar host. Provides baseline values for the `Quasar` options section (network, analytics retention, agent reconnect timing, managed runtime paths, logging, auth) plus ASP.NET Core logging. All keys are overridable via environment-specific `appsettings.{env}.json`, environment variables, or command-line arguments as resolved by the deployment configuration sources in `Program`."
     },
     {
       "path": "Quasar/wwwroot/app.css",
@@ -701,7 +722,7 @@
       "name": "quasar-configs.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Small JavaScript interop module registered as `window.quasarConfigs`. Provides three utility functions called from Blazor components via `IJSRuntime.InvokeAsync`. The object is initialised lazily with `||=` to allow safe re-evaluation."
+      "summary": "Small JavaScript interop module registered as `window.quasarConfigs`. Provides utility functions called from Blazor components via `IJSRuntime.InvokeAsync`. The object is assigned with `window.quasarConfigs = window.quasarConfigs || { ... }` so re-evaluation is safe (it keeps any existing instance)."
     }
   ],
   "Quasar.Services.Core": [
@@ -717,7 +738,7 @@
       "name": "AgentSocketHandler.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`AgentSocketHandler` is the HTTP/WebSocket entry point for incoming Quasar.Agent connections. It accepts the `quasar.agent.v1` sub-protocol, drives the per-connection read loop, dispatches each `AgentWireMessage` to the appropriate service, and cleans up the registry on disconnect. It is the bridge between the raw WebSocket transport and the `AgentRegistry`."
+      "summary": "`AgentSocketHandler` is the HTTP/WebSocket entry point for incoming Quasar.Agent connections. It accepts the `quasar.agent.v1` sub-protocol, drives the per-connection read loop, dispatches each `AgentWireMessage` to the appropriate service, and marks the connection disconnected in the registry on teardown. It is the bridge between the raw WebSocket transport and the rest of the supervisor stack."
     },
     {
       "path": "Quasar/Services/AtomicFileWriter.cs",
@@ -759,14 +780,14 @@
       "name": "DedicatedServerRuntimePreparer.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`DedicatedServerRuntimePreparer` transforms a `DedicatedServerDefinition` into a fully staged on-disk runtime immediately before a dedicated server process is launched. It writes the runtime DS config XML, the Magnetar plugin sources/profile XML, the world mod list, and the `LastSession.sbl` pointer file; deploys the Quasar.Agent DLL; and computes the final command-line arguments string. The output is a `PreparedDedicatedServerLaunch` record."
+      "summary": "`DedicatedServerRuntimePreparer` transforms a `DedicatedServerDefinition` into a fully staged on-disk runtime immediately before a dedicated server process is launched. It writes the runtime DS config XML, the Magnetar plugin sources/profile XML, the world mod list, and the `LastSession.sbl` pointer file; deploys the Quasar.Agent DLL; seeds the world from a template if needed; and computes the final command-line arguments string. The output is a `PreparedDedicatedServerLaunch` record."
     },
     {
       "path": "Quasar/Services/DedicatedServerSupervisor.cs",
       "name": "DedicatedServerSupervisor.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`DedicatedServerSupervisor` is the heart of Quasar's process management. It is an `IHostedService` that maintains in-memory `ManagedServerState` for every configured dedicated server, runs a 2-second reconcile loop that starts/stops/restarts processes to match goal state, evaluates server health (agent heartbeat, simulation frame progress, uptime thresholds), persists supervisor state across Quasar restarts with process adoption, and coordinates graceful stop (save + stop commands to agent before kill) and scheduled/maximum-uptime restarts."
+      "summary": "`DedicatedServerSupervisor` is the heart of Quasar's process management. It is an `IHostedService` that maintains in-memory `ManagedServerState` for every configured dedicated server, runs a 2-second reconcile loop that starts/stops/restarts processes to match goal state, evaluates server health (agent heartbeat, simulation frame progress, uptime thresholds), persists runtime state across Quasar worker restarts and **adopts surviving detached processes by PID on startup**, and coordinates graceful stop (save + stop commands to the agent before kill) plus scheduled and maximum-uptime restarts."
     },
     {
       "path": "Quasar/Services/EntityService.cs",
@@ -794,7 +815,7 @@
       "name": "ManagedDedicatedServerRuntimeResolver.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`ManagedDedicatedServerRuntimeResolver` resolves the three paths needed to launch a dedicated server \u2014 the Magnetar launcher executable, its working directory, and the `DedicatedServer64` directory \u2014 and auto-installs Magnetar, SteamCMD, and the DS itself if they are absent. It supports `.zip`, `.tar.gz`, and `.7z` archives for both Magnetar and SteamCMD downloads, guarded by per-component `SemaphoreSlim` install locks."
+      "summary": "`ManagedDedicatedServerRuntimeResolver` resolves the three paths needed to launch a dedicated server \u2014 the Magnetar launcher executable, its working directory, and the `DedicatedServer64` directory \u2014 and auto-installs Magnetar, SteamCMD, and the DS itself when absent. It supports `.zip`, `.tar.gz`, and `.7z` archives for both Magnetar and SteamCMD downloads, guarded by per-component `SemaphoreSlim` install locks."
     },
     {
       "path": "Quasar/Services/ManagedRuntimeOptions.cs",
@@ -809,6 +830,13 @@
       "kind": "class",
       "tier": 1,
       "summary": "`ManagedRuntimeWarmupService` is a `BackgroundService` that proactively resolves the managed runtime (Magnetar + DS) shortly after Quasar starts, so the first real server launch does not block on slow downloads. It exposes a `ManagedRuntimeWarmupSnapshot` for UI status display and fires a `Changed` event on transitions."
+    },
+    {
+      "path": "Quasar/Services/PluginCatalogRefreshService.cs",
+      "name": "PluginCatalogRefreshService.cs",
+      "kind": "class",
+      "tier": 1,
+      "summary": "Background hosted service that periodically refreshes the Quasar plugin catalog so its cached plugin/manifest data stays current without user action. After a short startup delay it refreshes once, then refreshes on a fixed interval. Refresh failures are logged and the previously cached catalog is kept as a fallback."
     },
     {
       "path": "Quasar/Services/PluginManifestReader.cs",
@@ -857,7 +885,7 @@
       "name": "QuasarShutdownService.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`QuasarShutdownService` orchestrates a graceful shutdown of all running dedicated servers before stopping the Quasar host process. It iterates servers in Starting/Running/Restarting/Stopping states, stops each one individually (best-effort, exceptions swallowed), then calls `IHostApplicationLifetime.StopApplication()`. An `IProgress<string>` parameter lets callers stream status messages to the UI during the shutdown sequence."
+      "summary": "`QuasarShutdownService` orchestrates stopping all managed Magnetar servers and recycling the Quasar worker \u2014 with or without leaving those servers running. It distinguishes three operations: stop every running server (leaving Quasar up), full shutdown (stop servers then stop the host), and worker restart (leave servers running, drain the supervisor, and stop the worker so a launcher respawns it). An `IProgress<string>` parameter streams status messages to the UI during each sequence."
     },
     {
       "path": "Quasar/Services/QuasarTheme.cs",
@@ -878,7 +906,7 @@
       "name": "QuasarWorldTemplateCatalog.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Manages the persistent catalog of Quasar world templates \u2014 pre-configured world directories (containing a `Sandbox.sbc`) that can be used as starting points when creating new server instances. Templates are stored under `<QuasarDir>/WorldTemplates/<id>/` with a `template.json` metadata file and a `World/` subdirectory for the game files. The catalog supports import (copy from an arbitrary path), deletion (with archiving), file-system watching with debounced reload, and a one-time legacy migration from the old `WorldProfiles` storage layout."
+      "summary": "Manages the persistent catalog of Quasar world templates \u2014 pre-configured world directories (each containing a `Sandbox.sbc`) used as starting points when seeding new server worlds. Templates live under `<QuasarDir>/WorldTemplates/<id>/` with a `template.json` metadata file and a `World/` subdirectory of game files. Supports import (copy from an arbitrary path), deletion (with history archiving), debounced file-system watching, and a one-time legacy migration from the old `WorldProfiles` layout."
     },
     {
       "path": "Quasar/Services/SteamWorkshopCredentialsCatalog.cs",
@@ -899,7 +927,7 @@
       "name": "ThemePreferenceService.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Per-session (scoped) service that manages the user's theme preference (System / Light / Dark), persists the choice to browser `localStorage` under key `\"quasar.theme.mode\"`, and resolves the effective `IsDarkMode` boolean by querying the OS dark-mode preference via JS interop when the mode is `System`. It also exposes the active `MudTheme` from `BrandingService`."
+      "summary": "Per-circuit (scoped) service that manages the user's theme preference (System / Light / Dark), persists the choice to browser `localStorage` under key `\"quasar.theme.mode\"`, and resolves the effective `IsDarkMode` boolean \u2014 querying the OS dark-mode preference via JS interop when the mode is `System`. It also surfaces the active `MudTheme` built by `BrandingService`."
     },
     {
       "path": "Quasar/Services/WebServiceManifestHostedService.cs",
@@ -932,11 +960,18 @@
   ],
   "Quasar.Services.Analytics": [
     {
+      "path": "Quasar/Services/Analytics/AnalyticsStoreOptions.cs",
+      "name": "AnalyticsStoreOptions.cs",
+      "kind": "class",
+      "tier": 2,
+      "summary": "Configuration object holding the analytics persistence policy shared by `MetricsStoreService` and `ServerMetricsStore`. It resolves a retention window (in days) from environment/appsettings, constrains it to a fixed allowed set, and derives the rollup buffer capacities from it."
+    },
+    {
       "path": "Quasar/Services/Analytics/AnalyticsViewConfig.cs",
       "name": "AnalyticsViewConfig.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Defines three plain-data types that capture the user's analytics dashboard preferences: which time range to display, grid layout dimensions, data-tier selection mode, selected metric names, and per-panel visibility and ordering. These objects are serialised into user/session state by the analytics Blazor page and are not persisted to disk by the analytics service itself."
+      "summary": "Plain settings/state objects backing the ApexCharts-based analytics dashboard page. `AnalyticsViewConfig` captures the user's chosen time range, auto-refresh cadence, server selection and the per-panel grid layout; `AnalyticsPanelConfig` describes one chart panel's placement; `AnalyticsPanelDialogResult` carries the edited layout values back from the per-panel configuration dialog. These are serialised into user/session state by the analytics Blazor page, not by the analytics service."
     },
     {
       "path": "Quasar/Services/Analytics/MetricSample.cs",
@@ -957,7 +992,7 @@
       "name": "MetricsStoreService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "`IHostedService` that owns the per-server metric stores, drives the single-reader ingest loop via a bounded `Channel`, and periodically persists all stores to disk as compact JSON. On startup it loads previously saved data from disk; on shutdown it drains the channel and performs a final persist."
+      "summary": "Hosted background service that owns one `ServerMetricsStore` per dedicated server, ingests metric samples off a bounded channel, and persists/loads each server's history to a per-server JSONL analytics file. Handles retention pruning, incremental append, periodic/size-triggered compaction (full rewrite), and crash-safe atomic file replacement. The single hub that analytics charts and the metrics writer pipeline both talk to."
     },
     {
       "path": "Quasar/Services/Analytics/RrdCircularBuffer.cs",
@@ -978,7 +1013,7 @@
       "name": "ServerMetricsStore.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Holds the three-tier RRD-style metric history for one dedicated server: a raw per-second circular buffer (1 hour), a one-minute rollup buffer (7 days), and a one-hour rollup buffer (90 days). Owned and managed by `MetricsStoreService`; not thread-safe on its own \u2014 callers are responsible for serialisation."
+      "summary": "Holds the three-tier RRD-style metric history for one dedicated server: a raw per-second circular buffer (1 hour) plus one-minute and one-hour rollup buffers whose capacities are derived from the analytics retention policy (`AnalyticsStoreOptions.RetentionDays`)."
     }
   ],
   "Quasar.Services.Auth": [
@@ -1138,7 +1173,7 @@
       "name": "PluginLogStream.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "In-memory ring buffer of recent plugin log entries keyed by server unique name, plus a static parser for the PluginSdk `QuasarLogSink` JSON stdout format. Blazor components subscribe to `Changed` and read entries via `GetEntries`, `GetRecent`, or `Query`. Follows the same lock-guarded, event-raising shape as other Quasar runtime services."
+      "summary": "In-memory ring buffer of recent plugin log entries keyed by server unique name, plus a static parser for the PluginSdk `QuasarLogSink` JSON stdout format. The supervisor feeds entries parsed from each dedicated server's standard output; Blazor components subscribe to `Changed` and read entries via `GetEntries`, `GetRecent`, or `Query`. Follows the same lock-guarded, event-raising shape as other Quasar runtime services."
     }
   ]
 }
