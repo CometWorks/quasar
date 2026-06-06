@@ -236,9 +236,23 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (IsProcessActive(process))
             {
                 _logger.LogWarning("Server {UniqueName} did not stop gracefully. Killing process tree.", uniqueName);
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(CancellationToken.None);
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None);
+                }
+                catch (InvalidOperationException)
+                {
+                    // The process exited on its own between the active check and the
+                    // kill; nothing left to stop.
+                }
             }
+        }
+        catch (InvalidOperationException)
+        {
+            // "No process is associated with this object." — the process already
+            // exited and was disposed while we were waiting on it. That is the
+            // normal outcome of a stop, not an error worth surfacing.
         }
 
         if (!IsProcessActive(process))
@@ -1116,8 +1130,24 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         return true;
     }
 
-    private static bool IsProcessActive(Process? process) =>
-        process is not null && !process.HasExited;
+    private static bool IsProcessActive(Process? process)
+    {
+        if (process is null)
+            return false;
+
+        try
+        {
+            return !process.HasExited;
+        }
+        catch (InvalidOperationException)
+        {
+            // "No process is associated with this object." (or ObjectDisposedException,
+            // which derives from it) — the process has already exited and been disposed
+            // (e.g. its Exited event handler ran concurrently with a stop). That just
+            // means it is no longer active.
+            return false;
+        }
+    }
 
     private Dictionary<string, AgentRuntimeState> BuildAgentLookup()
     {
@@ -1149,13 +1179,29 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         if (!processActive)
         {
+            // A start/stop/restart the supervisor (or the user) initiated puts the
+            // server through transient phases with no process attached yet: the
+            // handle is assigned late in StartProcessAsync, and a restart first
+            // tears the old process down. Report these as an indeterminate status
+            // with no warning/error banner — they are expected, and the corner
+            // event notification already tells the user the action is happening.
+            // Only a server that is down without an intentional transition in
+            // flight (crashed, faulted, or otherwise stopped while the goal is ON)
+            // warrants an alert.
+            var transitioning = state.StartInProgress
+                || state.StopRequested
+                || state.State is DedicatedServerProcessState.Starting
+                    or DedicatedServerProcessState.Restarting;
+            if (transitioning)
+                return new ServerHealthAssessment(
+                    DedicatedServerHealthState.Unknown,
+                    state.State == DedicatedServerProcessState.Restarting
+                        ? "Process is restarting."
+                        : "Process is starting.");
+
             return new ServerHealthAssessment(
-                state.State == DedicatedServerProcessState.Starting
-                    ? DedicatedServerHealthState.Warning
-                    : DedicatedServerHealthState.Unhealthy,
-                state.State == DedicatedServerProcessState.Starting
-                    ? "Process is starting."
-                    : "Goal state is ON but the process is not running.");
+                DedicatedServerHealthState.Unhealthy,
+                "Goal state is ON but the process is not running.");
         }
 
         if (disableHealthMonitoring)
