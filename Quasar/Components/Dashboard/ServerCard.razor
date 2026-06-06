@@ -146,6 +146,11 @@
         if (ProcessState == DedicatedServerProcessState.Running && Agent?.IsConnected == true && Agent.Snapshot is not null)
             return "OPEN";
 
+        // Process is up but the agent link isn't established yet — e.g. just after a
+        // Quasar restart that adopted a running process, or a transient agent drop.
+        if (ProcessState == DedicatedServerProcessState.Running)
+            return "CONNECTING";
+
         return "STARTING";
     }
 
@@ -157,6 +162,7 @@
         return GetStatusLabel() switch
         {
             "OPEN" => Color.Success,
+            "CONNECTING" => Color.Info,
             "STARTING" => Color.Warning,
             "STOPPING" => Color.Warning,
             "OFF" => Color.Error,

@@ -285,6 +285,9 @@ else
         if (Runtime?.State is DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted)
             return Runtime.LastMessage;
 
+        if (Runtime?.State == DedicatedServerProcessState.Running && Agent?.Snapshot is null)
+            return "Connecting. Waiting for Quasar.Agent to reconnect.";
+
         return "No live game snapshot. Start the server to see metrics, players, chat, and plugins.";
     }
 

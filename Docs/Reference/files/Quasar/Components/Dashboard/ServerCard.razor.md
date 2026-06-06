@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Card component for a single managed server shown on the Dashboard. Displays the server display name, status chip (OFF / STARTING / OPEN / STOPPING), host/world caption, last message or health summary, and Start / Stop / Restart action buttons. Embeds `ServerDetailPanel` as its card body content.
+Card component for a single managed server shown on the Dashboard. Displays the server display name, status chip (OFF / STARTING / CONNECTING / OPEN / STOPPING), host/world caption, last message or health summary, and Start / Stop / Restart action buttons. Embeds `ServerDetailPanel` as its card body content.
 
 ## Structure
 No `@page` route — used as a child component.
@@ -26,7 +26,7 @@ No `@page` route — used as a child component.
 - `GetDisplayName()` — prefers `Server.DisplayName`, falls back to `Agent.ServerDisplayName`, then `UniqueName`.
 - `GetHostLabel()` — shows `Agent.HostDisplayName` or "Local host".
 - `GetWorldLabel()` — shows `Agent.WorldDisplayName`, else last path segment of `Server.WorldPath`, else "World pending".
-- `GetStatusLabel()` / `GetStatusColor()` — status chip text and `Color` enum.
+- `GetStatusLabel()` / `GetStatusColor()` — status chip text and `Color` enum. Shows `CONNECTING` (Info) when the process is `Running` but the agent link is not yet established — e.g. just after a Quasar restart that adopted a running process, or a transient agent drop — versus `STARTING` (Warning) for a genuine boot.
 
 ## Dependencies
 - [`Quasar/Components/Dashboard/ServerDetailPanel.razor`](ServerDetailPanel.razor.md) — embedded in card body

@@ -30,7 +30,7 @@ No `@page` route — used as a child component.
 - `HandleChatKeyDownAsync` — triggers send on Enter key.
 - `FormatDuration(int)` / `FormatTimestamp(long)` — display helpers.
 - `GetMaxPlayers()` — checks config profile first, falls back to snapshot metrics.
-- `GetWaitingText()` — state-dependent placeholder message.
+- `GetWaitingText()` — state-dependent placeholder message. For a `Running` process with no snapshot yet (agent reconnecting) it reads "Connecting. Waiting for Quasar.Agent to reconnect."; for `Starting`/`Restarting` it reads "Starting. Waiting for Quasar.Agent and first game snapshot.".
 - `GetPlatformName` / `GetRoleLabel` / `IsCurrentPromoteLevel` / `GetServiceLabel` — player table helpers.
 
 **Static field:** `PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"]`.
