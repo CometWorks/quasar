@@ -123,7 +123,15 @@ public sealed class DedicatedServerRuntimePreparer
         UpsertElement(root, "IgnoreLastSession", "false");
 
         if (definition.ServerPort > 0)
+        {
             UpsertElement(root, "ServerPort", definition.ServerPort.ToString(CultureInfo.InvariantCulture));
+
+            // Derive the Steam and Remote API ports from the game port so multiple servers on
+            // one host never collide on the SE defaults (8766 / 8080). A shared SteamPort leaves
+            // the later-starting server unreachable even though its ServerPort is bound.
+            UpsertElement(root, "SteamPort", (definition.ServerPort + 1000).ToString(CultureInfo.InvariantCulture));
+            UpsertElement(root, "RemoteApiPort", (definition.ServerPort + 2000).ToString(CultureInfo.InvariantCulture));
+        }
 
         if (!string.IsNullOrWhiteSpace(definition.ServerIP))
             UpsertElement(root, "ServerIP", definition.ServerIP.Trim());

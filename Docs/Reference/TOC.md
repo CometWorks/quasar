@@ -4,7 +4,7 @@ Generated reference handbook for the **Quasar** stack — a supervisor and manag
 
 For the hand-written architecture narrative and design rationale, see [QuasarArchitecture.md](../QuasarArchitecture.md).
 
-This handbook covers **176 source files** across **12 modules**. Browse by module below, or jump to the flat [file Index](Index.md).
+This handbook covers **177 source files** across **12 modules**. Browse by module below, or jump to the flat [file Index](Index.md).
 
 ## Runtime topology
 
@@ -23,7 +23,7 @@ This handbook covers **176 source files** across **12 modules**. Browse by modul
 | --- | --- | --- |
 | [Magnetar.Protocol](Modules/Magnetar.Protocol.md) | 26 | Shared wire/discovery contracts between agent and supervisor. |
 | [Quasar.Host](Modules/Quasar.Host.md) | 7 | Blazor Server host: DI graph, auth, endpoints, static assets. |
-| [Quasar.Models](Modules/Quasar.Models.md) | 14 | Domain models for instances, config profiles, templates, branding, backups. |
+| [Quasar.Models](Modules/Quasar.Models.md) | 15 | Domain models for instances, config profiles, templates, branding, backups. |
 | [Quasar.Services.Core](Modules/Quasar.Services.Core.md) | 33 | Supervisor engine, agent registry, runtime preparation, catalogs. |
 | [Quasar.Services.Analytics](Modules/Quasar.Services.Analytics.md) | 8 | RRD-style per-instance metrics storage and persistence. |
 | [Quasar.Services.Auth](Modules/Quasar.Services.Auth.md) | 6 | Steam OpenID auth, RBAC, trusted-network bypass. |

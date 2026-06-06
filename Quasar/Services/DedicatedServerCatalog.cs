@@ -304,6 +304,7 @@ public sealed class DedicatedServerCatalog : IDisposable
             GoalState = server.GoalState,
             ExecutablePath = server.ExecutablePath,
             WorkingDirectory = server.WorkingDirectory,
+            ManagedRuntime = server.ManagedRuntime,
             DedicatedServerAppDataPath = server.DedicatedServerAppDataPath,
             MagnetarAppDataPath = server.MagnetarAppDataPath,
             WorldPath = server.WorldPath,

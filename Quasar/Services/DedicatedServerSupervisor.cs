@@ -1775,6 +1775,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             GoalState = definition.GoalState,
             ExecutablePath = definition.ExecutablePath,
             WorkingDirectory = definition.WorkingDirectory,
+            ManagedRuntime = definition.ManagedRuntime,
             DedicatedServerAppDataPath = definition.DedicatedServerAppDataPath,
             MagnetarAppDataPath = definition.MagnetarAppDataPath,
             WorldPath = definition.WorldPath,

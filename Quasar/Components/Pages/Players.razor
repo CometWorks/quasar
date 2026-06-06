@@ -1,6 +1,7 @@
 @page "/players"
 @implements IDisposable
 @inject AgentRegistry Registry
+@inject DedicatedServerCatalog ServerCatalog
 @inject KnownPlayerCatalog KnownPlayers
 @inject ISnackbar Snackbar
 
@@ -149,12 +150,14 @@
             protected override void OnInitialized()
             {
                 Registry.Changed += HandleChanged;
+                ServerCatalog.Changed += HandleChanged;
                 KnownPlayers.Changed += HandleChanged;
             }
 
             public void Dispose()
             {
                 Registry.Changed -= HandleChanged;
+                ServerCatalog.Changed -= HandleChanged;
                 KnownPlayers.Changed -= HandleChanged;
             }
 
@@ -164,6 +167,13 @@
             private List<KnownPlayerView> BuildKnownPlayerViews()
             {
                 var agents = Registry.GetAgents();
+
+                // Names configured for each server in Quasar, keyed by unique name. Preferred
+                // over the agent's in-game server name so the list shows what the operator named
+                // the server rather than ConfigDedicated.ServerName / "Space Engineers {pid}".
+                var configuredServerNames = ServerCatalog.GetServers()
+                    .ToDictionary(server => server.UniqueName, server => server.DisplayName, StringComparer.OrdinalIgnoreCase);
+
                 var connectedAgentsByServer = agents
                     .Where(agent => agent.IsConnected)
                     .GroupBy(agent => agent.UniqueNameKey, StringComparer.OrdinalIgnoreCase)
@@ -200,6 +210,7 @@
                         var kickCooldownExpiresUtc = kickCooldowns.TryGetValue(record.PlayerKey, out var expires)
                             ? expires
                             : (DateTimeOffset?)null;
+                        configuredServerNames.TryGetValue(record.UniqueName, out var configuredServerName);
 
                         return new KnownPlayerView
                         {
@@ -207,6 +218,7 @@
                             Agent = agent,
                             OnlinePlayer = onlinePlayer,
                             KickCooldownExpiresUtc = kickCooldownExpiresUtc,
+                            ConfiguredServerName = configuredServerName,
                         };
                     })
                     .OrderByDescending(view => view.IsOnline)
@@ -330,6 +342,11 @@
 
                 public PlayerSnapshot? OnlinePlayer { get; init; }
 
+                // Name configured for this server in Quasar (DedicatedServerDefinition.DisplayName),
+                // or null when no matching server definition exists. Preferred over the agent's
+                // in-game server name.
+                public string? ConfiguredServerName { get; init; }
+
                 // Absolute time the server's kick cooldown expires for this player, or null when
                 // the player is not currently on a kick cooldown. Derived from the live snapshot.
                 public DateTimeOffset? KickCooldownExpiresUtc { get; init; }
@@ -344,11 +361,13 @@
 
                 public bool CanModerate => Agent?.IsConnected == true;
 
-                public string ServerDisplayName => !string.IsNullOrWhiteSpace(Agent?.ServerDisplayName)
-                    ? Agent.ServerDisplayName
-                    : !string.IsNullOrWhiteSpace(Record.ServerName)
-                        ? Record.ServerName
-                        : Record.UniqueName;
+                public string ServerDisplayName => !string.IsNullOrWhiteSpace(ConfiguredServerName)
+                    ? ConfiguredServerName
+                    : !string.IsNullOrWhiteSpace(Agent?.ServerDisplayName)
+                        ? Agent.ServerDisplayName
+                        : !string.IsNullOrWhiteSpace(Record.ServerName)
+                            ? Record.ServerName
+                            : Record.UniqueName;
             }
         }
     </MudStack>

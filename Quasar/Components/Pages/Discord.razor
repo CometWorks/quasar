@@ -75,7 +75,7 @@
                     {
                         var serverOptions = GetServerOptions(definition.UniqueName);
 
-                        <MudExpansionPanel Text="@definition.UniqueName" @key="definition.UniqueName">
+                        <MudExpansionPanel Text="@GetServerName(definition.UniqueName)" @key="definition.UniqueName">
                             <MudStack Spacing="2" Class="pt-2">
                                 <MudText Typo="Typo.caption" Class="mono">@definition.UniqueName</MudText>
 
@@ -307,9 +307,12 @@
 
     private string GetServerName(string uniqueName)
     {
-        return ServerDefinitions
-            .FirstOrDefault(item => string.Equals(item.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
-            ?.UniqueName ?? uniqueName;
+        var definition = ServerDefinitions
+            .FirstOrDefault(item => string.Equals(item.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase));
+        if (definition is null)
+            return uniqueName;
+
+        return string.IsNullOrWhiteSpace(definition.DisplayName) ? definition.UniqueName : definition.DisplayName;
     }
 
     private void ReloadOptions()

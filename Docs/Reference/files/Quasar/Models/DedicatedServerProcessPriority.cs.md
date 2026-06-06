@@ -11,8 +11,8 @@ Namespace: `Quasar.Models`
 | Value | Int | Equivalent |
 |---|---|---|
 | `Low` | 0 | `ProcessPriorityClass.Idle` |
-| `BelowNormal` | 1 | `ProcessPriorityClass.BelowNormal` (default at startup) |
-| `Normal` | 2 | `ProcessPriorityClass.Normal` (default when ready) |
+| `BelowNormal` | 1 | `ProcessPriorityClass.BelowNormal` |
+| `Normal` | 2 | `ProcessPriorityClass.Normal` (default at both startup and ready) |
 | `AboveNormal` | 3 | `ProcessPriorityClass.AboveNormal` |
 | `High` | 4 | `ProcessPriorityClass.High` |
 

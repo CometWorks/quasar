@@ -3,7 +3,7 @@
 **Module:** Quasar.Models  **Kind:** class  **Tier:** 1
 
 ## Summary
-Persistent configuration record for a single managed Space Engineers dedicated server. Contains all fields needed to launch, supervise, health-monitor, and schedule restarts for a server, as well as process-priority settings. Serialized to disk as part of the server catalog.
+Persistent configuration record for a single managed Space Engineers dedicated server. Contains all fields needed to launch, supervise, health-monitor, and schedule restarts for a server, as well as process-priority, CPU-affinity, and managed-runtime settings. Serialized to disk as part of the server catalog.
 
 ## Structure
 Namespace: `Quasar.Models`  
@@ -17,6 +17,7 @@ Namespace: `Quasar.Models`
 | `GoalState` | Desired on/off state (`DedicatedServerGoalState`). |
 | `ExecutablePath` | Path to the SE dedicated server executable. |
 | `WorkingDirectory` | Process working directory. |
+| `ManagedRuntime` | Which Magnetar build / .NET runtime launches the server (`ManagedServerRuntime`, default `DotNet10`). Honored only on Windows, where both the .NET 10 (Interim) and .NET Framework 4.8 (Legacy) builds ship; the resolver forces `DotNet10` on non-Windows hosts. |
 | `DedicatedServerAppDataPath` | SE server AppData path override. |
 | `MagnetarAppDataPath` | Magnetar plugin AppData path. |
 | `WorldPath` | Path to the world save directory. |
@@ -41,15 +42,16 @@ Namespace: `Quasar.Models`
 | `DailyRestartTimeLocal` | Local time string for a daily scheduled restart (empty = disabled). |
 | `MaximumUptime` | TimeSpan string for maximum uptime before forced restart (empty = disabled). |
 | `AvoidSimultaneousScheduledRestarts` | Staggers restarts so multiple servers don't stop at once. |
-| `StartupProcessPriority` | OS process priority while the server is starting up. |
+| `StartupProcessPriority` | OS process priority while the server is starting up (default `Normal`). |
 | `ReadyProcessPriority` | OS process priority once the server is running. |
 | `CpuAffinity` | Canonical cpuset string (e.g. "0-7" or "0-7,16-23") pinning the server process to a fixed set of logical cores; empty = no affinity (all cores); when set must contain >=2 cores; applied locally by the supervisor each time the process starts (see `CpuAffinitySpec`). Default empty. |
 | `UpdatedAtUtc` | Timestamp of the last configuration save. |
-| `Clone()` | Shallow copy of all fields (including `CpuAffinity`, used before mutations). |
+| `Clone()` | Shallow copy of all fields (including `ManagedRuntime` and `CpuAffinity`, used before mutations). |
 
 ## Dependencies
 - [`Quasar/Models/DedicatedServerGoalState.cs`](DedicatedServerGoalState.cs.md)
 - `Quasar/Models/DedicatedServerProcessPriority.cs`
+- [`Quasar/Models/ManagedServerRuntime.cs`](ManagedServerRuntime.cs.md)
 - `Quasar/Models/CpuAffinitySpec.cs`
 
 ## Notes

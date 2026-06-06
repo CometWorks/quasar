@@ -807,6 +807,9 @@ As of this document:
 - file watching/reload now exists for manual edits to Quasar-managed server/profile JSON
 - configuration backup/restore now exists as versioned ZIP archives of Quasar's own configuration (servers, config profiles, world-template definitions, branding, and the singleton settings files), with manual download/upload, semantic-version compatibility checks, and a scheduled automatic-backup service with retention pruning
 - per-server CPU affinity pinning now exists (cpuset strings applied via `taskset` on Linux and `Process.ProcessorAffinity` on Windows), enforced by the supervisor on process start and reconcile alongside process priority
+- per-server managed .NET runtime selection now exists on Windows, where Quasar installs both Magnetar builds side-by-side (`MagnetarInterim.exe` on .NET 10, the default, and `MagnetarLegacy.exe` on .NET Framework 4.8) and the runtime resolver launches the build chosen by `DedicatedServerDefinition.ManagedRuntime`; non-Windows hosts always run the .NET 10 build
+- runtime config preparation now derives a unique `SteamPort` (`ServerPort + 1000`) and `RemoteApiPort` (`ServerPort + 2000`) per server so multiple servers co-hosted on one machine never collide on the SE defaults (8766 / 8080)
+- server naming across the UI now consistently prefers the operator-configured `DedicatedServerDefinition.DisplayName` over the agent's in-game `ConfigDedicated.ServerName` (the analytics filters/legends, Discord per-server panels, the entities/plugins server selectors, the players list, and the plugin log panel all resolve names this way, falling back to the live agent name and then the unique name)
 - `Quasar.Bootstrap` now owns the stable public endpoint and proxies active worker cutover
 - staged relaunch now persists supervisor runtime state so managed DS processes survive worker turnover
 - obsolete `webui/` is removed from the repository

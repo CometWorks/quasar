@@ -626,8 +626,11 @@ else
     {
         var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+        // Use the configured server name (DedicatedServerDefinition.DisplayName), not the
+        // unique name / id. This drives both the server checkboxes and the chart legends
+        // (series names come from ResolveDisplayName -> _serverOptions).
         foreach (var server in ServerCatalog.GetServers())
-            names[server.UniqueName] = server.UniqueName;
+            names[server.UniqueName] = string.IsNullOrWhiteSpace(server.DisplayName) ? server.UniqueName : server.DisplayName;
 
         foreach (var agent in Registry.GetAgents())
         {

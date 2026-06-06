@@ -1,6 +1,7 @@
 @implements IDisposable
 @inject PluginLogStream LogStream
 @inject AgentRegistry Registry
+@inject DedicatedServerCatalog ServerCatalog
 
 <MudPaper Class="server-card pa-4">
     <div class="d-flex align-center justify-space-between mb-2">
@@ -102,12 +103,14 @@
     protected override void OnInitialized()
     {
         LogStream.Changed += HandleChanged;
+        ServerCatalog.Changed += HandleChanged;
         Refresh();
     }
 
     public void Dispose()
     {
         LogStream.Changed -= HandleChanged;
+        ServerCatalog.Changed -= HandleChanged;
     }
 
     private void HandleChanged()
@@ -181,6 +184,13 @@
 
     private string ServerName(string uniqueName)
     {
+        // Logs persist after a server disconnects, so prefer the configured Quasar name
+        // (DedicatedServerDefinition.DisplayName), then a live agent's name, then the
+        // unique name. The agent's in-game name is often "Space Engineers {pid}".
+        var configuredName = ServerCatalog.GetServer(uniqueName)?.DisplayName;
+        if (!string.IsNullOrWhiteSpace(configuredName))
+            return configuredName;
+
         var agent = Registry.GetAgents()
             .FirstOrDefault(a => string.Equals(a.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
         return agent?.ServerDisplayName ?? uniqueName;

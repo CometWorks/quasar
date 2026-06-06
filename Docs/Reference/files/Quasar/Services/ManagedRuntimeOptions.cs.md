@@ -12,7 +12,7 @@ Namespace: `Quasar.Services`
 
 | Property | Default / env var override |
 |----------|---------------------------|
-| `MagnetarArchiveUrl` | Linux: `.7z` from NAS; other: ZIP from NAS; `QUASAR_MAGNETAR_ARCHIVE_URL` |
+| `MagnetarArchiveUrl` | Windows: `MagnetarForWindows.7z` from NAS; Linux/other: `MagnetarForLinux.7z` from NAS; `QUASAR_MAGNETAR_ARCHIVE_URL` |
 | `MagnetarInstallDirectory` | `MagnetarPaths.GetQuasarManagedMagnetarInstallDirectory()`; `QUASAR_MAGNETAR_INSTALL_DIR` |
 | `SteamCmdArchiveUrl` | Windows: ZIP from Valve; Linux: `.tar.gz` from Valve; `QUASAR_STEAMCMD_ARCHIVE_URL` |
 | `SteamCmdInstallDirectory` | `MagnetarPaths.GetQuasarManagedSteamCmdInstallDirectory()`; `QUASAR_STEAMCMD_INSTALL_DIR` |

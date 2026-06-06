@@ -910,9 +910,16 @@ namespace Quasar.Agent
 
         private string GetServerName(MySession session)
         {
-            return session?.Name
-                   ?? MySandboxGame.ConfigDedicated?.ServerName
-                   ?? $"Space Engineers {_processId}";
+            // ConfigDedicated.ServerName is the configured server name shown in the
+            // server browser. Do NOT fall back to session?.Name here: that is the
+            // loaded world/save name (which matches the world template), not the server.
+            var serverName = MySandboxGame.ConfigDedicated?.ServerName;
+            if (!string.IsNullOrWhiteSpace(serverName))
+            {
+                return serverName;
+            }
+
+            return $"Space Engineers {_processId}";
         }
 
         private string GetWorldName(MySession session)

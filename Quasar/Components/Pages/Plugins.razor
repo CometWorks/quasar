@@ -1,6 +1,7 @@
 @page "/plugins"
 @implements IDisposable
 @inject AgentRegistry Registry
+@inject DedicatedServerCatalog ServerCatalog
 @inject PluginConfigService ConfigService
 @inject QuasarPluginCatalogService PluginCatalog
 
@@ -44,13 +45,7 @@
     Live configuration for plugins that expose a Quasar config provider.
 </MudText>
 
-@{
-    var configAgents = Registry.GetAgents()
-        .Where(agent => agent.IsConnected && ConfigService.HasConfigs(agent.AgentId))
-        .ToList();
-}
-
-@if (configAgents.Count == 0)
+@if (ConfigAgents.Count == 0)
 {
     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
         No connected server is exposing editable plugin configuration.
@@ -58,16 +53,32 @@
 }
 else
 {
-    foreach (var agent in configAgents)
+    var selectedAgent = GetSelectedConfigAgent();
+
+    <MudSelect T="string"
+               Label="Server"
+               Value="@selectedAgent?.AgentId"
+               ValueChanged="HandleConfigAgentChanged"
+               Variant="Variant.Outlined"
+               Dense="true"
+               Class="mb-4"
+               Style="max-width: 24rem;">
+        @foreach (var agent in ConfigAgents)
+        {
+            <MudSelectItem T="string" Value="@agent.AgentId">@ResolveServerName(agent)</MudSelectItem>
+        }
+    </MudSelect>
+
+    @if (selectedAgent is not null)
     {
         <MudPaper Class="server-card mb-4 pa-4">
-            <MudText Typo="Typo.h6">@agent.ServerDisplayName</MudText>
-            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-3">@agent.HostDisplayName</MudText>
-            @foreach (var plugin in ConfigService.GetConfigsForAgent(agent.AgentId))
+            <MudText Typo="Typo.h6">@ResolveServerName(selectedAgent)</MudText>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-3">@selectedAgent.HostDisplayName</MudText>
+            @foreach (var plugin in ConfigService.GetConfigsForAgent(selectedAgent.AgentId))
             {
                 <MudExpansionPanels Class="mb-2" MultiExpansion="true">
                     <MudExpansionPanel Text="@plugin.DisplayName">
-                        <PluginConfigEditor AgentId="@agent.AgentId" Plugin="@plugin" />
+                        <PluginConfigEditor AgentId="@selectedAgent.AgentId" Plugin="@plugin" />
                     </MudExpansionPanel>
                 </MudExpansionPanels>
             }
@@ -84,6 +95,8 @@ else
 
 @code
 {
+    private string? _selectedConfigAgentId;
+
     private IReadOnlyList<PluginRow> PluginRows => Registry
         .GetAgents()
         .SelectMany(agent => (agent.Snapshot?.Plugins ?? new List<PluginRuntimeInfo>())
@@ -91,7 +104,7 @@ else
             {
                 DisplayName = plugin.DisplayName,
                 Version = plugin.Version,
-                ServerName = agent.ServerDisplayName,
+                ServerName = ResolveServerName(agent),
                 HostName = agent.HostDisplayName,
                 IsLoaded = plugin.IsLoaded,
                 SourceUrl = GetPluginSourceUrl(plugin),
@@ -100,9 +113,15 @@ else
         .ThenBy(row => row.ServerName, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
+    private List<AgentRuntimeState> ConfigAgents => Registry
+        .GetAgents()
+        .Where(agent => agent.IsConnected && ConfigService.HasConfigs(agent.AgentId))
+        .ToList();
+
     protected override void OnInitialized()
     {
         Registry.Changed += HandleRegistryChanged;
+        ServerCatalog.Changed += HandleRegistryChanged;
         ConfigService.Changed += HandleRegistryChanged;
     }
 
@@ -124,12 +143,41 @@ else
     public void Dispose()
     {
         Registry.Changed -= HandleRegistryChanged;
+        ServerCatalog.Changed -= HandleRegistryChanged;
         ConfigService.Changed -= HandleRegistryChanged;
     }
 
     private void HandleRegistryChanged()
     {
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    // Prefer the name configured for the server in Quasar over the agent's in-game
+    // server name (ConfigDedicated.ServerName, often blank and falling back to
+    // "Space Engineers {pid}"). Matches how the Servers/dashboard cards resolve it.
+    private string ResolveServerName(AgentRuntimeState agent)
+    {
+        var configuredName = ServerCatalog.GetServer(agent.UniqueNameKey)?.DisplayName;
+        return string.IsNullOrWhiteSpace(configuredName) ? agent.ServerDisplayName : configuredName;
+    }
+
+    // The selected server falls back to the first available one so the panel always
+    // shows a server's plugins even before the user picks one (or after the selected
+    // server disconnects).
+    private AgentRuntimeState? GetSelectedConfigAgent()
+    {
+        var agents = ConfigAgents;
+        if (agents.Count == 0)
+            return null;
+
+        return agents.FirstOrDefault(agent =>
+            string.Equals(agent.AgentId, _selectedConfigAgentId, StringComparison.OrdinalIgnoreCase))
+            ?? agents[0];
+    }
+
+    private void HandleConfigAgentChanged(string agentId)
+    {
+        _selectedConfigAgentId = agentId;
     }
 
     private string GetPluginSourceUrl(PluginRuntimeInfo plugin)

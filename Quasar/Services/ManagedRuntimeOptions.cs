@@ -5,7 +5,7 @@ namespace Quasar.Services;
 public sealed class ManagedRuntimeOptions
 {
     private const string DefaultLinuxMagnetarArchiveUrl = "https://nas.ferenczi.eu/public.php/dav/files/q4godba6fXH6w74/MagnetarForLinux.7z";
-    private const string DefaultMagnetarArchiveUrl = "https://nas.ferenczi.eu/public.php/dav/files/q4godba6fXH6w74/?accept=zip";
+    private const string DefaultWindowsMagnetarArchiveUrl = "https://nas.ferenczi.eu/public.php/dav/files/q4godba6fXH6w74/MagnetarForWindows.7z";
     private const string DefaultLinuxSteamCmdArchiveUrl = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz";
     private const string DefaultWindowsSteamCmdArchiveUrl = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip";
 
@@ -83,9 +83,9 @@ public sealed class ManagedRuntimeOptions
     }
 
     private static string GetDefaultMagnetarArchiveUrl() =>
-        OperatingSystem.IsLinux()
-            ? DefaultLinuxMagnetarArchiveUrl
-            : DefaultMagnetarArchiveUrl;
+        OperatingSystem.IsWindows()
+            ? DefaultWindowsMagnetarArchiveUrl
+            : DefaultLinuxMagnetarArchiveUrl;
 
     private static string GetDefaultSteamCmdArchiveUrl() =>
         OperatingSystem.IsWindows()

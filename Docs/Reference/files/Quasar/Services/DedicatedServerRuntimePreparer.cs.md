@@ -15,7 +15,7 @@ Namespace: `Quasar.Services`
 | Member | Description |
 |---|---|
 | `PrepareAsync(DedicatedServerDefinition, dedicatedServer64Path, ct)` | Orchestrates all sub-steps; returns `PreparedDedicatedServerLaunch`. |
-| `PrepareRuntimeConfigAsync(...)` | Loads or creates `SpaceEngineers-Dedicated.cfg` as `XDocument`; upserts `IgnoreLastSession=false`, port, IP, and all config-profile settings; writes atomically. |
+| `PrepareRuntimeConfigAsync(...)` | Loads or creates `SpaceEngineers-Dedicated.cfg` as `XDocument`; upserts `IgnoreLastSession=false`, the game `ServerPort` and its derived `SteamPort` (`ServerPort + 1000`) / `RemoteApiPort` (`ServerPort + 2000`), IP, and all config-profile settings; writes atomically. |
 | `WriteLastSessionAsync(...)` | Writes `Saves/LastSession.sbl` XML pointing at the world path (absolute + relative). |
 | `PrepareMagnetarConfigAsync(...)` | Writes `Sources/sources.xml` and `Profiles/Current.xml`; deploys the agent via `DeployQuasarAgentAsync`. |
 | `BuildRemotePluginSourcesAsync(...)` | Builds `RemotePluginSourceSet` from selected plugins resolved against the catalog; refreshes the catalog once if any selection lacks a remote manifest; falls back to the default hub for unresolved plugins; always injects DotNetCompat and (on Linux) LinuxCompat core sources. |
@@ -46,4 +46,4 @@ Private `RemotePluginSourceSet` record (`UseDefaultHub`, `Entries`). Compiled re
 
 ## Notes
 
-Mods are written authoritatively into the world's `Sandbox_config.sbc`; the Magnetar profile's `<Mods>` is left empty to prevent drift. `-ignorelastsession` is forbidden and throws if user-supplied. The `-daemon` flag detaches Magnetar from Quasar's session (Linux `setsid` / Windows `FreeConsole`) in place, so the PID and stdout/stderr pipes stay valid and managed servers survive Quasar stopping — the basis for cross-restart adoption. Launch-argument token replacement (`{uniqueName}`, `{quasarBaseUrl}`, `{hostId}`, `{worldPath}`, …) is case-insensitive.
+Only `SpaceEngineers-Dedicated.cfg`'s game `ServerPort` is operator-configured; `SteamPort` and `RemoteApiPort` are derived from it (`+1000` / `+2000`) whenever `ServerPort > 0` so multiple servers co-hosted on one machine never collide on the SE defaults (8766 / 8080) — a shared `SteamPort` otherwise leaves the later-starting server unreachable even though its `ServerPort` is bound. Mods are written authoritatively into the world's `Sandbox_config.sbc`; the Magnetar profile's `<Mods>` is left empty to prevent drift. `-ignorelastsession` is forbidden and throws if user-supplied. The `-daemon` flag detaches Magnetar from Quasar's session (Linux `setsid` / Windows `FreeConsole`) in place, so the PID and stdout/stderr pipes stay valid and managed servers survive Quasar stopping — the basis for cross-restart adoption. Launch-argument token replacement (`{uniqueName}`, `{quasarBaseUrl}`, `{hostId}`, `{worldPath}`, …) is case-insensitive.

@@ -32,3 +32,4 @@ Interactive `/analytics` dashboard that renders rolling Space Engineers server m
 - Chart point budget adapts to viewport width and time span; rollup tier is chosen by span (<=2h raw, <=24h 1-minute, else 1-hour).
 - All JS interop and localStorage access guard against `InvalidOperationException`/`JSDisconnectedException` (prerender / circuit-disconnected) and silently degrade.
 - `Dispose` cancels the auto-refresh `CancellationTokenSource` and detaches all source `Changed` / theme events.
+- The server-name map (`BuildServerOptions`) labels each server by its configured `DedicatedServerDefinition.DisplayName` (falling back to the unique name only when blank), so the filter checkboxes and the chart series legends show the operator-chosen name rather than the unique name / id.

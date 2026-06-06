@@ -12,7 +12,8 @@ No `@page` route — used as a child on the Plugins page.
 
 **Injected services:**
 - `PluginLogStream LogStream` — in-memory log ring; provides `Query(PluginLogQuery)`, `GetUniqueNames()`, and `GetPlugins()`.
-- `AgentRegistry Registry` — resolves server display names from unique name keys.
+- `AgentRegistry Registry` — resolves live server display names from unique name keys.
+- `DedicatedServerCatalog ServerCatalog` — supplies the configured server `DisplayName`, preferred over the live agent name.
 
 **Private state:**
 - `_entries` (`IReadOnlyList<PluginLogEntry>`) — current query result.
@@ -34,7 +35,7 @@ No `@page` route — used as a child on the Plugins page.
 - `Refresh()` — calls `LogStream.Query(new PluginLogQuery { UniqueName, Plugin, Level, Text, FromUtc, Limit })` with all active filters.
 - `ResolveFromUtc()` — maps `_rangeKey` to a `DateTimeOffset?` cutoff.
 - `HandleChanged()` — event handler; calls `Refresh()` then `InvokeAsync(StateHasChanged)`.
-- `ServerName(uniqueName)` — looks up display name via `AgentRegistry.GetAgents()`.
+- `ServerName(uniqueName)` — resolves the configured `DedicatedServerCatalog` `DisplayName` first, then a live agent's `ServerDisplayName`, then the unique name. Logs persist after a server disconnects, so the configured name keeps stale-server rows readable instead of falling back to "Space Engineers {pid}".
 - `LevelColor(level)` — maps level string to MudBlazor `Color` enum.
 
 **Static field:** `Levels = ["Debug", "Info", "Warning", "Error", "Critical"]`.
@@ -43,9 +44,10 @@ No `@page` route — used as a child on the Plugins page.
 
 ## Dependencies
 - [`Quasar/Services/PluginSdk/PluginLogStream.cs`](../Services/PluginSdk/PluginLogStream.cs.md) — log ring buffer with query/filter API
-- [`Quasar/Services/AgentRegistry.cs`](../Services/AgentRegistry.cs.md) — agent lookup for server display names
+- [`Quasar/Services/AgentRegistry.cs`](../Services/AgentRegistry.cs.md) — agent lookup for live server display names
+- [`Quasar/Services/DedicatedServerCatalog.cs`](../Services/DedicatedServerCatalog.cs.md) — configured server display names
 - `Magnetar.Protocol.Model.PluginLogEntry`, `PluginLogQuery`
 - MudBlazor
 
 ## Notes
-`HandleChanged` is called on the `PluginLogStream.Changed` event which may fire from a background thread; `InvokeAsync(StateHasChanged)` marshals the re-render back to the Blazor circuit's synchronization context. The limit constant is now `MaxEntriesPerServer` (previously `MaxEntriesPerInstance`).
+`HandleChanged` is subscribed to both `PluginLogStream.Changed` and `DedicatedServerCatalog.Changed` (detached in `Dispose`); either event may fire from a background thread, so `InvokeAsync(StateHasChanged)` marshals the re-render back to the Blazor circuit's synchronization context. The limit constant is now `MaxEntriesPerServer` (previously `MaxEntriesPerInstance`).

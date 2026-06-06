@@ -27,6 +27,12 @@ Build notes:
 - `Quasar.Agent` depends on a local `DS64` path for Space Engineers Dedicated Server assemblies.
 - A local-only override can live at `Quasar.Agent/Directory.Build.props`.
 - This repo keeps the machine-specific override out of source control.
+- On Windows the solution builds out-of-the-box: `Directory.Build.props` auto-resolves `DS64` from the Steam registry `InstallLocation` (falling back to the default `C:\Program Files (x86)\Steam\...\DedicatedServer64` library) and `MagnetarBin` to `$(Magnetar)\Libraries\MagnetarLegacy`. On Linux `MagnetarBin` resolves to `$(Magnetar)/Bin`.
+
+Managed runtime notes:
+
+- On Windows, managed servers can run on either Magnetar build — .NET 10 (the "Interim" build, default) or .NET Framework 4.8 (the "Legacy" build). Pick the build per server with the `.NET runtime` field in the server editor; Quasar downloads both builds together from `MagnetarForWindows.7z` so switching never re-downloads.
+- On Linux only the .NET 10 (Interim) build ships (`MagnetarForLinux.7z`); a `NetFramework48` selection carried over from a Windows `server.json` is silently downgraded to .NET 10.
 
 Linux service install:
 
