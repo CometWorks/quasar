@@ -63,10 +63,17 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         var configuredExecutablePath = definition.ExecutablePath?.Trim() ?? string.Empty;
         var inferredDedicatedServer64Path = TryInferDedicatedServer64Path(configuredExecutablePath);
 
+        // Only Windows ships both Magnetar builds; every other host runs the .NET 10
+        // (Interim) build, so a Legacy selection on a server.json moved from Windows to
+        // Linux is silently downgraded here rather than failing to launch.
+        var runtimeFlavor = OperatingSystem.IsWindows()
+            ? definition.ManagedRuntime
+            : ManagedServerRuntime.DotNet10;
+
         string launcherExecutablePath;
         if (LooksLikeDedicatedServerExecutable(configuredExecutablePath) || string.IsNullOrWhiteSpace(configuredExecutablePath))
         {
-            launcherExecutablePath = await EnsureManagedMagnetarInstallAsync(cancellationToken);
+            launcherExecutablePath = await EnsureManagedMagnetarInstallAsync(runtimeFlavor, cancellationToken);
         }
         else
         {
@@ -91,7 +98,18 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             dedicatedServer64Path);
     }
 
-    private async Task<string> EnsureManagedMagnetarInstallAsync(CancellationToken cancellationToken)
+    private Task<string> EnsureManagedMagnetarInstallAsync(ManagedServerRuntime runtime, CancellationToken cancellationToken)
+    {
+        // Windows ships both Magnetar builds side-by-side (exes + per-runtime Libraries
+        // subfolders, no Bin/ wrapper); Linux ships a single Interim build behind a
+        // top-level wrapper with the apphost under Bin/. The two layouts need different
+        // install logic, so branch here and keep the Linux path byte-for-byte as before.
+        return OperatingSystem.IsWindows()
+            ? EnsureWindowsManagedMagnetarInstallAsync(runtime, cancellationToken)
+            : EnsureLinuxManagedMagnetarInstallAsync(cancellationToken);
+    }
+
+    private async Task<string> EnsureLinuxManagedMagnetarInstallAsync(CancellationToken cancellationToken)
     {
         var installDirectory = _options.MagnetarInstallDirectory;
 
@@ -117,23 +135,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
             try
             {
-                using var client = _httpClientFactory.CreateClient();
-                client.Timeout = TimeSpan.FromMinutes(5);
-
-                var archivePath = Path.Combine(extractRoot, "magnetar-download" + InferArchiveExtension(_options.MagnetarArchiveUrl));
-                using var response = await client.GetAsync(_options.MagnetarArchiveUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-                if (!response.IsSuccessStatusCode)
-                {
-                    throw new InvalidOperationException(
-                        $"Failed downloading Magnetar archive from {_options.MagnetarArchiveUrl}. Status={(int)response.StatusCode} {response.ReasonPhrase}.");
-                }
-
-                await using (var archiveFile = File.Create(archivePath))
-                {
-                    await response.Content.CopyToAsync(archiveFile, cancellationToken);
-                }
-
-                ExtractArchive(archivePath, extractRoot);
+                await DownloadAndExtractMagnetarArchiveAsync(extractRoot, cancellationToken);
 
                 var source = FindMagnetarSource(extractRoot)
                              ?? throw new InvalidOperationException("Downloaded Magnetar archive did not contain MagnetarInterim with a Bin payload.");
@@ -165,6 +167,102 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         {
             _magnetarInstallLock.Release();
         }
+    }
+
+    private async Task<string> EnsureWindowsManagedMagnetarInstallAsync(ManagedServerRuntime runtime, CancellationToken cancellationToken)
+    {
+        var installDirectory = _options.MagnetarInstallDirectory;
+        var launcherFileName = GetWindowsMagnetarLauncherFileName(runtime);
+
+        // Both builds (Interim + Legacy) install together into a single folder, so once
+        // either launcher is present the install is complete and switching runtime per
+        // server never needs a re-download. Resolve to the requested exe; its containing
+        // folder is the working directory (where the Libraries payload lives).
+        var launcherPath = Path.Combine(installDirectory, launcherFileName);
+        if (File.Exists(launcherPath))
+            return launcherPath;
+
+        await _magnetarInstallLock.WaitAsync(cancellationToken);
+        try
+        {
+            launcherPath = Path.Combine(installDirectory, launcherFileName);
+            if (File.Exists(launcherPath))
+                return launcherPath;
+
+            Directory.CreateDirectory(MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory());
+            var extractRoot = Path.Combine(MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory(), $"magnetar-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(extractRoot);
+
+            try
+            {
+                await DownloadAndExtractMagnetarArchiveAsync(extractRoot, cancellationToken);
+
+                var source = FindWindowsMagnetarSource(extractRoot)
+                             ?? throw new InvalidOperationException(
+                                 "Downloaded Magnetar archive did not contain MagnetarInterim.exe with a Libraries payload.");
+
+                if (Directory.Exists(installDirectory))
+                    Directory.Delete(installDirectory, recursive: true);
+
+                Directory.CreateDirectory(installDirectory);
+                CopyDirectory(source, installDirectory);
+
+                launcherPath = Path.Combine(installDirectory, launcherFileName);
+                if (!File.Exists(launcherPath))
+                    throw new InvalidOperationException(
+                        $"Magnetar launcher {launcherFileName} not found under {installDirectory} after install.");
+
+                _logger.LogInformation("Installed managed Magnetar runtime into {Path}.", installDirectory);
+                return launcherPath;
+            }
+            finally
+            {
+                TryDeleteDirectory(extractRoot);
+            }
+        }
+        finally
+        {
+            _magnetarInstallLock.Release();
+        }
+    }
+
+    private async Task DownloadAndExtractMagnetarArchiveAsync(string extractRoot, CancellationToken cancellationToken)
+    {
+        using var client = _httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromMinutes(5);
+
+        var archivePath = Path.Combine(extractRoot, "magnetar-download" + InferArchiveExtension(_options.MagnetarArchiveUrl));
+        using var response = await client.GetAsync(_options.MagnetarArchiveUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Failed downloading Magnetar archive from {_options.MagnetarArchiveUrl}. Status={(int)response.StatusCode} {response.ReasonPhrase}.");
+        }
+
+        await using (var archiveFile = File.Create(archivePath))
+        {
+            await response.Content.CopyToAsync(archiveFile, cancellationToken);
+        }
+
+        ExtractArchive(archivePath, extractRoot);
+    }
+
+    private static string GetWindowsMagnetarLauncherFileName(ManagedServerRuntime runtime) => runtime switch
+    {
+        ManagedServerRuntime.NetFramework48 => "MagnetarLegacy.exe",
+        _ => "MagnetarInterim.exe",
+    };
+
+    // The Windows archive root is a single Magnetar/ folder holding both launcher exes
+    // and a Libraries/ subfolder. Locate it by the Interim exe with a sibling Libraries/
+    // directory, then copy the whole folder so both runtimes are available.
+    private static string? FindWindowsMagnetarSource(string extractionRoot)
+    {
+        return Directory.GetFiles(extractionRoot, "*", SearchOption.AllDirectories)
+            .Where(path => string.Equals(Path.GetFileName(path), "MagnetarInterim.exe", StringComparison.OrdinalIgnoreCase))
+            .Select(Path.GetDirectoryName)
+            .Where(directory => !string.IsNullOrWhiteSpace(directory))
+            .FirstOrDefault(directory => FindImmediateDirectory(directory!, "Libraries") is not null);
     }
 
     private async Task<string> ResolveDedicatedServer64PathAsync(

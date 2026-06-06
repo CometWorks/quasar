@@ -17,6 +17,11 @@ public sealed class DedicatedServerDefinition
 
     public string WorkingDirectory { get; set; } = string.Empty;
 
+    // Which Magnetar build / .NET runtime launches this server. Honored only on Windows,
+    // where both the .NET 10 (Interim) and .NET Framework 4.8 (Legacy) builds ship. On
+    // non-Windows hosts the resolver forces DotNet10 regardless of this value.
+    public ManagedServerRuntime ManagedRuntime { get; set; } = ManagedServerRuntime.DotNet10;
+
     public string DedicatedServerAppDataPath { get; set; } = string.Empty;
 
     public string MagnetarAppDataPath { get; set; } = string.Empty;
@@ -65,7 +70,7 @@ public sealed class DedicatedServerDefinition
 
     public bool AvoidSimultaneousScheduledRestarts { get; set; } = true;
 
-    public DedicatedServerProcessPriority StartupProcessPriority { get; set; } = DedicatedServerProcessPriority.BelowNormal;
+    public DedicatedServerProcessPriority StartupProcessPriority { get; set; } = DedicatedServerProcessPriority.Normal;
 
     public DedicatedServerProcessPriority ReadyProcessPriority { get; set; } = DedicatedServerProcessPriority.Normal;
 
@@ -87,6 +92,7 @@ public sealed class DedicatedServerDefinition
             GoalState = GoalState,
             ExecutablePath = ExecutablePath,
             WorkingDirectory = WorkingDirectory,
+            ManagedRuntime = ManagedRuntime,
             DedicatedServerAppDataPath = DedicatedServerAppDataPath,
             MagnetarAppDataPath = MagnetarAppDataPath,
             WorldPath = WorldPath,

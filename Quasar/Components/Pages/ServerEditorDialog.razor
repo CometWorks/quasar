@@ -113,6 +113,20 @@
                             }
                         </MudStack>
                     </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudSelect T="ManagedServerRuntime"
+                                   @bind-Value="_editor.ManagedRuntime"
+                                   Label=".NET runtime"
+                                   Variant="Variant.Outlined"
+                                   Disabled="@(!IsWindowsHost)"
+                                   HelperText="@RuntimeHelperText">
+                            <MudSelectItem T="ManagedServerRuntime" Value="ManagedServerRuntime.DotNet10">@FormatRuntime(ManagedServerRuntime.DotNet10)</MudSelectItem>
+                            @if (IsWindowsHost)
+                            {
+                                <MudSelectItem T="ManagedServerRuntime" Value="ManagedServerRuntime.NetFramework48">@FormatRuntime(ManagedServerRuntime.NetFramework48)</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
                 </MudGrid>
 
                 @if (TemplateModsMissingFromProfile.Count > 0)
@@ -384,6 +398,8 @@
         DedicatedServerProcessPriority.High,
     ];
 
+    private static bool IsWindowsHost => OperatingSystem.IsWindows();
+
     protected override void OnInitialized()
     {
         _editor = Definition.Clone();
@@ -391,6 +407,11 @@
         _restartPolicyExpanded = _isEditing;
         _healthPolicyExpanded = _isEditing;
         _runtimeExpanded = _isEditing;
+
+        // Only Windows offers the .NET Framework 4.8 (Legacy) build; everywhere else .NET 10
+        // is the sole runtime, so pin the selection to keep the disabled selector coherent.
+        if (!IsWindowsHost)
+            _editor.ManagedRuntime = ManagedServerRuntime.DotNet10;
 
         if (string.IsNullOrWhiteSpace(_editor.DisplayName) && !string.IsNullOrWhiteSpace(_editor.UniqueName))
             _editor.DisplayName = _editor.UniqueName;
@@ -648,6 +669,17 @@
         DedicatedServerProcessPriority.High => "High",
         _ => "Normal",
     };
+
+    private static string FormatRuntime(ManagedServerRuntime runtime) => runtime switch
+    {
+        ManagedServerRuntime.NetFramework48 => ".NET Framework 4.8",
+        _ => ".NET 10",
+    };
+
+    private string RuntimeHelperText =>
+        IsWindowsHost
+            ? "Magnetar build used to launch this server. Defaults to .NET 10; switch to .NET Framework 4.8 only if a plugin requires it."
+            : ".NET 10 is the only runtime available on this host.";
 
     private string? ValidateUniqueNameField(string? value)
     {
