@@ -28,7 +28,7 @@ Build notes:
 - A local-only override can live at `Quasar.Agent/Directory.Build.props`.
 - This repo keeps the machine-specific override out of source control.
 - On Windows the solution builds out-of-the-box: `Directory.Build.props` auto-resolves `DS64` from the Steam registry `InstallLocation` (falling back to the default `C:\Program Files (x86)\Steam\...\DedicatedServer64` library) and `MagnetarBin` to `$(Magnetar)\Libraries\MagnetarLegacy`. On Linux `MagnetarBin` resolves to `$(Magnetar)/Bin`.
-- The Linux release workflow forces SteamCMD to the Windows platform before installing app `298740`, because Space Engineers Dedicated Server references come from the Windows depot.
+- The Linux release workflow forces SteamCMD to the 64-bit Windows platform before installing app `298740`, because Space Engineers Dedicated Server references come from the Windows depot; it retries the install to work around transient SteamCMD missing-configuration failures.
 
 Managed runtime notes:
 

@@ -55,13 +55,27 @@ jobs:
 
       - name: Install Space Engineers Dedicated Server references
         run: |
-          mkdir -p "$HOME/.steam/steam/steamapps/common/SpaceEngineersDedicatedServer"
-          /usr/games/steamcmd \
-            +force_install_dir "$HOME/.steam/steam/steamapps/common/SpaceEngineersDedicatedServer" \
-            +login anonymous \
-            +@sSteamCmdForcePlatformType windows \
-            +app_update 298740 validate \
-            +quit
+          install_dir="$HOME/.steam/steam/steamapps/common/SpaceEngineersDedicatedServer"
+          mkdir -p "$install_dir"
+          steam_ok=false
+          for attempt in 1 2 3; do
+            echo "SteamCMD install attempt $attempt/3"
+            if /usr/games/steamcmd \
+              +@sSteamCmdForcePlatformType windows \
+              +@sSteamCmdForcePlatformBitness 64 \
+              +force_install_dir "$install_dir" \
+              +login anonymous \
+              +app_update 298740 validate \
+              +quit; then
+              steam_ok=true
+              break
+            fi
+            sleep 20
+          done
+          if [[ "$steam_ok" != "true" || ! -d "$install_dir/DedicatedServer64" ]]; then
+            echo "Failed installing Space Engineers Dedicated Server references." >&2
+            exit 1
+          fi
 
       - name: Resolve Quasar release metadata
         id: release
