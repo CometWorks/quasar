@@ -38,7 +38,7 @@
             FullScreen = true,
         };
 
-        var dialog = await DialogService.ShowAsync<ConfigsPageDialog>("Config Templates", parameters, options);
+        var dialog = await DialogService.ShowAsync<ConfigsPageDialog>("Config Profiles", parameters, options);
         await dialog.Result;
     }
 }

@@ -12,28 +12,28 @@
 @inject IJSRuntime JS
 @inject IDialogService DialogService
 
-<PageTitle>Config Templates</PageTitle>
+<PageTitle>Config Profiles</PageTitle>
 
 <MudGrid Class="configs-page-shell">
     <MudItem xs="12" lg="3">
         <MudPaper Class="server-card pa-4 configs-sidebar">
             <MudStack Spacing="2" Class="configs-sidebar-inner">
                 <div>
-                    <MudText Typo="Typo.h6">Config Templates</MudText>
+                    <MudText Typo="Typo.h6">Config Profiles</MudText>
                     <MudText Typo="Typo.body2" Class="mb-4">
-                        Reusable Magnetar config templates. Applied to the assigned servers when they start.
+                        Reusable Magnetar config profiles. Applied to the assigned servers when they start.
                     </MudText>
                 </div>
                 
                 <MudTextField
                     @bind-Value="_newProfileName"
-                    Label="New template name"
+                    Label="New profile name"
                     Variant="Variant.Outlined"
                     Immediate="true"
                     OnKeyDown="HandleNewProfileKeyDown" />
 
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateProfileAsync" Disabled="@string.IsNullOrWhiteSpace(_newProfileName)">
-                    Create Template
+                    Create Profile
                 </MudButton>
 
                 <MudDivider />
@@ -41,21 +41,21 @@
                 @if (Templates.Count == 0)
                 {
                     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                        No config templates yet.
+                        No config profiles yet.
                     </MudAlert>
                 }
                 else
                 {
-                    <MudStack Spacing="1" Class="configs-template-list">
+                    <MudStack Spacing="1" Class="configs-profile-list">
                         @foreach (var template in Templates)
                         {
                             var isSelected = string.Equals(_selectedProfileId, template.ConfigProfileId, StringComparison.OrdinalIgnoreCase);
                             var profileTileClass = GetProfileTileCssClass(isSelected);
                             var profileButtonClass = isSelected
-                                ? "config-template-button config-template-button-selected"
-                                : "config-template-button";
+                                ? "config-profile-button config-profile-button-selected"
+                                : "config-profile-button";
                             <MudPaper Class="@profileTileClass" @key="template.ConfigProfileId">
-                                <MudStack Row="true" AlignItems="AlignItems.Start" Justify="Justify.SpaceBetween" Spacing="1" Class="config-template-row">
+                                <MudStack Row="true" AlignItems="AlignItems.Start" Justify="Justify.SpaceBetween" Spacing="1" Class="config-profile-row">
                                     <MudButton Variant="Variant.Text" Color="Color.Inherit" Class="@profileButtonClass" Style="flex: 1 1 auto; min-width: 0;" OnClick="@(() => SelectProfileFromListAsync(template.ConfigProfileId))">
                                         <MudStack AlignItems="AlignItems.Start" Spacing="0">
                                             <MudText Typo="Typo.subtitle2">@template.Name</MudText>
@@ -73,7 +73,7 @@
                                         Icon="@Icons.Material.Filled.DeleteOutline"
                                         Color="Color.Error"
                                         Size="Size.Small"
-                                        Class="config-template-delete"
+                                        Class="config-profile-delete"
                                         OnClick="@(() => DeleteProfileAsync(template.ConfigProfileId))" />
                                 </MudStack>
                             </MudPaper>
@@ -89,7 +89,7 @@
         @if (_editor is null)
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                Select template or create new one to start editing.
+                Select profile or create new one to start editing.
             </MudAlert>
         }
         else
@@ -98,7 +98,7 @@
                 <MudPaper Class="server-card pa-4">
                     <MudGrid>
                         <MudItem xs="12" md="6">
-                            <MudTextField @bind-Value="_editor.Name" Label="Template name" Variant="Variant.Outlined" Immediate="true" />
+                            <MudTextField @bind-Value="_editor.Name" Label="Profile name" Variant="Variant.Outlined" Immediate="true" />
                         </MudItem>
                         <MudItem xs="12" md="6">
                             <MudTextField @bind-Value="_editor.Description" Label="Description" Variant="Variant.Outlined" Immediate="true" />
@@ -123,7 +123,7 @@
                     }
 
                     <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-4">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveTemplateAsync">Save Template</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveTemplateAsync">Save Profile</MudButton>
                         <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="ResetEditorAsync">Reset</MudButton>
                     </MudStack>
                 </MudPaper>
@@ -857,7 +857,7 @@
         var name = _newProfileName.Trim();
         if (string.IsNullOrWhiteSpace(name))
         {
-            Snackbar.Add("Template name required.", Severity.Warning);
+            Snackbar.Add("Profile name required.", Severity.Warning);
             return;
         }
 
@@ -869,7 +869,7 @@
         await ConfigProfiles.UpsertAsync(template);
         _newProfileName = string.Empty;
         SelectProfile(template.ConfigProfileId);
-        Snackbar.Add("Config template created.", Severity.Success);
+        Snackbar.Add("Config profile created.", Severity.Success);
     }
 
     private async Task SaveTemplateAsync()
@@ -884,7 +884,7 @@
 
         if (string.IsNullOrWhiteSpace(_editor.Name))
         {
-            Snackbar.Add("Template name required.", Severity.Warning);
+            Snackbar.Add("Profile name required.", Severity.Warning);
             return false;
         }
 
@@ -894,7 +894,7 @@
         else
             _selectedProfileSnapshot = CreateProfileSnapshot(_editor);
 
-        Snackbar.Add("Config template saved.", Severity.Success);
+        Snackbar.Add("Config profile saved.", Severity.Success);
         return true;
     }
 
@@ -908,7 +908,7 @@
         template.Name = $"{template.Name} (Copy)";
         await ConfigProfiles.UpsertAsync(template);
         SelectProfile(template.ConfigProfileId);
-        Snackbar.Add("Config template cloned.", Severity.Success);
+        Snackbar.Add("Config profile cloned.", Severity.Success);
     }
 
     private async Task DeleteProfileAsync(string configProfileId)
@@ -916,14 +916,14 @@
         var assignedServers = GetAssignedServers(configProfileId);
         if (assignedServers.Count > 0)
         {
-            Snackbar.Add("Template still assigned to servers. Reassign or clear them first.", Severity.Warning);
+            Snackbar.Add("Profile still assigned to servers. Reassign or clear them first.", Severity.Warning);
             return;
         }
 
         var profile = ConfigProfiles.GetProfile(configProfileId);
         var profileName = profile?.Name ?? configProfileId;
         var confirmed = await DialogService.ShowMessageBoxAsync(
-            "Delete config template?",
+            "Delete config profile?",
             $"'{profileName}' will be permanently removed. This cannot be undone.",
             yesText: "Delete",
             cancelText: "Cancel");
@@ -935,14 +935,14 @@
         if (string.Equals(_selectedProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))
             SelectProfile(Templates.FirstOrDefault(template => !string.Equals(template.ConfigProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))?.ConfigProfileId ?? string.Empty);
 
-        Snackbar.Add("Config template deleted.", Severity.Info);
+        Snackbar.Add("Config profile deleted.", Severity.Info);
     }
 
     private async Task ResetEditorAsync()
     {
         var confirmed = await DialogService.ShowMessageBoxAsync(
-            "Reset config template?",
-            "Pending editor changes will be discarded and the template will be reloaded from disk.",
+            "Reset config profile?",
+            "Pending editor changes will be discarded and the profile will be reloaded from disk.",
             yesText: "Reset",
             cancelText: "Cancel");
 
@@ -1155,8 +1155,8 @@
 
     private static string GetProfileTileCssClass(bool isSelected) =>
         isSelected
-            ? "pa-3 config-template-tile config-template-selected"
-            : "pa-3 config-template-tile";
+            ? "pa-3 config-profile-tile config-profile-selected"
+            : "pa-3 config-profile-tile";
 
     private string GetOptionCssClass(QuasarConfigOptionDefinition option)
     {

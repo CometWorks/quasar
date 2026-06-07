@@ -3,17 +3,17 @@
         <MudForm @ref="_form" @bind-IsValid="_formIsValid">
         <MudStack Spacing="3">
             <MudText Typo="Typo.body2">
-                Create a reusable config template, then it will be selected in the server editor.
+                Create a reusable config profile, then it will be selected in the server editor.
             </MudText>
 
             <MudTextField
                 @bind-Value="_name"
-                Label="Template name"
+                Label="Profile name"
                 Variant="Variant.Outlined"
                 Immediate="true"
                 AutoFocus="true"
                 Required="true"
-                RequiredError="Template name required." />
+                RequiredError="Profile name required." />
 
             <MudTextField
                 @bind-Value="_description"
@@ -27,7 +27,7 @@
     <DialogActions>
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel" Disabled="@_saving">Cancel</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync" Disabled="@_saving">
-            @(_saving ? "Creating..." : "Create Template")
+            @(_saving ? "Creating..." : "Create Profile")
         </MudButton>
     </DialogActions>
 </MudDialog>

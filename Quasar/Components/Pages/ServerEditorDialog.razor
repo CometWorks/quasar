@@ -67,10 +67,10 @@
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="1">
                             <MudSelect T="string"
                                        @bind-Value="_editor.ConfigProfileId"
-                                       Label="Config template"
+                                       Label="Config profile"
                                        Variant="Variant.Outlined"
                                        Required="true"
-                                       RequiredError="Config template required."
+                                       RequiredError="Config profile required."
                                        Validation="@(new Func<string, string?>(ValidateConfigProfileField))"
                                        HelperText="Reusable world, plugin, and mod preset from Configs page. The profile's mod list is written into the world's Sandbox_config.sbc on every start.">
                                 @foreach (var template in ConfigProfiles.GetProfiles())
@@ -80,9 +80,9 @@
                             </MudSelect>
                             @if (string.IsNullOrWhiteSpace(_editor.ConfigProfileId))
                             {
-                                <MudTooltip Text="Create a config template without leaving this dialog">
+                                <MudTooltip Text="Create a config profile without leaving this dialog">
                                     <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateConfigProfileDialogAsync">
-                                        New Template
+                                        New Profile
                                     </MudButton>
                                 </MudTooltip>
                             }
@@ -539,7 +539,7 @@
     private async Task OpenCreateConfigProfileDialogAsync()
     {
         var dialog = await DialogService.ShowAsync<ConfigProfileQuickCreateDialog>(
-            "New Config Template",
+            "New Config Profile",
             new DialogParameters(),
             new DialogOptions
             {
@@ -694,7 +694,7 @@
         string.IsNullOrWhiteSpace(value) ? "World template required." : null;
 
     private static string? ValidateConfigProfileField(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? "Config template required." : null;
+        string.IsNullOrWhiteSpace(value) ? "Config profile required." : null;
 
     private string SelectedProfileName =>
         string.IsNullOrWhiteSpace(_editor.ConfigProfileId)

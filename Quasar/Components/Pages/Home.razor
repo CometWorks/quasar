@@ -59,7 +59,7 @@
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
                             <MudStack Spacing="0" Class="setup-wizard-copy">
                                 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-                                    <MudText Typo="Typo.subtitle2">Create config template</MudText>
+                                    <MudText Typo="Typo.subtitle2">Create config profile</MudText>
                                     <MudChip T="string" Variant="Variant.Outlined" Color="@(ConfigProfileCount > 0 ? Color.Success : Color.Info)" Size="Size.Small">
                                         @(ConfigProfileCount > 0 ? "Done" : "Recommended")
                                     </MudChip>
@@ -67,7 +67,7 @@
                                 <MudText Typo="Typo.body2">
                                     @if (ConfigProfileCount > 0)
                                     {
-                                        @($"{ConfigProfileCount} config template(s) ready for reuse.")
+                                        @($"{ConfigProfileCount} config profile(s) ready for reuse.")
                                     }
                                     else
                                     {
@@ -81,7 +81,7 @@
                                            Color="@(ConfigProfileCount > 0 ? Color.Default : Color.Primary)"
                                            StartIcon="@Icons.Material.Filled.Tune"
                                            OnClick="OpenCreateConfigProfileDialogAsync">
-                                    @(ConfigProfileCount > 0 ? "Add Config Template" : "Create Config Template")
+                                    @(ConfigProfileCount > 0 ? "Add Config Profile" : "Create Config Profile")
                                 </MudButton>
                             </MudStack>
                         </MudStack>
@@ -598,7 +598,7 @@ else
         if (ConfiguredServerCount == 0)
         {
             if (ConfigProfileCount == 0 && WorldTemplateCount == 0)
-                return "Optional: create config template or import world template here first. Then create first server below.";
+                return "Optional: create config profile or import world template here first. Then create first server below.";
 
             return "Next: create first server below. No page switch needed.";
         }
@@ -613,7 +613,7 @@ else
     }
 
     private Task OpenCreateConfigProfileDialogAsync() =>
-        ShowFullScreenPageDialogAsync<ConfigsPageDialog>("Config Templates");
+        ShowFullScreenPageDialogAsync<ConfigsPageDialog>("Config Profiles");
 
     private Task OpenImportWorldTemplateDialogAsync() =>
         ShowFullScreenPageDialogAsync<WorldTemplatesPageDialog>("World Templates");
@@ -716,7 +716,7 @@ else
     private string GetServerSetupSummary(DedicatedServerDefinition server)
     {
         var configProfileName = string.IsNullOrWhiteSpace(server.ConfigProfileId)
-            ? "No config template"
+            ? "No config profile"
             : ConfigProfiles.GetProfile(server.ConfigProfileId)?.Name ?? $"Missing config: {server.ConfigProfileId}";
 
         var worldTemplateName = string.IsNullOrWhiteSpace(server.WorldTemplateId)

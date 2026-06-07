@@ -79,15 +79,15 @@ h1:focus {
     color: var(--mud-palette-primary);
 }
 
-/* Config template selection lives in global CSS (not Configs.razor.css) because
+/* Config profile selection lives in global CSS (not Configs.razor.css) because
    MudBlazor components don't reliably receive the scoped-CSS attribute, so the
    selected highlight would not paint and only the click ripple would show. */
-.mud-paper.config-template-tile {
+.mud-paper.config-profile-tile {
     background-color: var(--mud-palette-background-gray);
     transition: background-color 0.18s ease, color 0.18s ease;
 }
 
-.mud-paper.config-template-tile.config-template-selected {
+.mud-paper.config-profile-tile.config-profile-selected {
     background-color: rgba(var(--mud-palette-primary-rgb), 0.3) !important;
 }
 

@@ -177,7 +177,7 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
         {
             ConfigProfileId = id,
             Name = name,
-            Description = "Quasar built-in starter template.",
+            Description = "Quasar built-in starter profile.",
             SessionSettings = new QuasarSessionSettings
             {
                 GameMode = gameMode,

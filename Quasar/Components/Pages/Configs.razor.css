@@ -24,7 +24,7 @@
     overflow: hidden;
 }
 
-.configs-template-list {
+.configs-profile-list {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -42,20 +42,20 @@
     padding-right: 0.25rem;
 }
 
-.config-template-tile {
+.config-profile-tile {
     background: var(--mud-palette-background-gray);
     border-radius: calc(var(--mud-default-borderradius) + 2px);
     transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 
-/* .config-template-selected (the persistent selected highlight) lives in the
+/* .config-profile-selected (the persistent selected highlight) lives in the
    global app.css — scoped CSS does not reliably reach the MudPaper tile. */
 
-.config-template-row {
+.config-profile-row {
     flex-wrap: nowrap;
 }
 
-.config-template-button {
+.config-profile-button {
     border-radius: inherit;
     color: inherit;
     flex: 1 1 auto;
@@ -68,18 +68,18 @@
     width: auto;
 }
 
-.config-template-button-selected {
+.config-profile-button-selected {
     box-shadow: inset 4px 0 0 currentColor;
 }
 
-.config-template-button ::deep .mud-button-label {
+.config-profile-button ::deep .mud-button-label {
     align-items: stretch;
     height: 100%;
     justify-content: flex-start;
     width: 100%;
 }
 
-.config-template-delete {
+.config-profile-delete {
     flex: 0 0 auto;
 }
 
