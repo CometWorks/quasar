@@ -101,6 +101,7 @@ $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
     -StartWhenAvailable `
+    -MultipleInstances IgnoreNew `
     -RestartCount 3 `
     -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit ([TimeSpan]::Zero)
@@ -110,8 +111,9 @@ if ($User) {
     $runAs = $User
 }
 else {
-    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-    $runAs = 'SYSTEM'
+    $currentUser = "$env:USERDOMAIN\$env:USERNAME"
+    $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType S4U -RunLevel Highest
+    $runAs = $currentUser
 }
 
 Write-Host "Registering scheduled task '$TaskName'..."
