@@ -49,12 +49,15 @@
   <Target Name="PublishQuasarWorker" BeforeTargets="Publish"
           Condition="'$(RuntimeIdentifier)' != ''">
     <PropertyGroup>
+      <_QuasarWorkerProject>$(MSBuildThisFileDirectory)../Quasar/Quasar.csproj</_QuasarWorkerProject>
       <_QuasarWorkerPublishDir>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\quasar-worker-publish\</_QuasarWorkerPublishDir>
     </PropertyGroup>
     <RemoveDir Directories="$(_QuasarWorkerPublishDir)" />
-    <MSBuild Projects="$(MSBuildThisFileDirectory)..\Quasar\Quasar.csproj"
-             Targets="Restore;Publish"
-             Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=true;PublishSingleFile=true;EnableCompressionInSingleFile=true;DebugSymbols=false;DebugType=none;CopyToDeployDir=false;PublishDir=$(_QuasarWorkerPublishDir);Version=$(Version);AssemblyVersion=$(AssemblyVersion);FileVersion=$(FileVersion);InformationalVersion=$(InformationalVersion)" />
+    <!-- Keep restore and publish in separate dotnet processes. A clean in-process
+         Restore;Publish can evaluate before generated NuGet/static-web-asset
+         props exist, which drops Harmony paths and Blazor framework assets. -->
+    <Exec Command="dotnet restore &quot;$(_QuasarWorkerProject)&quot; -r &quot;$(RuntimeIdentifier)&quot; -p:CopyToDeployDir=false -v minimal" />
+    <Exec Command="dotnet publish &quot;$(_QuasarWorkerProject)&quot; -c &quot;$(Configuration)&quot; -r &quot;$(RuntimeIdentifier)&quot; --no-restore -p:SelfContained=true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugSymbols=false -p:DebugType=none -p:CopyToDeployDir=false -p:PublishDir=&quot;$(_QuasarWorkerPublishDir)&quot; -p:Version=&quot;$(Version)&quot; -p:AssemblyVersion=&quot;$(AssemblyVersion)&quot; -p:FileVersion=&quot;$(FileVersion)&quot; -p:InformationalVersion=&quot;$(InformationalVersion)&quot; -v minimal" />
   </Target>
 
   <Target Name="PackPublishedQuasar" AfterTargets="Publish"

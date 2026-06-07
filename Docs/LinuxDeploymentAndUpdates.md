@@ -20,7 +20,9 @@ web UI worker.
 - `SHA256SUMS`
 
 The GitHub release workflow builds these assets on Linux and attaches them to
-tagged GitHub releases.
+GitHub releases. Tag pushes and pushes to `main` publish both UI and Bootstrap
+streams as full releases. Pull requests publish both streams as draft
+prereleases for review.
 `Version` is taken from `scripts/package-linux-release.sh` and can fall back to a git value.
 For assembly/file metadata, the script always emits a valid `major.minor.build`
 version even when the base version is build-number style. The public update

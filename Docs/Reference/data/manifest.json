@@ -424,8 +424,8 @@
       "path": "Quasar.Bootstrap/Quasar.Bootstrap.csproj",
       "name": "Quasar.Bootstrap.csproj",
       "ext": ".csproj",
-      "size": 4243,
-      "sha256": "f2ed8ee283df7bf693cbda294efa2bdc015c122c30fbd851a9ab3e0d47ea821d",
+      "size": 4779,
+      "sha256": "42869d70ea6e5efd911d21e469e469755a969ed8717b8981e8e02b36a2c16725",
       "module": "Quasar.Bootstrap",
       "tier": 3,
       "status": "documented"
@@ -1114,8 +1114,8 @@
       "path": "Quasar/Quasar.csproj",
       "name": "Quasar.csproj",
       "ext": ".csproj",
-      "size": 5166,
-      "sha256": "480555bc1a0c79b714703aa7cebb4aafa3260c8d87bd7178cb486b135dee3189",
+      "size": 8233,
+      "sha256": "195621fb8a03af6887d4e6383fa0aa2318b47d16893627ed99a76bf070fb282a",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "documented"

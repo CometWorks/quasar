@@ -32,7 +32,8 @@ MSBuild project file for the Quasar Blazor Server host. Targets `net10.0` using 
 **Custom MSBuild targets:**
 - `CopyToDeployDir` (AfterTargets=Build, conditional on `CopyToDeployDir != false`) — copies output (excluding `.pdb`, `.xml`, and the main executable) to `$(DeployDir)`.
 - `BuildQuasarAgent` (BeforeTargets=Build;Publish) — builds `../Quasar.Agent/Quasar.Agent.csproj` for `netstandard2.0` / `x64` only when the staged DLLs are missing. It invokes `dotnet build` directly with RID and single-file publish properties cleared so parent publish globals do not leak into the agent restore/build.
-- `StageQuasarAgent` (AfterTargets=Build) — verifies the restored `Lib.Harmony` package path, copies `Quasar.Agent.dll` and `Magnetar.Protocol.dll` from agent output into `$(OutputPath)Agent\`, then stages `0Harmony.dll` under `Agent\DotNet10\` and `Agent\NetFramework48\`.
+- `ResolveHarmonyPackageFiles` — resolves the restored `Lib.Harmony` package root from NuGet-generated properties, explicit NuGet package roots, or the default user package cache, then selects the best available .NET and .NET Framework `0Harmony.dll` assets.
+- `StageQuasarAgent` (AfterTargets=Build) — copies `Quasar.Agent.dll` and `Magnetar.Protocol.dll` from agent output into `$(OutputPath)Agent\`, then stages the resolved `0Harmony.dll` files under `Agent\DotNet10\` and `Agent\NetFramework48\`.
 - `StageQuasarAgentForPublish` (AfterTargets=Publish) — same verification and copy but to `$(PublishDir)Agent\`.
 
 ## Dependencies
@@ -40,4 +41,4 @@ MSBuild project file for the Quasar Blazor Server host. Targets `net10.0` using 
 - [`Quasar.Agent/Quasar.Agent.csproj`](../Quasar.Agent/Quasar.Agent.csproj.md) (built as a side-effect, not a `<ProjectReference>`)
 
 ## Notes
-`Quasar.Agent` is intentionally a build-time side-effect rather than a `<ProjectReference>` because the agent targets `netstandard2.0` (to load inside Space Engineers) while the host targets `net10.0`. The agent DLLs are staged into `Agent/` and deployed at runtime by `DedicatedServerRuntimePreparer`; Harmony is staged in runtime subfolders because Magnetar can launch either .NET 10 or .NET Framework 4.8 on Windows. The host project uses NuGet's generated `$(PkgLib_Harmony)` property instead of `$(NuGetPackageRoot)` so CI and local restores resolve the package from the actual restore assets.
+`Quasar.Agent` is intentionally a build-time side-effect rather than a `<ProjectReference>` because the agent targets `netstandard2.0` (to load inside Space Engineers) while the host targets `net10.0`. The agent DLLs are staged into `Agent/` and deployed at runtime by `DedicatedServerRuntimePreparer`; Harmony is staged in runtime subfolders because Magnetar can launch either .NET 10 or .NET Framework 4.8 on Windows. The host project prefers NuGet's generated `$(PkgLib_Harmony)` property, but also falls back to standard NuGet package roots so clean CI `Restore;Publish` paths can still find the package after restore.

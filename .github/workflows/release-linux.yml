@@ -28,6 +28,20 @@ on:
       - "uninstall.sh"
     tags:
       - "v*"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release-linux.yml"
+      - "Directory.Build.props"
+      - "Magnetar.Protocol/**"
+      - "Quasar/**"
+      - "Quasar.Agent/**"
+      - "Quasar.Bootstrap/**"
+      - "Quasar.sln"
+      - "install.sh"
+      - "scripts/package-linux-release.sh"
+      - "uninstall.sh"
 
 permissions:
   contents: write
@@ -128,6 +142,8 @@ jobs:
         id: release
         env:
           DISPATCH_COMPONENT: ${{ github.event.inputs.component || 'all' }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
         run: |
           publish_ui="false"
           publish_bootstrap="false"
@@ -173,32 +189,25 @@ jobs:
             bootstrap_tag="v${version}"
             ui_name="Quasar UI main ${GITHUB_SHA::7}"
             bootstrap_name="Quasar main ${GITHUB_SHA::7}"
+            draft="false"
+            prerelease="false"
+            publish_ui="true"
+            publish_bootstrap="true"
+          elif [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            if [[ -z "$PR_NUMBER" ]]; then
+              echo "Pull request number is not available." >&2
+              exit 1
+            fi
+            pr_sha="${PR_HEAD_SHA:-$GITHUB_SHA}"
+            version="0.1.0-pr.${PR_NUMBER}.${GITHUB_RUN_NUMBER}"
+            ui_tag="quasar-ui/pr-${PR_NUMBER}/v${version}"
+            bootstrap_tag="pr-${PR_NUMBER}/v${version}"
+            ui_name="Quasar UI PR #${PR_NUMBER} ${pr_sha::7}"
+            bootstrap_name="Quasar PR #${PR_NUMBER} ${pr_sha::7}"
             draft="true"
             prerelease="true"
-            base="${{ github.event.before }}"
-            if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
-              changed_files="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA")"
-            else
-              changed_files="$(git diff --name-only "$base" "$GITHUB_SHA")"
-            fi
-            while IFS= read -r path; do
-              case "$path" in
-                .github/workflows/release-linux.yml|Directory.Build.props|Magnetar.Protocol/*|Quasar.sln|scripts/package-linux-release.sh)
-                  publish_ui="true"
-                  publish_bootstrap="true"
-                  ;;
-                Quasar.Bootstrap/*|install.sh|uninstall.sh)
-                  publish_bootstrap="true"
-                  ;;
-                Quasar/appsettings.json)
-                  publish_ui="true"
-                  publish_bootstrap="true"
-                  ;;
-                Quasar/*|Quasar.Agent/*)
-                  publish_ui="true"
-                  ;;
-              esac
-            done <<< "$changed_files"
+            publish_ui="true"
+            publish_bootstrap="true"
           else
             version="$(git rev-parse --short HEAD)"
             ui_tag="quasar-ui/$version"
