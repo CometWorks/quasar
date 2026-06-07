@@ -4,7 +4,7 @@
 
 ## Summary
 
-RRD-style consolidation buffer that accumulates raw `MetricSample` values into fixed-width time windows and pushes one averaged/max'd sample per window into an inner `RrdCircularBuffer`. Consolidation strategy: `SimSpeed`, `CpuPercent`, `MemoryMb`, and `FrameTimeMs` are averaged; `PlayersOnline`, `UsedPcu`, `TotalBlockCount`, and `FloatingObjectCount` are max'd; `ActiveGridCount` and `ActiveEntityCount` are averaged over samples where they are non-negative (-1 = unavailable).
+RRD-style consolidation buffer that accumulates raw `MetricSample` values into fixed-width time windows and pushes one averaged/max'd sample per window into an inner `RrdCircularBuffer`. Consolidation strategy: `SimSpeed`, `CpuPercent`, `MemoryMb`, and `FrameTimeMs` are averaged; `PlayersOnline` and `UsedPcu` are max'd; `ActiveGridCount` and `ActiveEntityCount` are averaged over samples where they are non-negative (-1 = unavailable).
 
 ## Structure
 
@@ -30,7 +30,6 @@ Private accumulator state (all reset by `ResetAccumulator`):
 - `_sumSimSpeed`, `_sumCpuPercent`, `_sumMemoryMb`, `_sumFrameTimeMs`
 - `_maxPlayersOnline`, `_maxUsedPcu`
 - `_sumActiveGridCount` / `_activeGridCountSamples`, `_sumActiveEntityCount` / `_activeEntityCountSamples`
-- `_maxTotalBlockCount`, `_maxFloatingObjectCount`
 
 `FlushWindow` emits the consolidated `MetricSample` at `_windowStartUnixSeconds` and pushes it via `_buffer.Push`.
 
@@ -42,5 +41,5 @@ Private accumulator state (all reset by `ResetAccumulator`):
 ## Notes
 
 - `Observe` acquires `_sync` for the entire window-check-and-accumulate path; `_buffer` handles its own lock internally.
-- `ActiveGridCount` / `ActiveEntityCount` use separate sample counters so that windows where the agent did not report these fields (value = -1) do not skew the average. Optional max'd fields (`TotalBlockCount`, `FloatingObjectCount`) stay at -1 when no sample reports them.
+- `ActiveGridCount` / `ActiveEntityCount` use separate sample counters so that windows where the agent did not report these fields (value = -1) do not skew the average. A window where none of the samples reported them yields -1 in the consolidated output.
 - The current open window is never flushed until the next sample from a later window arrives; the last window before shutdown is therefore lost unless `MetricsStoreService.PersistAllAsync` calls `ReadAll` (which reads only fully flushed windows from the inner buffer).

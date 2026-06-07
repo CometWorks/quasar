@@ -4,7 +4,7 @@
 
 ## Summary
 
-Configuration record for Quasar's GitHub-release update checker. It controls whether checks run, which repository is queried, whether prereleases are eligible, how often automatic checks run, and which Linux release asset names represent the web worker and Bootstrap packages.
+Configuration record for Quasar's GitHub-release update checker. It controls whether checks run, which repository is queried, whether prereleases are eligible, how often automatic checks run, and which Linux release asset names represent the web worker and Bootstrap packages. `IncludePrerelease` is mutable so the Updates page can change the active worker's release stream immediately.
 
 ## Structure
 
@@ -22,7 +22,7 @@ Namespace: `Quasar.Services.Updates`
 | `LinuxWebAssetName` | `quasar-web-linux-x64.tar.gz`; `QUASAR_UPDATES_LINUX_WEB_ASSET` |
 | `LinuxBootstrapAssetName` | `quasar-linux-x64.tar.gz`; `QUASAR_UPDATES_LINUX_BOOTSTRAP_ASSET` |
 
-`Create(IConfiguration)` loads environment variables first, then `Quasar:Updates`, then defaults.
+`Create(IConfiguration)` loads environment variables first, then `Quasar:Updates`, then defaults. `IncludePrerelease` can also be persisted by `QuasarUpdateService` into the data-directory `appsettings.json`, which both worker and Bootstrap read on startup.
 
 ## Dependencies
 

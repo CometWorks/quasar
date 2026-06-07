@@ -12,7 +12,7 @@ Namespace: `Quasar.Services.Analytics`
 
 **`MetricSampleFactory`** (internal static class)
 
-- `FromSnapshot(AgentSnapshot snapshot) : MetricSample` — maps `snapshot.Metrics` fields to a `MetricSample`; computes `frameTimeMs = 1000 / (simSpeed * 60)` when `SimSpeed > 0.001`, otherwise 0; maps `null` optional fields to sentinel values (`0` for memory, `-1` for grid/entity/block/floating-object counts).
+- `FromSnapshot(AgentSnapshot snapshot) : MetricSample` — maps `snapshot.Metrics` fields to a `MetricSample`; computes `frameTimeMs = 1000 / (simSpeed * 60)` when `SimSpeed > 0.001`, otherwise 0; maps `null` optional fields to sentinel values (`0` for memory, `-1` for grid/entity counts).
 
 ## Dependencies
 
@@ -21,4 +21,4 @@ Namespace: `Quasar.Services.Analytics`
 
 ## Notes
 
-`ActiveGridCount`, `ActiveEntityCount`, `TotalBlockCount`, and `FloatingObjectCount` are nullable in the protocol and default to `-1` when absent, matching the sentinel convention used by `RrdRollupBuffer.Accumulate`.
+`ActiveGridCount` and `ActiveEntityCount` are nullable in the protocol and default to `-1` when absent, matching the sentinel convention used by `RrdRollupBuffer.Accumulate`.

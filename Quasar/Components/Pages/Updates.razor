@@ -5,6 +5,7 @@
 @inject QuasarUpdateOptions Options
 @inject WebServiceOptions WebOptions
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <PageTitle>Updates</PageTitle>
 
@@ -24,6 +25,13 @@
     <MudAlert Severity="@GetStatusSeverity()" Variant="Variant.Outlined">
         @_snapshot.Message
     </MudAlert>
+
+    @if (_includePrerelease)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Filled">
+            Prerelease updates are enabled. This should not be used by regular users. Builds from this stream may be unstable, may require manual recovery, and may update both the UI worker and Bootstrap launcher.
+        </MudAlert>
+    }
 
     <MudGrid>
         <MudItem xs="12" md="6">
@@ -124,6 +132,18 @@
                         Check interval: @Options.CheckInterval.TotalMinutes.ToString("0") min
                     </MudText>
                     <MudText Typo="Typo.body2">
+                        Release stream: @(_includePrerelease ? "stable and prerelease" : "stable only")
+                    </MudText>
+                    <MudSwitch T="bool"
+                               Value="_includePrerelease"
+                               ValueChanged="HandleIncludePrereleaseChanged"
+                               Disabled="_busy"
+                               Color="Color.Error"
+                               Label="Include prerelease versions" />
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
+                        Prerelease versions are for testing only and should not be used by regular users.
+                    </MudAlert>
+                    <MudText Typo="Typo.body2">
                         Last check: @(FormatTimestamp(_snapshot.LastCheckedUtc))
                     </MudText>
                     <MudText Typo="Typo.body2">
@@ -141,10 +161,12 @@
 @code {
     private QuasarUpdateSnapshot _snapshot = new();
     private bool _busy;
+    private bool _includePrerelease;
 
     protected override void OnInitialized()
     {
         _snapshot = UpdateService.GetSnapshot();
+        _includePrerelease = Options.IncludePrerelease;
         UpdateService.Changed += OnUpdatesChanged;
     }
 
@@ -156,6 +178,7 @@
     private void OnUpdatesChanged() => _ = InvokeAsync(() =>
     {
         _snapshot = UpdateService.GetSnapshot();
+        _includePrerelease = Options.IncludePrerelease;
         StateHasChanged();
     });
 
@@ -181,6 +204,46 @@
             () => UpdateService.ActivateStagedWebUpdateAsync(),
             "Quasar UI update activation requested. The page will reconnect shortly.",
             "Failed activating update");
+    }
+
+    private async Task HandleIncludePrereleaseChanged(bool value)
+    {
+        if (value == _includePrerelease)
+            return;
+
+        var previous = _includePrerelease;
+        if (value)
+        {
+            var confirmed = await DialogService.ShowMessageBoxAsync(
+                "Enable prerelease updates?",
+                "Prerelease updates are for testing only and should not be used by regular users. They may be unstable, may require manual recovery, and may update both the UI worker and Bootstrap launcher.",
+                yesText: "Enable prereleases",
+                cancelText: "Cancel");
+
+            if (confirmed != true)
+            {
+                _includePrerelease = previous;
+                return;
+            }
+        }
+
+        _includePrerelease = value;
+        _busy = true;
+        try
+        {
+            await UpdateService.SetIncludePrereleaseAsync(value);
+            _snapshot = UpdateService.GetSnapshot();
+            Snackbar.Add(value ? "Prerelease updates enabled." : "Prerelease updates disabled.", value ? Severity.Warning : Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            _includePrerelease = previous;
+            Snackbar.Add($"Failed updating release stream: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task RunBusyAsync(Func<Task> action, string successMessage, string failurePrefix)

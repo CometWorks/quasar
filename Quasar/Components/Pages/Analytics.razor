@@ -2,7 +2,6 @@
 @implements IDisposable
 @using Microsoft.JSInterop
 @inject MetricsStoreService MetricsStore
-@inject ProfilerStoreService ProfilerStore
 @inject DedicatedServerCatalog ServerCatalog
 @inject AgentRegistry Registry
 @inject ISnackbar Snackbar
@@ -170,125 +169,6 @@ else
     </div>
 }
 
-@if (_profilerCards.Count > 0)
-{
-    <MudStack Spacing="2" Class="mt-6">
-        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
-            <MudStack Spacing="0">
-                <MudText Typo="Typo.h6">Profiler</MudText>
-                <MudText Typo="Typo.caption">Latest sampled calculation windows for selected servers.</MudText>
-            </MudStack>
-            <MudChip T="string" Color="MudBlazor.Color.Secondary" Variant="Variant.Outlined">10s window every 60s</MudChip>
-        </MudStack>
-
-        <MudGrid>
-            @foreach (var profiler in _profilerCards)
-            {
-                <MudItem xs="12" xl="6">
-                    <MudPaper Class="pa-4">
-                        <MudStack Spacing="3">
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
-                                <MudStack Spacing="0">
-                                    <MudText Typo="Typo.h6">@profiler.ServerName</MudText>
-                                    <MudText Typo="Typo.caption">@profiler.CapturedLabel</MudText>
-                                </MudStack>
-                                <MudChip T="string" Color="MudBlazor.Color.Primary" Variant="Variant.Outlined">@profiler.FrameCount frames</MudChip>
-                            </MudStack>
-
-                            <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
-                                <MudChip T="string" Variant="Variant.Outlined">Frame @FormatMs(profiler.GameLoop.FrameMs)</MudChip>
-                                <MudChip T="string" Variant="Variant.Outlined">Update @FormatMs(profiler.GameLoop.UpdateMs)</MudChip>
-                                <MudChip T="string" Variant="Variant.Outlined">Physics @FormatMs(profiler.GameLoop.PhysicsMs)</MudChip>
-                                <MudChip T="string" Variant="Variant.Outlined">Scripts @FormatMs(profiler.GameLoop.ScriptsMs)</MudChip>
-                                <MudChip T="string" Variant="Variant.Outlined">Network @FormatMs(profiler.GameLoop.NetworkMs + profiler.GameLoop.ReplicationMs)</MudChip>
-                                <MudChip T="string" Variant="Variant.Outlined">Other @FormatMs(profiler.GameLoop.OtherMs)</MudChip>
-                            </MudStack>
-
-                            <MudGrid>
-                                <MudItem xs="12" md="6">
-                                    <MudText Typo="Typo.subtitle2" Class="mb-1">Top grids</MudText>
-                                    <MudTable T="ProfilerEntrySnapshot" Dense="true" Hover="true" Items="profiler.TopGrids">
-                                        <HeaderContent>
-                                            <MudTh>Name</MudTh>
-                                            <MudTh>ms/frame</MudTh>
-                                            <MudTh>Calls</MudTh>
-                                        </HeaderContent>
-                                        <RowTemplate>
-                                            <MudTd DataLabel="Name">@DisplayProfilerName(context)</MudTd>
-                                            <MudTd DataLabel="ms/frame">@FormatMs(context.TotalMsPerFrame)</MudTd>
-                                            <MudTd DataLabel="Calls">@context.Calls</MudTd>
-                                        </RowTemplate>
-                                        <NoRecordsContent>
-                                            <MudText Typo="Typo.caption">No grid samples.</MudText>
-                                        </NoRecordsContent>
-                                    </MudTable>
-                                </MudItem>
-
-                                <MudItem xs="12" md="6">
-                                    <MudText Typo="Typo.subtitle2" Class="mb-1">Top scripts</MudText>
-                                    <MudTable T="ProfilerEntrySnapshot" Dense="true" Hover="true" Items="profiler.TopScripts">
-                                        <HeaderContent>
-                                            <MudTh>Name</MudTh>
-                                            <MudTh>ms/frame</MudTh>
-                                            <MudTh>Calls</MudTh>
-                                        </HeaderContent>
-                                        <RowTemplate>
-                                            <MudTd DataLabel="Name">@DisplayProfilerName(context)</MudTd>
-                                            <MudTd DataLabel="ms/frame">@FormatMs(context.TotalMsPerFrame)</MudTd>
-                                            <MudTd DataLabel="Calls">@context.Calls</MudTd>
-                                        </RowTemplate>
-                                        <NoRecordsContent>
-                                            <MudText Typo="Typo.caption">No script samples.</MudText>
-                                        </NoRecordsContent>
-                                    </MudTable>
-                                </MudItem>
-
-                                <MudItem xs="12" md="6">
-                                    <MudText Typo="Typo.subtitle2" Class="mb-1">Top entities</MudText>
-                                    <MudTable T="ProfilerEntrySnapshot" Dense="true" Hover="true" Items="profiler.TopEntities">
-                                        <HeaderContent>
-                                            <MudTh>Name</MudTh>
-                                            <MudTh>ms/frame</MudTh>
-                                            <MudTh>Calls</MudTh>
-                                        </HeaderContent>
-                                        <RowTemplate>
-                                            <MudTd DataLabel="Name">@DisplayProfilerName(context)</MudTd>
-                                            <MudTd DataLabel="ms/frame">@FormatMs(context.TotalMsPerFrame)</MudTd>
-                                            <MudTd DataLabel="Calls">@context.Calls</MudTd>
-                                        </RowTemplate>
-                                        <NoRecordsContent>
-                                            <MudText Typo="Typo.caption">No entity samples.</MudText>
-                                        </NoRecordsContent>
-                                    </MudTable>
-                                </MudItem>
-
-                                <MudItem xs="12" md="6">
-                                    <MudText Typo="Typo.subtitle2" Class="mb-1">Physics and network</MudText>
-                                    <MudTable T="ProfilerEntrySnapshot" Dense="true" Hover="true" Items="profiler.TopSystems">
-                                        <HeaderContent>
-                                            <MudTh>Name</MudTh>
-                                            <MudTh>ms/frame</MudTh>
-                                            <MudTh>Calls</MudTh>
-                                        </HeaderContent>
-                                        <RowTemplate>
-                                            <MudTd DataLabel="Name">@DisplayProfilerName(context)</MudTd>
-                                            <MudTd DataLabel="ms/frame">@FormatMs(context.TotalMsPerFrame)</MudTd>
-                                            <MudTd DataLabel="Calls">@context.Calls</MudTd>
-                                        </RowTemplate>
-                                        <NoRecordsContent>
-                                            <MudText Typo="Typo.caption">No system samples.</MudText>
-                                        </NoRecordsContent>
-                                    </MudTable>
-                                </MudItem>
-                            </MudGrid>
-                        </MudStack>
-                    </MudPaper>
-                </MudItem>
-            }
-        </MudGrid>
-    </MudStack>
-}
-
 @code
 {
     private const string StorageKey = "quasar.analytics.view.v2";
@@ -322,7 +202,6 @@ else
     ];
 
     private readonly List<ChartCard> _chartCards = [];
-    private readonly List<ProfilerSummaryCard> _profilerCards = [];
     private readonly List<SummaryChipModel> _summaryChips = [];
     private AnalyticsViewConfig _config = CreateDefaultConfig();
     private IReadOnlyList<ServerOption> _serverOptions = [];
@@ -798,7 +677,6 @@ else
 
         BuildSummary(selectedServers, samplesByServer, effectiveServers.Count);
         BuildChartCards(samplesByServer.Count > 0);
-        BuildProfilerCards(selectedServers, fromUnix, toUnix);
     }
 
     private void BuildChartCards(bool hasData)
@@ -812,7 +690,7 @@ else
                      .OrderBy(panel => panel.Order)
                      .ThenBy(panel => ResolveMetricTitle(panel.Key), StringComparer.OrdinalIgnoreCase))
         {
-            var metric = AnalyticsMetrics.Find(panel.Key);
+            var metric = AnalyticsMetrics.FindPanel(panel.Key);
             if (metric is null)
                 continue;
 
@@ -825,39 +703,6 @@ else
                 LayoutStyle: layoutStyle,
                 Height: ResolveChartHeight(panel),
                 Panel: panel));
-        }
-    }
-
-    private void BuildProfilerCards(IReadOnlyList<string> selectedServers, long fromUnix, long toUnix)
-    {
-        _profilerCards.Clear();
-
-        var response = ProfilerStore.Build(fromUnix, toUnix, selectedServers);
-        foreach (var server in response.Servers)
-        {
-            var latest = server.Samples
-                .OrderByDescending(sample => sample.CapturedAtUtc)
-                .FirstOrDefault();
-            if (latest is null)
-                continue;
-
-            var displayName = _serverNameMap.TryGetValue(server.UniqueName, out var knownName)
-                ? knownName
-                : server.UniqueName;
-            var systems = latest.TopMethods
-                .OrderByDescending(entry => entry.TotalMs)
-                .Take(8)
-                .ToList();
-
-            _profilerCards.Add(new ProfilerSummaryCard(
-                displayName,
-                $"{latest.CapturedAtUtc.LocalDateTime:yyyy-MM-dd HH:mm:ss} local, {latest.WindowSeconds}s window",
-                latest.FrameCount,
-                latest.GameLoop,
-                latest.TopGrids.Take(8).ToList(),
-                latest.TopScripts.Take(8).ToList(),
-                latest.TopEntityTypes.Take(8).ToList(),
-                systems));
         }
     }
 
@@ -1027,8 +872,6 @@ else
             _summaryChips.Add(new SummaryChipModel("PCU", "-"));
             _summaryChips.Add(new SummaryChipModel("Grids", "-"));
             _summaryChips.Add(new SummaryChipModel("Entities", "-"));
-            _summaryChips.Add(new SummaryChipModel("Blocks", "-"));
-            _summaryChips.Add(new SummaryChipModel("Floating", "-"));
             return;
         }
 
@@ -1039,8 +882,6 @@ else
         var pcu = latestSamples.Sum(sample => sample.UsedPcu);
         var grids = latestSamples.Where(sample => sample.ActiveGridCount >= 0).Sum(sample => sample.ActiveGridCount);
         var entities = latestSamples.Where(sample => sample.ActiveEntityCount >= 0).Sum(sample => sample.ActiveEntityCount);
-        var blocks = latestSamples.Where(sample => sample.TotalBlockCount >= 0).Sum(sample => sample.TotalBlockCount);
-        var floating = latestSamples.Where(sample => sample.FloatingObjectCount >= 0).Sum(sample => sample.FloatingObjectCount);
 
         _summaryChips.Add(new SummaryChipModel("SimSpeed", simSpeed.ToString("0.000")));
         _summaryChips.Add(new SummaryChipModel("CPU", $"{cpu:0.0}%"));
@@ -1049,8 +890,6 @@ else
         _summaryChips.Add(new SummaryChipModel("PCU", pcu.ToString()));
         _summaryChips.Add(new SummaryChipModel("Grids", grids > 0 ? grids.ToString() : "-"));
         _summaryChips.Add(new SummaryChipModel("Entities", entities > 0 ? entities.ToString() : "-"));
-        _summaryChips.Add(new SummaryChipModel("Blocks", blocks > 0 ? blocks.ToString() : "-"));
-        _summaryChips.Add(new SummaryChipModel("Floating", floating > 0 ? floating.ToString() : "-"));
 
         if (samplesByServer.Values.SelectMany(sampleSet => sampleSet).Any())
         {
@@ -1101,26 +940,7 @@ else
         return Math.Max(280, (rowHeight * rowSpan) - 88);
     }
 
-    private string ResolveMetricTitle(string key) => AnalyticsMetrics.Find(key)?.Title ?? key;
-
-    private static string FormatMs(double value)
-    {
-        return value > 0d && !double.IsNaN(value) && !double.IsInfinity(value)
-            ? $"{value:0.00} ms"
-            : "-";
-    }
-
-    private static string DisplayProfilerName(ProfilerEntrySnapshot entry)
-    {
-        if (!string.IsNullOrWhiteSpace(entry.Name))
-            return entry.Name;
-        if (!string.IsNullOrWhiteSpace(entry.TypeName))
-            return entry.TypeName;
-        if (!string.IsNullOrWhiteSpace(entry.MethodName))
-            return entry.MethodName;
-
-        return entry.Key;
-    }
+    private string ResolveMetricTitle(string key) => AnalyticsMetrics.FindPanel(key)?.Title ?? key;
 
     private static AnalyticsViewConfig NormalizeConfig(AnalyticsViewConfig? config)
     {
@@ -1173,7 +993,7 @@ else
 
     private static List<AnalyticsPanelConfig> CreateDefaultPanels()
     {
-        return AnalyticsMetrics.All
+        return AnalyticsMetrics.Panels
             .Select((metric, index) => new AnalyticsPanelConfig
             {
                 Key = metric.Key,
@@ -1197,16 +1017,6 @@ else
         string LayoutStyle,
         int Height,
         AnalyticsPanelConfig Panel);
-
-    private sealed record ProfilerSummaryCard(
-        string ServerName,
-        string CapturedLabel,
-        int FrameCount,
-        ProfilerTimingBreakdown GameLoop,
-        IReadOnlyList<ProfilerEntrySnapshot> TopGrids,
-        IReadOnlyList<ProfilerEntrySnapshot> TopScripts,
-        IReadOnlyList<ProfilerEntrySnapshot> TopEntities,
-        IReadOnlyList<ProfilerEntrySnapshot> TopSystems);
 
     private sealed record ChartSyncResult(bool Ok, int Charts, int Bytes, int? Status);
 }

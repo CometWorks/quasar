@@ -28,4 +28,3 @@ Browser-side analytics chart interop module registered as `window.quasarCharts`.
 - [`Quasar/wwwroot/lib/uplot/uPlot.min.css`](lib/uplot/uPlot.min.css.md)
 - Called from Blazor analytics components via JavaScript interop
 - Same-origin analytics chart HTTP endpoint supplied in the `sync()` request descriptor
-

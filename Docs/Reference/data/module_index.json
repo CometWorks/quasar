@@ -231,7 +231,7 @@
       "name": "AgentProfiler.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Low-duty in-process profiler accumulator used by Harmony patches. It samples a 10 second window every 60 seconds by default, records elapsed ticks from patched server methods, splits main-thread vs off-thread time, and publishes the latest `ProfilerSnapshot` for inclusion in the next agent snapshot."
+      "summary": "Low-duty in-process profiler accumulator used by Harmony patches. It starts its first 10 second sample window on the first game-thread update, repeats every 60 seconds by default, records elapsed ticks from patched server methods, splits main-thread vs off-thread time, and publishes the latest `ProfilerSnapshot` for inclusion in the next agent snapshot."
     },
     {
       "path": "Quasar.Agent/AgentProfilerPatches.cs",
@@ -382,7 +382,7 @@
       "name": "Analytics.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Interactive `/analytics` dashboard that renders rolling Space Engineers server metrics as client-side uPlot time-series charts. It reads scalar metrics from `MetricsStoreService`, fetches chart series over `/api/analytics/series`, reads recent calculation timing windows from `ProfilerStoreService`, supports per-server selection, a configurable CSS-grid panel layout, persisted view config (localStorage), auto-refresh, custom time ranges, theme-aware chart styling, and a per-panel settings dialog."
+      "summary": "Interactive `/analytics` dashboard that renders rolling Space Engineers server metrics and profiler timing buckets as uPlot time-series charts. It reads scalar samples from `MetricsStoreService`, fetches chart series over `/api/analytics/series`, supports per-server selection, a configurable CSS-grid panel layout, persisted view config (localStorage), auto-refresh, custom time ranges, theme-aware chart styling, and a per-panel settings dialog."
     },
     {
       "path": "Quasar/Components/Pages/Analytics.razor.css",
@@ -599,7 +599,7 @@
       "name": "Updates.razor",
       "kind": "component",
       "tier": 2,
-      "summary": "Routable MudBlazor page at `/settings/updates` for checking, staging, and activating Quasar Linux release updates. It shows current update status from `QuasarUpdateService`, separates Quasar UI and launcher candidates, exposes manual check/stage/activate actions for the UI worker, shows launcher update availability, and displays configured GitHub release source and asset names."
+      "summary": "Routable MudBlazor page at `/settings/updates` for checking, staging, and activating Quasar Linux release updates. It shows current update status from `QuasarUpdateService`, separates Quasar UI and launcher candidates, exposes manual check/stage/activate actions for the UI worker, shows launcher update availability, displays configured GitHub release source and asset names, and provides a warning-gated switch for including prerelease versions in the update stream."
     },
     {
       "path": "Quasar/Components/Pages/WorldTemplateFromServerDialog.razor",
@@ -850,7 +850,7 @@
       "name": "AgentRegistry.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Thread-safe, in-memory registry of all connected Quasar.Agent instances. It tracks connection state (hello, snapshot, command results) for every agent WebSocket session, routes outbound commands via per-agent sender delegates, forwards scalar metrics and profiler windows into analytics stores, and surfaces observable runtime state through a `Changed` event. It is the canonical source of live agent data consumed by the supervisor and UI. `AgentRuntimeState` is the companion per-agent mutable state bag."
+      "summary": "Thread-safe, in-memory registry of all connected Quasar.Agent instances. It tracks connection state (hello, snapshot, profiler timing, command results) for every agent WebSocket session, routes outbound commands via per-agent sender delegates, and surfaces observable runtime state through a `Changed` event. It is the canonical source of live agent data consumed by the supervisor and UI. `AgentRuntimeState` is the companion per-agent mutable state bag."
     },
     {
       "path": "Quasar/Services/AgentSocketHandler.cs",
@@ -1088,14 +1088,14 @@
       "name": "QuasarUpdateOptions.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Configuration record for Quasar's GitHub-release update checker. It controls whether checks run, which repository is queried, whether prereleases are eligible, how often automatic checks run, and which Linux release asset names represent the web worker and Bootstrap packages."
+      "summary": "Configuration record for Quasar's GitHub-release update checker. It controls whether checks run, which repository is queried, whether prereleases are eligible, how often automatic checks run, and which Linux release asset names represent the web worker and Bootstrap packages. `IncludePrerelease` is mutable so the Updates page can change the active worker's release stream immediately."
     },
     {
       "path": "Quasar/Services/Updates/QuasarUpdateService.cs",
       "name": "QuasarUpdateService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Hosted service that checks Quasar GitHub releases on Linux, discovers newer UI-worker and launcher assets from separate release tags, verifies `SHA256SUMS`, stages the UI worker under the Quasar updates directory, and activates a staged worker by writing `active-release.json` for Bootstrap. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI and raises `Changed` whenever status moves."
+      "summary": "Hosted service that checks Quasar GitHub releases on Linux, discovers newer UI-worker and launcher assets from separate release tags, verifies `SHA256SUMS`, stages the UI worker under the Quasar updates directory, and activates a staged worker by writing `active-release.json` for Bootstrap. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI, raises `Changed` whenever status moves, and persists the operator-controlled prerelease stream flag."
     },
     {
       "path": "Quasar/Services/Updates/QuasarUpdateSnapshot.cs",
@@ -1139,14 +1139,14 @@
       "name": "AnalyticsMetrics.cs",
       "kind": "record + class",
       "tier": 2,
-      "summary": "Central catalogue of analytics metrics exposed by the `/analytics` dashboard and `/api/analytics/series` endpoint. Each entry defines the metric key, panel title/subtitle, sample selector, availability check, axis formatting, and fixed/dynamic Y-axis behaviour so browser charts and API responses cannot drift."
+      "summary": "Central catalogue of analytics chart panels exposed by the `/analytics` dashboard and `/api/analytics/series` endpoint. Scalar entries define metric key, panel title/subtitle, sample selector, availability check, axis formatting, and fixed/dynamic Y-axis behaviour. Profiler entries define sampled game-loop timing selectors while keeping browser chart rendering on the same existing payload shape."
     },
     {
       "path": "Quasar/Services/Analytics/AnalyticsSeriesService.cs",
       "name": "AnalyticsSeriesService.cs",
       "kind": "class + records",
       "tier": 2,
-      "summary": "Builds compact chart payloads for the analytics HTTP endpoint. It reads metric samples from `MetricsStoreService`, chooses the correct RRD tier for the requested time span, buckets each server onto one shared timeline, and returns aligned series arrays for browser-side rendering."
+      "summary": "Builds compact chart payloads for the analytics HTTP endpoint. It reads scalar metric samples from `MetricsStoreService` and profiler timing windows from `ProfilerStoreService`, buckets each selected server onto a shared timeline, and returns aligned series arrays for browser-side uPlot rendering."
     },
     {
       "path": "Quasar/Services/Analytics/AnalyticsStoreOptions.cs",
@@ -1160,7 +1160,7 @@
       "name": "AnalyticsViewConfig.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Plain settings/state objects backing the ApexCharts-based analytics dashboard page. `AnalyticsViewConfig` captures the user's chosen time range, auto-refresh cadence, server selection and the per-panel grid layout; `AnalyticsPanelConfig` describes one chart panel's placement; `AnalyticsPanelDialogResult` carries the edited layout values back from the per-panel configuration dialog. These are serialised into user/session state by the analytics Blazor page, not by the analytics service."
+      "summary": "Plain settings/state objects backing the uPlot-rendered analytics dashboard page. `AnalyticsViewConfig` captures the user's chosen time range, auto-refresh cadence, server selection and the per-panel grid layout; `AnalyticsPanelConfig` describes one chart panel's placement; `AnalyticsPanelDialogResult` carries the edited layout values back from the per-panel configuration dialog. These are serialised into user/session state by the analytics Blazor page, not by the analytics service."
     },
     {
       "path": "Quasar/Services/Analytics/MetricSample.cs",
@@ -1175,13 +1175,6 @@
       "kind": "class",
       "tier": 2,
       "summary": "Internal static factory that converts an `AgentSnapshot` (received over the WebSocket from the agent) into a `MetricSample` ready for storage. Derives `FrameTimeMs` from `SimSpeed` because the protocol does not carry frame time directly."
-    },
-    {
-      "path": "Quasar/Services/Analytics/MetricSampleValidator.cs",
-      "name": "MetricSampleValidator.cs",
-      "kind": "class",
-      "tier": 2,
-      "summary": "Internal analytics data-quality gate used before samples enter memory or are restored from disk. It rejects structurally invalid samples and normalizes bounded values so corrupt agent payloads or hand-edited JSONL lines cannot poison the RRD buffers or chart output."
     },
     {
       "path": "Quasar/Services/Analytics/MetricsStoreService.cs",
@@ -1202,7 +1195,7 @@
       "name": "ProfilerStoreService.cs",
       "kind": "class + records",
       "tier": 2,
-      "summary": "Bounded in-memory store for recent profiler snapshots per server. `AgentRegistry` enqueues validated profiler windows as agent snapshots arrive; the analytics page and `/api/analytics/profiler` endpoint query this store for selected servers and time ranges."
+      "summary": "Bounded in-memory store for recent profiler snapshots per server. `AgentRegistry` enqueues validated profiler windows as agent snapshots arrive; `AnalyticsSeriesService` reads those windows when profiler metric panels are requested through the existing `/api/analytics/series` endpoint."
     },
     {
       "path": "Quasar/Services/Analytics/RrdCircularBuffer.cs",
@@ -1216,7 +1209,7 @@
       "name": "RrdRollupBuffer.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "RRD-style consolidation buffer that accumulates raw `MetricSample` values into fixed-width time windows and pushes one averaged/max'd sample per window into an inner `RrdCircularBuffer`. Consolidation strategy: `SimSpeed`, `CpuPercent`, `MemoryMb`, and `FrameTimeMs` are averaged; `PlayersOnline`, `UsedPcu`, `TotalBlockCount`, and `FloatingObjectCount` are max'd; `ActiveGridCount` and `ActiveEntityCount` are averaged over samples where they are non-negative (-1 = unavailable)."
+      "summary": "RRD-style consolidation buffer that accumulates raw `MetricSample` values into fixed-width time windows and pushes one averaged/max'd sample per window into an inner `RrdCircularBuffer`. Consolidation strategy: `SimSpeed`, `CpuPercent`, `MemoryMb`, and `FrameTimeMs` are averaged; `PlayersOnline` and `UsedPcu` are max'd; `ActiveGridCount` and `ActiveEntityCount` are averaged over samples where they are non-negative (-1 = unavailable)."
     },
     {
       "path": "Quasar/Services/Analytics/ServerMetricsStore.cs",
@@ -1290,7 +1283,7 @@
       "name": "DiscordAnalyticsExportService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Periodically exports per-server analytics as Discord embeds to configured analytics channels. One background loop runs per enabled Discord server entry; each loop reads 1-minute metric samples from the metrics store and posts a rich embed with simspeed, CPU, memory, player, PCU, grid, entity, block, and floating-object counts."
+      "summary": "Periodically exports per-server analytics as Discord embeds to configured analytics channels. One background loop runs per enabled Discord server entry; each loop reads 1-minute metric samples from the metrics store and posts a rich embed with simspeed, CPU, memory, player, PCU, grid, and entity counts."
     },
     {
       "path": "Quasar/Services/Discord/DiscordBotService.cs",

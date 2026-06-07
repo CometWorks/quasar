@@ -15,8 +15,13 @@ public sealed class AnalyticsSeriesService
     private const int MaxPointsFloor = 10;
 
     private readonly MetricsStoreService _store;
+    private readonly ProfilerStoreService _profilerStore;
 
-    public AnalyticsSeriesService(MetricsStoreService store) => _store = store;
+    public AnalyticsSeriesService(MetricsStoreService store, ProfilerStoreService profilerStore)
+    {
+        _store = store;
+        _profilerStore = profilerStore;
+    }
 
     public AnalyticsSeriesResponse Build(
         long fromUnix,
@@ -35,14 +40,33 @@ public sealed class AnalyticsSeriesService
             .Where(metric => metric is not null)
             .Select(metric => metric!)
             .ToList();
-        if (metrics.Count == 0)
+
+        var profilerMetrics = metricKeys
+            .Select(ProfilerAnalyticsMetrics.Find)
+            .Where(metric => metric is not null)
+            .Select(metric => metric!)
+            .ToList();
+        if (metrics.Count == 0 && profilerMetrics.Count == 0)
             return new AnalyticsSeriesResponse(fromUnix, toUnix, []);
 
+        var charts = new List<AnalyticsChartDto>(metrics.Count + profilerMetrics.Count);
+        charts.AddRange(BuildMetricCharts(fromUnix, toUnix, servers, metrics, maxPoints));
+        charts.AddRange(BuildProfilerCharts(fromUnix, toUnix, servers, profilerMetrics, maxPoints));
+        return new AnalyticsSeriesResponse(fromUnix, toUnix, charts);
+    }
+
+    private IReadOnlyList<AnalyticsChartDto> BuildMetricCharts(
+        long fromUnix,
+        long toUnix,
+        IReadOnlyList<string> servers,
+        IReadOnlyList<AnalyticsMetric> metrics,
+        int maxPoints)
+    {
+        if (metrics.Count == 0)
+            return [];
+
         var spanSeconds = toUnix - fromUnix;
-        var bucketWidth = Math.Max(1L, (long)Math.Ceiling(spanSeconds / (double)maxPoints));
-        var bucketCount = (int)Math.Min(maxPoints, spanSeconds / bucketWidth + 1);
-        if (bucketCount < 1)
-            bucketCount = 1;
+        var (bucketWidth, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
 
         // Read and bucket each server's samples once, accumulating per-metric sums per bucket.
         var serverBuckets = new List<ServerBuckets>(servers.Count);
@@ -103,7 +127,7 @@ public sealed class AnalyticsSeriesService
         }
 
         if (kept.Count == 0)
-            return new AnalyticsSeriesResponse(fromUnix, toUnix, []);
+            return [];
 
         var x = new long[kept.Count];
         for (var i = 0; i < kept.Count; i++)
@@ -153,7 +177,121 @@ public sealed class AnalyticsSeriesService
             charts.Add(new AnalyticsChartDto(metric.Key, metric.Title, metric.Subtitle, axis, x, seriesList));
         }
 
-        return new AnalyticsSeriesResponse(fromUnix, toUnix, charts);
+        return charts;
+    }
+
+    private IReadOnlyList<AnalyticsChartDto> BuildProfilerCharts(
+        long fromUnix,
+        long toUnix,
+        IReadOnlyList<string> servers,
+        IReadOnlyList<ProfilerAnalyticsMetric> metrics,
+        int maxPoints)
+    {
+        if (metrics.Count == 0)
+            return [];
+
+        var (bucketWidth, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
+        var response = _profilerStore.Build(fromUnix, toUnix, servers);
+        if (response.Servers.Count == 0)
+            return [];
+
+        var serverBuckets = new List<ServerBuckets>(response.Servers.Count);
+        var bucketHasData = new bool[bucketCount];
+
+        foreach (var server in response.Servers)
+        {
+            var sums = new double[metrics.Count][];
+            var counts = new int[metrics.Count][];
+            for (var mi = 0; mi < metrics.Count; mi++)
+            {
+                sums[mi] = new double[bucketCount];
+                counts[mi] = new int[bucketCount];
+            }
+
+            foreach (var sample in server.Samples)
+            {
+                var timestamp = sample.CapturedAtUtc.ToUnixTimeSeconds();
+                var bucket = (int)((timestamp - fromUnix) / bucketWidth);
+                if (bucket < 0)
+                    bucket = 0;
+                else if (bucket >= bucketCount)
+                    bucket = bucketCount - 1;
+
+                var hasValue = false;
+                for (var mi = 0; mi < metrics.Count; mi++)
+                {
+                    var metric = metrics[mi];
+                    var value = metric.Selector(sample.GameLoop);
+                    if (!double.IsFinite(value))
+                        continue;
+
+                    sums[mi][bucket] += value;
+                    counts[mi][bucket]++;
+                    hasValue = true;
+                }
+
+                if (hasValue)
+                    bucketHasData[bucket] = true;
+            }
+
+            serverBuckets.Add(new ServerBuckets(server.UniqueName, sums, counts));
+        }
+
+        var kept = new List<int>(bucketCount);
+        for (var bucket = 0; bucket < bucketCount; bucket++)
+        {
+            if (bucketHasData[bucket])
+                kept.Add(bucket);
+        }
+
+        if (kept.Count == 0)
+            return [];
+
+        var x = new long[kept.Count];
+        for (var i = 0; i < kept.Count; i++)
+            x[i] = fromUnix + kept[i] * bucketWidth + bucketWidth / 2;
+
+        var charts = new List<AnalyticsChartDto>(metrics.Count);
+        for (var mi = 0; mi < metrics.Count; mi++)
+        {
+            var metric = metrics[mi];
+            var seriesList = new List<AnalyticsSeriesDto>(serverBuckets.Count);
+
+            foreach (var server in serverBuckets)
+            {
+                var sums = server.Sums[mi];
+                var counts = server.Counts[mi];
+                var y = new double?[kept.Count];
+                var any = false;
+
+                for (var i = 0; i < kept.Count; i++)
+                {
+                    var bucket = kept[i];
+                    if (counts[bucket] <= 0)
+                        continue;
+
+                    y[i] = Math.Round(sums[bucket] / counts[bucket], metric.Decimals + 2, MidpointRounding.AwayFromZero);
+                    any = true;
+                }
+
+                if (any)
+                    seriesList.Add(new AnalyticsSeriesDto(server.UniqueName, y));
+            }
+
+            if (seriesList.Count == 0)
+                continue;
+
+            var axis = new AnalyticsAxisDto(
+                Min: metric.RequiresZero ? 0 : null,
+                Max: metric.FixedMax,
+                Decimals: metric.Decimals,
+                Kilo: metric.Kilo,
+                TickAmount: 5);
+
+            charts.Add(new AnalyticsChartDto(metric.Key, metric.Title, metric.Subtitle, axis, x, seriesList));
+        }
+
+        return charts;
     }
 
     private static double? ResolveMax(AnalyticsMetric metric, double dynamicMax)
@@ -165,6 +303,17 @@ public sealed class AnalyticsSeriesService
         }
 
         return metric.FixedMax;
+    }
+
+    private static (long BucketWidth, int BucketCount) ResolveBuckets(long fromUnix, long toUnix, int maxPoints)
+    {
+        var spanSeconds = Math.Max(1, toUnix - fromUnix);
+        var bucketWidth = Math.Max(1L, (long)Math.Ceiling(spanSeconds / (double)maxPoints));
+        var bucketCount = (int)Math.Min(maxPoints, spanSeconds / bucketWidth + 1);
+        if (bucketCount < 1)
+            bucketCount = 1;
+
+        return (bucketWidth, bucketCount);
     }
 
     // Mirrors the store-tier selection the Analytics page uses: raw 2s samples for short windows,

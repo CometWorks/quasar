@@ -113,17 +113,8 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         if (string.IsNullOrWhiteSpace(uniqueName))
             return;
 
-        if (!MetricSampleValidator.TryNormalize(sample, out var normalized))
-        {
-            _logger.LogWarning(
-                "Dropped invalid analytics sample for server {UniqueName} at timestamp {TimestampUnixSeconds}.",
-                uniqueName,
-                sample.TimestampUnixSeconds);
-            return;
-        }
-
         GetOrCreateStore(uniqueName);
-        _channel.Writer.TryWrite((uniqueName, normalized));
+        _channel.Writer.TryWrite((uniqueName, sample));
     }
 
     public ServerMetricsStore? GetStore(string uniqueName)
@@ -436,9 +427,6 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
                 continue;
 
             var sample = entry.ToMetricSample();
-            if (!MetricSampleValidator.TryNormalize(sample, out sample))
-                continue;
-
             if (sample.TimestampUnixSeconds < retentionCutoffUnix)
             {
                 loaded.HasOutOfRetentionData = true;
@@ -568,12 +556,6 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         [JsonPropertyName("E")]
         public int ActiveEntityCount { get; set; }
 
-        [JsonPropertyName("Blk")]
-        public int? TotalBlockCount { get; set; }
-
-        [JsonPropertyName("Fo")]
-        public int? FloatingObjectCount { get; set; }
-
         public static PersistedMetricLogLine From(string bucket, MetricSample sample)
         {
             return new PersistedMetricLogLine
@@ -588,8 +570,6 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
                 UsedPcu = sample.UsedPcu,
                 ActiveGridCount = sample.ActiveGridCount,
                 ActiveEntityCount = sample.ActiveEntityCount,
-                TotalBlockCount = sample.TotalBlockCount >= 0 ? sample.TotalBlockCount : null,
-                FloatingObjectCount = sample.FloatingObjectCount >= 0 ? sample.FloatingObjectCount : null,
             };
         }
 
@@ -604,9 +584,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
                 playersOnline: PlayersOnline,
                 usedPcu: UsedPcu,
                 activeGridCount: ActiveGridCount,
-                activeEntityCount: ActiveEntityCount,
-                totalBlockCount: TotalBlockCount ?? -1,
-                floatingObjectCount: FloatingObjectCount ?? -1);
+                activeEntityCount: ActiveEntityCount);
         }
     }
 

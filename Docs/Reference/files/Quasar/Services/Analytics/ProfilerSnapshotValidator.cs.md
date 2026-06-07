@@ -15,7 +15,7 @@ Namespace: `Quasar.Services.Analytics`
 Key member:
 - `TryNormalize(ProfilerSnapshot snapshot, out ProfilerSnapshot normalized) : bool`
 
-Private helpers normalize timing breakdowns, profiler entries, nullable ids, bounded integers, finite doubles, and display strings.
+Private helpers normalize timing breakdowns, profiler entries, bounded integers, finite doubles, and display strings.
 
 ## Dependencies
 

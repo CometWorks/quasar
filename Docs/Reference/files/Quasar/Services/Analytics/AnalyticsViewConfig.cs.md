@@ -4,7 +4,7 @@
 
 ## Summary
 
-Plain settings/state objects backing the ApexCharts-based analytics dashboard page. `AnalyticsViewConfig` captures the user's chosen time range, auto-refresh cadence, server selection and the per-panel grid layout; `AnalyticsPanelConfig` describes one chart panel's placement; `AnalyticsPanelDialogResult` carries the edited layout values back from the per-panel configuration dialog. These are serialised into user/session state by the analytics Blazor page, not by the analytics service.
+Plain settings/state objects backing the uPlot-rendered analytics dashboard page. `AnalyticsViewConfig` captures the user's chosen time range, auto-refresh cadence, server selection and the per-panel grid layout; `AnalyticsPanelConfig` describes one chart panel's placement; `AnalyticsPanelDialogResult` carries the edited layout values back from the per-panel configuration dialog. These are serialised into user/session state by the analytics Blazor page, not by the analytics service.
 
 ## Structure
 

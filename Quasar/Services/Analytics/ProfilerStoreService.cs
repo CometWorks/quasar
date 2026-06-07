@@ -9,11 +9,30 @@ public sealed class ProfilerStoreService
     private const int MaxTopEntries = 50;
 
     private readonly ConcurrentDictionary<string, ConcurrentQueue<ProfilerSnapshot>> _samples = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _lastCapturedAt = new(StringComparer.OrdinalIgnoreCase);
 
     public void Enqueue(string uniqueName, ProfilerSnapshot snapshot)
     {
         if (string.IsNullOrWhiteSpace(uniqueName) || !ProfilerSnapshotValidator.TryNormalize(snapshot, out var normalized))
             return;
+
+        while (true)
+        {
+            if (_lastCapturedAt.TryGetValue(uniqueName, out var lastCapturedAt))
+            {
+                if (normalized.CapturedAtUtc <= lastCapturedAt)
+                    return;
+
+                if (!_lastCapturedAt.TryUpdate(uniqueName, normalized.CapturedAtUtc, lastCapturedAt))
+                    continue;
+            }
+            else if (!_lastCapturedAt.TryAdd(uniqueName, normalized.CapturedAtUtc))
+            {
+                continue;
+            }
+
+            break;
+        }
 
         var queue = _samples.GetOrAdd(uniqueName, _ => new ConcurrentQueue<ProfilerSnapshot>());
         queue.Enqueue(normalized);

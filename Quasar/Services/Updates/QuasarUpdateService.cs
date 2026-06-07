@@ -2,8 +2,10 @@ using System.Formats.Tar;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Magnetar.Protocol.Runtime;
+using Quasar.Services;
 
 namespace Quasar.Services.Updates;
 
@@ -58,6 +60,20 @@ public sealed class QuasarUpdateService : BackgroundService
                 Bootstrap = _snapshot.Bootstrap is null ? null : _snapshot.Bootstrap with { },
             };
         }
+    }
+
+    public async Task SetIncludePrereleaseAsync(bool includePrerelease, CancellationToken cancellationToken = default)
+    {
+        _options.IncludePrerelease = includePrerelease;
+        await PersistIncludePrereleaseAsync(includePrerelease, cancellationToken).ConfigureAwait(false);
+
+        SetSnapshot(_snapshot with
+        {
+            Message = includePrerelease
+                ? "Prerelease update stream enabled. This is intended only for testing and may install unstable builds."
+                : "Stable update stream enabled.",
+            Status = QuasarUpdateStatus.Idle,
+        });
     }
 
     public async Task CheckNowAsync(CancellationToken cancellationToken = default)
@@ -299,6 +315,40 @@ public sealed class QuasarUpdateService : BackgroundService
             .Where(release => !release.Draft)
             .Where(release => _options.IncludePrerelease || !release.Prerelease)
             .FirstOrDefault(release => FindAsset(release, assetName) is not null);
+    }
+
+    private static async Task PersistIncludePrereleaseAsync(bool includePrerelease, CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(MagnetarPaths.GetQuasarDirectory(), "appsettings.json");
+        JsonObject root;
+
+        if (File.Exists(path))
+        {
+            var text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+            root = string.IsNullOrWhiteSpace(text)
+                ? new JsonObject()
+                : JsonNode.Parse(text)?.AsObject() ?? new JsonObject();
+        }
+        else
+        {
+            root = new JsonObject();
+        }
+
+        var quasar = GetOrCreateObject(root, "Quasar");
+        var updates = GetOrCreateObject(quasar, "Updates");
+        updates["IncludePrerelease"] = includePrerelease;
+
+        await AtomicFileWriter.WriteTextAsync(path, root.ToJsonString(JsonOptions), cancellationToken).ConfigureAwait(false);
+    }
+
+    private static JsonObject GetOrCreateObject(JsonObject parent, string name)
+    {
+        if (parent[name] is JsonObject existing)
+            return existing;
+
+        var created = new JsonObject();
+        parent[name] = created;
+        return created;
     }
 
     private static GitHubAsset? FindAsset(GitHubRelease release, string assetName) =>

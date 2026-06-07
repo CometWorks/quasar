@@ -4,7 +4,7 @@ Generated reference handbook for the **Quasar** stack — a supervisor and manag
 
 For the hand-written architecture narrative and design rationale, see [QuasarArchitecture.md](../QuasarArchitecture.md).
 
-This handbook covers **195 source files** across **11 modules**. Browse by module below, or jump to the flat [file Index](Index.md).
+This handbook covers **194 source files** across **11 modules**. Browse by module below, or jump to the flat [file Index](Index.md).
 
 ## Runtime topology
 
@@ -25,7 +25,7 @@ This handbook covers **195 source files** across **11 modules**. Browse by modul
 | [Quasar.Host](Modules/Quasar.Host.md) | 10 | Blazor Server host: DI graph, auth, endpoints, static assets. |
 | [Quasar.Models](Modules/Quasar.Models.md) | 15 | Domain models for instances, config profiles, templates, branding. |
 | [Quasar.Services.Core](Modules/Quasar.Services.Core.md) | 41 | Supervisor engine, agent registry, runtime preparation, catalogs. |
-| [Quasar.Services.Analytics](Modules/Quasar.Services.Analytics.md) | 13 | RRD-style per-instance metrics storage and persistence. |
+| [Quasar.Services.Analytics](Modules/Quasar.Services.Analytics.md) | 12 | RRD-style per-instance metrics storage and persistence. |
 | [Quasar.Services.Auth](Modules/Quasar.Services.Auth.md) | 6 | Steam OpenID auth, RBAC, trusted-network bypass. |
 | [Quasar.Services.Discord](Modules/Quasar.Services.Discord.md) | 12 | Discord bot: chat/death/log relay, commands, analytics export. |
 | [Quasar.Services.PluginSdk](Modules/Quasar.Services.PluginSdk.md) | 4 | Plugin config snapshot/update bridge and log streaming. |

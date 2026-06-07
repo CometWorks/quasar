@@ -692,6 +692,8 @@ internal sealed class BootstrapOptions
             if (File.Exists(Path.Combine(sourceQuasar, "appsettings.json")))
                 yield return sourceQuasar;
         }
+
+        yield return MagnetarPaths.GetQuasarDirectory();
     }
 }
 
@@ -977,7 +979,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private async Task EnsureInitialWebReleaseAvailableAsync(CancellationToken cancellationToken)
     {
         var existing = ReadActiveReleasePointer();
-        if (existing is not null && IsReleasePointerUsable(existing))
+        if (existing is not null && IsReleasePointerUsable(existing, allowExternalPointer: !IsServiceMode()))
             return;
 
         if (FindPackagedWorkerCandidate() is not null)
@@ -1157,8 +1159,15 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private void EnsureActiveReleasePointerExists()
     {
         var existing = ReadActiveReleasePointer();
-        if (existing is not null && IsReleasePointerUsable(existing))
+        if (existing is not null && IsReleasePointerUsable(existing, allowExternalPointer: !IsServiceMode()))
             return;
+
+        if (existing is not null)
+        {
+            _logger.LogWarning(
+                "Ignoring stale or unusable Quasar worker release pointer at {Path}.",
+                MagnetarPaths.GetQuasarActiveReleasePath());
+        }
 
         if (!TryBuildInitialReleasePointer(out var pointer))
         {
@@ -1610,21 +1619,37 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         return null;
     }
 
-    private static bool IsReleasePointerUsable(QuasarActiveReleasePointer pointer)
+    private static bool IsReleasePointerUsable(QuasarActiveReleasePointer pointer, bool allowExternalPointer)
     {
         pointer = Normalize(pointer);
         if (string.IsNullOrWhiteSpace(pointer.FileName))
             return false;
 
         var isDotNetHost = string.Equals(Path.GetFileNameWithoutExtension(pointer.FileName), "dotnet", StringComparison.OrdinalIgnoreCase);
+        string workerPath;
         if (isDotNetHost)
         {
-            return TryGetDotNetAssemblyArgument(pointer.Arguments, out var assemblyPath) &&
-                   File.Exists(assemblyPath) &&
-                   !IsCurrentBootstrapAssembly(assemblyPath);
+            if (!TryGetDotNetAssemblyArgument(pointer.Arguments, out var assemblyPath) ||
+                !File.Exists(assemblyPath) ||
+                IsCurrentBootstrapAssembly(assemblyPath))
+            {
+                return false;
+            }
+
+            workerPath = assemblyPath;
+        }
+        else
+        {
+            if (!File.Exists(pointer.FileName) || IsCurrentBootstrapExecutable(pointer.FileName))
+                return false;
+
+            workerPath = pointer.FileName;
         }
 
-        return File.Exists(pointer.FileName) && !IsCurrentBootstrapExecutable(pointer.FileName);
+        return allowExternalPointer ||
+               IsKnownReleasePath(workerPath) ||
+               IsKnownReleasePath(pointer.WorkingDirectory) ||
+               IsExplicitEnvironmentWorker(workerPath);
     }
 
     private static bool TryGetDotNetAssemblyArgument(string arguments, out string assemblyPath)
@@ -1665,6 +1690,42 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         var entryAssemblyPath = Path.Combine(AppContext.BaseDirectory, $"{entryAssemblyName}.dll");
         return File.Exists(entryAssemblyPath) &&
                string.Equals(Path.GetFullPath(path), Path.GetFullPath(entryAssemblyPath), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsServiceMode() =>
+        string.Equals(Environment.GetEnvironmentVariable("QUASAR_MODE"), "service", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsExplicitEnvironmentWorker(string workerPath)
+    {
+        var envExe = FirstExistingFile("QUASAR_WEB_EXE", "MAGNETAR_WEB_EXE");
+        if (!string.IsNullOrWhiteSpace(envExe) &&
+            string.Equals(Path.GetFullPath(workerPath), Path.GetFullPath(envExe), StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var envDll = FirstExistingFile("QUASAR_WEB_DLL", "MAGNETAR_WEB_DLL");
+        return !string.IsNullOrWhiteSpace(envDll) &&
+               string.Equals(Path.GetFullPath(workerPath), Path.GetFullPath(envDll), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsKnownReleasePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        return IsPathUnder(path, Path.Combine(AppContext.BaseDirectory, "WebService")) ||
+               IsPathUnder(path, MagnetarPaths.GetQuasarStagingDirectory());
+    }
+
+    private static bool IsPathUnder(string path, string root)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var fullRoot = Path.GetFullPath(root);
+        if (!fullRoot.EndsWith(Path.DirectorySeparatorChar))
+            fullRoot += Path.DirectorySeparatorChar;
+
+        return fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? FindPackagedWorkerCandidate()

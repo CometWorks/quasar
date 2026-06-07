@@ -17,15 +17,13 @@ Fields (all `public readonly`):
 |---|---|---|
 | `TimestampUnixSeconds` | `long` | Unix epoch time of the sample |
 | `SimSpeed` | `float` | Simulation speed (1.0 = real-time) |
-| `CpuPercent` | `float` | Server process CPU load % |
+| `CpuPercent` | `float` | Server CPU load % |
 | `MemoryMb` | `float` | Working-set memory in MB |
 | `FrameTimeMs` | `float` | Frame duration derived from sim speed |
 | `PlayersOnline` | `int` | Player count at sample time |
 | `UsedPcu` | `int` | PCU consumed |
 | `ActiveGridCount` | `int` | Active grids (-1 = unavailable) |
 | `ActiveEntityCount` | `int` | Active entities (-1 = unavailable) |
-| `TotalBlockCount` | `int` | Blocks across active grids (-1 = unavailable) |
-| `FloatingObjectCount` | `int` | Floating objects (-1 = unavailable) |
 
 Single all-fields constructor; no methods.
 

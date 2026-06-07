@@ -9,7 +9,7 @@ The ASP.NET Core / Blazor Server entry point for the Quasar supervisor host. `Pr
 Namespace `Quasar`; `public class Program` with `static void Main(string[] args)`.
 
 ### Configuration loading
-`AddDeploymentConfigurationSources` probes `AppContext.BaseDirectory`, `Directory.GetCurrentDirectory()`, a `WebService/` subdir, and up to 8 ancestor directories (incl. ancestor `Quasar/`) for `appsettings.json` / `appsettings.{env}.json`, then adds env vars and command-line args. Up-front strongly-typed options: `WebServiceOptions`, `ManagedRuntimeOptions`, `QuasarAuthOptions`, `AnalyticsStoreOptions`. `QuasarLoggingConfigurator.Configure` sets up NLog. Kestrel binds `{host}:{port}` unless `ASPNETCORE_URLS` is set; wildcard hosts (`0.0.0.0`/`[::]`/`*`/`+`) use `ListenAnyIP`.
+`AddDeploymentConfigurationSources` probes `AppContext.BaseDirectory`, `Directory.GetCurrentDirectory()`, a `WebService/` subdir, the Quasar data directory (`MagnetarPaths.GetQuasarDirectory()`), and up to 8 ancestor directories (incl. ancestor `Quasar/`) for `appsettings.json` / `appsettings.{env}.json`, then adds env vars and command-line args. The data-directory source lets operator UI settings override packaged defaults without editing install files. Up-front strongly-typed options: `WebServiceOptions`, `ManagedRuntimeOptions`, `QuasarUpdateOptions`, `QuasarAuthOptions`, `AnalyticsStoreOptions`. `QuasarLoggingConfigurator.Configure` sets up NLog. Kestrel binds `{host}:{port}` unless `ASPNETCORE_URLS` is set; wildcard hosts (`0.0.0.0`/`[::]`/`*`/`+`) use `ListenAnyIP`.
 
 ### DI service registrations (high level)
 - Blazor: `AddRazorComponents().AddInteractiveServerComponents()`, cascading auth state; `HostOptions.ShutdownTimeout = 30 min`.
@@ -20,7 +20,7 @@ Namespace `Quasar`; `public class Program` with `static void Main(string[] args)
 - Managed runtime + server supervision: `ManagedDedicatedServerRuntimeResolver`, `ManagedRuntimeWarmupService` (+hosted), `DedicatedServerCatalog`, `DedicatedServerSupervisor` (+hosted), `DedicatedServerRuntimePreparer`.
 - Web/agent: `FileBrowserService`, `WebServiceState`, `PluginLogStream`, `PluginConfigService` (+hosted), `AgentSocketHandler`, `WebServiceManifestHostedService` (hosted).
 - Discord: options/rate-limiter/death-messages catalogs, command dispatcher+router, chat/death/log/analytics relays, `DiscordBotService` (+hosted).
-- Branding/theme/shutdown: `BrandingService`, `ThemePreferenceService` (scoped), `QuasarShutdownService`.
+- Branding/theme/shutdown/update: `BrandingService`, `ThemePreferenceService` (scoped), `QuasarShutdownService`, `QuasarUpdateService` (+hosted).
 - Backup: `QuasarBackupSettingsService`, `QuasarBackupService`, `AutomaticBackupService` (+hosted).
 
 ### Authentication / Authorization
@@ -29,7 +29,7 @@ Namespace `Quasar`; `public class Program` with `static void Main(string[] args)
 
 ### Middleware + endpoints
 Pipeline: exception handler (prod) → status-code re-execute (`/not-found`) → `UseWebSockets` (30 s keep-alive) → `UseAuthentication` → inline trusted-network principal injection → `UseAuthorization` → `UseAntiforgery`.
-Endpoints: `GET /api/health` (status/worker/host/version/baseUrl/connectedAgents/configuredServers/runningServers), `GET /api/discovery` (manifest), `GET /api/analytics/series` (browser-fetched chart series), `GET /api/analytics/profiler` (recent profiler windows), `GET /login` (Steam challenge or unavailable page), `GET /logout`, `GET /access-denied`, `POST /api/internal/drain` (launcher-token + trusted-network gated; `delaySeconds`/`stopServers` params), `GET /api/backup/download` (`QuasarBackupService.CreateBackup` → streams a fresh ZIP), `GET /api/backup/download/{name}` (downloads an existing backup by name from the Backups dir) — both `RequireAuthorization(CanManageSecurity)` when auth enabled, `Map /ws/agent` → `AgentSocketHandler`, `MapStaticAssets()`, `/branding` physical static files, `MapRazorComponents<App>()` (interactive server; `RequireAuthorization(CanView)` when auth enabled).
+Endpoints: `GET /api/health` (status/worker/host/version/baseUrl/connectedAgents/configuredServers/runningServers), `GET /api/discovery` (manifest), `GET /api/analytics/series` (browser-fetched chart series), `GET /login` (Steam challenge or unavailable page), `GET /logout`, `GET /access-denied`, `POST /api/internal/drain` (launcher-token + trusted-network gated; `delaySeconds`/`stopServers` params), `GET /api/backup/download` (`QuasarBackupService.CreateBackup` → streams a fresh ZIP), `GET /api/backup/download/{name}` (downloads an existing backup by name from the Backups dir) — both `RequireAuthorization(CanManageSecurity)` when auth enabled, `Map /ws/agent` → `AgentSocketHandler`, `MapStaticAssets()`, `/branding` physical static files, `MapRazorComponents<App>()` (interactive server; `RequireAuthorization(CanView)` when auth enabled).
 
 ### POSIX signals + helpers
 On Linux/macOS, SIGINT/SIGTERM handlers either `StopApplication` (when preserving managed servers) or `QuasarShutdownService.ShutdownAsync`. Helpers: `CompositeDisposable`, `EmptyDisposable`, `SanitizeReturnUrl`, `ExtractSteamId`, `AddOrReplaceClaim`, `ShouldUseSourceStaticWebAssets`, `ShouldListenOnAnyInterface`.
@@ -50,4 +50,4 @@ On Linux/macOS, SIGINT/SIGTERM handlers either `StopApplication` (when preservin
 - The trusted-network bypass middleware runs after `UseAuthentication` and injects an operator principal for trusted-origin requests, allowing access without Steam login.
 - Branding uploads are served via `PhysicalFileProvider` at `/branding` (outside the build-time static-asset manifest).
 - `/api/health`'s "running" count includes `Starting`, `Running`, `Restarting`, and `Stopping` states.
-- `/api/analytics/series` and `/api/analytics/profiler` require `CanView` when auth is enabled; both are fetched outside the Blazor circuit to keep analytics payloads off SignalR.
+- `/api/analytics/series` requires `CanView` when auth is enabled and is fetched outside the Blazor circuit to keep analytics payloads off SignalR. The endpoint returns both scalar and profiler-backed charts using the same response shape.

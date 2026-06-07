@@ -8,7 +8,7 @@ public sealed class QuasarUpdateOptions
 
     public string Repository { get; init; } = "Quasar";
 
-    public bool IncludePrerelease { get; init; }
+    public bool IncludePrerelease { get; set; }
 
     public TimeSpan CheckInterval { get; init; } = TimeSpan.FromMinutes(5);
 

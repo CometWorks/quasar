@@ -55,6 +55,10 @@ extracts it under:
 Then it writes `Updates/active-release.json` pointing at the staged worker.
 The downloaded archive must match the release's `SHA256SUMS` entry before it is
 extracted.
+When running as a systemd service, Bootstrap ignores a stale active-release
+pointer that targets a random external build directory. Only packaged
+`WebService/` workers, staged update workers, or explicitly configured
+`QUASAR_WEB_EXE` / `QUASAR_WEB_DLL` workers are trusted.
 
 ## UI Worker Updates
 
@@ -92,7 +96,11 @@ sudo /tmp/quasar/install.sh --start
 
 ## Configuration
 
-Defaults live in `Quasar:Updates`:
+Defaults live in `Quasar:Updates`. Packaged defaults come from the install
+directory, and operator overrides can live in the Quasar data directory
+(`~/.config/Quasar/appsettings.json`, or `QUASAR_DATA_DIR/appsettings.json` when
+overridden). The worker and Bootstrap both read that data-directory file on
+startup.
 
 ```json
 {
@@ -115,3 +123,12 @@ Environment overrides:
 - `QUASAR_UPDATES_CHECK_INTERVAL_SECONDS`
 - `QUASAR_UPDATES_LINUX_WEB_ASSET`
 - `QUASAR_UPDATES_LINUX_BOOTSTRAP_ASSET`
+
+The Updates page exposes an "Include prerelease versions" switch. Enabling it
+writes `Quasar:Updates:IncludePrerelease` to the data-directory `appsettings.json`
+and immediately affects worker-side release checks. Bootstrap also honors the
+same setting after its next restart.
+
+**Warning:** prerelease updates are for testing only and should not be used by
+regular users. They may be unstable, may require manual recovery, and may update
+both the UI worker and Bootstrap launcher.
