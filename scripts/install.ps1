@@ -92,18 +92,20 @@ finally {
 
 $exePath = Join-Path $InstallDir 'Quasar.exe'
 
-# The Scheduled Task action runs through cmd.exe so the service-mode environment
-# variables (mirroring install.sh's Environment= lines) are set for the worker.
-$commandLine = '/c set "QUASAR_MODE=Service" & set "QUASAR_OPEN_BROWSER_ON_START=false" & "' + $exePath + '" serve --quiet'
-$action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\cmd.exe" -Argument $commandLine -WorkingDirectory $InstallDir
+# Run Bootstrap directly so that Task Scheduler's job object covers the Quasar
+# process itself. The --service flag tells Bootstrap it is running under a
+# supervisor (no external release-pointer allowed, browser auto-open suppressed
+# for the worker). Using cmd.exe as a wrapper would orphan Bootstrap when the
+# task is stopped, because Task Scheduler tracks cmd.exe, not its children.
+$action = New-ScheduledTaskAction -Execute $exePath -Argument 'serve --quiet --service' -WorkingDirectory $InstallDir
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew `
-    -RestartCount 3 `
-    -RestartInterval (New-TimeSpan -Minutes 1) `
+    -RestartCount 10 `
+    -RestartInterval (New-TimeSpan -Minutes 5) `
     -ExecutionTimeLimit ([TimeSpan]::Zero)
 
 if ($User) {
@@ -127,6 +129,12 @@ Register-ScheduledTask `
     -Settings $settings `
     -Principal $principal `
     -Description 'Quasar Space Engineers supervisor' | Out-Null
+
+# New-ScheduledTaskSettingsSet targets Windows 7 (schema v1.2) by default.
+# Patch the task XML to v1.4 so Task Scheduler shows "Windows 10" compatibility.
+$taskXml = (Export-ScheduledTask -TaskName $TaskName) -replace 'version="1\.2"', 'version="1.4"'
+Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+Register-ScheduledTask -TaskName $TaskName -Xml $taskXml -Force | Out-Null
 
 if ($NoEnable) {
     Disable-ScheduledTask -TaskName $TaskName | Out-Null

@@ -31,6 +31,7 @@ internal static class Program
         var quiet = args.Any(static arg => string.Equals(arg, "--quiet", StringComparison.OrdinalIgnoreCase));
         var openBrowser = args.Any(static arg => string.Equals(arg, "--open-browser", StringComparison.OrdinalIgnoreCase));
         var force = args.Any(static arg => string.Equals(arg, "--force", StringComparison.OrdinalIgnoreCase));
+        var service = args.Any(static arg => string.Equals(arg, "--service", StringComparison.OrdinalIgnoreCase));
         var explicitForeground = args.Any(static arg =>
             string.Equals(arg, "--foreground", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(arg, "--console", StringComparison.OrdinalIgnoreCase));
@@ -44,7 +45,7 @@ internal static class Program
         return command.ToLowerInvariant() switch
         {
             EnsureRunningCommand => await EnsureRunningAsync(quiet, openBrowser, force, foreground),
-            ServeCommand => await ServeAsync(quiet, foreground),
+            ServeCommand => await ServeAsync(quiet, foreground, service),
             ActivateReleaseCommand => await ActivateReleaseAsync(args, quiet),
             _ => InvalidUsage(quiet),
         };
@@ -184,7 +185,7 @@ internal static class Program
         }
     }
 
-    private static async Task<int> ServeAsync(bool quiet = false, bool foreground = false)
+    private static async Task<int> ServeAsync(bool quiet = false, bool foreground = false, bool service = false)
     {
         var existing = await TryGetHealthyServiceUriAsync().ConfigureAwait(false);
         if (existing is not null)
@@ -217,7 +218,7 @@ internal static class Program
 
         var coordinator = new LauncherCoordinator(
             options,
-            new LauncherForegroundOptions(foreground),
+            new LauncherForegroundOptions(foreground, service),
             loggerFactory.CreateLogger<LauncherCoordinator>());
 
         using var shutdown = new CancellationTokenSource();
@@ -976,7 +977,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             if (File.Exists(launcherPath))
             {
                 _logger.LogInformation("Spawning detached replacement launcher {Path}.", launcherPath);
-                Program.StartDetachedProcess(launcherPath, "serve --quiet", AppContext.BaseDirectory);
+                var serviceFlag = _foregroundOptions.IsService ? " --service" : "";
+                Program.StartDetachedProcess(launcherPath, $"serve --quiet{serviceFlag}", AppContext.BaseDirectory);
                 Environment.Exit(0);
                 return;
             }
@@ -1739,7 +1741,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                string.Equals(Path.GetFullPath(path), Path.GetFullPath(entryAssemblyPath), StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsServiceMode() =>
+    private bool IsServiceMode() =>
+        _foregroundOptions.IsService ||
         string.Equals(Environment.GetEnvironmentVariable("QUASAR_MODE"), "service", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsExplicitEnvironmentWorker(string workerPath)
@@ -1860,4 +1863,4 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private sealed record WorkerProcessHandle(Process Process, Uri BaseUri, QuasarActiveReleasePointer Release);
 }
 
-internal sealed record LauncherForegroundOptions(bool IsForeground);
+internal sealed record LauncherForegroundOptions(bool IsForeground, bool IsService = false);
