@@ -95,6 +95,11 @@ jobs:
           Write-Host "Dedicated Server public build id: $buildid"
           "buildid=$buildid" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
 
+          # steamcmd self-updates on first run and returns a non-zero exit code even
+          # on success; the GitHub pwsh shell exits the step with $LASTEXITCODE, so
+          # reset it explicitly now that we have the build id.
+          exit 0
+
       - name: Cache Dedicated Server libraries
         id: dscache
         uses: actions/cache@v4
@@ -134,6 +139,11 @@ jobs:
           Remove-Item -Recurse -Force dsfull
           $size = (Get-ChildItem -Recurse -Force ds64 | Measure-Object -Property Length -Sum).Sum
           Write-Host ("Cached DS library set: {0:N1} MB" -f ($size / 1MB))
+
+          # steamcmd can exit non-zero even after a successful install; the success
+          # check above already validated the DS install, so do not let a stray
+          # $LASTEXITCODE from steamcmd fail this step.
+          exit 0
 
       - name: Resolve Quasar release metadata
         id: release
