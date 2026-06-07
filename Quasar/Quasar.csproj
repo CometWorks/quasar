@@ -47,7 +47,8 @@
   <PropertyGroup>
     <_QuasarAgentProject>$(MSBuildThisFileDirectory)..\Quasar.Agent\Quasar.Agent.csproj</_QuasarAgentProject>
     <_QuasarAgentOutputDir>$(MSBuildThisFileDirectory)..\Quasar.Agent\bin\$(Configuration)\netstandard2.0\</_QuasarAgentOutputDir>
-    <_HarmonyPackageDir>$(PkgLib_Harmony)/lib/</_HarmonyPackageDir>
+    <_HarmonyPackageId>lib.harmony</_HarmonyPackageId>
+    <_HarmonyPackageVersion>2.4.2</_HarmonyPackageVersion>
   </PropertyGroup>
 
   <Target Name="BuildQuasarAgent"
@@ -58,36 +59,59 @@
     <Exec Command="dotnet build &quot;$(_QuasarAgentProject)&quot; -c &quot;$(Configuration)&quot; -p:Platform=x64 -p:RuntimeIdentifier= -p:SelfContained= -p:PublishSingleFile= -p:CopyToDeployDir=false -v minimal" />
   </Target>
 
-  <Target Name="StageQuasarAgent" AfterTargets="Build" DependsOnTargets="BuildQuasarAgent">
+  <Target Name="ResolveHarmonyPackageFiles">
+    <PropertyGroup>
+      <_HarmonyPackageRoot Condition="'$(_HarmonyPackageRoot)' == '' and '$(PkgLib_Harmony)' != ''">$(PkgLib_Harmony)</_HarmonyPackageRoot>
+      <_HarmonyPackageRoot Condition="'$(_HarmonyPackageRoot)' == '' and '$(NUGET_PACKAGES)' != ''">$(NUGET_PACKAGES)/$(_HarmonyPackageId)/$(_HarmonyPackageVersion)</_HarmonyPackageRoot>
+      <_HarmonyPackageRoot Condition="'$(_HarmonyPackageRoot)' == '' and '$(RestorePackagesPath)' != ''">$(RestorePackagesPath)/$(_HarmonyPackageId)/$(_HarmonyPackageVersion)</_HarmonyPackageRoot>
+      <_HarmonyPackageRoot Condition="'$(_HarmonyPackageRoot)' == '' and '$(NuGetPackageRoot)' != ''">$(NuGetPackageRoot)$(_HarmonyPackageId)/$(_HarmonyPackageVersion)</_HarmonyPackageRoot>
+      <_HarmonyPackageRoot Condition="'$(_HarmonyPackageRoot)' == '' and '$(HOME)' != ''">$(HOME)/.nuget/packages/$(_HarmonyPackageId)/$(_HarmonyPackageVersion)</_HarmonyPackageRoot>
+      <_HarmonyPackageRoot Condition="'$(_HarmonyPackageRoot)' == '' and '$(USERPROFILE)' != ''">$(USERPROFILE)/.nuget/packages/$(_HarmonyPackageId)/$(_HarmonyPackageVersion)</_HarmonyPackageRoot>
+      <_HarmonyPackageDir>$(_HarmonyPackageRoot)/lib/</_HarmonyPackageDir>
+      <_HarmonyDotNetFile Condition="'$(_HarmonyDotNetFile)' == '' and Exists('$(_HarmonyPackageDir)net10.0/0Harmony.dll')">$(_HarmonyPackageDir)net10.0/0Harmony.dll</_HarmonyDotNetFile>
+      <_HarmonyDotNetFile Condition="'$(_HarmonyDotNetFile)' == '' and Exists('$(_HarmonyPackageDir)net9.0/0Harmony.dll')">$(_HarmonyPackageDir)net9.0/0Harmony.dll</_HarmonyDotNetFile>
+      <_HarmonyDotNetFile Condition="'$(_HarmonyDotNetFile)' == '' and Exists('$(_HarmonyPackageDir)net8.0/0Harmony.dll')">$(_HarmonyPackageDir)net8.0/0Harmony.dll</_HarmonyDotNetFile>
+      <_HarmonyDotNetFile Condition="'$(_HarmonyDotNetFile)' == '' and Exists('$(_HarmonyPackageDir)net7.0/0Harmony.dll')">$(_HarmonyPackageDir)net7.0/0Harmony.dll</_HarmonyDotNetFile>
+      <_HarmonyDotNetFile Condition="'$(_HarmonyDotNetFile)' == '' and Exists('$(_HarmonyPackageDir)net6.0/0Harmony.dll')">$(_HarmonyPackageDir)net6.0/0Harmony.dll</_HarmonyDotNetFile>
+      <_HarmonyDotNetFile Condition="'$(_HarmonyDotNetFile)' == '' and Exists('$(_HarmonyPackageDir)net5.0/0Harmony.dll')">$(_HarmonyPackageDir)net5.0/0Harmony.dll</_HarmonyDotNetFile>
+      <_HarmonyDotNetFile Condition="'$(_HarmonyDotNetFile)' == '' and Exists('$(_HarmonyPackageDir)netcoreapp3.1/0Harmony.dll')">$(_HarmonyPackageDir)netcoreapp3.1/0Harmony.dll</_HarmonyDotNetFile>
+      <_HarmonyFrameworkFile Condition="'$(_HarmonyFrameworkFile)' == '' and Exists('$(_HarmonyPackageDir)net48/0Harmony.dll')">$(_HarmonyPackageDir)net48/0Harmony.dll</_HarmonyFrameworkFile>
+      <_HarmonyFrameworkFile Condition="'$(_HarmonyFrameworkFile)' == '' and Exists('$(_HarmonyPackageDir)net472/0Harmony.dll')">$(_HarmonyPackageDir)net472/0Harmony.dll</_HarmonyFrameworkFile>
+      <_HarmonyFrameworkFile Condition="'$(_HarmonyFrameworkFile)' == '' and Exists('$(_HarmonyPackageDir)net452/0Harmony.dll')">$(_HarmonyPackageDir)net452/0Harmony.dll</_HarmonyFrameworkFile>
+    </PropertyGroup>
+    <Message Importance="High"
+             Condition="'$(_HarmonyDotNetFile)' != '' and '$(_HarmonyFrameworkFile)' != ''"
+             Text="Staging Lib.Harmony from $(_HarmonyPackageRoot)." />
+    <Error Condition="'$(_HarmonyDotNetFile)' == '' or '$(_HarmonyFrameworkFile)' == ''"
+           Text="Lib.Harmony package files were not found under '$(_HarmonyPackageRoot)'. Restore the Quasar project before staging Quasar.Agent." />
+  </Target>
+
+  <Target Name="StageQuasarAgent" AfterTargets="Build" DependsOnTargets="BuildQuasarAgent;ResolveHarmonyPackageFiles">
     <ItemGroup>
       <_QuasarAgentStageFiles Include="$(_QuasarAgentOutputDir)Quasar.Agent.dll;$(_QuasarAgentOutputDir)Magnetar.Protocol.dll" />
     </ItemGroup>
-    <Error Condition="'$(PkgLib_Harmony)' == '' Or !Exists('$(_HarmonyPackageDir)net10.0/0Harmony.dll') Or !Exists('$(_HarmonyPackageDir)net48/0Harmony.dll')"
-           Text="Lib.Harmony package files were not found. Restore the Quasar project before staging Quasar.Agent." />
     <Copy SourceFiles="@(_QuasarAgentStageFiles)"
           DestinationFolder="$(OutputPath)Agent\"
           SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(_HarmonyPackageDir)net10.0/0Harmony.dll"
+    <Copy SourceFiles="$(_HarmonyDotNetFile)"
           DestinationFiles="$(OutputPath)Agent\DotNet10\0Harmony.dll"
           SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(_HarmonyPackageDir)net48/0Harmony.dll"
+    <Copy SourceFiles="$(_HarmonyFrameworkFile)"
           DestinationFiles="$(OutputPath)Agent\NetFramework48\0Harmony.dll"
           SkipUnchangedFiles="true" />
   </Target>
 
-  <Target Name="StageQuasarAgentForPublish" AfterTargets="Publish" DependsOnTargets="BuildQuasarAgent">
+  <Target Name="StageQuasarAgentForPublish" AfterTargets="Publish" DependsOnTargets="BuildQuasarAgent;ResolveHarmonyPackageFiles">
     <ItemGroup>
       <_QuasarAgentPublishFiles Include="$(_QuasarAgentOutputDir)Quasar.Agent.dll;$(_QuasarAgentOutputDir)Magnetar.Protocol.dll" />
     </ItemGroup>
-    <Error Condition="'$(PkgLib_Harmony)' == '' Or !Exists('$(_HarmonyPackageDir)net10.0/0Harmony.dll') Or !Exists('$(_HarmonyPackageDir)net48/0Harmony.dll')"
-           Text="Lib.Harmony package files were not found. Restore the Quasar project before staging Quasar.Agent." />
     <Copy SourceFiles="@(_QuasarAgentPublishFiles)"
           DestinationFolder="$(PublishDir)Agent\"
           SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(_HarmonyPackageDir)net10.0/0Harmony.dll"
+    <Copy SourceFiles="$(_HarmonyDotNetFile)"
           DestinationFiles="$(PublishDir)Agent\DotNet10\0Harmony.dll"
           SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(_HarmonyPackageDir)net48/0Harmony.dll"
+    <Copy SourceFiles="$(_HarmonyFrameworkFile)"
           DestinationFiles="$(PublishDir)Agent\NetFramework48\0Harmony.dll"
           SkipUnchangedFiles="true" />
   </Target>
