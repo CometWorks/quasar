@@ -120,13 +120,20 @@ function Copy-Tree {
     }
 }
 
-# Copies README.md into the launcher archive with its repo-relative documentation
-# links rewritten to absolute GitHub URLs. The extracted launcher zip has no Docs/
-# tree beside the README, so relative links like ](Docs/Configuration.md) would
-# dangle when opened from the unpacked archive. The in-repo README keeps its
-# relative links (ideal for browsing on GitHub); only the packaged copy is changed.
-function Copy-ReadmeWithAbsoluteDocLinks {
-    param([string]$Source, [string]$Destination)
+# Builds the launcher archive's README from the repo README plus the Windows
+# install/run instructions, so whoever unpacks quasar-win-x64.zip learns how to
+# actually run the binary they downloaded — not just the project overview.
+#
+# Two transforms are applied to the packaged copy (the in-repo README is left
+# untouched, keeping its GitHub-friendly relative links and platform-agnostic
+# "Getting started" pointer):
+#   1. The `<!-- BEGIN/END packaged install instructions -->` marker block is
+#      replaced with the platform snippet ($Snippet).
+#   2. Repo-relative doc links (`](Docs/...)`) are rewritten to absolute GitHub
+#      URLs. The extracted launcher zip has no Docs/ tree beside the README, so
+#      relative links would dangle when opened from the unpacked archive.
+function Build-PackagedReadme {
+    param([string]$Source, [string]$Snippet, [string]$Destination)
     $owner = if ($env:GITHUB_REPOSITORY) { ($env:GITHUB_REPOSITORY -split '/')[0] } else { 'viktor-ferenczi' }
     $repo = if ($env:GITHUB_REPOSITORY) { ($env:GITHUB_REPOSITORY -split '/')[1] } else { 'Quasar' }
     # Pin doc links to main: docs on main are always current and always resolve,
@@ -135,6 +142,12 @@ function Copy-ReadmeWithAbsoluteDocLinks {
     # Read as UTF-8 explicitly: Windows PowerShell 5.1's default Get-Content uses the
     # ANSI codepage and would mojibake the README's UTF-8 characters (e.g. em-dashes).
     $content = Get-Content -LiteralPath $Source -Raw -Encoding UTF8
+    $snippetText = (Get-Content -LiteralPath $Snippet -Raw -Encoding UTF8).TrimEnd()
+    # Replace the marker block (inclusive) with the platform snippet. A
+    # MatchEvaluator delegate inserts the snippet verbatim, so any `$` in the
+    # snippet is not treated as a regex replacement reference.
+    $pattern = '(?s)<!-- BEGIN packaged install instructions -->.*?<!-- END packaged install instructions -->'
+    $content = [System.Text.RegularExpressions.Regex]::Replace($content, $pattern, { param($m) $snippetText })
     $content = $content -replace '\]\(Docs/', "]($baseUrl"
     # Write UTF-8 without BOM to match the source README's encoding.
     [System.IO.File]::WriteAllText($Destination, $content, (New-Object System.Text.UTF8Encoding($false)))
@@ -230,7 +243,7 @@ Copy-Item -LiteralPath (Join-Path $PublishDir 'Quasar.exe') -Destination (Join-P
 Copy-Item -LiteralPath (Join-Path $RepoDir 'Quasar\appsettings.json') -Destination (Join-Path $BootstrapDir 'appsettings.json') -Force
 Copy-Item -LiteralPath (Join-Path $ScriptDir 'install.ps1') -Destination (Join-Path $BootstrapDir 'install.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $ScriptDir 'uninstall.ps1') -Destination (Join-Path $BootstrapDir 'uninstall.ps1') -Force
-Copy-ReadmeWithAbsoluteDocLinks (Join-Path $RepoDir 'README.md') (Join-Path $BootstrapDir 'README.md')
+Build-PackagedReadme (Join-Path $RepoDir 'README.md') (Join-Path $ScriptDir 'readme-install-windows.md') (Join-Path $BootstrapDir 'README.md')
 
 $bootstrapZip = Join-Path $ArtifactDir 'quasar-win-x64.zip'
 New-ZipFromDirectory $BootstrapDir $bootstrapZip

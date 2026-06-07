@@ -18,6 +18,8 @@ on:
       - "scripts/install.ps1"
       - "scripts/package-linux-release.sh"
       - "scripts/package-windows-release.ps1"
+      - "scripts/readme-install-linux.md"
+      - "scripts/readme-install-windows.md"
       - "scripts/uninstall.ps1"
     tags:
       - "v*"
@@ -37,6 +39,8 @@ on:
       - "scripts/install.ps1"
       - "scripts/package-linux-release.sh"
       - "scripts/package-windows-release.ps1"
+      - "scripts/readme-install-linux.md"
+      - "scripts/readme-install-windows.md"
       - "scripts/uninstall.ps1"
 
 permissions:

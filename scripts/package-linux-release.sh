@@ -51,6 +51,33 @@ normalize_nuget_version() {
     echo "0.1.1-${suffix}"
 }
 
+# Builds the launcher archive's README from the repo README plus the Linux
+# install/run instructions, so whoever unpacks quasar-linux-x64.tar.gz learns how
+# to actually run the binary they downloaded — not just the project overview.
+#
+# Two transforms are applied to the packaged copy (the in-repo README is left
+# untouched, keeping its GitHub-friendly relative links and platform-agnostic
+# "Getting started" pointer):
+#   1. The `<!-- BEGIN/END packaged install instructions -->` marker block is
+#      replaced with the platform snippet.
+#   2. Repo-relative doc links (`](Docs/...)`) are rewritten to absolute GitHub
+#      URLs, pinned to main. The extracted launcher tarball has no Docs/ tree
+#      beside the README, so relative links would dangle when opened from it.
+build_packaged_readme() {
+    local source="$1" snippet="$2" dest="$3"
+    local repo_slug="${GITHUB_REPOSITORY:-viktor-ferenczi/Quasar}"
+    local owner="${repo_slug%%/*}"
+    local repo="${repo_slug##*/}"
+    local base_url="https://github.com/$owner/$repo/blob/main/Docs/"
+    awk -v snippet="$snippet" '
+        BEGIN { while ((getline line < snippet) > 0) snip = snip line "\n" }
+        /<!-- BEGIN packaged install instructions -->/ { printf "%s", snip; skip = 1; next }
+        /<!-- END packaged install instructions -->/   { skip = 0; next }
+        skip { next }
+        { print }
+    ' "$source" | sed "s|](Docs/|]($base_url|g" > "$dest"
+}
+
 build_assembly_file_version() {
     local raw_version="${1#v}"
     raw_version="${raw_version%%-*}"
@@ -144,7 +171,7 @@ cp -a "$PUBLISH_DIR/Quasar" "$BOOTSTRAP_DIR/Quasar"
 cp -a "$REPO_DIR/Quasar/appsettings.json" "$BOOTSTRAP_DIR/appsettings.json"
 cp -a "$REPO_DIR/install.sh" "$BOOTSTRAP_DIR/install.sh"
 cp -a "$REPO_DIR/uninstall.sh" "$BOOTSTRAP_DIR/uninstall.sh"
-cp -a "$REPO_DIR/README.md" "$BOOTSTRAP_DIR/README.md"
+build_packaged_readme "$REPO_DIR/README.md" "$SCRIPT_DIR/readme-install-linux.md" "$BOOTSTRAP_DIR/README.md"
 chmod +x "$BOOTSTRAP_DIR/Quasar" "$BOOTSTRAP_DIR/install.sh" "$BOOTSTRAP_DIR/uninstall.sh"
 tar -C "$BOOTSTRAP_DIR" -czf "$ARTIFACT_DIR/quasar-linux-x64.tar.gz" .
 

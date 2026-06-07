@@ -16,6 +16,13 @@ Quasar downloads Magnetar and the Dedicated Server builds automatically and cach
 
 You can register new plugins by making PRs to the [MagnetarHub](https://github.com/viktor-ferenczi/MagnetarHub).
 
+<!-- BEGIN packaged install instructions -->
+## Getting started
+
+See the [Quick Start](Docs/QuickStart.md) guide to download a release, run Quasar
+from the terminal, and install it as a background service.
+<!-- END packaged install instructions -->
+
 ## Documentation
 
 | Page | What it covers |
