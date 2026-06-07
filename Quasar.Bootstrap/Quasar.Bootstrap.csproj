@@ -57,7 +57,11 @@
          Restore;Publish can evaluate before generated NuGet/static-web-asset
          props exist, which drops Harmony paths and Blazor framework assets. -->
     <Exec Command="dotnet restore &quot;$(_QuasarWorkerProject)&quot; -r &quot;$(RuntimeIdentifier)&quot; -p:CopyToDeployDir=false -v minimal" />
-    <Exec Command="dotnet publish &quot;$(_QuasarWorkerProject)&quot; -c &quot;$(Configuration)&quot; -r &quot;$(RuntimeIdentifier)&quot; --no-restore -p:SelfContained=true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugSymbols=false -p:DebugType=none -p:CopyToDeployDir=false -p:PublishDir=&quot;$(_QuasarWorkerPublishDir)&quot; -p:Version=&quot;$(Version)&quot; -p:AssemblyVersion=&quot;$(AssemblyVersion)&quot; -p:FileVersion=&quot;$(FileVersion)&quot; -p:InformationalVersion=&quot;$(InformationalVersion)&quot; -v minimal" />
+    <!-- Use forward slashes for PublishDir so a trailing directory separator does
+         not escape the closing quote on Windows (".../quasar-worker-publish\" would
+         swallow the following arguments). MSBuild already normalizes this path to
+         forward slashes on Linux, so the Replace is a no-op there. -->
+    <Exec Command="dotnet publish &quot;$(_QuasarWorkerProject)&quot; -c &quot;$(Configuration)&quot; -r &quot;$(RuntimeIdentifier)&quot; --no-restore -p:SelfContained=true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugSymbols=false -p:DebugType=none -p:CopyToDeployDir=false -p:PublishDir=&quot;$(_QuasarWorkerPublishDir.Replace('\','/'))&quot; -p:Version=&quot;$(Version)&quot; -p:AssemblyVersion=&quot;$(AssemblyVersion)&quot; -p:FileVersion=&quot;$(FileVersion)&quot; -p:InformationalVersion=&quot;$(InformationalVersion)&quot; -v minimal" />
   </Target>
 
   <Target Name="PackPublishedQuasar" AfterTargets="Publish"

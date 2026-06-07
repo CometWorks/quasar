@@ -9,7 +9,7 @@ public sealed class WebServiceOptions
 
     public string Host { get; init; } = "0.0.0.0";
 
-    public int Port { get; init; } = 58631;
+    public int Port { get; init; } = 8080;
 
     public string WorkerId { get; init; } = Guid.NewGuid().ToString("N");
 
@@ -17,9 +17,9 @@ public sealed class WebServiceOptions
 
     public string HostName { get; init; } = Environment.MachineName;
 
-    public string BaseUrl { get; init; } = "http://127.0.0.1:58631";
+    public string BaseUrl { get; init; } = "http://127.0.0.1:8080";
 
-    public string ListenUrl { get; init; } = "http://0.0.0.0:58631";
+    public string ListenUrl { get; init; } = "http://0.0.0.0:8080";
 
     public string Version { get; init; } = QuasarReleaseVersion.GetEntryAssemblyVersion();
 
@@ -72,10 +72,10 @@ public sealed class WebServiceOptions
         var portValue = Environment.GetEnvironmentVariable("QUASAR_WEB_PORT")
                         ?? Environment.GetEnvironmentVariable("MAGNETAR_WEB_PORT")
                         ?? section["Port"]
-                        ?? "58631";
+                        ?? "8080";
 
         if (!int.TryParse(portValue, out var port) || port <= 0)
-            port = 58631;
+            port = 8080;
 
         var hostName = Environment.MachineName;
         var hostId = Environment.GetEnvironmentVariable("QUASAR_HOST_ID")

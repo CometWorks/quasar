@@ -95,5 +95,5 @@ echo "Done. $DEPLOY_DIR"
 
 if [[ "$RUN" == "true" ]]; then
     echo "Starting Quasar..."
-    exec "$DEPLOY_DIR/Quasar" ensure-running --open-browser
+    exec "$DEPLOY_DIR/Quasar" ensure-running
 fi

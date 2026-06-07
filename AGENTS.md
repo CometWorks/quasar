@@ -14,6 +14,8 @@ These skills are not exhaustive; use any other relevant skills as needed. If any
 
 Make sure to update all relevant documentation after making changes to the project's code or configuration.
 
+Do not launch the Quasar web service process (`dotnet run --project Quasar/Quasar.csproj`) unless the user explicitly asks for a smoketest.
+
 The generated code handbook lives under `Docs/Reference/`:
 
 - `Docs/Reference/TOC.md` — entry point: project overview, module table, module-interaction graph

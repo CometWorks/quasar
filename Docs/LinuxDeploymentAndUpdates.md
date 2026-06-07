@@ -19,10 +19,12 @@ web UI worker.
   - `Agent/Magnetar.Protocol.dll`
 - `SHA256SUMS`
 
-The GitHub release workflow builds these assets on Linux and attaches them to
-GitHub releases. Tag pushes and pushes to `main` publish both UI and Bootstrap
-streams as full releases. Pull requests publish both streams as draft
-prereleases for review.
+The unified release workflow (`.github/workflows/release.yml`) builds the Linux
+and Windows assets in parallel and attaches all of them to a single GitHub
+release. Tag pushes and pushes to `main` publish a full release; pull requests
+publish a draft prerelease for review. The release carries one combined
+`SHA256SUMS` covering every archive, and the updater locates the asset it needs
+by name, so all platforms share the same release.
 `Version` is taken from `scripts/package-linux-release.sh` and can fall back to a git value.
 For assembly/file metadata, the script always emits a valid `major.minor.build`
 version even when the base version is build-number style. The public update
@@ -39,6 +41,20 @@ archive even when publish output shape changes.
 The workflow caches only the `DedicatedServer64/` reference library set by the
 Space Engineers Dedicated Server public build id, so unchanged DS builds restore
 without re-downloading the multi-GB depot content.
+
+## Release Tags
+
+The release workflow is `.github/workflows/release.yml`. Each build publishes a
+single release/tag carrying both the Linux and Windows archives:
+
+- tag push `v<version>` → full release tagged `v<version>`
+- push to `main` → full release tagged `v0.1.0-main.<run-number>`
+- pull request → draft prerelease tagged `pr-<number>/v0.1.0-pr.<number>.<run-number>`
+- manual run (`workflow_dispatch`) → draft prerelease tagged `v0.1.0-manual.<run-number>`
+
+The updater extracts the version from the tag with
+`QuasarReleaseVersion.Normalize`, so the tag prefix does not matter. Assembly/file
+metadata is normalized to `major.minor.build`.
 
 ## First Start
 
@@ -87,16 +103,34 @@ restarts the updated launcher. Existing `appsettings.json` is preserved.
 Bootstrap must not drain the worker for a release whose normalized version is
 the same as the running launcher.
 
-The first install still uses the Linux installer flow:
+## Install
+
+The first install uses the Linux installer flow from an extracted
+`quasar-linux-x64.tar.gz`:
 
 ```bash
 tar -xzf quasar-linux-x64.tar.gz -C /tmp/quasar
-sudo /tmp/quasar/install.sh --start
+sudo /tmp/quasar/install.sh          # publish to /opt/quasar and install quasar.service
+sudo /tmp/quasar/install.sh --start  # also start the service immediately
+```
+
+`install.sh` publishes Quasar to `/opt/quasar` and installs `quasar.service`. The
+service grants `CAP_SYS_NICE` through systemd ambient capabilities so Quasar can
+raise managed server priority via `renice`. The installer enables the service but
+does not start or restart it unless `--start` is passed; start it later with
+`sudo systemctl restart quasar.service`.
+
+```bash
+sudo ./uninstall.sh           # remove the systemd service
+sudo ./uninstall.sh --purge   # also remove /opt/quasar
 ```
 
 ## Configuration
 
-Defaults live in `Quasar:Updates`. Packaged defaults come from the install
+For the web UI host/port (including how to change the listening port, default
+`8080`) and browser auto-open behavior, see [Configuration](Configuration.md).
+
+Update defaults live in `Quasar:Updates`. Packaged defaults come from the install
 directory, and operator overrides can live in the Quasar data directory
 (`~/.config/Quasar/appsettings.json`, or `QUASAR_DATA_DIR/appsettings.json` when
 overridden). The worker and Bootstrap both read that data-directory file on

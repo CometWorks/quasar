@@ -15,7 +15,7 @@ Namespace: `Quasar.Services`
 | Property | Default | Env var / config key |
 |---|---|---|
 | `Host` | `"0.0.0.0"` | `QUASAR_WEB_HOST` |
-| `Port` | `58631` | `QUASAR_WEB_PORT` |
+| `Port` | `8080` | `QUASAR_WEB_PORT` |
 | `WorkerId` | new GUID | — (per-process) |
 | `HostId` | machine name (lower) | `QUASAR_HOST_ID` / `MAGNETAR_HOST_ID` |
 | `HostName` | machine name | — |

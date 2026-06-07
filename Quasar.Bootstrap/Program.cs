@@ -518,7 +518,7 @@ internal static class Program
         File.WriteAllText(path, JsonSerializer.Serialize(pointer, LauncherCoordinator.JsonOptions));
     }
 
-    private static void StartDetachedProcess(string fileName, string arguments, string workingDirectory)
+    internal static void StartDetachedProcess(string fileName, string arguments, string workingDirectory)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -563,7 +563,7 @@ internal sealed class BootstrapOptions
 
     public string AdvertisedHost { get; init; } = "127.0.0.1";
 
-    public int Port { get; init; } = 58631;
+    public int Port { get; init; } = 8080;
 
     // When true (the default), Quasar leaves managed Magnetar servers running on its
     // own shutdown — they are detached (Magnetar -daemon / setsid) and re-adopted on
@@ -586,6 +586,16 @@ internal sealed class BootstrapOptions
 
     public string LinuxBootstrapAssetName { get; init; } = "quasar-linux-x64.tar.gz";
 
+    public string WindowsWebAssetName { get; init; } = "quasar-web-win-x64.zip";
+
+    public string WindowsBootstrapAssetName { get; init; } = "quasar-win-x64.zip";
+
+    // Asset names resolved for the current operating system. Windows uses the .zip
+    // assets; every other platform keeps the Linux .tar.gz assets.
+    public string WebAssetName => OperatingSystem.IsWindows() ? WindowsWebAssetName : LinuxWebAssetName;
+
+    public string BootstrapAssetName => OperatingSystem.IsWindows() ? WindowsBootstrapAssetName : LinuxBootstrapAssetName;
+
     public TimeSpan UpdatesCheckInterval { get; init; } = TimeSpan.FromMinutes(5);
 
     public string Version { get; init; } = QuasarReleaseVersion.GetEntryAssemblyVersion();
@@ -601,10 +611,10 @@ internal sealed class BootstrapOptions
         if (string.IsNullOrWhiteSpace(host))
             host = "127.0.0.1";
 
-        var portValue = section["Port"] ?? "58631";
+        var portValue = section["Port"] ?? "8080";
 
         if (!int.TryParse(portValue, out var port) || port <= 0)
-            port = 58631;
+            port = 8080;
 
         var advertisedHost = host switch
         {
@@ -661,6 +671,12 @@ internal sealed class BootstrapOptions
             LinuxBootstrapAssetName = Environment.GetEnvironmentVariable("QUASAR_UPDATES_LINUX_BOOTSTRAP_ASSET")
                                        ?? updatesSection["LinuxBootstrapAssetName"]
                                        ?? "quasar-linux-x64.tar.gz",
+            WindowsWebAssetName = Environment.GetEnvironmentVariable("QUASAR_UPDATES_WINDOWS_WEB_ASSET")
+                                  ?? updatesSection["WindowsWebAssetName"]
+                                  ?? "quasar-web-win-x64.zip",
+            WindowsBootstrapAssetName = Environment.GetEnvironmentVariable("QUASAR_UPDATES_WINDOWS_BOOTSTRAP_ASSET")
+                                        ?? updatesSection["WindowsBootstrapAssetName"]
+                                        ?? "quasar-win-x64.zip",
         };
     }
 
@@ -842,7 +858,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
     private void StartBootstrapUpdateMonitor()
     {
-        if (!_options.UpdatesEnabled || !OperatingSystem.IsLinux())
+        if (!_options.UpdatesEnabled || (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows()))
             return;
 
         _bootstrapUpdateMonitor = new CancellationTokenSource();
@@ -888,7 +904,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (_isStopping || _isRestartingForBootstrapUpdate)
             return;
 
-        var release = await GetLatestReleaseWithAssetAsync(_options.LinuxBootstrapAssetName, cancellationToken).ConfigureAwait(false);
+        var release = await GetLatestReleaseWithAssetAsync(_options.BootstrapAssetName, cancellationToken).ConfigureAwait(false);
         if (release is null)
             return;
 
@@ -897,7 +913,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             return;
 
         var asset = release.Assets.FirstOrDefault(asset =>
-            string.Equals(asset.Name, _options.LinuxBootstrapAssetName, StringComparison.OrdinalIgnoreCase));
+            string.Equals(asset.Name, _options.BootstrapAssetName, StringComparison.OrdinalIgnoreCase));
         if (asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
             return;
 
@@ -922,7 +938,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         ExtractArchive(archivePath, extractDirectory);
         TryDeleteFile(archivePath);
 
-        var replacement = Path.Combine(extractDirectory, "Quasar");
+        var replacement = Path.Combine(extractDirectory, LauncherExecutableFileName);
         if (!File.Exists(replacement))
             throw new InvalidOperationException($"Bootstrap update archive did not contain executable '{replacement}'.");
 
@@ -939,6 +955,33 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
         if (worker is not null)
             await DrainAndRetireWorkerAsync(worker, TimeSpan.FromSeconds(20), stopManagedServers: false, cancellationToken).ConfigureAwait(false);
+
+        RestartBootstrap();
+    }
+
+    // Worker and launcher are both named Quasar (Linux/macOS) or Quasar.exe (Windows).
+    private static string LauncherExecutableFileName =>
+        OperatingSystem.IsWindows() ? "Quasar.exe" : "Quasar";
+
+    // Linux runs under systemd, which restarts the unit when Bootstrap exits with a
+    // failure code. Windows has no systemd: spawn a detached replacement launcher from
+    // the freshly installed binary, then exit cleanly so the Scheduled Task keep-alive
+    // (which only restarts on failure) does not also start a second instance.
+    private void RestartBootstrap()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var launcherPath = Path.Combine(AppContext.BaseDirectory, LauncherExecutableFileName);
+            if (File.Exists(launcherPath))
+            {
+                _logger.LogInformation("Spawning detached replacement launcher {Path}.", launcherPath);
+                Program.StartDetachedProcess(launcherPath, "serve --quiet", AppContext.BaseDirectory);
+                Environment.Exit(0);
+                return;
+            }
+
+            _logger.LogWarning("Replacement launcher not found at {Path}; exiting for external supervisor restart.", launcherPath);
+        }
 
         Environment.Exit(75);
     }
@@ -958,16 +1001,18 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 throw new InvalidOperationException($"Bootstrap update entry escapes install directory: {relativePath}");
 
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
-            if (string.Equals(Path.GetFileName(destinationPath), "Quasar", StringComparison.OrdinalIgnoreCase) &&
+            if (string.Equals(Path.GetFileName(destinationPath), LauncherExecutableFileName, StringComparison.OrdinalIgnoreCase) &&
                 File.Exists(destinationPath))
             {
+                // On Windows the running launcher .exe can be renamed but not deleted;
+                // moving it aside lets us drop the replacement in place.
                 var backupPath = destinationPath + ".previous";
                 TryDeleteFile(backupPath);
                 File.Move(destinationPath, backupPath);
             }
 
             File.Copy(sourcePath, destinationPath, overwrite: true);
-            if (string.Equals(Path.GetFileName(destinationPath), "Quasar", StringComparison.OrdinalIgnoreCase) ||
+            if (string.Equals(Path.GetFileName(destinationPath), LauncherExecutableFileName, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(Path.GetFileName(destinationPath), "install.sh", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(Path.GetFileName(destinationPath), "uninstall.sh", StringComparison.OrdinalIgnoreCase))
             {
@@ -988,29 +1033,29 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (!_options.UpdatesEnabled)
             return;
 
-        if (!OperatingSystem.IsLinux())
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows())
         {
-            _logger.LogWarning("Quasar web auto-download is currently implemented for Linux only.");
+            _logger.LogWarning("Quasar web auto-download is not supported on this platform.");
             return;
         }
 
         try
         {
-            var release = await GetLatestReleaseWithAssetAsync(_options.LinuxWebAssetName, cancellationToken).ConfigureAwait(false);
+            var release = await GetLatestReleaseWithAssetAsync(_options.WebAssetName, cancellationToken).ConfigureAwait(false);
             var asset = release?.Assets.FirstOrDefault(asset =>
-                string.Equals(asset.Name, _options.LinuxWebAssetName, StringComparison.OrdinalIgnoreCase));
+                string.Equals(asset.Name, _options.WebAssetName, StringComparison.OrdinalIgnoreCase));
             var checksums = release is null
                 ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 : await GetChecksumsAsync(release, cancellationToken).ConfigureAwait(false);
             if (release is null || asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
             {
-                _logger.LogWarning("No Linux Quasar web release asset named {AssetName} was found.", _options.LinuxWebAssetName);
+                _logger.LogWarning("No Quasar web release asset named {AssetName} was found.", _options.WebAssetName);
                 return;
             }
 
             var version = QuasarReleaseVersion.Normalize(release.TagName);
             var releaseDirectory = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), version);
-            var workerPath = Path.Combine(releaseDirectory, "Quasar");
+            var workerPath = Path.Combine(releaseDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName);
             if (!File.Exists(workerPath))
             {
                 if (Directory.Exists(releaseDirectory))

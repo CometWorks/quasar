@@ -10,14 +10,14 @@ Default application configuration for the Quasar host. Provides baseline values 
 **`Logging`** — standard ASP.NET Core log-level block; `Default` = `Information`, `Microsoft.AspNetCore` = `Warning`.
 
 **`Quasar`** root section (maps to `WebServiceOptions` and related):
-- `Host`: `"0.0.0.0"`, `Port`: `58631`, `Mode`: `"Console"`
+- `Host`: `"0.0.0.0"`, `Port`: `8080`, `Mode`: `"Console"`
 - `OpenBrowserOnStart`: `true`
 - `AvoidSimultaneousScheduledRestarts`: `true`
 - `PreserveManagedServersOnShutdown`: `true`
 - `Analytics.RetentionDays`: `30` — retention window for analytics data (only the `Analytics` subsection is present; there is no `AnalyticsStore` section in this file)
 - `AgentOfflineShutdownSeconds`: `3600`
 - `AgentReconnectIntervalSeconds`: `10`, `AgentReconnectJitterSeconds`: `3`
-- `Updates`: enabled GitHub update checks against `viktor-ferenczi/Quasar`, 300 s interval, UI asset `quasar-web-linux-x64.tar.gz`, launcher asset `quasar-linux-x64.tar.gz`, prereleases disabled by default
+- `Updates`: enabled GitHub update checks against `viktor-ferenczi/Quasar`, 300 s interval; Linux assets `quasar-web-linux-x64.tar.gz` / `quasar-linux-x64.tar.gz`, Windows assets `quasar-web-win-x64.zip` / `quasar-win-x64.zip`; prereleases disabled by default
 
 **`Quasar.ManagedRuntime`** (maps to `ManagedRuntimeOptions`):
 - `MagnetarArchiveUrl`, `MagnetarInstallDirectory`
