@@ -183,8 +183,18 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
                 GameMode = gameMode,
                 MaxPlayers = 30,
             },
+            Plugins = CreateDefaultPlugins(),
         });
     }
+
+    private static List<QuasarPluginSelection> CreateDefaultPlugins() =>
+    [
+        new() { PluginId = "C88741F0-0AA5-4263-BD78-5D21467A84D3", DisplayName = "Concealment" },
+        new() { PluginId = "DF09925B-6D53-41F2-899C-CA6214B5DD6F", DisplayName = "Essentials" },
+        new() { PluginId = "9AC2F6A8-B8A7-4250-8814-BADE62C5CF3C", DisplayName = "GridBackups" },
+        new() { PluginId = "9103FB18-9813-4B64-9D87-A58434266D93", DisplayName = "Block Limits" },
+        new() { PluginId = "17C928CE-4645-4E1B-9365-C3C46BFE061D", DisplayName = "Hangar" },
+    ];
 
     private void SaveDefaultProfile(QuasarConfigProfile profile)
     {
