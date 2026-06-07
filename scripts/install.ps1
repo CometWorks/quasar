@@ -134,6 +134,30 @@ if ($Start) {
     Start-ScheduledTask -TaskName $TaskName
 }
 
+# Resolve the UI URL to print. The service runs with
+# QUASAR_OPEN_BROWSER_ON_START=false (no auto-open), so this printed URL is the
+# operator's only pointer to the web UI. Read the configured port from the
+# installed appsettings.json, falling back to the shipped default (8080).
+$uiPort = 8080
+$installedAppSettings = Join-Path $InstallDir 'appsettings.json'
+if (Test-Path -LiteralPath $installedAppSettings) {
+    try {
+        $cfg = Get-Content -LiteralPath $installedAppSettings -Raw | ConvertFrom-Json
+        if ($cfg.Quasar -and $cfg.Quasar.Port) { $uiPort = [int]$cfg.Quasar.Port }
+    }
+    catch {
+        # Keep the default port if appsettings.json cannot be parsed.
+    }
+}
+$uiUrl = "http://localhost:$uiPort"
+
+$startHint = if ($Start) {
+    'The task has been started.'
+}
+else {
+    "Start it now with: Start-ScheduledTask -TaskName '$TaskName'  (it also starts at next boot)."
+}
+
 Write-Host @"
 
 Installed Quasar.
@@ -141,11 +165,18 @@ Installed Quasar.
 Scheduled task: $TaskName
 Install dir:    $InstallDir
 Run as:         $runAs
+Web UI:         $uiUrl
 
-The task starts at boot and restarts the launcher on failure (keep-alive).
+$startHint
+The task starts at boot and restarts the launcher on failure (keep-alive). On
+first start the launcher downloads the Quasar web UI from GitHub and then serves
+it at $uiUrl.
 
 Manage the task:
   Get-ScheduledTask -TaskName '$TaskName'
   Start-ScheduledTask -TaskName '$TaskName'
   Stop-ScheduledTask  -TaskName '$TaskName'
+
+Documentation:
+  https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md
 "@

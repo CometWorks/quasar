@@ -120,6 +120,26 @@ function Copy-Tree {
     }
 }
 
+# Copies README.md into the launcher archive with its repo-relative documentation
+# links rewritten to absolute GitHub URLs. The extracted launcher zip has no Docs/
+# tree beside the README, so relative links like ](Docs/Configuration.md) would
+# dangle when opened from the unpacked archive. The in-repo README keeps its
+# relative links (ideal for browsing on GitHub); only the packaged copy is changed.
+function Copy-ReadmeWithAbsoluteDocLinks {
+    param([string]$Source, [string]$Destination)
+    $owner = if ($env:GITHUB_REPOSITORY) { ($env:GITHUB_REPOSITORY -split '/')[0] } else { 'viktor-ferenczi' }
+    $repo = if ($env:GITHUB_REPOSITORY) { ($env:GITHUB_REPOSITORY -split '/')[1] } else { 'Quasar' }
+    # Pin doc links to main: docs on main are always current and always resolve,
+    # unlike a tag/PR-merge ref that may predate a doc or not be a valid blob path.
+    $baseUrl = "https://github.com/$owner/$repo/blob/main/Docs/"
+    # Read as UTF-8 explicitly: Windows PowerShell 5.1's default Get-Content uses the
+    # ANSI codepage and would mojibake the README's UTF-8 characters (e.g. em-dashes).
+    $content = Get-Content -LiteralPath $Source -Raw -Encoding UTF8
+    $content = $content -replace '\]\(Docs/', "]($baseUrl"
+    # Write UTF-8 without BOM to match the source README's encoding.
+    [System.IO.File]::WriteAllText($Destination, $content, (New-Object System.Text.UTF8Encoding($false)))
+}
+
 function New-ZipFromDirectory {
     param([string]$SourceDir, [string]$ZipPath)
     if (-not ('System.IO.Compression.ZipFile' -as [type])) {
@@ -210,7 +230,7 @@ Copy-Item -LiteralPath (Join-Path $PublishDir 'Quasar.exe') -Destination (Join-P
 Copy-Item -LiteralPath (Join-Path $RepoDir 'Quasar\appsettings.json') -Destination (Join-Path $BootstrapDir 'appsettings.json') -Force
 Copy-Item -LiteralPath (Join-Path $ScriptDir 'install.ps1') -Destination (Join-Path $BootstrapDir 'install.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $ScriptDir 'uninstall.ps1') -Destination (Join-Path $BootstrapDir 'uninstall.ps1') -Force
-Copy-Item -LiteralPath (Join-Path $RepoDir 'README.md') -Destination (Join-Path $BootstrapDir 'README.md') -Force
+Copy-ReadmeWithAbsoluteDocLinks (Join-Path $RepoDir 'README.md') (Join-Path $BootstrapDir 'README.md')
 
 $bootstrapZip = Join-Path $ArtifactDir 'quasar-win-x64.zip'
 New-ZipFromDirectory $BootstrapDir $bootstrapZip
