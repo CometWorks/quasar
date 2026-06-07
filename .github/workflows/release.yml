@@ -453,32 +453,13 @@ jobs:
             | **Linux** (x64) | **`quasar-linux-x64.tar.gz`** |
             | **Windows** (x64) | **`quasar-win-x64.zip`** |
 
-            That archive is the installer: it contains the Quasar **Bootstrap launcher**, the
-            install/uninstall scripts, and a default `appsettings.json`. Follow the
-            [Linux](https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md)
-            or [Windows](https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md)
-            deployment guide to install it. The web UI listens on port **8080** by default.
+            That archive is the installer: it contains the Quasar **Bootstrap launcher**, the install/uninstall scripts, and a default `appsettings.json`. Follow the [Linux](https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md) or [Windows](https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md) deployment guide to install it. The web UI listens on http://127.0.0.1:8080 by default.
 
-            ## What is every file in this release?
+            The other two archives (`quasar-web-linux-x64.tar.gz` and `quasar-web-win-x64.zip`) are updates that Quasar downloads and applies automatically — you never download them by hand.
 
-            | File | What it is |
-            | --- | --- |
-            | `quasar-linux-x64.tar.gz` | **Linux installer** — download this to install Quasar on Linux. |
-            | `quasar-win-x64.zip` | **Windows installer** — download this to install Quasar on Windows. |
-            | `quasar-web-linux-x64.tar.gz` | Linux **web UI worker**. You do not download this by hand — the launcher fetches and updates it automatically. |
-            | `quasar-web-win-x64.zip` | Windows **web UI worker**. You do not download this by hand — the launcher fetches and updates it automatically. |
-            | `SHA256SUMS` | SHA-256 checksums for the four archives above, used to verify downloads (the auto-updater checks these before installing an update). |
+            ## Why are there two archives per operating system?
 
-            ### Why are there two archives per operating system?
-
-            Quasar runs as two layers: a small, stable **Bootstrap launcher** and a larger,
-            frequently-updated **web UI worker**. They ship as separate archives so the
-            launcher can update the web UI — and itself — in place, with no manual reinstall.
-
-            A fresh install only needs the installer archive (`quasar-<os>-x64`). On first
-            start the launcher downloads the matching `quasar-web-<os>-x64` worker, and from
-            then on keeps both up to date from later releases. That is why each release
-            carries four archives: an installer and a web UI worker for each operating system.
+            Quasar deploys as two layers — a small, stable **Bootstrap launcher** (the installer) and a larger, frequently-updated **web UI worker** — shipped separately so the launcher can update the web UI, and itself, in place with no manual reinstall.
           files: |
             release/quasar-linux-x64.tar.gz
             release/quasar-web-linux-x64.tar.gz
