@@ -19,10 +19,12 @@ web UI worker.
   - `Agent/Magnetar.Protocol.dll`
 - `SHA256SUMS`
 
-The GitHub release workflow builds these assets on Linux and attaches them to
-GitHub releases. Tag pushes and pushes to `main` publish both UI and Bootstrap
-streams as full releases. Pull requests publish both streams as draft
-prereleases for review.
+The unified release workflow (`.github/workflows/release.yml`) builds the Linux
+and Windows assets in parallel and attaches all of them to a single GitHub
+release. Tag pushes and pushes to `main` publish a full release; pull requests
+publish a draft prerelease for review. The release carries one combined
+`SHA256SUMS` covering every archive, and the updater locates the asset it needs
+by name, so all platforms share the same release.
 `Version` is taken from `scripts/package-linux-release.sh` and can fall back to a git value.
 For assembly/file metadata, the script always emits a valid `major.minor.build`
 version even when the base version is build-number style. The public update
@@ -42,13 +44,17 @@ without re-downloading the multi-GB depot content.
 
 ## Release Tags
 
-The release workflow is `.github/workflows/release-linux.yml`. Tag pushes publish
-both streams as full releases (`quasar-ui/v<version>` and `v<version>`); pushes to
-`main` publish them as full releases tagged `quasar-ui/v0.1.0-main.<run-number>`
-and `v0.1.0-main.<run-number>`; pull requests publish them as draft prereleases
-tagged `quasar-ui/pr-<number>/v0.1.0-pr.<number>.<run-number>` and
-`pr-<number>/v0.1.0-pr.<number>.<run-number>`. Manual runs can target `all`,
-`ui`, or `bootstrap`. Assembly/file metadata is normalized to `major.minor.build`.
+The release workflow is `.github/workflows/release.yml`. Each build publishes a
+single release/tag carrying both the Linux and Windows archives:
+
+- tag push `v<version>` → full release tagged `v<version>`
+- push to `main` → full release tagged `v0.1.0-main.<run-number>`
+- pull request → draft prerelease tagged `pr-<number>/v0.1.0-pr.<number>.<run-number>`
+- manual run (`workflow_dispatch`) → draft prerelease tagged `v0.1.0-manual.<run-number>`
+
+The updater extracts the version from the tag with
+`QuasarReleaseVersion.Normalize`, so the tag prefix does not matter. Assembly/file
+metadata is normalized to `major.minor.build`.
 
 ## First Start
 

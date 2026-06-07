@@ -1,0 +1,445 @@
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release.yml"
+      - "Directory.Build.props"
+      - "Magnetar.Protocol/**"
+      - "Quasar/**"
+      - "Quasar.Agent/**"
+      - "Quasar.Bootstrap/**"
+      - "Quasar.sln"
+      - "install.sh"
+      - "uninstall.sh"
+      - "scripts/install.ps1"
+      - "scripts/package-linux-release.sh"
+      - "scripts/package-windows-release.ps1"
+      - "scripts/uninstall.ps1"
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release.yml"
+      - "Directory.Build.props"
+      - "Magnetar.Protocol/**"
+      - "Quasar/**"
+      - "Quasar.Agent/**"
+      - "Quasar.Bootstrap/**"
+      - "Quasar.sln"
+      - "install.sh"
+      - "uninstall.sh"
+      - "scripts/install.ps1"
+      - "scripts/package-linux-release.sh"
+      - "scripts/package-windows-release.ps1"
+      - "scripts/uninstall.ps1"
+
+permissions:
+  contents: write
+
+env:
+  SE_DS_APPID: "298740"
+
+jobs:
+  # Resolve the release identity once so the Linux and Windows builds stamp the
+  # same version and all archives land under a single GitHub release/tag.
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      name: ${{ steps.release.outputs.name }}
+      draft: ${{ steps.release.outputs.draft }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve Quasar release metadata
+        id: release
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            tag="v${version}"
+            name="Quasar v${version}"
+            draft="false"
+            prerelease="false"
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            version="0.1.0-manual.${GITHUB_RUN_NUMBER}"
+            tag="v${version}"
+            name="Quasar manual ${GITHUB_SHA::7}"
+            draft="true"
+            prerelease="true"
+          elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+            version="0.1.0-main.${GITHUB_RUN_NUMBER}"
+            tag="v${version}"
+            name="Quasar main ${GITHUB_SHA::7}"
+            draft="false"
+            prerelease="false"
+          elif [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            if [[ -z "$PR_NUMBER" ]]; then
+              echo "Pull request number is not available." >&2
+              exit 1
+            fi
+            pr_sha="${PR_HEAD_SHA:-$GITHUB_SHA}"
+            version="0.1.0-pr.${PR_NUMBER}.${GITHUB_RUN_NUMBER}"
+            tag="pr-${PR_NUMBER}/v${version}"
+            name="Quasar PR #${PR_NUMBER} ${pr_sha::7}"
+            draft="true"
+            prerelease="true"
+          else
+            version="$(git rev-parse --short HEAD)"
+            tag="$version"
+            name="Quasar $version"
+            draft="true"
+            prerelease="true"
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "Resolved release: tag=$tag version=$version draft=$draft prerelease=$prerelease"
+
+  build-linux:
+    needs: metadata
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install packaging dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo add-apt-repository multiverse
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl lib32gcc-s1 p7zip-full
+
+      - name: Probe Dedicated Server build id
+        id: dsbuild
+        run: |
+          set -euo pipefail
+          mkdir -p steamcmd
+          curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz \
+            | tar -xz -C steamcmd
+
+          buildid=""
+          for attempt in 1 2 3 4 5; do
+            out="$(./steamcmd/steamcmd.sh +login anonymous +app_info_update 1 \
+                     +app_info_print "$SE_DS_APPID" +quit 2>/dev/null || true)"
+            buildid="$(printf '%s' "$out" | tr -d '\r' | awk '
+              /"branches"/              { in_branches = 1 }
+              in_branches && /"public"/ { in_public = 1 }
+              in_public && /"buildid"/  { gsub(/[^0-9]/, "", $2); print $2; exit }
+            ')"
+            [ -n "$buildid" ] && break
+            echo "Dedicated Server build id probe attempt $attempt empty; retrying..."
+            sleep 5
+          done
+
+          if [ -z "$buildid" ]; then
+            echo "WARNING: could not determine DS build id; DS cache will miss this run." >&2
+            buildid="norev-${{ github.run_id }}"
+          fi
+          echo "Dedicated Server public build id: $buildid"
+          echo "buildid=$buildid" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Dedicated Server libraries
+        id: dscache
+        uses: actions/cache@v4
+        with:
+          path: ds64
+          key: ds64-linux-${{ steps.dsbuild.outputs.buildid }}
+
+      - name: Install Space Engineers Dedicated Server references
+        if: steps.dscache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p dsfull
+
+          ./steamcmd/steamcmd.sh +quit || true
+
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            echo "SteamCMD install attempt $attempt/5"
+            ./steamcmd/steamcmd.sh \
+              +@sSteamCmdForcePlatformType windows \
+              +force_install_dir "$PWD/dsfull" \
+              +login anonymous \
+              +app_update "$SE_DS_APPID" validate \
+              +quit || true
+            if [ -f "$PWD/dsfull/DedicatedServer64/SpaceEngineersDedicated.exe" ]; then
+              ok=1
+              break
+            fi
+            echo "SteamCMD attempt $attempt did not complete the DS install; retrying..."
+            sleep 5
+          done
+          if [ "$ok" != 1 ]; then
+            echo "ERROR: SteamCMD failed to install Space Engineers Dedicated Server references." >&2
+            exit 1
+          fi
+
+          mkdir -p ds64
+          cp -a "$PWD/dsfull/DedicatedServer64/." ds64/
+          rm -rf dsfull
+          echo "Cached DS library set:"; du -sh ds64
+
+      - name: Install Magnetar PluginSdk reference
+        run: |
+          mkdir -p "$HOME/.local/share/Magnetar"
+          MAGNETAR_URL="$(python3 - <<'PY'
+          import fnmatch
+          import json
+          import urllib.request
+
+          req = urllib.request.Request(
+              "https://api.github.com/repos/viktor-ferenczi/Magnetar/releases/latest",
+              headers={"User-Agent": "Quasar"},
+          )
+          with urllib.request.urlopen(req) as response:
+              release = json.load(response)
+          if release.get("draft") or release.get("prerelease"):
+              raise SystemExit("latest Magnetar release is not a full release")
+          matches = [
+              asset for asset in release.get("assets", [])
+              if fnmatch.fnmatchcase(asset.get("name", ""), "MagnetarForLinux-*.7z")
+          ]
+          if len(matches) != 1:
+              names = ", ".join(asset.get("name", "") for asset in release.get("assets", []))
+              raise SystemExit(f"expected one MagnetarForLinux-*.7z asset, found {len(matches)}: {names}")
+          print(matches[0]["browser_download_url"])
+          PY
+          )"
+          curl -fL "$MAGNETAR_URL" -o /tmp/magnetar.7z
+          7z x /tmp/magnetar.7z "-o$HOME/.local/share/Magnetar" -y
+          PLUGIN_SDK="$(find "$HOME/.local/share/Magnetar" -path "*/Bin/PluginSdk.dll" -print -quit)"
+          if [ -z "$PLUGIN_SDK" ]; then
+            echo "PluginSdk.dll not found in Magnetar archive" >&2
+            exit 1
+          fi
+          echo "MagnetarBin=$(dirname "$PLUGIN_SDK")" >> "$GITHUB_ENV"
+
+      - name: Package Linux release
+        env:
+          DS64: ${{ github.workspace }}/ds64
+        run: scripts/package-linux-release.sh
+
+      - name: Upload Linux archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: quasar-linux
+          path: |
+            artifacts/linux/quasar-web-linux-x64.tar.gz
+            artifacts/linux/quasar-linux-x64.tar.gz
+
+  build-windows:
+    needs: metadata
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Probe Dedicated Server build id
+        id: dsbuild
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          New-Item -ItemType Directory -Force -Path steamcmd | Out-Null
+          Invoke-WebRequest -Uri 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip' -OutFile steamcmd.zip
+          Expand-Archive -Path steamcmd.zip -DestinationPath steamcmd -Force
+          $steamcmd = Join-Path (Resolve-Path steamcmd).Path 'steamcmd.exe'
+
+          $buildid = ''
+          foreach ($attempt in 1..5) {
+            $out = & $steamcmd +login anonymous +app_info_update 1 +app_info_print $env:SE_DS_APPID +quit 2>$null | Out-String
+            $inBranches = $false
+            $inPublic = $false
+            foreach ($line in ($out -split "`n")) {
+              if ($line -match '"branches"') { $inBranches = $true }
+              if ($inBranches -and $line -match '"public"') { $inPublic = $true }
+              if ($inPublic -and $line -match '"buildid"\s+"(\d+)"') { $buildid = $Matches[1]; break }
+            }
+            if ($buildid) { break }
+            Write-Host "Dedicated Server build id probe attempt $attempt empty; retrying..."
+            Start-Sleep -Seconds 5
+          }
+
+          if (-not $buildid) {
+            Write-Warning "could not determine DS build id; DS cache will miss this run."
+            $buildid = "norev-$env:GITHUB_RUN_ID"
+          }
+          Write-Host "Dedicated Server public build id: $buildid"
+          "buildid=$buildid" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+
+          # steamcmd self-updates on first run and returns a non-zero exit code even
+          # on success; the GitHub pwsh shell exits the step with $LASTEXITCODE, so
+          # reset it explicitly now that we have the build id.
+          exit 0
+
+      - name: Cache Dedicated Server libraries
+        id: dscache
+        uses: actions/cache@v4
+        with:
+          path: ds64
+          key: ds64-windows-${{ steps.dsbuild.outputs.buildid }}
+
+      - name: Install Space Engineers Dedicated Server references
+        if: steps.dscache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $steamcmd = Join-Path (Resolve-Path steamcmd).Path 'steamcmd.exe'
+          New-Item -ItemType Directory -Force -Path dsfull | Out-Null
+          $dsfull = (Resolve-Path dsfull).Path
+
+          & $steamcmd +quit 2>$null | Out-Null
+
+          $ok = $false
+          foreach ($attempt in 1..5) {
+            Write-Host "SteamCMD install attempt $attempt/5"
+            # Native Windows depot; no +@sSteamCmdForcePlatformType override needed.
+            & $steamcmd +force_install_dir $dsfull +login anonymous +app_update $env:SE_DS_APPID validate +quit
+            if (Test-Path (Join-Path $dsfull 'DedicatedServer64\SpaceEngineersDedicated.exe')) { $ok = $true; break }
+            Write-Host "SteamCMD attempt $attempt did not complete the DS install; retrying..."
+            Start-Sleep -Seconds 5
+          }
+          if (-not $ok) {
+            Write-Error "SteamCMD failed to install Space Engineers Dedicated Server references."
+            exit 1
+          }
+
+          New-Item -ItemType Directory -Force -Path ds64 | Out-Null
+          Copy-Item -Path (Join-Path $dsfull 'DedicatedServer64\*') -Destination ds64 -Recurse -Force
+          Remove-Item -Recurse -Force dsfull
+          $size = (Get-ChildItem -Recurse -Force ds64 | Measure-Object -Property Length -Sum).Sum
+          Write-Host ("Cached DS library set: {0:N1} MB" -f ($size / 1MB))
+
+          # steamcmd can exit non-zero even after a successful install; the success
+          # check above already validated the DS install, so do not let a stray
+          # $LASTEXITCODE from steamcmd fail this step.
+          exit 0
+
+      - name: Install Magnetar PluginSdk reference
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $release = gh api repos/viktor-ferenczi/Magnetar/releases/latest | ConvertFrom-Json
+          if ($release.draft -or $release.prerelease) {
+            throw "latest Magnetar release is not a full release"
+          }
+          $winAssets = @($release.assets | Where-Object { $_.name -like 'MagnetarForWindows-*.7z' })
+          if ($winAssets.Count -ne 1) {
+            $names = ($release.assets | ForEach-Object { $_.name }) -join ', '
+            throw "expected one MagnetarForWindows-*.7z asset, found $($winAssets.Count): $names"
+          }
+
+          $magnetarRoot = Join-Path $env:APPDATA 'Magnetar'
+          New-Item -ItemType Directory -Force -Path $magnetarRoot | Out-Null
+          Invoke-WebRequest -Uri $winAssets[0].browser_download_url -OutFile magnetar.7z
+          & 7z x magnetar.7z "-o$magnetarRoot" -y
+          if ($LASTEXITCODE -ne 0) { throw "7z extraction failed with exit code $LASTEXITCODE" }
+
+          $pluginSdk = Get-ChildItem -Path $magnetarRoot -Recurse -Filter PluginSdk.dll | Select-Object -First 1
+          if (-not $pluginSdk) { throw "PluginSdk.dll not found in Magnetar archive" }
+          "MagnetarBin=$($pluginSdk.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
+
+      - name: Package Windows release
+        shell: pwsh
+        env:
+          DS64: ${{ github.workspace }}\ds64
+        run: scripts/package-windows-release.ps1
+
+      - name: Upload Windows archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: quasar-windows
+          path: |
+            artifacts/windows/quasar-web-win-x64.zip
+            artifacts/windows/quasar-win-x64.zip
+
+  # Publish a single GitHub release/tag carrying every Linux and Windows archive
+  # plus one combined SHA256SUMS. The updater finds the asset it needs by name,
+  # so all platforms can share the same release.
+  release:
+    needs: [metadata, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Assemble combined release files
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          for asset in \
+            quasar-linux-x64.tar.gz \
+            quasar-web-linux-x64.tar.gz \
+            quasar-win-x64.zip \
+            quasar-web-win-x64.zip; do
+            found="$(find dist -type f -name "$asset" -print -quit)"
+            if [ -z "$found" ]; then
+              echo "ERROR: expected release archive not found: $asset" >&2
+              exit 1
+            fi
+            cp "$found" "release/$asset"
+          done
+
+          cd release
+          sha256sum \
+            quasar-linux-x64.tar.gz \
+            quasar-web-linux-x64.tar.gz \
+            quasar-win-x64.zip \
+            quasar-web-win-x64.zip > SHA256SUMS
+          echo "Combined release archives:"; ls -1
+          echo "Combined SHA256SUMS:"; cat SHA256SUMS
+
+      - name: Publish combined release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.metadata.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ needs.metadata.outputs.name }}
+          draft: ${{ needs.metadata.outputs.draft }}
+          prerelease: ${{ needs.metadata.outputs.prerelease }}
+          files: |
+            release/quasar-linux-x64.tar.gz
+            release/quasar-web-linux-x64.tar.gz
+            release/quasar-win-x64.zip
+            release/quasar-web-win-x64.zip
+            release/SHA256SUMS
