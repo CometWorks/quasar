@@ -692,6 +692,8 @@ internal sealed class BootstrapOptions
             if (File.Exists(Path.Combine(sourceQuasar, "appsettings.json")))
                 yield return sourceQuasar;
         }
+
+        yield return MagnetarPaths.GetQuasarDirectory();
     }
 }
 

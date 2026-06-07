@@ -4,7 +4,7 @@
 
 ## Summary
 
-Routable MudBlazor page at `/settings/updates` for checking, staging, and activating Quasar Linux release updates. It shows current update status from `QuasarUpdateService`, separates Quasar UI and launcher candidates, exposes manual check/stage/activate actions for the UI worker, shows launcher update availability, and displays configured GitHub release source and asset names.
+Routable MudBlazor page at `/settings/updates` for checking, staging, and activating Quasar Linux release updates. It shows current update status from `QuasarUpdateService`, separates Quasar UI and launcher candidates, exposes manual check/stage/activate actions for the UI worker, shows launcher update availability, displays configured GitHub release source and asset names, and provides a warning-gated switch for including prerelease versions in the update stream.
 
 ## Structure
 
@@ -17,6 +17,7 @@ Authorization: `QuasarPolicyNames.CanManageSecurity`
 - `QuasarUpdateOptions` — configured GitHub owner/repository/assets/check interval
 - `WebServiceOptions` — current UI and Bootstrap versions
 - `ISnackbar` — user feedback for update actions
+- `IDialogService` — confirmation dialog before enabling prerelease updates
 
 **Key members**
 
@@ -26,6 +27,7 @@ Authorization: `QuasarPolicyNames.CanManageSecurity`
 | `CheckNowAsync()` | Runs an immediate release check through `QuasarUpdateService.CheckNowAsync()`. |
 | `StageAsync()` | Downloads and stages the queued Quasar UI update. |
 | `ActivateAsync()` | Writes the active-release pointer so Bootstrap swaps to the staged worker. |
+| `HandleIncludePrereleaseChanged(bool)` | Confirms before enabling prerelease updates, persists the stream setting through `QuasarUpdateService`, and shows a strong warning while prereleases are enabled. |
 | `RunBusyAsync(...)` | Shared busy-state/error/snackbar wrapper for the three actions. |
 | `GetStatusSeverity()` | Maps `QuasarUpdateStatus` to MudBlazor alert severity. |
 | `FormatBootstrapVersion()` | Shows the Bootstrap launcher version when the worker was started by Bootstrap, otherwise reports that Bootstrap is not managing this worker. |

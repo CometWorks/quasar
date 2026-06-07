@@ -9,7 +9,7 @@ The ASP.NET Core / Blazor Server entry point for the Quasar supervisor host. `Pr
 Namespace `Quasar`; `public class Program` with `static void Main(string[] args)`.
 
 ### Configuration loading
-`AddDeploymentConfigurationSources` probes `AppContext.BaseDirectory`, `Directory.GetCurrentDirectory()`, a `WebService/` subdir, and up to 8 ancestor directories (incl. ancestor `Quasar/`) for `appsettings.json` / `appsettings.{env}.json`, then adds env vars and command-line args. Up-front strongly-typed options: `WebServiceOptions`, `ManagedRuntimeOptions`, `QuasarAuthOptions`, `AnalyticsStoreOptions`. `QuasarLoggingConfigurator.Configure` sets up NLog. Kestrel binds `{host}:{port}` unless `ASPNETCORE_URLS` is set; wildcard hosts (`0.0.0.0`/`[::]`/`*`/`+`) use `ListenAnyIP`.
+`AddDeploymentConfigurationSources` probes `AppContext.BaseDirectory`, `Directory.GetCurrentDirectory()`, a `WebService/` subdir, the Quasar data directory (`MagnetarPaths.GetQuasarDirectory()`), and up to 8 ancestor directories (incl. ancestor `Quasar/`) for `appsettings.json` / `appsettings.{env}.json`, then adds env vars and command-line args. The data-directory source lets operator UI settings override packaged defaults without editing install files. Up-front strongly-typed options: `WebServiceOptions`, `ManagedRuntimeOptions`, `QuasarUpdateOptions`, `QuasarAuthOptions`, `AnalyticsStoreOptions`. `QuasarLoggingConfigurator.Configure` sets up NLog. Kestrel binds `{host}:{port}` unless `ASPNETCORE_URLS` is set; wildcard hosts (`0.0.0.0`/`[::]`/`*`/`+`) use `ListenAnyIP`.
 
 ### DI service registrations (high level)
 - Blazor: `AddRazorComponents().AddInteractiveServerComponents()`, cascading auth state; `HostOptions.ShutdownTimeout = 30 min`.
@@ -20,7 +20,7 @@ Namespace `Quasar`; `public class Program` with `static void Main(string[] args)
 - Managed runtime + server supervision: `ManagedDedicatedServerRuntimeResolver`, `ManagedRuntimeWarmupService` (+hosted), `DedicatedServerCatalog`, `DedicatedServerSupervisor` (+hosted), `DedicatedServerRuntimePreparer`.
 - Web/agent: `FileBrowserService`, `WebServiceState`, `PluginLogStream`, `PluginConfigService` (+hosted), `AgentSocketHandler`, `WebServiceManifestHostedService` (hosted).
 - Discord: options/rate-limiter/death-messages catalogs, command dispatcher+router, chat/death/log/analytics relays, `DiscordBotService` (+hosted).
-- Branding/theme/shutdown: `BrandingService`, `ThemePreferenceService` (scoped), `QuasarShutdownService`.
+- Branding/theme/shutdown/update: `BrandingService`, `ThemePreferenceService` (scoped), `QuasarShutdownService`, `QuasarUpdateService` (+hosted).
 - Backup: `QuasarBackupSettingsService`, `QuasarBackupService`, `AutomaticBackupService` (+hosted).
 
 ### Authentication / Authorization

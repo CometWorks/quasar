@@ -238,7 +238,7 @@
       "name": "AgentProfilerPatches.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Harmony patch registrar for Quasar's profiler telemetry. It patches known Space Engineers server methods and entity update methods, isolates individual patch failures after logging, and reports the number of successfully patched targets."
+      "summary": "Harmony patch registrar for Quasar's profiler telemetry. It patches known Space Engineers server methods for frame/update, programmable block scripts, physics, replication, network, and session components, then scans loaded entity types for declared simulation update methods so grids and other entities can be timed."
     },
     {
       "path": "Quasar.Agent/EntityInspector.cs",
@@ -382,7 +382,7 @@
       "name": "Analytics.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Interactive `/analytics` dashboard that renders rolling Space Engineers server metrics and profiler timing buckets as client-side uPlot time-series charts in one configurable panel grid. It fetches combined scalar/profiler chart series over `/api/analytics/series`, supports per-server selection, persisted view config, auto-refresh, custom time ranges, theme-aware chart styling, and a per-panel settings dialog."
+      "summary": "Interactive `/analytics` dashboard that renders rolling Space Engineers server metrics and profiler timing buckets as client-side uPlot time-series charts. It reads scalar metrics from `MetricsStoreService`, fetches combined scalar/profiler chart series over `/api/analytics/series`, supports per-server selection, a configurable CSS-grid panel layout, persisted view config (localStorage), auto-refresh, custom time ranges, theme-aware chart styling, and a per-panel settings dialog."
     },
     {
       "path": "Quasar/Components/Pages/Analytics.razor.css",
@@ -599,7 +599,7 @@
       "name": "Updates.razor",
       "kind": "component",
       "tier": 2,
-      "summary": "Routable MudBlazor page at `/settings/updates` for checking, staging, and activating Quasar Linux release updates. It shows current update status from `QuasarUpdateService`, separates Quasar UI and launcher candidates, exposes manual check/stage/activate actions for the UI worker, shows launcher update availability, and displays configured GitHub release source and asset names."
+      "summary": "Routable MudBlazor page at `/settings/updates` for checking, staging, and activating Quasar Linux release updates. It shows current update status from `QuasarUpdateService`, separates Quasar UI and launcher candidates, exposes manual check/stage/activate actions for the UI worker, shows launcher update availability, displays configured GitHub release source and asset names, and provides a warning-gated switch for including prerelease versions in the update stream."
     },
     {
       "path": "Quasar/Components/Pages/WorldTemplateFromServerDialog.razor",
@@ -1088,14 +1088,14 @@
       "name": "QuasarUpdateOptions.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Configuration record for Quasar's GitHub-release update checker. It controls whether checks run, which repository is queried, whether prereleases are eligible, how often automatic checks run, and which Linux release asset names represent the web worker and Bootstrap packages."
+      "summary": "Configuration record for Quasar's GitHub-release update checker. It controls whether checks run, which repository is queried, whether prereleases are eligible, how often automatic checks run, and which Linux release asset names represent the web worker and Bootstrap packages. `IncludePrerelease` is mutable so the Updates page can change the active worker's release stream immediately."
     },
     {
       "path": "Quasar/Services/Updates/QuasarUpdateService.cs",
       "name": "QuasarUpdateService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Hosted service that checks Quasar GitHub releases on Linux, discovers newer UI-worker and launcher assets from separate release tags, verifies `SHA256SUMS`, stages the UI worker under the Quasar updates directory, and activates a staged worker by writing `active-release.json` for Bootstrap. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI and raises `Changed` whenever status moves."
+      "summary": "Hosted service that checks Quasar GitHub releases on Linux, discovers newer UI-worker and launcher assets from separate release tags, verifies `SHA256SUMS`, stages the UI worker under the Quasar updates directory, and activates a staged worker by writing `active-release.json` for Bootstrap. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI, raises `Changed` whenever status moves, and persists the operator-controlled prerelease stream flag."
     },
     {
       "path": "Quasar/Services/Updates/QuasarUpdateSnapshot.cs",
@@ -1139,7 +1139,7 @@
       "name": "AnalyticsMetrics.cs",
       "kind": "record + class",
       "tier": 2,
-      "summary": "Central catalogue of analytics chart panels exposed by the `/analytics` dashboard and `/api/analytics/series` endpoint, covering both persisted scalar metrics and sampled profiler timing buckets."
+      "summary": "Central catalogue of analytics chart panels exposed by the `/analytics` dashboard and `/api/analytics/series` endpoint. Scalar entries define metric key, panel title/subtitle, sample selector, availability check, axis formatting, and fixed/dynamic Y-axis behaviour. Profiler entries define sampled game-loop timing selectors so regular metrics and profiler buckets share one panel catalogue."
     },
     {
       "path": "Quasar/Services/Analytics/AnalyticsSeriesService.cs",
@@ -1202,7 +1202,7 @@
       "name": "ProfilerStoreService.cs",
       "kind": "class + records",
       "tier": 2,
-      "summary": "Bounded in-memory store for recent profiler snapshots per server. `AgentRegistry` enqueues validated profiler windows as agent snapshots arrive, dropping repeated copies of the same completed window; analytics chart services and `/api/analytics/profiler` query this store for selected servers and time ranges."
+      "summary": "Bounded in-memory store for recent profiler snapshots per server. `AgentRegistry` enqueues validated profiler windows as agent snapshots arrive; `AnalyticsSeriesService`, the analytics page, and `/api/analytics/profiler` query this store for selected servers and time ranges."
     },
     {
       "path": "Quasar/Services/Analytics/RrdCircularBuffer.cs",

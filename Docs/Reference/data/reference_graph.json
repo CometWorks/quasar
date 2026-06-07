@@ -194,8 +194,8 @@
     "Quasar/Components/Pages/Analytics.razor.css",
     "Quasar/Components/Pages/AnalyticsPanelDialog.razor",
     "Quasar/Services/AgentRegistry.cs",
+    "Quasar/Services/Analytics/AnalyticsSeriesService.cs",
     "Quasar/Services/Analytics/MetricsStoreService.cs",
-    "Quasar/Services/Analytics/ProfilerStoreService.cs",
     "Quasar/Services/DedicatedServerCatalog.cs",
     "Quasar/Services/ThemePreferenceService.cs"
   ],
@@ -440,6 +440,7 @@
     "Quasar/Services/PluginSdk/PluginLogStream.cs"
   ],
   "Quasar/Services/Analytics/AnalyticsMetrics.cs": [
+    "Magnetar.Protocol/Model/ProfilerSnapshot.cs",
     "Quasar/Services/Analytics/AnalyticsSeriesService.cs",
     "Quasar/Services/Analytics/MetricSample.cs"
   ],
@@ -447,6 +448,7 @@
     "Quasar/Services/Analytics/AnalyticsMetrics.cs",
     "Quasar/Services/Analytics/MetricSample.cs",
     "Quasar/Services/Analytics/MetricsStoreService.cs",
+    "Quasar/Services/Analytics/ProfilerStoreService.cs",
     "Quasar/Services/Analytics/ServerMetricsStore.cs"
   ],
   "Quasar/Services/Analytics/AnalyticsStoreOptions.cs": [],
@@ -676,6 +678,7 @@
     "Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs",
     "Magnetar.Protocol/Runtime/QuasarReleaseVersion.cs",
     "Magnetar.Protocol/Runtime/QuasarWebReleaseLayout.cs",
+    "Quasar/Services/AtomicFileWriter.cs",
     "Quasar/Services/Updates/QuasarUpdateOptions.cs",
     "Quasar/Services/Updates/QuasarUpdateSnapshot.cs",
     "Quasar/Services/WebServiceOptions.cs"
