@@ -12,11 +12,13 @@ public sealed class AgentRegistry
     private readonly Dictionary<string, TaskCompletionSource<ServerCommandResult>> _pendingResults = new(StringComparer.OrdinalIgnoreCase);
     private readonly KnownPlayerCatalog _knownPlayers;
     private readonly MetricsStoreService _metricsStore;
+    private readonly ProfilerStoreService _profilerStore;
 
-    public AgentRegistry(KnownPlayerCatalog knownPlayers, MetricsStoreService metricsStore)
+    public AgentRegistry(KnownPlayerCatalog knownPlayers, MetricsStoreService metricsStore, ProfilerStoreService profilerStore)
     {
         _knownPlayers = knownPlayers;
         _metricsStore = metricsStore;
+        _profilerStore = profilerStore;
     }
 
     public event Action? Changed;
@@ -93,6 +95,9 @@ public sealed class AgentRegistry
         {
             var sample = MetricSampleFactory.FromSnapshot(snapshot);
             _metricsStore.Enqueue(snapshot.UniqueName, in sample);
+
+            if (snapshot.Profiler is not null)
+                _profilerStore.Enqueue(snapshot.UniqueName, snapshot.Profiler);
         }
 
         NotifyChanged();

@@ -534,8 +534,8 @@
       "path": "Quasar/Components/Pages/Analytics.razor",
       "name": "Analytics.razor",
       "ext": ".razor",
-      "size": 38028,
-      "sha256": "bf4c024d53ef8f0869ca411344b01e4735d96410b3c4d471fd9598daa6789cf7",
+      "size": 38041,
+      "sha256": "5f62772b2db55eea3fab7cb72045dd33989c4c7179f472384264ff2f55fc6a2a",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -1094,8 +1094,8 @@
       "path": "Quasar/Program.cs",
       "name": "Program.cs",
       "ext": ".cs",
-      "size": 28768,
-      "sha256": "729f5578b4b56948e2ddbf2a0af84a201c0958206884ba4ad1adbc8abe63b97c",
+      "size": 28835,
+      "sha256": "b1337fffa18f84af695b14dcd97d276399327861daca803624342a86403adee1",
       "module": "Quasar.Host",
       "tier": 1,
       "status": "pending"
@@ -1124,8 +1124,8 @@
       "path": "Quasar/Services/AgentRegistry.cs",
       "name": "AgentRegistry.cs",
       "ext": ".cs",
-      "size": 13412,
-      "sha256": "2f06c9d2e7ee204f28a8c1fb88f6d87d8c1578d48b59af2bb5f4359180608a20",
+      "size": 13674,
+      "sha256": "873316e7131c94d134d82e20f0332dee0cb1ba9cf36bb5f77b802bf07bcecc85",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "pending"
@@ -1144,8 +1144,8 @@
       "path": "Quasar/Services/Analytics/AnalyticsMetrics.cs",
       "name": "AnalyticsMetrics.cs",
       "ext": ".cs",
-      "size": 2772,
-      "sha256": "17197136c62d8203e143dcc30b10e1191b792bef04dfc0307a6c0ccb7900d1b0",
+      "size": 5336,
+      "sha256": "1f56bbbcf29aa6b74278cbd289e59dcc9743607b3ec15e49b04f5f6876483424",
       "module": "Quasar.Services.Analytics",
       "tier": 2,
       "status": "pending"
@@ -1154,8 +1154,8 @@
       "path": "Quasar/Services/Analytics/AnalyticsSeriesService.cs",
       "name": "AnalyticsSeriesService.cs",
       "ext": ".cs",
-      "size": 7360,
-      "sha256": "cd7e27663ece970149c2cc0fa2e75c7cab52503bd129007a7fe9a6243195c416",
+      "size": 12458,
+      "sha256": "1bf22faa39b64edcf767a6007e9408e1b377d5ba540aa28d643b930c907ef7b0",
       "module": "Quasar.Services.Analytics",
       "tier": 2,
       "status": "pending"
@@ -1206,6 +1206,26 @@
       "ext": ".cs",
       "size": 20386,
       "sha256": "1210b6ca931946ab1540c5acdb4154136907b214dcf73bfae250695a9ad6d78c",
+      "module": "Quasar.Services.Analytics",
+      "tier": 2,
+      "status": "pending"
+    },
+    {
+      "path": "Quasar/Services/Analytics/ProfilerSnapshotValidator.cs",
+      "name": "ProfilerSnapshotValidator.cs",
+      "ext": ".cs",
+      "size": 4115,
+      "sha256": "32f926ff480740eb2e213b9eb07c4f8f8061f8dd925ef1323c5359acc52f7dfe",
+      "module": "Quasar.Services.Analytics",
+      "tier": 2,
+      "status": "pending"
+    },
+    {
+      "path": "Quasar/Services/Analytics/ProfilerStoreService.cs",
+      "name": "ProfilerStoreService.cs",
+      "ext": ".cs",
+      "size": 2873,
+      "sha256": "c81ee420977411044c547049feaed076d1c430b7f278e7d423b3ae2866ffb504",
       "module": "Quasar.Services.Analytics",
       "tier": 2,
       "status": "pending"

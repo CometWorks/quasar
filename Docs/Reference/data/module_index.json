@@ -382,7 +382,7 @@
       "name": "Analytics.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Interactive `/analytics` dashboard that renders rolling Space Engineers server metrics as ApexCharts time-series line charts. It reads downsampled samples from `MetricsStoreService`, supports per-server selection, a configurable CSS-grid panel layout, persisted view config (localStorage), auto-refresh, custom time ranges, theme-aware chart styling, and a per-panel settings dialog. The whole charting stack was migrated to ApexCharts with new summary chips, an \"Add panel\" menu, and auto-refresh."
+      "summary": "Interactive `/analytics` dashboard that renders rolling Space Engineers server metrics and profiler timing buckets as uPlot time-series charts. It reads scalar samples from `MetricsStoreService`, fetches chart series over `/api/analytics/series`, supports per-server selection, a configurable CSS-grid panel layout, persisted view config (localStorage), auto-refresh, custom time ranges, theme-aware chart styling, and a per-panel settings dialog."
     },
     {
       "path": "Quasar/Components/Pages/Analytics.razor.css",
@@ -850,7 +850,7 @@
       "name": "AgentRegistry.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Thread-safe, in-memory registry of all connected Quasar.Agent instances. It tracks connection state (hello, snapshot, command results) for every agent WebSocket session, routes outbound commands via per-agent sender delegates, and surfaces observable runtime state through a `Changed` event. It is the canonical source of live agent data consumed by the supervisor and UI. `AgentRuntimeState` is the companion per-agent mutable state bag."
+      "summary": "Thread-safe, in-memory registry of all connected Quasar.Agent instances. It tracks connection state (hello, snapshot, profiler timing, command results) for every agent WebSocket session, routes outbound commands via per-agent sender delegates, and surfaces observable runtime state through a `Changed` event. It is the canonical source of live agent data consumed by the supervisor and UI. `AgentRuntimeState` is the companion per-agent mutable state bag."
     },
     {
       "path": "Quasar/Services/AgentSocketHandler.cs",
@@ -1139,14 +1139,14 @@
       "name": "AnalyticsMetrics.cs",
       "kind": "record + class",
       "tier": 2,
-      "summary": "Central catalogue of scalar analytics chart metrics exposed by the `/analytics` dashboard and `/api/analytics/series` endpoint. Entries define metric key, panel title/subtitle, sample selector, availability check, axis formatting, and fixed/dynamic Y-axis behaviour."
+      "summary": "Central catalogue of analytics chart panels exposed by the `/analytics` dashboard and `/api/analytics/series` endpoint. Scalar entries define metric key, panel title/subtitle, sample selector, availability check, axis formatting, and fixed/dynamic Y-axis behaviour. Profiler entries define sampled game-loop timing selectors while keeping browser chart rendering on the same existing payload shape."
     },
     {
       "path": "Quasar/Services/Analytics/AnalyticsSeriesService.cs",
       "name": "AnalyticsSeriesService.cs",
       "kind": "class + records",
       "tier": 2,
-      "summary": "Builds compact chart payloads for the analytics HTTP endpoint. It reads scalar metric samples from `MetricsStoreService`, buckets each selected server onto a shared timeline, and returns aligned series arrays for browser-side uPlot rendering."
+      "summary": "Builds compact chart payloads for the analytics HTTP endpoint. It reads scalar metric samples from `MetricsStoreService` and profiler timing windows from `ProfilerStoreService`, buckets each selected server onto a shared timeline, and returns aligned series arrays for browser-side uPlot rendering."
     },
     {
       "path": "Quasar/Services/Analytics/AnalyticsStoreOptions.cs",
@@ -1160,7 +1160,7 @@
       "name": "AnalyticsViewConfig.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Plain settings/state objects backing the ApexCharts-based analytics dashboard page. `AnalyticsViewConfig` captures the user's chosen time range, auto-refresh cadence, server selection and the per-panel grid layout; `AnalyticsPanelConfig` describes one chart panel's placement; `AnalyticsPanelDialogResult` carries the edited layout values back from the per-panel configuration dialog. These are serialised into user/session state by the analytics Blazor page, not by the analytics service."
+      "summary": "Plain settings/state objects backing the uPlot-rendered analytics dashboard page. `AnalyticsViewConfig` captures the user's chosen time range, auto-refresh cadence, server selection and the per-panel grid layout; `AnalyticsPanelConfig` describes one chart panel's placement; `AnalyticsPanelDialogResult` carries the edited layout values back from the per-panel configuration dialog. These are serialised into user/session state by the analytics Blazor page, not by the analytics service."
     },
     {
       "path": "Quasar/Services/Analytics/MetricSample.cs",
@@ -1182,6 +1182,20 @@
       "kind": "class",
       "tier": 2,
       "summary": "Hosted background service that owns one `ServerMetricsStore` per dedicated server, ingests metric samples off a bounded channel, and persists/loads each server's history to a per-server JSONL analytics file. Handles retention pruning, incremental append, periodic/size-triggered compaction (full rewrite), and crash-safe atomic file replacement. The single hub that analytics charts and the metrics writer pipeline both talk to."
+    },
+    {
+      "path": "Quasar/Services/Analytics/ProfilerSnapshotValidator.cs",
+      "name": "ProfilerSnapshotValidator.cs",
+      "kind": "class",
+      "tier": 2,
+      "summary": "Internal validation and normalization gate for profiler payloads received from agents. It rejects structurally unusable snapshots, clamps impossible frame/window/timing values, trims strings, bounds top-entry lists, and recomputes per-frame timings from totals and frame count."
+    },
+    {
+      "path": "Quasar/Services/Analytics/ProfilerStoreService.cs",
+      "name": "ProfilerStoreService.cs",
+      "kind": "class + records",
+      "tier": 2,
+      "summary": "Bounded in-memory store for recent profiler snapshots per server. `AgentRegistry` enqueues validated profiler windows as agent snapshots arrive; `AnalyticsSeriesService` reads those windows when profiler metric panels are requested through the existing `/api/analytics/series` endpoint."
     },
     {
       "path": "Quasar/Services/Analytics/RrdCircularBuffer.cs",

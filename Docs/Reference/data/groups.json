@@ -126,6 +126,8 @@
     "Quasar/Services/Analytics/MetricSample.cs",
     "Quasar/Services/Analytics/MetricSampleFactory.cs",
     "Quasar/Services/Analytics/MetricsStoreService.cs",
+    "Quasar/Services/Analytics/ProfilerSnapshotValidator.cs",
+    "Quasar/Services/Analytics/ProfilerStoreService.cs",
     "Quasar/Services/Analytics/RrdCircularBuffer.cs",
     "Quasar/Services/Analytics/RrdRollupBuffer.cs",
     "Quasar/Services/Analytics/ServerMetricsStore.cs",

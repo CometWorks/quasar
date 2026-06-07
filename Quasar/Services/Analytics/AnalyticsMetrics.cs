@@ -1,3 +1,5 @@
+using Magnetar.Protocol.Model;
+
 namespace Quasar.Services.Analytics;
 
 /// <summary>
@@ -18,6 +20,18 @@ public sealed record AnalyticsMetric(
     double? FixedMax,
     bool DynamicMaxStep5);
 
+public sealed record AnalyticsPanelDefinition(string Key, string Title, string Subtitle);
+
+public sealed record ProfilerAnalyticsMetric(
+    string Key,
+    string Title,
+    string Subtitle,
+    Func<ProfilerTimingBreakdown, double> Selector,
+    bool RequiresZero,
+    int Decimals,
+    bool Kilo,
+    double? FixedMax);
+
 public static class AnalyticsMetrics
 {
     // Order here is the default panel order on the Analytics page.
@@ -36,6 +50,36 @@ public static class AnalyticsMetrics
     private static readonly Dictionary<string, AnalyticsMetric> Map =
         All.ToDictionary(metric => metric.Key, StringComparer.OrdinalIgnoreCase);
 
+    public static readonly IReadOnlyList<AnalyticsPanelDefinition> Panels =
+        All.Select(metric => new AnalyticsPanelDefinition(metric.Key, metric.Title, metric.Subtitle))
+            .Concat(ProfilerAnalyticsMetrics.All.Select(metric => new AnalyticsPanelDefinition(metric.Key, metric.Title, metric.Subtitle)))
+            .ToList();
+
+    private static readonly Dictionary<string, AnalyticsPanelDefinition> PanelMap =
+        Panels.ToDictionary(metric => metric.Key, StringComparer.OrdinalIgnoreCase);
+
     public static AnalyticsMetric? Find(string? key) =>
+        !string.IsNullOrWhiteSpace(key) && Map.TryGetValue(key, out var metric) ? metric : null;
+
+    public static AnalyticsPanelDefinition? FindPanel(string? key) =>
+        !string.IsNullOrWhiteSpace(key) && PanelMap.TryGetValue(key, out var panel) ? panel : null;
+}
+
+public static class ProfilerAnalyticsMetrics
+{
+    public static readonly IReadOnlyList<ProfilerAnalyticsMetric> All =
+    [
+        new("profiler-frame", "Profiler: Frame ms", "Sampled game-loop frame time", static s => s.FrameMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+        new("profiler-update", "Profiler: Update ms", "Sampled update work", static s => s.UpdateMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+        new("profiler-physics", "Profiler: Physics ms", "Sampled physics work", static s => s.PhysicsMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+        new("profiler-scripts", "Profiler: Scripts ms", "Sampled programmable block work", static s => s.ScriptsMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+        new("profiler-network", "Profiler: Network ms", "Sampled network and replication work", static s => s.NetworkMs + s.ReplicationMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+        new("profiler-other", "Profiler: Other ms", "Sampled frame time outside tracked buckets", static s => s.OtherMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+    ];
+
+    private static readonly Dictionary<string, ProfilerAnalyticsMetric> Map =
+        All.ToDictionary(metric => metric.Key, StringComparer.OrdinalIgnoreCase);
+
+    public static ProfilerAnalyticsMetric? Find(string? key) =>
         !string.IsNullOrWhiteSpace(key) && Map.TryGetValue(key, out var metric) ? metric : null;
 }

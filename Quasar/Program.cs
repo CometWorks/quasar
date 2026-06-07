@@ -149,6 +149,7 @@ public class Program
             builder.Services.AddSingleton<MetricsStoreService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<MetricsStoreService>());
             builder.Services.AddSingleton<AnalyticsSeriesService>();
+            builder.Services.AddSingleton<ProfilerStoreService>();
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<EntityService>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();

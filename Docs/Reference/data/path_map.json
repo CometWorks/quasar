@@ -120,6 +120,8 @@
   "Quasar/Services/Analytics/MetricSample.cs": "Docs/Reference/files/Quasar/Services/Analytics/MetricSample.cs.md",
   "Quasar/Services/Analytics/MetricSampleFactory.cs": "Docs/Reference/files/Quasar/Services/Analytics/MetricSampleFactory.cs.md",
   "Quasar/Services/Analytics/MetricsStoreService.cs": "Docs/Reference/files/Quasar/Services/Analytics/MetricsStoreService.cs.md",
+  "Quasar/Services/Analytics/ProfilerSnapshotValidator.cs": "Docs/Reference/files/Quasar/Services/Analytics/ProfilerSnapshotValidator.cs.md",
+  "Quasar/Services/Analytics/ProfilerStoreService.cs": "Docs/Reference/files/Quasar/Services/Analytics/ProfilerStoreService.cs.md",
   "Quasar/Services/Analytics/RrdCircularBuffer.cs": "Docs/Reference/files/Quasar/Services/Analytics/RrdCircularBuffer.cs.md",
   "Quasar/Services/Analytics/RrdRollupBuffer.cs": "Docs/Reference/files/Quasar/Services/Analytics/RrdRollupBuffer.cs.md",
   "Quasar/Services/Analytics/ServerMetricsStore.cs": "Docs/Reference/files/Quasar/Services/Analytics/ServerMetricsStore.cs.md",

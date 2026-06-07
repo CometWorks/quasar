@@ -50,4 +50,4 @@ On Linux/macOS, SIGINT/SIGTERM handlers either `StopApplication` (when preservin
 - The trusted-network bypass middleware runs after `UseAuthentication` and injects an operator principal for trusted-origin requests, allowing access without Steam login.
 - Branding uploads are served via `PhysicalFileProvider` at `/branding` (outside the build-time static-asset manifest).
 - `/api/health`'s "running" count includes `Starting`, `Running`, `Restarting`, and `Stopping` states.
-- `/api/analytics/series` requires `CanView` when auth is enabled and is fetched outside the Blazor circuit to keep analytics payloads off SignalR.
+- `/api/analytics/series` requires `CanView` when auth is enabled and is fetched outside the Blazor circuit to keep analytics payloads off SignalR. The endpoint returns both scalar and profiler-backed charts using the same response shape.

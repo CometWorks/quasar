@@ -194,6 +194,8 @@
     "Quasar/Components/Pages/Analytics.razor.css",
     "Quasar/Components/Pages/AnalyticsPanelDialog.razor",
     "Quasar/Services/AgentRegistry.cs",
+    "Quasar/Services/Analytics/AnalyticsSeriesService.cs",
+    "Quasar/Services/Analytics/MetricsStoreService.cs",
     "Quasar/Services/DedicatedServerCatalog.cs",
     "Quasar/Services/ThemePreferenceService.cs"
   ],
@@ -428,6 +430,7 @@
   ],
   "Quasar/Services/AgentRegistry.cs": [
     "Quasar/Services/Analytics/MetricsStoreService.cs",
+    "Quasar/Services/Analytics/ProfilerStoreService.cs",
     "Quasar/Services/KnownPlayerCatalog.cs"
   ],
   "Quasar/Services/AgentSocketHandler.cs": [
@@ -437,6 +440,7 @@
     "Quasar/Services/PluginSdk/PluginLogStream.cs"
   ],
   "Quasar/Services/Analytics/AnalyticsMetrics.cs": [
+    "Magnetar.Protocol/Model/ProfilerSnapshot.cs",
     "Quasar/Services/Analytics/AnalyticsSeriesService.cs",
     "Quasar/Services/Analytics/MetricSample.cs"
   ],
@@ -444,6 +448,7 @@
     "Quasar/Services/Analytics/AnalyticsMetrics.cs",
     "Quasar/Services/Analytics/MetricSample.cs",
     "Quasar/Services/Analytics/MetricsStoreService.cs",
+    "Quasar/Services/Analytics/ProfilerStoreService.cs",
     "Quasar/Services/Analytics/ServerMetricsStore.cs"
   ],
   "Quasar/Services/Analytics/AnalyticsStoreOptions.cs": [],
@@ -458,6 +463,14 @@
     "Quasar/Services/Analytics/MetricSample.cs",
     "Quasar/Services/Analytics/ServerMetricsStore.cs",
     "Quasar/Services/DedicatedServerCatalog.cs"
+  ],
+  "Quasar/Services/Analytics/ProfilerSnapshotValidator.cs": [
+    "Magnetar.Protocol/Model/ProfilerSnapshot.cs",
+    "Quasar/Services/Analytics/ProfilerStoreService.cs"
+  ],
+  "Quasar/Services/Analytics/ProfilerStoreService.cs": [
+    "Magnetar.Protocol/Model/ProfilerSnapshot.cs",
+    "Quasar/Services/Analytics/ProfilerSnapshotValidator.cs"
   ],
   "Quasar/Services/Analytics/RrdCircularBuffer.cs": [
     "Quasar/Services/Analytics/MetricSample.cs"

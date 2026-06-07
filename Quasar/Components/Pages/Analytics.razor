@@ -690,7 +690,7 @@ else
                      .OrderBy(panel => panel.Order)
                      .ThenBy(panel => ResolveMetricTitle(panel.Key), StringComparer.OrdinalIgnoreCase))
         {
-            var metric = AnalyticsMetrics.Find(panel.Key);
+            var metric = AnalyticsMetrics.FindPanel(panel.Key);
             if (metric is null)
                 continue;
 
@@ -940,7 +940,7 @@ else
         return Math.Max(280, (rowHeight * rowSpan) - 88);
     }
 
-    private string ResolveMetricTitle(string key) => AnalyticsMetrics.Find(key)?.Title ?? key;
+    private string ResolveMetricTitle(string key) => AnalyticsMetrics.FindPanel(key)?.Title ?? key;
 
     private static AnalyticsViewConfig NormalizeConfig(AnalyticsViewConfig? config)
     {
@@ -993,7 +993,7 @@ else
 
     private static List<AnalyticsPanelConfig> CreateDefaultPanels()
     {
-        return AnalyticsMetrics.All
+        return AnalyticsMetrics.Panels
             .Select((metric, index) => new AnalyticsPanelConfig
             {
                 Key = metric.Key,
