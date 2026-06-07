@@ -55,6 +55,10 @@ extracts it under:
 Then it writes `Updates/active-release.json` pointing at the staged worker.
 The downloaded archive must match the release's `SHA256SUMS` entry before it is
 extracted.
+When running as a systemd service, Bootstrap ignores a stale active-release
+pointer that targets a random external build directory. Only packaged
+`WebService/` workers, staged update workers, or explicitly configured
+`QUASAR_WEB_EXE` / `QUASAR_WEB_DLL` workers are trusted.
 
 ## UI Worker Updates
 
