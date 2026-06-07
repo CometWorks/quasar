@@ -68,18 +68,27 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Single source of truth for the base version: Directory.Build.props.
+          # Non-tag builds append a channel/run suffix to this base; tag pushes use
+          # the tag name verbatim.
+          base="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props | head -n1)"
+          if [[ -z "$base" ]]; then
+            echo "Could not read <Version> from Directory.Build.props." >&2
+            exit 1
+          fi
+
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
             tag="v${version}"
             draft="false"
             prerelease="false"
           elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            version="0.1.1-manual.${GITHUB_RUN_NUMBER}"
+            version="${base}-manual.${GITHUB_RUN_NUMBER}"
             tag="v${version}"
             draft="true"
             prerelease="true"
           elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
-            version="0.1.1-main.${GITHUB_RUN_NUMBER}"
+            version="${base}-main.${GITHUB_RUN_NUMBER}"
             tag="v${version}"
             draft="false"
             prerelease="false"
@@ -88,7 +97,7 @@ jobs:
               echo "Pull request number is not available." >&2
               exit 1
             fi
-            version="0.1.1-pr.${PR_NUMBER}.${GITHUB_RUN_NUMBER}"
+            version="${base}-pr.${PR_NUMBER}.${GITHUB_RUN_NUMBER}"
             tag="pr-${PR_NUMBER}/v${version}"
             draft="true"
             prerelease="true"
