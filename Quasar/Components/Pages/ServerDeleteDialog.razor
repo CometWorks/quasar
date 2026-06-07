@@ -1,0 +1,85 @@
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            @if (Confirm)
+            {
+                <MudText Typo="Typo.body2">
+                    Delete server definition '<b>@Slug</b>'? The definition is archived as a deleted JSON
+                    snapshot. Quasar does <b>not</b> delete the server folder below — world files, config,
+                    and logs stay on disk.
+                </MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2">
+                    Server '<b>@Slug</b>' was removed from the catalog. Quasar did <b>not</b> delete its folder.
+                </MudText>
+            }
+
+            <div>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Server folder</MudText>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                    <MudText Typo="Typo.body2" Class="mono" Style="word-break: break-all;">@FolderPath</MudText>
+                    <MudTooltip Text="Copy path">
+                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
+                                       Size="Size.Small"
+                                       Color="Color.Default"
+                                       OnClick="CopyPathAsync" />
+                    </MudTooltip>
+                </MudStack>
+            </div>
+
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                Delete this folder yourself if you want to remove the actual world saves and all other
+                server data. Quasar leaves it in place on purpose to avoid accidental loss.
+            </MudAlert>
+
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                You can only recreate a server with the slug '<b>@Slug</b>' as a fresh world after this
+                folder is deleted, renamed, or moved elsewhere — otherwise the new server reuses the
+                leftover files in it.
+            </MudAlert>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        @if (Confirm)
+        {
+            <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="Accept">Delete</MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Accept">Close</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public string Slug { get; set; } = string.Empty;
+
+    [Parameter]
+    public string FolderPath { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool Confirm { get; set; }
+
+    private async Task CopyPathAsync()
+    {
+        var ok = await JS.InvokeAsync<bool>("quasarConfigs.copyText", FolderPath);
+        Snackbar.Add(
+            ok ? "Path copied to clipboard." : "Copy failed — select and copy the path manually.",
+            ok ? Severity.Info : Severity.Warning);
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void Accept() => MudDialog.Close(DialogResult.Ok(true));
+}
