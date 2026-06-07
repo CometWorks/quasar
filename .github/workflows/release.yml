@@ -88,7 +88,7 @@ jobs:
             draft="true"
             prerelease="true"
           elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
-            version="${base}-main.${GITHUB_RUN_NUMBER}"
+            version="${base}.${GITHUB_RUN_NUMBER}"
             tag="v${version}"
             draft="false"
             prerelease="false"
