@@ -21,7 +21,7 @@ public sealed class WebServiceOptions
 
     public string ListenUrl { get; init; } = "http://0.0.0.0:58631";
 
-    public string Version { get; init; } = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "0.0.0";
+    public string Version { get; init; } = QuasarReleaseVersion.GetEntryAssemblyVersion();
 
     public string BootstrapVersion { get; init; } = string.Empty;
 

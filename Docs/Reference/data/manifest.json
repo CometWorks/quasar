@@ -24,8 +24,8 @@
       "path": "Magnetar.Protocol/Magnetar.Protocol.csproj",
       "name": "Magnetar.Protocol.csproj",
       "ext": ".csproj",
-      "size": 293,
-      "sha256": "dd029952c1c325af4c3b16b801a1060166bb79b4a42a7bf0cd83958863e1da17",
+      "size": 322,
+      "sha256": "d68d391a611e22124315419eb881b6325ea9e68ba1d7220dacb186242a38d59d",
       "module": "Magnetar.Protocol",
       "tier": 3,
       "status": "documented"
@@ -211,6 +211,26 @@
       "status": "documented"
     },
     {
+      "path": "Magnetar.Protocol/Runtime/QuasarReleaseVersion.cs",
+      "name": "QuasarReleaseVersion.cs",
+      "ext": ".cs",
+      "size": 5302,
+      "sha256": "6346685d9f8bd521bee836588342b863dd88e25da1dd78d47a3c69484aa97241",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Magnetar.Protocol/Runtime/QuasarWebReleaseLayout.cs",
+      "name": "QuasarWebReleaseLayout.cs",
+      "ext": ".cs",
+      "size": 1079,
+      "sha256": "f3e798f13969bc1863f7e9bb225eda7fd924b262a25a8e0e6a3668df313bd92e",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
       "path": "Magnetar.Protocol/Transport/AgentWireMessage.cs",
       "name": "AgentWireMessage.cs",
       "ext": ".cs",
@@ -344,8 +364,8 @@
       "path": "Quasar.Bootstrap/Program.cs",
       "name": "Program.cs",
       "ext": ".cs",
-      "size": 67151,
-      "sha256": "1ed35a66b7d3ae1ba8e1f8e854f9939f9f10bfab8d15681bb9ed33643476aacc",
+      "size": 66179,
+      "sha256": "f9a8227d50dd04490e5bbaf4297a31979575b94a773fb0eb273117913b043b82",
       "module": "Quasar.Bootstrap",
       "tier": 1,
       "status": "documented"
@@ -364,8 +384,8 @@
       "path": "Quasar.Bootstrap/Quasar.Bootstrap.csproj",
       "name": "Quasar.Bootstrap.csproj",
       "ext": ".csproj",
-      "size": 4088,
-      "sha256": "73e68cf5f6b8f858af3664e6b3cb8a64f166d6e382a04ae0f39cf8b40a401c46",
+      "size": 4243,
+      "sha256": "f2ed8ee283df7bf693cbda294efa2bdc015c122c30fbd851a9ab3e0d47ea821d",
       "module": "Quasar.Bootstrap",
       "tier": 3,
       "status": "documented"
@@ -1054,8 +1074,8 @@
       "path": "Quasar/Quasar.csproj",
       "name": "Quasar.csproj",
       "ext": ".csproj",
-      "size": 3743,
-      "sha256": "0447be3f218f8001f6877776a4003472a2cc24733bf61dfe2a7c6b32accaa1b5",
+      "size": 4498,
+      "sha256": "a0bdf2c92efb0dad877769a346d0b352ec590c299c7248046ab768d4d396b843",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "documented"
@@ -1714,8 +1734,8 @@
       "path": "Quasar/Services/Updates/QuasarUpdateService.cs",
       "name": "QuasarUpdateService.cs",
       "ext": ".cs",
-      "size": 18909,
-      "sha256": "dd4e26490b8d354ddc9ac2493526f04171cb28e40bb1cc471497f566169df44b",
+      "size": 18066,
+      "sha256": "95131cdd997d458f4794a2bb87eb8bae7edd4185f0056192e2b9bdc3f68ba5be",
       "module": "Quasar.Services.Core",
       "tier": 2,
       "status": "documented"
@@ -1734,8 +1754,8 @@
       "path": "Quasar/Services/WebServiceManifestHostedService.cs",
       "name": "WebServiceManifestHostedService.cs",
       "ext": ".cs",
-      "size": 5942,
-      "sha256": "9fd6d1435aa4b69647058533295eb3adf61f889f9e1f4d19f1b4310113bab84b",
+      "size": 7504,
+      "sha256": "cd6545618208bf746ba1161c4c5361110f250eb26233874ca83514c2f152e95b",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "documented"
@@ -1744,8 +1764,8 @@
       "path": "Quasar/Services/WebServiceOptions.cs",
       "name": "WebServiceOptions.cs",
       "ext": ".cs",
-      "size": 9118,
-      "sha256": "ea79fc264b86cee0ec8ec979f21a9c4fc16282167ae4d5c0e9e4688f515f097d",
+      "size": 9095,
+      "sha256": "2af594b0204c0f6819c9bc8558de17a769fafa00dd694e2d7d8ce7121685bbda",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "documented"

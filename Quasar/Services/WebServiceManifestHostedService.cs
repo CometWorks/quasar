@@ -139,11 +139,12 @@ public sealed class WebServiceManifestHostedService : IHostedService
         if (string.IsNullOrWhiteSpace(processPath) && string.IsNullOrWhiteSpace(entryAssemblyPath))
             return null;
 
+        QuasarActiveReleasePointer pointer;
         if (!string.IsNullOrWhiteSpace(entryAssemblyPath) &&
             entryAssemblyPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) &&
             (string.IsNullOrWhiteSpace(processPath) || IsDotNetHost(processPath)))
         {
-            return new QuasarActiveReleasePointer
+            pointer = new QuasarActiveReleasePointer
             {
                 Version = _options.Version,
                 FileName = string.IsNullOrWhiteSpace(processPath) ? "dotnet" : processPath,
@@ -151,9 +152,10 @@ public sealed class WebServiceManifestHostedService : IHostedService
                 WorkingDirectory = AppContext.BaseDirectory,
                 ActivatedAtUtc = DateTimeOffset.UtcNow,
             };
+            return PreserveExistingVersionIfSameRelease(pointer);
         }
 
-        return new QuasarActiveReleasePointer
+        pointer = new QuasarActiveReleasePointer
         {
             Version = _options.Version,
             FileName = processPath ?? entryAssemblyPath ?? string.Empty,
@@ -161,6 +163,41 @@ public sealed class WebServiceManifestHostedService : IHostedService
             WorkingDirectory = AppContext.BaseDirectory,
             ActivatedAtUtc = DateTimeOffset.UtcNow,
         };
+        return PreserveExistingVersionIfSameRelease(pointer);
+    }
+
+    private QuasarActiveReleasePointer PreserveExistingVersionIfSameRelease(QuasarActiveReleasePointer pointer)
+    {
+        try
+        {
+            var path = MagnetarPaths.GetQuasarActiveReleasePath();
+            if (!File.Exists(path))
+                return pointer;
+
+            var existing = JsonSerializer.Deserialize<QuasarActiveReleasePointer>(File.ReadAllText(path), JsonOptions);
+            if (existing is null || string.IsNullOrWhiteSpace(existing.Version))
+                return pointer;
+
+            if (!string.Equals(existing.FileName, pointer.FileName, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(existing.Arguments, pointer.Arguments, StringComparison.Ordinal) ||
+                !string.Equals(existing.WorkingDirectory.TrimEnd(Path.DirectorySeparatorChar), pointer.WorkingDirectory.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+            {
+                return pointer;
+            }
+
+            return new QuasarActiveReleasePointer
+            {
+                Version = existing.Version,
+                FileName = pointer.FileName,
+                Arguments = pointer.Arguments,
+                WorkingDirectory = pointer.WorkingDirectory,
+                ActivatedAtUtc = pointer.ActivatedAtUtc,
+            };
+        }
+        catch
+        {
+            return pointer;
+        }
     }
 
     private static bool IsDotNetHost(string processPath)

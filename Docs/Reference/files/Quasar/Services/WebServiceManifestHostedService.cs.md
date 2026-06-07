@@ -19,6 +19,7 @@ Namespace: `Quasar.Services`
 | `WriteManifest()` | Resolves effective base URL from `IServerAddressesFeature`, builds `WebServiceDiscoveryManifest`, writes it to disk, updates `WebServiceState.CurrentManifest`, writes active-release pointer, optionally opens browser. |
 | `ResolveBaseUrl()` | Normalises wildcard bind addresses (`0.0.0.0`, `[::]`, `*`, `+`) to `127.0.0.1`. |
 | `BuildActiveReleasePointer()` | Detects single-file vs DLL deployment; constructs `QuasarActiveReleasePointer` accordingly. |
+| `PreserveExistingVersionIfSameRelease(pointer)` | Keeps the existing active-release version when the file/args/working directory match the current worker, preserving Bootstrap's staged release identity. |
 | `WriteActiveReleasePointer()` | Writes the pointer JSON to the active-release path. |
 
 ## Dependencies
@@ -32,4 +33,4 @@ Namespace: `Quasar.Services`
 
 ## Notes
 
-The manifest write is registered via `ApplicationStarted` callback (not directly in `StartAsync`) to guarantee the port is bound before writing — avoids a race where Bootstrap reads the manifest before Kestrel is ready. In non-service mode the supervisor name and base URL are also written to stdout so a parent process can capture them. The IL3000 warning for `Assembly.GetEntryAssembly()?.Location` is suppressed with an inline explanation of the single-file fallback.
+The manifest write is registered via `ApplicationStarted` callback (not directly in `StartAsync`) to guarantee the port is bound before writing — avoids a race where Bootstrap reads the manifest before Kestrel is ready. The worker preserves the active-release pointer's version when it launched from that pointer, so a staged `0.1.0-main.N` release is not overwritten with a numeric assembly version. In non-service mode the supervisor name and base URL are also written to stdout so a parent process can capture them. The IL3000 warning for `Assembly.GetEntryAssembly()?.Location` is suppressed with an inline explanation of the single-file fallback.

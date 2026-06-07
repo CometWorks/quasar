@@ -7,7 +7,6 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 using Magnetar.Protocol.Discovery;
 using Magnetar.Protocol.Runtime;
 using Microsoft.Extensions.Configuration;
@@ -589,7 +588,7 @@ internal sealed class BootstrapOptions
 
     public TimeSpan UpdatesCheckInterval { get; init; } = TimeSpan.FromMinutes(5);
 
-    public string Version { get; init; } = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "0.0.0";
+    public string Version { get; init; } = QuasarReleaseVersion.GetEntryAssemblyVersion();
 
     public static BootstrapOptions Create()
     {
@@ -702,10 +701,6 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     {
         WriteIndented = true,
     };
-    private static readonly Regex VersionPattern = new(
-        @"\d+(?:\.\d+){1,2}(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
     private readonly BootstrapOptions _options;
     private readonly LauncherForegroundOptions _foregroundOptions;
     private readonly ILogger<LauncherCoordinator> _logger;
@@ -895,7 +890,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (release is null)
             return;
 
-        var version = NormalizeVersion(release.TagName);
+        var version = QuasarReleaseVersion.Normalize(release.TagName);
         if (!IsNewerVersion(version, _options.Version))
             return;
 
@@ -1011,7 +1006,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 return;
             }
 
-            var version = NormalizeVersion(release.TagName);
+            var version = QuasarReleaseVersion.Normalize(release.TagName);
             var releaseDirectory = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), version);
             var workerPath = Path.Combine(releaseDirectory, "Quasar");
             if (!File.Exists(workerPath))
@@ -1035,11 +1030,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 TryDeleteFile(archivePath);
             }
 
-            if (!File.Exists(workerPath))
-            {
-                _logger.LogWarning("Downloaded Quasar web asset did not contain executable {Path}.", workerPath);
-                return;
-            }
+            QuasarWebReleaseLayout.ValidateDirectory(releaseDirectory);
 
             EnsureExecutableBit(workerPath);
             WriteActiveReleasePointer(new QuasarActiveReleasePointer
@@ -1111,26 +1102,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             throw new InvalidOperationException($"SHA256 mismatch for {Path.GetFileName(path)}.");
     }
 
-    private static bool IsNewerVersion(string candidate, string current)
-    {
-        if (Version.TryParse(NormalizeVersion(candidate), out var candidateVersion) &&
-            Version.TryParse(NormalizeVersion(current), out var currentVersion))
-        {
-            return candidateVersion > currentVersion;
-        }
-
-        return !string.Equals(NormalizeVersion(candidate), NormalizeVersion(current), StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string NormalizeVersion(string value)
-    {
-        value = value.Trim();
-        var match = VersionPattern.Match(value);
-        if (match.Success)
-            return match.Value;
-
-        return value.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? value[1..] : value;
-    }
+    private static bool IsNewerVersion(string candidate, string current) =>
+        QuasarReleaseVersion.IsNewer(candidate, current);
 
     private static void ExtractArchive(string archivePath, string destinationDirectory)
     {

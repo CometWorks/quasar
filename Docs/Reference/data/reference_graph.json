@@ -72,6 +72,8 @@
   "Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs": [
     "Magnetar.Protocol/Runtime/MagnetarPaths.cs"
   ],
+  "Magnetar.Protocol/Runtime/QuasarReleaseVersion.cs": [],
+  "Magnetar.Protocol/Runtime/QuasarWebReleaseLayout.cs": [],
   "Magnetar.Protocol/Transport/AgentWireMessage.cs": [
     "Magnetar.Protocol/Model/AgentHello.cs",
     "Magnetar.Protocol/Model/AgentSnapshot.cs",

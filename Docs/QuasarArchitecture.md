@@ -449,6 +449,8 @@ Expected layout:
 - active runtime under a versioned release directory
 - staged payloads under `~/.config/Quasar/Updates/Staged/`
 - stable release pointer / manifest for the currently active version
+- release identity from `AssemblyInformationalVersion` and the active-release
+  pointer, not from numeric `AssemblyVersion`
 
 Linux-first cutover ownership:
 
@@ -458,6 +460,8 @@ Linux-first cutover ownership:
 - activation writes `Updates/active-release.json`
 - Bootstrap observes the pointer change, drains the old worker, then starts the staged worker
 - the browser and `Quasar.Agent` reconnect after the short listener gap
+- Bootstrap self-update drains only when the primary release asset is actually
+  newer than the running launcher's normalized release identity
 
 This implies a two-layer deployment:
 

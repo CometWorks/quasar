@@ -19,7 +19,7 @@
       "name": "Magnetar.Protocol.csproj",
       "kind": "project file",
       "tier": 3,
-      "summary": "MSBuild project file for the `Magnetar.Protocol` shared contract library. Targets `netstandard2.0` so the assembly can be loaded by both the Quasar Blazor Server supervisor (net8+) and the in-DS `Quasar.Agent` plugin (which runs inside the Space Engineers process)."
+      "summary": "MSBuild project file for the `Magnetar.Protocol` shared contract library. Targets `netstandard2.0`, pins default `Version`/assembly/file metadata to `0.1.0`, and stays dependency-free so it can be loaded by both the Quasar Blazor Server supervisor and the in-DS `Quasar.Agent` plugin."
     },
     {
       "path": "Magnetar.Protocol/Model/AgentHello.cs",
@@ -148,6 +148,20 @@
       "summary": "Sealed DTO persisted to `Updates/active-release.json` (path from `MagnetarPaths.GetQuasarActiveReleasePath()`). Quasar.Bootstrap reads this file to determine which release binary to launch as the Quasar supervisor."
     },
     {
+      "path": "Magnetar.Protocol/Runtime/QuasarReleaseVersion.cs",
+      "name": "QuasarReleaseVersion.cs",
+      "kind": "class (static)",
+      "tier": 1,
+      "summary": "Shared release-version helper used by the Quasar worker and Bootstrap launcher. It reads `AssemblyInformationalVersion`, normalizes GitHub tag names, and compares release versions with prerelease-aware ordering so update checks only report a candidate when it is actually newer."
+    },
+    {
+      "path": "Magnetar.Protocol/Runtime/QuasarWebReleaseLayout.cs",
+      "name": "QuasarWebReleaseLayout.cs",
+      "kind": "class (static)",
+      "tier": 1,
+      "summary": "Shared layout validator for Linux Quasar web-release payloads. It rejects staged or downloaded web archives that are missing the worker executable or static assets required for the Blazor/MudBlazor UI to load."
+    },
+    {
       "path": "Magnetar.Protocol/Transport/AgentWireMessage.cs",
       "name": "AgentWireMessage.cs",
       "kind": "class",
@@ -247,7 +261,7 @@
       "name": "Program.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Entry point and core logic for the Quasar launcher. It implements three CLI commands (`ensure-running`, `serve`, `activate-release`) and the supporting types `BootstrapOptions` (host/port + update + preserve-servers policy from `appsettings.json`) and `LauncherCoordinator` (an `IHostedService` that supervises the Quasar worker process, watches the active-release pointer file, downloads an initial UI worker from the UI release stream when needed, hot-reloads activated UI releases, and self-upgrades the launcher from the primary Quasar release stream)."
+      "summary": "Entry point and core logic for the Quasar launcher. It implements `ensure-running`, `serve`, and `activate-release`; supervises the worker process; validates initial web-release layout; watches the active-release pointer; and self-upgrades only when the primary Quasar release stream has an actually newer normalized release identity."
     },
     {
       "path": "Quasar.Bootstrap/Properties/launchSettings.json",
@@ -261,7 +275,7 @@
       "name": "Quasar.Bootstrap.csproj",
       "kind": "project file",
       "tier": 3,
-      "summary": "MSBuild project file for `Quasar.Bootstrap`, a `net10.0` console executable that targets `linux-x64` and `win-x64`. On non-RID framework builds it copies output to `~/Documents/Quasar` and renames the binary to `Quasar`. On RID-targeted publish it also publishes the `Quasar` worker as a single-file sub-app into a `WebService/` subfolder."
+      "summary": "MSBuild project file for `Quasar.Bootstrap`, a `net10.0` console executable that targets `linux-x64` and `win-x64`. On RID-targeted publish it also publishes the `Quasar` worker as a single-file sub-app into `WebService/`, passing release metadata through so worker and launcher share the same informational version."
     }
   ],
   "Quasar.Components": [
@@ -750,7 +764,7 @@
       "name": "Quasar.csproj",
       "kind": "project file",
       "tier": 3,
-      "summary": "MSBuild project file for the Quasar Blazor Server host. Targets `net10.0` using the `Microsoft.NET.Sdk.Web` SDK, references the shared `Magnetar.Protocol` project, and declares NuGet packages for Steam auth, local storage, Discord, MudBlazor, Blazor-ApexCharts, NLog, and SharpCompress. Includes custom build targets to compile `Quasar.Agent` and stage its DLLs alongside the host output."
+      "summary": "MSBuild project file for the Quasar Blazor Server host. Targets `net10.0`, pins default release metadata to `0.1.0`, references `Magnetar.Protocol`, declares the web/auth/UI packages, and includes custom targets to compile `Quasar.Agent` and stage its DLLs plus runtime-specific Harmony DLLs alongside the host output."
     },
     {
       "path": "Quasar/appsettings.Development.json",
@@ -1032,7 +1046,7 @@
       "name": "QuasarUpdateService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Hosted service that checks Quasar GitHub releases on Linux, discovers newer UI-worker and launcher assets from separate release tags, verifies `SHA256SUMS`, stages the UI worker under the Quasar updates directory, and activates a staged worker by writing `active-release.json` for Bootstrap. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI and raises `Changed` whenever status moves."
+      "summary": "Hosted service that checks Quasar GitHub releases on Linux, discovers newer UI-worker and launcher assets using normalized release-version comparison, verifies `SHA256SUMS`, validates staged web layout files, and activates a staged worker by writing `active-release.json` for Bootstrap."
     },
     {
       "path": "Quasar/Services/Updates/QuasarUpdateSnapshot.cs",
@@ -1046,14 +1060,14 @@
       "name": "WebServiceManifestHostedService.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`IHostedService` that writes a `WebServiceDiscoveryManifest` JSON file on startup (once the Kestrel server is bound) and deletes it on shutdown, enabling Quasar.Bootstrap and other tools to discover the running supervisor instance by filesystem polling. It also writes an \"active release pointer\" file so the bootstrap knows which executable launched this instance, and optionally opens the browser on first start."
+      "summary": "`IHostedService` that writes a `WebServiceDiscoveryManifest` JSON file once Kestrel is bound, deletes it on shutdown, and writes the active-release pointer. When the worker was launched from an existing pointer, it preserves that release version instead of replacing it with numeric assembly metadata."
     },
     {
       "path": "Quasar/Services/WebServiceOptions.cs",
       "name": "WebServiceOptions.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Immutable configuration record for the Quasar web service host. All properties are `init`-only and populated by the static factory method `Create(IConfiguration)`, which reads from the `Quasar` (or legacy `MagnetarWeb`) config section and a defined set of environment variables, with environment variables taking priority."
+      "summary": "Immutable configuration record for the Quasar web service host. It reads the public version from `AssemblyInformationalVersion` through `QuasarReleaseVersion`, then populates host, logging, service-mode, agent-reconnect, manifest, and shutdown policy settings from configuration and environment variables."
     },
     {
       "path": "Quasar/Services/WebServiceState.cs",

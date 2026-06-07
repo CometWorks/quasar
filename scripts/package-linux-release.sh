@@ -115,11 +115,31 @@ dotnet publish "$REPO_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj" \
     -p:Version="$NUGET_VERSION" \
     -p:AssemblyVersion="$ASSEMBLY_FILE_VERSION" \
     -p:FileVersion="$ASSEMBLY_FILE_VERSION" \
+    -p:InformationalVersion="$NUGET_VERSION" \
     -o "$PUBLISH_DIR" \
     -v minimal
 
 cp -a "$PUBLISH_DIR/WebService/." "$WEB_DIR/"
 chmod +x "$WEB_DIR/Quasar"
+
+required_web_files=(
+    "Quasar"
+    "wwwroot/_framework/blazor.web.js"
+    "wwwroot/_content/MudBlazor/MudBlazor.min.css"
+    "wwwroot/_content/MudBlazor/MudBlazor.min.js"
+    "wwwroot/app.css"
+    "wwwroot/quasar-configs.js"
+    "wwwroot/quasar-charts.js"
+    "wwwroot/lib/uplot/uPlot.min.css"
+    "wwwroot/lib/uplot/uPlot.iife.min.js"
+)
+for required_file in "${required_web_files[@]}"; do
+    if [[ ! -f "$WEB_DIR/$required_file" ]]; then
+        echo "ERROR: web release missing required file: $required_file" >&2
+        exit 1
+    fi
+done
+
 tar -C "$WEB_DIR" -czf "$ARTIFACT_DIR/quasar-web-linux-x64.tar.gz" .
 
 cp -a "$PUBLISH_DIR/Quasar" "$BOOTSTRAP_DIR/Quasar"

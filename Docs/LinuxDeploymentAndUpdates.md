@@ -23,9 +23,14 @@ The GitHub release workflow builds these assets on Linux and attaches them to
 tagged GitHub releases.
 `Version` is taken from `scripts/package-linux-release.sh` and can fall back to a git value.
 For assembly/file metadata, the script always emits a valid `major.minor.build`
-version even when the base version is build-number style.
-For NuGet/assembly package metadata, non-tag/short-hash values are mapped to a safe
-`0.1.0-<hash>` semver pre-release form so restore/publish do not fail.
+version even when the base version is build-number style. The public update
+identity is `AssemblyInformationalVersion`, which keeps prerelease labels such
+as `0.1.0-main.7`; Quasar uses that value, plus the active-release pointer, for
+update comparisons instead of `AssemblyVersion`.
+For NuGet/package metadata, non-tag/short-hash values are mapped to a safe
+`0.1.0-<hash>` semver pre-release form so restore/publish do not fail. The
+packaging script fails if the web payload is missing the worker, Blazor runtime,
+MudBlazor assets, app scripts, or bundled chart assets.
 The workflow caches only the `DedicatedServer64/` reference library set by the
 Space Engineers Dedicated Server public build id, so unchanged DS builds restore
 without re-downloading the multi-GB depot content.
@@ -65,10 +70,13 @@ them detached with `-daemon`.
 ## Bootstrap Updates
 
 Bootstrap checks the primary Quasar release stream every 5 minutes by default.
-When it finds a newer `quasar-linux-x64.tar.gz` asset, it verifies the release's
-`SHA256SUMS` entry, extracts the archive, replaces the installed launcher files,
-drains the UI worker, and exits with a failure code so systemd restarts the
-updated launcher. Existing `appsettings.json` is preserved.
+When it finds an actually newer `quasar-linux-x64.tar.gz` asset (semver core and
+prerelease compared against the running launcher's release identity), it verifies
+the release's `SHA256SUMS` entry, extracts the archive, replaces the installed
+launcher files, drains the UI worker, and exits with a failure code so systemd
+restarts the updated launcher. Existing `appsettings.json` is preserved.
+Bootstrap must not drain the worker for a release whose normalized version is
+the same as the running launcher.
 
 The first install still uses the Linux installer flow:
 

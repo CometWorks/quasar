@@ -3,17 +3,12 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 using Magnetar.Protocol.Runtime;
 
 namespace Quasar.Services.Updates;
 
 public sealed class QuasarUpdateService : BackgroundService
 {
-    private static readonly Regex VersionPattern = new(
-        @"\d+(?:\.\d+){1,2}(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,
@@ -169,7 +164,7 @@ public sealed class QuasarUpdateService : BackgroundService
         });
 
         var stageDirectory = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), candidate.Version);
-        var workerPath = Path.Combine(stageDirectory, "Quasar");
+        var workerPath = Path.Combine(stageDirectory, QuasarWebReleaseLayout.WorkerExecutableName);
         if (!File.Exists(workerPath))
         {
             if (Directory.Exists(stageDirectory))
@@ -195,8 +190,7 @@ public sealed class QuasarUpdateService : BackgroundService
             TryDeleteFile(archivePath);
         }
 
-        if (!File.Exists(workerPath))
-            throw new InvalidOperationException($"Staged Quasar UI does not contain executable '{workerPath}'.");
+        QuasarWebReleaseLayout.ValidateDirectory(stageDirectory);
 
         EnsureExecutableBit(workerPath);
         var staged = candidate with
@@ -219,7 +213,7 @@ public sealed class QuasarUpdateService : BackgroundService
         if (candidate is null || !candidate.IsStaged || string.IsNullOrWhiteSpace(candidate.StagedDirectory))
             throw new InvalidOperationException("No staged Quasar UI update is ready to activate.");
 
-        var workerPath = Path.Combine(candidate.StagedDirectory, "Quasar");
+        var workerPath = Path.Combine(candidate.StagedDirectory, QuasarWebReleaseLayout.WorkerExecutableName);
         if (!File.Exists(workerPath))
             throw new InvalidOperationException($"Staged Quasar UI executable not found: {workerPath}");
 
@@ -264,7 +258,7 @@ public sealed class QuasarUpdateService : BackgroundService
         bool requiresPrivilegedInstall,
         CancellationToken cancellationToken)
     {
-        var version = NormalizeVersion(release.TagName);
+        var version = QuasarReleaseVersion.Normalize(release.TagName);
         if (!IsNewerVersion(version, currentVersion))
             return null;
 
@@ -372,26 +366,8 @@ public sealed class QuasarUpdateService : BackgroundService
         };
     }
 
-    private static bool IsNewerVersion(string candidate, string current)
-    {
-        if (Version.TryParse(NormalizeVersion(candidate), out var candidateVersion) &&
-            Version.TryParse(NormalizeVersion(current), out var currentVersion))
-        {
-            return candidateVersion > currentVersion;
-        }
-
-        return !string.Equals(NormalizeVersion(candidate), NormalizeVersion(current), StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string NormalizeVersion(string value)
-    {
-        value = value.Trim();
-        var match = VersionPattern.Match(value);
-        if (match.Success)
-            return match.Value;
-
-        return value.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? value[1..] : value;
-    }
+    private static bool IsNewerVersion(string candidate, string current) =>
+        QuasarReleaseVersion.IsNewer(candidate, current);
 
     private static void ExtractArchive(string archivePath, string destinationDirectory)
     {

@@ -21,7 +21,7 @@ Namespace: `Quasar.Services`
 | `HostName` | machine name | — |
 | `BaseUrl` | derived from Host/Port | `QUASAR_PUBLIC_BASE_URL` |
 | `ListenUrl` | derived | — |
-| `Version` | entry assembly version | — |
+| `Version` | entry assembly release identity | — |
 | `BootstrapVersion` | empty | `QUASAR_BOOTSTRAP_VERSION` |
 | `Mode` | `"Console"` | `QUASAR_MODE` |
 | `OpenBrowserOnStart` | `true` | `QUASAR_OPEN_BROWSER_ON_START` |
@@ -43,8 +43,8 @@ Namespace: `Quasar.Services`
 
 ## Dependencies
 
-- `Magnetar.Protocol.Runtime` — `MagnetarPaths` (default log directory)
+- `Magnetar.Protocol.Runtime` — `MagnetarPaths` (default log directory), `QuasarReleaseVersion` (entry assembly release identity)
 
 ## Notes
 
-`AgentOfflineShutdownSeconds` treats zero and negative values as meaningful (agent shuts down promptly when Quasar disappears), so only unparsable/missing values fall back to 3600. Wildcard bind addresses (`0.0.0.0`, `*`, `+`) are mapped to `127.0.0.1` when constructing `BaseUrl`. `BootstrapVersion` is populated only when the worker is launched by Quasar.Bootstrap. The legacy `MagnetarWeb` config section name is supported for backward compatibility.
+`Version` is read from `AssemblyInformationalVersion` through `QuasarReleaseVersion` so prerelease labels survive packaging. `AgentOfflineShutdownSeconds` treats zero and negative values as meaningful (agent shuts down promptly when Quasar disappears), so only unparsable/missing values fall back to 3600. Wildcard bind addresses (`0.0.0.0`, `*`, `+`) are mapped to `127.0.0.1` when constructing `BaseUrl`. `BootstrapVersion` is populated only when the worker is launched by Quasar.Bootstrap. The legacy `MagnetarWeb` config section name is supported for backward compatibility.

@@ -28,7 +28,8 @@ MODULES = [
      "(`AgentHello`) and periodic telemetry (`AgentSnapshot` carrying `ServerMetrics`, `PlayerSnapshot`, "
      "chat/death events and plugin info), the entity-browser and plugin-config DTOs, the "
      "`WebServiceDiscoveryManifest` used to locate a running supervisor, the `IQuasarConfigProvider` "
-     "bridge, and runtime helpers (`MagnetarPaths`, `QuasarActiveReleasePointer`). It has zero external "
+     "bridge, and runtime helpers (`MagnetarPaths`, `QuasarActiveReleasePointer`, "
+     "`QuasarReleaseVersion`, `QuasarWebReleaseLayout`). It has zero external "
      "dependencies by design so it can also load inside the .NET-Framework game process."),
 
     ("Quasar.Host", "Quasar.Host — Application Host & Wiring",
@@ -207,7 +208,7 @@ toc = [
     "| --- | --- | --- |",
 ]
 short = {
-    "Magnetar.Protocol": "Shared wire/discovery contracts between agent and supervisor.",
+    "Magnetar.Protocol": "Shared wire/discovery contracts and release/runtime helpers between agent and supervisor.",
     "Quasar.Host": "Blazor Server host: DI graph, auth, endpoints, static assets.",
     "Quasar.Models": "Domain models for instances, config profiles, templates, branding.",
     "Quasar.Services.Core": "Supervisor engine, agent registry, runtime preparation, catalogs.",

@@ -11,6 +11,7 @@ MSBuild project file for the Quasar Blazor Server host. Targets `net10.0` using 
 - `TargetFramework`: `net10.0`
 - `Nullable`, `ImplicitUsings`: enabled
 - `AssemblyName` / `RootNamespace` / `PackageId` / `Product`: `Quasar`
+- `Version`, `AssemblyVersion`, `FileVersion`: `0.1.0` defaults; Linux release packaging overrides `Version`/`InformationalVersion` with the release identity
 - `BlazorDisableThrowNavigationException`: `true` — suppresses Blazor navigation exception propagation
 - `DeployDir`: `$(HOME)/Documents/Quasar` — default local deploy target
 

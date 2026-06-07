@@ -33,7 +33,7 @@ Entry point and core logic for the Quasar launcher. It implements three CLI comm
 | `StartAsync` | Creates dirs, downloads an initial Linux UI worker when no packaged/active worker exists, ensures an active-release pointer exists, activates it, starts a `FileSystemWatcher` on the pointer. |
 | `StopAsync` | Sets `_isStopping`, stops the pointer watcher and launcher update monitor, drains/retires the current worker, stopping managed servers only when `!PreserveServersOnShutdown`. |
 | `StartBootstrapUpdateMonitor` / `RunBootstrapUpdateMonitorAsync` | Starts the Linux-only self-upgrade loop when updates are enabled; checks after 30 s and then every configured update interval. |
-| `TryUpgradeBootstrapAsync` / `ApplyBootstrapUpdate` | Finds the newest non-draft release containing `LinuxBootstrapAssetName`, verifies `SHA256SUMS`, extracts it, preserves existing `appsettings.json`, replaces launcher files, drains the UI worker without stopping managed servers, then exits so systemd restarts the updated launcher. |
+| `TryUpgradeBootstrapAsync` / `ApplyBootstrapUpdate` | Finds an actually newer non-draft release containing `LinuxBootstrapAssetName`, verifies `SHA256SUMS`, extracts it, preserves existing `appsettings.json`, replaces launcher files, drains the UI worker without stopping managed servers, then exits so systemd restarts the updated launcher. |
 | `ActivateCurrentReleaseAsync` | Under `_activationLock`: starts the new worker, waits for `/api/health` (60 s), swaps it in, then drains the previous worker (20 s grace). |
 | `StartWorkerAsync` | Launches the worker with env vars (`QUASAR_MODE=service`, `QUASAR_LAUNCHER_TOKEN`, `QUASAR_BOOTSTRAP_VERSION`, `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN`, foreground console-logging); pumps stdout/stderr in foreground. |
 | `DrainAndRetireWorkerAsync` | POSTs `/api/internal/drain?delaySeconds=&stopServers=` with `X-Quasar-Launcher-Token`, waits for exit, force-kills on timeout. |
@@ -43,7 +43,7 @@ Entry point and core logic for the Quasar launcher. It implements three CLI comm
 
 ## Dependencies
 - `Magnetar.Protocol/Discovery/WebServiceDiscoveryManifest.cs`
-- [`Magnetar.Protocol/Runtime/MagnetarPaths.cs`](../Magnetar.Protocol/Runtime/MagnetarPaths.cs.md), `Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs`
+- [`Magnetar.Protocol/Runtime/MagnetarPaths.cs`](../Magnetar.Protocol/Runtime/MagnetarPaths.cs.md), `Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs`, `Magnetar.Protocol/Runtime/QuasarReleaseVersion.cs`, `Magnetar.Protocol/Runtime/QuasarWebReleaseLayout.cs`
 - `Microsoft.Extensions.Configuration` / `.Hosting` / `.Logging`
 - `System.Text.Json` (manifest + pointer), `System.Net.Sockets` (`TcpClient` port check)
 
@@ -51,4 +51,4 @@ Entry point and core logic for the Quasar launcher. It implements three CLI comm
 - The `Quasar.Bootstrap` named mutex serializes spawn attempts across processes on a machine.
 - `IsCurrentBootstrapAssembly` / `IsCurrentBootstrapExecutable` prevent pointing the worker at the bootstrap itself; RID-targeted DLL paths are rejected when no sibling `runtimeconfig.json` exists (avoids libhostpolicy failures from the `obj/` tree).
 - `PreserveServersOnShutdown` is propagated to the worker so the launcher and worker agree on whether detached Magnetars stay running across a Quasar restart.
-- Initial UI worker download scans GitHub releases for the newest non-draft release containing the configured UI asset; launcher self-upgrade scans the primary Quasar release stream for `quasar-linux-x64.tar.gz`.
+- Initial UI worker download scans GitHub releases for the newest non-draft release containing the configured UI asset and validates the extracted web layout before activation; launcher self-upgrade scans the primary Quasar release stream for `quasar-linux-x64.tar.gz` and compares against the normalized release identity, not raw `AssemblyVersion`.

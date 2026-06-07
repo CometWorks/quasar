@@ -17,6 +17,7 @@
     <AssemblyName>Quasar</AssemblyName>
     <RootNamespace>Quasar</RootNamespace>
     <PackageId>Quasar</PackageId>
+    <Version>0.1.0</Version>
     <Product>Quasar</Product>
     <Description>Quasar supervisor host for multi-server Space Engineers dedicated server management</Description>
     <TargetFramework>net10.0</TargetFramework>

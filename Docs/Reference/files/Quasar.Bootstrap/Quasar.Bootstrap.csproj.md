@@ -13,6 +13,7 @@ MSBuild project file for `Quasar.Bootstrap`, a `net10.0` console executable that
 | `OutputType` | Exe |
 | `TargetFramework` | net10.0 |
 | `RuntimeIdentifiers` | linux-x64;win-x64 |
+| `Version` | 0.1.0 |
 | `ImplicitUsings` | enable |
 | `Nullable` | enable |
 | `DeployDir` | `$(HOME)/Documents/Quasar` |
@@ -29,7 +30,7 @@ MSBuild project file for `Quasar.Bootstrap`, a `net10.0` console executable that
 | Target | Trigger | Action |
 |---|---|---|
 | `CopyToDeployDir` | `AfterTargets="Build"` (non-RID) | Copies output to `$(DeployDir)`, renames `Quasar.Bootstrap` → `Quasar` |
-| `PublishQuasarWorker` | `BeforeTargets="Publish"` (RID) | Publishes `Quasar/Quasar.csproj` as single-file into a temp obj dir |
+| `PublishQuasarWorker` | `BeforeTargets="Publish"` (RID) | Publishes `Quasar/Quasar.csproj` as single-file into a temp obj dir, passing release metadata through to the worker |
 | `PackPublishedQuasar` | `AfterTargets="Publish"` (RID) | Copies worker output to `WebService/` subfolder; renames `Quasar.Bootstrap[.exe]` → `Quasar[.exe]`; deletes `.pdb`/`.xml` files |
 
 ## Dependencies
