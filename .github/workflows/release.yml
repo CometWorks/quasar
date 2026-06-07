@@ -453,7 +453,7 @@ jobs:
             | **Linux** (x64) | **`quasar-linux-x64.tar.gz`** |
             | **Windows** (x64) | **`quasar-win-x64.zip`** |
 
-            That archive is the installer: it contains the Quasar **Bootstrap launcher**, the install/uninstall scripts, and a default `appsettings.json`. Follow the [Linux](https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md) or [Windows](https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md) deployment guide to install it. The web UI listens on http://127.0.0.1:8080 by default.
+            That archive is the installer: it contains the Quasar **Bootstrap launcher**, the install/uninstall scripts, and a default `appsettings.json`. Follow the [Linux](https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md) or [Windows](https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md) deployment guide to install it. The web UI is available on http://127.0.0.1:8080 by default (the web server listens on all interfaces at 0.0.0.0:8080).
 
             The other two archives (`quasar-web-linux-x64.tar.gz` and `quasar-web-win-x64.zip`) are updates that Quasar downloads and applies automatically — you never download them by hand.
 
