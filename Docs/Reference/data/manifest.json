@@ -44,8 +44,8 @@
       "path": "Magnetar.Protocol/Model/AgentSnapshot.cs",
       "name": "AgentSnapshot.cs",
       "ext": ".cs",
-      "size": 1176,
-      "sha256": "e79e15f90393b225df6f4d96ebd0c1e01174c16cd0c29cbdf665bbf0bb325c22",
+      "size": 1229,
+      "sha256": "ca864ec134e122087caf707b6347f6fc75eecbad1b400b55f00938343bbd648a",
       "module": "Magnetar.Protocol",
       "tier": 1,
       "status": "documented"
@@ -181,11 +181,21 @@
       "status": "documented"
     },
     {
+      "path": "Magnetar.Protocol/Model/ProfilerSnapshot.cs",
+      "name": "ProfilerSnapshot.cs",
+      "ext": ".cs",
+      "size": 2133,
+      "sha256": "6e3e08b34cfdaaf4ad58d305e0c13ee350afab7adea3eea5dfb7613859f61143",
+      "module": "Magnetar.Protocol",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
       "path": "Magnetar.Protocol/Model/ServerMetrics.cs",
       "name": "ServerMetrics.cs",
       "ext": ".cs",
-      "size": 751,
-      "sha256": "c8b5cc0322237ff729b8fa7eb223a301550425828e9362c3cc28ea7139b0c4f3",
+      "size": 849,
+      "sha256": "e9dd97459bac561844b2d5144b70bc7fd4ea67c108970e3b4462b1787a21fca5",
       "module": "Magnetar.Protocol",
       "tier": 1,
       "status": "documented"
@@ -284,8 +294,8 @@
       "path": "Quasar.Agent/AdminPlugin.cs",
       "name": "AdminPlugin.cs",
       "ext": ".cs",
-      "size": 2640,
-      "sha256": "3f344a80fcbc6788d98cf853ed1f883ece1c0ef581e31a31fe4f913023a06cae",
+      "size": 2726,
+      "sha256": "2376b7d320321717918930feafa4e3e4c5da9dffff6616c867ff30a5a6a3c577",
       "module": "Quasar.Agent",
       "tier": 1,
       "status": "documented"
@@ -311,6 +321,26 @@
       "status": "documented"
     },
     {
+      "path": "Quasar.Agent/AgentProfiler.cs",
+      "name": "AgentProfiler.cs",
+      "ext": ".cs",
+      "size": 9320,
+      "sha256": "df7537dd3c73729cb5e0d87172efa2d07d7769ca8bc778d098e4b53c271ed45f",
+      "module": "Quasar.Agent",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar.Agent/AgentProfilerPatches.cs",
+      "name": "AgentProfilerPatches.cs",
+      "ext": ".cs",
+      "size": 6069,
+      "sha256": "582f5043d39bb995849ac2934bda16395281405d47a552336145f9ef62fa4475",
+      "module": "Quasar.Agent",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
       "path": "Quasar.Agent/EntityInspector.cs",
       "name": "EntityInspector.cs",
       "ext": ".cs",
@@ -324,8 +354,8 @@
       "path": "Quasar.Agent/GameBridge.cs",
       "name": "GameBridge.cs",
       "ext": ".cs",
-      "size": 36416,
-      "sha256": "e04b736c3809954d89012c87302a148bcae36060a0763e2c121468902b151aee",
+      "size": 38516,
+      "sha256": "1ee06c68aabb19eab478ff01accab956a6c73ab0d4dedfdc283df9808d76939c",
       "module": "Quasar.Agent",
       "tier": 1,
       "status": "documented"
@@ -341,11 +371,21 @@
       "status": "documented"
     },
     {
+      "path": "Quasar.Agent/ProfilerDescriptor.cs",
+      "name": "ProfilerDescriptor.cs",
+      "ext": ".cs",
+      "size": 4710,
+      "sha256": "8d6c0d6ce38eee88d65d8c1b3218cf6f9086eba9079c1e9161fd579f35feb27a",
+      "module": "Quasar.Agent",
+      "tier": 1,
+      "status": "documented"
+    },
+    {
       "path": "Quasar.Agent/Quasar.Agent.csproj",
       "name": "Quasar.Agent.csproj",
       "ext": ".csproj",
-      "size": 2830,
-      "sha256": "b88eb3a72a2deff2217ce892419d6120a9077ff6ef8b609f77d561f0c91726b3",
+      "size": 2961,
+      "sha256": "c10480fca48474d639183b3f8900e34f50c79fce270be3e16c7906169b7f245a",
       "module": "Quasar.Agent",
       "tier": 3,
       "status": "documented"
@@ -394,8 +434,8 @@
       "path": "Quasar/Components/App.razor",
       "name": "App.razor",
       "ext": ".razor",
-      "size": 1311,
-      "sha256": "e7babbe87a0509a0fe652e1f84e3082c399e2182fef9e8a5c43b969c6576f313",
+      "size": 1423,
+      "sha256": "15867b0cad55d605e9b74d1fe4a1c9eae32288170313ecb18381d9120838a925",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "documented"
@@ -494,8 +534,8 @@
       "path": "Quasar/Components/Pages/Analytics.razor",
       "name": "Analytics.razor",
       "ext": ".razor",
-      "size": 58631,
-      "sha256": "5a99e1b0e5a9a246cd972dcd603066cd26d9e3a6b7332559fb2b793e37668ac5",
+      "size": 48925,
+      "sha256": "84e571de8f0d92f21715ffe962a61093e40275c152e0d7be5f7a0c2da19bdc1a",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "documented"
@@ -504,8 +544,8 @@
       "path": "Quasar/Components/Pages/Analytics.razor.css",
       "name": "Analytics.razor.css",
       "ext": ".css",
-      "size": 928,
-      "sha256": "d952e0243bdf8c35a0461c04bbe661d7bdb203451ea65113830195dc94b4bbb9",
+      "size": 892,
+      "sha256": "36005ead210234701204dc8d351551c3303794363b6c6a4da0ae7da6fca3e27d",
       "module": "Quasar.Components",
       "tier": 3,
       "status": "documented"
@@ -1054,8 +1094,8 @@
       "path": "Quasar/Program.cs",
       "name": "Program.cs",
       "ext": ".cs",
-      "size": 27595,
-      "sha256": "020de82b0f9c7e59df8a17ddf5fab320b70751cea157a50b1dd8cf209cb3ea31",
+      "size": 29457,
+      "sha256": "792b6a220e7aa44f4979341023db3bbf0d1e1b5d3c5236d39438952e21f9207b",
       "module": "Quasar.Host",
       "tier": 1,
       "status": "documented"
@@ -1074,8 +1114,8 @@
       "path": "Quasar/Quasar.csproj",
       "name": "Quasar.csproj",
       "ext": ".csproj",
-      "size": 4498,
-      "sha256": "a0bdf2c92efb0dad877769a346d0b352ec590c299c7248046ab768d4d396b843",
+      "size": 5166,
+      "sha256": "480555bc1a0c79b714703aa7cebb4aafa3260c8d87bd7178cb486b135dee3189",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "documented"
@@ -1084,8 +1124,8 @@
       "path": "Quasar/Services/AgentRegistry.cs",
       "name": "AgentRegistry.cs",
       "ext": ".cs",
-      "size": 13412,
-      "sha256": "2f06c9d2e7ee204f28a8c1fb88f6d87d8c1578d48b59af2bb5f4359180608a20",
+      "size": 13674,
+      "sha256": "873316e7131c94d134d82e20f0332dee0cb1ba9cf36bb5f77b802bf07bcecc85",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "documented"
@@ -1098,6 +1138,26 @@
       "sha256": "4b5b7f75dec749714141e4aec63db69de7a4631f5a41b914baea8a4a9ee47163",
       "module": "Quasar.Services.Core",
       "tier": 1,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Analytics/AnalyticsMetrics.cs",
+      "name": "AnalyticsMetrics.cs",
+      "ext": ".cs",
+      "size": 3198,
+      "sha256": "7450fcc80de11ddc2aac2af9816f1fd1ab5483a7bc358efa4cf0f035687ad948",
+      "module": "Quasar.Services.Analytics",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Analytics/AnalyticsSeriesService.cs",
+      "name": "AnalyticsSeriesService.cs",
+      "ext": ".cs",
+      "size": 7360,
+      "sha256": "cd7e27663ece970149c2cc0fa2e75c7cab52503bd129007a7fe9a6243195c416",
+      "module": "Quasar.Services.Analytics",
+      "tier": 2,
       "status": "documented"
     },
     {
@@ -1124,8 +1184,8 @@
       "path": "Quasar/Services/Analytics/MetricSample.cs",
       "name": "MetricSample.cs",
       "ext": ".cs",
-      "size": 1047,
-      "sha256": "2901f4b2e7eb1eec2d4e930bf7cf13a916fd4646f15e517735b40829d68dab8b",
+      "size": 1299,
+      "sha256": "9168f1b8f6059a82ff7394f23c31b2052c63bbb38e3c3f2211522e5b1a3798c8",
       "module": "Quasar.Services.Analytics",
       "tier": 2,
       "status": "documented"
@@ -1134,8 +1194,18 @@
       "path": "Quasar/Services/Analytics/MetricSampleFactory.cs",
       "name": "MetricSampleFactory.cs",
       "ext": ".cs",
-      "size": 980,
-      "sha256": "48297223554f3b7533fa2dde8951f5b9b8ed731cce5bd25ab3201c8f148882be",
+      "size": 1108,
+      "sha256": "90cd4132dabb5b4823411eb8f7cf8a0889b4b0ce7f7720396e4b588170476230",
+      "module": "Quasar.Services.Analytics",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Analytics/MetricSampleValidator.cs",
+      "name": "MetricSampleValidator.cs",
+      "ext": ".cs",
+      "size": 2210,
+      "sha256": "ae82a7aaa52d9d11175d1d9d2e72d81d08d11bfcff326e3d91dcd960a5f831cc",
       "module": "Quasar.Services.Analytics",
       "tier": 2,
       "status": "documented"
@@ -1144,8 +1214,28 @@
       "path": "Quasar/Services/Analytics/MetricsStoreService.cs",
       "name": "MetricsStoreService.cs",
       "ext": ".cs",
-      "size": 20386,
-      "sha256": "1210b6ca931946ab1540c5acdb4154136907b214dcf73bfae250695a9ad6d78c",
+      "size": 21322,
+      "sha256": "a93a0d1daee5657bdee4225a48025b0f236c3489782ec3763b47a2e058aa4cce",
+      "module": "Quasar.Services.Analytics",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Analytics/ProfilerSnapshotValidator.cs",
+      "name": "ProfilerSnapshotValidator.cs",
+      "ext": ".cs",
+      "size": 4115,
+      "sha256": "32f926ff480740eb2e213b9eb07c4f8f8061f8dd925ef1323c5359acc52f7dfe",
+      "module": "Quasar.Services.Analytics",
+      "tier": 2,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/Services/Analytics/ProfilerStoreService.cs",
+      "name": "ProfilerStoreService.cs",
+      "ext": ".cs",
+      "size": 2216,
+      "sha256": "34a008f348a901e3b9f618133a1898473d792c542ced65ff30bbe5a540d92e41",
       "module": "Quasar.Services.Analytics",
       "tier": 2,
       "status": "documented"
@@ -1164,8 +1254,8 @@
       "path": "Quasar/Services/Analytics/RrdRollupBuffer.cs",
       "name": "RrdRollupBuffer.cs",
       "ext": ".cs",
-      "size": 4336,
-      "sha256": "c19b973671d6340c467885e8fc8030cba485c9ab7d6fc9fb71c85851dae3b350",
+      "size": 4882,
+      "sha256": "7eab788e90f4e5bead5bddbe6884cb20b8cf1149d595dcf3aebecf1a6fc72977",
       "module": "Quasar.Services.Analytics",
       "tier": 2,
       "status": "documented"
@@ -1344,8 +1434,8 @@
       "path": "Quasar/Services/DedicatedServerRuntimePreparer.cs",
       "name": "DedicatedServerRuntimePreparer.cs",
       "ext": ".cs",
-      "size": 36180,
-      "sha256": "a06f0db54db0aec8d32c0a84d77a1dd331f9c7f1f9f82810ec12de1e8ae94a65",
+      "size": 37464,
+      "sha256": "937c3823661dec857d1a41fcbb9b36bfa30d0ac2338d45f5af6d5f0d476d14dd",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "documented"
@@ -1384,8 +1474,8 @@
       "path": "Quasar/Services/Discord/DiscordAnalyticsExportService.cs",
       "name": "DiscordAnalyticsExportService.cs",
       "ext": ".cs",
-      "size": 5716,
-      "sha256": "bb9a10fa370277a6e8ba6e3ed7c85eca11f4efbf3454f722db02353abec16a92",
+      "size": 5987,
+      "sha256": "97d5312e2bbcf9ab9cb4b9f1b772a42394702d557aa71699e5ef72028f54715f",
       "module": "Quasar.Services.Discord",
       "tier": 2,
       "status": "documented"
@@ -1854,8 +1944,38 @@
       "path": "Quasar/wwwroot/app.css",
       "name": "app.css",
       "ext": ".css",
-      "size": 11814,
-      "sha256": "eb5c545bc7e8b2929ad3e3e11526c8765773a3a0176ac9ac4945f047ba36ca7a",
+      "size": 12125,
+      "sha256": "daaef56b9708cea383fe7911ab7e9e29283431127b4325f8caeea1f53b4dfde7",
+      "module": "Quasar.Host",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/wwwroot/lib/uplot/uPlot.iife.min.js",
+      "name": "uPlot.iife.min.js",
+      "ext": ".js",
+      "size": 51081,
+      "sha256": "19c8d4c6ad88929a79f4ae49d6f7161566dfd0ba3d15cc495e974f787eb78f1f",
+      "module": "Quasar.Host",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/wwwroot/lib/uplot/uPlot.min.css",
+      "name": "uPlot.min.css",
+      "ext": ".css",
+      "size": 1857,
+      "sha256": "df630c6a8d6f8eeaff264b50f73ce5b114f646ffd9a0bb74f049b0a00135fa04",
+      "module": "Quasar.Host",
+      "tier": 3,
+      "status": "documented"
+    },
+    {
+      "path": "Quasar/wwwroot/quasar-charts.js",
+      "name": "quasar-charts.js",
+      "ext": ".js",
+      "size": 13152,
+      "sha256": "882e42f9246c39fa7bb3f72817a3780061be1edb9404c66447c293dc910dc83f",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "documented"

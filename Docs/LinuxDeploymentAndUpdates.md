@@ -29,8 +29,11 @@ as `0.1.0-main.7`; Quasar uses that value, plus the active-release pointer, for
 update comparisons instead of `AssemblyVersion`.
 For NuGet/package metadata, non-tag/short-hash values are mapped to a safe
 `0.1.0-<hash>` semver pre-release form so restore/publish do not fail. The
-packaging script fails if the web payload is missing the worker, Blazor runtime,
-MudBlazor assets, app scripts, or bundled chart assets.
+packaging script copies the published web worker, overlays the complete source
+`Quasar/wwwroot/` tree, and fails if the web payload is missing the worker,
+generated Blazor runtime, or generated MudBlazor assets. The full `wwwroot`
+overlay keeps manually managed scripts, CSS, and library files in the release
+archive even when publish output shape changes.
 The workflow caches only the `DedicatedServer64/` reference library set by the
 Space Engineers Dedicated Server public build id, so unchanged DS builds restore
 without re-downloading the multi-GB depot content.
