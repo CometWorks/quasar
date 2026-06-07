@@ -66,7 +66,7 @@ public sealed class AnalyticsSeriesService
             return [];
 
         var spanSeconds = toUnix - fromUnix;
-        var (bucketWidth, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
+        var (bucketWidth, alignedFrom, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
 
         // Read and bucket each server's samples once, accumulating per-metric sums per bucket.
         var serverBuckets = new List<ServerBuckets>(servers.Count);
@@ -78,7 +78,9 @@ public sealed class AnalyticsSeriesService
             if (store is null)
                 continue;
 
-            var samples = ReadSamplesForRange(store, fromUnix, toUnix, spanSeconds);
+            // Read from alignedFrom (not fromUnix) so the leading bucket is also a complete window and
+            // stays stable as fromUnix slides within it.
+            var samples = ReadSamplesForRange(store, alignedFrom, toUnix, spanSeconds);
             if (samples.Length == 0)
                 continue;
 
@@ -92,11 +94,9 @@ public sealed class AnalyticsSeriesService
 
             foreach (var sample in samples)
             {
-                var bucket = (int)((sample.TimestampUnixSeconds - fromUnix) / bucketWidth);
-                if (bucket < 0)
-                    bucket = 0;
-                else if (bucket >= bucketCount)
-                    bucket = bucketCount - 1;
+                var bucket = (int)((sample.TimestampUnixSeconds - alignedFrom) / bucketWidth);
+                if (bucket < 0 || bucket >= bucketCount)
+                    continue;
 
                 bucketHasData[bucket] = true;
 
@@ -131,7 +131,7 @@ public sealed class AnalyticsSeriesService
 
         var x = new long[kept.Count];
         for (var i = 0; i < kept.Count; i++)
-            x[i] = fromUnix + kept[i] * bucketWidth + bucketWidth / 2;
+            x[i] = alignedFrom + kept[i] * bucketWidth + bucketWidth / 2;
 
         var charts = new List<AnalyticsChartDto>(metrics.Count);
         for (var mi = 0; mi < metrics.Count; mi++)
@@ -190,8 +190,8 @@ public sealed class AnalyticsSeriesService
         if (metrics.Count == 0)
             return [];
 
-        var (bucketWidth, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
-        var response = _profilerStore.Build(fromUnix, toUnix, servers);
+        var (bucketWidth, alignedFrom, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
+        var response = _profilerStore.Build(alignedFrom, toUnix, servers);
         if (response.Servers.Count == 0)
             return [];
 
@@ -211,11 +211,9 @@ public sealed class AnalyticsSeriesService
             foreach (var sample in server.Samples)
             {
                 var timestamp = sample.CapturedAtUtc.ToUnixTimeSeconds();
-                var bucket = (int)((timestamp - fromUnix) / bucketWidth);
-                if (bucket < 0)
-                    bucket = 0;
-                else if (bucket >= bucketCount)
-                    bucket = bucketCount - 1;
+                var bucket = (int)((timestamp - alignedFrom) / bucketWidth);
+                if (bucket < 0 || bucket >= bucketCount)
+                    continue;
 
                 var hasValue = false;
                 for (var mi = 0; mi < metrics.Count; mi++)
@@ -249,7 +247,7 @@ public sealed class AnalyticsSeriesService
 
         var x = new long[kept.Count];
         for (var i = 0; i < kept.Count; i++)
-            x[i] = fromUnix + kept[i] * bucketWidth + bucketWidth / 2;
+            x[i] = alignedFrom + kept[i] * bucketWidth + bucketWidth / 2;
 
         var charts = new List<AnalyticsChartDto>(metrics.Count);
         for (var mi = 0; mi < metrics.Count; mi++)
@@ -305,15 +303,23 @@ public sealed class AnalyticsSeriesService
         return metric.FixedMax;
     }
 
-    private static (long BucketWidth, int BucketCount) ResolveBuckets(long fromUnix, long toUnix, int maxPoints)
+    private static (long BucketWidth, long AlignedFrom, int BucketCount) ResolveBuckets(long fromUnix, long toUnix, int maxPoints)
     {
         var spanSeconds = Math.Max(1, toUnix - fromUnix);
         var bucketWidth = Math.Max(1L, (long)Math.Ceiling(spanSeconds / (double)maxPoints));
-        var bucketCount = (int)Math.Min(maxPoints, spanSeconds / bucketWidth + 1);
-        if (bucketCount < 1)
-            bucketCount = 1;
 
-        return (bucketWidth, bucketCount);
+        // Align bucket boundaries to an absolute grid (integer multiples of bucketWidth) rather than to
+        // fromUnix. As the [from, to] window slides forward in real time a fixed sample then always lands
+        // in the same bucket, so already-plotted points keep their averaged value instead of re-bucketing
+        // and visibly shifting on every refresh.
+        var alignedFrom = fromUnix / bucketWidth * bucketWidth;
+
+        // Count only buckets whose full width fits within toUnix. The trailing partial bucket (still
+        // filling with fresh samples) is dropped, so the most recent point doesn't keep changing — and
+        // doesn't jump when it finally settles into the past.
+        var bucketCount = Math.Clamp((int)((toUnix - alignedFrom) / bucketWidth), 1, maxPoints);
+
+        return (bucketWidth, alignedFrom, bucketCount);
     }
 
     // Mirrors the store-tier selection the Analytics page uses: raw 2s samples for short windows,

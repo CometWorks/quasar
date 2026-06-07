@@ -13,10 +13,18 @@ window.quasarCharts = (function () {
         dotNet = dotNetRef;
     }
 
-    // A drag can end outside any chart; clear the pause globally on mouseup so refreshes resume.
+    // A drag can end anywhere — even past a chart's right edge, where that chart's own canvas never
+    // receives the mouseup (so selecting through the very end of the chart would otherwise never zoom).
+    // Finalize any pending selection across all charts here, then resume refreshes. Deferred so uPlot
+    // finishes its own mouseup handling and u.select/__lastSel are final.
     if (typeof window !== "undefined" && !window.__quasarChartsMouseup) {
         window.__quasarChartsMouseup = true;
-        window.addEventListener("mouseup", () => { suspendUpdates = false; });
+        window.addEventListener("mouseup", () => {
+            setTimeout(() => {
+                for (const inst of instances.values()) finalizeSelection(inst.chart);
+                suspendUpdates = false;
+            }, 0);
+        });
     }
 
     function axisColors(dark) {
@@ -191,12 +199,9 @@ window.quasarCharts = (function () {
         applyXScale(chartInstance, xMin, xMax);
 
         if (chartInstance.over) {
-            // Pause real-time refreshes during a drag; finalize the selected range on release.
+            // Pause real-time refreshes during a drag; the global mouseup handler finalizes the selected
+            // range on release (it covers releases past the chart's edge too).
             chartInstance.over.addEventListener("mousedown", () => { chartInstance.__lastSel = null; suspendUpdates = true; });
-            chartInstance.over.addEventListener("mouseup", () => {
-                // Defer so uPlot finishes its own mouseup handling and u.select is final.
-                setTimeout(() => finalizeSelection(chartInstance), 0);
-            });
         }
 
         let raf = 0;
