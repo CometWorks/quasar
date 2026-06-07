@@ -13,10 +13,11 @@ Namespace: `Quasar.Agent`
 **`AgentProfilerPatches`** (`internal static class`)
 
 Key members:
-- `Apply()` — creates the Harmony instance and applies all profiler patches.
+- `Apply()` — creates the Harmony instance, applies all profiler patches, and logs the number of successfully patched targets.
 - `Dispose()` — unpatches Quasar profiler patches by Harmony id.
-- `PatchKnownMethods()` — patches named game/server methods found by type/name.
-- `PatchEntityUpdateMethods()` — patches update methods declared by entity-derived types.
+- `PatchKnownMethods()` — patches named game/server methods found by type/name and returns the success count.
+- `PatchEntityUpdateMethods()` — patches update methods declared by entity-derived types and returns the success count.
+- `Patch(...)` / `PatchByTypeName(...)` — isolate individual Harmony failures, log skipped targets, and keep patching the rest.
 - `Prefix` / `InstancePostfix` / `StaticPostfix` — call `AgentProfiler.Begin/End`.
 
 ## Dependencies
@@ -27,4 +28,4 @@ Key members:
 
 ## Notes
 
-Static and instance postfixes are separate so Harmony does not request `__instance` for static targets. Missing target methods are ignored, allowing the agent to survive minor game-build differences.
+Static and instance postfixes are separate so Harmony does not request `__instance` for static targets. Missing target methods and individual patch failures are ignored after logging, allowing the agent to survive minor game-build differences while still profiling any targets that patched successfully.

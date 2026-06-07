@@ -231,14 +231,14 @@
       "name": "AgentProfiler.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Low-duty in-process profiler accumulator used by Harmony patches. It samples a 10 second window every 60 seconds by default, records elapsed ticks from patched server methods, splits main-thread vs off-thread time, and publishes the latest `ProfilerSnapshot` for inclusion in the next agent snapshot."
+      "summary": "Low-duty in-process profiler accumulator used by Harmony patches. It starts its first 10 second sample window on the first game-thread update, repeats every 60 seconds by default, records elapsed ticks from patched server methods, splits main-thread vs off-thread time, and publishes the latest `ProfilerSnapshot` for inclusion in the next agent snapshot."
     },
     {
       "path": "Quasar.Agent/AgentProfilerPatches.cs",
       "name": "AgentProfilerPatches.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Harmony patch registrar for Quasar's profiler telemetry. It patches known Space Engineers server methods for frame/update, programmable block scripts, physics, replication, network, and session components, then scans loaded entity types for declared simulation update methods so grids and other entities can be timed."
+      "summary": "Harmony patch registrar for Quasar's profiler telemetry. It patches known Space Engineers server methods and entity update methods, isolates individual patch failures after logging, and reports the number of successfully patched targets."
     },
     {
       "path": "Quasar.Agent/EntityInspector.cs",
@@ -382,7 +382,7 @@
       "name": "Analytics.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Interactive `/analytics` dashboard that renders rolling Space Engineers server metrics as client-side uPlot time-series charts. It reads scalar metrics from `MetricsStoreService`, fetches chart series over `/api/analytics/series`, reads recent calculation timing windows from `ProfilerStoreService`, supports per-server selection, a configurable CSS-grid panel layout, persisted view config (localStorage), auto-refresh, custom time ranges, theme-aware chart styling, and a per-panel settings dialog."
+      "summary": "Interactive `/analytics` dashboard that renders rolling Space Engineers server metrics and profiler timing buckets as client-side uPlot time-series charts in one configurable panel grid. It fetches combined scalar/profiler chart series over `/api/analytics/series`, supports per-server selection, persisted view config, auto-refresh, custom time ranges, theme-aware chart styling, and a per-panel settings dialog."
     },
     {
       "path": "Quasar/Components/Pages/Analytics.razor.css",
@@ -1139,14 +1139,14 @@
       "name": "AnalyticsMetrics.cs",
       "kind": "record + class",
       "tier": 2,
-      "summary": "Central catalogue of analytics metrics exposed by the `/analytics` dashboard and `/api/analytics/series` endpoint. Each entry defines the metric key, panel title/subtitle, sample selector, availability check, axis formatting, and fixed/dynamic Y-axis behaviour so browser charts and API responses cannot drift."
+      "summary": "Central catalogue of analytics chart panels exposed by the `/analytics` dashboard and `/api/analytics/series` endpoint, covering both persisted scalar metrics and sampled profiler timing buckets."
     },
     {
       "path": "Quasar/Services/Analytics/AnalyticsSeriesService.cs",
       "name": "AnalyticsSeriesService.cs",
       "kind": "class + records",
       "tier": 2,
-      "summary": "Builds compact chart payloads for the analytics HTTP endpoint. It reads metric samples from `MetricsStoreService`, chooses the correct RRD tier for the requested time span, buckets each server onto one shared timeline, and returns aligned series arrays for browser-side rendering."
+      "summary": "Builds compact chart payloads for the analytics HTTP endpoint. It reads scalar metric samples from `MetricsStoreService` and profiler timing windows from `ProfilerStoreService`, buckets each server onto shared timelines, and returns aligned series arrays for browser-side rendering in the same chart grid."
     },
     {
       "path": "Quasar/Services/Analytics/AnalyticsStoreOptions.cs",
@@ -1202,7 +1202,7 @@
       "name": "ProfilerStoreService.cs",
       "kind": "class + records",
       "tier": 2,
-      "summary": "Bounded in-memory store for recent profiler snapshots per server. `AgentRegistry` enqueues validated profiler windows as agent snapshots arrive; the analytics page and `/api/analytics/profiler` endpoint query this store for selected servers and time ranges."
+      "summary": "Bounded in-memory store for recent profiler snapshots per server. `AgentRegistry` enqueues validated profiler windows as agent snapshots arrive, dropping repeated copies of the same completed window; analytics chart services and `/api/analytics/profiler` query this store for selected servers and time ranges."
     },
     {
       "path": "Quasar/Services/Analytics/RrdCircularBuffer.cs",

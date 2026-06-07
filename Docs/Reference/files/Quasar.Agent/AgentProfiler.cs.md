@@ -4,7 +4,7 @@
 
 ## Summary
 
-Low-duty in-process profiler accumulator used by Harmony patches. It samples a 10 second window every 60 seconds by default, records elapsed ticks from patched server methods, splits main-thread vs off-thread time, and publishes the latest `ProfilerSnapshot` for inclusion in the next agent snapshot.
+Low-duty in-process profiler accumulator used by Harmony patches. It starts its first 10 second sample window on the first game-thread update, repeats every 60 seconds by default, records elapsed ticks from patched server methods, splits main-thread vs off-thread time, and publishes the latest `ProfilerSnapshot` for inclusion in the next agent snapshot.
 
 ## Structure
 
@@ -29,4 +29,4 @@ Private helpers build game-loop breakdowns and top lists for grids, scripts, per
 
 ## Notes
 
-Sampling is intentionally intermittent and top-list bounded to keep default telemetry useful without turning every managed server into a full-time deep profiler.
+Sampling is intentionally intermittent and top-list bounded to keep default telemetry useful without turning every managed server into a full-time deep profiler. The first window starts immediately once `GameBridge.Update` begins ticking.

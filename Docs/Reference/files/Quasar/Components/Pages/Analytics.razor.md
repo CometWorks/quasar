@@ -3,25 +3,24 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Interactive `/analytics` dashboard that renders rolling Space Engineers server metrics as client-side uPlot time-series charts. It reads scalar metrics from `MetricsStoreService`, fetches chart series over `/api/analytics/series`, reads recent calculation timing windows from `ProfilerStoreService`, supports per-server selection, a configurable CSS-grid panel layout, persisted view config (localStorage), auto-refresh, custom time ranges, theme-aware chart styling, and a per-panel settings dialog.
+Interactive `/analytics` dashboard that renders rolling Space Engineers server metrics and profiler timing buckets as client-side uPlot time-series charts. It reads scalar metrics from `MetricsStoreService`, fetches combined scalar/profiler chart series over `/api/analytics/series`, supports per-server selection, a configurable CSS-grid panel layout, persisted view config (localStorage), auto-refresh, custom time ranges, theme-aware chart styling, and a per-panel settings dialog.
 
 ## Structure
 - `@page "/analytics"`, `@implements IDisposable`.
-- **`[Inject]`ed services:** `MetricsStoreService MetricsStore`, `ProfilerStoreService ProfilerStore`, `DedicatedServerCatalog ServerCatalog`, `AgentRegistry Registry`, `ISnackbar Snackbar`, `ILocalStorageService LocalStorage`, `IDialogService DialogService`, `ThemePreferenceService ThemePreference`, `IJSRuntime JS`. No `[Parameter]`s.
+- **`[Inject]`ed services:** `MetricsStoreService MetricsStore`, `DedicatedServerCatalog ServerCatalog`, `AgentRegistry Registry`, `ISnackbar Snackbar`, `ILocalStorageService LocalStorage`, `IDialogService DialogService`, `ThemePreferenceService ThemePreference`, `IJSRuntime JS`. No `[Parameter]`s.
 - **Toolbar:** time-range `MudSelect` (30s..30d + Custom), auto-refresh `MudSelect` (Off/5/15/30/60s), Refresh / Export / Reset-layout buttons, and an "Add panel" `MudMenu` listing hidden panels. Custom range shows date/time pickers.
 - **Filters paper:** server checkbox grid with "Select all"; grid controls (`Columns`, `Rows`, `Row height`, `Max visible lines`, "Show all selected server lines") plus "Reset panels".
 - **Summary chips row:** Servers, SimSpeed, CPU, Memory, Players, PCU, Grids, Entities, Blocks, Floating, Range Avg Sim.
 - **Chart grid:** CSS-grid (`analytics-chart-grid`) of `MudPaper` cards, each containing a stable `div` target rendered by `quasar-charts.js` with uPlot; panel settings use a "Tune" `MudIconButton` opening `AnalyticsPanelDialog`.
-- **Profiler section:** latest sampled windows per selected server with game-loop chips (frame/update/physics/scripts/network/other) plus top grids, scripts, entities, and system methods tables.
-- **Metrics:** sourced from `AnalyticsMetrics.All`: simspeed, cpu, memory (GB), players, frametime, pcu, grids, entities, blocks, floating — each with selector/availability/axis metadata.
-- **Refresh pipeline:** `RefreshView` resolves range/servers, reads in-memory samples only for summary chips, builds visible chart descriptors, and builds profiler cards. `SyncChartsAsync` sends a compact descriptor to JS; the browser fetches bulk series data directly. Source-change events are coalesced through `ProcessQueuedRefreshAsync`; auto-refresh runs a `PeriodicTimer` loop.
+- **Metrics:** panel metadata is sourced from `AnalyticsMetrics.Panels`: scalar metrics (`simspeed`, `cpu`, `memory`, `players`, `frametime`, `pcu`, `grids`, `entities`, `blocks`, `floating`) and profiler timing buckets (`profiler-frame`, `profiler-update`, `profiler-physics`, `profiler-scripts`, `profiler-network`, `profiler-other`).
+- **Refresh pipeline:** `RefreshView` resolves range/servers, reads in-memory scalar samples only for summary chips, and builds visible chart descriptors. `SyncChartsAsync` sends a compact descriptor to JS; the browser fetches bulk scalar/profiler series data directly. Source-change events are coalesced through `ProcessQueuedRefreshAsync`; auto-refresh runs a `PeriodicTimer` loop.
 - **Persistence/config:** `AnalyticsViewConfig` (storage key `quasar.analytics.view.v2`) with `NormalizeConfig`, `CreateDefaultPanels`, panel visibility/order/spans.
 - **Helper records/classes:** `ServerOption`, `SummaryChipModel`, `ChartCard`, `ProfilerSummaryCard`, `ChartSyncResult`.
 
 ## Dependencies
 - `Quasar/Components/Pages/AnalyticsPanelDialog.razor` (panel settings dialog)
 - `Quasar/Services/Analytics/MetricsStoreService.cs` (and `ServerMetricsStore` / `MetricSample` / `AnalyticsMetrics`)
-- [`Quasar/Services/Analytics/ProfilerStoreService.cs`](../../Services/Analytics/ProfilerStoreService.cs.md)
+- [`Quasar/Services/Analytics/AnalyticsSeriesService.cs`](../../Services/Analytics/AnalyticsSeriesService.cs.md)
 - `Quasar/Services/DedicatedServerCatalog.cs`
 - `Quasar/Services/AgentRegistry.cs`
 - [`Quasar/Services/ThemePreferenceService.cs`](../../Services/ThemePreferenceService.cs.md)

@@ -18,7 +18,7 @@ namespace Quasar.Agent
 
         private static readonly object Sync = new object();
         private static readonly ConcurrentDictionary<string, Accumulator> Accumulators = new ConcurrentDictionary<string, Accumulator>();
-        private static DateTime _nextWindowStartUtc = DateTime.UtcNow.AddSeconds(30);
+        private static DateTime _nextWindowStartUtc = DateTime.MinValue;
         private static DateTime _windowEndUtc;
         private static ulong _startFrame;
         private static volatile bool _active;

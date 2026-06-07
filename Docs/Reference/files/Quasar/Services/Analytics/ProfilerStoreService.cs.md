@@ -4,7 +4,7 @@
 
 ## Summary
 
-Bounded in-memory store for recent profiler snapshots per server. `AgentRegistry` enqueues validated profiler windows as agent snapshots arrive; the analytics page and `/api/analytics/profiler` endpoint query this store for selected servers and time ranges.
+Bounded in-memory store for recent profiler snapshots per server. `AgentRegistry` enqueues validated profiler windows as agent snapshots arrive; `AnalyticsSeriesService`, the analytics page, and `/api/analytics/profiler` query this store for selected servers and time ranges.
 
 ## Structure
 
@@ -13,7 +13,7 @@ Namespace: `Quasar.Services.Analytics`
 **`ProfilerStoreService`** (`public sealed class`)
 
 Members:
-- `Enqueue(string uniqueName, ProfilerSnapshot snapshot)` — validates/normalizes then appends to the per-server queue.
+- `Enqueue(string uniqueName, ProfilerSnapshot snapshot)` — validates/normalizes then appends new completed windows to the per-server queue, dropping repeated copies of the same already-published window.
 - `Build(long fromUnix, long toUnix, IReadOnlyList<string> servers) : ProfilerSeriesResponse` — returns matching snapshots grouped by server.
 - `ClampTopCount(int count)` — internal helper shared by the validator.
 
