@@ -7,7 +7,6 @@ using Quasar.Services.Backup;
 using Quasar.Services.Discord;
 using Quasar.Services.PluginSdk;
 using Quasar.Services.Updates;
-using ApexCharts;
 using AspNet.Security.OpenId.Steam;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.Authentication;
@@ -132,7 +131,6 @@ public class Program
                 .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyringDirectory));
             builder.Services.AddHttpClient();
             builder.Services.AddLocalStorageServices();
-            builder.Services.AddApexCharts();
             builder.Services.AddMudServices(configuration =>
             {
                 configuration.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomStart;
@@ -150,6 +148,7 @@ public class Program
             builder.Services.AddSingleton<KnownPlayerCatalog>();
             builder.Services.AddSingleton<MetricsStoreService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<MetricsStoreService>());
+            builder.Services.AddSingleton<AnalyticsSeriesService>();
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<EntityService>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
@@ -242,6 +241,21 @@ public class Program
 
             app.MapGet("/api/discovery", (WebServiceState state) =>
                 Results.Json(state.CurrentManifest));
+
+            // Analytics chart data, fetched directly by the browser (uPlot) instead of being pushed
+            // through the Blazor SignalR circuit. Averaged down to maxPoints per series server-side.
+            var analyticsSeries = app.MapGet("/api/analytics/series", (HttpContext context, AnalyticsSeriesService seriesService) =>
+            {
+                var query = context.Request.Query;
+                _ = long.TryParse(query["from"], out var fromUnix);
+                _ = long.TryParse(query["to"], out var toUnix);
+                _ = int.TryParse(query["maxPoints"], out var maxPoints);
+                var servers = query["servers"].Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!).ToArray();
+                var metrics = query["metrics"].Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!).ToArray();
+                return Results.Json(seriesService.Build(fromUnix, toUnix, servers, metrics, maxPoints));
+            });
+            if (authOptions.Enabled)
+                analyticsSeries.RequireAuthorization(QuasarPolicyNames.CanView);
 
             // Generates a fresh configuration backup and streams it as a download.
             var backupDownload = app.MapGet("/api/backup/download", (QuasarBackupService backup) =>

@@ -301,6 +301,13 @@ h1:focus {
         content: "An error has occurred."
     }
 
+/* uPlot legends are created by JS and don't receive scoped-CSS attributes, so this lives in global
+   CSS. Hide the x (time) entry from each analytics chart legend — it shows a broken idle value and
+   is redundant with the x axis. */
+.analytics-uplot .u-legend .u-series:first-child {
+    display: none;
+}
+
 .darker-border-checkbox.form-check-input {
     border-color: #929292;
 }

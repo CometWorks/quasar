@@ -6,7 +6,6 @@
 
   <ItemGroup>
     <PackageReference Include="AspNet.Security.OpenId.Steam" Version="10.0.0" />
-    <PackageReference Include="Blazor-ApexCharts" Version="6.1.0" />
     <PackageReference Include="Blazor.LocalStorage" Version="10.0.0" />
     <PackageReference Include="Discord.Net" Version="3.16.0" />
     <PackageReference Include="MudBlazor" Version="9.4.0" />

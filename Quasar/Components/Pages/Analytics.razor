@@ -1,6 +1,5 @@
 @page "/analytics"
 @implements IDisposable
-@using ApexCharts
 @using Microsoft.JSInterop
 @inject MetricsStoreService MetricsStore
 @inject DedicatedServerCatalog ServerCatalog
@@ -45,7 +44,7 @@
                   Wrap="Wrap.Wrap"
                   Justify="Justify.FlexEnd"
                   AlignItems="AlignItems.Center">
-            <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="@(() => RefreshAsync(remountCharts: true))">
+            <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="@(() => RefreshAsync())">
                 Refresh
             </MudButton>
             <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" StartIcon="@Icons.Material.Filled.Download" OnClick="ExportAsync">
@@ -138,7 +137,7 @@
     }
 </MudStack>
 
-@if (_charts.Count == 0)
+@if (_chartCards.Count == 0)
 {
     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
         No analytics samples match current filters yet.
@@ -147,9 +146,9 @@
 else
 {
     <div class="analytics-chart-grid" style="@ChartGridStyle">
-        @foreach (var chart in _charts)
+        @foreach (var chart in _chartCards)
         {
-            <div class="analytics-chart-card" style="@chart.LayoutStyle">
+            <div class="analytics-chart-card" style="@chart.LayoutStyle" @key="chart.Key">
                 <MudPaper Class="pa-4 analytics-chart-paper">
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
                         <MudStack Spacing="0">
@@ -163,25 +162,7 @@ else
                                            OnClick="@(() => OpenPanelDialogAsync(chart.Panel))" />
                         </MudTooltip>
                     </MudStack>
-                    <div class="analytics-apex-chart">
-                        <ApexChart TItem="AnalyticsChartPoint"
-                                   @key="chart.RenderKey"
-                                   @ref="chart.ChartRef"
-                                   Options="@chart.Options"
-                                   Width="@("100%")"
-                                   Height="@chart.Height">
-                            @foreach (var series in chart.Series)
-                            {
-                                <ApexPointSeries TItem="AnalyticsChartPoint"
-                                                 Items="@series.Points"
-                                                 Name="@series.Name"
-                                                 SeriesType="SeriesType.Line"
-                                                 XValue="@(point => point.Timestamp)"
-                                                 YValue="@(point => point.Value)"
-                                                 OrderBy="@(point => point.X)" />
-                            }
-                        </ApexChart>
-                    </div>
+                    <div class="analytics-uplot" id="@chart.ContainerId" style="height: @(chart.Height)px;"></div>
                 </MudPaper>
             </div>
         }
@@ -191,10 +172,18 @@ else
 @code
 {
     private const string StorageKey = "quasar.analytics.view.v2";
-    private const string ViewportWidthFunction = "quasarConfigs.getViewportWidth";
-    private const int DefaultViewportWidthPx = 1280;
-    private const int MinSeriesPoints = 300;
-    private const int MaxSeriesPoints = 1000;
+    private const string SeriesEndpoint = "/api/analytics/series";
+    private const int MaxPointsPerSeries = 1000;
+
+    private static readonly string[] SeriesColors =
+    [
+        "#3b82f6",
+        "#7dd3fc",
+        "#a7f3d0",
+        "#fde68a",
+        "#f0abfc",
+        "#c4b5fd",
+    ];
 
     private static readonly (string Key, string Label)[] RangeOptions =
     [
@@ -212,19 +201,7 @@ else
         ("custom", "Custom"),
     ];
 
-    private static readonly MetricDefinition[] MetricDefinitions =
-    [
-        new("simspeed", "SimSpeed", "Simulation ratio", sample => sample.SimSpeed, sample => true, RequiresZero: true),
-        new("cpu", "CPU %", "Server process load", sample => sample.CpuPercent, sample => true, RequiresZero: true),
-        new("memory", "Memory GB", "Working set", sample => sample.MemoryMb / 1024f, sample => sample.MemoryMb > 0f, RequiresZero: false),
-        new("players", "Player Count", "Players online", sample => sample.PlayersOnline, sample => true, RequiresZero: true),
-        new("frametime", "Frame Time ms", "Derived from sim speed", sample => sample.FrameTimeMs, sample => sample.FrameTimeMs > 0f, RequiresZero: true),
-        new("pcu", "PCU Used", "Used PCU", sample => sample.UsedPcu, sample => true, RequiresZero: true),
-        new("grids", "Active Grids", "Entity grids", sample => sample.ActiveGridCount, sample => sample.ActiveGridCount >= 0, RequiresZero: true),
-        new("entities", "Active Entities", "Entity count", sample => sample.ActiveEntityCount, sample => sample.ActiveEntityCount >= 0, RequiresZero: true),
-    ];
-
-    private readonly List<ChartModel> _charts = [];
+    private readonly List<ChartCard> _chartCards = [];
     private readonly List<SummaryChipModel> _summaryChips = [];
     private AnalyticsViewConfig _config = CreateDefaultConfig();
     private IReadOnlyList<ServerOption> _serverOptions = [];
@@ -232,12 +209,16 @@ else
     private bool _disposed;
     private bool _configLoaded;
     private bool _selectionInitialized;
-    private bool _pendingChartUpdate;
+    private bool _pendingChartSync;
     private int _refreshing;
     private int _refreshRequested;
-    private long _chartRenderVersion;
     private bool _isDarkTheme = true;
-    private int _cachedViewportWidthPx = DefaultViewportWidthPx;
+
+    private long _fromUnix;
+    private long _toUnix;
+    private List<string> _effectiveServers = [];
+    private Dictionary<string, string> _serverNameMap = new(StringComparer.OrdinalIgnoreCase);
+    private DotNetObjectReference<Analytics>? _selfRef;
 
     private bool IsCustomRange => string.Equals(_config.SelectedRangeKey, "custom", StringComparison.OrdinalIgnoreCase);
 
@@ -249,13 +230,15 @@ else
     private string ChartGridStyle =>
         $"--analytics-grid-columns: {Math.Max(1, _config.GridColumns)}; --analytics-grid-rows: {Math.Max(1, _config.GridRows)}; --analytics-row-height: {Math.Max(180, _config.RowHeightPx)}px;";
 
+    private static string ContainerId(string key) => $"analytics-chart-{key}";
+
     protected override void OnInitialized()
     {
         MetricsStore.Changed += HandleSourceChanged;
         Registry.Changed += HandleSourceChanged;
         ServerCatalog.Changed += HandleSourceChanged;
         ThemePreference.ThemeModeChanged += HandleThemeModeChanged;
-        _ = RefreshViewAsync(remountCharts: true);
+        RefreshView();
         UpdateRefreshTimer();
     }
 
@@ -263,25 +246,33 @@ else
     {
         if (firstRender)
         {
-        await ThemePreference.InitializeAsync();
-        _isDarkTheme = ThemePreference.IsDarkMode;
-        await LoadConfigAsync();
-        await RefreshViewAsync(remountCharts: true);
-        UpdateRefreshTimer();
-        await InvokeAsync(StateHasChanged);
-        return;
-        }
+            await ThemePreference.InitializeAsync();
+            _isDarkTheme = ThemePreference.IsDarkMode;
+            await LoadConfigAsync();
+            RefreshView();
+            UpdateRefreshTimer();
 
-        if (_pendingChartUpdate)
-        {
-            if (!IsAutoRefreshEnabled())
+            _selfRef ??= DotNetObjectReference.Create(this);
+            try
             {
-                _pendingChartUpdate = false;
-                return;
+                await JS.InvokeVoidAsync("quasarCharts.init", _selfRef);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            catch (JSDisconnectedException)
+            {
             }
 
-            _pendingChartUpdate = false;
-            await UpdateRenderedChartsAsync();
+            _pendingChartSync = true;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (_pendingChartSync)
+        {
+            _pendingChartSync = false;
+            await SyncChartsAsync();
         }
     }
 
@@ -294,6 +285,19 @@ else
         ThemePreference.ThemeModeChanged -= HandleThemeModeChanged;
         _refreshCts.Cancel();
         _refreshCts.Dispose();
+
+        try
+        {
+            _ = JS.InvokeVoidAsync("quasarCharts.disposeAll");
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+
+        _selfRef?.Dispose();
     }
 
     private async Task LoadConfigAsync()
@@ -331,12 +335,10 @@ else
         }
     }
 
-    private async Task RefreshAsync(bool remountCharts = false)
+    private async Task RefreshAsync()
     {
-        await RefreshViewAsync(remountCharts);
-        if (!remountCharts && IsAutoRefreshEnabled())
-            RequestChartUpdate();
-
+        RefreshView();
+        _pendingChartSync = true;
         await PersistConfigAsync();
         StateHasChanged();
     }
@@ -359,20 +361,20 @@ else
         _config.GridColumns = 2;
         _config.GridRows = 4;
         _config.RowHeightPx = 320;
-        await RefreshAsync(remountCharts: true);
+        await RefreshAsync();
     }
 
     private async Task ResetPanelsAsync()
     {
         _config.Panels = CreateDefaultPanels();
-        await RefreshAsync(remountCharts: true);
+        await RefreshAsync();
     }
 
     private async Task SelectAllServersAsync()
     {
         _config.SelectedUniqueNames = _serverOptions.Select(option => option.UniqueName).ToList();
         _selectionInitialized = true;
-        await RefreshAsync(remountCharts: true);
+        await RefreshAsync();
     }
 
     private async Task HandleServerToggled(string uniqueName, bool value)
@@ -388,14 +390,14 @@ else
         }
 
         _selectionInitialized = true;
-        await RefreshAsync(remountCharts: true);
+        await RefreshAsync();
     }
 
     private Task HandleRangeChanged(string value)
     {
         _config.SelectedRangeKey = string.IsNullOrWhiteSpace(value) ? "1h" : value;
         UpdateRefreshTimer();
-        return RefreshAsync(remountCharts: true);
+        return RefreshAsync();
     }
 
     private Task HandleAutoRefreshChanged(int value)
@@ -408,25 +410,25 @@ else
     private Task HandleCustomFromDateChanged(DateTime? value)
     {
         _config.CustomFromDate = value;
-        return RefreshAsync(remountCharts: true);
+        return RefreshAsync();
     }
 
     private Task HandleCustomFromTimeChanged(TimeSpan? value)
     {
         _config.CustomFromTime = value;
-        return RefreshAsync(remountCharts: true);
+        return RefreshAsync();
     }
 
     private Task HandleCustomToDateChanged(DateTime? value)
     {
         _config.CustomToDate = value;
-        return RefreshAsync(remountCharts: true);
+        return RefreshAsync();
     }
 
     private Task HandleCustomToTimeChanged(TimeSpan? value)
     {
         _config.CustomToTime = value;
-        return RefreshAsync(remountCharts: true);
+        return RefreshAsync();
     }
 
     private Task HandleGridColumnsChanged(int value)
@@ -435,7 +437,7 @@ else
         foreach (var panel in _config.Panels)
             panel.ColumnSpan = Math.Clamp(panel.ColumnSpan, 1, _config.GridColumns);
 
-        return RefreshAsync(remountCharts: true);
+        return RefreshAsync();
     }
 
     private Task HandleGridRowsChanged(int value)
@@ -444,31 +446,31 @@ else
         foreach (var panel in _config.Panels)
             panel.RowSpan = Math.Clamp(panel.RowSpan, 1, _config.GridRows);
 
-        return RefreshAsync(remountCharts: true);
+        return RefreshAsync();
     }
 
     private Task HandleRowHeightChanged(int value)
     {
         _config.RowHeightPx = Math.Clamp(value, 180, 960);
-        return RefreshAsync(remountCharts: true);
+        return RefreshAsync();
     }
 
     private Task HandleMaxVisibleServersChanged(int value)
     {
         _config.MaxVisibleServersForCharts = Math.Clamp(value, 1, 40);
-        return RefreshAsync(remountCharts: true);
+        return RefreshAsync();
     }
 
     private Task HandleShowAllServersChanged(bool value)
     {
         _config.ShowAllServers = value;
-        return RefreshAsync(remountCharts: true);
+        return RefreshAsync();
     }
 
     private async Task RestorePanelAsync(AnalyticsPanelConfig panel)
     {
         panel.Visible = true;
-        await RefreshAsync(remountCharts: true);
+        await RefreshAsync();
     }
 
     private void HandleSourceChanged()
@@ -497,8 +499,8 @@ else
         {
             while (!_disposed && Interlocked.Exchange(ref _refreshRequested, 0) == 1)
             {
-                await RefreshViewAsync();
-                RequestChartUpdate();
+                RefreshView();
+                _pendingChartSync = true;
                 StateHasChanged();
             }
         }
@@ -518,7 +520,20 @@ else
         _isDarkTheme = isDark;
         _ = InvokeAsync(async () =>
         {
-            await RefreshViewAsync(remountCharts: true);
+            // Charts cache theme colors at creation; drop them so they rebuild with the new palette.
+            try
+            {
+                await JS.InvokeVoidAsync("quasarCharts.disposeAll");
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+
+            RefreshView();
+            _pendingChartSync = true;
             await InvokeAsync(StateHasChanged);
         });
     }
@@ -561,54 +576,94 @@ else
         }
     }
 
-    private void RequestChartUpdate()
+    private async Task SyncChartsAsync()
     {
-        _pendingChartUpdate = true;
+        if (_disposed)
+            return;
+
+        var request = new
+        {
+            endpoint = SeriesEndpoint,
+            from = _fromUnix,
+            to = _toUnix,
+            maxPoints = MaxPointsPerSeries,
+            servers = _effectiveServers,
+            metrics = _chartCards.Select(card => new
+            {
+                key = card.Key,
+                containerId = card.ContainerId,
+                height = card.Height,
+            }),
+            names = _serverNameMap,
+            colors = SeriesColors,
+            dark = _isDarkTheme,
+        };
+
+        try
+        {
+            var result = await JS.InvokeAsync<ChartSyncResult>("quasarCharts.sync", request);
+            if (result is { Ok: false })
+                Snackbar.Add($"Failed to load analytics data (status {result.Status}).", Severity.Warning);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (TaskCanceledException)
+        {
+        }
     }
 
-    private async Task UpdateRenderedChartsAsync()
+    // Invoked from quasar-charts.js when the user drags a time range on a chart. Pins the page to that
+    // absolute window (as a custom range) so it stays put even as new real-time data arrives, until the
+    // user picks a relative range again from the dropdown.
+    [JSInvokable]
+    public Task OnChartRangeSelected(double fromSec, double toSec)
     {
-        var charts = _charts.ToArray();
-        await Task.Yield();
-
-        foreach (var chart in charts)
+        return InvokeAsync(async () =>
         {
             if (_disposed)
                 return;
 
-            var chartRef = chart.ChartRef;
-            if (chartRef is null)
-                continue;
+            var fromUnix = (long)Math.Round(Math.Min(fromSec, toSec));
+            var toUnix = (long)Math.Round(Math.Max(fromSec, toSec));
+            if (toUnix - fromUnix < 1)
+                return;
 
-            try
-            {
-                await chartRef.UpdateOptionsAsync(redrawPaths: false, animate: false, updateSyncedCharts: false);
-                await chartRef.UpdateSeriesAsync(animate: true);
-            }
-            catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException)
-            {
-            }
-        }
+            var fromLocal = DateTimeOffset.FromUnixTimeSeconds(fromUnix).LocalDateTime;
+            var toLocal = DateTimeOffset.FromUnixTimeSeconds(toUnix).LocalDateTime;
+
+            _config.SelectedRangeKey = "custom";
+            _config.CustomFromDate = fromLocal.Date;
+            _config.CustomFromTime = fromLocal.TimeOfDay;
+            _config.CustomToDate = toLocal.Date;
+            _config.CustomToTime = toLocal.TimeOfDay;
+
+            UpdateRefreshTimer();
+            await RefreshAsync();
+        });
     }
 
-    private async Task RefreshViewAsync(bool remountCharts = false)
+    private void RefreshView()
     {
         _serverOptions = BuildServerOptions();
         NormalizeSelection();
+        _serverNameMap = _serverOptions.ToDictionary(option => option.UniqueName, option => option.DisplayName, StringComparer.OrdinalIgnoreCase);
 
         var (fromUnix, toUnix) = ResolveRange();
+        _fromUnix = fromUnix;
+        _toUnix = toUnix;
         var spanSeconds = toUnix - fromUnix;
+
         var selectedServers = GetSelectedUniqueNames();
-        var maxChartPoints = await ResolveChartTargetPointsAsync(spanSeconds);
         var effectiveServers = ResolveChartServers(selectedServers);
+        _effectiveServers = effectiveServers.ToList();
+
+        // Read range samples in-memory purely to drive the summary chips and decide whether there is
+        // anything to chart. The bulk series data is fetched by the browser, not sent over the circuit.
         var samplesByServer = new Dictionary<string, MetricSample[]>(StringComparer.OrdinalIgnoreCase);
-        var renderSamplesByServer = new Dictionary<string, MetricSample[]>(StringComparer.OrdinalIgnoreCase);
-        var maxPointsPerSeries = ResolveMaxPointsPerSeries(maxChartPoints, effectiveServers.Count);
-        if (remountCharts)
-            _chartRenderVersion = unchecked(_chartRenderVersion + 1);
-
-        var chartRenderVersion = _chartRenderVersion;
-
         foreach (var uniqueName in effectiveServers)
         {
             var store = MetricsStore.GetStore(uniqueName);
@@ -616,28 +671,39 @@ else
                 continue;
 
             var samples = ReadSamplesForRange(store, fromUnix, toUnix, spanSeconds);
-            if (samples.Length == 0)
+            if (samples.Length > 0)
+                samplesByServer[uniqueName] = samples;
+        }
+
+        BuildSummary(selectedServers, samplesByServer, effectiveServers.Count);
+        BuildChartCards(samplesByServer.Count > 0);
+    }
+
+    private void BuildChartCards(bool hasData)
+    {
+        _chartCards.Clear();
+        if (!hasData)
+            return;
+
+        foreach (var panel in _config.Panels
+                     .Where(panel => panel.Visible)
+                     .OrderBy(panel => panel.Order)
+                     .ThenBy(panel => ResolveMetricTitle(panel.Key), StringComparer.OrdinalIgnoreCase))
+        {
+            var metric = AnalyticsMetrics.Find(panel.Key);
+            if (metric is null)
                 continue;
 
-            samplesByServer[uniqueName] = samples;
+            var layoutStyle = $"grid-column: span {Math.Clamp(panel.ColumnSpan, 1, _config.GridColumns)}; grid-row: span {Math.Clamp(panel.RowSpan, 1, Math.Max(1, _config.GridRows))};";
+            _chartCards.Add(new ChartCard(
+                Key: panel.Key,
+                Title: metric.Title,
+                Subtitle: metric.Subtitle,
+                ContainerId: ContainerId(panel.Key),
+                LayoutStyle: layoutStyle,
+                Height: ResolveChartHeight(panel),
+                Panel: panel));
         }
-
-        foreach (var pair in samplesByServer)
-        {
-            renderSamplesByServer[pair.Key] = DownsampleToPointLimit(pair.Value, maxPointsPerSeries);
-        }
-
-        var pointCache = new Dictionary<SeriesTransformCacheKey, IReadOnlyList<AnalyticsChartPoint>>();
-        BuildSummary(selectedServers, samplesByServer, effectiveServers.Count);
-        BuildCharts(
-            renderSamplesByServer,
-            toUnix - fromUnix,
-            fromUnix,
-            toUnix,
-            maxChartPoints,
-            chartRenderVersion,
-            remountCharts,
-            pointCache);
     }
 
     private IReadOnlyList<ServerOption> BuildServerOptions()
@@ -645,8 +711,7 @@ else
         var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         // Use the configured server name (DedicatedServerDefinition.DisplayName), not the
-        // unique name / id. This drives both the server checkboxes and the chart legends
-        // (series names come from ResolveDisplayName -> _serverOptions).
+        // unique name / id. This drives both the server checkboxes and the chart legends.
         foreach (var server in ServerCatalog.GetServers())
             names[server.UniqueName] = string.IsNullOrWhiteSpace(server.DisplayName) ? server.UniqueName : server.DisplayName;
 
@@ -724,100 +789,34 @@ else
             : selectedServers.Take(limit).ToList();
     }
 
-    private async Task<int> ResolveChartTargetPointsAsync(long spanSeconds)
-    {
-        var viewportWidth = await ResolveViewportWidthAsync();
-        var chartWidth = ResolveChartWidth(viewportWidth, _config.GridColumns);
-
-        var target = (int)Math.Round(chartWidth * 1.5);
-        if (spanSeconds > 6 * 3600)
-            target = (int)(target * 0.95);
-
-        if (spanSeconds >= 24 * 3600)
-            target = (int)(target * 0.8);
-
-        if (spanSeconds >= 24 * 3600 && spanSeconds < 7 * 86400)
-            target = (int)(target * 0.6);
-
-        if (spanSeconds > 7 * 86400)
-            target = (int)(target * 0.5);
-
-        if (spanSeconds > 30 * 86400)
-            target = (int)(target * 0.35);
-
-        return Math.Clamp(target, MinSeriesPoints, MaxSeriesPoints);
-    }
-
-    private int ResolveChartWidth(int viewportWidth, int gridColumns)
-    {
-        var columns = Math.Max(1, gridColumns);
-        var available = Math.Max(0, viewportWidth - 48);
-        var gap = 16;
-        var width = (available - gap * (columns - 1)) / columns;
-        return Math.Max(260, width);
-    }
-
-    private async Task<int> ResolveViewportWidthAsync()
-    {
-        try
-        {
-            var width = await JS.InvokeAsync<double>(ViewportWidthFunction);
-            if (width > 0)
-            {
-                _cachedViewportWidthPx = (int)Math.Round(width);
-                return _cachedViewportWidthPx;
-            }
-        }
-        catch (InvalidOperationException)
-        {
-        }
-        catch (JSDisconnectedException)
-        {
-        }
-
-        return _cachedViewportWidthPx > 0
-            ? _cachedViewportWidthPx
-            : DefaultViewportWidthPx;
-    }
-
-    private static int ResolveMaxPointsPerSeries(int chartTargetPoints, int visibleSeriesCount)
-        => Math.Max(1, chartTargetPoints / Math.Max(1, visibleSeriesCount));
-
     private (long FromUnix, long ToUnix) ResolveRange()
     {
         var nowUtc = DateTimeOffset.UtcNow;
-        if (string.Equals(_config.SelectedRangeKey, "30s", StringComparison.OrdinalIgnoreCase))
-            return (nowUtc.AddSeconds(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
-
-        if (string.Equals(_config.SelectedRangeKey, "1m", StringComparison.OrdinalIgnoreCase))
-            return (nowUtc.AddMinutes(-1).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
-
-        if (string.Equals(_config.SelectedRangeKey, "2m", StringComparison.OrdinalIgnoreCase))
-            return (nowUtc.AddMinutes(-2).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
-
-        if (string.Equals(_config.SelectedRangeKey, "5m", StringComparison.OrdinalIgnoreCase))
-            return (nowUtc.AddMinutes(-5).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
-
-        if (string.Equals(_config.SelectedRangeKey, "15m", StringComparison.OrdinalIgnoreCase))
-            return (nowUtc.AddMinutes(-15).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
-
-        if (string.Equals(_config.SelectedRangeKey, "30m", StringComparison.OrdinalIgnoreCase))
-            return (nowUtc.AddMinutes(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
-
-        if (string.Equals(_config.SelectedRangeKey, "1h", StringComparison.OrdinalIgnoreCase))
-            return (nowUtc.AddHours(-1).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
-
-        if (string.Equals(_config.SelectedRangeKey, "6h", StringComparison.OrdinalIgnoreCase))
-            return (nowUtc.AddHours(-6).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
-
-        if (string.Equals(_config.SelectedRangeKey, "24h", StringComparison.OrdinalIgnoreCase))
-            return (nowUtc.AddHours(-24).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
-
-        if (string.Equals(_config.SelectedRangeKey, "7d", StringComparison.OrdinalIgnoreCase))
-            return (nowUtc.AddDays(-7).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
-
-        if (string.Equals(_config.SelectedRangeKey, "30d", StringComparison.OrdinalIgnoreCase))
-            return (nowUtc.AddDays(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+        switch (_config.SelectedRangeKey?.ToLowerInvariant())
+        {
+            case "30s":
+                return (nowUtc.AddSeconds(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "1m":
+                return (nowUtc.AddMinutes(-1).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "2m":
+                return (nowUtc.AddMinutes(-2).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "5m":
+                return (nowUtc.AddMinutes(-5).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "15m":
+                return (nowUtc.AddMinutes(-15).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "30m":
+                return (nowUtc.AddMinutes(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "1h":
+                return (nowUtc.AddHours(-1).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "6h":
+                return (nowUtc.AddHours(-6).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "24h":
+                return (nowUtc.AddHours(-24).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "7d":
+                return (nowUtc.AddDays(-7).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "30d":
+                return (nowUtc.AddDays(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+        }
 
         var fromDate = (_config.CustomFromDate ?? DateTime.Now.Date.AddDays(-1)).Date;
         var toDate = (_config.CustomToDate ?? DateTime.Now.Date).Date;
@@ -838,87 +837,6 @@ else
             return store.OneMinute.Read(fromUnix, toUnix);
 
         return store.OneHour.Read(fromUnix, toUnix);
-    }
-
-    private static MetricSample[] DownsampleToPointLimit(MetricSample[] samples, int maxPoints)
-    {
-        if (samples.Length <= maxPoints)
-            return samples;
-
-        var chunkSize = Math.Max(1, (int)Math.Ceiling(samples.Length / (double)maxPoints));
-        var chunkCount = (int)Math.Ceiling(samples.Length / (double)chunkSize);
-        if (chunkCount == 0)
-            return [];
-
-        var result = new MetricSample[chunkCount];
-        for (var chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++)
-        {
-            var offset = chunkIndex * chunkSize;
-            var count = Math.Min(chunkSize, samples.Length - offset);
-            result[chunkIndex] = AverageSamples(samples, offset, count);
-        }
-
-        return result;
-    }
-
-    private static MetricSample AverageSamples(MetricSample[] samples, int offset, int count)
-    {
-        var end = offset + count;
-        long timestampTotal = 0;
-        var simSpeedTotal = 0.0;
-        var cpuTotal = 0.0;
-        var memoryTotal = 0.0;
-        var frameTimeTotal = 0.0;
-        var playersTotal = 0.0;
-        var usedPcuTotal = 0.0;
-        long activeGridTotal = 0;
-        long activeEntityTotal = 0;
-        var activeGridSamples = 0;
-        var activeEntitySamples = 0;
-
-        for (var i = offset; i < end; i++)
-        {
-            var sample = samples[i];
-            timestampTotal += sample.TimestampUnixSeconds;
-            simSpeedTotal += sample.SimSpeed;
-            cpuTotal += sample.CpuPercent;
-            memoryTotal += sample.MemoryMb;
-            frameTimeTotal += sample.FrameTimeMs;
-            playersTotal += sample.PlayersOnline;
-            usedPcuTotal += sample.UsedPcu;
-
-            if (sample.ActiveGridCount >= 0)
-            {
-                activeGridTotal += sample.ActiveGridCount;
-                activeGridSamples++;
-            }
-
-            if (sample.ActiveEntityCount >= 0)
-            {
-                activeEntityTotal += sample.ActiveEntityCount;
-                activeEntitySamples++;
-            }
-        }
-
-        var activeGridCount = activeGridSamples > 0
-            ? (int)Math.Round((double)activeGridTotal / activeGridSamples)
-            : -1;
-
-        var activeEntityCount = activeEntitySamples > 0
-            ? (int)Math.Round((double)activeEntityTotal / activeEntitySamples)
-            : -1;
-
-        var averageTimestamp = timestampTotal / count;
-        return new MetricSample(
-            timestampUnixSeconds: averageTimestamp,
-            simSpeed: (float)(simSpeedTotal / count),
-            cpuPercent: (float)(cpuTotal / count),
-            memoryMb: (float)(memoryTotal / count),
-            frameTimeMs: (float)(frameTimeTotal / count),
-            playersOnline: (int)Math.Round(playersTotal / count),
-            usedPcu: (int)Math.Round(usedPcuTotal / count),
-            activeGridCount: activeGridCount,
-            activeEntityCount: activeEntityCount);
     }
 
     private void BuildSummary(
@@ -982,99 +900,6 @@ else
         }
     }
 
-    private void BuildCharts(
-        IReadOnlyDictionary<string, MetricSample[]> samplesByServer,
-        long spanSeconds,
-        long fromUnix,
-        long toUnix,
-        int denseThreshold,
-        long chartRenderVersion,
-        bool remountCharts,
-        Dictionary<SeriesTransformCacheKey, IReadOnlyList<AnalyticsChartPoint>> pointCache)
-    {
-        if (samplesByServer.Count == 0)
-        {
-            _charts.Clear();
-            return;
-        }
-
-        var orderedSamplesByServer = samplesByServer
-            .OrderBy(pair => ResolveDisplayName(pair.Key), StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        var existingCharts = remountCharts
-            ? []
-            : _charts.ToDictionary(chart => chart.Panel.Key, StringComparer.OrdinalIgnoreCase);
-        var nextCharts = new List<ChartModel>();
-
-        foreach (var panel in _config.Panels
-                     .Where(panel => panel.Visible)
-                     .OrderBy(panel => panel.Order)
-                     .ThenBy(panel => ResolveMetricTitle(panel.Key), StringComparer.OrdinalIgnoreCase))
-        {
-            var definition = MetricDefinitions.FirstOrDefault(metric =>
-                string.Equals(metric.Key, panel.Key, StringComparison.OrdinalIgnoreCase));
-            if (definition is null)
-                continue;
-
-            var series = new List<AnalyticsChartSeries>();
-            foreach (var pair in orderedSamplesByServer)
-            {
-                var gapThresholdSeconds = ResolveGapThresholdSeconds(pair.Value);
-                var cacheKey = new SeriesTransformCacheKey(pair.Key, definition.Key, fromUnix, toUnix);
-                if (!pointCache.TryGetValue(cacheKey, out var values))
-                {
-                    values = BuildSeriesPoints(pair.Value, definition, gapThresholdSeconds);
-                    pointCache[cacheKey] = values;
-                }
-
-                if (values.Count == 0 || values.All(point => point.Value is null))
-                    continue;
-
-                series.Add(new AnalyticsChartSeries(ResolveDisplayName(pair.Key), values));
-            }
-
-            if (series.Count == 0)
-                continue;
-
-            var isDenseChart = series.Sum(s => s.Points.Count) >= denseThreshold;
-            var options = CreateChartOptions(
-                definition,
-                spanSeconds,
-                isDenseChart,
-                series);
-            var height = ResolveChartHeight(panel);
-            var layoutStyle = $"grid-column: span {Math.Clamp(panel.ColumnSpan, 1, _config.GridColumns)}; grid-row: span {Math.Clamp(panel.RowSpan, 1, Math.Max(1, _config.GridRows))};";
-
-            if (!remountCharts && existingCharts.TryGetValue(panel.Key, out var existing))
-            {
-                existing.Update(
-                    title: definition.Title,
-                    subtitle: definition.Subtitle,
-                    series: series,
-                    options: options,
-                    height: height,
-                    layoutStyle: layoutStyle,
-                    panel: panel);
-                nextCharts.Add(existing);
-            }
-            else
-            {
-                nextCharts.Add(new ChartModel(
-                    RenderKey: $"{panel.Key}:{chartRenderVersion}",
-                    Title: definition.Title,
-                    Subtitle: definition.Subtitle,
-                    Series: series,
-                    Options: options,
-                    Height: height,
-                    LayoutStyle: layoutStyle,
-                    Panel: panel));
-            }
-        }
-
-        _charts.Clear();
-        _charts.AddRange(nextCharts);
-    }
-
     private async Task OpenPanelDialogAsync(AnalyticsPanelConfig panel)
     {
         var parameters = new DialogParameters
@@ -1105,293 +930,17 @@ else
         panel.Order = Math.Clamp(updated.Order, 0, 99);
         panel.ColumnSpan = Math.Clamp(updated.ColumnSpan, 1, _config.GridColumns);
         panel.RowSpan = Math.Clamp(updated.RowSpan, 1, Math.Max(1, _config.GridRows));
-        await RefreshAsync(remountCharts: true);
+        await RefreshAsync();
     }
 
-    private ApexCharts.ApexChartOptions<AnalyticsChartPoint> CreateChartOptions(
-        MetricDefinition definition,
-        long spanSeconds,
-        bool isDenseChart,
-        IReadOnlyList<AnalyticsChartSeries> series)
-    {
-        var xAxis = new ApexCharts.XAxis
-        {
-            Type = ApexCharts.XAxisType.Datetime,
-            Labels = new ApexCharts.XAxisLabels
-            {
-                Style = new ApexCharts.AxisLabelStyle
-                {
-                    Colors = "var(--mud-palette-text-secondary)",
-                    FontFamily = "var(--mud-typography-default-family)",
-                },
-                DatetimeUTC = false,
-                Format = ResolveTimeLabelFormat(spanSeconds),
-            },
-        };
-
-        return new ApexCharts.ApexChartOptions<AnalyticsChartPoint>
-        {
-            Chart = new ApexCharts.Chart
-            {
-                Background = "var(--mud-palette-surface)",
-                Group = "analytics-sync",
-                Animations = new ApexCharts.Animations { Enabled = false },
-                ForeColor = "var(--mud-palette-text-primary)",
-                FontFamily = "var(--mud-typography-default-family)",
-                Toolbar = new ApexCharts.Toolbar { Show = true },
-                Zoom = new ApexCharts.Zoom { Enabled = true, AutoScaleYaxis = true },
-                RedrawOnParentResize = true,
-                RedrawOnWindowResize = true,
-            },
-            Theme = new ApexCharts.Theme
-            {
-                Mode = _isDarkTheme ? ApexCharts.Mode.Dark : ApexCharts.Mode.Light,
-            },
-            Colors =
-            [
-                "#3b82f6",
-                "#7dd3fc",
-                "#a7f3d0",
-                "#fde68a",
-                "#f0abfc",
-                "#c4b5fd",
-            ],
-            DataLabels = new ApexCharts.DataLabels { Enabled = false },
-            Grid = new ApexCharts.Grid
-            {
-                BorderColor = "rgba(128,128,128,0.24)",
-                StrokeDashArray = 3,
-                Xaxis = new ApexCharts.GridXAxis { Lines = new ApexCharts.Lines { Show = false } },
-                Yaxis = new ApexCharts.GridYAxis { Lines = new ApexCharts.Lines { Show = true } },
-            },
-            Legend = new ApexCharts.Legend
-            {
-                Show = true,
-                Position = ApexCharts.LegendPosition.Bottom,
-                HorizontalAlign = ApexCharts.Align.Left,
-                ShowForSingleSeries = true,
-                ShowForNullSeries = false,
-            },
-            Markers = new ApexCharts.Markers
-            {
-                Size = isDenseChart ? 0 : 3,
-                ShowNullDataPoints = false,
-                StrokeWidth = 0,
-                StrokeOpacity = 0,
-            },
-            Stroke = new ApexCharts.Stroke
-            {
-                Curve = ApexCharts.Curve.Straight,
-                Width = 2,
-            },
-            Tooltip = new ApexCharts.Tooltip
-            {
-                Shared = !isDenseChart,
-                HideEmptySeries = true,
-                Theme = _isDarkTheme ? ApexCharts.Mode.Dark : ApexCharts.Mode.Light,
-                X = new ApexCharts.TooltipX
-                {
-                    Format = ResolveTooltipTimeFormat(spanSeconds),
-                },
-            },
-            Xaxis = xAxis,
-            Yaxis =
-            [
-                new ApexCharts.YAxis
-                {
-                    Labels = new ApexCharts.YAxisLabels
-                    {
-                        Style = new ApexCharts.AxisLabelStyle
-                        {
-                            Colors = "var(--mud-palette-text-secondary)",
-                            FontFamily = "var(--mud-typography-default-family)",
-                        },
-                        Formatter = ResolveYAxisLabelFormatter(definition),
-                    },
-                    DecimalsInFloat = ResolveYAxisDecimals(definition),
-                    ForceNiceScale = true,
-                    Min = definition.RequiresZero ? 0 : null,
-                    Max = ResolveYAxisMax(definition, series),
-                    ShowForNullSeries = false,
-                    TickAmount = 5,
-                }
-            ],
-        };
-    }
-
-    private static IReadOnlyList<AnalyticsChartPoint> BuildSeriesPoints(
-        IReadOnlyList<MetricSample> samples,
-        MetricDefinition definition,
-        long gapThresholdSeconds)
-    {
-        if (samples.Count == 0)
-            return [];
-
-        var points = new List<AnalyticsChartPoint>(samples.Count);
-        long? previousTimestamp = null;
-
-        foreach (var sample in samples)
-        {
-            if (previousTimestamp is { } previous &&
-                sample.TimestampUnixSeconds - previous > gapThresholdSeconds)
-            {
-                var gapTimestamp = previous + Math.Max(1, Math.Min(gapThresholdSeconds, (sample.TimestampUnixSeconds - previous) / 2));
-                points.Add(new AnalyticsChartPoint(ToLocalDateTime(gapTimestamp), null));
-            }
-
-            points.Add(new AnalyticsChartPoint(
-                ToLocalDateTime(sample.TimestampUnixSeconds),
-                TrySelectDecimal(definition, sample)));
-
-            previousTimestamp = sample.TimestampUnixSeconds;
-        }
-
-        return points;
-    }
-
-    private static decimal? TrySelectDecimal(MetricDefinition definition, MetricSample sample)
-    {
-        if (!definition.IsAvailable(sample))
-            return null;
-
-        var value = definition.Selector(sample);
-        return double.IsFinite(value) ? (decimal)value : null;
-    }
-
-    private static DateTime ToLocalDateTime(long timestampUnixSeconds) =>
-        DateTimeOffset.FromUnixTimeSeconds(timestampUnixSeconds).LocalDateTime;
-
-    private static long ResolveGapThresholdSeconds(IReadOnlyList<MetricSample> samples)
-    {
-        const long expectedSeconds = 2;
-        var medianIntervalSeconds = ResolveMedianIntervalSeconds(samples);
-        var cadenceSeconds = Math.Max(expectedSeconds, medianIntervalSeconds);
-
-        // Avoid tiny synthetic gap rows caused by sample jitter; keep a gap point only for
-        // clearly meaningful discontinuities.
-        return Math.Max(cadenceSeconds * 3, cadenceSeconds + Math.Max(1, cadenceSeconds / 2));
-    }
-
-    private static long ResolveMedianIntervalSeconds(IReadOnlyList<MetricSample> samples)
-    {
-        if (samples.Count < 2)
-            return 0;
-
-        var deltas = new List<long>(samples.Count - 1);
-        for (var i = 1; i < samples.Count; i++)
-        {
-            var delta = samples[i].TimestampUnixSeconds - samples[i - 1].TimestampUnixSeconds;
-            if (delta > 0)
-                deltas.Add(delta);
-        }
-
-        if (deltas.Count == 0)
-            return 0;
-
-        deltas.Sort();
-        return deltas[deltas.Count / 2];
-    }
-
-    private static int ResolveYAxisDecimals(MetricDefinition definition)
-    {
-        return definition.Key switch
-        {
-            "simspeed" => 2,
-            "cpu" or "memory" or "frametime" => 1,
-            _ => 0,
-        };
-    }
-
-    private static string? ResolveYAxisLabelFormatter(MetricDefinition definition)
-    {
-        return definition.Key switch
-        {
-            "pcu" => "function (value) { return value == null ? '' : Math.round(value / 1000) + 'k'; }",
-            _ => null,
-        };
-    }
-
-    private static decimal? ResolveYAxisMax(MetricDefinition definition)
-    {
-        return definition.Key switch
-        {
-            "simspeed" => 1.1m,
-            "frametime" => 100,
-            _ => null,
-        };
-    }
-
-    private static decimal? ResolveYAxisMax(MetricDefinition definition, IReadOnlyList<AnalyticsChartSeries> series)
-    {
-        return definition.Key switch
-        {
-            "players" => ResolveYAxisMaxForPlayers(series),
-            _ => ResolveYAxisMax(definition),
-        };
-    }
-
-    private static decimal? ResolveYAxisMaxForPlayers(IReadOnlyList<AnalyticsChartSeries> series)
-    {
-        var maxPlayers = series
-            .SelectMany(seriesPointGroup => seriesPointGroup.Points)
-            .Select(point => point.Value)
-            .OfType<decimal>()
-            .DefaultIfEmpty(0m)
-            .Max();
-
-        if (maxPlayers <= 0m)
-            return 5m;
-
-        return RoundUpToNearestMultiple(maxPlayers, 5m);
-    }
-
-    private static decimal RoundUpToNearestMultiple(decimal value, decimal multiple)
-    {
-        if (multiple <= 0m)
-            return value;
-
-        return Math.Ceiling(value / multiple) * multiple;
-    }
-
-    private string ResolveChartHeight(AnalyticsPanelConfig panel)
+    private int ResolveChartHeight(AnalyticsPanelConfig panel)
     {
         var rowHeight = Math.Max(180, _config.RowHeightPx);
         var rowSpan = Math.Max(1, panel.RowSpan);
-        var chartHeight = Math.Max(280, (rowHeight * rowSpan) - 88);
-        return chartHeight.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return Math.Max(280, (rowHeight * rowSpan) - 88);
     }
 
-    private string ResolveDisplayName(string uniqueName)
-    {
-        return _serverOptions.FirstOrDefault(option =>
-                   string.Equals(option.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
-               ?.DisplayName ?? uniqueName;
-    }
-
-    private string ResolveMetricTitle(string key)
-    {
-        return MetricDefinitions.FirstOrDefault(metric => string.Equals(metric.Key, key, StringComparison.OrdinalIgnoreCase))
-               ?.Title ?? key;
-    }
-
-    private static string ResolveTimeLabelFormat(long spanSeconds)
-    {
-        if (spanSeconds <= 24 * 3600)
-            return "HH:mm";
-
-        if (spanSeconds <= 7 * 86400)
-            return "MM-dd HH:mm";
-
-        return "MM-dd";
-    }
-
-    private static string ResolveTooltipTimeFormat(long spanSeconds)
-    {
-        if (spanSeconds <= 24 * 3600)
-            return "yyyy-MM-dd HH:mm:ss";
-
-        return "yyyy-MM-dd HH:mm";
-    }
+    private string ResolveMetricTitle(string key) => AnalyticsMetrics.Find(key)?.Title ?? key;
 
     private static AnalyticsViewConfig NormalizeConfig(AnalyticsViewConfig? config)
     {
@@ -1444,7 +993,7 @@ else
 
     private static List<AnalyticsPanelConfig> CreateDefaultPanels()
     {
-        return MetricDefinitions
+        return AnalyticsMetrics.All
             .Select((metric, index) => new AnalyticsPanelConfig
             {
                 Key = metric.Key,
@@ -1460,73 +1009,14 @@ else
 
     private sealed record SummaryChipModel(string Label, string Value);
 
-    private sealed record MetricDefinition(
+    private sealed record ChartCard(
         string Key,
         string Title,
         string Subtitle,
-        Func<MetricSample, double> Selector,
-        Func<MetricSample, bool> IsAvailable,
-        bool RequiresZero);
+        string ContainerId,
+        string LayoutStyle,
+        int Height,
+        AnalyticsPanelConfig Panel);
 
-    private sealed class ChartModel(string RenderKey, string Title, string Subtitle, List<AnalyticsChartSeries> Series, ApexCharts.ApexChartOptions<AnalyticsChartPoint> Options, string Height, string LayoutStyle, AnalyticsPanelConfig Panel)
-    {
-        public string RenderKey { get; } = RenderKey;
-        public string Title { get; private set; } = Title;
-        public string Subtitle { get; private set; } = Subtitle;
-        public List<AnalyticsChartSeries> Series { get; } = Series;
-        public ApexCharts.ApexChartOptions<AnalyticsChartPoint> Options { get; set; } = Options;
-        public string Height { get; private set; } = Height;
-        public string LayoutStyle { get; private set; } = LayoutStyle;
-        public AnalyticsPanelConfig Panel { get; private set; } = Panel;
-        public ApexChart<AnalyticsChartPoint>? ChartRef { get; set; }
-
-        public void Update(
-            string title,
-            string subtitle,
-            List<AnalyticsChartSeries> series,
-            ApexCharts.ApexChartOptions<AnalyticsChartPoint> options,
-            string height,
-            string layoutStyle,
-            AnalyticsPanelConfig panel)
-        {
-            Title = title;
-            Subtitle = subtitle;
-            Options = options;
-            Height = height;
-            LayoutStyle = layoutStyle;
-            Panel = panel;
-
-            var existingSeries = Series.ToDictionary(item => item.Name, StringComparer.OrdinalIgnoreCase);
-            Series.Clear();
-            foreach (var item in series)
-            {
-                if (existingSeries.TryGetValue(item.Name, out var existing))
-                {
-                    existing.ReplacePoints(item.Points);
-                    Series.Add(existing);
-                }
-                else
-                {
-                    Series.Add(item);
-                }
-            }
-        }
-    }
-
-    private readonly record struct SeriesTransformCacheKey(string Server, string Metric, long FromUnix, long ToUnix);
-
-    private sealed class AnalyticsChartSeries(string Name, IEnumerable<AnalyticsChartPoint> Points)
-    {
-        public string Name { get; } = Name;
-
-        public List<AnalyticsChartPoint> Points { get; } = Points.ToList();
-
-        public void ReplacePoints(IEnumerable<AnalyticsChartPoint> points)
-        {
-            Points.Clear();
-            Points.AddRange(points);
-        }
-    }
-
-    private sealed record AnalyticsChartPoint(DateTime Timestamp, decimal? Value);
+    private sealed record ChartSyncResult(bool Ok, int Charts, int Bytes, int? Status);
 }
