@@ -14,7 +14,7 @@ Managed servers run under
 plugin loader and launcher whose Plugin SDK contracts Quasar speaks. Quasar
 downloads the required Magnetar builds automatically.
 
-You can register new plugins by making PRs to the [MagnetarHub](https://github.com/viktor-ferenczi/magnetarhub).
+You can register new plugins by making PRs to the [MagnetarHub](https://github.com/viktor-ferenczi/MagnetarHub).
 
 ## Documentation
 

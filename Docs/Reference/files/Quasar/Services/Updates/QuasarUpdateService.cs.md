@@ -4,7 +4,7 @@
 
 ## Summary
 
-Hosted service that checks Quasar GitHub releases on Linux, discovers newer UI-worker and launcher assets from separate release tags, verifies `SHA256SUMS`, stages the UI worker under the Quasar updates directory, and activates a staged worker by writing `active-release.json` for Bootstrap. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI, raises `Changed` whenever status moves, and persists the operator-controlled prerelease stream flag.
+Hosted service that checks Quasar GitHub releases on Linux and Windows, discovers newer UI-worker and launcher assets from a unified combined release, verifies `SHA256SUMS`, stages the UI worker under the Quasar updates directory, and activates a staged worker by writing `active-release.json` for Bootstrap. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI, raises `Changed` whenever status moves, and persists the operator-controlled prerelease stream flag.
 
 ## Structure
 
@@ -41,4 +41,4 @@ Private nested DTOs `GitHubRelease` and `GitHubAsset` model the small subset of 
 
 ## Notes
 
-Linux UI-worker activation stays explicit from the Updates page. Launcher updates are reported in the UI, but the launcher itself installs them automatically from `quasar-linux-x64.tar.gz` and restarts under systemd. Staged UI payloads are rejected before activation when core Blazor/MudBlazor/app static assets are missing. The prerelease switch affects the running worker immediately; Bootstrap reads the persisted data-directory override after its next restart.
+UI-worker activation stays explicit from the Updates page on both Linux and Windows. Launcher updates are reported in the UI, but the launcher itself installs them automatically from the platform asset (`quasar-linux-x64.tar.gz` on Linux, `quasar-win-x64.zip` on Windows) and restarts: on Linux via systemd exit-75, on Windows by spawning a detached replacement launcher. Staged UI payloads are rejected before activation when core Blazor/MudBlazor/app static assets are missing. The prerelease switch affects the running worker immediately; Bootstrap reads the persisted data-directory override after its next restart.
