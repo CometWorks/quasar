@@ -158,8 +158,8 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
     {
         var profiles = new List<QuasarConfigProfile>
         {
-            CreateDefaultProfile("default-survival", "Survival (default)", 1),
-            CreateDefaultProfile("default-creative", "Creative (default)", 0),
+            CreateDefaultProfile("survival-default", "Survival (default)", 1),
+            CreateDefaultProfile("creative-default", "Creative (default)", 0),
         };
 
         if (saveToDisk)
