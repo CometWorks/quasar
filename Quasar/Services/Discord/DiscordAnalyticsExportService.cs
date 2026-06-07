@@ -96,8 +96,6 @@ public sealed class DiscordAnalyticsExportService
                 .AddField("Latest PCU", latest.UsedPcu.ToString(), inline: true)
                 .AddField("Latest Grids", latest.ActiveGridCount >= 0 ? latest.ActiveGridCount.ToString() : "n/a", inline: true)
                 .AddField("Latest Entities", latest.ActiveEntityCount >= 0 ? latest.ActiveEntityCount.ToString() : "n/a", inline: true)
-                .AddField("Latest Blocks", latest.TotalBlockCount >= 0 ? latest.TotalBlockCount.ToString() : "n/a", inline: true)
-                .AddField("Floating Objects", latest.FloatingObjectCount >= 0 ? latest.FloatingObjectCount.ToString() : "n/a", inline: true)
                 .AddField("Uptime", FormatUptime(snapshot), inline: true)
                 .AddField("State", snapshot?.State.ToString() ?? "Unknown", inline: true);
 

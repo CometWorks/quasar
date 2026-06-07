@@ -149,7 +149,6 @@ public class Program
             builder.Services.AddSingleton<MetricsStoreService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<MetricsStoreService>());
             builder.Services.AddSingleton<AnalyticsSeriesService>();
-            builder.Services.AddSingleton<ProfilerStoreService>();
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<EntityService>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
@@ -257,17 +256,6 @@ public class Program
             });
             if (authOptions.Enabled)
                 analyticsSeries.RequireAuthorization(QuasarPolicyNames.CanView);
-
-            var profilerSeries = app.MapGet("/api/analytics/profiler", (HttpContext context, ProfilerStoreService profilerStore) =>
-            {
-                var query = context.Request.Query;
-                _ = long.TryParse(query["from"], out var fromUnix);
-                _ = long.TryParse(query["to"], out var toUnix);
-                var servers = query["servers"].Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!).ToArray();
-                return Results.Json(profilerStore.Build(fromUnix, toUnix, servers));
-            });
-            if (authOptions.Enabled)
-                profilerSeries.RequireAuthorization(QuasarPolicyNames.CanView);
 
             // Generates a fresh configuration backup and streams it as a download.
             var backupDownload = app.MapGet("/api/backup/download", (QuasarBackupService backup) =>

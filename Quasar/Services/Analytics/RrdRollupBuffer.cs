@@ -19,8 +19,6 @@ public sealed class RrdRollupBuffer
     private int _activeGridCountSamples;
     private long _sumActiveEntityCount;
     private int _activeEntityCountSamples;
-    private int _maxTotalBlockCount = -1;
-    private int _maxFloatingObjectCount = -1;
 
     public RrdRollupBuffer(int capacity, int rollupIntervalSeconds)
     {
@@ -103,12 +101,6 @@ public sealed class RrdRollupBuffer
             _sumActiveEntityCount += sample.ActiveEntityCount;
             _activeEntityCountSamples++;
         }
-
-        if (sample.TotalBlockCount >= 0)
-            _maxTotalBlockCount = Math.Max(_maxTotalBlockCount, sample.TotalBlockCount);
-
-        if (sample.FloatingObjectCount >= 0)
-            _maxFloatingObjectCount = Math.Max(_maxFloatingObjectCount, sample.FloatingObjectCount);
     }
 
     private void FlushWindow()
@@ -125,9 +117,7 @@ public sealed class RrdRollupBuffer
             playersOnline: _maxPlayersOnline,
             usedPcu: _maxUsedPcu,
             activeGridCount: _activeGridCountSamples > 0 ? (int)MathF.Round((float)_sumActiveGridCount / _activeGridCountSamples) : -1,
-            activeEntityCount: _activeEntityCountSamples > 0 ? (int)MathF.Round((float)_sumActiveEntityCount / _activeEntityCountSamples) : -1,
-            totalBlockCount: _maxTotalBlockCount,
-            floatingObjectCount: _maxFloatingObjectCount);
+            activeEntityCount: _activeEntityCountSamples > 0 ? (int)MathF.Round((float)_sumActiveEntityCount / _activeEntityCountSamples) : -1);
 
         _buffer.Push(consolidated);
     }
@@ -147,7 +137,5 @@ public sealed class RrdRollupBuffer
         _activeGridCountSamples = 0;
         _sumActiveEntityCount = 0;
         _activeEntityCountSamples = 0;
-        _maxTotalBlockCount = -1;
-        _maxFloatingObjectCount = -1;
     }
 }

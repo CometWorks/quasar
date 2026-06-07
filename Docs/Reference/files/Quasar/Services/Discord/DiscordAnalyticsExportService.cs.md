@@ -3,7 +3,7 @@
 **Module:** Quasar.Services.Discord  **Kind:** class  **Tier:** 2
 
 ## Summary
-Periodically exports per-server analytics as Discord embeds to configured analytics channels. One background loop runs per enabled Discord server entry; each loop reads 1-minute metric samples from the metrics store and posts a rich embed with simspeed, CPU, memory, player, PCU, grid, entity, block, and floating-object counts.
+Periodically exports per-server analytics as Discord embeds to configured analytics channels. One background loop runs per enabled Discord server entry; each loop reads 1-minute metric samples from the metrics store and posts a rich embed with simspeed, CPU, memory, player, PCU, grid, and entity counts.
 
 ## Structure
 Namespace: `Quasar.Services.Discord`

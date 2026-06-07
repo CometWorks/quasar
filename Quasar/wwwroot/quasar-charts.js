@@ -37,11 +37,13 @@ window.quasarCharts = (function () {
         };
     }
 
-    // X-axis tick label: time only.
+    // Two-line tick label: "YYYY-MM-DD" over "HH:MM:SS". uPlot splits axis values on "\n".
     function formatTick(t) {
         const pad = (n) => (n < 10 ? "0" + n : "" + n);
         const d = new Date(t * 1000);
-        return pad(d.getHours()) + ":" + pad(d.getMinutes());
+        const date = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+        const time = pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+        return date + "\n" + time;
     }
 
     function buildYRange(axis) {
@@ -107,7 +109,7 @@ window.quasarCharts = (function () {
                     stroke: c.label,
                     grid: { show: false },
                     ticks: { stroke: c.tick, width: 1 },
-                    size: 36, // room for the time-only HH:MM label
+                    size: 52, // room for the two-line YYYY-MM-DD / HH:MM:SS label
                     values: (u, splits) => splits.map(formatTick),
                 },
                 {

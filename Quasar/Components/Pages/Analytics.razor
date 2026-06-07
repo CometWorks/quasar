@@ -690,7 +690,7 @@ else
                      .OrderBy(panel => panel.Order)
                      .ThenBy(panel => ResolveMetricTitle(panel.Key), StringComparer.OrdinalIgnoreCase))
         {
-            var metric = AnalyticsMetrics.FindPanel(panel.Key);
+            var metric = AnalyticsMetrics.Find(panel.Key);
             if (metric is null)
                 continue;
 
@@ -872,8 +872,6 @@ else
             _summaryChips.Add(new SummaryChipModel("PCU", "-"));
             _summaryChips.Add(new SummaryChipModel("Grids", "-"));
             _summaryChips.Add(new SummaryChipModel("Entities", "-"));
-            _summaryChips.Add(new SummaryChipModel("Blocks", "-"));
-            _summaryChips.Add(new SummaryChipModel("Floating", "-"));
             return;
         }
 
@@ -884,8 +882,6 @@ else
         var pcu = latestSamples.Sum(sample => sample.UsedPcu);
         var grids = latestSamples.Where(sample => sample.ActiveGridCount >= 0).Sum(sample => sample.ActiveGridCount);
         var entities = latestSamples.Where(sample => sample.ActiveEntityCount >= 0).Sum(sample => sample.ActiveEntityCount);
-        var blocks = latestSamples.Where(sample => sample.TotalBlockCount >= 0).Sum(sample => sample.TotalBlockCount);
-        var floating = latestSamples.Where(sample => sample.FloatingObjectCount >= 0).Sum(sample => sample.FloatingObjectCount);
 
         _summaryChips.Add(new SummaryChipModel("SimSpeed", simSpeed.ToString("0.000")));
         _summaryChips.Add(new SummaryChipModel("CPU", $"{cpu:0.0}%"));
@@ -894,8 +890,6 @@ else
         _summaryChips.Add(new SummaryChipModel("PCU", pcu.ToString()));
         _summaryChips.Add(new SummaryChipModel("Grids", grids > 0 ? grids.ToString() : "-"));
         _summaryChips.Add(new SummaryChipModel("Entities", entities > 0 ? entities.ToString() : "-"));
-        _summaryChips.Add(new SummaryChipModel("Blocks", blocks > 0 ? blocks.ToString() : "-"));
-        _summaryChips.Add(new SummaryChipModel("Floating", floating > 0 ? floating.ToString() : "-"));
 
         if (samplesByServer.Values.SelectMany(sampleSet => sampleSet).Any())
         {
@@ -946,7 +940,7 @@ else
         return Math.Max(280, (rowHeight * rowSpan) - 88);
     }
 
-    private string ResolveMetricTitle(string key) => AnalyticsMetrics.FindPanel(key)?.Title ?? key;
+    private string ResolveMetricTitle(string key) => AnalyticsMetrics.Find(key)?.Title ?? key;
 
     private static AnalyticsViewConfig NormalizeConfig(AnalyticsViewConfig? config)
     {
@@ -999,7 +993,7 @@ else
 
     private static List<AnalyticsPanelConfig> CreateDefaultPanels()
     {
-        return AnalyticsMetrics.Panels
+        return AnalyticsMetrics.All
             .Select((metric, index) => new AnalyticsPanelConfig
             {
                 Key = metric.Key,
