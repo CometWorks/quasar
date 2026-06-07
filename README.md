@@ -21,6 +21,8 @@ Documentation:
 
 - [Docs/Reference/TOC.md](Docs/Reference/TOC.md) — generated code handbook (per-file and per-module reference, with a flat [Index](Docs/Reference/Index.md))
 - [Docs/QuasarArchitecture.md](Docs/QuasarArchitecture.md) — architecture narrative and design rationale
+- [Docs/LinuxDeploymentAndUpdates.md](Docs/LinuxDeploymentAndUpdates.md) — Linux release assets, systemd install, and the auto-updater flow
+- [Docs/WindowsDeploymentAndUpdates.md](Docs/WindowsDeploymentAndUpdates.md) — Windows release assets, Scheduled Task install, and the auto-updater flow
 
 Build notes:
 
@@ -43,6 +45,14 @@ Linux service install:
 - Start or restart it with `sudo systemctl restart quasar.service` when ready.
 - `sudo ./uninstall.sh` removes the systemd service; add `--purge` to remove `/opt/quasar` too.
 
+Windows service install:
+
+- From an extracted `quasar-win-x64.zip`, run `./install.ps1` in an elevated PowerShell to install Quasar to `%ProgramFiles%\Quasar` and register a `Quasar` Scheduled Task.
+- The task starts the launcher at boot (`Quasar.exe serve --quiet`) and restarts it on failure (keep-alive); a Windows Service is intentionally out of scope.
+- The installer registers the task but does not start it unless `-Start` is passed.
+- It runs as `SYSTEM` by default; pass `-User <name>` for a specific service account.
+- `./uninstall.ps1` removes the Scheduled Task; add `-Purge` to remove the install directory too.
+
 Linux release packaging and updates:
 
 - `scripts/package-linux-release.sh` creates two release assets under `artifacts/linux/`:
@@ -54,6 +64,16 @@ Linux release packaging and updates:
 - Activating a staged UI update causes a short web listener disconnect: Bootstrap drains the old worker first, starts the staged worker on the same port, and managed Magnetar servers stay alive because they run detached.
 - Bootstrap checks the primary Quasar release stream every 5 minutes. When `quasar-linux-x64.tar.gz` has a newer version, Bootstrap verifies `SHA256SUMS`, replaces its installed launcher files, drains the UI worker, and exits so systemd restarts the updated launcher.
 - The release workflow is `.github/workflows/release-linux.yml`; tag pushes publish both Quasar UI and primary Quasar releases (`quasar-ui/v<version>` and `v<version>`). Pushes to `main` publish both streams as full releases (`quasar-ui/v0.1.0-main.<run-number>` and `v0.1.0-main.<run-number>`). Pull requests publish both streams as draft prereleases (`quasar-ui/pr-<number>/v0.1.0-pr.<number>.<run-number>` and `pr-<number>/v0.1.0-pr.<number>.<run-number>`). Manual runs can choose `all`, `ui`, or `bootstrap`. Assembly/file metadata is normalized to `major.minor.build`.
+
+Windows release packaging and updates:
+
+- `scripts/package-windows-release.ps1` creates the equivalent `win-x64` assets under `artifacts/windows/`:
+  - `quasar-win-x64.zip` — stable `Quasar.exe` launcher plus Windows `install.ps1`/`uninstall.ps1`.
+  - `quasar-web-win-x64.zip` — replaceable Quasar UI worker (`Quasar.exe`) plus bundled `Quasar.Agent` DLLs.
+- `SHA256SUMS` is published with those assets and verified before Bootstrap or Quasar extracts a downloaded web artifact, exactly as on Linux.
+- The auto-updater is platform-aware: it resolves the `.zip` Windows asset names on Windows and the `.tar.gz` Linux names elsewhere. On a Bootstrap self-update Windows spawns a detached replacement `Quasar.exe serve --quiet` and exits `0` (Linux still exits `75` for systemd).
+- The release workflow is `.github/workflows/release-windows.yml` on `windows-latest`; it publishes to Windows-specific tags (`win/v<version>` and `quasar-ui-win/v<version>`) so each OS keeps a distinct `SHA256SUMS`. Triggers, metadata, and draft/prerelease rules mirror the Linux workflow.
+- See [Docs/WindowsDeploymentAndUpdates.md](Docs/WindowsDeploymentAndUpdates.md) for details.
 
 Agent workflow note:
 

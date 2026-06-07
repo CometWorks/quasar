@@ -1,0 +1,301 @@
+name: release-windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: Release stream to publish
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - ui
+          - bootstrap
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release-windows.yml"
+      - "Directory.Build.props"
+      - "Magnetar.Protocol/**"
+      - "Quasar/**"
+      - "Quasar.Agent/**"
+      - "Quasar.Bootstrap/**"
+      - "Quasar.sln"
+      - "scripts/install.ps1"
+      - "scripts/package-windows-release.ps1"
+      - "scripts/uninstall.ps1"
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release-windows.yml"
+      - "Directory.Build.props"
+      - "Magnetar.Protocol/**"
+      - "Quasar/**"
+      - "Quasar.Agent/**"
+      - "Quasar.Bootstrap/**"
+      - "Quasar.sln"
+      - "scripts/install.ps1"
+      - "scripts/package-windows-release.ps1"
+      - "scripts/uninstall.ps1"
+
+permissions:
+  contents: write
+
+env:
+  SE_DS_APPID: "298740"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Probe Dedicated Server build id
+        id: dsbuild
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          New-Item -ItemType Directory -Force -Path steamcmd | Out-Null
+          Invoke-WebRequest -Uri 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip' -OutFile steamcmd.zip
+          Expand-Archive -Path steamcmd.zip -DestinationPath steamcmd -Force
+          $steamcmd = Join-Path (Resolve-Path steamcmd).Path 'steamcmd.exe'
+
+          $buildid = ''
+          foreach ($attempt in 1..5) {
+            $out = & $steamcmd +login anonymous +app_info_update 1 +app_info_print $env:SE_DS_APPID +quit 2>$null | Out-String
+            $inBranches = $false
+            $inPublic = $false
+            foreach ($line in ($out -split "`n")) {
+              if ($line -match '"branches"') { $inBranches = $true }
+              if ($inBranches -and $line -match '"public"') { $inPublic = $true }
+              if ($inPublic -and $line -match '"buildid"\s+"(\d+)"') { $buildid = $Matches[1]; break }
+            }
+            if ($buildid) { break }
+            Write-Host "Dedicated Server build id probe attempt $attempt empty; retrying..."
+            Start-Sleep -Seconds 5
+          }
+
+          if (-not $buildid) {
+            Write-Warning "could not determine DS build id; DS cache will miss this run."
+            $buildid = "norev-$env:GITHUB_RUN_ID"
+          }
+          Write-Host "Dedicated Server public build id: $buildid"
+          "buildid=$buildid" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+
+      - name: Cache Dedicated Server libraries
+        id: dscache
+        uses: actions/cache@v4
+        with:
+          path: ds64
+          key: ds64-windows-${{ steps.dsbuild.outputs.buildid }}
+
+      - name: Install Space Engineers Dedicated Server references
+        if: steps.dscache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $steamcmd = Join-Path (Resolve-Path steamcmd).Path 'steamcmd.exe'
+          New-Item -ItemType Directory -Force -Path dsfull | Out-Null
+          $dsfull = (Resolve-Path dsfull).Path
+
+          & $steamcmd +quit 2>$null | Out-Null
+
+          $ok = $false
+          foreach ($attempt in 1..5) {
+            Write-Host "SteamCMD install attempt $attempt/5"
+            # Native Windows depot; no +@sSteamCmdForcePlatformType override needed.
+            & $steamcmd +force_install_dir $dsfull +login anonymous +app_update $env:SE_DS_APPID validate +quit
+            if (Test-Path (Join-Path $dsfull 'DedicatedServer64\SpaceEngineersDedicated.exe')) { $ok = $true; break }
+            Write-Host "SteamCMD attempt $attempt did not complete the DS install; retrying..."
+            Start-Sleep -Seconds 5
+          }
+          if (-not $ok) {
+            Write-Error "SteamCMD failed to install Space Engineers Dedicated Server references."
+            exit 1
+          }
+
+          New-Item -ItemType Directory -Force -Path ds64 | Out-Null
+          Copy-Item -Path (Join-Path $dsfull 'DedicatedServer64\*') -Destination ds64 -Recurse -Force
+          Remove-Item -Recurse -Force dsfull
+          $size = (Get-ChildItem -Recurse -Force ds64 | Measure-Object -Property Length -Sum).Sum
+          Write-Host ("Cached DS library set: {0:N1} MB" -f ($size / 1MB))
+
+      - name: Resolve Quasar release metadata
+        id: release
+        shell: bash
+        env:
+          DISPATCH_COMPONENT: ${{ github.event.inputs.component || 'all' }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+        run: |
+          publish_ui="false"
+          publish_bootstrap="false"
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tag="$GITHUB_REF_NAME"
+            version="${tag#v}"
+            ui_tag="quasar-ui-win/v${version}"
+            bootstrap_tag="win/v${version}"
+            ui_name="Quasar UI (Windows) v${version}"
+            bootstrap_name="Quasar (Windows) v${version}"
+            draft="false"
+            prerelease="false"
+            publish_ui="true"
+            publish_bootstrap="true"
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            version="0.1.0-manual.${GITHUB_RUN_NUMBER}"
+            ui_tag="quasar-ui-win/v${version}"
+            bootstrap_tag="win/v${version}"
+            ui_name="Quasar UI (Windows) manual ${GITHUB_SHA::7}"
+            bootstrap_name="Quasar (Windows) manual ${GITHUB_SHA::7}"
+            draft="true"
+            prerelease="true"
+            case "$DISPATCH_COMPONENT" in
+              all)
+                publish_ui="true"
+                publish_bootstrap="true"
+                ;;
+              ui)
+                publish_ui="true"
+                ;;
+              bootstrap)
+                publish_bootstrap="true"
+                ;;
+              *)
+                echo "Unknown component: $DISPATCH_COMPONENT" >&2
+                exit 1
+                ;;
+            esac
+          elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+            version="0.1.0-main.${GITHUB_RUN_NUMBER}"
+            ui_tag="quasar-ui-win/v${version}"
+            bootstrap_tag="win/v${version}"
+            ui_name="Quasar UI (Windows) main ${GITHUB_SHA::7}"
+            bootstrap_name="Quasar (Windows) main ${GITHUB_SHA::7}"
+            draft="false"
+            prerelease="false"
+            publish_ui="true"
+            publish_bootstrap="true"
+          elif [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            if [[ -z "$PR_NUMBER" ]]; then
+              echo "Pull request number is not available." >&2
+              exit 1
+            fi
+            pr_sha="${PR_HEAD_SHA:-$GITHUB_SHA}"
+            version="0.1.0-pr.${PR_NUMBER}.${GITHUB_RUN_NUMBER}"
+            ui_tag="quasar-ui-win/pr-${PR_NUMBER}/v${version}"
+            bootstrap_tag="win/pr-${PR_NUMBER}/v${version}"
+            ui_name="Quasar UI (Windows) PR #${PR_NUMBER} ${pr_sha::7}"
+            bootstrap_name="Quasar (Windows) PR #${PR_NUMBER} ${pr_sha::7}"
+            draft="true"
+            prerelease="true"
+            publish_ui="true"
+            publish_bootstrap="true"
+          else
+            version="$(git rev-parse --short HEAD)"
+            ui_tag="quasar-ui-win/$version"
+            bootstrap_tag="win/$version"
+            ui_name="Quasar UI (Windows) $version"
+            bootstrap_name="Quasar (Windows) $version"
+            draft="true"
+            prerelease="true"
+            publish_ui="true"
+            publish_bootstrap="true"
+          fi
+          if [[ "$publish_ui" != "true" && "$publish_bootstrap" != "true" ]]; then
+            echo "No release stream selected for this change set." >&2
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "ui_tag=$ui_tag" >> "$GITHUB_OUTPUT"
+          echo "bootstrap_tag=$bootstrap_tag" >> "$GITHUB_OUTPUT"
+          echo "ui_name=$ui_name" >> "$GITHUB_OUTPUT"
+          echo "bootstrap_name=$bootstrap_name" >> "$GITHUB_OUTPUT"
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "publish_ui=$publish_ui" >> "$GITHUB_OUTPUT"
+          echo "publish_bootstrap=$publish_bootstrap" >> "$GITHUB_OUTPUT"
+          echo "Release streams: ui=$publish_ui bootstrap=$publish_bootstrap"
+
+      - name: Install Magnetar PluginSdk reference
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $release = gh api repos/viktor-ferenczi/Magnetar/releases/latest | ConvertFrom-Json
+          if ($release.draft -or $release.prerelease) {
+            throw "latest Magnetar release is not a full release"
+          }
+          $winAssets = @($release.assets | Where-Object { $_.name -like 'MagnetarForWindows-*.7z' })
+          if ($winAssets.Count -ne 1) {
+            $names = ($release.assets | ForEach-Object { $_.name }) -join ', '
+            throw "expected one MagnetarForWindows-*.7z asset, found $($winAssets.Count): $names"
+          }
+
+          $magnetarRoot = Join-Path $env:APPDATA 'Magnetar'
+          New-Item -ItemType Directory -Force -Path $magnetarRoot | Out-Null
+          Invoke-WebRequest -Uri $winAssets[0].browser_download_url -OutFile magnetar.7z
+          & 7z x magnetar.7z "-o$magnetarRoot" -y
+          if ($LASTEXITCODE -ne 0) { throw "7z extraction failed with exit code $LASTEXITCODE" }
+
+          $pluginSdk = Get-ChildItem -Path $magnetarRoot -Recurse -Filter PluginSdk.dll | Select-Object -First 1
+          if (-not $pluginSdk) { throw "PluginSdk.dll not found in Magnetar archive" }
+          "MagnetarBin=$($pluginSdk.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
+
+      - name: Package Windows release
+        shell: pwsh
+        env:
+          DS64: ${{ github.workspace }}\ds64
+        run: scripts/package-windows-release.ps1
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: quasar-windows
+          path: |
+            artifacts/windows/quasar-web-win-x64.zip
+            artifacts/windows/quasar-win-x64.zip
+            artifacts/windows/SHA256SUMS
+
+      - name: Attach UI artifact to GitHub release
+        if: steps.release.outputs.publish_ui == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.ui_tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.release.outputs.ui_name }}
+          draft: ${{ steps.release.outputs.draft }}
+          prerelease: ${{ steps.release.outputs.prerelease }}
+          files: |
+            artifacts/windows/quasar-web-win-x64.zip
+            artifacts/windows/SHA256SUMS
+
+      - name: Attach Bootstrap artifact to GitHub release
+        if: steps.release.outputs.publish_bootstrap == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.bootstrap_tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.release.outputs.bootstrap_name }}
+          draft: ${{ steps.release.outputs.draft }}
+          prerelease: ${{ steps.release.outputs.prerelease }}
+          files: |
+            artifacts/windows/quasar-win-x64.zip
+            artifacts/windows/SHA256SUMS

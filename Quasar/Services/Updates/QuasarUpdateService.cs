@@ -37,7 +37,7 @@ public sealed class QuasarUpdateService : BackgroundService
         _snapshot = new QuasarUpdateSnapshot
         {
             Enabled = options.Enabled,
-            SupportedPlatform = OperatingSystem.IsLinux(),
+            SupportedPlatform = OperatingSystem.IsLinux() || OperatingSystem.IsWindows(),
             CurrentVersion = webOptions.Version,
             CurrentBootstrapVersion = webOptions.BootstrapVersion,
             Status = QuasarUpdateStatus.Idle,
@@ -88,12 +88,12 @@ public sealed class QuasarUpdateService : BackgroundService
             return;
         }
 
-        if (!OperatingSystem.IsLinux())
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows())
         {
             SetSnapshot(_snapshot with
             {
                 Status = QuasarUpdateStatus.Idle,
-                Message = "Linux updates are implemented first; this platform is not managed yet.",
+                Message = "Automatic updates are not supported on this platform.",
             });
             return;
         }
@@ -107,8 +107,8 @@ public sealed class QuasarUpdateService : BackgroundService
                 Message = "Checking GitHub releases.",
             });
 
-            var webRelease = await GetLatestReleaseWithAssetAsync(_options.LinuxWebAssetName, cancellationToken).ConfigureAwait(false);
-            var bootstrapRelease = await GetLatestReleaseWithAssetAsync(_options.LinuxBootstrapAssetName, cancellationToken).ConfigureAwait(false);
+            var webRelease = await GetLatestReleaseWithAssetAsync(_options.WebAssetName, cancellationToken).ConfigureAwait(false);
+            var bootstrapRelease = await GetLatestReleaseWithAssetAsync(_options.BootstrapAssetName, cancellationToken).ConfigureAwait(false);
             if (webRelease is null && bootstrapRelease is null)
             {
                 SetSnapshot(_snapshot with
@@ -122,13 +122,13 @@ public sealed class QuasarUpdateService : BackgroundService
 
             var web = webRelease is null
                 ? null
-                : await BuildCandidateAsync(webRelease, _options.LinuxWebAssetName, _webOptions.Version, requiresPrivilegedInstall: false, cancellationToken)
+                : await BuildCandidateAsync(webRelease, _options.WebAssetName, _webOptions.Version, requiresPrivilegedInstall: false, cancellationToken)
                     .ConfigureAwait(false);
             var bootstrap = bootstrapRelease is null
                 ? null
                 : await BuildCandidateAsync(
                     bootstrapRelease,
-                    _options.LinuxBootstrapAssetName,
+                    _options.BootstrapAssetName,
                     string.IsNullOrWhiteSpace(_webOptions.BootstrapVersion) ? _webOptions.Version : _webOptions.BootstrapVersion,
                     requiresPrivilegedInstall: true,
                     cancellationToken)
@@ -138,7 +138,7 @@ public sealed class QuasarUpdateService : BackgroundService
             {
                 Status = web is null && bootstrap is null ? QuasarUpdateStatus.Idle : QuasarUpdateStatus.UpdateQueued,
                 Message = web is null && bootstrap is null
-                    ? "No newer Linux release found."
+                    ? "No newer release found."
                     : BuildReleaseFoundMessage(web, bootstrap),
                 LastCheckedUtc = DateTimeOffset.UtcNow,
                 Web = web,
@@ -180,7 +180,7 @@ public sealed class QuasarUpdateService : BackgroundService
         });
 
         var stageDirectory = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), candidate.Version);
-        var workerPath = Path.Combine(stageDirectory, QuasarWebReleaseLayout.WorkerExecutableName);
+        var workerPath = Path.Combine(stageDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName);
         if (!File.Exists(workerPath))
         {
             if (Directory.Exists(stageDirectory))
@@ -296,7 +296,7 @@ public sealed class QuasarUpdateService : BackgroundService
         if (web is not null)
             return $"UI {web.Version} found.";
 
-        return bootstrap is null ? "No newer Linux release found." : $"Bootstrap {bootstrap.Version} found.";
+        return bootstrap is null ? "No newer release found." : $"Bootstrap {bootstrap.Version} found.";
     }
 
     private async Task<GitHubRelease?> GetLatestReleaseWithAssetAsync(string assetName, CancellationToken cancellationToken)
@@ -400,7 +400,7 @@ public sealed class QuasarUpdateService : BackgroundService
         var stageDirectory = requiresPrivilegedInstall
             ? null
             : Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), version);
-        var isStaged = stageDirectory is not null && File.Exists(Path.Combine(stageDirectory, "Quasar"));
+        var isStaged = stageDirectory is not null && File.Exists(Path.Combine(stageDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName));
         return new QuasarUpdateCandidate
         {
             Version = version,
@@ -469,7 +469,7 @@ public sealed class QuasarUpdateService : BackgroundService
             _snapshot = snapshot with
             {
                 Enabled = _options.Enabled,
-                SupportedPlatform = OperatingSystem.IsLinux(),
+                SupportedPlatform = OperatingSystem.IsLinux() || OperatingSystem.IsWindows(),
                 CurrentVersion = _webOptions.Version,
                 CurrentBootstrapVersion = _webOptions.BootstrapVersion,
                 LastChangedUtc = DateTimeOffset.UtcNow,
