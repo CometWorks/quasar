@@ -74,12 +74,12 @@ jobs:
             draft="false"
             prerelease="false"
           elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            version="0.1.0-manual.${GITHUB_RUN_NUMBER}"
+            version="0.1.1-manual.${GITHUB_RUN_NUMBER}"
             tag="v${version}"
             draft="true"
             prerelease="true"
           elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
-            version="0.1.0-main.${GITHUB_RUN_NUMBER}"
+            version="0.1.1-main.${GITHUB_RUN_NUMBER}"
             tag="v${version}"
             draft="false"
             prerelease="false"
@@ -88,7 +88,7 @@ jobs:
               echo "Pull request number is not available." >&2
               exit 1
             fi
-            version="0.1.0-pr.${PR_NUMBER}.${GITHUB_RUN_NUMBER}"
+            version="0.1.1-pr.${PR_NUMBER}.${GITHUB_RUN_NUMBER}"
             tag="pr-${PR_NUMBER}/v${version}"
             draft="true"
             prerelease="true"

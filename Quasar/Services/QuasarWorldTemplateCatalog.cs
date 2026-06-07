@@ -92,6 +92,7 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
 
         var template = Normalize(new QuasarWorldTemplate
         {
+            WorldTemplateId = GenerateUniqueTemplateId(name),
             Name = name,
             Description = description,
         });
@@ -245,6 +246,27 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
             Directory.Delete(worldDir, recursive: true);
 
         _logger.LogInformation("Deleted Quasar world template {WorldTemplateId}", worldTemplateId);
+    }
+
+    /// <summary>
+    /// Derives a folder/identifier slug from the template name, appending a
+    /// "-N" suffix when needed so it does not collide with an existing template.
+    /// </summary>
+    private string GenerateUniqueTemplateId(string name) =>
+        IdentifierSlug.CreateUnique(name, "world", TemplateIdExists);
+
+    private bool TemplateIdExists(string candidate)
+    {
+        lock (_sync)
+        {
+            if (_templates.Any(t =>
+                    string.Equals(t.WorldTemplateId, candidate, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return Directory.Exists(MagnetarPaths.GetQuasarWorldTemplateDirectory(candidate));
     }
 
     private static QuasarWorldTemplate Normalize(QuasarWorldTemplate template)

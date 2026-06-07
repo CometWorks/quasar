@@ -444,7 +444,7 @@
         if (_isEditing || _identifierManuallyEdited)
             return;
 
-        _editor.UniqueName = SlugifyForIdentifier(_editor.DisplayName);
+        _editor.UniqueName = ServerCatalog.GenerateUniqueServerName(_editor.DisplayName);
     }
 
     private void HandleIdentifierChanged(string value)
@@ -518,41 +518,6 @@
             !string.Equals(server.UniqueName, originalUniqueName, StringComparison.OrdinalIgnoreCase));
 
         return conflict is null ? null : $"Port already used by server '{conflict.UniqueName}'.";
-    }
-
-    private static string SlugifyForIdentifier(string source)
-    {
-        if (string.IsNullOrWhiteSpace(source))
-            return string.Empty;
-
-        var trimmed = source.Trim().ToLowerInvariant();
-        var builder = new System.Text.StringBuilder(trimmed.Length);
-        char lastAppended = '\0';
-
-        foreach (var ch in trimmed)
-        {
-            char mapped;
-            if (char.IsLetterOrDigit(ch))
-            {
-                mapped = ch;
-            }
-            else if (ch is '-' or '_' || char.IsWhiteSpace(ch))
-            {
-                mapped = '-';
-            }
-            else
-            {
-                continue;
-            }
-
-            if (mapped == '-' && lastAppended == '-')
-                continue;
-
-            builder.Append(mapped);
-            lastAppended = mapped;
-        }
-
-        return builder.ToString().Trim('-');
     }
 
     private void Cancel()

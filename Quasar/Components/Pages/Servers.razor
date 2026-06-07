@@ -419,18 +419,35 @@
             return;
         }
 
-        var confirmed = await DialogService.ShowMessageBoxAsync(
-            "Delete server?",
-            $"Server definition '{uniqueName}' will be removed from the active catalog and archived in the server history folder as a deleted JSON snapshot. World files, rendered server config, logs, and server folders stay on disk; Quasar does not move them to the OS Trash yet.",
-            yesText: "Delete",
-            cancelText: "Cancel");
+        var folder = MagnetarPaths.GetQuasarServerDirectory(uniqueName);
 
-        if (confirmed != true)
+        var confirmParameters = new DialogParameters
+        {
+            ["Slug"] = uniqueName,
+            ["FolderPath"] = folder,
+            ["Confirm"] = true,
+        };
+        var confirmDialog = await DialogService.ShowAsync<ServerDeleteDialog>(
+            "Delete server?",
+            confirmParameters,
+            new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small });
+        var confirmResult = await confirmDialog.Result;
+        if (confirmResult is null || confirmResult.Canceled)
             return;
 
         await ServerCatalog.DeleteAsync(uniqueName);
         Registry.PruneDisconnectedByUniqueName(uniqueName);
-        Snackbar.Add("Server removed.", Severity.Info);
+
+        var removedParameters = new DialogParameters
+        {
+            ["Slug"] = uniqueName,
+            ["FolderPath"] = folder,
+            ["Confirm"] = false,
+        };
+        await DialogService.ShowAsync<ServerDeleteDialog>(
+            "Server removed",
+            removedParameters,
+            new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small });
     }
 
     private string GetAttachmentStatus(string uniqueName)

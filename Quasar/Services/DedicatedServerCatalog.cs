@@ -74,17 +74,40 @@ public sealed class DedicatedServerCatalog : IDisposable
         if (string.IsNullOrWhiteSpace(normalized.WorldTemplateId))
             throw new InvalidOperationException("World template required.");
 
-        var previousUniqueName = string.IsNullOrWhiteSpace(normalized.OriginalUniqueName)
+        // A new server has no OriginalUniqueName yet (every saved server carries one). For a
+        // new server previousUniqueName stays equal to its own name so PrepareStorageForSave
+        // remains a no-op rather than trying to move a "previous" directory that never existed.
+        var isNew = string.IsNullOrWhiteSpace(definition.OriginalUniqueName);
+        var previousUniqueName = isNew
             ? normalized.UniqueName
             : normalized.OriginalUniqueName;
 
         lock (_sync)
         {
-            if (_servers.Any(server =>
+            // For a new server, excluding the "previous" name (which equals its own) would hide
+            // a real collision, so check existence directly. For an edit/rename, exclude the
+            // server's own previous name.
+            var collides = isNew
+                ? _servers.Any(server =>
+                    string.Equals(server.UniqueName, normalized.UniqueName, StringComparison.OrdinalIgnoreCase))
+                : _servers.Any(server =>
                     string.Equals(server.UniqueName, normalized.UniqueName, StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(server.UniqueName, previousUniqueName, StringComparison.OrdinalIgnoreCase)))
+                    !string.Equals(server.UniqueName, previousUniqueName, StringComparison.OrdinalIgnoreCase));
+
+            if (collides)
             {
-                throw new InvalidOperationException($"A server named '{normalized.UniqueName}' already exists.");
+                // A brand-new server auto-bumps to a free slug; an explicit rename onto an
+                // existing server's name stays an error so we never clobber another server.
+                if (isNew)
+                {
+                    normalized.UniqueName = GenerateUniqueServerName(normalized.UniqueName);
+                    normalized.OriginalUniqueName = normalized.UniqueName;
+                    previousUniqueName = normalized.UniqueName;
+                }
+                else
+                {
+                    throw new InvalidOperationException($"A server named '{normalized.UniqueName}' already exists.");
+                }
             }
         }
 
@@ -340,6 +363,27 @@ public sealed class DedicatedServerCatalog : IDisposable
     {
         var normalized = WhitespaceRegex.Replace(displayName?.Trim() ?? string.Empty, " ");
         return string.IsNullOrWhiteSpace(normalized) ? uniqueName : normalized;
+    }
+
+    /// <summary>
+    /// Derives a unique-name slug from the supplied text, appending a "-N" suffix when
+    /// needed so it does not collide with an existing server (in memory or on disk).
+    /// </summary>
+    public string GenerateUniqueServerName(string name) =>
+        IdentifierSlug.CreateUnique(name, "server", ServerNameExists);
+
+    private bool ServerNameExists(string candidate)
+    {
+        lock (_sync)
+        {
+            if (_servers.Any(server =>
+                    string.Equals(server.UniqueName, candidate, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return Directory.Exists(MagnetarPaths.GetQuasarServerDirectory(candidate));
     }
 
     private static void ValidateUniqueName(string uniqueName)

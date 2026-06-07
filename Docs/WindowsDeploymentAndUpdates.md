@@ -56,8 +56,10 @@ combined release.
 
 ## First Start
 
-The Scheduled Task runs Bootstrap as `Quasar.exe serve --quiet` from the install
-directory (default `%ProgramFiles%\Quasar`).
+The Scheduled Task runs Bootstrap as `Quasar.exe serve --quiet --service` from
+the install directory (default `%ProgramFiles%\Quasar`). Bootstrap is the direct
+task action — no `cmd.exe` wrapper — so Task Scheduler's job object covers the
+Bootstrap process itself, and stopping the task terminates it cleanly.
 
 If Bootstrap has no usable `Updates/active-release.json` and no packaged
 `WebService/Quasar.exe`, it downloads the latest Windows web asset from GitHub and
@@ -100,11 +102,11 @@ systemd to restart it — that path is unchanged.
 ```
 
 `install.ps1` registers a Scheduled Task (`Quasar` by default) that starts at boot
-and restarts the launcher on failure. The task action runs through `cmd.exe` so the
-service-mode environment variables (`QUASAR_MODE=Service`,
-`QUASAR_OPEN_BROWSER_ON_START=false`) are set for the worker, mirroring the systemd
-`Environment=` lines. It runs as `SYSTEM` by default; pass `-User <name>` for a
-specific service account.
+and restarts the launcher on failure. Bootstrap is the direct task executable
+(`Quasar.exe serve --quiet --service`); service mode is signalled via the
+`--service` flag rather than environment variables, which also ensures Task
+Scheduler's job object covers Bootstrap so stopping the task terminates it. It
+runs as `SYSTEM` by default; pass `-User <name>` for a specific service account.
 
 ```powershell
 .\uninstall.ps1          # stop and remove the task

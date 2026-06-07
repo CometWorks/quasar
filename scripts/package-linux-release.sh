@@ -7,7 +7,7 @@ ARTIFACT_DIR="$REPO_DIR/artifacts/linux"
 CONFIGURATION="${CONFIGURATION:-Release}"
 RUNTIME="${RUNTIME:-linux-x64}"
 VERSION="${VERSION:-}"
-ASSEMBLY_FILE_VERSION="0.1.0"
+ASSEMBLY_FILE_VERSION="0.1.1"
 NUGET_VERSION="$VERSION"
 
 normalize_version_component() {
@@ -27,7 +27,7 @@ normalize_nuget_version() {
     version="${version%%+*}"
 
     if [[ -z "$version" ]]; then
-        echo "0.1.0"
+        echo "0.1.1"
         return
     fi
 
@@ -48,7 +48,7 @@ normalize_nuget_version() {
     if [[ -z "$suffix" ]]; then
         suffix="local"
     fi
-    echo "0.1.0-${suffix}"
+    echo "0.1.1-${suffix}"
 }
 
 build_assembly_file_version() {

@@ -34,7 +34,7 @@ public static class QuasarNetworkTypeExtensions
 
 public sealed class QuasarConfigProfile
 {
-    public string ConfigProfileId { get; set; } = Guid.NewGuid().ToString("N");
+    public string ConfigProfileId { get; set; } = string.Empty;
 
     public string Name { get; set; } = string.Empty;
 

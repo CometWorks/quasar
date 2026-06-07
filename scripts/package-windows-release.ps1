@@ -21,7 +21,7 @@ $ArtifactDir = Join-Path $RepoDir 'artifacts\windows'
 $Configuration = if ($env:CONFIGURATION) { $env:CONFIGURATION } else { 'Release' }
 $Runtime = if ($env:RUNTIME) { $env:RUNTIME } else { 'win-x64' }
 $Version = if ($env:VERSION) { $env:VERSION } else { '' }
-$DefaultAssemblyFileVersion = '0.1.0'
+$DefaultAssemblyFileVersion = '0.1.1'
 
 function Normalize-VersionComponent {
     param([string]$Value)
@@ -38,7 +38,7 @@ function Normalize-NugetVersion {
     $plus = $v.IndexOf('+')
     if ($plus -ge 0) { $v = $v.Substring(0, $plus) }
 
-    if ([string]::IsNullOrEmpty($v)) { return '0.1.0' }
+    if ([string]::IsNullOrEmpty($v)) { return '0.1.1' }
 
     if ($v -match '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$') { return $v }
 
@@ -51,7 +51,7 @@ function Normalize-NugetVersion {
     $suffix = $suffix -replace '^\.', ''
     $suffix = $suffix -replace '^-', ''
     if ([string]::IsNullOrEmpty($suffix)) { $suffix = 'local' }
-    return "0.1.0-$suffix"
+    return "0.1.1-$suffix"
 }
 
 function Build-AssemblyFileVersion {

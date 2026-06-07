@@ -904,7 +904,7 @@
         if (template is null)
             return;
 
-        template.ConfigProfileId = Guid.NewGuid().ToString();
+        template.ConfigProfileId = string.Empty;
         template.Name = $"{template.Name} (Copy)";
         await ConfigProfiles.UpsertAsync(template);
         SelectProfile(template.ConfigProfileId);

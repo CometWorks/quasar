@@ -67,6 +67,9 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
     {
         ArgumentNullException.ThrowIfNull(profile);
 
+        if (string.IsNullOrWhiteSpace(profile.ConfigProfileId))
+            profile.ConfigProfileId = GenerateUniqueProfileId(profile.Name);
+
         var normalized = Normalize(Clone(profile));
 
         lock (_sync)
@@ -408,4 +411,25 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
 
     private static string GetProfileHistoryDirectory(string configProfileId) =>
         Path.Combine(GetProfileDirectory(configProfileId), "History");
+
+    /// <summary>
+    /// Derives a folder/identifier slug from the profile name, appending a "-N" suffix
+    /// when needed so it does not collide with an existing profile (in memory or on disk).
+    /// </summary>
+    private string GenerateUniqueProfileId(string name) =>
+        IdentifierSlug.CreateUnique(name, "config", ProfileIdExists);
+
+    private bool ProfileIdExists(string candidate)
+    {
+        lock (_sync)
+        {
+            if (_profiles.Any(profile =>
+                    string.Equals(profile.ConfigProfileId, candidate, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return Directory.Exists(GetProfileDirectory(candidate));
+    }
 }
