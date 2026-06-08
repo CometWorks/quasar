@@ -58,7 +58,8 @@ metadata is normalized to `major.minor.build`.
 
 ## First Start
 
-The systemd service runs Bootstrap from `/opt/quasar/Quasar serve --quiet`.
+The systemd service runs Bootstrap from `/opt/quasar/Quasar serve --quiet` and
+sets `QUASAR_DATA_DIR` to the run user's Quasar data directory.
 
 If Bootstrap has no usable `Updates/active-release.json` and no packaged
 `WebService/Quasar`, it downloads the latest Linux web asset from GitHub,
@@ -130,10 +131,14 @@ sudo /tmp/quasar/install.sh          # publish to /opt/quasar and install quasar
 sudo /tmp/quasar/install.sh --start  # also start the service immediately
 ```
 
-`install.sh` publishes Quasar to `/opt/quasar` and installs `quasar.service`. The
-service grants `CAP_SYS_NICE` through systemd ambient capabilities so Quasar can
-raise managed server priority via `renice`. The installer enables the service but
-does not start or restart it unless `--start` is passed; start it later with
+`install.sh` publishes Quasar to `/opt/quasar`, creates the Quasar data directory
+at the run user's `~/.config/Quasar` by default, and installs `quasar.service`.
+Use `--data-dir <dir>` to place Quasar state elsewhere. The generated service
+sets `HOME` and `QUASAR_DATA_DIR` explicitly so Bootstrap and the worker never
+fall back to the install directory for update/runtime state. The service grants
+`CAP_SYS_NICE` through systemd ambient capabilities so Quasar can raise managed
+server priority via `renice`. The installer enables the service but does not
+start or restart it unless `--start` is passed; start it later with
 `sudo systemctl restart quasar.service`. When installing from source instead of
 an extracted release archive, the installer stamps the launcher with `VERSION`,
 an exact git tag, or a short commit-derived prerelease identity so Bootstrap
@@ -155,9 +160,9 @@ For the web UI host/port (including how to change the listening port, default
 
 Update defaults live in `Quasar:Updates`. Packaged defaults come from the install
 directory, and operator overrides can live in the Quasar data directory
-(`~/.config/Quasar/appsettings.json`, or `QUASAR_DATA_DIR/appsettings.json` when
-overridden). The worker and Bootstrap both read that data-directory file on
-startup.
+(`~/.config/Quasar/appsettings.json` by default for Linux systemd installs, or
+`QUASAR_DATA_DIR/appsettings.json` when overridden). The worker and Bootstrap
+both read that data-directory file on startup.
 
 ```json
 {

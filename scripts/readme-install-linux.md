@@ -28,9 +28,10 @@ tar -xzf quasar-linux-x64.tar.gz -C /tmp/quasar
 sudo /tmp/quasar/install.sh --start
 ```
 
-This installs Quasar to `/opt/quasar` and starts `quasar.service`. The web UI is
-then served at `http://localhost:8080`. Manage the service with the usual
-systemd commands:
+This installs Quasar to `/opt/quasar`, creates the run user's
+`~/.config/Quasar` data directory, and starts `quasar.service`. Pass
+`--data-dir <dir>` to store Quasar state elsewhere. The web UI is then served at
+`http://localhost:8080`. Manage the service with the usual systemd commands:
 
 ```bash
 sudo systemctl status  quasar.service

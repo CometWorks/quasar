@@ -405,7 +405,8 @@ else
                             Agent="@GetAgent(server.UniqueName)"
                             StartRequested="StartAsync"
                             StopRequested="StopAsync"
-                            RestartRequested="RestartAsync" />
+                            RestartRequested="RestartAsync"
+                            OpenLogsRequested="OpenLogsAsync" />
             </MudItem>
         }
     </MudGrid>
@@ -670,6 +671,23 @@ else
         {
             Snackbar.Add(exception.Message, Severity.Error);
         }
+    }
+
+    private async Task OpenLogsAsync(string uniqueName)
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(ServerConsoleDialog.UniqueName)] = uniqueName,
+        };
+
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            FullWidth = true,
+            MaxWidth = MaxWidth.Large,
+        };
+
+        await DialogService.ShowAsync<ServerConsoleDialog>($"Logs — {uniqueName}", parameters, options);
     }
 
     private bool IsRunning(string uniqueName)

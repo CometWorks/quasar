@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SERVICE_NAME="quasar"
 INSTALL_DIR="/opt/quasar"
+DATA_DIR=""
 CONFIGURATION="Release"
 RUNTIME="linux-x64"
 ENABLE_SERVICE=true
@@ -26,6 +27,7 @@ running them.
 
 Options:
   --install-dir <dir>       Install directory (default: /opt/quasar)
+  --data-dir <dir>          Quasar data directory (default: <run-user-home>/.config/Quasar)
   --service-name <name>     systemd service name (default: quasar)
   --user <user>             User to run Quasar as (default: sudo caller)
   --configuration <name>    Build configuration (default: Release)
@@ -274,6 +276,10 @@ while [[ $# -gt 0 ]]; do
             INSTALL_DIR="${2:?Missing value for --install-dir}"
             shift 2
             ;;
+        --data-dir)
+            DATA_DIR="${2:?Missing value for --data-dir}"
+            shift 2
+            ;;
         --service-name)
             SERVICE_NAME="${2:?Missing value for --service-name}"
             shift 2
@@ -344,6 +350,11 @@ if [[ -z "$RUN_HOME" ]]; then
     echo "Could not resolve home directory for '$RUN_USER'." >&2
     exit 1
 fi
+if [[ -z "$DATA_DIR" ]]; then
+    DATA_DIR="$RUN_HOME/.config/Quasar"
+fi
+INSTALL_DIR="$(realpath -m "$INSTALL_DIR")"
+DATA_DIR="$(realpath -m "$DATA_DIR")"
 
 case "$INSTALL_DIR" in
     ""|"/"|"/bin"|"/boot"|"/dev"|"/etc"|"/home"|"/lib"|"/lib64"|"/proc"|"/root"|"/run"|"/sbin"|"/sys"|"/tmp"|"/usr"|"/var")
@@ -351,6 +362,18 @@ case "$INSTALL_DIR" in
         exit 1
         ;;
 esac
+
+case "$DATA_DIR" in
+    ""|"/"|"/bin"|"/boot"|"/dev"|"/etc"|"/home"|"/lib"|"/lib64"|"/proc"|"/root"|"/run"|"/sbin"|"/sys"|"/tmp"|"/usr"|"/var")
+        echo "Refusing unsafe data directory: $DATA_DIR" >&2
+        exit 1
+        ;;
+esac
+
+if [[ "$DATA_DIR" == "$INSTALL_DIR" || "$DATA_DIR" == "$INSTALL_DIR"/* ]]; then
+    echo "Data directory must not be inside the install directory: $DATA_DIR" >&2
+    exit 1
+fi
 
 require_dotnet_installation
 
@@ -396,6 +419,7 @@ fi
 
 echo "Installing Quasar to $INSTALL_DIR..."
 install -d -m 0755 -o "$RUN_USER" -g "$RUN_GROUP" "$INSTALL_DIR"
+install -d -m 0755 -o "$RUN_USER" -g "$RUN_GROUP" "$DATA_DIR"
 find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 cp -a "$PUBLISH_DIR/." "$INSTALL_DIR/"
 chown -R "$RUN_USER:$RUN_GROUP" "$INSTALL_DIR"
@@ -426,6 +450,8 @@ TimeoutStopSec=1800
 SuccessExitStatus=130 143
 Environment=QUASAR_MODE=Service
 Environment=QUASAR_OPEN_BROWSER_ON_START=false
+Environment=HOME=$RUN_HOME
+Environment=QUASAR_DATA_DIR=$DATA_DIR
 AmbientCapabilities=CAP_SYS_NICE
 CapabilityBoundingSet=CAP_SYS_NICE
 NoNewPrivileges=false
@@ -449,6 +475,7 @@ Installed Quasar.
 
 Service:     $SERVICE_NAME.service
 Install dir: $INSTALL_DIR
+Data dir:    $DATA_DIR
 Run user:    $RUN_USER
 
 CAP_SYS_NICE is configured through systemd:

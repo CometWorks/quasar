@@ -354,8 +354,8 @@
       "path": "Quasar.Agent/GameBridge.cs",
       "name": "GameBridge.cs",
       "ext": ".cs",
-      "size": 38516,
-      "sha256": "1ee06c68aabb19eab478ff01accab956a6c73ab0d4dedfdc283df9808d76939c",
+      "size": 40465,
+      "sha256": "ca76f90213c8eefe0de9c757ed457c5b65ef9a4edebd8185d7035b3609e75e04",
       "module": "Quasar.Agent",
       "tier": 1,
       "status": "pending"
@@ -444,8 +444,8 @@
       "path": "Quasar/Components/Dashboard/ServerCard.razor",
       "name": "ServerCard.razor",
       "ext": ".razor",
-      "size": 6353,
-      "sha256": "24da9e6970a1014b4f400c923cfb3da2b11ac4342deac0ef9d6846040161fbc4",
+      "size": 6899,
+      "sha256": "e3d8efb87fe0c3612821a97d67a07352ee01cd57336a1b69b839c924dd980607",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -684,8 +684,8 @@
       "path": "Quasar/Components/Pages/Home.razor",
       "name": "Home.razor",
       "ext": ".razor",
-      "size": 36136,
-      "sha256": "55f4d2dcf741ae5af3d2897c92cba9a0151c764ec629d566f820022381863f52",
+      "size": 36677,
+      "sha256": "accacfa9800b32570705bf1360bbdcb295adf32b2ceb681de238948cf5e34c42",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"

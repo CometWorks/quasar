@@ -18,7 +18,8 @@ worker** read JSON config from these locations, later ones overriding earlier:
 2. The Quasar **data directory** `appsettings.json` — the recommended place for
    persistent local overrides because it is never touched by updates:
    - Windows: `%APPDATA%\Quasar\appsettings.json`
-   - Linux: `~/.config/Quasar/appsettings.json` (or `$QUASAR_DATA_DIR/appsettings.json`)
+   - Linux: `~/.config/Quasar/appsettings.json` by default for `install.sh`
+     systemd installs (or `$QUASAR_DATA_DIR/appsettings.json`)
 
 The shipped defaults are defined in [`Quasar/appsettings.json`](../Quasar/appsettings.json).
 
