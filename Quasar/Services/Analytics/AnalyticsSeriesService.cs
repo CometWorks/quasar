@@ -190,15 +190,21 @@ public sealed class AnalyticsSeriesService
         if (metrics.Count == 0)
             return [];
 
-        var (bucketWidth, alignedFrom, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
-        var response = _profilerStore.Build(alignedFrom, toUnix, servers);
-        if (response.Servers.Count == 0)
+        var serverKeys = servers
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (serverKeys.Count == 0)
             return [];
 
-        var serverBuckets = new List<ServerBuckets>(response.Servers.Count);
+        var (bucketWidth, alignedFrom, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
+        var response = _profilerStore.Build(alignedFrom, toUnix, serverKeys);
+        var samplesByServer = response.Servers.ToDictionary(server => server.UniqueName, StringComparer.OrdinalIgnoreCase);
+
+        var serverBuckets = new List<ServerBuckets>(serverKeys.Count);
         var bucketHasData = new bool[bucketCount];
 
-        foreach (var server in response.Servers)
+        foreach (var uniqueName in serverKeys)
         {
             var sums = new double[metrics.Count][];
             var counts = new int[metrics.Count][];
@@ -206,6 +212,12 @@ public sealed class AnalyticsSeriesService
             {
                 sums[mi] = new double[bucketCount];
                 counts[mi] = new int[bucketCount];
+            }
+
+            if (!samplesByServer.TryGetValue(uniqueName, out var server))
+            {
+                serverBuckets.Add(new ServerBuckets(uniqueName, sums, counts));
+                continue;
             }
 
             foreach (var sample in server.Samples)
@@ -232,7 +244,7 @@ public sealed class AnalyticsSeriesService
                     bucketHasData[bucket] = true;
             }
 
-            serverBuckets.Add(new ServerBuckets(server.UniqueName, sums, counts));
+            serverBuckets.Add(new ServerBuckets(uniqueName, sums, counts));
         }
 
         var kept = new List<int>(bucketCount);
@@ -241,9 +253,6 @@ public sealed class AnalyticsSeriesService
             if (bucketHasData[bucket])
                 kept.Add(bucket);
         }
-
-        if (kept.Count == 0)
-            return [];
 
         var x = new long[kept.Count];
         for (var i = 0; i < kept.Count; i++)
@@ -260,7 +269,6 @@ public sealed class AnalyticsSeriesService
                 var sums = server.Sums[mi];
                 var counts = server.Counts[mi];
                 var y = new double?[kept.Count];
-                var any = false;
 
                 for (var i = 0; i < kept.Count; i++)
                 {
@@ -269,15 +277,10 @@ public sealed class AnalyticsSeriesService
                         continue;
 
                     y[i] = Math.Round(sums[bucket] / counts[bucket], metric.Decimals + 2, MidpointRounding.AwayFromZero);
-                    any = true;
                 }
 
-                if (any)
-                    seriesList.Add(new AnalyticsSeriesDto(server.UniqueName, y));
+                seriesList.Add(new AnalyticsSeriesDto(server.UniqueName, y));
             }
-
-            if (seriesList.Count == 0)
-                continue;
 
             var axis = new AnalyticsAxisDto(
                 Min: metric.RequiresZero ? 0 : null,

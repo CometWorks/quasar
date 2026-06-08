@@ -31,8 +31,11 @@ output to the console. Press `Ctrl+C` to stop. The web UI port is configurable
 
 ## Install as a background service
 
-Install the **.NET 10 runtime** before running the installer. The installer exits
-before changing files or registering services if the runtime is missing.
+If .NET 10 is missing, the Linux installer detects the available package manager
+(`apt`, `dnf`, `yum`, `pacman`, or `zypper`), prints the exact commands it would
+run to install the required .NET 10 SDK/runtime, includes the conditional
+`/usr/local/bin/dotnet` PATH-link command, and asks before running anything.
+Declining the prompt exits before files or services are changed.
 
 **Linux — systemd**
 

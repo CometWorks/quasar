@@ -680,13 +680,13 @@ else
         var hasProfilerData = !hasScalarData && ProfilerStore.HasSamples(fromUnix, toUnix, effectiveServers);
 
         BuildSummary(selectedServers, samplesByServer, effectiveServers.Count);
-        BuildChartCards(hasScalarData || hasProfilerData);
+        BuildChartCards(hasScalarData || hasProfilerData, keepEmptyProfilerPanels: effectiveServers.Count > 0);
     }
 
-    private void BuildChartCards(bool hasData)
+    private void BuildChartCards(bool hasData, bool keepEmptyProfilerPanels)
     {
         _chartCards.Clear();
-        if (!hasData)
+        if (!hasData && !keepEmptyProfilerPanels)
             return;
 
         foreach (var panel in _config.Panels
@@ -696,6 +696,9 @@ else
         {
             var metric = AnalyticsMetrics.FindPanel(panel.Key);
             if (metric is null)
+                continue;
+
+            if (!hasData && ProfilerAnalyticsMetrics.Find(panel.Key) is null)
                 continue;
 
             var layoutStyle = $"grid-column: span {Math.Clamp(panel.ColumnSpan, 1, _config.GridColumns)}; grid-row: span {Math.Clamp(panel.RowSpan, 1, Math.Max(1, _config.GridRows))};";

@@ -19,9 +19,9 @@ Constructor:
 - `AnalyticsSeriesService(MetricsStoreService store, ProfilerStoreService profilerStore)`
 
 Methods:
-- `Build(long fromUnix, long toUnix, IReadOnlyList<string> servers, IReadOnlyList<string> metricKeys, int maxPoints) : AnalyticsSeriesResponse` — validates range/inputs, resolves scalar metrics via `AnalyticsMetrics.Find` and profiler metrics via `ProfilerAnalyticsMetrics.Find`, buckets values, drops empty buckets, and returns one chart DTO per requested metric with available data.
+- `Build(long fromUnix, long toUnix, IReadOnlyList<string> servers, IReadOnlyList<string> metricKeys, int maxPoints) : AnalyticsSeriesResponse` — validates range/inputs, resolves scalar metrics via `AnalyticsMetrics.Find` and profiler metrics via `ProfilerAnalyticsMetrics.Find`, buckets values, drops empty scalar buckets, and returns profiler chart DTOs even when their current series are empty.
 - `BuildMetricCharts(...)` — preserves the scalar metric path backed by raw/rollup samples from `MetricsStoreService`.
-- `BuildProfilerCharts(...)` — reads normalized profiler snapshots and emits the same chart DTO shape as scalar metrics.
+- `BuildProfilerCharts(...)` — reads normalized profiler snapshots and emits the same chart DTO shape as scalar metrics, including empty per-server profiler series for selected servers with no points in the requested range.
 
 Private helpers:
 - `ResolveMax(AnalyticsMetric, double)` — applies fixed or dynamic Y-axis max.
@@ -45,4 +45,4 @@ DTO records:
 
 ## Notes
 
-Scalar metrics keep their `IsAvailable` predicates so missing values can be skipped instead of plotted as false zeroes. Profiler charts reuse the existing `/api/analytics/series` payload and browser chart renderer; only the selected metric definitions determine whether a chart is scalar-backed or profiler-backed.
+Scalar metrics keep their `IsAvailable` predicates so missing values can be skipped instead of plotted as false zeroes. Profiler charts reuse the existing `/api/analytics/series` payload and browser chart renderer; only the selected metric definitions determine whether a chart is scalar-backed or profiler-backed. Requested profiler panels are still returned with empty arrays when no profiler samples match, keeping their chart windows visible.

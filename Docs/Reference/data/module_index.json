@@ -354,7 +354,7 @@
       "name": "NavMenu.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Side-drawer navigation menu. Renders two `MudNavMenu` groups separated by a `MudDivider` \u2014 a primary group with the main app routes and a settings group with the appearance and backup links plus a policy-gated security link."
+      "summary": "Side-drawer navigation menu. Renders two `MudNavMenu` groups separated by a `MudDivider` \u2014 a primary group with the visible main app routes and a settings group with the appearance and backup links plus a policy-gated security link."
     },
     {
       "path": "Quasar/Components/Layout/ReconnectModal.razor",
@@ -501,7 +501,7 @@
       "name": "Hosts.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page at `/hosts` showing a summary table of every host (physical or virtual machine) that has connected at least one Quasar.Agent. Rows are aggregated from `AgentRegistry` by `HostKey`, displaying the host display name, how many distinct server slots are running on it, how many of those agents are currently connected, and total players online across that host."
+      "summary": "Source-only host summary component. It is intentionally not routable for now, so direct navigation to `/hosts` falls through to the app Not Found page. When enabled again, it shows a summary table of every host (physical or virtual machine) that has connected at least one Quasar.Agent. Rows are aggregated from `AgentRegistry` by `HostKey`, displaying the host display name, how many distinct server slots are running on it, how many of those agents are currently connected, and total players online across that host."
     },
     {
       "path": "Quasar/Components/Pages/MergeWorldTemplateModsDialog.razor",
@@ -557,7 +557,7 @@
       "name": "ServerConsoleDialog.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "MudBlazor dialog (no `@page` route) that shows two tabs of diagnostic output for a specific server identified by `UniqueName`: a live process-console tab fed by `PluginLogStream`, and a Magnetar `info.log` viewer that reads the last 256 KB of the log file from disk. Opened from `Servers.razor` via `IDialogService`. Previously named `ServerConsoleDialog`."
+      "summary": "MudBlazor dialog (no `@page` route) that shows two file-backed diagnostic logs for a specific server identified by `UniqueName`: the latest Space Engineers Dedicated Server log from the server's app-data directory, and Magnetar's `info.log`. The server-log tab renders a bounded 500-line window and rolls that window by 250 lines when browser-side scroll/key listeners request the next slice, keeping DOM size stable for large logs and avoiding per-scroll Blazor events. Both tabs can show recent content or extract recent exception excerpts. Opened from `Servers.razor` via `IDialogService`. Previously named `ServerConsoleDialog`."
     },
     {
       "path": "Quasar/Components/Pages/ServerDeleteDialog.razor",
@@ -983,7 +983,7 @@
       "name": "ManagedDedicatedServerRuntimeResolver.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`ManagedDedicatedServerRuntimeResolver` resolves the three paths needed to launch a dedicated server \u2014 the Magnetar launcher executable, its working directory, and the `DedicatedServer64` directory \u2014 and auto-installs Magnetar, SteamCMD, and the DS itself when absent. It supports `.zip`, `.tar.gz`, and `.7z` archives for both Magnetar and SteamCMD downloads, guarded by per-component `SemaphoreSlim` install locks. The Magnetar install path branches by OS: Windows ships both runtime builds (`MagnetarInterim.exe` on .NET 10 and `MagnetarLegacy.exe` on .NET Framework 4.8) side-by-side and honors the per-server `DedicatedServerDefinition.ManagedRuntime` selection, while Linux ships a single Interim build behind a top-level wrapper with the apphost under `Bin/`."
+      "summary": "`ManagedDedicatedServerRuntimeResolver` resolves the paths needed to launch a dedicated server \u2014 the Magnetar launcher executable, its working directory, the `DedicatedServer64` directory, and any native-library search paths required by the child process \u2014 and auto-installs Magnetar, SteamCMD, and the DS itself when absent. It supports `.zip`, `.tar.gz`, and `.7z` archives for both Magnetar and SteamCMD downloads, guarded by per-component `SemaphoreSlim` install locks. The Magnetar install path branches by OS: Windows ships both runtime builds (`MagnetarInterim.exe` on .NET 10 and `MagnetarLegacy.exe` on .NET Framework 4.8) side-by-side and honors the per-server `DedicatedServerDefinition.ManagedRuntime` selection, while Linux ships a single Interim build behind a top-level wrapper with the apphost under `Bin/`."
     },
     {
       "path": "Quasar/Services/ManagedRuntimeOptions.cs",
@@ -1109,7 +1109,7 @@
       "name": "QuasarUpdateService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Hosted service that checks Quasar GitHub releases on Linux and Windows, discovers newer UI-worker and launcher assets from a unified combined release, verifies `SHA256SUMS`, stages the UI worker under the Quasar updates directory, and activates a staged worker by writing `active-release.json` for Bootstrap. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI, raises `Changed` whenever status moves, and persists the operator-controlled prerelease stream flag."
+      "summary": "Hosted service that checks Quasar GitHub releases on Linux and Windows, discovers newer UI-worker and launcher assets from a unified combined release, verifies `SHA256SUMS`, stages the UI worker under the Quasar updates directory, and activates a staged worker by promoting it into `ManagedRuntime/WebService/<version>` before writing `active-release.json` for Bootstrap. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI, raises `Changed` whenever status moves, and persists the operator-controlled prerelease stream flag."
     },
     {
       "path": "Quasar/Services/Updates/QuasarUpdateSnapshot.cs",

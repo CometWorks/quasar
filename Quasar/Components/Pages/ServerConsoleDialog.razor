@@ -1,46 +1,44 @@
-@implements IDisposable
-@inject PluginLogStream LogStream
+@implements IAsyncDisposable
+@inject DedicatedServerCatalog ServerCatalog
 @inject IJSRuntime JS
 
 <MudDialog>
     <DialogContent>
         <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" TabPanelsClass="pt-3" @bind-ActivePanelIndex="_activeTabIndex">
-            <MudTabPanel Text="Process console" Icon="@Icons.Material.Filled.Terminal">
+            <MudTabPanel Text="Server log" Icon="@Icons.Material.Filled.Terminal">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
-                    <MudText Typo="Typo.body2" Class="mud-text-secondary">@_entries.Count line(s)</MudText>
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                        <MudSwitch T="bool" Value="MagnetarOnly" ValueChanged="OnMagnetarOnlyChanged" Color="Color.Primary" Label="Magnetar process output only" />
-                        <MudTooltip Text="When enabled, shows only Magnetar process stdout and stderr. Turn off to include structured plugin log entries emitted through PluginSdk.">
-                            <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Color="Color.Default" />
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">@ServerLogStatusText()</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary quasar-info-log-path">@_serverLogPath</MudText>
+                    </MudStack>
+                    <MudStack Row="true" Spacing="1">
+                        <MudTooltip Text="Download full server log">
+                            <MudIconButton Icon="@Icons.Material.Filled.Download" Href="@ServerLogDownloadHref" Disabled="@(!_serverLogLoaded || _serverLogMissing)" Size="Size.Small" />
                         </MudTooltip>
-                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.DeleteSweep" OnClick="ClearAsync">Clear</MudButton>
+                        <MudTooltip Text="Shortcuts in this dialog: Ctrl+PageUp/PageDown rolls 250 lines; Ctrl+Home/End jumps to the oldest or newest lines.">
+                            <MudIcon Icon="@Icons.Material.Filled.Keyboard" Size="Size.Small" Color="Color.Default" />
+                        </MudTooltip>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Search" OnClick="ShowServerLogExceptionsAsync">Exceptions</MudButton>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshServerLogAsync">Refresh</MudButton>
                     </MudStack>
                 </MudStack>
 
-                @if (_entries.Count == 0)
+                @if (_serverLogMissing)
                 {
                     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                        No output captured yet — the process must be running to produce console output.
+                        Start the server at least once so Space Engineers Dedicated Server can write its log.
                     </MudAlert>
+                }
+                else if (!string.IsNullOrEmpty(_serverLogError))
+                {
+                    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_serverLogError</MudAlert>
                 }
                 else
                 {
-                    <div id="@_scrollContainerId" class="quasar-console-output">
-                        @foreach (var entry in _entries)
+                    <div id="@_scrollContainerId" class="quasar-console-output" tabindex="0">
+                        @foreach (var line in _serverLogLines)
                         {
-                            <div class="@GetLineClass(entry)">
-                                <span class="quasar-console-time">@entry.TimestampUtc.LocalDateTime.ToString("HH:mm:ss.fff")</span>
-                                <span class="quasar-console-level" style="color: @LevelHex(entry.Level);">@LevelTag(entry.Level)</span>
-                                @if (!IsMagnetar(entry))
-                                {
-                                    <span class="quasar-console-plugin">@entry.Plugin</span>
-                                }
-                                <span class="quasar-console-message">@entry.Message</span>
-                                @if (!string.IsNullOrEmpty(entry.Exception))
-                                {
-                                    <div class="quasar-console-exception">@entry.Exception</div>
-                                }
-                            </div>
+                            <div class="quasar-log-line">@line</div>
                         }
                     </div>
                 }
@@ -49,14 +47,16 @@
             <MudTabPanel Text="Magnetar info.log" Icon="@Icons.Material.Filled.Description">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
                     <MudStack Spacing="0">
-                        <MudText Typo="Typo.body2" Class="mud-text-secondary">
-                            @(_infoLogMissing
-                                ? "info.log not found — Magnetar has not produced one yet for this server."
-                                : $"{_infoLogLineCount} line(s){(_infoLogTruncated ? " (tail only)" : string.Empty)}")
-                        </MudText>
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">@InfoLogStatusText()</MudText>
                         <MudText Typo="Typo.caption" Class="mud-text-secondary quasar-info-log-path">@_infoLogPath</MudText>
                     </MudStack>
-                    <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInfoLogAsync">Refresh</MudButton>
+                    <MudStack Row="true" Spacing="1">
+                        <MudTooltip Text="Download full info.log">
+                            <MudIconButton Icon="@Icons.Material.Filled.Download" Href="@InfoLogDownloadHref" Disabled="@(!_infoLogLoaded || _infoLogMissing)" Size="Size.Small" />
+                        </MudTooltip>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Search" OnClick="ShowInfoLogExceptionsAsync">Exceptions</MudButton>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInfoLogAsync">Refresh</MudButton>
+                    </MudStack>
                 </MudStack>
 
                 @if (_infoLogMissing)
@@ -87,6 +87,7 @@
     .quasar-console-output {
         height: 60vh;
         overflow-y: auto;
+        outline: none;
         background: var(--mud-palette-background);
         border: 1px solid var(--mud-palette-divider);
         border-radius: 4px;
@@ -98,41 +99,8 @@
         word-break: break-word;
     }
 
-    .quasar-console-line {
-        display: grid;
-        grid-template-columns: 96px 64px minmax(0, 1fr);
-        column-gap: 8px;
-        align-items: start;
-    }
-
-    .quasar-console-line-with-plugin {
-        grid-template-columns: 96px 64px max-content minmax(0, 1fr);
-    }
-
-    .quasar-console-time {
-        color: var(--mud-palette-text-secondary);
-        white-space: nowrap;
-    }
-
-    .quasar-console-level {
-        font-weight: 600;
-        white-space: nowrap;
-    }
-
-    .quasar-console-plugin {
-        color: var(--mud-palette-info);
-        white-space: nowrap;
-    }
-
-    .quasar-console-message {
-        min-width: 0;
-        white-space: pre-wrap;
-    }
-
-    .quasar-console-exception {
-        grid-column: 3 / -1;
-        color: var(--mud-palette-error);
-        white-space: pre-wrap;
+    .quasar-console-output:focus {
+        border-color: var(--mud-palette-primary);
     }
 
     .quasar-info-log-pre {
@@ -140,6 +108,13 @@
         white-space: pre-wrap;
         word-break: break-word;
         font: inherit;
+        color: var(--mud-palette-text-primary);
+    }
+
+    .quasar-log-line {
+        min-height: 1.45em;
+        white-space: pre-wrap;
+        word-break: break-word;
         color: var(--mud-palette-text-primary);
     }
 
@@ -151,8 +126,14 @@
 
 @code
 {
+    private const int ServerLogWindowLines = 500;
+    private const int ServerLogRolloverLines = 250;
+    private const int ServerLogRolloverThresholdPx = 96;
     private const int InfoLogTailBytes = 256 * 1024;
-    private const int ProcessConsoleTabIndex = 0;
+    private const int InfoLogExceptionSearchBytes = 4 * 1024 * 1024;
+    private const int InfoLogExceptionContextLines = 50;
+    private const int InfoLogExceptionMatchLimit = 10;
+    private const int ServerLogTabIndex = 0;
     private const int InfoLogTabIndex = 1;
 
     [CascadingParameter]
@@ -161,15 +142,25 @@
     [Parameter]
     public string UniqueName { get; set; } = string.Empty;
 
-    private bool MagnetarOnly { get; set; } = true;
-
     private readonly string _scrollContainerId = $"quasar-console-{Guid.NewGuid():N}";
     private readonly string _infoLogScrollContainerId = $"quasar-info-log-{Guid.NewGuid():N}";
-    private IReadOnlyList<PluginLogEntry> _entries = Array.Empty<PluginLogEntry>();
-    private bool _firstRenderDone;
 
     private int _activeTabIndex;
     private int _renderedTabIndex = -1;
+    private IReadOnlyList<string> _serverLogLines = Array.Empty<string>();
+    private string _serverLogPath = string.Empty;
+    private int _serverLogLineCount;
+    private bool _serverLogTruncated;
+    private bool _serverLogMissing;
+    private string? _serverLogError;
+    private bool _serverLogLoaded;
+    private bool _serverLogScrollPending;
+    private bool _serverLogRolloverBusy;
+    private int _serverLogWindowStart;
+    private string _serverLogMode = "tail";
+    private bool _serverLogInteropDirty = true;
+    private bool _serverLogInteropAttached;
+    private DotNetObjectReference<ServerConsoleDialog>? _serverLogInteropRef;
     private string _infoLogContent = string.Empty;
     private string _infoLogPath = string.Empty;
     private int _infoLogLineCount;
@@ -178,19 +169,14 @@
     private string? _infoLogError;
     private bool _infoLogLoaded;
     private bool _infoLogScrollPending;
+    private string _infoLogMode = "tail";
+    private string ServerLogDownloadHref => $"/api/servers/{Uri.EscapeDataString(UniqueName)}/logs/server/download";
+    private string InfoLogDownloadHref => $"/api/servers/{Uri.EscapeDataString(UniqueName)}/logs/magnetar/download";
 
     protected override void OnInitialized()
     {
-        _infoLogPath = Path.Combine(
-            MagnetarPaths.GetQuasarServerMagnetarAppDataDirectory(UniqueName),
-            "info.log");
-        LogStream.Changed += HandleChanged;
-        Refresh();
-    }
-
-    public void Dispose()
-    {
-        LogStream.Changed -= HandleChanged;
+        _serverLogPath = ResolveLatestServerLogPath();
+        _infoLogPath = ResolveInfoLogPath();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -198,8 +184,29 @@
         var tabChanged = _renderedTabIndex != _activeTabIndex;
         _renderedTabIndex = _activeTabIndex;
 
+        if (_activeTabIndex == ServerLogTabIndex)
+        {
+            if (!_serverLogLoaded)
+            {
+                await LoadServerLogAsync();
+                return;
+            }
+
+            if (_serverLogInteropDirty)
+                await AttachServerLogInteropAsync();
+
+            if (tabChanged || _serverLogScrollPending)
+            {
+                _serverLogScrollPending = false;
+                await ScrollToBottomAsync(_scrollContainerId);
+            }
+            return;
+        }
+
         if (_activeTabIndex == InfoLogTabIndex)
         {
+            await DetachServerLogInteropAsync();
+
             if (!_infoLogLoaded)
             {
                 await LoadInfoLogAsync();
@@ -213,20 +220,6 @@
             }
             return;
         }
-
-        if (_entries.Count == 0)
-            return;
-
-        if (firstRender || !_firstRenderDone || tabChanged)
-        {
-            _firstRenderDone = true;
-            await ScrollToBottomAsync(_scrollContainerId);
-            return;
-        }
-
-        var nearBottom = await IsNearBottomAsync(_scrollContainerId);
-        if (nearBottom)
-            await ScrollToBottomAsync(_scrollContainerId);
     }
 
     private async Task ScrollToBottomAsync(string containerId)
@@ -240,44 +233,160 @@
         }
     }
 
-    private async Task<bool> IsNearBottomAsync(string containerId)
+    private async Task RefreshServerLogAsync()
     {
+        await LoadServerLogAsync();
+    }
+
+    private async Task ShowServerLogExceptionsAsync()
+    {
+        await LoadServerLogExceptionsAsync();
+    }
+
+    private async Task LoadServerLogAsync()
+    {
+        _serverLogPath = ResolveLatestServerLogPath();
+
         try
         {
-            return await JS.InvokeAsync<bool>("quasarConfigs.isScrolledNearBottom", containerId, 48);
+            if (!File.Exists(_serverLogPath))
+            {
+                _serverLogMissing = true;
+                _serverLogLines = Array.Empty<string>();
+                _serverLogLineCount = 0;
+                _serverLogTruncated = false;
+                _serverLogError = null;
+                _serverLogMode = "tail";
+                _serverLogWindowStart = 0;
+            }
+            else
+            {
+                var window = await ReadLatestLineWindowAsync(_serverLogPath, ServerLogWindowLines);
+                _serverLogLines = window.Lines;
+                _serverLogLineCount = window.TotalLineCount;
+                _serverLogWindowStart = window.StartLine;
+                _serverLogTruncated = false;
+                _serverLogMissing = false;
+                _serverLogError = null;
+                _serverLogMode = "tail";
+            }
         }
-        catch (JSDisconnectedException)
+        catch (Exception exception)
         {
-            return false;
+            _serverLogError = exception.Message;
+            _serverLogLines = Array.Empty<string>();
+            _serverLogLineCount = 0;
+            _serverLogTruncated = false;
+            _serverLogMissing = false;
+            _serverLogMode = "tail";
+            _serverLogWindowStart = 0;
         }
-    }
 
-    private void HandleChanged()
-    {
-        Refresh();
-        _ = InvokeAsync(StateHasChanged);
-    }
-
-    private void Refresh()
-    {
-        var all = LogStream.GetEntries(UniqueName);
-        _entries = MagnetarOnly
-            ? all.Where(IsMagnetar).ToArray()
-            : all;
-    }
-
-    private async Task ClearAsync()
-    {
-        LogStream.Clear(UniqueName);
-        Refresh();
+        _serverLogLoaded = true;
+        _serverLogScrollPending = true;
+        _serverLogInteropDirty = true;
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task OnMagnetarOnlyChanged(bool value)
+    [JSInvokable]
+    public async Task<ServerLogWindowMoveResult> RequestServerLogWindowShiftAsync(int direction)
     {
-        MagnetarOnly = value;
-        Refresh();
-        _firstRenderDone = false;
+        var deltaLines = direction < 0 ? -ServerLogRolloverLines : ServerLogRolloverLines;
+        return await MoveServerLogWindowAsync(deltaLines, 0.5);
+    }
+
+    [JSInvokable]
+    public async Task<ServerLogWindowMoveResult> RequestServerLogWindowJumpAsync(int direction)
+    {
+        var targetStart = direction < 0
+            ? 0
+            : Math.Max(0, _serverLogLineCount - ServerLogWindowLines);
+
+        return await MoveServerLogWindowToAsync(targetStart, direction < 0 ? 0 : 1);
+    }
+
+    private async Task<ServerLogWindowMoveResult> MoveServerLogWindowAsync(int deltaLines, double scrollRatio)
+    {
+        if (!File.Exists(_serverLogPath))
+            return BuildServerLogMoveResult(false, scrollRatio);
+
+        var maxStart = Math.Max(0, _serverLogLineCount - ServerLogWindowLines);
+        var requestedStart = Math.Clamp(_serverLogWindowStart + deltaLines, 0, maxStart);
+        return await MoveServerLogWindowToAsync(requestedStart, scrollRatio);
+    }
+
+    private async Task<ServerLogWindowMoveResult> MoveServerLogWindowToAsync(int requestedStart, double scrollRatio)
+    {
+        if (_serverLogMode != "tail" ||
+            _serverLogMissing ||
+            !string.IsNullOrEmpty(_serverLogError) ||
+            _serverLogRolloverBusy ||
+            !File.Exists(_serverLogPath))
+            return BuildServerLogMoveResult(false, scrollRatio);
+
+        var maxStart = Math.Max(0, _serverLogLineCount - ServerLogWindowLines);
+        requestedStart = Math.Clamp(requestedStart, 0, maxStart);
+        if (requestedStart == _serverLogWindowStart)
+            return BuildServerLogMoveResult(false, scrollRatio);
+
+        _serverLogRolloverBusy = true;
+        try
+        {
+            var window = await ReadLineWindowAsync(_serverLogPath, requestedStart, ServerLogWindowLines);
+            _serverLogLines = window.Lines;
+            _serverLogLineCount = window.TotalLineCount;
+            _serverLogWindowStart = window.StartLine;
+            _serverLogInteropDirty = true;
+        }
+        finally
+        {
+            _serverLogRolloverBusy = false;
+        }
+
+        await InvokeAsync(StateHasChanged);
+        return BuildServerLogMoveResult(true, scrollRatio);
+    }
+
+    private async Task LoadServerLogExceptionsAsync()
+    {
+        _serverLogPath = ResolveLatestServerLogPath();
+
+        try
+        {
+            if (!File.Exists(_serverLogPath))
+            {
+                _serverLogMissing = true;
+                _serverLogLines = Array.Empty<string>();
+                _serverLogLineCount = 0;
+                _serverLogTruncated = false;
+                _serverLogError = null;
+                _serverLogMode = "exceptions";
+                _serverLogWindowStart = 0;
+            }
+            else
+            {
+                var (text, truncated) = await ReadTailAsync(_serverLogPath, InfoLogExceptionSearchBytes);
+                SetServerLogTextWindow(ExtractExceptionBlocks(text, truncated, "server log"));
+                _serverLogTruncated = truncated;
+                _serverLogMissing = false;
+                _serverLogError = null;
+                _serverLogMode = "exceptions";
+            }
+        }
+        catch (Exception exception)
+        {
+            _serverLogError = exception.Message;
+            _serverLogLines = Array.Empty<string>();
+            _serverLogLineCount = 0;
+            _serverLogTruncated = false;
+            _serverLogMissing = false;
+            _serverLogMode = "exceptions";
+            _serverLogWindowStart = 0;
+        }
+
+        _serverLogLoaded = true;
+        _serverLogScrollPending = true;
+        _serverLogInteropDirty = true;
         await InvokeAsync(StateHasChanged);
     }
 
@@ -286,8 +395,15 @@
         await LoadInfoLogAsync();
     }
 
+    private async Task ShowInfoLogExceptionsAsync()
+    {
+        await LoadInfoLogExceptionsAsync();
+    }
+
     private async Task LoadInfoLogAsync()
     {
+        _infoLogPath = ResolveInfoLogPath();
+
         try
         {
             if (!File.Exists(_infoLogPath))
@@ -297,6 +413,7 @@
                 _infoLogLineCount = 0;
                 _infoLogTruncated = false;
                 _infoLogError = null;
+                _infoLogMode = "tail";
             }
             else
             {
@@ -306,6 +423,7 @@
                 _infoLogLineCount = CountLines(text);
                 _infoLogMissing = false;
                 _infoLogError = null;
+                _infoLogMode = "tail";
             }
         }
         catch (Exception exception)
@@ -315,11 +433,64 @@
             _infoLogLineCount = 0;
             _infoLogTruncated = false;
             _infoLogMissing = false;
+            _infoLogMode = "tail";
         }
 
         _infoLogLoaded = true;
         _infoLogScrollPending = true;
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadInfoLogExceptionsAsync()
+    {
+        _infoLogPath = ResolveInfoLogPath();
+
+        try
+        {
+            if (!File.Exists(_infoLogPath))
+            {
+                _infoLogMissing = true;
+                _infoLogContent = string.Empty;
+                _infoLogLineCount = 0;
+                _infoLogTruncated = false;
+                _infoLogError = null;
+                _infoLogMode = "exceptions";
+            }
+            else
+            {
+                var (text, truncated) = await ReadTailAsync(_infoLogPath, InfoLogExceptionSearchBytes);
+                _infoLogContent = ExtractExceptionBlocks(text, truncated, "info.log");
+                _infoLogTruncated = truncated;
+                _infoLogLineCount = CountLines(_infoLogContent);
+                _infoLogMissing = false;
+                _infoLogError = null;
+                _infoLogMode = "exceptions";
+            }
+        }
+        catch (Exception exception)
+        {
+            _infoLogError = exception.Message;
+            _infoLogContent = string.Empty;
+            _infoLogLineCount = 0;
+            _infoLogTruncated = false;
+            _infoLogMissing = false;
+            _infoLogMode = "exceptions";
+        }
+
+        _infoLogLoaded = true;
+        _infoLogScrollPending = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void SetServerLogTextWindow(string text)
+    {
+        var lines = SplitLines(text);
+        _serverLogLineCount = lines.Count;
+        _serverLogWindowStart = Math.Max(0, lines.Count - ServerLogWindowLines);
+        _serverLogLines = lines
+            .Skip(_serverLogWindowStart)
+            .Take(ServerLogWindowLines)
+            .ToArray();
     }
 
     private static async Task<(string Text, bool Truncated)> ReadTailAsync(string path, int maxBytes)
@@ -348,6 +519,61 @@
         return (text, truncated);
     }
 
+    private static async Task<ServerLogLineWindow> ReadLatestLineWindowAsync(string path, int maxLines)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+
+        var lines = new Queue<string>(maxLines + 1);
+        var totalLines = 0;
+        string? line;
+        while ((line = await reader.ReadLineAsync()) is not null)
+        {
+            totalLines++;
+            lines.Enqueue(line);
+            if (lines.Count > maxLines)
+                lines.Dequeue();
+        }
+
+        return new ServerLogLineWindow(lines.ToArray(), Math.Max(0, totalLines - lines.Count), totalLines);
+    }
+
+    private static async Task<ServerLogLineWindow> ReadLineWindowAsync(string path, int startLine, int maxLines)
+    {
+        var window = await ReadLineWindowCoreAsync(path, startLine, maxLines);
+        var normalizedStart = Math.Clamp(startLine, 0, Math.Max(0, window.TotalLineCount - maxLines));
+        return normalizedStart == startLine
+            ? window
+            : await ReadLineWindowCoreAsync(path, normalizedStart, maxLines);
+    }
+
+    private static async Task<ServerLogLineWindow> ReadLineWindowCoreAsync(string path, int startLine, int maxLines)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+
+        var lines = new List<string>(maxLines);
+        var currentLine = 0;
+        string? line;
+        while ((line = await reader.ReadLineAsync()) is not null)
+        {
+            if (currentLine >= startLine && lines.Count < maxLines)
+                lines.Add(line);
+
+            currentLine++;
+        }
+
+        return new ServerLogLineWindow(lines, startLine, currentLine);
+    }
+
     private static int CountLines(string text)
     {
         if (string.IsNullOrEmpty(text))
@@ -366,27 +592,213 @@
         return count;
     }
 
+    private static IReadOnlyList<string> SplitLines(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return Array.Empty<string>();
+
+        return text.Replace("\r\n", "\n").Split('\n');
+    }
+
+    private string InfoLogStatusText()
+    {
+        if (_infoLogMissing)
+            return "info.log not found — Magnetar has not produced one yet for this server.";
+
+        return _infoLogMode == "exceptions"
+            ? $"{_infoLogLineCount} line(s) from latest exception excerpts{(_infoLogTruncated ? " (searched latest log tail)" : string.Empty)}"
+            : $"{_infoLogLineCount} line(s){(_infoLogTruncated ? " (tail only)" : string.Empty)}";
+    }
+
+    private string ServerLogStatusText()
+    {
+        if (_serverLogMissing)
+            return "Dedicated Server log not found yet.";
+
+        if (_serverLogMode == "exceptions")
+            return $"{_serverLogLineCount} line(s) from latest exception excerpts{(_serverLogTruncated ? " (searched latest log tail)" : string.Empty)}";
+
+        if (_serverLogLineCount == 0)
+            return "0 line(s)";
+
+        var endLine = _serverLogWindowStart + _serverLogLines.Count;
+        return $"Showing {_serverLogWindowStart + 1}-{endLine} of {_serverLogLineCount} line(s)";
+    }
+
+    private async Task AttachServerLogInteropAsync()
+    {
+        if (_serverLogMode != "tail" || _serverLogMissing || !string.IsNullOrEmpty(_serverLogError))
+        {
+            await DetachServerLogInteropAsync();
+            return;
+        }
+
+        try
+        {
+            _serverLogInteropRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync(
+                "quasarConfigs.attachRolloverLog",
+                _scrollContainerId,
+                _serverLogInteropRef,
+                new ServerLogRolloverOptions
+                {
+                    Threshold = ServerLogRolloverThresholdPx,
+                    CanLoadOlder = CanLoadOlderServerLogLines,
+                    CanLoadNewer = CanLoadNewerServerLogLines,
+                });
+            _serverLogInteropAttached = true;
+            _serverLogInteropDirty = false;
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task DetachServerLogInteropAsync()
+    {
+        if (!_serverLogInteropAttached)
+            return;
+
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.detachRolloverLog", _scrollContainerId);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+
+        _serverLogInteropAttached = false;
+        _serverLogInteropDirty = true;
+    }
+
+    private bool CanLoadOlderServerLogLines => _serverLogMode == "tail" && _serverLogWindowStart > 0;
+
+    private bool CanLoadNewerServerLogLines =>
+        _serverLogMode == "tail" && _serverLogWindowStart + _serverLogLines.Count < _serverLogLineCount;
+
+    private ServerLogWindowMoveResult BuildServerLogMoveResult(bool shifted, double scrollRatio) =>
+        new()
+        {
+            Shifted = shifted,
+            CanLoadOlder = CanLoadOlderServerLogLines,
+            CanLoadNewer = CanLoadNewerServerLogLines,
+            ScrollRatio = scrollRatio,
+        };
+
+    private string ResolveLatestServerLogPath()
+    {
+        var configuredPath = ServerCatalog.GetServer(UniqueName)?.DedicatedServerAppDataPath;
+        var appDataPath = string.IsNullOrWhiteSpace(configuredPath)
+            ? MagnetarPaths.GetQuasarServerDedicatedServerAppDataDirectory(UniqueName)
+            : configuredPath.Trim();
+
+        try
+        {
+            if (Directory.Exists(appDataPath))
+            {
+                var latest = Directory.EnumerateFiles(appDataPath, "SpaceEngineersDedicated*.log", SearchOption.TopDirectoryOnly)
+                    .OrderByDescending(File.GetLastWriteTimeUtc)
+                    .FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(latest))
+                    return latest;
+            }
+        }
+        catch
+        {
+            // Fall through to the expected log pattern so the UI can show a missing-log state.
+        }
+
+        return Path.Combine(appDataPath, "SpaceEngineersDedicated*.log");
+    }
+
+    private string ResolveInfoLogPath()
+    {
+        var configuredPath = ServerCatalog.GetServer(UniqueName)?.MagnetarAppDataPath;
+        var appDataPath = string.IsNullOrWhiteSpace(configuredPath)
+            ? MagnetarPaths.GetQuasarServerMagnetarAppDataDirectory(UniqueName)
+            : configuredPath.Trim();
+
+        return Path.Combine(appDataPath, "info.log");
+    }
+
+    private static string ExtractExceptionBlocks(string text, bool truncated, string logName)
+    {
+        var lines = text.Replace("\r\n", "\n").Split('\n');
+        var matches = lines
+            .Select((line, index) => (line, index))
+            .Where(item => item.line.Contains("Exception", StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.index)
+            .TakeLast(InfoLogExceptionMatchLimit)
+            .ToList();
+
+        if (matches.Count == 0)
+        {
+            return truncated
+                ? $"No lines containing \"Exception\" found in the searched {logName} tail."
+                : $"No lines containing \"Exception\" found in {logName}.";
+        }
+
+        var ranges = new List<(int Start, int End)>();
+        foreach (var index in matches)
+        {
+            var start = index;
+            var end = Math.Min(lines.Length - 1, index + InfoLogExceptionContextLines);
+            if (ranges.Count > 0 && start <= ranges[^1].End + 1)
+            {
+                var previous = ranges[^1];
+                ranges[^1] = (previous.Start, Math.Max(previous.End, end));
+            }
+            else
+            {
+                ranges.Add((start, end));
+            }
+        }
+
+        var output = new List<string>();
+        if (truncated)
+            output.Add($"Searched latest {InfoLogExceptionSearchBytes / (1024 * 1024)} MB of {logName}.");
+
+        for (var rangeIndex = 0; rangeIndex < ranges.Count; rangeIndex++)
+        {
+            var (start, end) = ranges[rangeIndex];
+            if (output.Count > 0)
+                output.Add(string.Empty);
+
+            output.Add($"--- Exception excerpt {rangeIndex + 1} (line {start + 1} of searched text) ---");
+            for (var i = start; i <= end; i++)
+                output.Add(lines[i]);
+        }
+
+        return string.Join(Environment.NewLine, output);
+    }
+
     private void Close() => MudDialog.Close();
 
-    private static bool IsMagnetar(PluginLogEntry entry) =>
-        string.Equals(entry.Plugin, "Magnetar", StringComparison.OrdinalIgnoreCase);
-
-    private static string GetLineClass(PluginLogEntry entry) =>
-        IsMagnetar(entry)
-            ? "quasar-console-line"
-            : "quasar-console-line quasar-console-line-with-plugin";
-
-    private static string LevelTag(string level) => string.IsNullOrEmpty(level)
-        ? "INFO"
-        : level.ToUpperInvariant();
-
-    private static string LevelHex(string level) => level switch
+    public async ValueTask DisposeAsync()
     {
-        "Critical" => "var(--mud-palette-error)",
-        "Error" => "var(--mud-palette-error)",
-        "Warning" => "var(--mud-palette-warning)",
-        "Info" => "var(--mud-palette-info)",
-        "Debug" => "var(--mud-palette-text-secondary)",
-        _ => "var(--mud-palette-text-primary)",
-    };
+        await DetachServerLogInteropAsync();
+        _serverLogInteropRef?.Dispose();
+    }
+
+    private sealed record ServerLogLineWindow(IReadOnlyList<string> Lines, int StartLine, int TotalLineCount);
+
+    public sealed class ServerLogWindowMoveResult
+    {
+        public bool Shifted { get; set; }
+
+        public bool CanLoadOlder { get; set; }
+
+        public bool CanLoadNewer { get; set; }
+
+        public double ScrollRatio { get; set; }
+    }
+
+    private sealed class ServerLogRolloverOptions
+    {
+        public int Threshold { get; set; }
+
+        public bool CanLoadOlder { get; set; }
+
+        public bool CanLoadNewer { get; set; }
+    }
 }

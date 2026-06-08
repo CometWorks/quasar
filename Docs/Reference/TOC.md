@@ -43,7 +43,7 @@ Cross-module references (source module → modules it depends on):
 - **[Quasar.Services.Analytics](Modules/Quasar.Services.Analytics.md)** → [Magnetar.Protocol](Modules/Magnetar.Protocol.md), [Quasar.Services.Core](Modules/Quasar.Services.Core.md)
 - **[Quasar.Services.Discord](Modules/Quasar.Services.Discord.md)** → [Quasar.Services.Analytics](Modules/Quasar.Services.Analytics.md), [Quasar.Services.Core](Modules/Quasar.Services.Core.md)
 - **[Quasar.Services.PluginSdk](Modules/Quasar.Services.PluginSdk.md)** → [Quasar.Services.Core](Modules/Quasar.Services.Core.md)
-- **[Quasar.Components](Modules/Quasar.Components.md)** → [Quasar.Host](Modules/Quasar.Host.md), [Quasar.Models](Modules/Quasar.Models.md), [Quasar.Services.Analytics](Modules/Quasar.Services.Analytics.md), [Quasar.Services.Auth](Modules/Quasar.Services.Auth.md), [Quasar.Services.Core](Modules/Quasar.Services.Core.md), [Quasar.Services.PluginSdk](Modules/Quasar.Services.PluginSdk.md)
+- **[Quasar.Components](Modules/Quasar.Components.md)** → [Magnetar.Protocol](Modules/Magnetar.Protocol.md), [Quasar.Host](Modules/Quasar.Host.md), [Quasar.Models](Modules/Quasar.Models.md), [Quasar.Services.Analytics](Modules/Quasar.Services.Analytics.md), [Quasar.Services.Auth](Modules/Quasar.Services.Auth.md), [Quasar.Services.Core](Modules/Quasar.Services.Core.md), [Quasar.Services.PluginSdk](Modules/Quasar.Services.PluginSdk.md)
 - **[Quasar.Agent](Modules/Quasar.Agent.md)** → [Magnetar.Protocol](Modules/Magnetar.Protocol.md)
 - **[Quasar.Bootstrap](Modules/Quasar.Bootstrap.md)** → [Magnetar.Protocol](Modules/Magnetar.Protocol.md), [Quasar.Host](Modules/Quasar.Host.md)
 

@@ -296,7 +296,10 @@
     "Quasar/Services/QuasarPluginCatalogService.cs"
   ],
   "Quasar/Components/Pages/Security.razor": [],
-  "Quasar/Components/Pages/ServerConsoleDialog.razor": [],
+  "Quasar/Components/Pages/ServerConsoleDialog.razor": [
+    "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
+    "Quasar/Services/DedicatedServerCatalog.cs"
+  ],
   "Quasar/Components/Pages/ServerDeleteDialog.razor": [
     "Quasar/wwwroot/quasar-configs.js"
   ],

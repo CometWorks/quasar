@@ -20,6 +20,10 @@ Usage: sudo ./install.sh [options]
 Publishes Quasar, installs a systemd service, and grants CAP_SYS_NICE through
 systemd so Quasar can raise managed server priority with renice.
 
+If the required .NET 10 SDK/runtime is missing, the installer detects apt, dnf,
+yum, pacman, or zypper, prints the exact install commands, and prompts before
+running them.
+
 Options:
   --install-dir <dir>       Install directory (default: /opt/quasar)
   --service-name <name>     systemd service name (default: quasar)
@@ -31,6 +35,10 @@ Options:
   --no-build                Install from an existing publish directory
   -h, --help                Show this help
 EOF
+}
+
+have() {
+    command -v "$1" >/dev/null 2>&1
 }
 
 normalize_version_component() {
@@ -93,31 +101,171 @@ resolve_build_version() {
         || echo "0.1.0-local"
 }
 
-require_dotnet_runtime() {
-    if ! command -v dotnet >/dev/null 2>&1; then
-        echo ".NET $REQUIRED_DOTNET_MAJOR runtime is required before installing Quasar." >&2
-        echo "Install it first: https://dotnet.microsoft.com/download/dotnet/$REQUIRED_DOTNET_MAJOR.0" >&2
-        exit 1
-    fi
+dotnet_has_sdk() {
+    have dotnet \
+        && dotnet --list-sdks 2>/dev/null \
+        | grep -Eq "^$REQUIRED_DOTNET_MAJOR\."
+}
 
+dotnet_has_aspnet_runtime() {
+    have dotnet || return 1
     local runtimes
-    if ! runtimes="$(dotnet --list-runtimes 2>/dev/null)"; then
-        echo "Could not list installed .NET runtimes." >&2
-        echo ".NET $REQUIRED_DOTNET_MAJOR runtime is required before installing Quasar." >&2
+    runtimes="$(dotnet --list-runtimes 2>/dev/null)" || return 1
+
+    grep -Eq "^Microsoft\.NETCore\.App[[:space:]]+$REQUIRED_DOTNET_MAJOR\." <<< "$runtimes" \
+        && grep -Eq "^Microsoft\.AspNetCore\.App[[:space:]]+$REQUIRED_DOTNET_MAJOR\." <<< "$runtimes"
+}
+
+detect_package_manager() {
+    if have apt-get; then echo apt; return; fi
+    if have dnf; then echo dnf; return; fi
+    if have yum; then echo yum; return; fi
+    if have pacman; then echo pacman; return; fi
+    if have zypper; then echo zypper; return; fi
+    echo ""
+}
+
+dotnet_package_for_manager() {
+    local package_kind="$1"
+    local package_manager="$2"
+
+    if [[ "$package_manager" == "pacman" ]]; then
+        if [[ "$package_kind" == "sdk" ]]; then
+            echo "dotnet-sdk aspnet-runtime"
+        else
+            echo "aspnet-runtime"
+        fi
+        return
+    fi
+
+    if [[ "$package_kind" == "sdk" ]]; then
+        echo "dotnet-sdk-$REQUIRED_DOTNET_MAJOR.0"
+    else
+        echo "aspnetcore-runtime-$REQUIRED_DOTNET_MAJOR.0"
+    fi
+}
+
+build_dotnet_install_commands() {
+    local package_manager="$1"
+    local packages="$2"
+
+    DOTNET_INSTALL_COMMANDS=()
+    case "$package_manager" in
+        apt)
+            DOTNET_INSTALL_COMMANDS+=("apt-get update")
+            DOTNET_INSTALL_COMMANDS+=("apt-get install -y $packages")
+            ;;
+        dnf)
+            DOTNET_INSTALL_COMMANDS+=("dnf install -y $packages")
+            ;;
+        yum)
+            DOTNET_INSTALL_COMMANDS+=("yum install -y $packages")
+            ;;
+        pacman)
+            DOTNET_INSTALL_COMMANDS+=("pacman -Sy --noconfirm $packages")
+            ;;
+        zypper)
+            DOTNET_INSTALL_COMMANDS+=("zypper --non-interactive install $packages")
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+    DOTNET_INSTALL_COMMANDS+=('if ! command -v dotnet >/dev/null 2>&1; then for dotnet_path in /usr/share/dotnet/dotnet /usr/lib64/dotnet/dotnet /opt/dotnet/dotnet; do if [ -x "$dotnet_path" ] && [ ! -e /usr/local/bin/dotnet ]; then mkdir -p /usr/local/bin && ln -s "$dotnet_path" /usr/local/bin/dotnet; break; fi; done; fi')
+}
+
+prompt_and_install_dotnet() {
+    local label="$1"
+    local package_kind="$2"
+    local package_manager
+    package_manager="$(detect_package_manager)"
+
+    if [[ -z "$package_manager" ]]; then
+        echo "$label is required before installing Quasar." >&2
+        echo "No supported package manager found. Install it first: https://dotnet.microsoft.com/download/dotnet/$REQUIRED_DOTNET_MAJOR.0" >&2
         exit 1
     fi
 
-    if ! grep -Eq "^Microsoft\.NETCore\.App[[:space:]]+$REQUIRED_DOTNET_MAJOR\." <<< "$runtimes"; then
-        echo ".NET $REQUIRED_DOTNET_MAJOR runtime is required before installing Quasar." >&2
-        echo "Installed .NET runtimes:" >&2
-        if [[ -n "$runtimes" ]]; then
-            sed 's/^/  /' <<< "$runtimes" >&2
-        else
-            echo "  (none reported)" >&2
-        fi
-        echo "Install it first: https://dotnet.microsoft.com/download/dotnet/$REQUIRED_DOTNET_MAJOR.0" >&2
+    local packages
+    packages="$(dotnet_package_for_manager "$package_kind" "$package_manager")"
+    if ! build_dotnet_install_commands "$package_manager" "$packages"; then
+        echo "$label is required before installing Quasar." >&2
+        echo "Unsupported package manager '$package_manager'. Install it first: https://dotnet.microsoft.com/download/dotnet/$REQUIRED_DOTNET_MAJOR.0" >&2
         exit 1
     fi
+
+    echo "$label is required before installing Quasar."
+    echo "Quasar can install it with the detected package manager: $package_manager"
+    echo
+    echo "Exact commands to run:"
+    local command
+    for command in "${DOTNET_INSTALL_COMMANDS[@]}"; do
+        echo "  $command"
+    done
+    echo
+    echo "These commands may add or update system packages. The final command only links dotnet onto PATH if the package manager did not."
+    if [[ ! -t 0 ]]; then
+        echo "Non-interactive terminal; refusing automatic .NET installation." >&2
+        exit 1
+    fi
+
+    local answer
+    read -r -p "Run these commands now? [y/N] " answer
+    case "$answer" in
+        y|Y|yes|YES|Yes)
+            ;;
+        *)
+            echo "Cancelled. Install $label manually, then rerun install.sh." >&2
+            exit 1
+            ;;
+    esac
+
+    for command in "${DOTNET_INSTALL_COMMANDS[@]}"; do
+        echo "+ $command"
+        bash -c "$command"
+    done
+    hash -r
+}
+
+print_installed_dotnet_state() {
+    if have dotnet; then
+        echo "Installed .NET SDKs:" >&2
+        dotnet --list-sdks 2>/dev/null | sed 's/^/  /' >&2 || echo "  (could not list SDKs)" >&2
+        echo "Installed .NET runtimes:" >&2
+        dotnet --list-runtimes 2>/dev/null | sed 's/^/  /' >&2 || echo "  (could not list runtimes)" >&2
+    else
+        echo "dotnet command not found on PATH." >&2
+    fi
+}
+
+require_dotnet_installation() {
+    if [[ "$SKIP_BUILD" == "false" ]]; then
+        if dotnet_has_sdk; then
+            return
+        fi
+
+        prompt_and_install_dotnet ".NET $REQUIRED_DOTNET_MAJOR SDK" "sdk"
+        if dotnet_has_sdk; then
+            return
+        fi
+
+        echo ".NET $REQUIRED_DOTNET_MAJOR SDK is still missing after installation attempt." >&2
+        print_installed_dotnet_state
+        exit 1
+    fi
+
+    if dotnet_has_aspnet_runtime; then
+        return
+    fi
+
+    prompt_and_install_dotnet ".NET $REQUIRED_DOTNET_MAJOR ASP.NET Core runtime" "runtime"
+    if dotnet_has_aspnet_runtime; then
+        return
+    fi
+
+    echo ".NET $REQUIRED_DOTNET_MAJOR ASP.NET Core runtime is still missing after installation attempt." >&2
+    print_installed_dotnet_state
+    exit 1
 }
 
 while [[ $# -gt 0 ]]; do
@@ -175,8 +323,6 @@ if [[ "$(uname -s)" != "Linux" ]]; then
     exit 1
 fi
 
-require_dotnet_runtime
-
 if [[ "${EUID}" -ne 0 ]]; then
     echo "Run as root, usually: sudo ./install.sh" >&2
     exit 1
@@ -205,6 +351,8 @@ case "$INSTALL_DIR" in
         exit 1
         ;;
 esac
+
+require_dotnet_installation
 
 PUBLISH_DIR="$(mktemp -d /tmp/quasar-publish.XXXXXX)"
 cleanup() {

@@ -90,6 +90,7 @@ window.quasarCharts = (function () {
             ms: 1e3, // x values are unix seconds, not milliseconds
             cursor: {
                 sync: { key: SYNC_KEY },
+                y: false,
                 points: { size: 7 },
                 // Drag an x-range to select it: draws a highlight band but does NOT zoom locally
                 // (setScale:false). The released selection is reported to Blazor, which repins the page.

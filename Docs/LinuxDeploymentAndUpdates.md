@@ -115,9 +115,14 @@ self-update loop when a source-built launcher reports stale version metadata.
 The first install uses the Linux installer flow from an extracted
 `quasar-linux-x64.tar.gz`:
 
-Install the **.NET 10 runtime** before running `install.sh`. The installer checks
-for `Microsoft.NETCore.App` 10.x before staging files, publishing, or writing the
-systemd service, and exits with install instructions if it is missing.
+If .NET 10 is missing, `install.sh` detects the available package manager (`apt`,
+`dnf`, `yum`, `pacman`, or `zypper`), prints the exact commands it would run, and
+asks before installing anything. The preview includes the package install command
+and a conditional `/usr/local/bin/dotnet` PATH-link command in case the package
+manager installs dotnet but does not expose it on `PATH`. Source installs require
+the .NET 10 SDK for `dotnet publish`; no-build/package installs require the .NET
+10 ASP.NET Core runtime, which includes the base .NET runtime. Declining the
+prompt exits before files or services are changed.
 
 ```bash
 tar -xzf quasar-linux-x64.tar.gz -C /tmp/quasar

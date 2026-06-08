@@ -258,6 +258,18 @@ public class Program
             if (authOptions.Enabled)
                 analyticsSeries.RequireAuthorization(QuasarPolicyNames.CanView);
 
+            var serverLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/server/download", (string uniqueName, DedicatedServerCatalog catalog) =>
+                DownloadLogFile(ResolveLatestDedicatedServerLogPath(uniqueName, catalog)));
+
+            var magnetarLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/magnetar/download", (string uniqueName, DedicatedServerCatalog catalog) =>
+                DownloadLogFile(ResolveMagnetarInfoLogPath(uniqueName, catalog)));
+
+            if (authOptions.Enabled)
+            {
+                serverLogDownload.RequireAuthorization(QuasarPolicyNames.CanView);
+                magnetarLogDownload.RequireAuthorization(QuasarPolicyNames.CanView);
+            }
+
             // Generates a fresh configuration backup and streams it as a download.
             var backupDownload = app.MapGet("/api/backup/download", (QuasarBackupService backup) =>
             {
@@ -523,6 +535,46 @@ public class Program
     private static void AddRolePolicy(AuthorizationOptions options, string policyName, params string[] roles)
     {
         options.AddPolicy(policyName, policy => policy.RequireRole(roles));
+    }
+
+    private static IResult DownloadLogFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return Results.NotFound();
+
+        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return Results.File(stream, "text/plain; charset=utf-8", Path.GetFileName(path));
+    }
+
+    private static string? ResolveLatestDedicatedServerLogPath(string uniqueName, DedicatedServerCatalog catalog)
+    {
+        var server = catalog.GetServer(uniqueName);
+        if (server is null)
+            return null;
+
+        var appDataPath = string.IsNullOrWhiteSpace(server.DedicatedServerAppDataPath)
+            ? MagnetarPaths.GetQuasarServerDedicatedServerAppDataDirectory(uniqueName)
+            : server.DedicatedServerAppDataPath.Trim();
+
+        if (!Directory.Exists(appDataPath))
+            return null;
+
+        return Directory.EnumerateFiles(appDataPath, "SpaceEngineersDedicated*.log", SearchOption.TopDirectoryOnly)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+    }
+
+    private static string? ResolveMagnetarInfoLogPath(string uniqueName, DedicatedServerCatalog catalog)
+    {
+        var server = catalog.GetServer(uniqueName);
+        if (server is null)
+            return null;
+
+        var appDataPath = string.IsNullOrWhiteSpace(server.MagnetarAppDataPath)
+            ? MagnetarPaths.GetQuasarServerMagnetarAppDataDirectory(uniqueName)
+            : server.MagnetarAppDataPath.Trim();
+
+        return Path.Combine(appDataPath, "info.log");
     }
 
     private sealed class CompositeDisposable(params IDisposable[] disposables) : IDisposable

@@ -64,7 +64,7 @@
         <MudTable T="PluginLogEntry" Dense="true" Hover="true" FixedHeader="true" Height="420px"
                   Items="_entries" Breakpoint="Breakpoint.Sm" RowsPerPage="100">
             <HeaderContent>
-                <MudTh><MudTableSortLabel SortBy="new Func<PluginLogEntry, object>(x => x.TimestampUtc)">Time (UTC)</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="new Func<PluginLogEntry, object>(x => x.TimestampUtc)">Time (UTC)</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<PluginLogEntry, object>(x => x.Level)">Level</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<PluginLogEntry, object>(x => ServerName(x.UniqueName))">Server</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<PluginLogEntry, object>(x => x.Plugin)">Plugin</MudTableSortLabel></MudTh>

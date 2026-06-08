@@ -29,7 +29,7 @@ No `@page` route — used as a child on the Plugins page.
 - Limit `MudNumericField` — clamped 1 to `PluginLogStream.MaxEntriesPerServer`.
 - Text `MudTextField` — immediate free-text filter.
 
-**Log table (`MudTable`):** Fixed header, 420 px height, sortable columns for Time (UTC), Level, Server, Plugin; Message column includes optional exception text in `Color.Error`.
+**Log table (`MudTable`):** Fixed header, 420 px height, initially sorted by Time (UTC) descending so the first page shows newest entries; sortable columns for Time (UTC), Level, Server, Plugin; Message column includes optional exception text in `Color.Error`.
 
 **Key methods:**
 - `Refresh()` — calls `LogStream.Query(new PluginLogQuery { UniqueName, Plugin, Level, Text, FromUtc, Limit })` with all active filters.
