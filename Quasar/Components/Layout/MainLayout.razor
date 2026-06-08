@@ -80,9 +80,9 @@
                 This stops every running Magnetar server.
             </MudAlert>
             <MudText Typo="Typo.body2">
-                Each server is sent a graceful shutdown command and waited on for a clean exit.
-                Quasar itself keeps running. To take Quasar fully offline, stop the Bootstrap
-                process separately or relaunch with <code>--force</code>.
+                Each server is sent a graceful shutdown command and winds down in the background —
+                follow their progress on the Dashboard. Quasar itself keeps running. To take Quasar
+                fully offline, stop the Bootstrap process separately or relaunch with <code>--force</code>.
             </MudText>
         </MessageContent>
         <YesButton>
@@ -264,27 +264,10 @@
         if (result != true)
             return;
 
-        _isShuttingDown = true;
-        _shutdownStatus = "Stopping all servers…";
-        await InvokeAsync(StateHasChanged);
-
-        var progress = new Progress<string>(status =>
-        {
-            _shutdownStatus = status;
-            _ = InvokeAsync(StateHasChanged);
-        });
-
-        try
-        {
-            await ShutdownService.StopAllServersAsync(progress, setGoalStateOff: true);
-        }
-        finally
-        {
-            // Quasar keeps running, so re-enable the toolbar once servers are stopped.
-            _isShuttingDown = false;
-            _shutdownStatus = string.Empty;
-            await InvokeAsync(StateHasChanged);
-        }
+        // Issue a stop on every running server — exactly as if Stop had been pressed on
+        // each card. The servers wind down in the background and the Dashboard / Servers
+        // list reflect their status, so there is no blocking overlay or status readout here.
+        _ = ShutdownService.StopAllServersAsync(setGoalStateOff: true);
     }
 
     private async Task HandleRestartWorkerClickAsync()

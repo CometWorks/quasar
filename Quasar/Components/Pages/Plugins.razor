@@ -10,7 +10,7 @@
 <MudText Typo="Typo.h5" Class="mb-2">Plugin inventory</MudText>
 <MudText Typo="Typo.body2" Class="mb-4">Plugin inventory across all connected servers.</MudText>
 <MudPaper Class="server-card">
-    <MudTable T="PluginRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="PluginRows">
+    <MudTable T="PluginRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="PluginRows" RowsPerPage="100">
         <HeaderContent>
             <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.DisplayName)">Plugin</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.Version)">Version</MudTableSortLabel></MudTh>
@@ -37,6 +37,9 @@
                 No plugin inventory yet.
             </MudAlert>
         </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" />
+        </PagerContent>
     </MudTable>
 </MudPaper>
 
@@ -74,14 +77,22 @@ else
         <MudPaper Class="server-card mb-4 pa-4">
             <MudText Typo="Typo.h6">@ResolveServerName(selectedAgent)</MudText>
             <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-3">@selectedAgent.HostDisplayName</MudText>
-            @foreach (var plugin in ConfigService.GetConfigsForAgent(selectedAgent.AgentId))
-            {
-                <MudExpansionPanels Class="mb-2" MultiExpansion="true">
-                    <MudExpansionPanel Text="@plugin.DisplayName">
-                        <PluginConfigEditor AgentId="@selectedAgent.AgentId" Plugin="@plugin" />
+            <MudExpansionPanels Class="mb-2" MultiExpansion="true">
+                @foreach (var plugin in ConfigService.GetConfigsForAgent(selectedAgent.AgentId))
+                {
+                    var pluginId = plugin.PluginId;
+                    <MudExpansionPanel Text="@plugin.DisplayName"
+                                       Expanded="@(_expandedConfigPluginId == pluginId)"
+                                       ExpandedChanged="expanded => HandleConfigPanelToggled(pluginId, expanded)">
+                        @if (_expandedConfigPluginId == pluginId)
+                        {
+                            // Construct the editor only while its panel is open. Keeping every
+                            // plugin's editor mounted at once is too many DOM nodes.
+                            <PluginConfigEditor AgentId="@selectedAgent.AgentId" Plugin="@plugin" />
+                        }
                     </MudExpansionPanel>
-                </MudExpansionPanels>
-            }
+                }
+            </MudExpansionPanels>
         </MudPaper>
     }
 }
@@ -96,6 +107,10 @@ else
 @code
 {
     private string? _selectedConfigAgentId;
+
+    // PluginId of the single config panel currently expanded (null = none). Only the
+    // open panel's editor is constructed, and opening one collapses any other.
+    private string? _expandedConfigPluginId;
 
     private IReadOnlyList<PluginRow> PluginRows => Registry
         .GetAgents()
@@ -178,6 +193,17 @@ else
     private void HandleConfigAgentChanged(string agentId)
     {
         _selectedConfigAgentId = agentId;
+        // Switching servers tears down the old server's panels, so drop the open one.
+        _expandedConfigPluginId = null;
+    }
+
+    private void HandleConfigPanelToggled(string pluginId, bool expanded)
+    {
+        // Single-open: track the newly opened panel, or clear when it collapses.
+        if (expanded)
+            _expandedConfigPluginId = pluginId;
+        else if (_expandedConfigPluginId == pluginId)
+            _expandedConfigPluginId = null;
     }
 
     private string GetPluginSourceUrl(PluginRuntimeInfo plugin)
