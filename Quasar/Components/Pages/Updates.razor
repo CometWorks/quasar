@@ -77,7 +77,7 @@
                             <MudButton Variant="Variant.Filled"
                                        Color="Color.Warning"
                                        StartIcon="@Icons.Material.Filled.RestartAlt"
-                                       Disabled="_busy || !_snapshot.Web.IsStaged"
+                                       Disabled="_busy || !_snapshot.Web.IsStaged || !IsNewerUiVersion(_snapshot.Web)"
                                        OnClick="ActivateAsync">
                                 Activate
                             </MudButton>
@@ -280,4 +280,7 @@
         string.IsNullOrWhiteSpace(_snapshot.CurrentBootstrapVersion)
             ? "not managed by Bootstrap"
             : _snapshot.CurrentBootstrapVersion;
+
+    private bool IsNewerUiVersion(QuasarUpdateCandidate candidate) =>
+        QuasarReleaseVersion.IsNewer(candidate.Version, _snapshot.CurrentVersion);
 }
