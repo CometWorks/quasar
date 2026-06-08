@@ -21,12 +21,50 @@ param(
 $ErrorActionPreference = 'Stop'
 $ScriptDir = $PSScriptRoot
 $RepoDir = Split-Path -Parent $ScriptDir
+$RequiredDotNetMajor = 10
+
+function Fail-DotNetRuntimePrerequisite {
+    param([string[]]$ExtraLines = @())
+
+    [Console]::Error.WriteLine(".NET $RequiredDotNetMajor runtime is required before installing Quasar.")
+    foreach ($line in $ExtraLines) {
+        [Console]::Error.WriteLine($line)
+    }
+    [Console]::Error.WriteLine("Install it first: https://dotnet.microsoft.com/download/dotnet/$RequiredDotNetMajor.0")
+    exit 1
+}
+
+function Assert-DotNetRuntime {
+    $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
+    if (-not $dotnet) {
+        Fail-DotNetRuntimePrerequisite
+    }
+
+    $runtimes = @(& dotnet --list-runtimes 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        Fail-DotNetRuntimePrerequisite @('Could not list installed .NET runtimes.')
+    }
+
+    $hasRequiredRuntime = $runtimes | Where-Object { $_ -match "^Microsoft\.NETCore\.App\s+$RequiredDotNetMajor\." } | Select-Object -First 1
+    if (-not $hasRequiredRuntime) {
+        $details = @('Installed .NET runtimes:')
+        if ($runtimes.Count -gt 0) {
+            $details += ($runtimes | ForEach-Object { "  $_" })
+        }
+        else {
+            $details += '  (none reported)'
+        }
+        Fail-DotNetRuntimePrerequisite $details
+    }
+}
 
 $onWindows = ($PSVersionTable.PSEdition -eq 'Desktop') -or ($IsWindows -eq $true)
 if (-not $onWindows) {
     Write-Error 'install.ps1 supports Windows only.'
     exit 1
 }
+
+Assert-DotNetRuntime
 
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
 $principalCheck = New-Object System.Security.Principal.WindowsPrincipal($identity)

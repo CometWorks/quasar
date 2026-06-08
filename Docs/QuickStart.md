@@ -31,6 +31,9 @@ output to the console. Press `Ctrl+C` to stop. The web UI port is configurable
 
 ## Install as a background service
 
+Install the **.NET 10 runtime** before running the installer. The installer exits
+before changing files or registering services if the runtime is missing.
+
 **Linux — systemd**
 
 ```bash

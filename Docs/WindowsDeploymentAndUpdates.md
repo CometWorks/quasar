@@ -98,6 +98,10 @@ systemd to restart it — that path is unchanged.
 
 ## Install
 
+Install the **.NET 10 runtime** before running `install.ps1`. The installer checks
+for `Microsoft.NETCore.App` 10.x before staging files, publishing, or registering
+the Scheduled Task, and exits with install instructions if it is missing.
+
 ```powershell
 # From an extracted quasar-win-x64.zip, in an elevated PowerShell:
 .\install.ps1            # install to %ProgramFiles%\Quasar and register the task

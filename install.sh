@@ -11,6 +11,7 @@ ENABLE_SERVICE=true
 START_SERVICE=false
 SKIP_BUILD=false
 RUN_USER="${SUDO_USER:-${USER:-}}"
+REQUIRED_DOTNET_MAJOR=10
 
 usage() {
     cat <<EOF
@@ -92,6 +93,33 @@ resolve_build_version() {
         || echo "0.1.0-local"
 }
 
+require_dotnet_runtime() {
+    if ! command -v dotnet >/dev/null 2>&1; then
+        echo ".NET $REQUIRED_DOTNET_MAJOR runtime is required before installing Quasar." >&2
+        echo "Install it first: https://dotnet.microsoft.com/download/dotnet/$REQUIRED_DOTNET_MAJOR.0" >&2
+        exit 1
+    fi
+
+    local runtimes
+    if ! runtimes="$(dotnet --list-runtimes 2>/dev/null)"; then
+        echo "Could not list installed .NET runtimes." >&2
+        echo ".NET $REQUIRED_DOTNET_MAJOR runtime is required before installing Quasar." >&2
+        exit 1
+    fi
+
+    if ! grep -Eq "^Microsoft\.NETCore\.App[[:space:]]+$REQUIRED_DOTNET_MAJOR\." <<< "$runtimes"; then
+        echo ".NET $REQUIRED_DOTNET_MAJOR runtime is required before installing Quasar." >&2
+        echo "Installed .NET runtimes:" >&2
+        if [[ -n "$runtimes" ]]; then
+            sed 's/^/  /' <<< "$runtimes" >&2
+        else
+            echo "  (none reported)" >&2
+        fi
+        echo "Install it first: https://dotnet.microsoft.com/download/dotnet/$REQUIRED_DOTNET_MAJOR.0" >&2
+        exit 1
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --install-dir)
@@ -146,6 +174,8 @@ if [[ "$(uname -s)" != "Linux" ]]; then
     echo "install.sh currently supports Linux/systemd only." >&2
     exit 1
 fi
+
+require_dotnet_runtime
 
 if [[ "${EUID}" -ne 0 ]]; then
     echo "Run as root, usually: sudo ./install.sh" >&2

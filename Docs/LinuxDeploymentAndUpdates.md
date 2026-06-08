@@ -110,6 +110,10 @@ self-update loop when a source-built launcher reports stale version metadata.
 The first install uses the Linux installer flow from an extracted
 `quasar-linux-x64.tar.gz`:
 
+Install the **.NET 10 runtime** before running `install.sh`. The installer checks
+for `Microsoft.NETCore.App` 10.x before staging files, publishing, or writing the
+systemd service, and exits with install instructions if it is missing.
+
 ```bash
 tar -xzf quasar-linux-x64.tar.gz -C /tmp/quasar
 sudo /tmp/quasar/install.sh          # publish to /opt/quasar and install quasar.service
