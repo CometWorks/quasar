@@ -51,6 +51,9 @@ public static class QuasarReleaseVersion
 
         var core = NormalizeCore(match.Groups["core"].Value);
         var prerelease = match.Groups["pre"].Success ? match.Groups["pre"].Value : string.Empty;
+        if (int.TryParse(prerelease, out _))
+            return $"{core}.{prerelease}";
+
         return string.IsNullOrWhiteSpace(prerelease) ? core : $"{core}-{prerelease}";
     }
 

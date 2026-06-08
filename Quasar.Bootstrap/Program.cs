@@ -1059,7 +1059,10 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     {
         var existing = ReadActiveReleasePointer();
         if (existing is not null && IsReleasePointerUsable(existing, allowExternalPointer: !IsServiceMode()))
+        {
+            TryMigrateStagedActiveRelease(existing);
             return;
+        }
 
         if (FindPackagedWorkerCandidate() is not null)
             return;
@@ -1088,7 +1091,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             }
 
             var version = QuasarReleaseVersion.Normalize(release.TagName);
-            var releaseDirectory = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), version);
+            var releaseDirectory = MagnetarPaths.GetQuasarManagedWebReleaseDirectory(version);
             var workerPath = Path.Combine(releaseDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName);
             if (!File.Exists(workerPath))
             {
@@ -1123,6 +1126,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 WorkingDirectory = releaseDirectory,
                 ActivatedAtUtc = DateTimeOffset.UtcNow,
             });
+            CleanupStagedUpdates(releaseDirectory);
             _logger.LogInformation("Downloaded initial Quasar web release {Version}.", version);
         }
         catch (Exception exception)
@@ -1230,6 +1234,18 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         {
             if (File.Exists(path))
                 File.Delete(path);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+                Directory.Delete(path, recursive: true);
         }
         catch
         {
@@ -1352,6 +1368,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 _currentWorker = nextWorker;
             }
 
+            CleanupInactiveManagedWebReleases(pointer.WorkingDirectory);
             _logger.LogInformation("Activated Quasar worker version {Version} at {BaseUri}.", pointer.Version, nextWorker.BaseUri);
         }
         finally
@@ -1616,6 +1633,104 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         File.WriteAllText(path, JsonSerializer.Serialize(pointer, JsonOptions));
     }
 
+    private static bool TryMigrateStagedActiveRelease(QuasarActiveReleasePointer pointer)
+    {
+        pointer = Normalize(pointer);
+        var sourceDirectory = string.IsNullOrWhiteSpace(pointer.WorkingDirectory)
+            ? Path.GetDirectoryName(pointer.FileName) ?? string.Empty
+            : pointer.WorkingDirectory;
+        if (string.IsNullOrWhiteSpace(sourceDirectory) ||
+            !IsPathUnder(sourceDirectory, MagnetarPaths.GetQuasarStagingDirectory()))
+        {
+            return false;
+        }
+
+        var version = QuasarReleaseVersion.Normalize(string.IsNullOrWhiteSpace(pointer.Version)
+            ? Path.GetFileName(sourceDirectory)
+            : pointer.Version);
+        var activeDirectory = MagnetarPaths.GetQuasarManagedWebReleaseDirectory(version);
+        if (IsSamePath(sourceDirectory, activeDirectory))
+            return false;
+
+        try
+        {
+            if (Directory.Exists(activeDirectory))
+                Directory.Delete(activeDirectory, recursive: true);
+
+            CopyDirectory(sourceDirectory, activeDirectory);
+            QuasarWebReleaseLayout.ValidateDirectory(activeDirectory);
+            var workerPath = Path.Combine(activeDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName);
+            EnsureExecutableBit(workerPath);
+
+            WriteActiveReleasePointer(new QuasarActiveReleasePointer
+            {
+                Version = version,
+                FileName = workerPath,
+                Arguments = string.Empty,
+                WorkingDirectory = activeDirectory,
+                ActivatedAtUtc = pointer.ActivatedAtUtc == default ? DateTimeOffset.UtcNow : pointer.ActivatedAtUtc,
+            });
+            CleanupStagedUpdates(activeDirectory);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void CleanupStagedUpdates(string activeWorkingDirectory)
+    {
+        var stagingDirectory = MagnetarPaths.GetQuasarStagingDirectory();
+        if (!Directory.Exists(stagingDirectory))
+            return;
+
+        foreach (var directory in Directory.EnumerateDirectories(stagingDirectory))
+        {
+            if (IsSamePath(directory, activeWorkingDirectory))
+                continue;
+
+            TryDeleteDirectory(directory);
+        }
+    }
+
+    private static void CleanupInactiveManagedWebReleases(string activeWorkingDirectory)
+    {
+        var releasesDirectory = MagnetarPaths.GetQuasarManagedWebServiceDirectory();
+        if (!Directory.Exists(releasesDirectory))
+            return;
+
+        foreach (var directory in Directory.EnumerateDirectories(releasesDirectory))
+        {
+            if (IsSamePath(directory, activeWorkingDirectory))
+                continue;
+
+            TryDeleteDirectory(directory);
+        }
+    }
+
+    private static void CopyDirectory(string sourceDirectory, string destinationDirectory)
+    {
+        foreach (var sourcePath in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(sourceDirectory, sourcePath);
+            var destinationPath = Path.Combine(destinationDirectory, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            File.Copy(sourcePath, destinationPath, overwrite: true);
+        }
+    }
+
+    private static bool IsSamePath(string left, string right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
+
+        return string.Equals(
+            Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar),
+            Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     private bool TryBuildInitialReleasePointer(out QuasarActiveReleasePointer pointer)
     {
         var envExe = FirstExistingFile("QUASAR_WEB_EXE", "MAGNETAR_WEB_EXE");
@@ -1796,6 +1911,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             return false;
 
         return IsPathUnder(path, Path.Combine(AppContext.BaseDirectory, "WebService")) ||
+               IsPathUnder(path, MagnetarPaths.GetQuasarManagedWebServiceDirectory()) ||
                IsPathUnder(path, MagnetarPaths.GetQuasarStagingDirectory());
     }
 

@@ -66,10 +66,11 @@ If Bootstrap has no usable `Updates/active-release.json` and no packaged
 extracts it under:
 
 ```text
-%APPDATA%\Quasar\Updates\Staged\<version>
+%APPDATA%\Quasar\ManagedRuntime\WebService\<version>
 ```
 
-Then it writes `Updates/active-release.json` pointing at the staged worker. The
+Then it writes `Updates/active-release.json` pointing at the managed active
+worker. `Updates\Staged\` is reserved for not-yet-activated update payloads. The
 downloaded archive must match the release's `SHA256SUMS` entry before extraction.
 
 ## UI Worker Updates
@@ -77,8 +78,10 @@ downloaded archive must match the release's `SHA256SUMS` entry before extraction
 Identical to Linux: the running UI checks GitHub releases every 15 minutes by
 default, downloads and stages a newer `quasar-web-win-x64.zip` (after verifying its
 `SHA256SUMS` entry), and surfaces it on `/settings/updates`. Activation is
-explicit; Bootstrap drains the old worker, starts the staged `Quasar.exe` on the
-same port, and leaves managed Magnetar servers running.
+explicit; the UI copies the staged payload into
+`%APPDATA%\Quasar\ManagedRuntime\WebService\<version>`, clears stale staged
+payloads, and Bootstrap drains the old worker, starts the managed `Quasar.exe` on
+the same port, and leaves managed Magnetar servers running.
 
 ## Bootstrap Updates
 

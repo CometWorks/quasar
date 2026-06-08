@@ -65,16 +65,19 @@ If Bootstrap has no usable `Updates/active-release.json` and no packaged
 extracts it under:
 
 ```text
-~/.config/Quasar/Updates/Staged/<version>
+~/.config/Quasar/ManagedRuntime/WebService/<version>
 ```
 
-Then it writes `Updates/active-release.json` pointing at the staged worker.
+Then it writes `Updates/active-release.json` pointing at the managed active
+worker. `Updates/Staged/` is reserved for not-yet-activated update payloads.
 The downloaded archive must match the release's `SHA256SUMS` entry before it is
 extracted.
 When running as a systemd service, Bootstrap ignores a stale active-release
 pointer that targets a random external build directory. Only packaged
-`WebService/` workers, staged update workers, or explicitly configured
-`QUASAR_WEB_EXE` / `QUASAR_WEB_DLL` workers are trusted.
+`WebService/` workers, managed web releases, staged legacy workers, or explicitly
+configured `QUASAR_WEB_EXE` / `QUASAR_WEB_DLL` workers are trusted. If Bootstrap
+finds an older active pointer that still targets `Updates/Staged/<version>`, it
+migrates that release into `ManagedRuntime/WebService/<version>` before launch.
 
 ## UI Worker Updates
 
@@ -83,10 +86,12 @@ new Linux web asset exists, Quasar downloads and stages it automatically, then
 shows an in-app notification and the `/settings/updates` page marks it ready.
 Staging requires a matching `SHA256SUMS` entry for the downloaded asset.
 
-Activation is explicit. The UI writes a new active-release pointer to the staged
-worker. Bootstrap observes that pointer change, drains the old worker, starts
-the staged worker on the same public port, and leaves managed Magnetar servers
-running.
+Activation is explicit. The UI copies the staged payload into
+`ManagedRuntime/WebService/<version>`, writes the active-release pointer to that
+managed worker, and clears old staged payloads. Bootstrap observes the pointer
+change, drains the old worker, starts the managed worker on the same public port,
+and leaves managed Magnetar servers running. After a successful cutover,
+Bootstrap prunes inactive managed web-release directories.
 
 This intentionally accepts a short web/agent disconnect. `Quasar.Agent`
 reconnects, and managed Magnetar processes stay alive because Quasar launches
