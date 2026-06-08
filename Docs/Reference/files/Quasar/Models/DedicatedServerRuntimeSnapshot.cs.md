@@ -3,7 +3,7 @@
 **Module:** Quasar.Models  **Kind:** class  **Tier:** 1
 
 ## Summary
-Immutable-by-convention snapshot of a server's live runtime state as maintained by `DedicatedServerSupervisor`. Combines process-lifecycle state, health classification, simulation-performance metrics, agent connectivity, and log paths into a single transferable object used by the dashboard and API.
+Immutable-by-convention snapshot of a server's live runtime state as maintained by `DedicatedServerSupervisor`. Combines process-lifecycle state, health classification, simulation-performance metrics, agent connectivity, log paths, and captured mod-download failures into a single transferable object used by the dashboard and API.
 
 ## Structure
 Namespace: `Quasar.Models`  
@@ -29,6 +29,7 @@ Namespace: `Quasar.Models`
 | `StoppedAtUtc` | When the process last stopped. |
 | `StandardOutputLogPath` | Path to the redirected stdout log file. |
 | `StandardErrorLogPath` | Path to the redirected stderr log file. |
+| `ModDownloadFailures` | Recent Magnetar/server output lines that look like Workshop mod download failures during startup/world initialization. |
 
 ## Dependencies
 - [`Quasar/Models/DedicatedServerGoalState.cs`](DedicatedServerGoalState.cs.md)

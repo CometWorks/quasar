@@ -4,7 +4,7 @@
 
 ## Summary
 
-`DedicatedServerSupervisor` is the heart of Quasar's process management. It is an `IHostedService` that maintains in-memory `ManagedServerState` for every configured dedicated server, runs a 2-second reconcile loop that starts/stops/restarts processes to match goal state, evaluates server health (agent heartbeat, simulation frame progress, uptime thresholds), rotates and prunes Quasar-captured DS stdout/stderr logs, persists runtime state across Quasar worker restarts and **adopts surviving detached processes by PID on startup**, and coordinates graceful stop (save + stop commands to the agent before kill) plus scheduled and maximum-uptime restarts.
+`DedicatedServerSupervisor` is the heart of Quasar's process management. It is an `IHostedService` that maintains in-memory `ManagedServerState` for every configured dedicated server, runs a 2-second reconcile loop that starts/stops/restarts processes to match goal state, evaluates server health (agent heartbeat, simulation frame progress, uptime thresholds), rotates and prunes Quasar-captured DS stdout/stderr logs, captures mod-download failure lines for dashboard surfacing, persists runtime state across Quasar worker restarts and **adopts surviving detached processes by PID on startup**, and coordinates graceful stop (save + stop commands to the agent before kill) plus scheduled and maximum-uptime restarts.
 
 ## Structure
 
@@ -36,9 +36,9 @@ Namespace: `Quasar.Services`
 
 **`RestorePersistedRuntimeState` / `TryAdoptProcess`** — on startup, `Process.GetProcessById` re-adopts still-running DS processes from a prior worker, re-attaches the `Exited` handler, and resets `AgentWatchSinceUtc` to "now" so the agent gets a fresh reconnect grace; processes no longer alive are marked Stopped.
 
-**`PumpStandardOutputAsync` / `PumpStandardErrorAsync`** — append timestamped lines to the current per-server active log files (`stdout.log`, `stderr.log`) using file sharing that allows start-time rotation. Plugin-SDK JSON lines (`TryParseSinkLine`) are **skipped** here because they now arrive via the agent network relay (`AgentSocketHandler`); only non-plugin output is wrapped as Magnetar-source `PluginLogEntry`. stderr lines log at Error.
+**`PumpStandardOutputAsync` / `PumpStandardErrorAsync`** — append timestamped lines to the current per-server active log files (`stdout.log`, `stderr.log`) using file sharing that allows start-time rotation. Plugin-SDK JSON lines (`TryParseSinkLine`) are **skipped** here because they now arrive via the agent network relay (`AgentSocketHandler`); only non-plugin output is wrapped as Magnetar-source `PluginLogEntry`. stderr lines log at Error. Both pumps call `RecordModDownloadFailure` so Magnetar/server output that looks like Workshop mod download failure is retained in `DedicatedServerRuntimeSnapshot.ModDownloadFailures`.
 
-Private nested types: `ManagedServerState` (full mutable per-server state incl. `Process`, `StartInProgress`, `AgentWatchSinceUtc`, simulation/priority/scheduled-restart tracking, plus `string? LastAppliedCpuAffinity` / `string? LastFailedCpuAffinity`); `PersistedSupervisorState` / `PersistedManagedServerState` (JSON-serialised subset incl. `ProcessId`); `ReconcileAction` enum; `ServerHealthAssessment` readonly record struct.
+Private nested types: `ManagedServerState` (full mutable per-server state incl. `Process`, `StartInProgress`, `AgentWatchSinceUtc`, simulation/priority/scheduled-restart tracking, `ModDownloadFailures`, plus `string? LastAppliedCpuAffinity` / `string? LastFailedCpuAffinity`); `PersistedSupervisorState` / `PersistedManagedServerState` (JSON-serialised subset incl. `ProcessId`); `ReconcileAction` enum; `ServerHealthAssessment` readonly record struct.
 
 ## Dependencies
 

@@ -48,20 +48,27 @@ public sealed class QuasarBackupSettingsService : IDisposable
         // Preserve the scheduler's own LastBackupUtc bookkeeping across UI saves.
         var normalized = QuasarBackupSettings.Normalize(settings);
         lock (_sync)
-            normalized.LastBackupUtc ??= _settings.LastBackupUtc;
+        {
+            normalized.Configuration.LastBackupUtc ??= _settings.Configuration.LastBackupUtc;
+            normalized.Server.LastBackupUtc ??= _settings.Server.LastBackupUtc;
+            normalized.World.LastBackupUtc ??= _settings.World.LastBackupUtc;
+        }
 
         await PersistAsync(normalized, cancellationToken);
         Changed?.Invoke();
     }
 
     /// <summary>Records the timestamp of the most recent automatic backup.</summary>
-    public async Task UpdateLastBackupAsync(DateTimeOffset timestamp, CancellationToken cancellationToken = default)
+    public async Task UpdateLastBackupAsync(
+        QuasarBackupKind kind,
+        DateTimeOffset timestamp,
+        CancellationToken cancellationToken = default)
     {
         QuasarBackupSettings updated;
         lock (_sync)
         {
             updated = _settings.Clone();
-            updated.LastBackupUtc = timestamp;
+            updated.GetRule(kind).LastBackupUtc = timestamp;
         }
 
         await PersistAsync(QuasarBackupSettings.Normalize(updated), cancellationToken);

@@ -1,5 +1,7 @@
 <MudDialog>
     <DialogContent>
+        @if (_step == ImportStep.Details)
+        {
         <MudForm @ref="_form" @bind-IsValid="_formIsValid">
         <MudStack Spacing="3">
             <MudText Typo="Typo.body2">
@@ -42,11 +44,82 @@
             </MudStack>
         </MudStack>
         </MudForm>
+        }
+        else
+        {
+            <MudStack Spacing="3">
+                <MudText Typo="Typo.subtitle2">Template mods</MudText>
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    Found @_sourceMods.Count mod(s) in the source world's <code>Sandbox_config.sbc</code>. Quasar writes the selected config profile's mod list into the active world on server start.
+                </MudAlert>
+
+                <MudRadioGroup T="WorldImportModAction" @bind-Value="_modAction">
+                    <MudStack Spacing="1">
+                        <MudRadio T="WorldImportModAction" Value="WorldImportModAction.CreateProfile" Color="Color.Primary">
+                            Create new config profile from these mods
+                        </MudRadio>
+                        <MudRadio T="WorldImportModAction" Value="WorldImportModAction.ExistingProfile" Color="Color.Primary" Disabled="@(ConfigProfiles.GetProfiles().Count == 0)">
+                            Import mods into existing config profile
+                        </MudRadio>
+                        <MudRadio T="WorldImportModAction" Value="WorldImportModAction.None" Color="Color.Primary">
+                            Do nothing with template mods
+                        </MudRadio>
+                    </MudStack>
+                </MudRadioGroup>
+
+                @if (_modAction == WorldImportModAction.CreateProfile)
+                {
+                    <MudTextField
+                        @bind-Value="_newProfileName"
+                        Label="Profile name"
+                        Variant="Variant.Outlined"
+                        Immediate="true"
+                        Required="true"
+                        RequiredError="Profile name required." />
+
+                    <MudTextField
+                        @bind-Value="_newProfileDescription"
+                        Label="Description"
+                        Variant="Variant.Outlined"
+                        Immediate="true"
+                        Lines="2" />
+                }
+                else if (_modAction == WorldImportModAction.ExistingProfile)
+                {
+                    <MudSelect T="string"
+                               @bind-Value="_selectedConfigProfileId"
+                               Label="Config profile"
+                               Variant="Variant.Outlined"
+                               Required="true"
+                               RequiredError="Config profile required.">
+                        @foreach (var profile in ConfigProfiles.GetProfiles())
+                        {
+                            <MudSelectItem T="string" Value="@profile.ConfigProfileId">@profile.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+
+                <MudTable T="QuasarModSelection" Items="_sourceMods" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Workshop ID</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+                        <MudTd DataLabel="Workshop ID" Class="mono">@context.WorkshopId</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </MudStack>
+        }
     </DialogContent>
     <DialogActions>
+        @if (_step == ImportStep.Mods)
+        {
+            <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="BackToDetails" Disabled="@_importing">Back</MudButton>
+        }
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel" Disabled="@_importing">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ImportAsync" Disabled="@_importing">
-            @(_importing ? "Importing..." : "Import World Template")
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ContinueAsync" Disabled="@_importing">
+            @GetPrimaryButtonText()
         </MudButton>
     </DialogActions>
 </MudDialog>
@@ -60,21 +133,45 @@
     private QuasarWorldTemplateCatalog WorldTemplates { get; set; } = default!;
 
     [Inject]
+    private QuasarConfigProfileCatalog ConfigProfiles { get; set; } = default!;
+
+    [Inject]
     private ISnackbar Snackbar { get; set; } = default!;
 
     [Inject]
     private IDialogService DialogService { get; set; } = default!;
+
+    [Parameter]
+    public string? InitialConfigProfileId { get; set; }
 
     private MudForm? _form;
     private bool _formIsValid;
     private string _name = string.Empty;
     private string _description = string.Empty;
     private string _sourcePath = string.Empty;
+    private string _selectedConfigProfileId = string.Empty;
+    private string _newProfileName = string.Empty;
+    private string _newProfileDescription = string.Empty;
+    private List<QuasarModSelection> _sourceMods = [];
+    private ImportStep _step = ImportStep.Details;
+    private WorldImportModAction _modAction = WorldImportModAction.CreateProfile;
     private bool _importing;
+
+    protected override void OnInitialized()
+    {
+        _selectedConfigProfileId = GetInitialConfigProfileId();
+        if (!string.IsNullOrWhiteSpace(_selectedConfigProfileId))
+            _modAction = WorldImportModAction.ExistingProfile;
+    }
 
     private void Cancel()
     {
         MudDialog.Cancel();
+    }
+
+    private void BackToDetails()
+    {
+        _step = ImportStep.Details;
     }
 
     private async Task OpenFolderPickerAsync()
@@ -94,17 +191,61 @@
             _sourcePath = path;
     }
 
-    private async Task ImportAsync()
+    private async Task ContinueAsync()
     {
+        if (_step == ImportStep.Mods)
+        {
+            await ImportAsync();
+            return;
+        }
+
         await _form!.ValidateAsync();
         if (!_formIsValid)
             return;
+
+        _sourceMods = LoadSourceMods();
+        if (_sourceMods.Count > 0)
+        {
+            _newProfileName = string.IsNullOrWhiteSpace(_newProfileName)
+                ? $"{_name.Trim()} Config"
+                : _newProfileName;
+            _newProfileDescription = string.IsNullOrWhiteSpace(_newProfileDescription)
+                ? $"Created from imported world template '{_name.Trim()}'."
+                : _newProfileDescription;
+
+            _selectedConfigProfileId = FirstExistingProfileId(_selectedConfigProfileId) ?? ConfigProfiles.GetProfiles().FirstOrDefault()?.ConfigProfileId ?? string.Empty;
+            if (ConfigProfiles.GetProfiles().Count == 0 && _modAction == WorldImportModAction.ExistingProfile)
+                _modAction = WorldImportModAction.CreateProfile;
+
+            _step = ImportStep.Mods;
+            return;
+        }
+
+        await ImportAsync();
+    }
+
+    private async Task ImportAsync()
+    {
+        if (_modAction == WorldImportModAction.CreateProfile && _step == ImportStep.Mods && string.IsNullOrWhiteSpace(_newProfileName))
+        {
+            Snackbar.Add("Profile name required.", Severity.Warning);
+            return;
+        }
+
+        if (_modAction == WorldImportModAction.ExistingProfile &&
+            _step == ImportStep.Mods &&
+            string.IsNullOrWhiteSpace(_selectedConfigProfileId))
+        {
+            Snackbar.Add("Config profile required.", Severity.Warning);
+            return;
+        }
 
         _importing = true;
         try
         {
             var template = await WorldTemplates.ImportAsync(_name.Trim(), _description?.Trim() ?? string.Empty, _sourcePath.Trim());
-            MudDialog.Close(DialogResult.Ok(template));
+            var configProfileId = await ApplyModActionAsync();
+            MudDialog.Close(DialogResult.Ok(new WorldTemplateQuickImportResult(template, configProfileId)));
         }
         catch (Exception exception)
         {
@@ -114,5 +255,127 @@
         {
             _importing = false;
         }
+    }
+
+    private async Task<string?> ApplyModActionAsync()
+    {
+        if (_step != ImportStep.Mods || _sourceMods.Count == 0 || _modAction == WorldImportModAction.None)
+            return null;
+
+        if (_modAction == WorldImportModAction.ExistingProfile)
+        {
+            var profile = ConfigProfiles.GetProfile(_selectedConfigProfileId)
+                ?? throw new InvalidOperationException("Selected config profile no longer exists.");
+            var added = MergeMods(profile, _sourceMods);
+            await ConfigProfiles.UpsertAsync(profile);
+            Snackbar.Add(added > 0
+                ? $"Imported {added} mod(s) into config profile '{profile.Name}'."
+                : $"Config profile '{profile.Name}' already has these mods.",
+                added > 0 ? Severity.Success : Severity.Info);
+            return profile.ConfigProfileId;
+        }
+
+        var newProfile = new QuasarConfigProfile
+        {
+            Name = _newProfileName.Trim(),
+            Description = _newProfileDescription?.Trim() ?? string.Empty,
+            Mods = _sourceMods.ToList(),
+        };
+
+        await ConfigProfiles.UpsertAsync(newProfile);
+        await OpenConfigProfileEditorAsync(newProfile.ConfigProfileId);
+        return newProfile.ConfigProfileId;
+    }
+
+    private async Task OpenConfigProfileEditorAsync(string configProfileId)
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(ConfigsPageDialog.InitialProfileId)] = configProfileId,
+        };
+
+        var dialog = await DialogService.ShowAsync<ConfigsPageDialog>(
+            "Config Profiles",
+            parameters,
+            new DialogOptions
+            {
+                CloseOnEscapeKey = true,
+                FullScreen = true,
+            });
+
+        await dialog.Result;
+    }
+
+    private List<QuasarModSelection> LoadSourceMods()
+    {
+        var sandboxConfigPath = Path.Combine(_sourcePath.Trim(), WorldSandboxConfigEditor.SandboxConfigFileName);
+        try
+        {
+            return WorldSandboxConfigEditor.ReadMods(sandboxConfigPath).ToList();
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Could not read template mods. Continuing without mod handling. {exception.Message}", Severity.Warning);
+            return [];
+        }
+    }
+
+    private string GetInitialConfigProfileId() =>
+        FirstExistingProfileId(InitialConfigProfileId) ?? ConfigProfiles.GetProfiles().FirstOrDefault()?.ConfigProfileId ?? string.Empty;
+
+    private string? FirstExistingProfileId(string? configProfileId)
+    {
+        if (string.IsNullOrWhiteSpace(configProfileId))
+            return null;
+
+        var trimmed = configProfileId.Trim();
+        return ConfigProfiles.GetProfile(trimmed) is null ? null : trimmed;
+    }
+
+    private string GetPrimaryButtonText() =>
+        _importing
+            ? "Importing..."
+            : _step == ImportStep.Mods
+                ? "Import World Template"
+                : "Continue";
+
+    private static int MergeMods(QuasarConfigProfile profile, IEnumerable<QuasarModSelection> mods)
+    {
+        var existing = profile.Mods.Select(mod => mod.WorkshopId).ToHashSet();
+        var added = 0;
+        foreach (var mod in mods)
+        {
+            if (mod.WorkshopId <= 0 || !existing.Add(mod.WorkshopId))
+                continue;
+
+            profile.Mods.Add(new QuasarModSelection
+            {
+                WorkshopId = mod.WorkshopId,
+                DisplayName = mod.DisplayName,
+            });
+            added++;
+        }
+
+        profile.Mods = profile.Mods
+            .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(mod => mod.WorkshopId)
+            .ToList();
+
+        return added;
+    }
+
+    public sealed record WorldTemplateQuickImportResult(QuasarWorldTemplate Template, string? ConfigProfileId);
+
+    private enum ImportStep
+    {
+        Details,
+        Mods,
+    }
+
+    private enum WorldImportModAction
+    {
+        CreateProfile,
+        ExistingProfile,
+        None,
     }
 }

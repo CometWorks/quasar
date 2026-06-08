@@ -37,4 +37,6 @@ public sealed class DedicatedServerRuntimeSnapshot
     public string StandardOutputLogPath { get; set; } = string.Empty;
 
     public string StandardErrorLogPath { get; set; } = string.Empty;
+
+    public List<string> ModDownloadFailures { get; set; } = [];
 }

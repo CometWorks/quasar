@@ -326,7 +326,7 @@
       "name": "ServerDetailPanel.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Detail panel embedded inside `ServerCard`. When the agent snapshot is absent it shows a waiting/error message and basic process state chips. When a snapshot is present it renders live metrics chips, Refresh/Save buttons, a chat broadcast field, a players table with per-player action menus (kick/ban/set role), a recent-chat list, a plugins table, and recent command results. The plugin table merges live agent-reported plugins with plugins configured on the server's assigned config profile, so Magnetar-managed plugin selections still show on the landing-page card even when the DS runtime does not report them through `ConfigDedicated.Plugins`. In both the snapshot-present and snapshot-absent states, an outlined \"Affinity <value>\" chip (Memory icon) is shown in the metrics chip rows when `Server.CpuAffinity` is set."
+      "summary": "Detail panel embedded inside `ServerCard`. When the agent snapshot is absent it shows a waiting/error message and basic process state chips. When a snapshot is present it renders live metrics chips, Refresh/Save buttons, a chat broadcast field, a players table with per-player action menus (kick/ban/set role), a recent-chat list, a plugins table, and recent command results. The plugin table merges live agent-reported plugins with plugins configured on the server's assigned config profile, so Magnetar-managed plugin selections still show on the landing-page card even when the DS runtime does not report them through `ConfigDedicated.Plugins`. In both the snapshot-present and snapshot-absent states, an outlined \"Affinity <value>\" chip (Memory icon) is shown in the metrics chip rows when `Server.CpuAffinity` is set, and mod-download failures captured from runtime output are shown as an explicit error alert."
     },
     {
       "path": "Quasar/Components/Layout/BrandingHeadContent.razor",
@@ -340,7 +340,7 @@
       "name": "MainLayout.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Top-level application shell layout. Provides the MudBlazor theme/provider setup, a responsive app bar with branding, a theme-mode switcher, auth (login/logout) controls, and Quasar shutdown / worker-restart controls. It hosts a collapsible side drawer with `NavMenu`, the main content area that renders `@Body`, a full-screen shutdown/restart overlay, and two confirmation `MudMessageBox` dialogs (shut-down-all-servers and restart-worker)."
+      "summary": "Top-level application shell layout. Provides the MudBlazor theme/provider setup, a responsive app bar with branding, a theme-mode switcher, auth (login/logout) controls, and Quasar shutdown / worker-restart controls. It hosts a collapsible side drawer with `NavMenu`, the main content area that renders `@Body`, a full-screen restart overlay, and two confirmation `MudMessageBox` dialogs (shut-down-all-servers and restart-worker)."
     },
     {
       "path": "Quasar/Components/Layout/MainLayout.razor.css",
@@ -410,7 +410,7 @@
       "name": "Backup.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page (`@page \"/backup\"`) for creating, restoring, scheduling and managing Quasar configuration backups. Gated by `@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]` and `@implements IDisposable`."
+      "summary": "Routable page (`@page \"/backup\"`) for creating, restoring, scheduling and managing Quasar configuration, server, and world backups. Gated by `@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]` and `@implements IDisposable`."
     },
     {
       "path": "Quasar/Components/Pages/ConfigProfilePendingChangesDialog.razor",
@@ -431,7 +431,7 @@
       "name": "Configs.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "The `/configs` page: a full editor for reusable Magnetar config templates (`QuasarConfigProfile`) that are applied to assigned dedicated servers at startup. A sidebar lists/creates/clones/deletes templates; the main column edits World settings, Plugins, Mods, and Developer dev-folders across tabbed and collapsible panels. QoL features include searchable/jump-to world options, a refreshable plugin catalog, Steam Workshop search, world-template mod merge, unsaved-change guarding, and integration with the plugin-manifest picker dialog for registering local dev folders. (This page has no charts; the analytics charting work lives in `Analytics.razor`.)"
+      "summary": "The `/configs` page: a full editor for reusable Magnetar config templates (`QuasarConfigProfile`) that are applied to assigned dedicated servers at startup. A sidebar lists/creates/clones/deletes templates; the main column edits World settings, Plugins, Mods, and Developer dev-folders across tabbed and collapsible panels. QoL features include searchable/jump-to world options, a refreshable plugin catalog, Steam Workshop search, world-template mod merge, dead Workshop mod cleanup, unsaved-change guarding, and integration with the plugin-manifest picker dialog for registering local dev folders. (This page has no charts; the analytics charting work lives in `Analytics.razor`.)"
     },
     {
       "path": "Quasar/Components/Pages/Configs.razor.css",
@@ -560,11 +560,18 @@
       "summary": "MudBlazor dialog (no `@page` route) that shows two tabs of diagnostic output for a specific server identified by `UniqueName`: a live process-console tab fed by `PluginLogStream`, and a Magnetar `info.log` viewer that reads the last 256 KB of the log file from disk. Opened from `Servers.razor` via `IDialogService`. Previously named `ServerConsoleDialog`."
     },
     {
+      "path": "Quasar/Components/Pages/ServerDeleteDialog.razor",
+      "name": "ServerDeleteDialog.razor",
+      "kind": "Blazor component",
+      "tier": 2,
+      "summary": "MudBlazor dialog that confirms deletion of a server definition or reports that the definition was removed while leaving the server folder on disk. It shows the affected slug and folder path, lets the user copy the folder path, and closes with `DialogResult.Ok(true)` when the destructive or acknowledgement action is accepted."
+    },
+    {
       "path": "Quasar/Components/Pages/ServerEditorDialog.razor",
       "name": "ServerEditorDialog.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "MudBlazor dialog (no `@page` route) for creating or editing a `DedicatedServerDefinition`. Used by both `Servers.razor` (create / clone / edit) and embedded in the dashboard setup wizard. Validates all required fields with MudBlazor `MudForm`, auto-generates the `UniqueName` identifier slug from the display name during creation, checks for port and identifier uniqueness, and returns the completed definition as `DialogResult.Ok(updated)` on save. Previously named `ServerEditorDialog`."
+      "summary": "MudBlazor dialog (no `@page` route) for creating or editing a `DedicatedServerDefinition`. It validates server identity/runtime settings, opens inline config/world-template creation dialogs, consumes world-import results that include a config-profile id, and can merge missing world-template mods directly into the selected config profile before save."
     },
     {
       "path": "Quasar/Components/Pages/ServerEditorDialog.razor.css",
@@ -613,7 +620,7 @@
       "name": "WorldTemplateQuickImportDialog.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "MudBlazor dialog for importing a Space Engineers save folder as a world template without leaving the server editor. Validates a name and absolute source path, opens a `FolderPickerDialog` for path browsing, calls `WorldTemplateCatalog.ImportAsync`, and returns the created `QuasarWorldTemplate` via `DialogResult.Ok`."
+      "summary": "MudBlazor dialog for importing a Space Engineers save folder as a world template without leaving the server editor. Validates a name and absolute source path, opens a `FolderPickerDialog` for path browsing, reads source-world mods from `Sandbox_config.sbc`, lets the user create a config profile, merge into an existing profile, or ignore those mods, and returns the imported template plus an optional config-profile id."
     },
     {
       "path": "Quasar/Components/Pages/WorldTemplates.razor",
@@ -720,7 +727,7 @@
       "name": "DedicatedServerRuntimeSnapshot.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Immutable-by-convention snapshot of a server's live runtime state as maintained by `DedicatedServerSupervisor`. Combines process-lifecycle state, health classification, simulation-performance metrics, agent connectivity, and log paths into a single transferable object used by the dashboard and API."
+      "summary": "Immutable-by-convention snapshot of a server's live runtime state as maintained by `DedicatedServerSupervisor`. Combines process-lifecycle state, health classification, simulation-performance metrics, agent connectivity, log paths, and captured mod-download failures into a single transferable object used by the dashboard and API."
     },
     {
       "path": "Quasar/Models/KnownPlayerRecord.cs",
@@ -739,16 +746,16 @@
     {
       "path": "Quasar/Models/QuasarBackupManifest.cs",
       "name": "QuasarBackupManifest.cs",
-      "kind": "class",
+      "kind": "enum + class",
       "tier": 1,
-      "summary": "Metadata written to `quasar-backup.json` at the root of every backup ZIP."
+      "summary": "Metadata written to `quasar-backup.json` at the root of every backup ZIP, including the backup scope and optional target-server identity."
     },
     {
       "path": "Quasar/Models/QuasarBackupSettings.cs",
       "name": "QuasarBackupSettings.cs",
       "kind": "enum + class",
       "tier": 1,
-      "summary": "Persistent config for the automatic backup scheduler, serialized to `backup-settings.json`. Defines the backup frequency enum and the settings record with retention bounds and scheduling fields."
+      "summary": "Persistent config for the automatic backup scheduler, serialized to `backup-settings.json`. Defines the backup frequency enum, one reusable rule record, and the settings object containing separate Quasar config, server, and world automatic-backup rules."
     },
     {
       "path": "Quasar/Models/QuasarConfigProfile.cs",
@@ -871,7 +878,7 @@
       "name": "AutomaticBackupService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Background scheduler that writes automatic backups into the Backups directory according to `QuasarBackupSettings` and prunes them to the configured retention count. Modeled on `PluginCatalogRefreshService`'s `PeriodicTimer` pattern."
+      "summary": "Background scheduler that writes automatic Quasar config, server, and world backups into the Backups directory according to separate `QuasarBackupSettings` rules and prunes them to each rule's retention count. Modeled on `PluginCatalogRefreshService`'s `PeriodicTimer` pattern."
     },
     {
       "path": "Quasar/Services/Backup/BackupCompatibility.cs",
@@ -892,14 +899,14 @@
       "name": "QuasarBackupService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Builds and restores ZIP backups of Quasar's *own* configuration. A backup captures servers, config profiles, world templates and all app settings (Discord, branding, known players, security/RBAC, dev folders), but deliberately excludes game servers, worlds, plugin configs, runtime state, logs and history. Restore merges the archive into the running install by overwriting files at their on-disk path."
+      "summary": "Builds and restores ZIP backups for three scopes: Quasar configuration, whole server data, and world-only data. Configuration backups still capture Quasar's own singleton/config/catalog files; server backups include the server definition, Dedicated Server app data, Magnetar app data, and world files including config; world backups restore world files while excluding `Sandbox_config.sbc*`."
     },
     {
       "path": "Quasar/Services/Backup/QuasarBackupSettingsService.cs",
       "name": "QuasarBackupSettingsService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Singleton store for the automatic-backup schedule. Persists to `backup-settings.json` (`MagnetarPaths.GetQuasarBackupSettingsPath()`) in the Quasar data directory and picks up external edits via a debounced (250 ms) `FileSystemWatcher`, mirroring `BrandingService`."
+      "summary": "Singleton store for automatic-backup rules. Persists `backup-settings.json` (`MagnetarPaths.GetQuasarBackupSettingsPath()`) in the Quasar data directory and picks up external edits via a debounced (250 ms) `FileSystemWatcher`, mirroring `BrandingService`."
     },
     {
       "path": "Quasar/Services/BrandingPresets.cs",
@@ -941,7 +948,7 @@
       "name": "DedicatedServerSupervisor.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`DedicatedServerSupervisor` is the heart of Quasar's process management. It is an `IHostedService` that maintains in-memory `ManagedServerState` for every configured dedicated server, runs a 2-second reconcile loop that starts/stops/restarts processes to match goal state, evaluates server health (agent heartbeat, simulation frame progress, uptime thresholds), rotates and prunes Quasar-captured DS stdout/stderr logs, persists runtime state across Quasar worker restarts and **adopts surviving detached processes by PID on startup**, and coordinates graceful stop (save + stop commands to the agent before kill) plus scheduled and maximum-uptime restarts."
+      "summary": "`DedicatedServerSupervisor` is the heart of Quasar's process management. It is an `IHostedService` that maintains in-memory `ManagedServerState` for every configured dedicated server, runs a 2-second reconcile loop that starts/stops/restarts processes to match goal state, evaluates server health (agent heartbeat, simulation frame progress, uptime thresholds), rotates and prunes Quasar-captured DS stdout/stderr logs, captures mod-download failure lines for dashboard surfacing, persists runtime state across Quasar worker restarts and **adopts surviving detached processes by PID on startup**, and coordinates graceful stop (save + stop commands to the agent before kill) plus scheduled and maximum-uptime restarts."
     },
     {
       "path": "Quasar/Services/EntityService.cs",
@@ -956,6 +963,13 @@
       "kind": "class",
       "tier": 1,
       "summary": "`FileBrowserService` provides server-side directory listing, shortcut generation, and breadcrumb computation for the world-path picker UI. It identifies Space Engineers world folders by the presence of `Sandbox.sbc` and offers well-known shortcuts to SE save locations."
+    },
+    {
+      "path": "Quasar/Services/IdentifierSlug.cs",
+      "name": "IdentifierSlug.cs",
+      "kind": "utility",
+      "tier": 1,
+      "summary": "Static slug helper for turning human-readable names into stable lowercase identifiers. It normalizes letters and digits, collapses whitespace, underscores, and hyphens into single hyphens, drops unsupported characters, trims edge hyphens, and can generate a unique slug by appending an incrementing numeric suffix."
     },
     {
       "path": "Quasar/Services/KnownPlayerCatalog.cs",
@@ -1053,7 +1067,7 @@
       "name": "QuasarWorkshopModResolver.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Resolves Steam Workshop mod references (URLs, raw IDs, or text containing IDs) into typed `QuasarModSelection` records via the Steam Web API. Supports resolving individual mods and expanding collections into their child items, browsing popular mods, and full-text mod search. Non-mod items (worlds, blueprints, in-game scripts) are silently filtered out."
+      "summary": "Resolves Steam Workshop mod references (URLs, raw IDs, or text containing IDs) into typed `QuasarModSelection` records via the Steam Web API. Supports resolving individual mods and expanding collections into their child items, browsing popular mods, full-text mod search, and checking selected mods for unavailable/dead Workshop entries. Non-mod items (worlds, blueprints, in-game scripts) are silently filtered out."
     },
     {
       "path": "Quasar/Services/QuasarWorldTemplateCatalog.cs",
