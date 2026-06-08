@@ -159,6 +159,12 @@ public static class MagnetarPaths
     public static string GetQuasarManagedRuntimeToolsDirectory() =>
         Path.Combine(GetQuasarManagedRuntimeDirectory(), "Tools");
 
+    public static string GetQuasarManagedWebServiceDirectory() =>
+        Path.Combine(GetQuasarManagedRuntimeDirectory(), "WebService");
+
+    public static string GetQuasarManagedWebReleaseDirectory(string version) =>
+        Path.Combine(GetQuasarManagedWebServiceDirectory(), SanitizePathSegment(version));
+
     public static string GetQuasarManagedMagnetarInstallDirectory() =>
         Path.Combine(GetQuasarManagedRuntimeToolsDirectory(), "Magnetar");
 

@@ -107,6 +107,8 @@ public sealed class QuasarUpdateService : BackgroundService
                 Message = "Checking GitHub releases.",
             });
 
+            CleanupCurrentOrOlderStagedWebUpdates(_webOptions.Version);
+
             var webRelease = await GetLatestReleaseWithAssetAsync(_options.WebAssetName, cancellationToken).ConfigureAwait(false);
             var bootstrapRelease = await GetLatestReleaseWithAssetAsync(_options.BootstrapAssetName, cancellationToken).ConfigureAwait(false);
             if (webRelease is null && bootstrapRelease is null)
@@ -251,7 +253,7 @@ public sealed class QuasarUpdateService : BackgroundService
         if (!IsNewerVersion(candidate.Version, _webOptions.Version))
             throw new InvalidOperationException($"Staged Quasar UI {candidate.Version} is not newer than the current version {_webOptions.Version}.");
 
-        var workerPath = Path.Combine(candidate.StagedDirectory, QuasarWebReleaseLayout.WorkerExecutableName);
+        var workerPath = Path.Combine(candidate.StagedDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName);
         if (!File.Exists(workerPath))
             throw new InvalidOperationException($"Staged Quasar UI executable not found: {workerPath}");
 
@@ -259,20 +261,26 @@ public sealed class QuasarUpdateService : BackgroundService
         {
             Status = QuasarUpdateStatus.Activating,
             Message = $"Activating Quasar UI {candidate.Version}.",
+            Web = null,
         });
+
+        var activeDirectory = MagnetarPaths.GetQuasarManagedWebReleaseDirectory(candidate.Version);
+        var activeWorkerPath = Path.Combine(activeDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName);
+        PrepareActiveWebRelease(candidate.StagedDirectory, activeDirectory);
 
         var pointer = new QuasarActiveReleasePointer
         {
             Version = candidate.Version,
-            FileName = workerPath,
+            FileName = activeWorkerPath,
             Arguments = string.Empty,
-            WorkingDirectory = candidate.StagedDirectory,
+            WorkingDirectory = activeDirectory,
             ActivatedAtUtc = DateTimeOffset.UtcNow,
         };
 
         var path = MagnetarPaths.GetQuasarActiveReleasePath();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, JsonSerializer.Serialize(pointer, JsonOptions));
+        CleanupStagedUpdates(activeDirectory);
         return Task.CompletedTask;
     }
 
@@ -448,6 +456,91 @@ public sealed class QuasarUpdateService : BackgroundService
             ? candidate
             : null;
 
+    private static void PrepareActiveWebRelease(string stagedDirectory, string activeDirectory)
+    {
+        if (Directory.Exists(activeDirectory))
+            Directory.Delete(activeDirectory, recursive: true);
+
+        CopyDirectory(stagedDirectory, activeDirectory);
+        QuasarWebReleaseLayout.ValidateDirectory(activeDirectory);
+        EnsureExecutableBit(Path.Combine(activeDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName));
+    }
+
+    private static void CleanupCurrentOrOlderStagedWebUpdates(string currentVersion)
+    {
+        var stagingDirectory = MagnetarPaths.GetQuasarStagingDirectory();
+        if (!Directory.Exists(stagingDirectory))
+            return;
+
+        var activeWorkingDirectory = ReadActiveWorkingDirectory();
+        foreach (var directory in Directory.EnumerateDirectories(stagingDirectory))
+        {
+            var version = Path.GetFileName(directory);
+            if (version.StartsWith("Bootstrap-", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (IsSamePath(directory, activeWorkingDirectory))
+                continue;
+
+            if (!IsNewerVersion(version, currentVersion))
+                TryDeleteDirectory(directory);
+        }
+    }
+
+    private static void CleanupStagedUpdates(string activeWorkingDirectory)
+    {
+        var stagingDirectory = MagnetarPaths.GetQuasarStagingDirectory();
+        if (!Directory.Exists(stagingDirectory))
+            return;
+
+        foreach (var directory in Directory.EnumerateDirectories(stagingDirectory))
+        {
+            if (IsSamePath(directory, activeWorkingDirectory))
+                continue;
+
+            TryDeleteDirectory(directory);
+        }
+    }
+
+    private static string ReadActiveWorkingDirectory()
+    {
+        try
+        {
+            var path = MagnetarPaths.GetQuasarActiveReleasePath();
+            if (!File.Exists(path))
+                return string.Empty;
+
+            var pointer = JsonSerializer.Deserialize<QuasarActiveReleasePointer>(File.ReadAllText(path), JsonOptions);
+            return pointer?.WorkingDirectory ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static bool IsSamePath(string left, string right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
+
+        return string.Equals(
+            Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar),
+            Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void CopyDirectory(string sourceDirectory, string destinationDirectory)
+    {
+        foreach (var sourcePath in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(sourceDirectory, sourcePath);
+            var destinationPath = Path.Combine(destinationDirectory, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            File.Copy(sourcePath, destinationPath, overwrite: true);
+        }
+    }
+
     private static void ExtractArchive(string archivePath, string destinationDirectory)
     {
         if (archivePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
@@ -485,6 +578,18 @@ public sealed class QuasarUpdateService : BackgroundService
         {
             if (File.Exists(path))
                 File.Delete(path);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+                Directory.Delete(path, recursive: true);
         }
         catch
         {

@@ -447,7 +447,8 @@ Required model:
 Expected layout:
 
 - active runtime under a versioned release directory
-- staged payloads under `~/.config/Quasar/Updates/Staged/`
+- active managed web releases under `~/.config/Quasar/ManagedRuntime/WebService/<version>/`
+- transient staged payloads under `~/.config/Quasar/Updates/Staged/`
 - stable release pointer / manifest for the currently active version
 - release identity from `AssemblyInformationalVersion` and the active-release
   pointer, not from numeric `AssemblyVersion`
@@ -457,8 +458,9 @@ Linux-first cutover ownership:
 - `Quasar.Bootstrap` owns the systemd service entrypoint
 - the replaceable `Quasar` worker owns the public port
 - updates stage a new worker side-by-side under the Quasar data root
-- activation writes `Updates/active-release.json`
-- Bootstrap observes the pointer change, drains the old worker, then starts the staged worker
+- activation promotes the staged payload into `ManagedRuntime/WebService/<version>/`
+  and writes `Updates/active-release.json`
+- Bootstrap observes the pointer change, drains the old worker, then starts the managed worker
 - the browser and `Quasar.Agent` reconnect after the short listener gap
 - Bootstrap self-update drains only when the primary release asset is actually
   newer than the running launcher's normalized release identity
@@ -490,9 +492,10 @@ Practical guarantee:
 3. new Linux web assets are downloaded into a staged version directory
 4. UI notifies admins that the update is queued/staged
 5. admin activates the staged UI update from `/settings/updates`
-6. activation writes the active-release pointer
+6. activation promotes the staged payload into `ManagedRuntime/WebService/<version>/`
+   and writes the active-release pointer
 7. Bootstrap drains the old worker without stopping managed servers
-8. Bootstrap starts the staged worker on the same port
+8. Bootstrap starts the managed worker on the same port
 9. browsers and agents reconnect
 
 ### Future proxy update flow
@@ -816,8 +819,8 @@ As of this document:
 - server naming across the UI now consistently prefers the operator-configured `DedicatedServerDefinition.DisplayName` over the agent's in-game `ConfigDedicated.ServerName` (the analytics filters/legends, Discord per-server panels, the entities/plugins server selectors, the players list, and the plugin log panel all resolve names this way, falling back to the live agent name and then the unique name)
 - the Analytics dashboard renders metrics as client-side uPlot canvas charts: the browser fetches compact, timeline-aligned series from a JSON HTTP endpoint (`/api/analytics/series`, backed by `AnalyticsSeriesService`, which selects the RRD consolidation tier by span — raw ≤2h, 1-minute ≤24h, 1-hour beyond — and drops empty buckets); profiler game-loop timing buckets (frame, update, physics, scripts, network, other) are surfaced as additional chart panels through the same endpoint via `ProfilerAnalyticsMetrics`; the previous inline `ProfilerSummaryCard` tables and the `blocks`/`floating-objects` scalar metrics have been removed
 - deep per-server profiler telemetry now exists: `Quasar.Agent` runs a low-duty in-process profiler (Harmony patches on the server frame/update, programmable-block script, physics, replication/network/session, and per-entity update methods) that samples a short window intermittently (a 10-second window every 60 seconds by default), splits main-thread vs off-thread time, and emits bounded top-lists for grids, scripts, per-entity updates, physics, and network work; each `ProfilerSnapshot` rides the regular agent snapshot, is validated, and is kept in a small in-memory `ProfilerStoreService` ring (~720 samples per server, ~12 hours), then surfaced on the Analytics page as game-loop timing chart panels
-- a unified GitHub-release-based update/publish pipeline now exists covering both Linux and Windows in a single combined release (`.github/workflows/release.yml`): each build produces `quasar-linux-x64.tar.gz` / `quasar-web-linux-x64.tar.gz` (Linux) and `quasar-win-x64.zip` / `quasar-web-win-x64.zip` (Windows) under one tag; tag pushes and `main` publish full releases while pull requests publish draft prereleases; the release carries one combined `SHA256SUMS` covering every archive; release identity is normalized from `AssemblyInformationalVersion` and the active-release pointer (not numeric `AssemblyVersion`); every downloaded asset is verified against `SHA256SUMS`; the UI stages web updates and queues them for explicit activation from `/settings/updates`; Bootstrap self-upgrades from the launcher stream only when an actually-newer asset appears (see [Linux Deployment and Updates](LinuxDeploymentAndUpdates.md) and [Windows Deployment and Updates](WindowsDeploymentAndUpdates.md))
-- `Quasar.Bootstrap` runs as the stable launcher that owns the public port on both Linux (systemd service) and Windows (Scheduled Task): it stages/activates web releases through the `Updates/active-release.json` pointer and performs worker cutover by draining the old worker and starting the staged one on the same port — a launcher, not yet a reverse proxy — so the public endpoint stays stable across the short listener gap while managed Magnetar servers keep running; on Linux the launcher exits with code 75 so systemd restarts it; on Windows the launcher spawns a detached replacement `Quasar.exe serve --quiet` and exits 0, with the Scheduled Task restart-on-failure as the safety net
+- a unified GitHub-release-based update/publish pipeline now exists covering both Linux and Windows in a single combined release (`.github/workflows/release.yml`): each build produces `quasar-linux-x64.tar.gz` / `quasar-web-linux-x64.tar.gz` (Linux) and `quasar-win-x64.zip` / `quasar-web-win-x64.zip` (Windows) under one tag; tag pushes and `main` publish full releases while pull requests publish draft prereleases; the release carries one combined `SHA256SUMS` covering every archive; release identity is normalized from `AssemblyInformationalVersion` and the active-release pointer (not numeric `AssemblyVersion`); four-part build tags such as `0.1.2.37` are canonical and numeric prerelease aliases such as `0.1.2-37` normalize to them; every downloaded asset is verified against `SHA256SUMS`; the UI stages web updates and queues them for explicit activation from `/settings/updates`; Bootstrap self-upgrades from the launcher stream only when an actually-newer asset appears (see [Linux Deployment and Updates](LinuxDeploymentAndUpdates.md) and [Windows Deployment and Updates](WindowsDeploymentAndUpdates.md))
+- `Quasar.Bootstrap` runs as the stable launcher that owns the public port on both Linux (systemd service) and Windows (Scheduled Task): it activates web releases through the `Updates/active-release.json` pointer after staged payloads are promoted into `ManagedRuntime/WebService/<version>/`, and performs worker cutover by draining the old worker and starting the managed one on the same port — a launcher, not yet a reverse proxy — so the public endpoint stays stable across the short listener gap while managed Magnetar servers keep running; on Linux the launcher exits with code 75 so systemd restarts it; on Windows the launcher spawns a detached replacement `Quasar.exe serve --quiet` and exits 0, with the Scheduled Task restart-on-failure as the safety net
 - Windows deployment exists via `install.ps1`/`uninstall.ps1`: `install.ps1` publishes to `%ProgramFiles%\Quasar` and registers a Scheduled Task (`Quasar`) that starts at boot and restarts the launcher on failure; the task runs with `QUASAR_MODE=Service` and `QUASAR_OPEN_BROWSER_ON_START=false` mirroring the Linux systemd environment
 - staged relaunch now persists supervisor runtime state so managed DS processes survive worker turnover
 - obsolete `webui/` is removed from the repository

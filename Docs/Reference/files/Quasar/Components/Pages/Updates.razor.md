@@ -26,7 +26,7 @@ Authorization: `QuasarPolicyNames.CanManageSecurity`
 | `OnInitialized()` / `Dispose()` | Subscribes/unsubscribes to `UpdateService.Changed` and initializes `_snapshot`. |
 | `CheckNowAsync()` | Runs an immediate release check through `QuasarUpdateService.CheckNowAsync()`. |
 | `StageAsync()` | Downloads and stages the queued Quasar UI update. |
-| `ActivateAsync()` | Writes the active-release pointer so Bootstrap swaps to the staged worker; the Activate button is disabled when the staged UI version is not newer than the running UI worker. |
+| `ActivateAsync()` | Requests staged UI activation; the update service promotes the staged payload into the managed active-release directory and writes the active-release pointer. The Activate button is disabled when the staged UI version is not newer than the running UI worker. |
 | `HandleIncludePrereleaseChanged(bool)` | Confirms before enabling prerelease updates, persists the stream setting through `QuasarUpdateService`, and shows a strong warning while prereleases are enabled. |
 | `RunBusyAsync(...)` | Shared busy-state/error/snackbar wrapper for the three actions. |
 | `GetStatusSeverity()` | Maps `QuasarUpdateStatus` to MudBlazor alert severity. |

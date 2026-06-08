@@ -4,7 +4,7 @@
 
 ## Summary
 
-Hosted service that checks Quasar GitHub releases on Linux and Windows, discovers newer UI-worker and launcher assets from a unified combined release, verifies `SHA256SUMS`, stages the UI worker under the Quasar updates directory, and activates a staged worker by writing `active-release.json` for Bootstrap. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI, raises `Changed` whenever status moves, and persists the operator-controlled prerelease stream flag.
+Hosted service that checks Quasar GitHub releases on Linux and Windows, discovers newer UI-worker and launcher assets from a unified combined release, verifies `SHA256SUMS`, stages the UI worker under the Quasar updates directory, and activates a staged worker by promoting it into `ManagedRuntime/WebService/<version>` before writing `active-release.json` for Bootstrap. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI, raises `Changed` whenever status moves, and persists the operator-controlled prerelease stream flag.
 
 ## Structure
 
@@ -16,9 +16,9 @@ Namespace: `Quasar.Services.Updates`
 |---|---|
 | `GetSnapshot()` | Returns a defensive copy of the current update status and candidates. |
 | `SetIncludePrereleaseAsync(bool, ct)` | Updates the live prerelease-stream flag, writes `Quasar:Updates:IncludePrerelease` to the data-directory `appsettings.json`, and publishes a status message. |
-| `CheckNowAsync(ct)` | Checks the configured GitHub releases endpoint, independently finds the newest non-draft UI and Bootstrap releases containing their configured asset names, builds candidates for newer versions, discards current-or-older candidates, and auto-stages the UI asset when available. |
+| `CheckNowAsync(ct)` | Checks the configured GitHub releases endpoint, cleans stale current-or-older staged UI payloads, independently finds the newest non-draft UI and Bootstrap releases containing their configured asset names, builds candidates for newer versions, discards current-or-older candidates, and auto-stages the UI asset when available. |
 | `StageWebUpdateAsync(ct)` | Downloads the queued web asset, verifies its SHA-256 checksum, extracts it into `Updates/Staged/<version>`, validates required web layout files, and marks it staged. If a stale current-or-older candidate remains in memory, clears it instead of staging. |
-| `ActivateStagedWebUpdateAsync(ct)` | Writes `QuasarActiveReleasePointer` to the active-release path so Bootstrap can swap workers; refuses to activate a staged UI candidate that is not newer than the running UI worker. |
+| `ActivateStagedWebUpdateAsync(ct)` | Copies the staged payload into `ManagedRuntime/WebService/<version>`, writes `QuasarActiveReleasePointer` to the active-release path so Bootstrap can swap workers, clears old staged payloads, and refuses to activate a staged UI candidate that is not newer than the running UI worker. |
 | `ExecuteAsync(stoppingToken)` | Runs an initial delayed check and repeats every configured interval while enabled. |
 | `GetLatestReleaseWithAssetAsync(assetName, ct)` | Calls GitHub releases API (`per_page=100`), ignores drafts, optionally includes prereleases, and returns the newest release containing the requested asset. |
 | `PersistIncludePrereleaseAsync(...)` / `GetOrCreateObject(...)` | Preserves or creates the data-directory `appsettings.json` object graph and atomically writes the prerelease setting. |
@@ -32,7 +32,7 @@ Private nested DTOs `GitHubRelease` and `GitHubAsset` model the small subset of 
 - [`Quasar/Services/Updates/QuasarUpdateOptions.cs`](QuasarUpdateOptions.cs.md) — repository, asset, and interval settings
 - [`Quasar/Services/Updates/QuasarUpdateSnapshot.cs`](QuasarUpdateSnapshot.cs.md) — published status and candidate records
 - `Quasar/Services/WebServiceOptions.cs` — current UI worker version and Bootstrap version passed by the launcher
-- [`Magnetar.Protocol/Runtime/MagnetarPaths.cs`](../../../Magnetar.Protocol/Runtime/MagnetarPaths.cs.md) — update staging/cache/active-release paths
+- [`Magnetar.Protocol/Runtime/MagnetarPaths.cs`](../../../Magnetar.Protocol/Runtime/MagnetarPaths.cs.md) — update staging/cache/active-release and managed web-release paths
 - `Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs` — activation pointer payload
 - `Magnetar.Protocol/Runtime/QuasarReleaseVersion.cs` — normalized/prerelease-aware update comparison
 - `Magnetar.Protocol/Runtime/QuasarWebReleaseLayout.cs` — staged web archive validation
@@ -41,4 +41,4 @@ Private nested DTOs `GitHubRelease` and `GitHubAsset` model the small subset of 
 
 ## Notes
 
-UI-worker activation stays explicit from the Updates page on both Linux and Windows. Launcher updates are reported in the UI, but the launcher itself installs them automatically from the platform asset (`quasar-linux-x64.tar.gz` on Linux, `quasar-win-x64.zip` on Windows) and restarts: on Linux via systemd exit-75, on Windows by spawning a detached replacement launcher. Staged UI payloads are rejected before activation when core Blazor/MudBlazor/app static assets are missing or when their normalized release version is equal to or older than the running worker. The prerelease switch affects the running worker immediately; Bootstrap reads the persisted data-directory override after its next restart.
+UI-worker activation stays explicit from the Updates page on both Linux and Windows. Launcher updates are reported in the UI, but the launcher itself installs them automatically from the platform asset (`quasar-linux-x64.tar.gz` on Linux, `quasar-win-x64.zip` on Windows) and restarts: on Linux via systemd exit-75, on Windows by spawning a detached replacement launcher. Staged UI payloads are rejected before activation when core Blazor/MudBlazor/app static assets are missing or when their normalized release version is equal to or older than the running worker. Active UI releases live outside `Updates/Staged`, so the Updates folder only contains transient staged payloads plus the active pointer. The prerelease switch affects the running worker immediately; Bootstrap reads the persisted data-directory override after its next restart.
