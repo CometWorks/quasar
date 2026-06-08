@@ -744,22 +744,81 @@ namespace Quasar.Agent
         private List<PluginRuntimeInfo> GetPlugins()
         {
             var result = new List<PluginRuntimeInfo>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var loaded in EnumeratePlugins())
+            {
+                AddPluginKeys(seen, loaded.PluginId);
+                AddPluginKeys(seen, loaded.DisplayName);
+
+                result.Add(new PluginRuntimeInfo
+                {
+                    PluginId = loaded.PluginId,
+                    DisplayName = loaded.DisplayName,
+                    Version = GetPluginVersion(loaded.Plugin),
+                    IsLoaded = true,
+                });
+            }
+
             var pluginPaths = MySandboxGame.ConfigDedicated?.Plugins;
             if (pluginPaths == null)
                 return result;
 
             foreach (var pluginPath in pluginPaths)
             {
+                if (HasPluginKey(seen, pluginPath))
+                    continue;
+
                 result.Add(new PluginRuntimeInfo
                 {
                     PluginId = pluginPath ?? string.Empty,
                     DisplayName = Path.GetFileNameWithoutExtension(pluginPath ?? string.Empty),
                     Version = string.Empty,
-                    IsLoaded = true,
+                    IsLoaded = false,
                 });
             }
 
             return result;
+        }
+
+        private static string GetPluginVersion(IPlugin plugin)
+        {
+            try
+            {
+                var assembly = plugin.GetType().Assembly;
+                return assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                    ?? assembly.GetName().Version?.ToString()
+                    ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private static bool HasPluginKey(HashSet<string> seen, string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            if (seen.Contains(value.Trim()))
+                return true;
+
+            var fileName = Path.GetFileNameWithoutExtension(value.Trim());
+            return !string.IsNullOrWhiteSpace(fileName) && seen.Contains(fileName);
+        }
+
+        private static void AddPluginKeys(HashSet<string> seen, string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return;
+
+            var trimmed = value.Trim();
+            seen.Add(trimmed);
+
+            var fileName = Path.GetFileNameWithoutExtension(trimmed);
+            if (!string.IsNullOrWhiteSpace(fileName))
+                seen.Add(fileName);
         }
 
         private List<DeathEventSnapshot> GetRecentDeaths()

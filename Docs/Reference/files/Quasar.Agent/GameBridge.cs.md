@@ -3,7 +3,7 @@
 **Module:** Quasar.Agent  **Kind:** class  **Tier:** 1
 
 ## Summary
-`GameBridge` is the central game-thread façade for `AgentConnection`. It collects session telemetry (metrics, profiler snapshot, players, kicked players, chat, deaths, plugins), builds `AgentHello` / `AgentSnapshot` wire messages, and executes server commands (chat, save, stop, kick, ban, promote, clear-kick-cooldown, entity list/delete) by marshalling work onto the game thread via `MySandboxGame.Invoke`. Metrics include process CPU derived from `Process.TotalProcessorTime`, simspeed/sim CPU from `Sync`, memory, PCU, active entities/grids, total blocks, and floating objects. It also enumerates all loaded plugins and exposes their configuration through `IQuasarConfigProvider` or Magnetar PluginSdk `PluginConfig` reflection.
+`GameBridge` is the central game-thread façade for `AgentConnection`. It collects session telemetry (metrics, profiler snapshot, players, kicked players, chat, deaths, plugins), builds `AgentHello` / `AgentSnapshot` wire messages, and executes server commands (chat, save, stop, kick, ban, promote, clear-kick-cooldown, entity list/delete) by marshalling work onto the game thread via `MySandboxGame.Invoke`. Metrics include process CPU derived from `Process.TotalProcessorTime`, simspeed/sim CPU from `Sync`, memory, PCU, active entities/grids, total blocks, and floating objects. It enumerates loaded plugins from `MyPlugins.Plugins` (including Pulsar child plugins) for runtime inventory and exposes their configuration through `IQuasarConfigProvider` or Magnetar PluginSdk `PluginConfig` reflection.
 
 ## Structure
 **Namespace:** `Quasar.Agent`  
@@ -58,4 +58,5 @@
 - Private `GetKickedPlayers(MySession)` populates `AgentSnapshot.KickedPlayers` by reading `MyMultiplayer.Static.KickedClients` and `MyMultiplayerBase.KICK_TIMEOUT_MS` to compute the remaining cooldown per SteamId.
 - `ConfigProviderAdapter` uses `MethodInfo` reflection to invoke generic `ConfigStorage.SaveJson<T>` / `LoadJson<T>` because `T` is only known at runtime.
 - `ApplyConfigJson` for SDK configs copies only properties decorated with `[ConfigOption]` to preserve non-option fields.
+- Runtime plugin inventory uses `EnumeratePlugins()` so Magnetar/Pulsar-loaded plugins appear even when `MySandboxGame.ConfigDedicated.Plugins` is empty; configured plugin paths are still added as `declared` fallback rows when not already represented by a loaded plugin.
 - Private `GetServerName(MySession)` reports `MySandboxGame.ConfigDedicated?.ServerName` (the configured server name shown in the server browser), falling back only to `Space Engineers {processId}`. It deliberately does **not** fall back to `session?.Name`, which is the loaded world/save name (matching the world template) rather than the server — this keeps the per-server name used by the UI's server filters distinct from the world name.

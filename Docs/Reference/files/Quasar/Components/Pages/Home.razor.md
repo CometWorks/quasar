@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Routable root page (`/`) serving as the main dashboard. Shows a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, a managed-runtime warmup status alert, and a `ServerCard` grid for all configured instances. Servers can be started, stopped, and restarted directly from the dashboard, and the wizard opens full-screen page dialogs for config-template, world-template, and server creation.
+Routable root page (`/`) serving as the main dashboard. Shows a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, a managed-runtime warmup status alert, and a `ServerCard` grid for all configured instances. Servers can be started, stopped, restarted, and opened in the log dialog directly from the dashboard, and the wizard opens full-screen page dialogs for config-template, world-template, and server creation.
 
 ## Structure
 - **Route:** `@page "/"`; **Implements:** `IDisposable`
@@ -21,12 +21,12 @@ Routable root page (`/`) serving as the main dashboard. Shows a five-step first-
   - Problem banner (`MudAlert`) — first unhealthy/crashed/faulted, else first warning instance message.
   - Runtime warmup alert — shown when `RuntimeWarmupSnapshot.State` is Running or Failed.
   - KPI summary grid (4 cards): Online Servers, Players Online, Health Warnings (warning tint when > 0), Errors (error tint when > 0).
-  - `ServerCard` grid — one `<ServerCard>` per server with runtime snapshot and connected agent; callbacks `StartRequested`/`StopRequested`/`RestartRequested`. When no servers and wizard hidden, shows an info alert.
+  - `ServerCard` grid — one `<ServerCard>` per server with runtime snapshot and connected agent; callbacks `StartRequested`/`StopRequested`/`RestartRequested`/`OpenLogsRequested`. When no servers and wizard hidden, shows an info alert.
 - **Setup-wizard state (fields):** `_setupWizardRequested`, `_setupWizardDismissed`, `_setupWizardActive`, `_skippedSetupSteps` (HashSet), `_setupStepOverride`.
 - **Wizard visibility:** `ShowSetupWizard => (_setupWizardActive || _setupWizardRequested) && !_setupWizardDismissed`. `OnInitialized` sets `_setupWizardActive = ConfiguredServerCount == 0`, so the wizard auto-opens only until the first server exists; once shown it stays for the session. `ShowSetupWizardAgain` re-requests it; `HideSetupWizard` dismisses it.
 - **Step model:** `IsSetupStepComplete(0..4)` keyed on config-profile count / world-template count (or skipped) / server count / running count / connected-agent count; `CurrentSetupStep` returns the first incomplete step (or a clamped override); `SetupProgressPercent`, `SkipCurrentSetupStep`, `GoToPreviousSetupStep`.
 - **KPI/state computed props:** `OnlineServerCount`, `PlayersOnline`, `ConfiguredServerCount`, `RunningServerCount`, `WarningServerCount`, `UnhealthyServerCount`, `ConnectedAgentCount`, `ProblemBanner`, `StartableServers`, `LaunchedServers`.
-- **Actions:** `StartAsync`/`StopAsync` set goal state via `Supervisor.SetGoalStateAsync`; `RestartAsync` calls `Supervisor.RestartServerAsync`; all snackbar success/error. `ShowFullScreenPageDialogAsync<TDialog>` opens full-screen `MudDialog`s.
+- **Actions:** `StartAsync`/`StopAsync` set goal state via `Supervisor.SetGoalStateAsync`; `RestartAsync` calls `Supervisor.RestartServerAsync`; `OpenLogsAsync` opens `ServerConsoleDialog`; all snackbar success/error where applicable. `ShowFullScreenPageDialogAsync<TDialog>` opens full-screen `MudDialog`s.
 - **Helpers:** `GetRuntime`/`GetAgent`/`IsRunning`/`IsOpen`, `GetServerSetupSummary`, `GetSetupRuntimeSummary`, `GetSetup*Text`/`GetSetup*Color`, `GetProblemCardClass`, `GetNextSetupHint`, `GetSetupProgressText`.
 - **Event subscriptions** (subscribed in `OnInitialized`, released in `Dispose`): `Registry.Changed`, `ServerCatalog.Changed`, `Supervisor.Changed`, `ConfigProfiles.Changed`, `WorldTemplates.Changed`, `RuntimeWarmup.Changed`; `HandleRegistryChanged` marshals `StateHasChanged`.
 

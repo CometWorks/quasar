@@ -44,6 +44,10 @@ tar -xzf quasar-linux-x64.tar.gz -C /tmp/quasar
 sudo /tmp/quasar/install.sh --start   # installs to /opt/quasar and starts quasar.service
 ```
 
+The Linux installer creates the run user's `~/.config/Quasar` data directory by
+default and writes it to the systemd unit as `QUASAR_DATA_DIR`. Pass
+`--data-dir <dir>` to store Quasar state elsewhere.
+
 Manage the service with the usual systemd commands:
 
 ```bash

@@ -21,6 +21,12 @@
                     }
                     @if (CanRestart)
                     {
+                        <MudTooltip Text="Open server logs">
+                            <MudIconButton Icon="@Icons.Material.Filled.Terminal"
+                                           Color="Color.Default"
+                                           Size="Size.Small"
+                                           OnClick="OpenLogsAsync" />
+                        </MudTooltip>
                         <MudButton Variant="Variant.Outlined"
                                    Color="Color.Primary"
                                    Size="Size.Small"
@@ -81,6 +87,9 @@
     [Parameter]
     public EventCallback<string> RestartRequested { get; set; }
 
+    [Parameter]
+    public EventCallback<string> OpenLogsRequested { get; set; }
+
     private DedicatedServerProcessState ProcessState => Runtime?.State ?? DedicatedServerProcessState.Stopped;
 
     private bool IsProcessActive => ProcessState is DedicatedServerProcessState.Starting
@@ -101,6 +110,8 @@
     private Task StopAsync() => StopRequested.InvokeAsync(Server.UniqueName);
 
     private Task RestartAsync() => RestartRequested.InvokeAsync(Server.UniqueName);
+
+    private Task OpenLogsAsync() => OpenLogsRequested.InvokeAsync(Server.UniqueName);
 
     private string GetDisplayName()
     {

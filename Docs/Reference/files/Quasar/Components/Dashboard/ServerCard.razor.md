@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Card component for a single managed server shown on the Dashboard. Displays the server display name, status chip (OFF / STARTING / CONNECTING / OPEN / STOPPING), host/world caption, last message or health summary, and Start / Stop / Restart action buttons. Embeds `ServerDetailPanel` as its card body content.
+Card component for a single managed server shown on the Dashboard. Displays the server display name, status chip (OFF / STARTING / CONNECTING / OPEN / STOPPING), host/world caption, last message or health summary, Start / Stop / Restart action buttons, and a terminal icon button for opening the server log dialog beside Restart. Embeds `ServerDetailPanel` as its card body content.
 
 ## Structure
 No `@page` route — used as a child component.
@@ -17,8 +17,9 @@ No `@page` route — used as a child component.
 | `StartRequested` | `EventCallback<string>` | Fires with `UniqueName` when Start clicked. |
 | `StopRequested` | `EventCallback<string>` | Fires with `UniqueName` when Stop clicked. |
 | `RestartRequested` | `EventCallback<string>` | Fires with `UniqueName` when Restart clicked. |
+| `OpenLogsRequested` | `EventCallback<string>` | Fires with `UniqueName` when the terminal/log button is clicked. |
 
-**Key MudBlazor components:** `MudCard`, `MudCardHeader`, `MudCardContent`, `MudStack`, `MudChip`, `MudButton`, `MudText`.
+**Key MudBlazor components:** `MudCard`, `MudCardHeader`, `MudCardContent`, `MudStack`, `MudChip`, `MudButton`, `MudIconButton`, `MudTooltip`, `MudText`.
 
 **Private helpers:**
 - `ProcessState` — derives `DedicatedServerProcessState` from `Runtime?.State`.

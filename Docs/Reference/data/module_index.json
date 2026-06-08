@@ -252,7 +252,7 @@
       "name": "GameBridge.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`GameBridge` is the central game-thread fa\u00e7ade for `AgentConnection`. It collects session telemetry (metrics, profiler snapshot, players, kicked players, chat, deaths, plugins), builds `AgentHello` / `AgentSnapshot` wire messages, and executes server commands (chat, save, stop, kick, ban, promote, clear-kick-cooldown, entity list/delete) by marshalling work onto the game thread via `MySandboxGame.Invoke`. Metrics include process CPU derived from `Process.TotalProcessorTime`, simspeed/sim CPU from `Sync`, memory, PCU, active entities/grids, total blocks, and floating objects. It also enumerates all loaded plugins and exposes their configuration through `IQuasarConfigProvider` or Magnetar PluginSdk `PluginConfig` reflection."
+      "summary": "`GameBridge` is the central game-thread fa\u00e7ade for `AgentConnection`. It collects session telemetry (metrics, profiler snapshot, players, kicked players, chat, deaths, plugins), builds `AgentHello` / `AgentSnapshot` wire messages, and executes server commands (chat, save, stop, kick, ban, promote, clear-kick-cooldown, entity list/delete) by marshalling work onto the game thread via `MySandboxGame.Invoke`. Metrics include process CPU derived from `Process.TotalProcessorTime`, simspeed/sim CPU from `Sync`, memory, PCU, active entities/grids, total blocks, and floating objects. It enumerates loaded plugins from `MyPlugins.Plugins` (including Pulsar child plugins) for runtime inventory and exposes their configuration through `IQuasarConfigProvider` or Magnetar PluginSdk `PluginConfig` reflection."
     },
     {
       "path": "Quasar.Agent/PluginLogOutbox.cs",
@@ -319,7 +319,7 @@
       "name": "ServerCard.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Card component for a single managed server shown on the Dashboard. Displays the server display name, status chip (OFF / STARTING / CONNECTING / OPEN / STOPPING), host/world caption, last message or health summary, and Start / Stop / Restart action buttons. Embeds `ServerDetailPanel` as its card body content."
+      "summary": "Card component for a single managed server shown on the Dashboard. Displays the server display name, status chip (OFF / STARTING / CONNECTING / OPEN / STOPPING), host/world caption, last message or health summary, Start / Stop / Restart action buttons, and a terminal icon button for opening the server log dialog beside Restart. Embeds `ServerDetailPanel` as its card body content."
     },
     {
       "path": "Quasar/Components/Dashboard/ServerDetailPanel.razor",
@@ -487,7 +487,7 @@
       "name": "Home.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable root page (`/`) serving as the main dashboard. Shows a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, a managed-runtime warmup status alert, and a `ServerCard` grid for all configured instances. Servers can be started, stopped, and restarted directly from the dashboard, and the wizard opens full-screen page dialogs for config-template, world-template, and server creation."
+      "summary": "Routable root page (`/`) serving as the main dashboard. Shows a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, a managed-runtime warmup status alert, and a `ServerCard` grid for all configured instances. Servers can be started, stopped, restarted, and opened in the log dialog directly from the dashboard, and the wizard opens full-screen page dialogs for config-template, world-template, and server creation."
     },
     {
       "path": "Quasar/Components/Pages/Home.razor.css",
