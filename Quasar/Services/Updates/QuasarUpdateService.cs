@@ -134,6 +134,11 @@ public sealed class QuasarUpdateService : BackgroundService
                     cancellationToken)
                     .ConfigureAwait(false);
 
+            web = DiscardCurrentOrOlderCandidate(web, _webOptions.Version);
+            bootstrap = DiscardCurrentOrOlderCandidate(
+                bootstrap,
+                string.IsNullOrWhiteSpace(_webOptions.BootstrapVersion) ? _webOptions.Version : _webOptions.BootstrapVersion);
+
             SetSnapshot(_snapshot with
             {
                 Status = web is null && bootstrap is null ? QuasarUpdateStatus.Idle : QuasarUpdateStatus.UpdateQueued,
@@ -169,6 +174,20 @@ public sealed class QuasarUpdateService : BackgroundService
         var candidate = GetSnapshot().Web;
         if (candidate is null)
             return;
+
+        if (!IsNewerVersion(candidate.Version, _webOptions.Version))
+        {
+            var bootstrap = _snapshot.Bootstrap;
+            SetSnapshot(_snapshot with
+            {
+                Status = bootstrap is null ? QuasarUpdateStatus.Idle : QuasarUpdateStatus.UpdateQueued,
+                Message = bootstrap is null
+                    ? "No newer Quasar UI release found."
+                    : BuildReleaseFoundMessage(web: null, bootstrap),
+                Web = null,
+            });
+            return;
+        }
 
         if (candidate.IsStaged && !string.IsNullOrWhiteSpace(candidate.StagedDirectory))
             return;
@@ -228,6 +247,9 @@ public sealed class QuasarUpdateService : BackgroundService
         var candidate = GetSnapshot().Web;
         if (candidate is null || !candidate.IsStaged || string.IsNullOrWhiteSpace(candidate.StagedDirectory))
             throw new InvalidOperationException("No staged Quasar UI update is ready to activate.");
+
+        if (!IsNewerVersion(candidate.Version, _webOptions.Version))
+            throw new InvalidOperationException($"Staged Quasar UI {candidate.Version} is not newer than the current version {_webOptions.Version}.");
 
         var workerPath = Path.Combine(candidate.StagedDirectory, QuasarWebReleaseLayout.WorkerExecutableName);
         if (!File.Exists(workerPath))
@@ -418,6 +440,13 @@ public sealed class QuasarUpdateService : BackgroundService
 
     private static bool IsNewerVersion(string candidate, string current) =>
         QuasarReleaseVersion.IsNewer(candidate, current);
+
+    private static QuasarUpdateCandidate? DiscardCurrentOrOlderCandidate(
+        QuasarUpdateCandidate? candidate,
+        string currentVersion) =>
+        candidate is not null && IsNewerVersion(candidate.Version, currentVersion)
+            ? candidate
+            : null;
 
     private static void ExtractArchive(string archivePath, string destinationDirectory)
     {

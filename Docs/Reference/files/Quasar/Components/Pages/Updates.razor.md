@@ -26,11 +26,12 @@ Authorization: `QuasarPolicyNames.CanManageSecurity`
 | `OnInitialized()` / `Dispose()` | Subscribes/unsubscribes to `UpdateService.Changed` and initializes `_snapshot`. |
 | `CheckNowAsync()` | Runs an immediate release check through `QuasarUpdateService.CheckNowAsync()`. |
 | `StageAsync()` | Downloads and stages the queued Quasar UI update. |
-| `ActivateAsync()` | Writes the active-release pointer so Bootstrap swaps to the staged worker. |
+| `ActivateAsync()` | Writes the active-release pointer so Bootstrap swaps to the staged worker; the Activate button is disabled when the staged UI version is not newer than the running UI worker. |
 | `HandleIncludePrereleaseChanged(bool)` | Confirms before enabling prerelease updates, persists the stream setting through `QuasarUpdateService`, and shows a strong warning while prereleases are enabled. |
 | `RunBusyAsync(...)` | Shared busy-state/error/snackbar wrapper for the three actions. |
 | `GetStatusSeverity()` | Maps `QuasarUpdateStatus` to MudBlazor alert severity. |
 | `FormatBootstrapVersion()` | Shows the Bootstrap launcher version when the worker was started by Bootstrap, otherwise reports that Bootstrap is not managing this worker. |
+| `IsNewerUiVersion(...)` | Uses `QuasarReleaseVersion.IsNewer` so the Activate button is only enabled for staged UI versions newer than `CurrentVersion`. |
 
 ## Dependencies
 
