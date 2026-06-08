@@ -63,12 +63,17 @@
                             OnClick="HandleRestartWorkerClickAsync" />
                     </MudTooltip>
                 }
-                <MudTooltip Text="Shut down all servers">
+                <MudTooltip Text="Shut down all servers"
+                            Disabled="@_shutdownTooltipSuppressed"
+                            Visible="@_shutdownTooltipVisible"
+                            VisibleChanged="HandleShutdownTooltipVisibleChanged">
                     <MudIconButton
                         Icon="@Icons.Material.Filled.PowerSettingsNew"
                         Color="Color.Error"
                         Disabled="@_isShuttingDown"
-                        OnClick="HandleShutdownClickAsync" />
+                        OnClick="HandleShutdownClickAsync"
+                        @onblur="ReleaseShutdownTooltip"
+                        @onmouseleave="ReleaseShutdownTooltip" />
                 </MudTooltip>
             </Authorized>
         </AuthorizeView>
@@ -160,6 +165,8 @@
     private bool _isShuttingDown = false;
     private string _shutdownStatus = string.Empty;
     private string _lastUpdateNotice = string.Empty;
+    private bool _shutdownTooltipVisible;
+    private bool _shutdownTooltipSuppressed;
     private MudMessageBox? _shutdownMessageBox;
     private MudMessageBox? _restartWorkerMessageBox;
 
@@ -260,6 +267,8 @@
 
     private async Task HandleShutdownClickAsync()
     {
+        SuppressShutdownTooltip();
+        await InvokeAsync(StateHasChanged);
         var result = await _shutdownMessageBox!.ShowAsync();
         if (result != true)
             return;
@@ -268,6 +277,22 @@
         // each card. The servers wind down in the background and the Dashboard / Servers
         // list reflect their status, so there is no blocking overlay or status readout here.
         _ = ShutdownService.StopAllServersAsync(setGoalStateOff: true);
+    }
+
+    private void HandleShutdownTooltipVisibleChanged(bool visible)
+    {
+        _shutdownTooltipVisible = _shutdownTooltipSuppressed ? false : visible;
+    }
+
+    private void SuppressShutdownTooltip()
+    {
+        _shutdownTooltipVisible = false;
+        _shutdownTooltipSuppressed = true;
+    }
+
+    private void ReleaseShutdownTooltip()
+    {
+        _shutdownTooltipSuppressed = false;
     }
 
     private async Task HandleRestartWorkerClickAsync()

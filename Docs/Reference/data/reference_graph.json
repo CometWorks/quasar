@@ -296,6 +296,9 @@
   ],
   "Quasar/Components/Pages/Security.razor": [],
   "Quasar/Components/Pages/ServerConsoleDialog.razor": [],
+  "Quasar/Components/Pages/ServerDeleteDialog.razor": [
+    "Quasar/wwwroot/quasar-configs.js"
+  ],
   "Quasar/Components/Pages/ServerEditorDialog.razor": [
     "Quasar/Components/Pages/ConfigProfileQuickCreateDialog.razor",
     "Quasar/Components/Pages/ServerEditorDialog.razor.css",
@@ -305,7 +308,8 @@
     "Quasar/Models/ManagedServerRuntime.cs",
     "Quasar/Services/DedicatedServerCatalog.cs",
     "Quasar/Services/QuasarConfigProfileCatalog.cs",
-    "Quasar/Services/QuasarWorldTemplateCatalog.cs"
+    "Quasar/Services/QuasarWorldTemplateCatalog.cs",
+    "Quasar/Services/WorldSandboxConfigEditor.cs"
   ],
   "Quasar/Components/Pages/ServerEditorDialog.razor.css": [
     "Quasar/Components/Pages/ServerEditorDialog.razor"
@@ -333,8 +337,12 @@
     "Quasar/Components/Pages/Servers.razor"
   ],
   "Quasar/Components/Pages/WorldTemplateQuickImportDialog.razor": [
+    "Quasar/Components/Pages/ConfigsPageDialog.razor",
+    "Quasar/Models/QuasarConfigProfile.cs",
     "Quasar/Models/QuasarWorldTemplate.cs",
-    "Quasar/Services/QuasarWorldTemplateCatalog.cs"
+    "Quasar/Services/QuasarConfigProfileCatalog.cs",
+    "Quasar/Services/QuasarWorldTemplateCatalog.cs",
+    "Quasar/Services/WorldSandboxConfigEditor.cs"
   ],
   "Quasar/Components/Pages/WorldTemplates.razor": [
     "Quasar/Models/QuasarWorldTemplate.cs",
@@ -615,6 +623,7 @@
     "Quasar/Services/AgentRegistry.cs"
   ],
   "Quasar/Services/FileBrowserService.cs": [],
+  "Quasar/Services/IdentifierSlug.cs": [],
   "Quasar/Services/KnownPlayerCatalog.cs": [
     "Quasar/Models/KnownPlayerRecord.cs",
     "Quasar/Services/AtomicFileWriter.cs"

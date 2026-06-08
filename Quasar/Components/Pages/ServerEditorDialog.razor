@@ -135,11 +135,18 @@
                         <MudText Typo="Typo.subtitle2">World template has @TemplateModsMissingFromProfile.Count mod(s) not in the selected config profile.</MudText>
                         <MudText Typo="Typo.body2" Class="mt-1">
                             Quasar writes the profile's mod list into the world's <code>Sandbox_config.sbc</code> on every start, which will drop these mods from the world.
-                            Open Configs → @SelectedProfileName → Mods, then click <strong>Merge from World Template</strong> to add them before starting the server.
                         </MudText>
                         <MudText Typo="Typo.caption" Class="mt-1">
                             Missing: @string.Join(", ", TemplateModsMissingFromProfile.Take(8).Select(mod => mod.DisplayName))@(TemplateModsMissingFromProfile.Count > 8 ? $", +{TemplateModsMissingFromProfile.Count - 8} more" : string.Empty)
                         </MudText>
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Warning"
+                                   Size="Size.Small"
+                                   Class="mt-2"
+                                   StartIcon="@Icons.Material.Filled.PlaylistAdd"
+                                   OnClick="MergeSelectedWorldTemplateModsIntoProfileAsync">
+                            Merge Into @SelectedProfileName
+                        </MudButton>
                     </MudAlert>
                 }
             </section>
@@ -394,6 +401,9 @@
     [Inject]
     private IDialogService DialogService { get; set; } = default!;
 
+    [Inject]
+    private ISnackbar Snackbar { get; set; } = default!;
+
     private MudForm? _form;
     private bool _formIsValid;
     private bool _identifierManuallyEdited;
@@ -569,7 +579,10 @@
     {
         var dialog = await DialogService.ShowAsync<WorldTemplateQuickImportDialog>(
             "Import World Template",
-            new DialogParameters(),
+            new DialogParameters
+            {
+                [nameof(WorldTemplateQuickImportDialog.InitialConfigProfileId)] = _editor.ConfigProfileId,
+            },
             new DialogOptions
             {
                 CloseOnEscapeKey = true,
@@ -578,10 +591,28 @@
             });
 
         var result = await dialog.Result;
-        if (result is null || result.Canceled || result.Data is not QuasarWorldTemplate template)
+        if (result is null || result.Canceled)
+            return;
+
+        string? configProfileId = null;
+        QuasarWorldTemplate? template = null;
+        if (result.Data is WorldTemplateQuickImportDialog.WorldTemplateQuickImportResult importResult)
+        {
+            template = importResult.Template;
+            configProfileId = importResult.ConfigProfileId;
+        }
+        else if (result.Data is QuasarWorldTemplate legacyTemplate)
+        {
+            template = legacyTemplate;
+        }
+
+        if (template is null)
             return;
 
         _editor.WorldTemplateId = template.WorldTemplateId;
+        if (!string.IsNullOrWhiteSpace(configProfileId))
+            _editor.ConfigProfileId = configProfileId;
+
         await InvokeAsync(StateHasChanged);
     }
 
@@ -746,6 +777,47 @@
                 .Where(mod => !profileIds.Contains(mod.WorkshopId))
                 .ToArray();
         }
+    }
+
+    private async Task MergeSelectedWorldTemplateModsIntoProfileAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_editor.ConfigProfileId))
+            return;
+
+        var profile = ConfigProfiles.GetProfile(_editor.ConfigProfileId);
+        if (profile is null)
+            return;
+
+        var missingMods = TemplateModsMissingFromProfile;
+        if (missingMods.Count == 0)
+        {
+            Snackbar.Add("Selected profile already has all template mods.", Severity.Info);
+            return;
+        }
+
+        var existing = profile.Mods.Select(mod => mod.WorkshopId).ToHashSet();
+        var added = 0;
+        foreach (var mod in missingMods)
+        {
+            if (mod.WorkshopId <= 0 || !existing.Add(mod.WorkshopId))
+                continue;
+
+            profile.Mods.Add(new QuasarModSelection
+            {
+                WorkshopId = mod.WorkshopId,
+                DisplayName = mod.DisplayName,
+            });
+            added++;
+        }
+
+        profile.Mods = profile.Mods
+            .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(mod => mod.WorkshopId)
+            .ToList();
+
+        await ConfigProfiles.UpsertAsync(profile);
+        Snackbar.Add($"Merged {added} mod(s) into config profile '{profile.Name}'.", Severity.Success);
+        await InvokeAsync(StateHasChanged);
     }
 
     private static string NormalizeWhitespace(string? value) =>

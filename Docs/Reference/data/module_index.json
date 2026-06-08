@@ -340,7 +340,7 @@
       "name": "MainLayout.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Top-level application shell layout. Provides the MudBlazor theme/provider setup, a responsive app bar with branding, a theme-mode switcher, auth (login/logout) controls, and Quasar shutdown / worker-restart controls. It hosts a collapsible side drawer with `NavMenu`, the main content area that renders `@Body`, a full-screen shutdown/restart overlay, and two confirmation `MudMessageBox` dialogs (shut-down-all-servers and restart-worker)."
+      "summary": "Top-level application shell layout. Provides the MudBlazor theme/provider setup, a responsive app bar with branding, a theme-mode switcher, auth (login/logout) controls, and Quasar shutdown / worker-restart controls. It hosts a collapsible side drawer with `NavMenu`, the main content area that renders `@Body`, a full-screen restart overlay, and two confirmation `MudMessageBox` dialogs (shut-down-all-servers and restart-worker)."
     },
     {
       "path": "Quasar/Components/Layout/MainLayout.razor.css",
@@ -560,11 +560,18 @@
       "summary": "MudBlazor dialog (no `@page` route) that shows two tabs of diagnostic output for a specific server identified by `UniqueName`: a live process-console tab fed by `PluginLogStream`, and a Magnetar `info.log` viewer that reads the last 256 KB of the log file from disk. Opened from `Servers.razor` via `IDialogService`. Previously named `ServerConsoleDialog`."
     },
     {
+      "path": "Quasar/Components/Pages/ServerDeleteDialog.razor",
+      "name": "ServerDeleteDialog.razor",
+      "kind": "Blazor component",
+      "tier": 2,
+      "summary": "MudBlazor dialog that confirms deletion of a server definition or reports that the definition was removed while leaving the server folder on disk. It shows the affected slug and folder path, lets the user copy the folder path, and closes with `DialogResult.Ok(true)` when the destructive or acknowledgement action is accepted."
+    },
+    {
       "path": "Quasar/Components/Pages/ServerEditorDialog.razor",
       "name": "ServerEditorDialog.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "MudBlazor dialog (no `@page` route) for creating or editing a `DedicatedServerDefinition`. Used by both `Servers.razor` (create / clone / edit) and embedded in the dashboard setup wizard. Validates all required fields with MudBlazor `MudForm`, auto-generates the `UniqueName` identifier slug from the display name during creation, checks for port and identifier uniqueness, and returns the completed definition as `DialogResult.Ok(updated)` on save. Previously named `ServerEditorDialog`."
+      "summary": "MudBlazor dialog (no `@page` route) for creating or editing a `DedicatedServerDefinition`. It validates server identity/runtime settings, opens inline config/world-template creation dialogs, consumes world-import results that include a config-profile id, and can merge missing world-template mods directly into the selected config profile before save."
     },
     {
       "path": "Quasar/Components/Pages/ServerEditorDialog.razor.css",
@@ -613,7 +620,7 @@
       "name": "WorldTemplateQuickImportDialog.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "MudBlazor dialog for importing a Space Engineers save folder as a world template without leaving the server editor. Validates a name and absolute source path, opens a `FolderPickerDialog` for path browsing, calls `WorldTemplateCatalog.ImportAsync`, and returns the created `QuasarWorldTemplate` via `DialogResult.Ok`."
+      "summary": "MudBlazor dialog for importing a Space Engineers save folder as a world template without leaving the server editor. Validates a name and absolute source path, opens a `FolderPickerDialog` for path browsing, reads source-world mods from `Sandbox_config.sbc`, lets the user create a config profile, merge into an existing profile, or ignore those mods, and returns the imported template plus an optional config-profile id."
     },
     {
       "path": "Quasar/Components/Pages/WorldTemplates.razor",
@@ -956,6 +963,13 @@
       "kind": "class",
       "tier": 1,
       "summary": "`FileBrowserService` provides server-side directory listing, shortcut generation, and breadcrumb computation for the world-path picker UI. It identifies Space Engineers world folders by the presence of `Sandbox.sbc` and offers well-known shortcuts to SE save locations."
+    },
+    {
+      "path": "Quasar/Services/IdentifierSlug.cs",
+      "name": "IdentifierSlug.cs",
+      "kind": "utility",
+      "tier": 1,
+      "summary": "Static slug helper for turning human-readable names into stable lowercase identifiers. It normalizes letters and digits, collapses whitespace, underscores, and hyphens into single hyphens, drops unsupported characters, trims edge hyphens, and can generate a unique slug by appending an incrementing numeric suffix."
     },
     {
       "path": "Quasar/Services/KnownPlayerCatalog.cs",

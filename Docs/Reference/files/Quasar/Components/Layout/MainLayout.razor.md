@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Top-level application shell layout. Provides the MudBlazor theme/provider setup, a responsive app bar with branding, a theme-mode switcher, auth (login/logout) controls, and Quasar shutdown / worker-restart controls. It hosts a collapsible side drawer with `NavMenu`, the main content area that renders `@Body`, a full-screen shutdown/restart overlay, and two confirmation `MudMessageBox` dialogs (shut-down-all-servers and restart-worker).
+Top-level application shell layout. Provides the MudBlazor theme/provider setup, a responsive app bar with branding, a theme-mode switcher, auth (login/logout) controls, and Quasar shutdown / worker-restart controls. It hosts a collapsible side drawer with `NavMenu`, the main content area that renders `@Body`, a full-screen restart overlay, and two confirmation `MudMessageBox` dialogs (shut-down-all-servers and restart-worker).
 
 ## Structure
 Inherits: `LayoutComponentBase`  
@@ -20,8 +20,9 @@ Implements: `IDisposable`
 - `_drawerOpen` (bool, default `true`)
 - `_isDarkMode` (bool, default `true`)
 - `_themeMode` (ThemeMode, default `System`)
-- `_isShuttingDown` (bool) — drives the blocking overlay; also used during worker restart.
-- `_shutdownStatus` (string) — message shown in the overlay.
+- `_isShuttingDown` (bool) — drives the blocking overlay during worker restart.
+- `_shutdownStatus` (string) — message shown in the restart overlay.
+- `_shutdownTooltipVisible`, `_shutdownTooltipSuppressed` — controlled state for the stop-all-servers tooltip so it is hidden while the confirmation dialog is active and does not remain visible after confirmation.
 - `_shutdownMessageBox`, `_restartWorkerMessageBox` (MudMessageBox refs)
 - `IsUnderBootstrap` (computed) — true when `WebServiceOptions.LauncherToken` is set (worker was spawned by the Quasar launcher).
 - `LogoSrc` (computed) — picks dark vs light branding logo by `_isDarkMode`.
@@ -33,9 +34,9 @@ Implements: `IDisposable`
 - Brand logo + name/subtitle from `BrandingService`.
 - Theme-mode `MudMenu` (System / Light / Dark) via `SetThemeModeAsync`; icon from `GetThemeModeIcon`.
 - `<AuthorizeView>` — Logout icon button (tooltip from `GetAuthTooltip`, uses `ClaimsPrincipal.GetQuasarDisplayName`) for authenticated users; Login button for guests.
-- `<AuthorizeView Policy="CanShutdownQuasar">` — when `IsUnderBootstrap`, a restart-worker icon (`HandleRestartWorkerClickAsync`); always a red power-off icon (`HandleShutdownClickAsync`). Both disabled while `_isShuttingDown`.
+- `<AuthorizeView Policy="CanShutdownQuasar">` — when `IsUnderBootstrap`, a restart-worker icon (`HandleRestartWorkerClickAsync`); always a red power-off icon (`HandleShutdownClickAsync`). Both disabled while `_isShuttingDown`. The stop-all tooltip is explicitly suppressed on click and re-enabled only after blur/mouse-leave so it cannot linger behind or after the confirmation dialog.
 
-**Shutdown flow:** `HandleShutdownClickAsync` shows `_shutdownMessageBox`; on confirm sets `_isShuttingDown = true`, shows `MudOverlay`, and calls `ShutdownService.StopAllServersAsync(Progress<string>, setGoalStateOff: true)` streaming status — `setGoalStateOff: true` flips each server's goal state to Off so the supervisor does not auto-restart them while Quasar stays up. Quasar itself stays up, so the toolbar is re-enabled in a `finally`.
+**Shutdown flow:** `HandleShutdownClickAsync` suppresses the stop-all tooltip, shows `_shutdownMessageBox`, and on confirm starts `ShutdownService.StopAllServersAsync(setGoalStateOff: true)` without awaiting it. This matches pressing Stop on every server card: servers wind down in the background, goal state is set to Off, Quasar itself stays up, and Dashboard / Servers reflect progress.
 
 **Restart-worker flow:** `HandleRestartWorkerClickAsync` shows `_restartWorkerMessageBox`; on confirm sets `_isShuttingDown`, invokes JS `quasarConfigs.reloadWhenHealthy("/")` so the browser reloads to the Dashboard once the new worker is healthy, then calls `ShutdownService.RestartWorker()` (the circuit drops as the worker stops). Only meaningful under Bootstrap.
 
