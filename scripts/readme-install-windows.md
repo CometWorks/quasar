@@ -23,6 +23,8 @@ port is configurable — see [Configuration](Docs/Configuration.md).
 
 ### Install as a background service (Scheduled Task)
 
+Install the **.NET 10 runtime** before running `install.ps1`.
+
 Run from an **elevated PowerShell** (Administrator):
 
 ```powershell

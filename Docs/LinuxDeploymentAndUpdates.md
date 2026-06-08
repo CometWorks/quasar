@@ -110,6 +110,10 @@ self-update loop when a source-built launcher reports stale version metadata.
 The first install uses the Linux installer flow from an extracted
 `quasar-linux-x64.tar.gz`:
 
+Install the **.NET 10 runtime** before running `install.sh`. The installer checks
+for `Microsoft.NETCore.App` 10.x before staging files, publishing, or writing the
+systemd service, and exits with install instructions if it is missing.
+
 ```bash
 tar -xzf quasar-linux-x64.tar.gz -C /tmp/quasar
 sudo /tmp/quasar/install.sh          # publish to /opt/quasar and install quasar.service
@@ -129,6 +133,10 @@ update comparisons do not fall back to plain `0.1.0`.
 sudo ./uninstall.sh           # remove the systemd service
 sudo ./uninstall.sh --purge   # also remove /opt/quasar
 ```
+
+`uninstall.sh` runs `systemctl stop quasar.service` before disabling and removing
+the service. With `--service-name <name>`, it stops the matching `<name>.service`
+unit instead.
 
 ## Configuration
 

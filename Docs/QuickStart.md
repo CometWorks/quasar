@@ -31,6 +31,9 @@ output to the console. Press `Ctrl+C` to stop. The web UI port is configurable
 
 ## Install as a background service
 
+Install the **.NET 10 runtime** before running the installer. The installer exits
+before changing files or registering services if the runtime is missing.
+
 **Linux — systemd**
 
 ```bash
@@ -52,6 +55,8 @@ To remove:
 sudo /opt/quasar/uninstall.sh          # stop and remove the service
 sudo /opt/quasar/uninstall.sh --purge  # also delete /opt/quasar
 ```
+
+The uninstall script stops `quasar.service` before removing it.
 
 For release assets, auto-update behaviour, and advanced configuration see
 [Linux Deployment & Updates](LinuxDeploymentAndUpdates.md).

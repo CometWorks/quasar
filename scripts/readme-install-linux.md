@@ -20,6 +20,8 @@ port is configurable — see [Configuration](Docs/Configuration.md).
 
 ### Install as a background service (systemd)
 
+Install the **.NET 10 runtime** before running `install.sh`.
+
 ```bash
 mkdir -p /tmp/quasar
 tar -xzf quasar-linux-x64.tar.gz -C /tmp/quasar
@@ -42,6 +44,8 @@ sudo systemctl restart quasar.service
 sudo /opt/quasar/uninstall.sh          # stop and remove the service
 sudo /opt/quasar/uninstall.sh --purge  # also delete /opt/quasar
 ```
+
+The uninstall script stops `quasar.service` before removing it.
 
 For release assets, the auto-updater flow, and advanced configuration see the
 [Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) guide.
