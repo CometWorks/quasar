@@ -581,6 +581,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         process.StartInfo.Environment["QUASAR_WORLD_PATH"] = launch.WorldPath;
         process.StartInfo.Environment["QUASAR_DS_CONFIG_PATH"] = launch.RuntimeConfigPath;
         process.StartInfo.Environment["QUASAR_LAST_SESSION_PATH"] = launch.LastSessionPath;
+        ConfigureNativeLibrarySearchPath(process.StartInfo, runtime.NativeLibrarySearchPaths);
 
         // How the agent should behave when it loses contact with Quasar: keep the
         // server running and reconnect, and only save+stop after the configured
@@ -651,6 +652,33 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         _ = PumpStandardOutputAsync(process.StandardOutput, stdoutPath, state.UniqueName, cancellationToken);
         _ = PumpStandardErrorAsync(process.StandardError, stderrPath, state.UniqueName, cancellationToken);
+    }
+
+    private static void ConfigureNativeLibrarySearchPath(
+        ProcessStartInfo startInfo,
+        IReadOnlyList<string> nativeLibrarySearchPaths)
+    {
+        if (!OperatingSystem.IsLinux() || nativeLibrarySearchPaths.Count == 0)
+            return;
+
+        const string variableName = "LD_LIBRARY_PATH";
+        var paths = nativeLibrarySearchPaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToList();
+        if (paths.Count == 0)
+            return;
+
+        if (startInfo.Environment.TryGetValue(variableName, out var existingValue) &&
+            !string.IsNullOrWhiteSpace(existingValue))
+        {
+            paths.AddRange(existingValue.Split(
+                Path.PathSeparator,
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+
+        startInfo.Environment[variableName] = string.Join(
+            Path.PathSeparator,
+            paths.Distinct(StringComparer.Ordinal));
     }
 
     private void SetRuntimeMessage(string uniqueName, string message)

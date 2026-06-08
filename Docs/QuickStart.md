@@ -56,6 +56,8 @@ sudo /opt/quasar/uninstall.sh          # stop and remove the service
 sudo /opt/quasar/uninstall.sh --purge  # also delete /opt/quasar
 ```
 
+The uninstall script stops `quasar.service` before removing it.
+
 For release assets, auto-update behaviour, and advanced configuration see
 [Linux Deployment & Updates](LinuxDeploymentAndUpdates.md).
 

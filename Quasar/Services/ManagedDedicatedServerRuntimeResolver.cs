@@ -36,6 +36,20 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         "steamcmd.bat",
     ];
 
+    private static readonly string[] DedicatedServerRequiredFileNames =
+    [
+        "SpaceEngineers.Game.dll",
+        "VRage.dll",
+        "Sandbox.Game.dll",
+    ];
+
+    private static readonly string[] SteamGameServerRuntimeFileNames =
+    [
+        "steamclient.so",
+        "libtier0_s.so",
+        "libvstdlib_s.so",
+    ];
+
     private static readonly UnixFileMode ExecutableUnixFileMode =
         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
         UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
@@ -95,11 +109,13 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             inferredDedicatedServer64Path,
             launcherExecutablePath,
             cancellationToken);
+        var nativeLibrarySearchPaths = ResolveNativeLibrarySearchPaths();
 
         return new ResolvedDedicatedServerRuntime(
             launcherExecutablePath,
             workingDirectory,
-            dedicatedServer64Path);
+            dedicatedServer64Path,
+            nativeLibrarySearchPaths);
     }
 
     private Task<string> EnsureManagedMagnetarInstallAsync(ManagedServerRuntime runtime, CancellationToken cancellationToken)
@@ -653,7 +669,72 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
             return false;
 
-        return DedicatedServerExecutableNames.Any(fileName => File.Exists(Path.Combine(path, fileName)));
+        return DedicatedServerExecutableNames.Any(fileName => File.Exists(Path.Combine(path, fileName))) &&
+               DedicatedServerRequiredFileNames.All(fileName => File.Exists(Path.Combine(path, fileName)));
+    }
+
+    private IReadOnlyList<string> ResolveNativeLibrarySearchPaths()
+    {
+        if (!OperatingSystem.IsLinux())
+            return [];
+
+        var steamGameServerRuntimePath = ResolveSteamGameServerRuntimePath();
+        return string.IsNullOrWhiteSpace(steamGameServerRuntimePath)
+            ? []
+            : [steamGameServerRuntimePath];
+    }
+
+    private string ResolveSteamGameServerRuntimePath()
+    {
+        foreach (var candidate in EnumerateSteamGameServerRuntimePathCandidates())
+        {
+            if (IsValidSteamGameServerRuntimeDirectory(candidate))
+                return candidate;
+        }
+
+        return string.Empty;
+    }
+
+    private IEnumerable<string> EnumerateSteamGameServerRuntimePathCandidates()
+    {
+        if (!string.IsNullOrWhiteSpace(_options.SteamCmdPath))
+        {
+            var configuredRuntimePath = TryGetSteamCmdRuntimeDirectory(_options.SteamCmdPath);
+            if (!string.IsNullOrWhiteSpace(configuredRuntimePath))
+                yield return configuredRuntimePath;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_options.SteamCmdInstallDirectory))
+            yield return Path.Combine(_options.SteamCmdInstallDirectory, "linux64");
+
+        var managedSteamCmdPath = FindSteamCmdExecutable(_options.SteamCmdInstallDirectory);
+        var managedRuntimePath = TryGetSteamCmdRuntimeDirectory(managedSteamCmdPath);
+        if (!string.IsNullOrWhiteSpace(managedRuntimePath))
+            yield return managedRuntimePath;
+
+        var environmentSteamCmdPath = ResolveSteamCmdPathFromEnvironment();
+        var environmentRuntimePath = TryGetSteamCmdRuntimeDirectory(environmentSteamCmdPath);
+        if (!string.IsNullOrWhiteSpace(environmentRuntimePath))
+            yield return environmentRuntimePath;
+    }
+
+    private static string TryGetSteamCmdRuntimeDirectory(string steamCmdPath)
+    {
+        if (string.IsNullOrWhiteSpace(steamCmdPath))
+            return string.Empty;
+
+        var steamCmdDirectory = Path.GetDirectoryName(steamCmdPath.Trim());
+        return string.IsNullOrWhiteSpace(steamCmdDirectory)
+            ? string.Empty
+            : Path.Combine(steamCmdDirectory, "linux64");
+    }
+
+    private static bool IsValidSteamGameServerRuntimeDirectory(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+            return false;
+
+        return SteamGameServerRuntimeFileNames.All(fileName => File.Exists(Path.Combine(path, fileName)));
     }
 
     private static void ExtractArchive(string archivePath, string destinationRoot)
@@ -996,4 +1077,5 @@ internal enum ArchiveKind
 public sealed record ResolvedDedicatedServerRuntime(
     string ExecutablePath,
     string WorkingDirectory,
-    string DedicatedServer64Path);
+    string DedicatedServer64Path,
+    IReadOnlyList<string> NativeLibrarySearchPaths);

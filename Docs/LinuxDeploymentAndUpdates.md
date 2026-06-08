@@ -134,6 +134,10 @@ sudo ./uninstall.sh           # remove the systemd service
 sudo ./uninstall.sh --purge   # also remove /opt/quasar
 ```
 
+`uninstall.sh` runs `systemctl stop quasar.service` before disabling and removing
+the service. With `--service-name <name>`, it stops the matching `<name>.service`
+unit instead.
+
 ## Configuration
 
 For the web UI host/port (including how to change the listening port, default

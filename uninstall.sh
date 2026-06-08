@@ -62,16 +62,21 @@ if ! command -v systemctl >/dev/null 2>&1; then
 fi
 
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
+SERVICE_UNIT="${SERVICE_NAME}.service"
+SERVICE_LISTING="$(systemctl list-unit-files "$SERVICE_UNIT" --no-legend 2>/dev/null || true)"
+LOADED_SERVICE_LISTING="$(systemctl list-units "$SERVICE_UNIT" --all --no-legend 2>/dev/null || true)"
+SERVICE_EXISTS=false
+if [[ -n "$SERVICE_LISTING" || -n "$LOADED_SERVICE_LISTING" || -f "$SERVICE_PATH" ]]; then
+    SERVICE_EXISTS=true
+fi
 
-if systemctl list-unit-files "${SERVICE_NAME}.service" >/dev/null 2>&1; then
-    if systemctl is-active --quiet "${SERVICE_NAME}.service"; then
-        echo "Stopping ${SERVICE_NAME}.service..."
-        systemctl stop "${SERVICE_NAME}.service"
-    fi
+if [[ "$SERVICE_EXISTS" == "true" ]]; then
+    echo "Stopping $SERVICE_UNIT..."
+    systemctl stop "$SERVICE_UNIT"
 
-    if systemctl is-enabled --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
-        echo "Disabling ${SERVICE_NAME}.service..."
-        systemctl disable "${SERVICE_NAME}.service"
+    if systemctl is-enabled --quiet "$SERVICE_UNIT" 2>/dev/null; then
+        echo "Disabling $SERVICE_UNIT..."
+        systemctl disable "$SERVICE_UNIT"
     fi
 fi
 
@@ -81,7 +86,7 @@ if [[ -f "$SERVICE_PATH" ]]; then
 fi
 
 systemctl daemon-reload
-systemctl reset-failed "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
+systemctl reset-failed "$SERVICE_UNIT" >/dev/null 2>&1 || true
 
 if [[ "$PURGE" == "true" ]]; then
     case "$INSTALL_DIR" in
