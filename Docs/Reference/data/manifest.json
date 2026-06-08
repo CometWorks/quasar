@@ -784,8 +784,8 @@
       "path": "Quasar/Components/Pages/ServerConsoleDialog.razor",
       "name": "ServerConsoleDialog.razor",
       "ext": ".razor",
-      "size": 28778,
-      "sha256": "b4a48b1242f5302bd80f662e27d15d467ac65ef53df0408c941a70b0d57c3d32",
+      "size": 28796,
+      "sha256": "c2edaa825545e35cb86f15269a71f4c2214af8ad2cade9fdbe53ad13bb4214e8",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -1994,8 +1994,8 @@
       "path": "Quasar/wwwroot/quasar-configs.js",
       "name": "quasar-configs.js",
       "ext": ".js",
-      "size": 9307,
-      "sha256": "3a9ee323081d5f8372f456d44ad04ce3e9b120d4be5dedf222da9eb166d74491",
+      "size": 9466,
+      "sha256": "b5e694b5b6754e6ecf1fcdafaa9b9a1ae32f46f60a4bc185f8040a137fda76c0",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"

@@ -15,7 +15,7 @@
                         <MudTooltip Text="Download full server log">
                             <MudIconButton Icon="@Icons.Material.Filled.Download" Href="@ServerLogDownloadHref" Disabled="@(!_serverLogLoaded || _serverLogMissing)" Size="Size.Small" />
                         </MudTooltip>
-                        <MudTooltip Text="Shortcuts in this dialog: Ctrl+PageUp/PageDown rolls 250 lines; Ctrl+Home/End jumps to the oldest or newest lines.">
+                        <MudTooltip Text="Shortcuts in this dialog: Ctrl or Alt + PageUp/PageDown rolls 250 lines; Ctrl or Alt + Home/End jumps to the oldest or newest lines.">
                             <MudIcon Icon="@Icons.Material.Filled.Keyboard" Size="Size.Small" Color="Color.Default" />
                         </MudTooltip>
                         <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Search" OnClick="ShowServerLogExceptionsAsync">Exceptions</MudButton>

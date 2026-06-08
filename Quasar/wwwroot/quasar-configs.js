@@ -151,7 +151,9 @@ window.quasarConfigs = window.quasarConfigs || {
         };
 
         state.handleKeyDown = (event) => {
-            if (!event.ctrlKey || event.altKey || event.metaKey) {
+            const useCtrlShortcut = event.ctrlKey && !event.altKey && !event.metaKey;
+            const useAltShortcut = event.altKey && !event.ctrlKey && !event.metaKey;
+            if (!useCtrlShortcut && !useAltShortcut) {
                 return;
             }
 
