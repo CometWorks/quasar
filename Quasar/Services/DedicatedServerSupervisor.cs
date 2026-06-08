@@ -22,6 +22,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private const string StandardOutputLogName = "stdout";
     private const string StandardErrorLogName = "stderr";
     private const string ActiveLogExtension = ".log";
+    private const int MaxModDownloadFailures = 20;
     private static readonly Regex PrefixedLogLinePattern = new(
         @"^(?<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,7})?)\s*[:\-]\s*(?<message>.*)$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -635,6 +636,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             current.StandardErrorLogPath = stderrPath;
             current.IsRestartPending = false;
             current.StopRequested = false;
+            current.ModDownloadFailures.Clear();
             current.LastAppliedProcessPriority = null;
             current.LastFailedProcessPriority = null;
             current.LastAppliedCpuAffinity = null;
@@ -1355,6 +1357,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             }
             else if (!string.IsNullOrWhiteSpace(line))
             {
+                RecordModDownloadFailure(uniqueName, line);
                 _pluginLogStream.Append(BuildMagnetarEntry(uniqueName, line, "Info"));
             }
         }
@@ -1377,8 +1380,65 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             await writer.WriteLineAsync($"{DateTimeOffset.UtcNow:O} {line}");
 
             if (!string.IsNullOrWhiteSpace(line))
+            {
+                RecordModDownloadFailure(uniqueName, line);
                 _pluginLogStream.Append(BuildMagnetarEntry(uniqueName, line, "Error"));
+            }
         }
+    }
+
+    private void RecordModDownloadFailure(string uniqueName, string line)
+    {
+        if (!TryBuildModDownloadFailureMessage(line, out var message))
+            return;
+
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out var state))
+                return;
+
+            if (state.ModDownloadFailures.Any(existing => string.Equals(existing, message, StringComparison.OrdinalIgnoreCase)))
+                return;
+
+            if (state.ModDownloadFailures.Count >= MaxModDownloadFailures)
+                state.ModDownloadFailures.RemoveAt(0);
+
+            state.ModDownloadFailures.Add(message);
+            state.LastMessage = "Mod download failure reported by server output.";
+        }
+    }
+
+    private static bool TryBuildModDownloadFailureMessage(string line, out string message)
+    {
+        message = string.Empty;
+        var text = line.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        if (TryNormalizePrefixedLogLine(text, out _, out var parsedMessage))
+            text = parsedMessage;
+
+        var lower = text.ToLowerInvariant();
+        var mentionsWorkshopMod = lower.Contains("mod") || lower.Contains("workshop") || lower.Contains("publishedfile");
+        if (!mentionsWorkshopMod)
+            return false;
+
+        var mentionsDownload = lower.Contains("download") || lower.Contains("subscrib") || lower.Contains("publishedfile") || lower.Contains("workshop");
+        if (!mentionsDownload)
+            return false;
+
+        var isFailure =
+            lower.Contains("fail") ||
+            lower.Contains("not found") ||
+            lower.Contains("unavailable") ||
+            lower.Contains("missing") ||
+            lower.Contains("denied") ||
+            lower.Contains("error");
+        if (!isFailure)
+            return false;
+
+        message = text.Length <= 300 ? text : $"{text[..300]}...";
+        return true;
     }
 
     private static PluginLogEntry BuildMagnetarEntry(string uniqueName, string line, string level)
@@ -1972,6 +2032,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             StoppedAtUtc = state.StoppedAtUtc,
             StandardOutputLogPath = state.StandardOutputLogPath,
             StandardErrorLogPath = state.StandardErrorLogPath,
+            ModDownloadFailures = state.ModDownloadFailures.ToList(),
         };
     }
 
@@ -2052,6 +2113,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public DateTimeOffset? LastSimulationProgressEvaluatedAtUtc { get; set; }
 
         public string LastHealthySummary { get; set; } = string.Empty;
+
+        public List<string> ModDownloadFailures { get; } = [];
     }
 
     private enum ReconcileAction

@@ -3,31 +3,34 @@
 **Module:** Quasar.Services.Backup  **Kind:** class  **Tier:** 1
 
 ## Summary
-Builds and restores ZIP backups of Quasar's *own* configuration. A backup captures servers, config profiles, world templates and all app settings (Discord, branding, known players, security/RBAC, dev folders), but deliberately excludes game servers, worlds, plugin configs, runtime state, logs and history. Restore merges the archive into the running install by overwriting files at their on-disk path.
+Builds and restores ZIP backups for three scopes: Quasar configuration, whole server data, and world-only data. Configuration backups still capture Quasar's own singleton/config/catalog files; server backups include the server definition, Dedicated Server app data, Magnetar app data, and world files including config; world backups restore world files while excluding `Sandbox_config.sbc*`.
 
 ## Structure
 Namespace: `Quasar.Services.Backup`
 
 `public sealed record QuasarBackupArchive(byte[] Content, string FileName)` — in-memory archive for download.
-`public sealed record QuasarBackupFileInfo(string Name, long SizeBytes, DateTimeOffset CreatedAtUtc, bool Automatic)` — stored-backup listing entry.
+`public sealed record QuasarBackupFileInfo(string Name, long SizeBytes, DateTimeOffset CreatedAtUtc, QuasarBackupKind Kind, bool Automatic, string? ServerUniqueName, string? ServerDisplayName)` — stored-backup listing entry with manifest-derived type and target-server metadata.
 `public sealed class QuasarBackupService`
 
-Const `CurrentFormatVersion = 1`. Archive layout: `quasar-backup.json` manifest at root, `data/` mirror of config files, `branding-assets/` copy of uploaded logo/favicon images. Singleton config files included if present: `known-players.json`, `discord.json`, `death-messages.json`, `branding.json`, `steam-workshop.json`, `rbac.json`, `dev-folders.json`. Per-entity definition files: `Magnetars/**/server.json`, `ConfigProfiles/**/profile.json`, `WorldTemplates/**/template.json` (fixed filenames naturally exclude `History/` and `World/` snapshots). Filename format: `quasar-backup-{yyyyMMdd-HHmmss}{-auto?}.zip`. `JsonSerializerOptions`: Web + `WriteIndented`.
+Const `CurrentFormatVersion = 1`. All archives carry `quasar-backup.json`. Configuration layout uses `data/` plus `branding-assets/`. Server/world layouts use `server/server.json`, `dedicated-server/`, optional `dedicated-config/`, `magnetar/`, and/or `world/`. Filenames: `quasar-backup-{yyyyMMdd-HHmmss}{-auto?}.zip`, `quasar-server-{uniqueName}-{yyyyMMdd-HHmmss}{-auto?}.zip`, `quasar-world-{uniqueName}-{yyyyMMdd-HHmmss}{-auto?}.zip`. `JsonSerializerOptions`: Web + `WriteIndented`.
 
 | Member | Description |
 |---|---|
 | `CreateBackup(DateTimeOffset timestamp)` | Builds a `QuasarBackupArchive` in memory with a timestamped download name (manual). |
 | `WriteBackupFileAsync(DateTimeOffset timestamp, bool automatic, CancellationToken)` | Writes a ZIP into the Backups directory (`MagnetarPaths.GetQuasarBackupsDirectory()`); returns the file path. |
-| `PruneAutomaticBackups(int retentionCount)` | Deletes oldest automatic backups (files ending `-auto.zip`) beyond `retentionCount`; relies on timestamped filename sorting. |
-| `ListBackups()` | `IReadOnlyList<QuasarBackupFileInfo>` enumerating `*.zip` in the Backups dir; `Automatic` flag set if name ends with `-auto`. |
+| `WriteServerBackupFileAsync(string uniqueName, DateTimeOffset timestamp, bool automatic, CancellationToken)` | Writes a server-scope ZIP including Quasar server definition, DS app data, Magnetar app data, and world files including world config. |
+| `WriteWorldBackupFileAsync(string uniqueName, DateTimeOffset timestamp, bool automatic, CancellationToken)` | Writes a world-scope ZIP using the latest SE `Backup` snapshot when present, excluding `Sandbox_config.sbc*`. |
+| `PruneAutomaticBackups(int retentionCount)` | Deletes oldest automatic Quasar config backups beyond `retentionCount`. |
+| `PruneAutomaticBackups(QuasarBackupKind, int, string?)` | Deletes oldest automatic backups for one kind, optionally scoped to one server for server/world rules. |
+| `ListBackups()` | `IReadOnlyList<QuasarBackupFileInfo>` enumerating `*.zip` in the Backups dir and reading manifests for kind/server metadata. |
 | `ResolveBackupPath(string fileName)` | Validates a bare filename ending `.zip` that stays inside the Backups dir (path-traversal guard); returns full path or `null`. |
 | `DeleteBackup(string fileName)` | Deletes a stored backup; returns `bool`. |
 | `RestoreFromFileAsync(string fileName, CancellationToken)` | `Task<QuasarRestoreReport>` restoring from a stored backup file. |
-| `RestoreAsync(Stream zipStream, CancellationToken)` | `Task<QuasarRestoreReport>`; copies to a seekable `MemoryStream`, reads the manifest, validates via `BackupCompatibility.Evaluate(manifest.QuasarVersion, _options.Version)`, then merges. |
+| `RestoreAsync(Stream zipStream, CancellationToken)` | `Task<QuasarRestoreReport>`; copies to a temporary seekable file, reads the manifest, validates via `BackupCompatibility.Evaluate`, then dispatches restore by `BackupKind`. |
 
-Constructor deps: `ILogger`, `WebServiceOptions _options`, `IWebHostEnvironment environment` (to resolve webRoot for the branding dir via `MagnetarPaths.GetQuasarBrandingDirectory(webRootPath)`), `KnownPlayerCatalog _knownPlayers`, `QuasarDevFolderCatalog _devFolders`.
+Constructor deps: `ILogger`, `WebServiceOptions _options`, `IWebHostEnvironment environment` (to resolve webRoot for the branding dir via `MagnetarPaths.GetQuasarBrandingDirectory(webRootPath)`), `KnownPlayerCatalog _knownPlayers`, `QuasarDevFolderCatalog _devFolders`, `DedicatedServerCatalog _servers`.
 
-Restore merges by overwriting files at their on-disk path (configs/templates/servers with new IDs added, matching IDs replaced). A zip-slip guard (`ResolveExtractionTarget`) keeps entries under `quasarRoot` (`data/`) or `brandingRoot` (`branding-assets/`). After extraction it calls `_knownPlayers.ReloadFromDisk()` and `_devFolders.ReloadFromDisk()` (catalogs without a file watcher) and returns a report with `RestartRecommended = true`.
+Configuration restore merges by overwriting files at their on-disk path (configs/templates/servers with new IDs added, matching IDs replaced). Server restore writes server/config/runtime/world entries to the target server paths; world restore requires the target server to exist and skips world config. Zip-slip guards keep all entries inside their resolved target roots. Configuration restore calls `_knownPlayers.ReloadFromDisk()` and `_devFolders.ReloadFromDisk()` (catalogs without a file watcher) and returns a report with `RestartRecommended = true`.
 
 ## Dependencies
 - [`Magnetar.Protocol/Runtime/MagnetarPaths.cs`](../../../Magnetar.Protocol/Runtime/MagnetarPaths.cs.md)
@@ -37,7 +40,8 @@ Restore merges by overwriting files at their on-disk path (configs/templates/ser
 - [`Quasar/Services/WebServiceOptions.cs`](../WebServiceOptions.cs.md)
 - [`Quasar/Services/KnownPlayerCatalog.cs`](../KnownPlayerCatalog.cs.md)
 - [`Quasar/Services/QuasarDevFolderCatalog.cs`](../QuasarDevFolderCatalog.cs.md)
+- [`Quasar/Services/DedicatedServerCatalog.cs`](../DedicatedServerCatalog.cs.md)
 - External: System.IO.Compression (`ZipArchive`), System.Text.Json
 
 ## Notes
-`ZipArchive` reads require a seekable stream, so browser uploads are buffered into memory. Path-traversal and zip-slip guards apply on both download and restore. Data-protection keys are NOT included in the archive, so an encrypted Steam Workshop API key must be re-entered when restoring on a different machine.
+`ZipArchive` reads require a seekable stream, so browser uploads are copied to a temporary ZIP instead of buffered into memory. Server/world backups prefer the newest valid world directory under the SE `Backup` folder when present, avoiding live-save races. Path-traversal and zip-slip guards apply on both download and restore. Data-protection keys are NOT included in configuration archives, so an encrypted Steam Workshop API key must be re-entered when restoring on a different machine.

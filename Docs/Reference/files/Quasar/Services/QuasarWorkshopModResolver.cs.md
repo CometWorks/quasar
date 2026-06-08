@@ -3,7 +3,7 @@
 **Module:** Quasar.Services.Core  **Kind:** class  **Tier:** 1
 
 ## Summary
-Resolves Steam Workshop mod references (URLs, raw IDs, or text containing IDs) into typed `QuasarModSelection` records via the Steam Web API. Supports resolving individual mods and expanding collections into their child items, browsing popular mods, and full-text mod search. Non-mod items (worlds, blueprints, in-game scripts) are silently filtered out.
+Resolves Steam Workshop mod references (URLs, raw IDs, or text containing IDs) into typed `QuasarModSelection` records via the Steam Web API. Supports resolving individual mods and expanding collections into their child items, browsing popular mods, full-text mod search, and checking selected mods for unavailable/dead Workshop entries. Non-mod items (worlds, blueprints, in-game scripts) are silently filtered out.
 
 ## Structure
 **Namespace:** `Quasar.Services`
@@ -20,6 +20,7 @@ Constants:
 | `GetPopularModsAsync(ct)` | Calls `IPublishedFileService/QueryFiles` with the configured popular-query type and limit. |
 | `SearchModsAsync(searchText, ct)` | Same endpoint with free-text search. |
 | `ResolveAsync(input, ct)` | Parses workshop IDs from `input`, expands collections via `GetCollectionDetails`, fetches `GetPublishedFileDetails` in batches, filters non-SE and non-mod items, returns `QuasarWorkshopResolutionResult`. |
+| `CheckAvailabilityAsync(mods, ct)` | Fetches `GetPublishedFileDetails` for selected `QuasarModSelection` entries and returns unavailable IDs for dead-mod cleanup. |
 
 Private helpers:
 - `QueryFilesAsync` — builds `QueryFilesRequest` JSON, calls `GetAsync`
@@ -32,6 +33,7 @@ Private helpers:
 
 Result types (sealed records in same file):
 - `QuasarWorkshopResolutionResult(Mods, Warnings)` — resolution output with warning list
+- `QuasarWorkshopAvailabilityResult(UnavailableMods, CheckedCount)` — dead-mod cleanup output
 - `QuasarWorkshopSearchResultSet(Mods, Total)` — search page result
 - `QuasarWorkshopSearchResult(WorkshopId, Title, Description, PreviewUrl, Tags)` — single search hit
 

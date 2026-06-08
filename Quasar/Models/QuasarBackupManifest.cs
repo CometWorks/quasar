@@ -1,5 +1,12 @@
 namespace Quasar.Models;
 
+public enum QuasarBackupKind
+{
+    Configuration,
+    Server,
+    World,
+}
+
 /// <summary>
 /// Metadata written to <c>quasar-backup.json</c> at the root of every backup ZIP.
 /// <see cref="FormatVersion"/> versions the archive layout itself; <see cref="QuasarVersion"/>
@@ -17,4 +24,10 @@ public sealed class QuasarBackupManifest
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public string? CreatedByHost { get; set; }
+
+    public QuasarBackupKind BackupKind { get; set; } = QuasarBackupKind.Configuration;
+
+    public string? ServerUniqueName { get; set; }
+
+    public string? ServerDisplayName { get; set; }
 }

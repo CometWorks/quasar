@@ -9,15 +9,21 @@ namespace Quasar.Services.Backup;
 public sealed record QuasarBackupArchive(byte[] Content, string FileName);
 
 /// <summary>A backup ZIP found in the Backups directory.</summary>
-public sealed record QuasarBackupFileInfo(string Name, long SizeBytes, DateTimeOffset CreatedAtUtc, bool Automatic);
+public sealed record QuasarBackupFileInfo(
+    string Name,
+    long SizeBytes,
+    DateTimeOffset CreatedAtUtc,
+    QuasarBackupKind Kind,
+    bool Automatic,
+    string? ServerUniqueName,
+    string? ServerDisplayName);
 
 /// <summary>
-/// Builds and restores ZIP backups of Quasar's own configuration. The archive
-/// contains a <c>quasar-backup.json</c> manifest plus a <c>data/</c> mirror of the
-/// configuration files (singletons + server/config/world-template definitions) and
-/// a <c>branding-assets/</c> copy of the uploaded logo/favicon images. Game
-/// servers, worlds, plugin configurations, runtime state, logs and history are
-/// deliberately excluded — see the allow-list below.
+/// Builds and restores ZIP backups for Quasar configuration, whole server data,
+/// and world-only data. Every archive contains a <c>quasar-backup.json</c>
+/// manifest; configuration archives keep their <c>data/</c> and
+/// <c>branding-assets/</c> allow-list, while server/world archives carry the
+/// target server metadata plus selected runtime directories.
 /// </summary>
 public sealed class QuasarBackupService
 {
@@ -26,7 +32,13 @@ public sealed class QuasarBackupService
     private const string ManifestEntryName = "quasar-backup.json";
     private const string DataPrefix = "data/";
     private const string BrandingPrefix = "branding-assets/";
+    private const string ServerDefinitionPrefix = "server/";
+    private const string DedicatedServerPrefix = "dedicated-server/";
+    private const string DedicatedConfigPrefix = "dedicated-config/";
+    private const string MagnetarPrefix = "magnetar/";
+    private const string WorldPrefix = "world/";
     private const string AutomaticSuffix = "-auto";
+    private const string ServerDefinitionEntryName = ServerDefinitionPrefix + "server.json";
 
     // Singleton config files living directly in the Quasar root (included if present).
     private static readonly string[] SingletonConfigFiles =
@@ -58,6 +70,7 @@ public sealed class QuasarBackupService
     private readonly WebServiceOptions _options;
     private readonly KnownPlayerCatalog _knownPlayers;
     private readonly QuasarDevFolderCatalog _devFolders;
+    private readonly DedicatedServerCatalog _servers;
     private readonly string _brandingAssetsDirectory;
 
     public QuasarBackupService(
@@ -65,12 +78,14 @@ public sealed class QuasarBackupService
         WebServiceOptions options,
         IWebHostEnvironment environment,
         KnownPlayerCatalog knownPlayers,
-        QuasarDevFolderCatalog devFolders)
+        QuasarDevFolderCatalog devFolders,
+        DedicatedServerCatalog servers)
     {
         _logger = logger;
         _options = options;
         _knownPlayers = knownPlayers;
         _devFolders = devFolders;
+        _servers = servers;
 
         var webRootPath = string.IsNullOrWhiteSpace(environment.WebRootPath)
             ? Path.Combine(environment.ContentRootPath, "wwwroot")
@@ -98,22 +113,60 @@ public sealed class QuasarBackupService
         return path;
     }
 
+    public Task<string> WriteServerBackupFileAsync(
+        string uniqueName,
+        DateTimeOffset timestamp,
+        bool automatic = false,
+        CancellationToken cancellationToken = default)
+    {
+        var definition = RequireServer(uniqueName);
+        return WriteBackupFileAsync(
+            BuildFileName(timestamp, automatic, QuasarBackupKind.Server, definition.UniqueName),
+            archive => BuildServerArchive(archive, definition, timestamp, includeWorldConfig: true, cancellationToken),
+            cancellationToken);
+    }
+
+    public Task<string> WriteWorldBackupFileAsync(
+        string uniqueName,
+        DateTimeOffset timestamp,
+        bool automatic = false,
+        CancellationToken cancellationToken = default)
+    {
+        var definition = RequireServer(uniqueName);
+        return WriteBackupFileAsync(
+            BuildFileName(timestamp, automatic, QuasarBackupKind.World, definition.UniqueName),
+            archive => BuildWorldArchive(archive, definition, timestamp, includeWorldConfig: false, cancellationToken),
+            cancellationToken);
+    }
+
     /// <summary>Deletes the oldest automatic backups beyond <paramref name="retentionCount"/>.</summary>
     public int PruneAutomaticBackups(int retentionCount)
+    {
+        return PruneAutomaticBackups(QuasarBackupKind.Configuration, retentionCount);
+    }
+
+    /// <summary>Deletes oldest automatic backups beyond <paramref name="retentionCount"/> for one backup kind.</summary>
+    public int PruneAutomaticBackups(QuasarBackupKind kind, int retentionCount, string? serverUniqueName = null)
     {
         var backupsDirectory = MagnetarPaths.GetQuasarBackupsDirectory();
         if (!Directory.Exists(backupsDirectory))
             return 0;
 
-        var automatic = Directory
-            .EnumerateFiles(backupsDirectory, $"*{AutomaticSuffix}.zip")
-            .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase) // timestamped name sorts chronologically
+        var automatic = ListBackups()
+            .Where(backup => backup.Automatic && backup.Kind == kind)
+            .Where(backup => string.IsNullOrWhiteSpace(serverUniqueName) ||
+                string.Equals(backup.ServerUniqueName, serverUniqueName, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(backup => backup.CreatedAtUtc)
             .Skip(Math.Max(0, retentionCount))
             .ToList();
 
         var deleted = 0;
-        foreach (var path in automatic)
+        foreach (var backup in automatic)
         {
+            var path = ResolveBackupPath(backup.Name);
+            if (path is null)
+                continue;
+
             try
             {
                 File.Delete(path);
@@ -138,9 +191,17 @@ public sealed class QuasarBackupService
             .Select(path =>
             {
                 var info = new FileInfo(path);
+                var manifest = TryReadManifest(path);
                 var automatic = Path.GetFileNameWithoutExtension(path)
                     .EndsWith(AutomaticSuffix, StringComparison.OrdinalIgnoreCase);
-                return new QuasarBackupFileInfo(info.Name, info.Length, info.LastWriteTimeUtc, automatic);
+                return new QuasarBackupFileInfo(
+                    info.Name,
+                    info.Length,
+                    info.LastWriteTimeUtc,
+                    manifest?.BackupKind ?? QuasarBackupKind.Configuration,
+                    automatic,
+                    manifest?.ServerUniqueName,
+                    manifest?.ServerDisplayName);
             })
             .OrderByDescending(file => file.CreatedAtUtc)
             .ToList();
@@ -197,143 +258,363 @@ public sealed class QuasarBackupService
     {
         ArgumentNullException.ThrowIfNull(zipStream);
 
-        // ZipArchive in Read mode needs a seekable stream; browser upload streams are not.
-        await using var buffer = new MemoryStream();
-        await zipStream.CopyToAsync(buffer, cancellationToken);
-        buffer.Position = 0;
-
-        ZipArchive archive;
+        var tempPath = Path.Combine(Path.GetTempPath(), $"quasar-restore-{Guid.NewGuid():N}.zip");
         try
         {
-            archive = new ZipArchive(buffer, ZipArchiveMode.Read, leaveOpen: true);
-        }
-        catch (InvalidDataException)
-        {
-            return QuasarRestoreReport.Failed("The selected file is not a valid ZIP archive.");
-        }
+            await using (var tempWrite = File.Open(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                await zipStream.CopyToAsync(tempWrite, cancellationToken);
 
-        using (archive)
-        {
-            var manifestEntry = archive.GetEntry(ManifestEntryName);
-            if (manifestEntry is null)
-                return QuasarRestoreReport.Failed("This ZIP is not a Quasar backup (missing quasar-backup.json).");
+            await using var tempRead = File.Open(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read);
 
-            QuasarBackupManifest? manifest;
+            ZipArchive archive;
             try
             {
-                await using var manifestStream = manifestEntry.Open();
-                manifest = await JsonSerializer.DeserializeAsync<QuasarBackupManifest>(manifestStream, JsonOptions, cancellationToken);
+                archive = new ZipArchive(tempRead, ZipArchiveMode.Read, leaveOpen: true);
             }
-            catch (JsonException)
+            catch (InvalidDataException)
             {
-                return QuasarRestoreReport.Failed("The backup manifest could not be read.");
+                return QuasarRestoreReport.Failed("The selected file is not a valid ZIP archive.");
             }
 
-            if (manifest is null || string.IsNullOrWhiteSpace(manifest.QuasarVersion))
-                return QuasarRestoreReport.Failed("The backup manifest is missing version information.");
-
-            var compatibility = BackupCompatibility.Evaluate(manifest.QuasarVersion, _options.Version);
-            if (!compatibility.Allowed)
-                return QuasarRestoreReport.Failed(compatibility.Reason, manifest.QuasarVersion, _options.Version);
-
-            var quasarRoot = Path.GetFullPath(MagnetarPaths.GetQuasarDirectory());
-            var brandingRoot = Path.GetFullPath(_brandingAssetsDirectory);
-
-            var restored = 0;
-            foreach (var entry in archive.Entries)
+            using (archive)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                var manifestEntry = archive.GetEntry(ManifestEntryName);
+                if (manifestEntry is null)
+                    return QuasarRestoreReport.Failed("This ZIP is not a Quasar backup (missing quasar-backup.json).");
 
-                if (string.Equals(entry.FullName, ManifestEntryName, StringComparison.Ordinal))
-                    continue;
-
-                // Directory entries have an empty Name.
-                if (string.IsNullOrEmpty(entry.Name))
-                    continue;
-
-                var target = ResolveExtractionTarget(entry.FullName, quasarRoot, brandingRoot);
-                if (target is null)
+                QuasarBackupManifest? manifest;
+                try
                 {
-                    _logger.LogWarning("Skipping unexpected backup entry {Entry}", entry.FullName);
-                    continue;
+                    await using var manifestStream = manifestEntry.Open();
+                    manifest = await JsonSerializer.DeserializeAsync<QuasarBackupManifest>(manifestStream, JsonOptions, cancellationToken);
+                }
+                catch (JsonException)
+                {
+                    return QuasarRestoreReport.Failed("The backup manifest could not be read.");
                 }
 
-                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                entry.ExtractToFile(target, overwrite: true);
-                restored++;
+                if (manifest is null || string.IsNullOrWhiteSpace(manifest.QuasarVersion))
+                    return QuasarRestoreReport.Failed("The backup manifest is missing version information.");
+
+                var compatibility = BackupCompatibility.Evaluate(manifest.QuasarVersion, _options.Version);
+                if (!compatibility.Allowed)
+                    return QuasarRestoreReport.Failed(compatibility.Reason, manifest.QuasarVersion, _options.Version);
+
+                return manifest.BackupKind switch
+                {
+                    QuasarBackupKind.Configuration => RestoreConfigurationArchive(archive, manifest, cancellationToken),
+                    QuasarBackupKind.Server => await RestoreServerArchiveAsync(archive, manifest, cancellationToken),
+                    QuasarBackupKind.World => await RestoreWorldArchiveAsync(archive, manifest, cancellationToken),
+                    _ => QuasarRestoreReport.Failed($"Unsupported backup kind '{manifest.BackupKind}'.", manifest.QuasarVersion, _options.Version),
+                };
+            }
+        }
+        finally
+        {
+            TryDeleteFile(tempPath);
+        }
+    }
+
+    private QuasarRestoreReport RestoreConfigurationArchive(
+        ZipArchive archive,
+        QuasarBackupManifest manifest,
+        CancellationToken cancellationToken)
+    {
+        var quasarRoot = Path.GetFullPath(MagnetarPaths.GetQuasarDirectory());
+        var brandingRoot = Path.GetFullPath(_brandingAssetsDirectory);
+
+        var restored = 0;
+        foreach (var entry in archive.Entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (string.Equals(entry.FullName, ManifestEntryName, StringComparison.Ordinal))
+                continue;
+
+            // Directory entries have an empty Name.
+            if (string.IsNullOrEmpty(entry.Name))
+                continue;
+
+            var target = ResolveConfigurationExtractionTarget(entry.FullName, quasarRoot, brandingRoot);
+            if (target is null)
+            {
+                _logger.LogWarning("Skipping unexpected backup entry {Entry}", entry.FullName);
+                continue;
             }
 
-            // Catalogs without a file watcher need an explicit reload; watched ones
-            // (servers, configs, templates, discord, branding, …) reload themselves.
-            _knownPlayers.ReloadFromDisk();
-            _devFolders.ReloadFromDisk();
-
-            _logger.LogInformation(
-                "Restored {Count} files from a {BackupVersion} backup (running {RunningVersion}).",
-                restored, manifest.QuasarVersion, _options.Version);
-
-            return new QuasarRestoreReport
-            {
-                Success = true,
-                FilesRestored = restored,
-                BackupVersion = manifest.QuasarVersion,
-                RunningVersion = _options.Version,
-                RestartRecommended = true,
-                Message = $"Restored {restored} configuration file(s). Restart Quasar to be sure every component picks up the change.",
-            };
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            entry.ExtractToFile(target, overwrite: true);
+            restored++;
         }
+
+        // Catalogs without a file watcher need an explicit reload; watched ones
+        // (servers, configs, templates, discord, branding, ...) reload themselves.
+        _knownPlayers.ReloadFromDisk();
+        _devFolders.ReloadFromDisk();
+
+        _logger.LogInformation(
+            "Restored {Count} files from a {BackupVersion} backup (running {RunningVersion}).",
+            restored, manifest.QuasarVersion, _options.Version);
+
+        return new QuasarRestoreReport
+        {
+            Success = true,
+            FilesRestored = restored,
+            BackupVersion = manifest.QuasarVersion,
+            RunningVersion = _options.Version,
+            RestartRecommended = true,
+            Message = $"Restored {restored} configuration file(s). Restart Quasar to be sure every component picks up the change.",
+        };
     }
 
     private byte[] BuildArchiveBytes(DateTimeOffset timestamp)
     {
-        var quasarRoot = MagnetarPaths.GetQuasarDirectory();
-
         using var memory = new MemoryStream();
         using (var archive = new ZipArchive(memory, ZipArchiveMode.Create, leaveOpen: true))
-        {
-            var manifest = new QuasarBackupManifest
-            {
-                FormatVersion = CurrentFormatVersion,
-                QuasarVersion = _options.Version,
-                CreatedAtUtc = timestamp,
-                CreatedByHost = _options.HostName,
-            };
-            WriteEntry(archive, ManifestEntryName, JsonSerializer.SerializeToUtf8Bytes(manifest, JsonOptions));
-
-            foreach (var fileName in SingletonConfigFiles)
-            {
-                var path = Path.Combine(quasarRoot, fileName);
-                if (File.Exists(path))
-                    AddFile(archive, DataPrefix + fileName, path);
-            }
-
-            foreach (var (subdirectory, fileName) in DefinitionFiles)
-            {
-                var directory = Path.Combine(quasarRoot, subdirectory);
-                if (!Directory.Exists(directory))
-                    continue;
-
-                foreach (var path in Directory.EnumerateFiles(directory, fileName, SearchOption.AllDirectories))
-                {
-                    var relative = Path.GetRelativePath(quasarRoot, path);
-                    AddFile(archive, DataPrefix + ToEntryPath(relative), path);
-                }
-            }
-
-            if (Directory.Exists(_brandingAssetsDirectory))
-            {
-                foreach (var path in Directory.EnumerateFiles(_brandingAssetsDirectory, "*", SearchOption.AllDirectories))
-                {
-                    var relative = Path.GetRelativePath(_brandingAssetsDirectory, path);
-                    AddFile(archive, BrandingPrefix + ToEntryPath(relative), path);
-                }
-            }
-        }
+            BuildConfigurationArchive(archive, timestamp);
 
         return memory.ToArray();
     }
 
-    private static string? ResolveExtractionTarget(string entryName, string quasarRoot, string brandingRoot)
+    private void BuildConfigurationArchive(ZipArchive archive, DateTimeOffset timestamp)
+    {
+        var quasarRoot = MagnetarPaths.GetQuasarDirectory();
+        WriteManifest(archive, new QuasarBackupManifest
+        {
+            FormatVersion = CurrentFormatVersion,
+            QuasarVersion = _options.Version,
+            CreatedAtUtc = timestamp,
+            CreatedByHost = _options.HostName,
+            BackupKind = QuasarBackupKind.Configuration,
+        });
+
+        foreach (var fileName in SingletonConfigFiles)
+        {
+            var path = Path.Combine(quasarRoot, fileName);
+            if (File.Exists(path))
+                AddFile(archive, DataPrefix + fileName, path);
+        }
+
+        foreach (var (subdirectory, fileName) in DefinitionFiles)
+        {
+            var directory = Path.Combine(quasarRoot, subdirectory);
+            if (!Directory.Exists(directory))
+                continue;
+
+            foreach (var path in Directory.EnumerateFiles(directory, fileName, SearchOption.AllDirectories))
+            {
+                var relative = Path.GetRelativePath(quasarRoot, path);
+                AddFile(archive, DataPrefix + ToEntryPath(relative), path);
+            }
+        }
+
+        if (Directory.Exists(_brandingAssetsDirectory))
+        {
+            foreach (var path in Directory.EnumerateFiles(_brandingAssetsDirectory, "*", SearchOption.AllDirectories))
+            {
+                var relative = Path.GetRelativePath(_brandingAssetsDirectory, path);
+                AddFile(archive, BrandingPrefix + ToEntryPath(relative), path);
+            }
+        }
+    }
+
+    private void BuildServerArchive(
+        ZipArchive archive,
+        DedicatedServerDefinition definition,
+        DateTimeOffset timestamp,
+        bool includeWorldConfig,
+        CancellationToken cancellationToken)
+    {
+        WriteServerManifest(archive, definition, timestamp, QuasarBackupKind.Server);
+        WriteEntry(archive, ServerDefinitionEntryName, JsonSerializer.SerializeToUtf8Bytes(definition, JsonOptions));
+
+        var worldRoot = Path.GetFullPath(definition.WorldPath);
+        AddDirectory(
+            archive,
+            DedicatedServerPrefix,
+            definition.DedicatedServerAppDataPath,
+            cancellationToken,
+            sourcePath => IsPathWithinRoot(Path.GetFullPath(sourcePath), worldRoot));
+        AddDirectory(archive, MagnetarPrefix, definition.MagnetarAppDataPath, cancellationToken);
+        AddExternalDedicatedConfig(archive, definition, cancellationToken);
+        AddDirectory(
+            archive,
+            WorldPrefix,
+            ResolveWorldSnapshotSource(definition.WorldPath),
+            cancellationToken,
+            includeWorldConfig ? null : IsWorldConfigPath);
+    }
+
+    private void BuildWorldArchive(
+        ZipArchive archive,
+        DedicatedServerDefinition definition,
+        DateTimeOffset timestamp,
+        bool includeWorldConfig,
+        CancellationToken cancellationToken)
+    {
+        WriteServerManifest(archive, definition, timestamp, QuasarBackupKind.World);
+        WriteEntry(archive, ServerDefinitionEntryName, JsonSerializer.SerializeToUtf8Bytes(definition, JsonOptions));
+        AddDirectory(
+            archive,
+            WorldPrefix,
+            ResolveWorldSnapshotSource(definition.WorldPath),
+            cancellationToken,
+            includeWorldConfig ? null : IsWorldConfigPath);
+    }
+
+    private async Task<string> WriteBackupFileAsync(
+        string fileName,
+        Action<ZipArchive> buildArchive,
+        CancellationToken cancellationToken)
+    {
+        var backupsDirectory = MagnetarPaths.GetQuasarBackupsDirectory();
+        Directory.CreateDirectory(backupsDirectory);
+
+        var path = Path.Combine(backupsDirectory, fileName);
+        await using var stream = File.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+            buildArchive(archive);
+
+        _logger.LogInformation("Wrote backup to {Path}", path);
+        return path;
+    }
+
+    private async Task<QuasarRestoreReport> RestoreServerArchiveAsync(
+        ZipArchive archive,
+        QuasarBackupManifest manifest,
+        CancellationToken cancellationToken)
+    {
+        var archivedDefinition = await ReadArchivedServerDefinitionAsync(archive, cancellationToken);
+        var target = ResolveRestoreTarget(manifest, archivedDefinition, requireExisting: false);
+        if (target is null)
+            return QuasarRestoreReport.Failed("The server backup does not identify a target server.", manifest.QuasarVersion, _options.Version);
+
+        var restored = RestoreServerEntries(archive, target, includeWorldConfig: true, cancellationToken);
+        _logger.LogInformation(
+            "Restored {Count} files from server backup for {UniqueName}.",
+            restored,
+            target.UniqueName);
+
+        return new QuasarRestoreReport
+        {
+            Success = true,
+            FilesRestored = restored,
+            BackupVersion = manifest.QuasarVersion,
+            RunningVersion = _options.Version,
+            Message = $"Restored {restored} server backup file(s) for {target.DisplayName}. Restart that server before relying on restored files.",
+        };
+    }
+
+    private async Task<QuasarRestoreReport> RestoreWorldArchiveAsync(
+        ZipArchive archive,
+        QuasarBackupManifest manifest,
+        CancellationToken cancellationToken)
+    {
+        var archivedDefinition = await ReadArchivedServerDefinitionAsync(archive, cancellationToken);
+        var target = ResolveRestoreTarget(manifest, archivedDefinition, requireExisting: true);
+        if (target is null)
+        {
+            var uniqueName = manifest.ServerUniqueName ?? archivedDefinition?.UniqueName ?? "(unknown)";
+            return QuasarRestoreReport.Failed(
+                $"World backup targets server '{uniqueName}', but that server does not exist in Quasar.",
+                manifest.QuasarVersion,
+                _options.Version);
+        }
+
+        var restored = RestoreWorldEntries(archive, target, includeWorldConfig: false, cancellationToken);
+        _logger.LogInformation(
+            "Restored {Count} world files from backup for {UniqueName}.",
+            restored,
+            target.UniqueName);
+
+        return new QuasarRestoreReport
+        {
+            Success = true,
+            FilesRestored = restored,
+            BackupVersion = manifest.QuasarVersion,
+            RunningVersion = _options.Version,
+            Message = $"Restored {restored} world file(s) for {target.DisplayName}; existing world and server config was kept.",
+        };
+    }
+
+    private int RestoreServerEntries(
+        ZipArchive archive,
+        DedicatedServerDefinition target,
+        bool includeWorldConfig,
+        CancellationToken cancellationToken)
+    {
+        var restored = 0;
+        foreach (var entry in archive.Entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (string.IsNullOrEmpty(entry.Name) ||
+                string.Equals(entry.FullName, ManifestEntryName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string? destination = null;
+            if (string.Equals(entry.FullName, ServerDefinitionEntryName, StringComparison.Ordinal))
+                destination = MagnetarPaths.GetQuasarServerDefinitionPath(target.UniqueName);
+            else if (entry.FullName.StartsWith(DedicatedServerPrefix, StringComparison.Ordinal))
+                destination = ResolvePrefixedExtractionTarget(entry.FullName, DedicatedServerPrefix, target.DedicatedServerAppDataPath);
+            else if (entry.FullName.StartsWith(DedicatedConfigPrefix, StringComparison.Ordinal))
+                destination = ResolveDedicatedConfigExtractionTarget(entry.FullName, target);
+            else if (entry.FullName.StartsWith(MagnetarPrefix, StringComparison.Ordinal))
+                destination = ResolvePrefixedExtractionTarget(entry.FullName, MagnetarPrefix, target.MagnetarAppDataPath);
+            else if (entry.FullName.StartsWith(WorldPrefix, StringComparison.Ordinal))
+            {
+                if (!includeWorldConfig && IsWorldConfigEntry(entry.FullName[WorldPrefix.Length..]))
+                    continue;
+
+                destination = ResolvePrefixedExtractionTarget(entry.FullName, WorldPrefix, target.WorldPath);
+            }
+
+            if (destination is null)
+            {
+                _logger.LogWarning("Skipping unexpected server backup entry {Entry}", entry.FullName);
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            entry.ExtractToFile(destination, overwrite: true);
+            restored++;
+        }
+
+        return restored;
+    }
+
+    private int RestoreWorldEntries(
+        ZipArchive archive,
+        DedicatedServerDefinition target,
+        bool includeWorldConfig,
+        CancellationToken cancellationToken)
+    {
+        var restored = 0;
+        foreach (var entry in archive.Entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (string.IsNullOrEmpty(entry.Name) || !entry.FullName.StartsWith(WorldPrefix, StringComparison.Ordinal))
+                continue;
+
+            var relative = entry.FullName[WorldPrefix.Length..];
+            if (!includeWorldConfig && IsWorldConfigEntry(relative))
+                continue;
+
+            var destination = ResolvePrefixedExtractionTarget(entry.FullName, WorldPrefix, target.WorldPath);
+            if (destination is null)
+                continue;
+
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            entry.ExtractToFile(destination, overwrite: true);
+            restored++;
+        }
+
+        return restored;
+    }
+
+    private static string? ResolveConfigurationExtractionTarget(string entryName, string quasarRoot, string brandingRoot)
     {
         string baseDirectory;
         string relative;
@@ -365,6 +646,147 @@ public sealed class QuasarBackupService
         return fullTarget;
     }
 
+    private static string? ResolvePrefixedExtractionTarget(string entryName, string prefix, string baseDirectory)
+    {
+        if (!entryName.StartsWith(prefix, StringComparison.Ordinal))
+            return null;
+
+        var relative = entryName[prefix.Length..];
+        if (string.IsNullOrWhiteSpace(relative))
+            return null;
+
+        var fullBase = Path.GetFullPath(baseDirectory);
+        var fullTarget = Path.GetFullPath(Path.Combine(fullBase, relative));
+        return IsPathWithinRoot(fullTarget, fullBase) ? fullTarget : null;
+    }
+
+    private static string? ResolveDedicatedConfigExtractionTarget(string entryName, DedicatedServerDefinition target)
+    {
+        if (!entryName.StartsWith(DedicatedConfigPrefix, StringComparison.Ordinal))
+            return null;
+
+        var relative = entryName[DedicatedConfigPrefix.Length..];
+        if (!string.Equals(relative, "SpaceEngineers-Dedicated.cfg", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var configPath = string.IsNullOrWhiteSpace(target.ConfigFilePath)
+            ? Path.Combine(target.DedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg")
+            : target.ConfigFilePath.Trim();
+
+        return Path.GetFullPath(configPath);
+    }
+
+    private DedicatedServerDefinition? ResolveRestoreTarget(
+        QuasarBackupManifest manifest,
+        DedicatedServerDefinition? archivedDefinition,
+        bool requireExisting)
+    {
+        var uniqueName = manifest.ServerUniqueName ?? archivedDefinition?.UniqueName;
+        if (string.IsNullOrWhiteSpace(uniqueName))
+            return null;
+
+        var current = _servers.GetServer(uniqueName);
+        if (current is not null || requireExisting)
+            return current;
+
+        return archivedDefinition;
+    }
+
+    private async Task<DedicatedServerDefinition?> ReadArchivedServerDefinitionAsync(
+        ZipArchive archive,
+        CancellationToken cancellationToken)
+    {
+        var entry = archive.GetEntry(ServerDefinitionEntryName);
+        if (entry is null)
+            return null;
+
+        try
+        {
+            await using var stream = entry.Open();
+            return await JsonSerializer.DeserializeAsync<DedicatedServerDefinition>(stream, JsonOptions, cancellationToken);
+        }
+        catch (JsonException exception)
+        {
+            _logger.LogWarning(exception, "Failed reading archived server definition from backup.");
+            return null;
+        }
+    }
+
+    private void WriteServerManifest(
+        ZipArchive archive,
+        DedicatedServerDefinition definition,
+        DateTimeOffset timestamp,
+        QuasarBackupKind kind) =>
+        WriteManifest(archive, new QuasarBackupManifest
+        {
+            FormatVersion = CurrentFormatVersion,
+            QuasarVersion = _options.Version,
+            CreatedAtUtc = timestamp,
+            CreatedByHost = _options.HostName,
+            BackupKind = kind,
+            ServerUniqueName = definition.UniqueName,
+            ServerDisplayName = definition.DisplayName,
+        });
+
+    private static void WriteManifest(ZipArchive archive, QuasarBackupManifest manifest) =>
+        WriteEntry(archive, ManifestEntryName, JsonSerializer.SerializeToUtf8Bytes(manifest, JsonOptions));
+
+    private DedicatedServerDefinition RequireServer(string uniqueName) =>
+        _servers.GetServer(uniqueName) ?? throw new InvalidOperationException($"Unknown Quasar server '{uniqueName}'.");
+
+    private void AddExternalDedicatedConfig(
+        ZipArchive archive,
+        DedicatedServerDefinition definition,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(definition.ConfigFilePath) || !File.Exists(definition.ConfigFilePath))
+            return;
+
+        var configPath = Path.GetFullPath(definition.ConfigFilePath);
+        var appDataRoot = Path.GetFullPath(definition.DedicatedServerAppDataPath);
+        if (IsPathWithinRoot(configPath, appDataRoot))
+            return;
+
+        cancellationToken.ThrowIfCancellationRequested();
+        AddFile(archive, DedicatedConfigPrefix + "SpaceEngineers-Dedicated.cfg", configPath);
+    }
+
+    private static void AddDirectory(
+        ZipArchive archive,
+        string entryPrefix,
+        string sourceDirectory,
+        CancellationToken cancellationToken,
+        Func<string, bool>? exclude = null)
+    {
+        if (string.IsNullOrWhiteSpace(sourceDirectory) || !Directory.Exists(sourceDirectory))
+            return;
+
+        foreach (var path in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (exclude?.Invoke(path) == true)
+                continue;
+
+            var relative = Path.GetRelativePath(sourceDirectory, path);
+            AddFile(archive, entryPrefix + ToEntryPath(relative), path);
+        }
+    }
+
+    private static string ResolveWorldSnapshotSource(string worldPath)
+    {
+        var backupDirectory = Path.Combine(worldPath, "Backup");
+        if (!Directory.Exists(backupDirectory))
+            return worldPath;
+
+        var latestBackup = Directory
+            .EnumerateDirectories(backupDirectory)
+            .Where(directory => File.Exists(Path.Combine(directory, "Sandbox.sbc")))
+            .OrderByDescending(Directory.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+
+        return latestBackup ?? worldPath;
+    }
+
     private static void AddFile(ZipArchive archive, string entryName, string sourcePath)
     {
         var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
@@ -380,12 +802,80 @@ public sealed class QuasarBackupService
         entryStream.Write(content, 0, content.Length);
     }
 
-    private static string BuildFileName(DateTimeOffset timestamp, bool automatic) =>
-        $"quasar-backup-{timestamp:yyyyMMdd-HHmmss}{(automatic ? AutomaticSuffix : string.Empty)}.zip";
+    private static QuasarBackupManifest? TryReadManifest(string path)
+    {
+        try
+        {
+            using var archive = ZipFile.OpenRead(path);
+            var entry = archive.GetEntry(ManifestEntryName);
+            if (entry is null)
+                return null;
+
+            using var stream = entry.Open();
+            return JsonSerializer.Deserialize<QuasarBackupManifest>(stream, JsonOptions);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string BuildFileName(
+        DateTimeOffset timestamp,
+        bool automatic,
+        QuasarBackupKind kind = QuasarBackupKind.Configuration,
+        string? uniqueName = null)
+    {
+        var timestampText = timestamp.ToString("yyyyMMdd-HHmmss");
+        return kind switch
+        {
+            QuasarBackupKind.Server => $"quasar-server-{SanitizeFileNameSegment(uniqueName)}-{timestampText}{(automatic ? AutomaticSuffix : string.Empty)}.zip",
+            QuasarBackupKind.World => $"quasar-world-{SanitizeFileNameSegment(uniqueName)}-{timestampText}{(automatic ? AutomaticSuffix : string.Empty)}.zip",
+            _ => $"quasar-backup-{timestampText}{(automatic ? AutomaticSuffix : string.Empty)}.zip",
+        };
+    }
 
     private static string ToEntryPath(string relativePath) =>
         relativePath.Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/');
 
     private static string EnsureTrailingSeparator(string path) =>
         path.EndsWith(Path.DirectorySeparatorChar) ? path : path + Path.DirectorySeparatorChar;
+
+    private static bool IsWorldConfigPath(string path) =>
+        IsWorldConfigEntry(Path.GetFileName(path));
+
+    private static bool IsWorldConfigEntry(string relativePath)
+    {
+        var fileName = Path.GetFileName(relativePath);
+        return fileName.StartsWith("Sandbox_config.sbc", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPathWithinRoot(string fullPath, string fullRoot)
+    {
+        if (string.Equals(fullPath, fullRoot, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return fullPath.StartsWith(EnsureTrailingSeparator(fullRoot), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string SanitizeFileNameSegment(string? value)
+    {
+        var segment = string.IsNullOrWhiteSpace(value) ? "server" : value.Trim();
+        foreach (var invalidCharacter in Path.GetInvalidFileNameChars())
+            segment = segment.Replace(invalidCharacter, '-');
+
+        return segment;
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+        }
+    }
 }

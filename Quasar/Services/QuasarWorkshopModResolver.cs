@@ -96,6 +96,34 @@ public sealed class QuasarWorkshopModResolver
         return new QuasarWorkshopResolutionResult(mods, warnings);
     }
 
+    public async Task<QuasarWorkshopAvailabilityResult> CheckAvailabilityAsync(
+        IEnumerable<QuasarModSelection> mods,
+        CancellationToken cancellationToken = default)
+    {
+        var candidates = mods
+            .Where(mod => mod.WorkshopId > 0)
+            .DistinctBy(mod => mod.WorkshopId)
+            .ToList();
+
+        if (candidates.Count == 0)
+            return new QuasarWorkshopAvailabilityResult([], 0);
+
+        var detailsById = await GetPublishedFileDetailsAsync(
+            candidates.Select(mod => mod.WorkshopId).ToList(),
+            cancellationToken);
+
+        var unavailable = candidates
+            .Where(mod => !detailsById.TryGetValue(mod.WorkshopId, out var detail) || detail.Result != 1)
+            .ToList();
+
+        _logger.LogInformation(
+            "Checked {CheckedCount} selected workshop mods; {UnavailableCount} unavailable.",
+            candidates.Count,
+            unavailable.Count);
+
+        return new QuasarWorkshopAvailabilityResult(unavailable, candidates.Count);
+    }
+
     private async Task<QuasarWorkshopSearchResultSet> QueryFilesAsync(
         string searchText,
         int queryType,
@@ -540,6 +568,10 @@ public sealed class QuasarWorkshopModResolver
 public sealed record QuasarWorkshopResolutionResult(
     IReadOnlyList<QuasarModSelection> Mods,
     IReadOnlyList<string> Warnings);
+
+public sealed record QuasarWorkshopAvailabilityResult(
+    IReadOnlyList<QuasarModSelection> UnavailableMods,
+    int CheckedCount);
 
 public sealed record QuasarWorkshopSearchResultSet(
     IReadOnlyList<QuasarWorkshopSearchResult> Mods,

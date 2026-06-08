@@ -5,6 +5,7 @@
 @inject QuasarBackupService BackupService
 @inject QuasarBackupSettingsService BackupSettingsService
 @inject AutomaticBackupService AutomaticBackup
+@inject DedicatedServerCatalog ServerCatalog
 @inject WebServiceOptions WebServiceOptions
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -24,9 +25,9 @@
                 <MudText Typo="Typo.h6">Create &amp; restore</MudText>
                 <MudText Typo="Typo.body2">
                     A backup contains servers, config profiles, world templates and all application settings
-                    (Discord, branding, players, security/RBAC and more). It does <strong>not</strong> include the
-                    actual game servers, worlds or plugin configurations — back those up separately from the server
-                    folders, ideally while the server is offline to guarantee consistency.
+                    (Discord, branding, players, security/RBAC and more). Use server and world backups below for
+                    game data. Those backups can be taken while a server is running; when Space Engineers has a
+                    world <code>Backup</code> folder, Quasar uses the latest valid snapshot from it.
                 </MudText>
 
                 <MudButton Href="/api/backup/download"
@@ -98,61 +99,188 @@
     <MudItem xs="12">
         <MudPaper Class="pa-4">
             <MudStack Spacing="3">
-                <MudText Typo="Typo.h6">Automatic backups</MudText>
+                <MudText Typo="Typo.h6">Server &amp; world backups</MudText>
                 <MudText Typo="Typo.body2">
-                    Periodically write backups into Quasar's <code>Backups</code> folder so accidental config changes can
-                    be reverted, and so an external backup system has a consistent folder to pick up.
+                    Server backups include Quasar's server definition, Dedicated Server app data, Magnetar app data,
+                    the world and its config. World backups restore only world files and keep the current server/world
+                    config intact.
                 </MudText>
 
-                <MudSwitch @bind-Value="_settings.Enabled" Color="Color.Primary" Label="Enable automatic backups" />
-
                 <MudGrid>
-                    <MudItem xs="12" sm="6" md="3">
-                        <MudSelect T="BackupFrequency" @bind-Value="_settings.Frequency" Label="Frequency"
-                                   Variant="Variant.Outlined" Disabled="!_settings.Enabled">
-                            <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Hourly">Hourly</MudSelectItem>
-                            <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Daily">Daily</MudSelectItem>
-                            <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Weekly">Weekly</MudSelectItem>
+                    <MudItem xs="12" md="6">
+                        <MudSelect T="string"
+                                   Label="Server"
+                                   Value="_selectedServerUniqueName"
+                                   ValueChanged="HandleSelectedServerChanged"
+                                   Variant="Variant.Outlined"
+                                   Disabled="_servers.Count == 0">
+                            @foreach (var server in _servers)
+                            {
+                                <MudSelectItem T="string" Value="@server.UniqueName">@server.DisplayName</MudSelectItem>
+                            }
                         </MudSelect>
                     </MudItem>
-
-                    @if (_settings.Frequency != BackupFrequency.Hourly)
-                    {
-                        <MudItem xs="12" sm="6" md="3">
-                            <MudTimePicker Label="Time of day" @bind-Time="_timeOfDay"
-                                           Variant="Variant.Outlined" Disabled="!_settings.Enabled" />
-                        </MudItem>
-                    }
-
-                    @if (_settings.Frequency == BackupFrequency.Weekly)
-                    {
-                        <MudItem xs="12" sm="6" md="3">
-                            <MudSelect T="DayOfWeek" @bind-Value="_settings.DayOfWeek" Label="Day of week"
-                                       Variant="Variant.Outlined" Disabled="!_settings.Enabled">
-                                @foreach (var day in Enum.GetValues<DayOfWeek>())
-                                {
-                                    <MudSelectItem T="DayOfWeek" Value="day">@day</MudSelectItem>
-                                }
-                            </MudSelect>
-                        </MudItem>
-                    }
-
-                    <MudItem xs="12" sm="6" md="3">
-                        <MudNumericField T="int" @bind-Value="_settings.RetentionCount" Label="Keep last N backups"
-                                         Min="QuasarBackupSettings.MinRetentionCount"
-                                         Max="QuasarBackupSettings.MaxRetentionCount"
-                                         Variant="Variant.Outlined" Disabled="!_settings.Enabled" />
+                    <MudItem xs="12" md="6">
+                        <MudStack Row="true" Spacing="2" Class="mt-2">
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Inventory2"
+                                       OnClick="MakeServerBackupNowAsync"
+                                       Disabled="_busy || string.IsNullOrWhiteSpace(_selectedServerUniqueName)">
+                                Back up server
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Public"
+                                       OnClick="MakeWorldBackupNowAsync"
+                                       Disabled="_busy || string.IsNullOrWhiteSpace(_selectedServerUniqueName)">
+                                Back up world
+                            </MudButton>
+                        </MudStack>
                     </MudItem>
                 </MudGrid>
+
+                <MudDivider />
+
+                <MudText Typo="Typo.h6">Automatic backups</MudText>
+                <MudText Typo="Typo.body2">
+                    Configure independent automatic backup rules. Server and world rules run for every configured
+                    server and prune retained backups per server.
+                </MudText>
+
+                <MudExpansionPanels MultiExpansion="true">
+                    <MudExpansionPanel Text="Quasar config" Expanded="true">
+                        <MudStack Spacing="3">
+                            <MudSwitch @bind-Value="_settings.Configuration.Enabled" Color="Color.Primary" Label="Enable Quasar config backups" />
+                            <MudGrid>
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudSelect T="BackupFrequency" @bind-Value="_settings.Configuration.Frequency" Label="Frequency"
+                                               Variant="Variant.Outlined" Disabled="!_settings.Configuration.Enabled">
+                                        <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Hourly">Hourly</MudSelectItem>
+                                        <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Daily">Daily</MudSelectItem>
+                                        <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Weekly">Weekly</MudSelectItem>
+                                    </MudSelect>
+                                </MudItem>
+                                @if (_settings.Configuration.Frequency != BackupFrequency.Hourly)
+                                {
+                                    <MudItem xs="12" sm="6" md="3">
+                                        <MudTimePicker Label="Time of day" @bind-Time="_configurationTimeOfDay"
+                                                       Variant="Variant.Outlined" Disabled="!_settings.Configuration.Enabled" />
+                                    </MudItem>
+                                }
+                                @if (_settings.Configuration.Frequency == BackupFrequency.Weekly)
+                                {
+                                    <MudItem xs="12" sm="6" md="3">
+                                        <MudSelect T="DayOfWeek" @bind-Value="_settings.Configuration.DayOfWeek" Label="Day of week"
+                                                   Variant="Variant.Outlined" Disabled="!_settings.Configuration.Enabled">
+                                            @foreach (var day in Enum.GetValues<DayOfWeek>())
+                                            {
+                                                <MudSelectItem T="DayOfWeek" Value="day">@day</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    </MudItem>
+                                }
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudNumericField T="int" @bind-Value="_settings.Configuration.RetentionCount" Label="Keep last N backups"
+                                                     Min="QuasarBackupSettings.MinRetentionCount"
+                                                     Max="QuasarBackupSettings.MaxRetentionCount"
+                                                     Variant="Variant.Outlined" Disabled="!_settings.Configuration.Enabled" />
+                                </MudItem>
+                            </MudGrid>
+                        </MudStack>
+                    </MudExpansionPanel>
+
+                    <MudExpansionPanel Text="Servers">
+                        <MudStack Spacing="3">
+                            <MudSwitch @bind-Value="_settings.Server.Enabled" Color="Color.Primary" Label="Enable server backups" />
+                            <MudGrid>
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudSelect T="BackupFrequency" @bind-Value="_settings.Server.Frequency" Label="Frequency"
+                                               Variant="Variant.Outlined" Disabled="!_settings.Server.Enabled">
+                                        <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Hourly">Hourly</MudSelectItem>
+                                        <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Daily">Daily</MudSelectItem>
+                                        <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Weekly">Weekly</MudSelectItem>
+                                    </MudSelect>
+                                </MudItem>
+                                @if (_settings.Server.Frequency != BackupFrequency.Hourly)
+                                {
+                                    <MudItem xs="12" sm="6" md="3">
+                                        <MudTimePicker Label="Time of day" @bind-Time="_serverTimeOfDay"
+                                                       Variant="Variant.Outlined" Disabled="!_settings.Server.Enabled" />
+                                    </MudItem>
+                                }
+                                @if (_settings.Server.Frequency == BackupFrequency.Weekly)
+                                {
+                                    <MudItem xs="12" sm="6" md="3">
+                                        <MudSelect T="DayOfWeek" @bind-Value="_settings.Server.DayOfWeek" Label="Day of week"
+                                                   Variant="Variant.Outlined" Disabled="!_settings.Server.Enabled">
+                                            @foreach (var day in Enum.GetValues<DayOfWeek>())
+                                            {
+                                                <MudSelectItem T="DayOfWeek" Value="day">@day</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    </MudItem>
+                                }
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudNumericField T="int" @bind-Value="_settings.Server.RetentionCount" Label="Keep last N per server"
+                                                     Min="QuasarBackupSettings.MinRetentionCount"
+                                                     Max="QuasarBackupSettings.MaxRetentionCount"
+                                                     Variant="Variant.Outlined" Disabled="!_settings.Server.Enabled" />
+                                </MudItem>
+                            </MudGrid>
+                        </MudStack>
+                    </MudExpansionPanel>
+
+                    <MudExpansionPanel Text="Worlds">
+                        <MudStack Spacing="3">
+                            <MudSwitch @bind-Value="_settings.World.Enabled" Color="Color.Primary" Label="Enable world backups" />
+                            <MudGrid>
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudSelect T="BackupFrequency" @bind-Value="_settings.World.Frequency" Label="Frequency"
+                                               Variant="Variant.Outlined" Disabled="!_settings.World.Enabled">
+                                        <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Hourly">Hourly</MudSelectItem>
+                                        <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Daily">Daily</MudSelectItem>
+                                        <MudSelectItem T="BackupFrequency" Value="BackupFrequency.Weekly">Weekly</MudSelectItem>
+                                    </MudSelect>
+                                </MudItem>
+                                @if (_settings.World.Frequency != BackupFrequency.Hourly)
+                                {
+                                    <MudItem xs="12" sm="6" md="3">
+                                        <MudTimePicker Label="Time of day" @bind-Time="_worldTimeOfDay"
+                                                       Variant="Variant.Outlined" Disabled="!_settings.World.Enabled" />
+                                    </MudItem>
+                                }
+                                @if (_settings.World.Frequency == BackupFrequency.Weekly)
+                                {
+                                    <MudItem xs="12" sm="6" md="3">
+                                        <MudSelect T="DayOfWeek" @bind-Value="_settings.World.DayOfWeek" Label="Day of week"
+                                                   Variant="Variant.Outlined" Disabled="!_settings.World.Enabled">
+                                            @foreach (var day in Enum.GetValues<DayOfWeek>())
+                                            {
+                                                <MudSelectItem T="DayOfWeek" Value="day">@day</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    </MudItem>
+                                }
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudNumericField T="int" @bind-Value="_settings.World.RetentionCount" Label="Keep last N per server"
+                                                     Min="QuasarBackupSettings.MinRetentionCount"
+                                                     Max="QuasarBackupSettings.MaxRetentionCount"
+                                                     Variant="Variant.Outlined" Disabled="!_settings.World.Enabled" />
+                                </MudItem>
+                            </MudGrid>
+                        </MudStack>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
 
                 <MudStack Row="true" Spacing="2">
                     <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                StartIcon="@Icons.Material.Filled.Save" OnClick="SaveSettingsAsync" Disabled="_busy">
-                        Save schedule
+                        Save rules
                     </MudButton>
                     <MudButton Variant="Variant.Outlined" Color="Color.Primary"
                                StartIcon="@Icons.Material.Filled.BackupTable" OnClick="MakeBackupNowAsync" Disabled="_busy">
-                        Make a backup now
+                        Run enabled rules now
                     </MudButton>
                 </MudStack>
             </MudStack>
@@ -173,25 +301,33 @@
                         <HeaderContent>
                             <MudTh>Name</MudTh>
                             <MudTh>Type</MudTh>
+                            <MudTh>Server</MudTh>
                             <MudTh>Size</MudTh>
                             <MudTh>Created</MudTh>
                             <MudTh Style="text-align:right">Actions</MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             <MudTd DataLabel="Name">@context.Name</MudTd>
-                            <MudTd DataLabel="Type">@(context.Automatic ? "Automatic" : "Manual")</MudTd>
+                            <MudTd DataLabel="Type">@FormatBackupType(context)</MudTd>
+                            <MudTd DataLabel="Server">@(context.ServerDisplayName ?? context.ServerUniqueName ?? "-")</MudTd>
                             <MudTd DataLabel="Size">@FormatSize(context.SizeBytes)</MudTd>
                             <MudTd DataLabel="Created">@context.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
                             <MudTd Style="text-align:right">
-                                <MudIconButton Icon="@Icons.Material.Filled.Download"
-                                               Href="@($"/api/backup/download/{context.Name}")"
-                                               Title="Download" Size="Size.Small" />
-                                <MudIconButton Icon="@Icons.Material.Filled.Restore"
-                                               OnClick="@(() => RestoreFromStoredAsync(context.Name))"
-                                               Disabled="_busy" Title="Restore" Size="Size.Small" />
-                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                               OnClick="@(() => DeleteAsync(context.Name))"
-                                               Disabled="_busy" Title="Delete" Size="Size.Small" Color="Color.Error" />
+                                <MudTooltip Text="Download">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Download"
+                                                   Href="@($"/api/backup/download/{context.Name}")"
+                                                   Size="Size.Small" />
+                                </MudTooltip>
+                                <MudTooltip Text="Restore">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Restore"
+                                                   OnClick="@(() => RestoreFromStoredAsync(context))"
+                                                   Disabled="_busy" Size="Size.Small" />
+                                </MudTooltip>
+                                <MudTooltip Text="Delete">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                   OnClick="@(() => DeleteAsync(context.Name))"
+                                                   Disabled="_busy" Size="Size.Small" Color="Color.Error" />
+                                </MudTooltip>
                             </MudTd>
                         </RowTemplate>
                     </MudTable>
@@ -202,33 +338,58 @@
 </MudGrid>
 
 @code {
-    private const long MaxUploadBytes = 256L * 1024 * 1024;
+    private const long MaxUploadBytes = 10L * 1024 * 1024 * 1024;
 
     private QuasarBackupSettings _settings = new();
-    private TimeSpan? _timeOfDay;
+    private TimeSpan? _configurationTimeOfDay;
+    private TimeSpan? _serverTimeOfDay;
+    private TimeSpan? _worldTimeOfDay;
     private IReadOnlyList<QuasarBackupFileInfo> _backups = [];
+    private IReadOnlyList<DedicatedServerDefinition> _servers = [];
+    private string _selectedServerUniqueName = string.Empty;
     private QuasarRestoreReport? _lastReport;
     private bool _busy;
 
     protected override void OnInitialized()
     {
         LoadSettingsDraft();
+        RefreshServers();
         RefreshBackups();
         BackupSettingsService.Changed += OnSettingsChanged;
+        ServerCatalog.Changed += OnServersChanged;
     }
 
     public void Dispose()
     {
         BackupSettingsService.Changed -= OnSettingsChanged;
+        ServerCatalog.Changed -= OnServersChanged;
     }
 
     private void LoadSettingsDraft()
     {
         _settings = BackupSettingsService.GetSettings();
-        _timeOfDay = _settings.TimeOfDay.ToTimeSpan();
+        _configurationTimeOfDay = _settings.Configuration.TimeOfDay.ToTimeSpan();
+        _serverTimeOfDay = _settings.Server.TimeOfDay.ToTimeSpan();
+        _worldTimeOfDay = _settings.World.TimeOfDay.ToTimeSpan();
     }
 
     private void RefreshBackups() => _backups = BackupService.ListBackups();
+
+    private void RefreshServers()
+    {
+        _servers = ServerCatalog.GetServers();
+        if (_servers.Count == 0)
+        {
+            _selectedServerUniqueName = string.Empty;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_selectedServerUniqueName) ||
+            !_servers.Any(server => string.Equals(server.UniqueName, _selectedServerUniqueName, StringComparison.OrdinalIgnoreCase)))
+        {
+            _selectedServerUniqueName = _servers[0].UniqueName;
+        }
+    }
 
     private void OnSettingsChanged() => InvokeAsync(() =>
     {
@@ -236,15 +397,34 @@
         StateHasChanged();
     });
 
+    private void OnServersChanged() => InvokeAsync(() =>
+    {
+        RefreshServers();
+        StateHasChanged();
+    });
+
+    private void HandleSelectedServerChanged(string? uniqueName)
+    {
+        _selectedServerUniqueName = uniqueName ?? string.Empty;
+    }
+
     private async Task SaveSettingsAsync()
     {
-        _settings.TimeOfDay = _timeOfDay is { } time ? TimeOnly.FromTimeSpan(time) : new TimeOnly(3, 0);
+        _settings.Configuration.TimeOfDay = _configurationTimeOfDay is { } configurationTime
+            ? TimeOnly.FromTimeSpan(configurationTime)
+            : new TimeOnly(3, 0);
+        _settings.Server.TimeOfDay = _serverTimeOfDay is { } serverTime
+            ? TimeOnly.FromTimeSpan(serverTime)
+            : new TimeOnly(3, 0);
+        _settings.World.TimeOfDay = _worldTimeOfDay is { } worldTime
+            ? TimeOnly.FromTimeSpan(worldTime)
+            : new TimeOnly(3, 0);
 
         _busy = true;
         try
         {
             await BackupSettingsService.SaveAsync(_settings);
-            Snackbar.Add("Backup schedule saved.", Severity.Success);
+            Snackbar.Add("Backup rules saved.", Severity.Success);
         }
         catch (Exception exception)
         {
@@ -261,13 +441,61 @@
         _busy = true;
         try
         {
-            await AutomaticBackup.RunBackupNowAsync();
+            var created = await AutomaticBackup.RunEnabledBackupsNowAsync();
             RefreshBackups();
-            Snackbar.Add("Backup created in the Backups folder.", Severity.Success);
+            Snackbar.Add(
+                created == 0
+                    ? "No enabled automatic backup rules created a backup."
+                    : $"Created {created} backup(s) in the Backups folder.",
+                created == 0 ? Severity.Info : Severity.Success);
         }
         catch (Exception exception)
         {
-            Snackbar.Add($"Backup failed: {exception.Message}", Severity.Error);
+            Snackbar.Add($"Automatic backup failed: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task MakeServerBackupNowAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_selectedServerUniqueName))
+            return;
+
+        _busy = true;
+        try
+        {
+            await BackupService.WriteServerBackupFileAsync(_selectedServerUniqueName, DateTimeOffset.Now);
+            RefreshBackups();
+            Snackbar.Add("Server backup created in the Backups folder.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Server backup failed: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task MakeWorldBackupNowAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_selectedServerUniqueName))
+            return;
+
+        _busy = true;
+        try
+        {
+            await BackupService.WriteWorldBackupFileAsync(_selectedServerUniqueName, DateTimeOffset.Now);
+            RefreshBackups();
+            Snackbar.Add("World backup created in the Backups folder.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"World backup failed: {exception.Message}", Severity.Error);
         }
         finally
         {
@@ -297,15 +525,15 @@
         }
     }
 
-    private async Task RestoreFromStoredAsync(string name)
+    private async Task RestoreFromStoredAsync(QuasarBackupFileInfo backup)
     {
-        if (!await ConfirmRestoreAsync())
+        if (!await ConfirmRestoreAsync(backup))
             return;
 
         _busy = true;
         try
         {
-            _lastReport = await BackupService.RestoreFromFileAsync(name);
+            _lastReport = await BackupService.RestoreFromFileAsync(backup.Name);
             ReportRestore();
         }
         catch (Exception exception)
@@ -344,7 +572,27 @@
     {
         var confirmed = await DialogService.ShowMessageBoxAsync(
             "Restore backup?",
-            "This overwrites Quasar settings that share an ID with the backup. Items with different IDs are kept (merge). Continue?",
+            "This restores the selected ZIP according to its backup type. Configuration backups merge by ID; server and world backups overwrite files for their target server. Continue?",
+            yesText: "Restore",
+            cancelText: "Cancel");
+        return confirmed == true;
+    }
+
+    private async Task<bool> ConfirmRestoreAsync(QuasarBackupFileInfo backup)
+    {
+        var message = backup.Kind switch
+        {
+            QuasarBackupKind.Server =>
+                $"This overwrites server files, world files and config for '{backup.ServerDisplayName ?? backup.ServerUniqueName ?? backup.Name}'. Continue?",
+            QuasarBackupKind.World =>
+                $"This overwrites world files for '{backup.ServerDisplayName ?? backup.ServerUniqueName ?? backup.Name}' but keeps existing config. Continue?",
+            _ =>
+                "This overwrites Quasar settings that share an ID with the backup. Items with different IDs are kept (merge). Continue?",
+        };
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Restore backup?",
+            message,
             yesText: "Restore",
             cancelText: "Cancel");
         return confirmed == true;
@@ -371,5 +619,17 @@
         }
 
         return $"{size:0.#} {units[unit]}";
+    }
+
+    private static string FormatBackupType(QuasarBackupFileInfo backup)
+    {
+        var kind = backup.Kind switch
+        {
+            QuasarBackupKind.Server => "Server",
+            QuasarBackupKind.World => "World",
+            _ => "Quasar config",
+        };
+
+        return backup.Automatic ? $"{kind} (auto)" : kind;
     }
 }

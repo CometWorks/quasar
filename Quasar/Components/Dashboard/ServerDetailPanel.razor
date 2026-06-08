@@ -3,6 +3,27 @@
 @inject QuasarPluginCatalogService PluginCatalog
 @inject ISnackbar Snackbar
 
+@{
+    IReadOnlyList<string> modDownloadFailures = Runtime is null
+        ? Array.Empty<string>()
+        : Runtime.ModDownloadFailures;
+}
+
+@if (modDownloadFailures.Count > 0)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-3">
+        <MudText Typo="Typo.subtitle2">Mod download failed during world initialization.</MudText>
+        @foreach (var failure in modDownloadFailures.Take(5))
+        {
+            <MudText Typo="Typo.caption">@failure</MudText>
+        }
+        @if (modDownloadFailures.Count > 5)
+        {
+            <MudText Typo="Typo.caption">+@(modDownloadFailures.Count - 5) more in server logs.</MudText>
+        }
+    </MudAlert>
+}
+
 @if (Agent?.Snapshot is null)
 {
     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">

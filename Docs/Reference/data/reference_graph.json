@@ -218,6 +218,7 @@
     "Quasar/Services/Backup/AutomaticBackupService.cs",
     "Quasar/Services/Backup/QuasarBackupService.cs",
     "Quasar/Services/Backup/QuasarBackupSettingsService.cs",
+    "Quasar/Services/DedicatedServerCatalog.cs",
     "Quasar/Services/WebServiceOptions.cs"
   ],
   "Quasar/Components/Pages/ConfigProfilePendingChangesDialog.razor": [
@@ -517,7 +518,8 @@
   "Quasar/Services/Backup/AutomaticBackupService.cs": [
     "Quasar/Models/QuasarBackupSettings.cs",
     "Quasar/Services/Backup/QuasarBackupService.cs",
-    "Quasar/Services/Backup/QuasarBackupSettingsService.cs"
+    "Quasar/Services/Backup/QuasarBackupSettingsService.cs",
+    "Quasar/Services/DedicatedServerCatalog.cs"
   ],
   "Quasar/Services/Backup/BackupCompatibility.cs": [
     "Quasar/Services/Backup/BackupFormatMigrations.cs"
@@ -530,6 +532,7 @@
     "Quasar/Models/QuasarBackupManifest.cs",
     "Quasar/Models/QuasarRestoreReport.cs",
     "Quasar/Services/Backup/BackupCompatibility.cs",
+    "Quasar/Services/DedicatedServerCatalog.cs",
     "Quasar/Services/KnownPlayerCatalog.cs",
     "Quasar/Services/QuasarDevFolderCatalog.cs",
     "Quasar/Services/WebServiceOptions.cs"

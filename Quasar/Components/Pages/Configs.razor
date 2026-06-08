@@ -505,7 +505,29 @@
                                                OnClick="MergeModsFromWorldTemplateAsync">
                                         Merge from World Template
                                     </MudButton>
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="Color.Warning"
+                                               StartIcon="@Icons.Material.Filled.DeleteSweep"
+                                               OnClick="RemoveDeadModsAsync"
+                                               Disabled="@(_deadModCleanupRunning || _editor?.Mods.Count == 0)">
+                                        @(_deadModCleanupRunning ? "Checking Mods..." : "Remove Dead Mods")
+                                    </MudButton>
                                 </MudStack>
+
+                                @if (!string.IsNullOrWhiteSpace(_deadModCleanupSummary))
+                                {
+                                    <MudAlert Severity="@(_deadModCleanupRemoved.Count > 0 ? Severity.Success : Severity.Info)"
+                                              Variant="Variant.Outlined"
+                                              Class="mb-3">
+                                        <MudText Typo="Typo.body2">@_deadModCleanupSummary</MudText>
+                                        @if (_deadModCleanupRemoved.Count > 0)
+                                        {
+                                            <MudText Typo="Typo.caption" Class="mt-1">
+                                                Removed: @FormatModListSummary(_deadModCleanupRemoved)
+                                            </MudText>
+                                        }
+                                    </MudAlert>
+                                }
 
                                 <MudTable T="QuasarModSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="FilteredMods">
                                     <HeaderContent>
@@ -744,6 +766,9 @@
     private bool _workshopSearchLoading;
     private bool _workshopResultsLoaded;
     private bool _modResolving;
+    private bool _deadModCleanupRunning;
+    private string _deadModCleanupSummary = string.Empty;
+    private List<QuasarModSelection> _deadModCleanupRemoved = [];
     private string? _workshopSearchError;
     private string? _expandedCategoryKey;
     private string _expandedModPanelKey = ModListPanelKey;
@@ -994,6 +1019,8 @@
             ? null
             : ConfigProfiles.GetProfile(_selectedProfileId);
         _selectedProfileSnapshot = CreateProfileSnapshot(_editor);
+        _deadModCleanupSummary = string.Empty;
+        _deadModCleanupRemoved = [];
         _hasExplicitCategoryExpansion = true;
         _expandedCategoryKey = null;
     }
@@ -1509,6 +1536,59 @@
         _newModWorkshopId = 0;
     }
 
+    private async Task RemoveDeadModsAsync()
+    {
+        if (_editor is null)
+            return;
+
+        if (_editor.Mods.Count == 0)
+        {
+            Snackbar.Add("No selected mods to check.", Severity.Info);
+            return;
+        }
+
+        _deadModCleanupRunning = true;
+        _deadModCleanupSummary = string.Empty;
+        _deadModCleanupRemoved = [];
+
+        try
+        {
+            var result = await WorkshopMods.CheckAvailabilityAsync(_editor.Mods);
+            _deadModCleanupRemoved = result.UnavailableMods.ToList();
+
+            if (_deadModCleanupRemoved.Count == 0)
+            {
+                _deadModCleanupSummary = $"Checked {result.CheckedCount} selected mod(s). No dead mods found.";
+                Snackbar.Add("No dead mods found.", Severity.Info);
+                return;
+            }
+
+            var unavailableIds = _deadModCleanupRemoved
+                .Select(mod => mod.WorkshopId)
+                .ToHashSet();
+
+            _editor.Mods = _editor.Mods
+                .Where(mod => !unavailableIds.Contains(mod.WorkshopId))
+                .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(mod => mod.WorkshopId)
+                .ToList();
+
+            _deadModCleanupSummary =
+                $"Removed {_deadModCleanupRemoved.Count} dead mod(s) from {result.CheckedCount} checked. Save the profile to persist the change.";
+            Snackbar.Add($"Removed {_deadModCleanupRemoved.Count} dead mod(s). Save profile to persist.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            _deadModCleanupSummary = $"Dead mod check failed: {exception.Message}";
+            Snackbar.Add(_deadModCleanupSummary, Severity.Error);
+        }
+        finally
+        {
+            _deadModCleanupRunning = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
     private async Task HandleWorkshopSearchKeyDown(KeyboardEventArgs args)
     {
         if (string.Equals(args.Key, "Enter", StringComparison.OrdinalIgnoreCase))
@@ -1793,6 +1873,20 @@
     private string GetProfileSummary(QuasarConfigProfile template)
     {
         return $"{template.Plugins.Count} plugins, {template.Mods.Count} mods, {GetAssignedServers(template.ConfigProfileId).Count} servers";
+    }
+
+    private static string FormatModListSummary(IReadOnlyList<QuasarModSelection> mods)
+    {
+        var names = mods
+            .Take(8)
+            .Select(mod => string.IsNullOrWhiteSpace(mod.DisplayName)
+                ? mod.WorkshopId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : $"{mod.DisplayName} ({mod.WorkshopId})");
+
+        var summary = string.Join(", ", names);
+        return mods.Count > 8
+            ? $"{summary}, +{mods.Count - 8} more"
+            : summary;
     }
 
     private List<DedicatedServerDefinition> GetAssignedServers(string configProfileId)
