@@ -23,6 +23,18 @@ worker** read JSON config from these locations, later ones overriding earlier:
 
 The shipped defaults are defined in [`Quasar/appsettings.json`](../Quasar/appsettings.json).
 
+## Per-server launch diagnostics
+
+To capture the exact Magnetar launch command and environment, edit the server in
+the web UI, open **Runtime**, and enable **Log launch environment**. The setting is
+saved on that server definition (`server.json`) and is applied on the next start
+of that server only.
+
+The diagnostic entry is written to the normal Quasar logs at warning level and
+includes the executable path, arguments, working directory, and environment
+variables such as `LD_LIBRARY_PATH`. Use it only while troubleshooting because
+environment variables can contain secrets.
+
 ## Web UI host and port
 
 The browser connects to the web UI on the host and port configured here. Defaults:

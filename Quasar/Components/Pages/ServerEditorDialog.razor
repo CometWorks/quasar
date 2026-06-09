@@ -300,6 +300,14 @@
                                                      Max="DedicatedServerDefinition.MaximumDsLogFilesToKeep"
                                                      HelperText="Includes the current stdout/stderr slot. Quasar rotates at server start and prunes old archives on stop." />
                                 </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudCheckBox @bind-Value="_editor.LogLaunchEnvironment"
+                                                 Label="Log launch environment"
+                                                 Color="Color.Warning" />
+                                    <MudText Typo="Typo.caption" Color="Color.Warning">
+                                        Writes Magnetar launch command, working directory, and environment variables to Quasar logs on next start. May expose secrets.
+                                    </MudText>
+                                </MudItem>
                                 <MudItem xs="12">
                                     <MudTextField
                                         @bind-Value="_editor.LaunchArguments"

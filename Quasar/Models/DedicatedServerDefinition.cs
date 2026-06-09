@@ -40,6 +40,8 @@ public sealed class DedicatedServerDefinition
 
     public string LaunchArguments { get; set; } = string.Empty;
 
+    public bool LogLaunchEnvironment { get; set; }
+
     public int DsLogFilesToKeep { get; set; } = DefaultDsLogFilesToKeep;
 
     public int ServerPort { get; set; } = 27016;
@@ -106,6 +108,7 @@ public sealed class DedicatedServerDefinition
             ConfigProfileId = ConfigProfileId,
             WorldTemplateId = WorldTemplateId,
             LaunchArguments = LaunchArguments,
+            LogLaunchEnvironment = LogLaunchEnvironment,
             DsLogFilesToKeep = DsLogFilesToKeep,
             ServerPort = ServerPort,
             ServerIP = ServerIP,

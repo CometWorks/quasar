@@ -600,6 +600,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         process.StartInfo.Environment["QUASAR_AGENT"] = definition.UniqueName;
 
         process.Exited += async (_, _) => await HandleProcessExitedAsync(state.UniqueName);
+        LogManagedServerLaunchEnvironment(definition, process.StartInfo);
 
         try
         {
@@ -679,6 +680,32 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         startInfo.Environment[variableName] = string.Join(
             Path.PathSeparator,
             paths.Distinct(StringComparer.Ordinal));
+    }
+
+    private void LogManagedServerLaunchEnvironment(DedicatedServerDefinition definition, ProcessStartInfo startInfo)
+    {
+        if (!definition.LogLaunchEnvironment)
+            return;
+
+        var environment = string.Join(
+            Environment.NewLine,
+            startInfo.Environment
+                .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(pair => $"{pair.Key}={pair.Value}"));
+
+        var launchEnvironment = string.Join(
+            Environment.NewLine,
+            $"Server={definition.UniqueName}",
+            $"FileName={startInfo.FileName}",
+            $"Arguments={startInfo.Arguments}",
+            $"WorkingDirectory={startInfo.WorkingDirectory}",
+            "Environment:",
+            environment);
+
+        _logger.LogWarning(
+            "Managed server launch environment logging is enabled. These logs may contain secrets.{NewLine}{LaunchEnvironment}",
+            Environment.NewLine,
+            launchEnvironment);
     }
 
     private void SetRuntimeMessage(string uniqueName, string message)
@@ -1989,6 +2016,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             ConfigProfileId = definition.ConfigProfileId,
             WorldTemplateId = definition.WorldTemplateId,
             LaunchArguments = definition.LaunchArguments,
+            LogLaunchEnvironment = definition.LogLaunchEnvironment,
             ServerPort = definition.ServerPort,
             ServerIP = definition.ServerIP,
             AutoStart = definition.AutoStart,

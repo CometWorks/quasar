@@ -338,6 +338,7 @@ public sealed class DedicatedServerCatalog : IDisposable
             ConfigProfileId = server.ConfigProfileId,
             WorldTemplateId = server.WorldTemplateId,
             LaunchArguments = server.LaunchArguments,
+            LogLaunchEnvironment = server.LogLaunchEnvironment,
             DsLogFilesToKeep = server.DsLogFilesToKeep,
             ServerPort = server.ServerPort,
             ServerIP = server.ServerIP,
