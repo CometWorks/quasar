@@ -71,11 +71,12 @@ Optional `--server <name>` to target one server, `--days <n>`, `--seed <n>`,
 `--raw-hours <hours>`, `--raw-interval <seconds>`. Uses `QUASAR_DATA_DIR`
 automatically if set, otherwise defaults to the local Quasar data root.
 
-Managed agents collect continuous profiler telemetry for Analytics: per-grid,
-per-script, per-entity, physics, network/replication/session, and game-loop
-timing buckets. The default agent profiler mode is `DeepContinuous`, which adds
-Harmony IL call-site wrapping for deeper attribution. Set
-`Quasar:AgentProfilerMode` or `QUASAR_AGENT_PROFILER_MODE` to `SafeContinuous`
-or `Off` when troubleshooting profiler compatibility. See
+Managed agents collect continuous profiler telemetry for Analytics. The default
+agent profiler mode is `SafeContinuous`, which keeps low-overhead high-level
+timing for frame/update, scripts, physics, network/replication/session, and
+game-loop buckets without patching every entity update method. Set the
+per-server mode in the Analytics page to `DeepContinuous` for Harmony IL
+call-site attribution, including grids/entities, or to `Off` when
+troubleshooting profiler compatibility. See
 [Architecture](QuasarArchitecture.md) for how this telemetry flows through the
 supervisor.

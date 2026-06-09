@@ -112,6 +112,38 @@
                             </MudItem>
                         }
                     </MudGrid>
+
+                    <MudDivider Class="my-2" />
+                    <MudText Typo="Typo.h6">Profiler</MudText>
+                    <MudGrid>
+                        @foreach (var option in _serverOptions)
+                        {
+                            var profiler = GetProfilerView(option.UniqueName);
+
+                            <MudItem xs="12" md="6">
+                                <MudStack Spacing="1">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                        <MudText Typo="Typo.subtitle2">@option.DisplayName</MudText>
+                                        <MudChip T="string" Size="Size.Small" Color="@GetProfilerChipColor(profiler)" Variant="Variant.Outlined">
+                                            @(string.IsNullOrWhiteSpace(profiler.LiveMode) ? "Offline" : profiler.LiveMode)
+                                        </MudChip>
+                                    </MudStack>
+                                    <MudSelect T="string"
+                                               Label="Mode"
+                                               Value="@profiler.ConfiguredMode"
+                                               ValueChanged="@(value => HandleProfilerModeChanged(option.UniqueName, value))"
+                                               Variant="Variant.Outlined"
+                                               Dense="true"
+                                               Disabled="@(!profiler.CanConfigure)">
+                                        @foreach (var mode in ProfilerModeOptions)
+                                        {
+                                            <MudSelectItem T="string" Value="@mode">@mode</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </MudStack>
+                            </MudItem>
+                        }
+                    </MudGrid>
                 }
             </MudStack>
         </MudItem>
@@ -202,10 +234,14 @@ else
         ("custom", "Custom"),
     ];
 
+    private static readonly string[] ProfilerModeOptions = ["Off", "SafeContinuous", "DeepContinuous"];
+
     private readonly List<ChartCard> _chartCards = [];
     private readonly List<SummaryChipModel> _summaryChips = [];
     private AnalyticsViewConfig _config = CreateDefaultConfig();
     private IReadOnlyList<ServerOption> _serverOptions = [];
+    private Dictionary<string, DedicatedServerDefinition> _serverDefinitionsByName = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, AgentRuntimeState> _agentsByUniqueName = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource _refreshCts = new();
     private bool _disposed;
     private bool _configLoaded;
@@ -392,6 +428,72 @@ else
 
         _selectionInitialized = true;
         await RefreshAsync();
+    }
+
+    private async Task HandleProfilerModeChanged(string uniqueName, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(uniqueName))
+            return;
+
+        var mode = DedicatedServerCatalog.NormalizeProfilerMode(value);
+        var persisted = false;
+        var applied = false;
+
+        try
+        {
+            if (_serverDefinitionsByName.TryGetValue(uniqueName, out var definition))
+            {
+                definition.AgentProfilerMode = mode;
+                await ServerCatalog.UpsertAsync(definition);
+                persisted = true;
+            }
+
+            var agent = Registry.GetAgents()
+                .Where(item => item.IsConnected &&
+                               string.Equals(item.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(item => item.LastSeenUtc)
+                .FirstOrDefault();
+            if (agent is not null)
+            {
+                var result = await Registry.SendCommandAndWaitAsync(
+                    new ServerCommandEnvelope
+                    {
+                        UniqueName = uniqueName,
+                        AgentId = agent.AgentId,
+                        ServerId = agent.ServerKey,
+                        CommandType = ServerCommandType.SetProfilerMode,
+                        Text = mode,
+                    },
+                    TimeSpan.FromSeconds(15));
+
+                if (!result.Success)
+                {
+                    Snackbar.Add(result.Message, Severity.Error);
+                    return;
+                }
+
+                applied = true;
+            }
+
+            if (persisted && applied)
+                Snackbar.Add($"Profiler mode saved and applied: {mode}.", Severity.Success);
+            else if (persisted)
+                Snackbar.Add($"Profiler mode saved: {mode}.", Severity.Success);
+            else if (applied)
+                Snackbar.Add($"Profiler mode applied: {mode}.", Severity.Success);
+            else
+                Snackbar.Add("No configured server or connected agent matched that profiler target.", Severity.Warning);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            RefreshView();
+            _pendingChartSync = true;
+            StateHasChanged();
+        }
     }
 
     private Task HandleRangeChanged(string value)
@@ -716,13 +818,28 @@ else
     private IReadOnlyList<ServerOption> BuildServerOptions()
     {
         var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var definitions = ServerCatalog.GetServers();
+        var agents = Registry.GetAgents();
+        _serverDefinitionsByName = definitions
+            .GroupBy(server => server.UniqueName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        _agentsByUniqueName = agents
+            .Where(agent => !string.IsNullOrWhiteSpace(agent.UniqueNameKey))
+            .GroupBy(agent => agent.UniqueNameKey, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .OrderByDescending(agent => agent.IsConnected)
+                    .ThenByDescending(agent => agent.LastSeenUtc)
+                    .First(),
+                StringComparer.OrdinalIgnoreCase);
 
         // Use the configured server name (DedicatedServerDefinition.DisplayName), not the
         // unique name / id. This drives both the server checkboxes and the chart legends.
-        foreach (var server in ServerCatalog.GetServers())
+        foreach (var server in definitions)
             names[server.UniqueName] = string.IsNullOrWhiteSpace(server.DisplayName) ? server.UniqueName : server.DisplayName;
 
-        foreach (var agent in Registry.GetAgents())
+        foreach (var agent in agents)
         {
             var uniqueName = agent.UniqueNameKey;
             if (string.IsNullOrWhiteSpace(uniqueName))
@@ -743,6 +860,42 @@ else
             .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
             .Select(pair => new ServerOption(pair.Key, pair.Value))
             .ToList();
+    }
+
+    private ProfilerView GetProfilerView(string uniqueName)
+    {
+        _serverDefinitionsByName.TryGetValue(uniqueName, out var definition);
+        _agentsByUniqueName.TryGetValue(uniqueName, out var agent);
+
+        var configuredMode = DedicatedServerCatalog.NormalizeProfilerMode(
+            definition?.AgentProfilerMode ?? agent?.Snapshot?.ProfilerMode ?? "SafeContinuous");
+        var liveMode = string.Empty;
+        if (agent is { IsConnected: true, Snapshot: not null } &&
+            !string.IsNullOrWhiteSpace(agent.Snapshot.ProfilerMode))
+        {
+            liveMode = DedicatedServerCatalog.NormalizeProfilerMode(agent.Snapshot.ProfilerMode);
+        }
+
+        return new ProfilerView(
+            ConfiguredMode: configuredMode,
+            LiveMode: liveMode,
+            CanConfigure: definition is not null || agent is { IsConnected: true });
+    }
+
+    private static Color GetProfilerChipColor(ProfilerView profiler)
+    {
+        if (string.IsNullOrWhiteSpace(profiler.LiveMode))
+            return Color.Default;
+
+        if (!string.Equals(profiler.LiveMode, profiler.ConfiguredMode, StringComparison.OrdinalIgnoreCase))
+            return Color.Warning;
+
+        return profiler.LiveMode switch
+        {
+            "Off" => Color.Default,
+            "DeepContinuous" => Color.Info,
+            _ => Color.Success,
+        };
     }
 
     private void NormalizeSelection()
@@ -1013,6 +1166,8 @@ else
     }
 
     private sealed record ServerOption(string UniqueName, string DisplayName);
+
+    private sealed record ProfilerView(string ConfiguredMode, string LiveMode, bool CanConfigure);
 
     private sealed record SummaryChipModel(string Label, string Value);
 

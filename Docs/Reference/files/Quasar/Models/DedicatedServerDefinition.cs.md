@@ -3,7 +3,7 @@
 **Module:** Quasar.Models  **Kind:** class  **Tier:** 1
 
 ## Summary
-Persistent configuration record for a single managed Space Engineers dedicated server. Contains all fields needed to launch, supervise, health-monitor, rotate retained DS logs, emit optional launch diagnostics, and schedule restarts for a server, as well as process-priority, CPU-affinity, and managed-runtime settings. Serialized to disk as part of the server catalog.
+Persistent configuration record for a single managed Space Engineers dedicated server. Contains all fields needed to launch, supervise, health-monitor, rotate retained DS logs, emit optional launch diagnostics, select profiler mode, and schedule restarts for a server, as well as process-priority, CPU-affinity, and managed-runtime settings. Serialized to disk as part of the server catalog.
 
 ## Structure
 Namespace: `Quasar.Models`  
@@ -27,6 +27,7 @@ Namespace: `Quasar.Models`
 | `WorldTemplateId` | Reference to a `QuasarWorldTemplate` by ID. |
 | `LaunchArguments` | Extra CLI arguments appended at launch. |
 | `LogLaunchEnvironment` | Per-server troubleshooting flag. When enabled from the server editor, the supervisor writes the final Magnetar executable path, arguments, working directory, and environment variables to Quasar logs on next start. Default false. |
+| `AgentProfilerMode` | Per-server profiler mode (`SafeContinuous`, `DeepContinuous`, or `Off`), default `SafeContinuous`; forwarded to the agent at launch and editable live from Analytics. |
 | `DsLogFilesToKeep` | Number of Quasar-managed DS log slots to retain, including the current `stdout.log` / `stderr.log` slot (default 10). |
 | `ServerPort` | UDP game port (default 27016). |
 | `ServerIP` | Bind IP (default "0.0.0.0"). |
@@ -49,7 +50,7 @@ Namespace: `Quasar.Models`
 | `ReadyProcessPriority` | OS process priority once the server is running. |
 | `CpuAffinity` | Canonical cpuset string (e.g. "0-7" or "0-7,16-23") pinning the server process to a fixed set of logical cores; empty = no affinity (all cores); when set must contain >=2 cores; applied locally by the supervisor each time the process starts (see `CpuAffinitySpec`). Default empty. |
 | `UpdatedAtUtc` | Timestamp of the last configuration save. |
-| `Clone()` | Shallow copy of all fields (including `ManagedRuntime`, `CpuAffinity`, `LogLaunchEnvironment`, and `DsLogFilesToKeep`, used before mutations). |
+| `Clone()` | Shallow copy of all fields (including `ManagedRuntime`, `AgentProfilerMode`, `CpuAffinity`, `LogLaunchEnvironment`, and `DsLogFilesToKeep`, used before mutations). |
 
 ## Dependencies
 - [`Quasar/Models/DedicatedServerGoalState.cs`](DedicatedServerGoalState.cs.md)

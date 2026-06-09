@@ -12,6 +12,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
     private readonly DiscordCommandRouter _commandRouter;
     private readonly DiscordChatRelayService _chatRelayService;
     private readonly DiscordDeathRelayService _deathRelayService;
+    private readonly DiscordSimSpeedAlertService _simSpeedAlertService;
     private readonly DiscordLogRelayService _logRelayService;
     private readonly DiscordAnalyticsExportService _analyticsExportService;
     private readonly ILogger<DiscordBotService> _logger;
@@ -29,6 +30,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
         DiscordCommandRouter commandRouter,
         DiscordChatRelayService chatRelayService,
         DiscordDeathRelayService deathRelayService,
+        DiscordSimSpeedAlertService simSpeedAlertService,
         DiscordLogRelayService logRelayService,
         DiscordAnalyticsExportService analyticsExportService,
         ILogger<DiscordBotService> logger)
@@ -38,6 +40,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
         _commandRouter = commandRouter;
         _chatRelayService = chatRelayService;
         _deathRelayService = deathRelayService;
+        _simSpeedAlertService = simSpeedAlertService;
         _logRelayService = logRelayService;
         _analyticsExportService = analyticsExportService;
         _logger = logger;
@@ -123,13 +126,14 @@ public sealed class DiscordBotService : IHostedService, IDisposable
                 var options = _optionsCatalog.GetOptions();
                 await _chatRelayService.HandleChangedAsync(client, options, botLifetimeToken.Value);
                 await _deathRelayService.HandleChangedAsync(client, options, botLifetimeToken.Value);
+                await _simSpeedAlertService.HandleChangedAsync(client, options, botLifetimeToken.Value);
             }
             catch (OperationCanceledException)
             {
             }
             catch (Exception exception)
             {
-                _logger.LogWarning(exception, "Discord chat relay dispatch failed.");
+                _logger.LogWarning(exception, "Discord registry-driven dispatch failed.");
             }
         }, CancellationToken.None);
     }
@@ -178,12 +182,14 @@ public sealed class DiscordBotService : IHostedService, IDisposable
 
                 _chatRelayService.Reset();
                 _deathRelayService.Reset();
+                _simSpeedAlertService.Reset();
                 _logRelayService.Reset();
                 _analyticsExportService.Reset();
 
                 await _logRelayService.StartAsync(client, options, botLifetime.Token);
                 await _analyticsExportService.StartAsync(client, options, botLifetime.Token);
                 await _chatRelayService.HandleChangedAsync(client, options, botLifetime.Token);
+                await _simSpeedAlertService.HandleChangedAsync(client, options, botLifetime.Token);
 
                 SetState("Running", string.Empty);
             }
@@ -231,6 +237,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
         botLifetime?.Cancel();
         _chatRelayService.Reset();
         _deathRelayService.Reset();
+        _simSpeedAlertService.Reset();
         _logRelayService.Reset();
         _analyticsExportService.Reset();
 

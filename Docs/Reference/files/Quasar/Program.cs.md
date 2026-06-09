@@ -19,7 +19,7 @@ Namespace `Quasar`; `public class Program` with `static void Main(string[] args)
 - Core services: `KnownPlayerCatalog`, `MetricsStoreService` (+hosted), `AnalyticsSeriesService`, `ProfilerStoreService`, `AgentRegistry`, `EntityService`, config catalogs (`QuasarConfigProfileCatalog`, `QuasarDevFolderCatalog`, `QuasarWorldTemplateCatalog`, `QuasarPluginCatalogService`, `PluginCatalogRefreshService` (+hosted)), `SteamWorkshopCredentialsCatalog`, `QuasarWorkshopModResolver`.
 - Managed runtime + server supervision: `ManagedDedicatedServerRuntimeResolver`, `ManagedRuntimeWarmupService` (+hosted), `DedicatedServerCatalog`, `DedicatedServerSupervisor` (+hosted), `DedicatedServerRuntimePreparer`.
 - Web/agent: `FileBrowserService`, `WebServiceState`, `PluginLogStream`, `PluginConfigService` (+hosted), `AgentSocketHandler`, `WebServiceManifestHostedService` (hosted).
-- Discord: options/rate-limiter/death-messages catalogs, command dispatcher+router, chat/death/log/analytics relays, `DiscordBotService` (+hosted).
+- Discord: options/rate-limiter/death-messages catalogs, command dispatcher+router, chat/death/simspeed-alert/log/analytics services, `DiscordBotService` (+hosted).
 - Branding/theme/shutdown/update: `BrandingService`, `ThemePreferenceService` (scoped), `QuasarShutdownService`, `QuasarUpdateService` (+hosted).
 - Backup: `QuasarBackupSettingsService`, `QuasarBackupService`, `AutomaticBackupService` (+hosted).
 

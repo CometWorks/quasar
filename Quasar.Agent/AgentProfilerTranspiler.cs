@@ -25,6 +25,11 @@ namespace Quasar.Agent
             return new Candidate(declaringType, methodNameRegex, category);
         }
 
+        public static void Clear()
+        {
+            CandidatesByMethod.Clear();
+        }
+
         public static bool Patch(Harmony harmony, MethodBase original, string patchName, IEnumerable<Candidate> candidates)
         {
             if (harmony == null || original == null)

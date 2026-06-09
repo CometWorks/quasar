@@ -268,6 +268,7 @@ public sealed class DedicatedServerCatalog : IDisposable
         server.ConfigProfileId = server.ConfigProfileId?.Trim() ?? string.Empty;
         server.WorldTemplateId = server.WorldTemplateId?.Trim() ?? string.Empty;
         server.LaunchArguments = server.LaunchArguments?.Trim() ?? string.Empty;
+        server.AgentProfilerMode = NormalizeProfilerMode(server.AgentProfilerMode);
         server.DsLogFilesToKeep = server.DsLogFilesToKeep < DedicatedServerDefinition.MinimumDsLogFilesToKeep
             ? DedicatedServerDefinition.DefaultDsLogFilesToKeep
             : Math.Min(server.DsLogFilesToKeep, DedicatedServerDefinition.MaximumDsLogFilesToKeep);
@@ -339,6 +340,7 @@ public sealed class DedicatedServerCatalog : IDisposable
             WorldTemplateId = server.WorldTemplateId,
             LaunchArguments = server.LaunchArguments,
             LogLaunchEnvironment = server.LogLaunchEnvironment,
+            AgentProfilerMode = server.AgentProfilerMode,
             DsLogFilesToKeep = server.DsLogFilesToKeep,
             ServerPort = server.ServerPort,
             ServerIP = server.ServerIP,
@@ -361,6 +363,17 @@ public sealed class DedicatedServerCatalog : IDisposable
             ReadyProcessPriority = server.ReadyProcessPriority,
             CpuAffinity = server.CpuAffinity,
             UpdatedAtUtc = server.UpdatedAtUtc,
+        };
+    }
+
+    public static string NormalizeProfilerMode(string? value)
+    {
+        return (value ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "off" or "disabled" or "none" => "Off",
+            "safe" or "safecontinuous" or "method" or "methodcontinuous" => "SafeContinuous",
+            "deep" or "deepcontinuous" or "callsite" or "callsitecontinuous" => "DeepContinuous",
+            _ => "SafeContinuous",
         };
     }
 

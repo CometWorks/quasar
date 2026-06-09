@@ -592,7 +592,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             _options.AgentReconnectIntervalSeconds.ToString(CultureInfo.InvariantCulture);
         process.StartInfo.Environment["QUASAR_AGENT_RECONNECT_JITTER_SECONDS"] =
             _options.AgentReconnectJitterSeconds.ToString(CultureInfo.InvariantCulture);
-        process.StartInfo.Environment["QUASAR_AGENT_PROFILER_MODE"] = _options.AgentProfilerMode;
+        process.StartInfo.Environment["QUASAR_AGENT_PROFILER_MODE"] =
+            DedicatedServerCatalog.NormalizeProfilerMode(string.IsNullOrWhiteSpace(definition.AgentProfilerMode)
+                ? _options.AgentProfilerMode
+                : definition.AgentProfilerMode);
 
         // Activate the PluginSdk QuasarLogSink inside the dedicated server: any
         // non-empty QUASAR_AGENT value makes plugins emit structured JSON log

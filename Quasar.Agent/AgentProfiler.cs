@@ -29,7 +29,7 @@ namespace Quasar.Agent
         private static DateTime _nextPublishUtc = DateTime.MinValue;
         private static ulong _windowStartFrame;
         private static volatile bool _enabled = true;
-        private static AgentProfilerMode _mode = AgentProfilerMode.DeepContinuous;
+        private static AgentProfilerMode _mode = AgentProfilerMode.SafeContinuous;
         private static int _gameThreadId;
         private static ProfilerSnapshot _latestSnapshot;
 
@@ -39,7 +39,12 @@ namespace Quasar.Agent
 
         public static void Configure(AgentOptions options)
         {
-            var mode = options?.ProfilerMode ?? AgentProfilerMode.DeepContinuous;
+            var mode = options?.ProfilerMode ?? AgentProfilerMode.SafeContinuous;
+            SetMode(mode);
+        }
+
+        public static void SetMode(AgentProfilerMode mode)
+        {
             _mode = mode;
             _enabled = mode != AgentProfilerMode.Off;
 
@@ -48,6 +53,8 @@ namespace Quasar.Agent
                 _windowStartUtc = DateTime.UtcNow;
                 _nextPublishUtc = _windowStartUtc.AddSeconds(PublishIntervalSeconds);
                 _windowStartFrame = MySandboxGame.Static?.SimulationFrameCounter ?? 0;
+                if (!_enabled)
+                    _latestSnapshot = null;
             }
         }
 

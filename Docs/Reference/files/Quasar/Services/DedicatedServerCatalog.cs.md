@@ -19,13 +19,14 @@ Namespace: `Quasar.Services`
 | `GetServers()` | Returns a cloned, alphabetically-sorted list of all `DedicatedServerDefinition` entries. |
 | `GetServer(uniqueName)` | Finds a single definition by unique name (case-insensitive). Returns `null` if not found. |
 | `UpsertAsync(definition, ct)` | Validates, normalizes, renames storage directory if unique name changed, writes atomically to `server.json`, appends a timestamped history copy, then reloads. |
+| `NormalizeProfilerMode(string?)` (static) | Canonicalises profiler mode text/aliases to `Off`, `SafeContinuous`, or `DeepContinuous` with `SafeContinuous` fallback. |
 | `SetGoalStateAsync(uniqueName, goalState, ct)` | Convenience: reads definition, updates `GoalState`/`AutoStart`, calls `UpsertAsync`. |
 | `DeleteAsync(uniqueName, ct)` | Archives current `server.json` as `{timestamp}-deleted.json` in history, then deletes it and reloads. |
 
 **Internal:**
 
 - `LoadServers()` / `LoadServerDefinition(path)` — loads all `server.json` under the servers directory; migrates legacy `worldProfileId` field inline.
-- `Normalize(server)` — validates unique name (regex `^[a-zA-Z0-9_-]+$`), fills default paths via `MagnetarPaths`, clamps numeric fields, defaults/clamps `DsLogFilesToKeep`, syncs `AutoStart`/`GoalState`. Re-stores the canonical form of a valid `CpuAffinity` (via `CpuAffinitySpec.TryParse` + `Format`) and drops any invalid value (or one with fewer than the required cores) back to empty ("no affinity"), so a bad persisted value can't wedge process startup.
+- `Normalize(server)` — validates unique name (regex `^[a-zA-Z0-9_-]+$`), fills default paths via `MagnetarPaths`, canonicalises `AgentProfilerMode`, clamps numeric fields, defaults/clamps `DsLogFilesToKeep`, syncs `AutoStart`/`GoalState`. Re-stores the canonical form of a valid `CpuAffinity` (via `CpuAffinitySpec.TryParse` + `Format`) and drops any invalid value (or one with fewer than the required cores) back to empty ("no affinity"), so a bad persisted value can't wedge process startup.
 - `PrepareStorageForSave(definition, previousUniqueName)` — handles server rename: rewrites managed sub-paths, moves directory via `Directory.Move`.
 - `StartWatching()` / `ScheduleReload()` / `ReloadFromDisk()` — `FileSystemWatcher` on `*.json` in the servers directory; debounced reload compares a JSON snapshot to suppress no-op notifications.
 - `SaveServerAsync` — writes atomically via `AtomicFileWriter` to `server.json` and to a history directory copy.

@@ -16,4 +16,5 @@ public enum ServerCommandType
     DeleteEntity = 11,
     SetPlayerPromoteLevel = 12,
     ClearKickCooldown = 13,
+    SetProfilerMode = 14,
 }

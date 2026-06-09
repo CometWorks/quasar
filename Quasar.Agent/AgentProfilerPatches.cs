@@ -5,7 +5,6 @@ using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using Sandbox;
-using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Blocks;
 
 namespace Quasar.Agent
@@ -14,15 +13,18 @@ namespace Quasar.Agent
     {
         private static Harmony _harmony;
         private static bool _applied;
+        private static AgentProfilerMode _appliedMode = AgentProfilerMode.Off;
         private static readonly ConcurrentDictionary<MethodBase, int> CallSites = new ConcurrentDictionary<MethodBase, int>();
 
         public static void Apply(AgentOptions options)
         {
+            var mode = options?.ProfilerMode ?? AgentProfilerMode.SafeContinuous;
             if (_applied)
                 return;
 
             _applied = true;
-            if (options?.ProfilerMode == AgentProfilerMode.Off)
+            _appliedMode = mode;
+            if (mode == AgentProfilerMode.Off)
             {
                 Console.WriteLine("Quasar profiler patches disabled.");
                 return;
@@ -31,15 +33,28 @@ namespace Quasar.Agent
             try
             {
                 _harmony = new Harmony("quasar.agent.profiler");
-                var deepMode = options == null || options.ProfilerMode == AgentProfilerMode.DeepContinuous;
+                var deepMode = mode == AgentProfilerMode.DeepContinuous;
                 var patched = PatchKnownMethods(deepMode);
-                patched += deepMode ? PatchDeepCallSites() : PatchEntityUpdateMethods();
-                Console.WriteLine($"Quasar profiler patches applied: {patched} ({(deepMode ? "deep continuous" : "safe continuous")})");
+                if (deepMode)
+                    patched += PatchDeepCallSites();
+
+                Console.WriteLine($"Quasar profiler patches applied: {patched} ({(deepMode ? "deep continuous" : "safe continuous high-level")})");
             }
             catch (Exception exception)
             {
                 Console.WriteLine($"Quasar profiler patches failed: {exception.Message}");
             }
+        }
+
+        public static void Reconfigure(AgentProfilerMode mode)
+        {
+            AgentProfiler.SetMode(mode);
+
+            if (_applied && _appliedMode == mode)
+                return;
+
+            Dispose();
+            Apply(new AgentOptions { ProfilerMode = mode });
         }
 
         public static void Dispose()
@@ -55,7 +70,9 @@ namespace Quasar.Agent
             {
                 _harmony = null;
                 _applied = false;
+                _appliedMode = AgentProfilerMode.Off;
                 CallSites.Clear();
+                AgentProfilerTranspiler.Clear();
             }
         }
 
@@ -72,19 +89,23 @@ namespace Quasar.Agent
             count += PatchDeclaredByTypeName("VRage.Network.MyReplicationServer", "UpdateBefore", "replication") ? 1 : 0;
             count += PatchDeclaredByTypeName("VRage.Network.MyReplicationServer", "UpdateAfter", "replication") ? 1 : 0;
             count += PatchDeclaredByTypeName("VRage.Network.MyReplicationServer", "SendUpdate", "replication") ? 1 : 0;
-            count += PatchDeclaredByTypeName("VRage.Network.MyReplicationServer", "OnClientAcks", "networkEvent") ? 1 : 0;
-            count += PatchDeclaredByTypeName("VRage.Network.MyReplicationServer", "OnClientUpdate", "networkEvent") ? 1 : 0;
-            count += PatchDeclaredByTypeName("VRage.Network.MyReplicationServer", "ReplicableReady", "networkEvent") ? 1 : 0;
-            count += PatchDeclaredByTypeName("VRage.Network.MyReplicationServer", "ReplicableRequest", "networkEvent") ? 1 : 0;
-            count += PatchDeclaredByTypeName("VRage.Network.MyReplicationServer", "OnEvent", "networkEvent") ? 1 : 0;
             count += PatchDeclaredByTypeName("Sandbox.Engine.Multiplayer.MyTransportLayer", "Tick", "network") ? 1 : 0;
             count += PatchDeclaredByTypeName("Sandbox.Engine.Networking.MyNetworkReader", "Process", "network") ? 1 : 0;
-            count += PatchDeclaredByTypeName("Sandbox.Engine.Multiplayer.MyDedicatedServerBase", "ClientConnected", "networkEvent") ? 1 : 0;
-            count += PatchDeclaredByTypeName("Sandbox.Engine.Multiplayer.MyMultiplayerServerBase", "ClientReady", "networkEvent") ? 1 : 0;
             count += PatchDeclaredByTypeName("Sandbox.Engine.Multiplayer.MyDedicatedServer", "ReportReplicatedObjects", "replication") ? 1 : 0;
             count += PatchDeclaredByTypeName("Sandbox.Engine.Multiplayer.MyDedicatedServer", "Tick", "network") ? 1 : 0;
             count += PatchDeclaredByTypeName("Sandbox.Game.Multiplayer.MyGpsCollection", "Update", "gps") ? 1 : 0;
             count += PatchDeclaredByTypeName("Sandbox.Game.Multiplayer.MyPlayerCollection", "SendDirtyBlockLimits", "network") ? 1 : 0;
+
+            if (deepMode)
+            {
+                count += PatchDeclaredByTypeName("VRage.Network.MyReplicationServer", "OnClientAcks", "networkEvent") ? 1 : 0;
+                count += PatchDeclaredByTypeName("VRage.Network.MyReplicationServer", "OnClientUpdate", "networkEvent") ? 1 : 0;
+                count += PatchDeclaredByTypeName("VRage.Network.MyReplicationServer", "ReplicableReady", "networkEvent") ? 1 : 0;
+                count += PatchDeclaredByTypeName("VRage.Network.MyReplicationServer", "ReplicableRequest", "networkEvent") ? 1 : 0;
+                count += PatchDeclaredByTypeName("VRage.Network.MyReplicationServer", "OnEvent", "networkEvent") ? 1 : 0;
+                count += PatchDeclaredByTypeName("Sandbox.Engine.Multiplayer.MyDedicatedServerBase", "ClientConnected", "networkEvent") ? 1 : 0;
+                count += PatchDeclaredByTypeName("Sandbox.Engine.Multiplayer.MyMultiplayerServerBase", "ClientReady", "networkEvent") ? 1 : 0;
+            }
 
             if (!deepMode)
                 count += PatchDeclaredByTypeName("Sandbox.Game.World.MySession", "UpdateComponents", "session") ? 1 : 0;
@@ -110,8 +131,7 @@ namespace Quasar.Agent
             var entityCallSiteCount = PatchGameLogicCallSites() + PatchParallelEntityCallSites();
             if (entityCallSiteCount == 0)
             {
-                Console.WriteLine("Quasar deep profiler entity call-site patches missed; using safe entity method timing.");
-                entityCallSiteCount = PatchEntityUpdateMethods();
+                Console.WriteLine("Quasar deep profiler entity call-site patches missed; keeping high-level timing only.");
             }
 
             count += entityCallSiteCount;
@@ -246,52 +266,6 @@ namespace Quasar.Agent
             return candidates.Where(candidate => candidate != null);
         }
 
-        private static int PatchEntityUpdateMethods()
-        {
-            var entityBase = typeof(MyCubeGrid).BaseType;
-            if (entityBase == null)
-                return 0;
-
-            var count = 0;
-            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
-            foreach (var type in assemblies.SelectMany(GetTypesSafely))
-            {
-                if (type == null || type.IsAbstract || !entityBase.IsAssignableFrom(type))
-                    continue;
-
-                foreach (var method in FindDeclaredUpdateMethods(type))
-                {
-                    var category = typeof(MyCubeGrid).IsAssignableFrom(type) ? "grid" : "entity";
-                    if (Patch(method, category))
-                        count++;
-                }
-            }
-
-            return count;
-        }
-
-        private static IEnumerable<MethodInfo> FindDeclaredUpdateMethods(Type type)
-        {
-            var names = new[]
-            {
-                "UpdateBeforeSimulation",
-                "UpdateBeforeSimulation10",
-                "UpdateBeforeSimulation100",
-                "UpdateAfterSimulation",
-                "UpdateAfterSimulation10",
-                "UpdateAfterSimulation100",
-                "UpdateOnceBeforeFrame",
-                "Simulate",
-            };
-
-            foreach (var name in names)
-            {
-                var method = AccessTools.Method(type, name, Type.EmptyTypes);
-                if (method != null && method.DeclaringType == type)
-                    yield return method;
-            }
-        }
-
         private static bool PatchDeclaredByTypeName(string typeName, string methodName, string category)
         {
             var type = AccessTools.TypeByName(typeName);
@@ -366,20 +340,5 @@ namespace Quasar.Agent
             AgentProfiler.End(__state, callSiteId, null);
         }
 
-        private static IEnumerable<Type> GetTypesSafely(Assembly assembly)
-        {
-            try
-            {
-                return assembly.GetTypes();
-            }
-            catch (ReflectionTypeLoadException exception)
-            {
-                return exception.Types.Where(type => type != null);
-            }
-            catch
-            {
-                return Array.Empty<Type>();
-            }
-        }
     }
 }

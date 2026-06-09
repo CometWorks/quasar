@@ -26,6 +26,7 @@ Enum `ServerCommandType` (underlying type: `int`):
 | 11 | `DeleteEntity` | Delete an entity; target in `Payload` as `EntityDeleteRequest`. |
 | 12 | `SetPlayerPromoteLevel` | Set an explicit promote level; parameters in `Payload`. |
 | 13 | `ClearKickCooldown` | Clear a player's server-side kick cooldown (target in `SteamId`). |
+| 14 | `SetProfilerMode` | Change the agent profiler mode live; mode text in `Text`. |
 
 ## Dependencies
 - [`Magnetar.Protocol/Transport/ServerCommandEnvelope.cs`](ServerCommandEnvelope.cs.md) — `CommandType` field.

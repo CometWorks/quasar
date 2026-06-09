@@ -14,8 +14,9 @@
 | `OfflineShutdownSeconds` | 3600 | `QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS` | How long (s) after losing Quasar before the server saves and stops; ≤0 means stop promptly; only arms after at least one successful connection |
 | `ReconnectIntervalSeconds` | 10 | `QUASAR_AGENT_RECONNECT_INTERVAL_SECONDS` | Base delay between reconnect attempts (clamped to ≥1) |
 | `ReconnectJitterSeconds` | 3 | `QUASAR_AGENT_RECONNECT_JITTER_SECONDS` | Random ±jitter added per reconnect delay (clamped to ≥0) |
-| `ProfilerMode` | `DeepContinuous` | `QUASAR_AGENT_PROFILER_MODE` | Profiler patch depth: `DeepContinuous`, `SafeContinuous`, or `Off` |
+| `ProfilerMode` | `SafeContinuous` | `QUASAR_AGENT_PROFILER_MODE` | Profiler patch depth: low-overhead high-level `SafeContinuous`, call-site `DeepContinuous`, or `Off` |
 | `FromEnvironment()` (static) | — | — | Factory method; reads env vars, applies clamping, returns new instance |
+| `TryParseProfilerMode(string, out AgentProfilerMode)` (static) | — | — | Parses canonical profiler mode values and aliases for live commands and environment reads |
 
 ## Dependencies
 None (standard library only).

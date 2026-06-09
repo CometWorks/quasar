@@ -3,14 +3,14 @@
 **Module:** Quasar.Services.Discord  **Kind:** class  **Tier:** 2
 
 ## Summary
-`IHostedService` that owns the `DiscordSocketClient` lifecycle. It starts, stops, and restarts the bot in response to options changes or agent registry changes, orchestrating all relay and export sub-services. Also exposes a status snapshot for the Quasar UI.
+`IHostedService` that owns the `DiscordSocketClient` lifecycle. It starts, stops, and restarts the bot in response to options changes or agent registry changes, orchestrating all relay, alert, and export sub-services. Also exposes a status snapshot for the Quasar UI.
 
 ## Structure
 Namespace: `Quasar.Services.Discord`
 
 `sealed class DiscordBotService : IHostedService, IDisposable`
 
-Constructor: `(DiscordOptionsCatalog, AgentRegistry, DiscordCommandRouter, DiscordChatRelayService, DiscordDeathRelayService, DiscordLogRelayService, DiscordAnalyticsExportService, ILogger<DiscordBotService>)`
+Constructor: `(DiscordOptionsCatalog, AgentRegistry, DiscordCommandRouter, DiscordChatRelayService, DiscordDeathRelayService, DiscordSimSpeedAlertService, DiscordLogRelayService, DiscordAnalyticsExportService, ILogger<DiscordBotService>)`
 
 Events:
 - `Changed : Action?` — raised whenever bot state changes (Starting, Running, Faulted, Stopped, Disabled, NotConfigured)
@@ -36,6 +36,7 @@ Private internals:
 - [`Quasar/Services/Discord/DiscordCommandRouter.cs`](DiscordCommandRouter.cs.md)
 - [`Quasar/Services/Discord/DiscordChatRelayService.cs`](DiscordChatRelayService.cs.md)
 - [`Quasar/Services/Discord/DiscordDeathRelayService.cs`](DiscordDeathRelayService.cs.md)
+- [`Quasar/Services/Discord/DiscordSimSpeedAlertService.cs`](DiscordSimSpeedAlertService.cs.md)
 - [`Quasar/Services/Discord/DiscordLogRelayService.cs`](DiscordLogRelayService.cs.md)
 - [`Quasar/Services/Discord/DiscordAnalyticsExportService.cs`](DiscordAnalyticsExportService.cs.md)
 - [`Quasar/Services/AgentRegistry.cs`](../AgentRegistry.cs.md) — `AgentRegistry`

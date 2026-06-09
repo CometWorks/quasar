@@ -42,6 +42,8 @@ public sealed class DedicatedServerDefinition
 
     public bool LogLaunchEnvironment { get; set; }
 
+    public string AgentProfilerMode { get; set; } = "SafeContinuous";
+
     public int DsLogFilesToKeep { get; set; } = DefaultDsLogFilesToKeep;
 
     public int ServerPort { get; set; } = 27016;
@@ -109,6 +111,7 @@ public sealed class DedicatedServerDefinition
             WorldTemplateId = WorldTemplateId,
             LaunchArguments = LaunchArguments,
             LogLaunchEnvironment = LogLaunchEnvironment,
+            AgentProfilerMode = AgentProfilerMode,
             DsLogFilesToKeep = DsLogFilesToKeep,
             ServerPort = ServerPort,
             ServerIP = ServerIP,

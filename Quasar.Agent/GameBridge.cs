@@ -118,6 +118,9 @@ namespace Quasar.Agent
             var game = MySandboxGame.Static;
             if (game == null)
             {
+                if (command.CommandType == ServerCommandType.SetProfilerMode)
+                    return Task.FromResult(SetProfilerMode(command));
+
                 if (command.CommandType == ServerCommandType.StopServer)
                 {
                     _quasarRequestedStop = true;
@@ -200,6 +203,7 @@ namespace Quasar.Agent
                 IsRunning = session != null && session.Ready,
                 CapturedAtUtc = DateTimeOffset.UtcNow,
                 Metrics = BuildMetrics(session),
+                ProfilerMode = AgentProfiler.Mode.ToString(),
                 Profiler = AgentProfiler.GetLatestSnapshot(),
                 Players = GetPlayers(session),
                 KickedPlayers = GetKickedPlayers(session),
@@ -834,6 +838,7 @@ namespace Quasar.Agent
         {
             if (command.CommandType != ServerCommandType.Refresh &&
                 command.CommandType != ServerCommandType.StopServer &&
+                command.CommandType != ServerCommandType.SetProfilerMode &&
                 (MySession.Static == null || !MySession.Static.Ready))
                 return CreateResult(command, false, "Session not ready.");
 
@@ -855,6 +860,9 @@ namespace Quasar.Agent
                     SaveWorldIfReady();
                     MySandboxGame.ExitThreadSafe();
                     return CreateResult(command, true, "World save and server shutdown requested.");
+
+                case ServerCommandType.SetProfilerMode:
+                    return SetProfilerMode(command);
 
                 case ServerCommandType.KickPlayer:
                     MyMultiplayer.Static?.KickClient((ulong)(command.SteamId ?? 0));
@@ -898,6 +906,19 @@ namespace Quasar.Agent
                 default:
                     return CreateResult(command, false, $"Unsupported command '{command.CommandType}'.");
             }
+        }
+
+        private ServerCommandResult SetProfilerMode(ServerCommandEnvelope command)
+        {
+            var rawMode = !string.IsNullOrWhiteSpace(command.Text)
+                ? command.Text
+                : command.Payload;
+            if (!AgentOptions.TryParseProfilerMode(rawMode, out var mode))
+                return CreateResult(command, false, $"Unknown profiler mode '{rawMode}'.");
+
+            AgentProfilerPatches.Reconfigure(mode);
+            RefreshSnapshotOnGameThread();
+            return CreateResult(command, true, $"Profiler mode set to {mode}.", mode.ToString());
         }
 
         private static void SaveWorldIfReady()

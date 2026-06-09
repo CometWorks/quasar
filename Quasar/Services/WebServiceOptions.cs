@@ -53,7 +53,7 @@ public sealed class WebServiceOptions
 
     public int AgentReconnectJitterSeconds { get; init; } = 3;
 
-    public string AgentProfilerMode { get; init; } = "DeepContinuous";
+    public string AgentProfilerMode { get; init; } = "SafeContinuous";
 
     public string LauncherToken { get; init; } = string.Empty;
 
@@ -164,9 +164,10 @@ public sealed class WebServiceOptions
 
         var agentProfilerMode = Environment.GetEnvironmentVariable("QUASAR_AGENT_PROFILER_MODE")
                                 ?? section["AgentProfilerMode"]
-                                ?? "DeepContinuous";
+                                ?? "SafeContinuous";
         if (string.IsNullOrWhiteSpace(agentProfilerMode))
-            agentProfilerMode = "DeepContinuous";
+            agentProfilerMode = "SafeContinuous";
+        agentProfilerMode = DedicatedServerCatalog.NormalizeProfilerMode(agentProfilerMode);
 
         var avoidSimultaneousScheduledRestartsValue =
             Environment.GetEnvironmentVariable("QUASAR_AVOID_SIMULTANEOUS_SCHEDULED_RESTARTS")

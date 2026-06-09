@@ -25,6 +25,8 @@ public class AgentSnapshot
 
     public ServerMetrics Metrics { get; set; } = new();
 
+    public string ProfilerMode { get; set; } = string.Empty;
+
     public ProfilerSnapshot? Profiler { get; set; }
 
     public List<PlayerSnapshot> Players { get; set; } = new List<PlayerSnapshot>();

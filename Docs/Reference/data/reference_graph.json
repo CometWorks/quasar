@@ -128,9 +128,7 @@
     "Quasar.Agent/PluginLogOutbox.cs",
     "Quasar.Agent/WebServiceLocator.cs"
   ],
-  "Quasar.Agent/AgentOptions.cs": [
-    "Quasar.Agent/AgentProfilerMode.cs"
-  ],
+  "Quasar.Agent/AgentOptions.cs": [],
   "Quasar.Agent/AgentProfiler.cs": [
     "Magnetar.Protocol/Model/ProfilerSnapshot.cs",
     "Quasar.Agent/AgentOptions.cs",
@@ -143,7 +141,8 @@
     "Quasar.Agent/AgentProfilerTranspiler.cs"
   ],
   "Quasar.Agent/AgentProfilerTranspiler.cs": [
-    "Quasar.Agent/AgentProfiler.cs"
+    "Quasar.Agent/AgentProfiler.cs",
+    "Quasar.Agent/AgentProfilerPatches.cs"
   ],
   "Quasar.Agent/EntityInspector.cs": [],
   "Quasar.Agent/GameBridge.cs": [
@@ -601,7 +600,8 @@
     "Quasar/Services/Discord/DiscordCommandRouter.cs",
     "Quasar/Services/Discord/DiscordDeathRelayService.cs",
     "Quasar/Services/Discord/DiscordLogRelayService.cs",
-    "Quasar/Services/Discord/DiscordOptionsCatalog.cs"
+    "Quasar/Services/Discord/DiscordOptionsCatalog.cs",
+    "Quasar/Services/Discord/DiscordSimSpeedAlertService.cs"
   ],
   "Quasar/Services/Discord/DiscordChatRelayService.cs": [
     "Quasar/Services/AgentRegistry.cs",
@@ -634,6 +634,13 @@
     "Quasar/Services/Discord/DiscordOptions.cs"
   ],
   "Quasar/Services/Discord/DiscordRateLimiter.cs": [],
+  "Quasar/Services/Discord/DiscordSimSpeedAlertService.cs": [
+    "Quasar/Services/AgentRegistry.cs",
+    "Quasar/Services/Analytics/MetricSample.cs",
+    "Quasar/Services/Analytics/MetricsStoreService.cs",
+    "Quasar/Services/Discord/DiscordOptions.cs",
+    "Quasar/Services/Discord/DiscordRateLimiter.cs"
+  ],
   "Quasar/Services/EntityService.cs": [
     "Quasar/Services/AgentRegistry.cs"
   ],

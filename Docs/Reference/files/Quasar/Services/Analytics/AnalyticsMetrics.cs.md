@@ -4,7 +4,7 @@
 
 ## Summary
 
-Central catalogue of analytics chart panels exposed by the `/analytics` dashboard and `/api/analytics/series` endpoint. Scalar entries define metric key, panel title/subtitle, sample selector, availability check, axis formatting, and fixed/dynamic Y-axis behaviour. Profiler entries define game-loop timing selectors while keeping browser chart rendering on the same existing payload shape.
+Central catalogue of analytics chart panels exposed by the `/analytics` dashboard and `/api/analytics/series` endpoint. Scalar entries define metric key, panel title/subtitle, sample selector, availability check, axis formatting, and fixed/dynamic Y-axis behaviour. Profiler entries define continuous game-loop timing selectors while keeping browser chart rendering on the same existing payload shape.
 
 ## Structure
 

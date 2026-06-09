@@ -79,7 +79,7 @@ MODULES = [
     ("Quasar.Services.Discord", "Quasar.Services.Discord — Discord Integration",
      "Optional Discord.Net integration. `DiscordBotService` (hosted) owns the `DiscordSocketClient` lifecycle and "
      "orchestrates sub-services: bidirectional chat relay, templated death-event relay, log-file tailing relay, "
-     "and periodic analytics export. A command router and dispatcher expose server-admin verbs (chat, save, "
+     "simspeed degradation alerts, and periodic analytics export. A command router and dispatcher expose server-admin verbs (chat, save, "
      "start/stop/restart, kick/ban/unban, promote/demote, status) from Discord, throttled by a per-channel rate "
      "limiter. Bot configuration and death-message templates are file-backed catalogs following the same "
      "watch-and-debounce pattern as the rest of the project."),
@@ -214,7 +214,7 @@ short = {
     "Quasar.Services.Core": "Supervisor engine, agent registry, runtime preparation, catalogs.",
     "Quasar.Services.Analytics": "RRD-style per-instance metrics storage and persistence.",
     "Quasar.Services.Auth": "Steam OpenID auth, RBAC, trusted-network bypass.",
-    "Quasar.Services.Discord": "Discord bot: chat/death/log relay, commands, analytics export.",
+    "Quasar.Services.Discord": "Discord bot: chat/death/simspeed/log relay, commands, analytics export.",
     "Quasar.Services.PluginSdk": "Plugin config snapshot/update bridge and log streaming.",
     "Quasar.Components": "Blazor/MudBlazor UI: pages, dialogs, shell, shared components.",
     "Quasar.Agent": "In-DS plugin: telemetry, command execution, supervisor attach.",

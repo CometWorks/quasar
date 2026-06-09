@@ -181,6 +181,7 @@ public class Program
             builder.Services.AddSingleton<DiscordCommandRouter>();
             builder.Services.AddSingleton<DiscordChatRelayService>();
             builder.Services.AddSingleton<DiscordDeathRelayService>();
+            builder.Services.AddSingleton<DiscordSimSpeedAlertService>();
             builder.Services.AddSingleton<DiscordLogRelayService>();
             builder.Services.AddSingleton<DiscordAnalyticsExportService>();
             builder.Services.AddSingleton<DiscordBotService>();

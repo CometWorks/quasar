@@ -107,6 +107,11 @@
                                                  Label="Death messages channel ID"
                                                  Variant="Variant.Outlined"
                                                  Min="0" />
+                                <MudNumericField T="ulong?"
+                                                 @bind-Value="serverOptions.SimSpeedAlertChannelId"
+                                                 Label="SimSpeed alert channel ID"
+                                                 Variant="Variant.Outlined"
+                                                 Min="0" />
                                 <MudNumericField T="int"
                                                  @bind-Value="serverOptions.LogExportIntervalMinutes"
                                                  Label="Log export interval (minutes)"
@@ -126,6 +131,85 @@
                                               Label="Death emotes (comma-separated)"
                                               Variant="Variant.Outlined" />
                                 <MudCheckBox T="bool" @bind-Value="serverOptions.RelayNonCommandMessages" Label="Relay non-command Discord messages to game chat" />
+
+                                <MudDivider Class="my-1" />
+                                <MudText Typo="Typo.subtitle1">SimSpeed Rules</MudText>
+                                <MudGrid>
+                                    <MudItem xs="12" md="4">
+                                        <MudCheckBox T="bool" @bind-Value="serverOptions.EnableSimSpeedAlerts" Label="Enable simspeed alerts" />
+                                    </MudItem>
+                                    <MudItem xs="12" md="4">
+                                        <MudCheckBox T="bool" @bind-Value="serverOptions.EnableSimSpeedSharpDropAlerts" Label="Sharp drop rule" Disabled="@(!serverOptions.EnableSimSpeedAlerts)" />
+                                    </MudItem>
+                                    <MudItem xs="12" md="4">
+                                        <MudCheckBox T="bool" @bind-Value="serverOptions.EnableSimSpeedSustainedAlerts" Label="Sustained loss rule" Disabled="@(!serverOptions.EnableSimSpeedAlerts)" />
+                                    </MudItem>
+                                    <MudItem xs="12" sm="6" lg="4">
+                                        <MudNumericField T="float"
+                                                         @bind-Value="serverOptions.SimSpeedSharpDropPreviousMinimum"
+                                                         Label="Sharp previous minimum"
+                                                         Variant="Variant.Outlined"
+                                                         Min="@SimSpeedMin"
+                                                         Max="@SimSpeedMax"
+                                                         Step="@SimSpeedStep"
+                                                         Format="0.###"
+                                                         Disabled="@(!serverOptions.EnableSimSpeedAlerts || !serverOptions.EnableSimSpeedSharpDropAlerts)" />
+                                    </MudItem>
+                                    <MudItem xs="12" sm="6" lg="4">
+                                        <MudNumericField T="float"
+                                                         @bind-Value="serverOptions.SimSpeedSharpDropThreshold"
+                                                         Label="Sharp current threshold"
+                                                         Variant="Variant.Outlined"
+                                                         Min="@SimSpeedMin"
+                                                         Max="@SimSpeedMax"
+                                                         Step="@SimSpeedStep"
+                                                         Format="0.###"
+                                                         Disabled="@(!serverOptions.EnableSimSpeedAlerts || !serverOptions.EnableSimSpeedSharpDropAlerts)" />
+                                    </MudItem>
+                                    <MudItem xs="12" sm="6" lg="4">
+                                        <MudNumericField T="float"
+                                                         @bind-Value="serverOptions.SimSpeedSharpDropDelta"
+                                                         Label="Sharp drop delta"
+                                                         Variant="Variant.Outlined"
+                                                         Min="@SimSpeedMin"
+                                                         Max="@SimSpeedMax"
+                                                         Step="@SimSpeedStep"
+                                                         Format="0.###"
+                                                         Disabled="@(!serverOptions.EnableSimSpeedAlerts || !serverOptions.EnableSimSpeedSharpDropAlerts)" />
+                                    </MudItem>
+                                    <MudItem xs="12" sm="6" lg="4">
+                                        <MudNumericField T="int"
+                                                         @bind-Value="serverOptions.SimSpeedSharpDropCooldownSeconds"
+                                                         Label="Sharp cooldown (seconds)"
+                                                         Variant="Variant.Outlined"
+                                                         Min="0" />
+                                    </MudItem>
+                                    <MudItem xs="12" sm="6" lg="4">
+                                        <MudNumericField T="float"
+                                                         @bind-Value="serverOptions.SimSpeedSustainedThreshold"
+                                                         Label="Sustained threshold"
+                                                         Variant="Variant.Outlined"
+                                                         Min="@SimSpeedMin"
+                                                         Max="@SimSpeedMax"
+                                                         Step="@SimSpeedStep"
+                                                         Format="0.###"
+                                                         Disabled="@(!serverOptions.EnableSimSpeedAlerts || !serverOptions.EnableSimSpeedSustainedAlerts)" />
+                                    </MudItem>
+                                    <MudItem xs="12" sm="6" lg="4">
+                                        <MudNumericField T="int"
+                                                         @bind-Value="serverOptions.SimSpeedSustainedSeconds"
+                                                         Label="Sustained window (seconds)"
+                                                         Variant="Variant.Outlined"
+                                                         Min="5" />
+                                    </MudItem>
+                                    <MudItem xs="12" sm="6" lg="4">
+                                        <MudNumericField T="int"
+                                                         @bind-Value="serverOptions.SimSpeedSustainedCooldownSeconds"
+                                                         Label="Sustained cooldown (seconds)"
+                                                         Variant="Variant.Outlined"
+                                                         Min="0" />
+                                    </MudItem>
+                                </MudGrid>
 
                                 <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SaveServerAsync(definition.UniqueName))">
                                     Save Server
@@ -213,6 +297,10 @@
 
 @code
 {
+    private const float SimSpeedMin = 0f;
+    private const float SimSpeedMax = 2f;
+    private const float SimSpeedStep = 0.01f;
+
     private DiscordOptions _options = new();
     private DeathMessagesConfig _deathMessageConfig = DeathMessagesConfig.CreateDefault();
 

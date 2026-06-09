@@ -91,13 +91,14 @@
     "Quasar/Services/DedicatedServerSupervisor.cs",
     "Quasar/Services/EntityService.cs",
     "Quasar/Services/FileBrowserService.cs",
+    "Quasar/Services/IdentifierSlug.cs",
     "Quasar/Services/KnownPlayerCatalog.cs",
     "Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs",
     "Quasar/Services/ManagedRuntimeOptions.cs",
-    "Quasar/Services/ManagedRuntimeWarmupService.cs",
-    "Quasar/Services/PluginCatalogRefreshService.cs"
+    "Quasar/Services/ManagedRuntimeWarmupService.cs"
   ],
   "g05-services-core-b": [
+    "Quasar/Services/PluginCatalogRefreshService.cs",
     "Quasar/Services/PluginManifestReader.cs",
     "Quasar/Services/QuasarConfigMetadata.cs",
     "Quasar/Services/QuasarConfigProfileCatalog.cs",
@@ -155,7 +156,8 @@
     "Quasar/Services/Discord/DiscordLogRelayService.cs",
     "Quasar/Services/Discord/DiscordOptions.cs",
     "Quasar/Services/Discord/DiscordOptionsCatalog.cs",
-    "Quasar/Services/Discord/DiscordRateLimiter.cs"
+    "Quasar/Services/Discord/DiscordRateLimiter.cs",
+    "Quasar/Services/Discord/DiscordSimSpeedAlertService.cs"
   ],
   "g08-components-pages-a": [
     "Quasar/Components/Pages/Analytics.razor",
@@ -175,10 +177,10 @@
     "Quasar/Components/Pages/FolderPickerDialog.razor.css",
     "Quasar/Components/Pages/Home.razor",
     "Quasar/Components/Pages/Home.razor.css",
-    "Quasar/Components/Pages/Hosts.razor"
+    "Quasar/Components/Pages/Hosts.razor",
+    "Quasar/Components/Pages/MergeWorldTemplateModsDialog.razor"
   ],
   "g09-components-pages-b": [
-    "Quasar/Components/Pages/MergeWorldTemplateModsDialog.razor",
     "Quasar/Components/Pages/NotFound.razor",
     "Quasar/Components/Pages/Players.razor",
     "Quasar/Components/Pages/PluginCatalogDescriptionDialog.razor",
@@ -186,6 +188,7 @@
     "Quasar/Components/Pages/Plugins.razor",
     "Quasar/Components/Pages/Security.razor",
     "Quasar/Components/Pages/ServerConsoleDialog.razor",
+    "Quasar/Components/Pages/ServerDeleteDialog.razor",
     "Quasar/Components/Pages/ServerEditorDialog.razor",
     "Quasar/Components/Pages/ServerEditorDialog.razor.css",
     "Quasar/Components/Pages/Servers.razor",
