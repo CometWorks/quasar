@@ -16,6 +16,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     private const string MagnetarLauncherName = "MagnetarInterim";
     private const string DedicatedServerAppId = "298740";
     private const string DedicatedServerExecutableName = "SpaceEngineersDedicated";
+    private const int DedicatedServerInstallMaxAttempts = 3;
     private static readonly string[] MagnetarLauncherFileNames =
     [
         "MagnetarInterim",
@@ -488,61 +489,91 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         await _dedicatedServerInstallLock.WaitAsync(cancellationToken);
         try
         {
-            hadValidInstall = IsValidDedicatedServer64Directory(dedicatedServer64Path);
-
-            Directory.CreateDirectory(_options.DedicatedServerInstallDirectory);
-
-            _logger.LogInformation("{Action} Space Engineers Dedicated Server via SteamCMD...", hadValidInstall ? "Updating" : "Downloading");
-            progress?.Report(new ManagedRuntimeInstallProgress(
-                ManagedRuntimeInstallComponent.DedicatedServer,
-                hadValidInstall ? ManagedRuntimeInstallPhase.Installing : ManagedRuntimeInstallPhase.Downloading,
-                hadValidInstall
-                    ? "Updating Space Engineers Dedicated Server via SteamCMD."
-                    : "Downloading Space Engineers Dedicated Server via SteamCMD.",
-                Path: dedicatedServer64Path));
-            var process = new Process
+            for (var attempt = 1; attempt <= DedicatedServerInstallMaxAttempts; attempt++)
             {
-                StartInfo = CreateSteamCmdStartInfo(
-                    steamCmdPath,
-                    BuildDedicatedServerUpdateArguments(_options.DedicatedServerInstallDirectory)),
-            };
+                hadValidInstall = IsValidDedicatedServer64Directory(dedicatedServer64Path);
 
-            try
-            {
-                if (!process.Start())
+                Directory.CreateDirectory(_options.DedicatedServerInstallDirectory);
+
+                _logger.LogInformation(
+                    "{Action} Space Engineers Dedicated Server via SteamCMD (attempt {Attempt}/{MaxAttempts})...",
+                    hadValidInstall ? "Updating" : "Downloading",
+                    attempt,
+                    DedicatedServerInstallMaxAttempts);
+                progress?.Report(new ManagedRuntimeInstallProgress(
+                    ManagedRuntimeInstallComponent.DedicatedServer,
+                    hadValidInstall ? ManagedRuntimeInstallPhase.Installing : ManagedRuntimeInstallPhase.Downloading,
+                    $"{(hadValidInstall ? "Updating" : "Downloading")} Space Engineers Dedicated Server via SteamCMD (attempt {attempt}/{DedicatedServerInstallMaxAttempts}).",
+                    Path: dedicatedServer64Path));
+                using var process = new Process
+                {
+                    StartInfo = CreateSteamCmdStartInfo(
+                        steamCmdPath,
+                        BuildDedicatedServerUpdateArguments(_options.DedicatedServerInstallDirectory)),
+                };
+
+                try
+                {
+                    if (!process.Start())
+                    {
+                        if (attempt < DedicatedServerInstallMaxAttempts)
+                            continue;
+
+                        return string.Empty;
+                    }
+                }
+                catch (Exception exception)
+                {
+                    _logger.LogWarning(
+                        exception,
+                        "Failed starting steamcmd for managed DS install attempt {Attempt}/{MaxAttempts}.",
+                        attempt,
+                        DedicatedServerInstallMaxAttempts);
+                    if (attempt < DedicatedServerInstallMaxAttempts)
+                        continue;
+
                     return string.Empty;
-            }
-            catch (Exception exception)
-            {
-                _logger.LogWarning(exception, "Failed starting steamcmd for managed DS install.");
-                process.Dispose();
-                return string.Empty;
+                }
+
+                var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+                await process.WaitForExitAsync(cancellationToken);
+                var stdout = await stdoutTask;
+                var stderr = await stderrTask;
+
+                if (process.ExitCode != 0)
+                {
+                    _logger.LogWarning(
+                        "steamcmd failed installing/updating managed DS on attempt {Attempt}/{MaxAttempts}. ExitCode={ExitCode}. Stdout={Stdout}. Stderr={Stderr}",
+                        attempt,
+                        DedicatedServerInstallMaxAttempts,
+                        process.ExitCode,
+                        TrimForLog(stdout),
+                        TrimForLog(stderr));
+                    if (attempt < DedicatedServerInstallMaxAttempts)
+                        continue;
+
+                    return hadValidInstall ? dedicatedServer64Path : string.Empty;
+                }
+
+                if (!IsValidDedicatedServer64Directory(dedicatedServer64Path))
+                {
+                    _logger.LogWarning(
+                        "steamcmd completed but DedicatedServer64 not found under {Path} on attempt {Attempt}/{MaxAttempts}.",
+                        _options.DedicatedServerInstallDirectory,
+                        attempt,
+                        DedicatedServerInstallMaxAttempts);
+                    if (attempt < DedicatedServerInstallMaxAttempts)
+                        continue;
+
+                    return string.Empty;
+                }
+
+                _logger.LogInformation("{Action} managed DedicatedServer64 into {Path}.", hadValidInstall ? "Updated" : "Installed", dedicatedServer64Path);
+                return dedicatedServer64Path;
             }
 
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-            await process.WaitForExitAsync(cancellationToken);
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogWarning(
-                    "steamcmd failed installing/updating managed DS. ExitCode={ExitCode}. Stdout={Stdout}. Stderr={Stderr}",
-                    process.ExitCode,
-                    TrimForLog(stdout),
-                    TrimForLog(stderr));
-                return hadValidInstall ? dedicatedServer64Path : string.Empty;
-            }
-
-            if (!IsValidDedicatedServer64Directory(dedicatedServer64Path))
-            {
-                _logger.LogWarning("steamcmd completed but DedicatedServer64 not found under {Path}.", _options.DedicatedServerInstallDirectory);
-                return string.Empty;
-            }
-
-            _logger.LogInformation("{Action} managed DedicatedServer64 into {Path}.", hadValidInstall ? "Updated" : "Installed", dedicatedServer64Path);
-            return dedicatedServer64Path;
+            return hadValidInstall ? dedicatedServer64Path : string.Empty;
         }
         finally
         {

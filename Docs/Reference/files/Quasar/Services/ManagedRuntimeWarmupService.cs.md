@@ -18,6 +18,7 @@ Namespace: `Quasar.Services`
 | `GetSnapshot()` | Returns a copy of the current `ManagedRuntimeWarmupSnapshot`. |
 | `bool IsReady` | True only after SteamCMD and Dedicated Server readiness completes. Used by `DedicatedServerSupervisor` to gate managed server launches. |
 | `BlockLaunchMessage` | User-facing reason shown when a launch is requested before managed runtime readiness. |
+| `RetryAsync(ct)` | Reruns the same readiness workflow for dashboard retry after a failed Dedicated Server download. A semaphore prevents concurrent warmups. |
 | `ExecuteAsync(ct)` | Transitions `Pending → Running`, calls `_runtimeResolver.EnsureManagedRuntimeReadyAsync` with a progress reporter, then transitions to `Complete` or `Failed`. |
 | `ApplyProgress(...)` | Maps resolver progress events into per-component snapshot rows and raises `Changed` for live UI refresh. |
 
