@@ -4,7 +4,7 @@
 
 ## Summary
 
-`ManagedRuntimeWarmupService` is a `BackgroundService` that proactively resolves the managed runtime (Magnetar + DS) shortly after Quasar starts, so the first real server launch does not block on slow downloads. It exposes a `ManagedRuntimeWarmupSnapshot` for UI status display and fires a `Changed` event on transitions.
+`ManagedRuntimeWarmupService` is a `BackgroundService` that immediately checks and prepares the managed SteamCMD and Space Engineers Dedicated Server installs at Quasar startup, so managed Magnetar launches are blocked until those prerequisites are ready. It exposes a component-level `ManagedRuntimeWarmupSnapshot` for dashboard progress display and fires a `Changed` event on every status update.
 
 ## Structure
 
@@ -16,13 +16,19 @@ Namespace: `Quasar.Services`
 |---|---|
 | `event Action? Changed` | Raised on state transitions. |
 | `GetSnapshot()` | Returns a copy of the current `ManagedRuntimeWarmupSnapshot`. |
-| `ExecuteAsync(ct)` | Waits 2 s, calls `_runtimeResolver.ResolveAsync` with a dummy `DedicatedServerDefinition{UniqueName="warmup"}`, transitions `Pending → Running → Complete/Failed`. |
+| `bool IsReady` | True only after SteamCMD and Dedicated Server readiness completes. Used by `DedicatedServerSupervisor` to gate managed server launches. |
+| `BlockLaunchMessage` | User-facing reason shown when a launch is requested before managed runtime readiness. |
+| `ExecuteAsync(ct)` | Transitions `Pending → Running`, calls `_runtimeResolver.EnsureManagedRuntimeReadyAsync` with a progress reporter, then transitions to `Complete` or `Failed`. |
+| `ApplyProgress(...)` | Maps resolver progress events into per-component snapshot rows and raises `Changed` for live UI refresh. |
 
 **`ManagedRuntimeWarmupState`** — enum `{Pending, Running, Complete, Failed}`.
 
-**`ManagedRuntimeWarmupSnapshot`** — sealed record `{State, Message, UpdatedAtUtc}`.
+**`ManagedRuntimeWarmupSnapshot`** — sealed record `{State, Message, Components, UpdatedAtUtc}`. `CreateInitial()` seeds SteamCMD and Dedicated Server rows; `Copy()` returns a detached component list; `WithComponent` / `WithComponents` update immutable row data.
+
+**`ManagedRuntimeComponentState`** — enum `{Pending, Checking, Downloading, Installing, Ready, Failed}`.
+
+**`ManagedRuntimeComponentSnapshot`** — sealed record carrying component id, display name, state, message, optional percent, and path.
 
 ## Dependencies
 
-- [`Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs`](ManagedDedicatedServerRuntimeResolver.cs.md) — `ResolveAsync`
-- [`Quasar/Models/DedicatedServerDefinition.cs`](../Models/DedicatedServerDefinition.cs.md) — dummy definition for warmup call
+- [`Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs`](ManagedDedicatedServerRuntimeResolver.cs.md) — `EnsureManagedRuntimeReadyAsync`, progress DTOs

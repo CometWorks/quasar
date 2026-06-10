@@ -573,6 +573,7 @@
     "Quasar/Services/DedicatedServerCatalog.cs",
     "Quasar/Services/DedicatedServerRuntimePreparer.cs",
     "Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs",
+    "Quasar/Services/ManagedRuntimeWarmupService.cs",
     "Quasar/Services/PluginSdk/PluginLogStream.cs",
     "Quasar/Services/WebServiceOptions.cs"
   ],
@@ -640,7 +641,6 @@
   ],
   "Quasar/Services/ManagedRuntimeOptions.cs": [],
   "Quasar/Services/ManagedRuntimeWarmupService.cs": [
-    "Quasar/Models/DedicatedServerDefinition.cs",
     "Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs"
   ],
   "Quasar/Services/PluginCatalogRefreshService.cs": [

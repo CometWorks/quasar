@@ -8,6 +8,15 @@ same `appsettings.json` under the `Quasar` section; the update settings are
 documented in [Windows](WindowsDeploymentAndUpdates.md) and
 [Linux](LinuxDeploymentAndUpdates.md) deployment guides.
 
+## Managed runtime startup check
+
+When Quasar starts, it immediately checks the managed SteamCMD install and the
+managed Space Engineers Dedicated Server install. Missing installs are downloaded
+in the background and the Dashboard shows a Managed Runtime panel with live
+status for both. Managed Magnetar server launches are blocked until those
+prerequisites are ready; on Linux this also prepares SteamCMD's `linux64` native
+runtime directory so Quasar can pass it through `LD_LIBRARY_PATH`.
+
 ## Where configuration is read from
 
 Both the **Bootstrap launcher** (`Quasar`/`Quasar.exe`) and the replaceable **web

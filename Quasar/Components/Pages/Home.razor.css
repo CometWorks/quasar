@@ -40,3 +40,30 @@
     justify-content: space-between;
     gap: 0.75rem;
 }
+
+.runtime-status-grid {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.runtime-status-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(10rem, 16rem);
+    align-items: center;
+    gap: 1rem;
+}
+
+.runtime-status-copy {
+    min-width: 0;
+}
+
+.runtime-status-progress {
+    display: grid;
+    gap: 0.25rem;
+}
+
+@media (max-width: 600px) {
+    .runtime-status-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

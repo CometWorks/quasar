@@ -47,11 +47,17 @@ The solution file is `Quasar.sln`.
   Magnetar release asset matching `MagnetarForLinux-*.7z`; a `NetFramework48`
   selection carried over from a Windows `server.json` is silently downgraded to
   .NET 10.
-- On Linux, Quasar also exposes SteamCMD's `linux64` native runtime directory to
-  the Magnetar child process through `LD_LIBRARY_PATH` when that directory
-  contains `steamclient.so`, `libtier0_s.so`, and `libvstdlib_s.so`. This lets
-  Steam GameServer initialization work on headless hosts that do not have a
-  desktop Steam install under `~/.local/share/Steam`.
+- At Quasar startup, the managed runtime warmup immediately checks the managed
+  SteamCMD install and the managed Space Engineers Dedicated Server install. If
+  either is missing, Quasar downloads it before managed Magnetar servers can be
+  launched. The dashboard shows live SteamCMD and Dedicated Server preparation
+  status while this happens.
+- On Linux, Quasar prepares its managed SteamCMD `linux64` native runtime
+  directory and exposes it to the Magnetar child process through
+  `LD_LIBRARY_PATH` when that directory contains `steamclient.so`,
+  `libtier0_s.so`, and `libvstdlib_s.so`. This lets Steam GameServer
+  initialization work on fresh headless hosts that do not have a desktop Steam
+  install under `~/.local/share/Steam`.
 
 ## Utilities
 

@@ -7,11 +7,7 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
     private readonly ManagedDedicatedServerRuntimeResolver _runtimeResolver;
     private readonly ILogger<ManagedRuntimeWarmupService> _logger;
     private readonly object _sync = new();
-    private ManagedRuntimeWarmupSnapshot _snapshot = new()
-    {
-        State = ManagedRuntimeWarmupState.Pending,
-        Message = "Managed runtime warmup pending.",
-    };
+    private ManagedRuntimeWarmupSnapshot _snapshot = ManagedRuntimeWarmupSnapshot.CreateInitial();
 
     public ManagedRuntimeWarmupService(
         ManagedDedicatedServerRuntimeResolver runtimeResolver,
@@ -27,7 +23,31 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
     {
         lock (_sync)
         {
-            return _snapshot with { };
+            return _snapshot.Copy();
+        }
+    }
+
+    public bool IsReady
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _snapshot.State == ManagedRuntimeWarmupState.Complete;
+            }
+        }
+    }
+
+    public string BlockLaunchMessage
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _snapshot.State == ManagedRuntimeWarmupState.Failed
+                    ? _snapshot.Message
+                    : "Managed SteamCMD and Dedicated Server runtime are still preparing.";
+            }
         }
     }
 
@@ -35,15 +55,17 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
     {
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
-            SetState(ManagedRuntimeWarmupState.Running, "Preparing managed Magnetar and Dedicated Server runtime in background.");
+            SetState(ManagedRuntimeWarmupState.Running, "Preparing managed SteamCMD and Dedicated Server runtime.");
 
-            await _runtimeResolver.ResolveAsync(new DedicatedServerDefinition
+            var progress = new Progress<ManagedRuntimeInstallProgress>(ApplyProgress);
+            var readiness = await _runtimeResolver.EnsureManagedRuntimeReadyAsync(progress, stoppingToken);
+            if (!readiness.IsReady)
             {
-                UniqueName = "warmup",
-            }, stoppingToken);
+                SetState(ManagedRuntimeWarmupState.Failed, readiness.FailureMessage);
+                return;
+            }
 
-            SetState(ManagedRuntimeWarmupState.Complete, "Managed runtime ready.");
+            SetState(ManagedRuntimeWarmupState.Complete, "Managed SteamCMD and Dedicated Server runtime ready.");
         }
         catch (OperationCanceledException)
         {
@@ -59,16 +81,57 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
     {
         lock (_sync)
         {
-            _snapshot = new ManagedRuntimeWarmupSnapshot
+            _snapshot = _snapshot with
             {
                 State = state,
                 Message = message,
+                UpdatedAtUtc = DateTimeOffset.UtcNow,
+            };
+
+            if (state == ManagedRuntimeWarmupState.Failed)
+            {
+                _snapshot = _snapshot.WithComponents(component => component.State is ManagedRuntimeComponentState.Ready
+                    ? component
+                    : component with
+                    {
+                        State = ManagedRuntimeComponentState.Failed,
+                        Message = message,
+                        Percent = null,
+                    });
+            }
+        }
+
+        Changed?.Invoke();
+    }
+
+    private void ApplyProgress(ManagedRuntimeInstallProgress progress)
+    {
+        lock (_sync)
+        {
+            _snapshot = _snapshot.WithComponent(progress.Component, component => component with
+            {
+                State = MapState(progress.Phase),
+                Message = progress.Message,
+                Percent = progress.Percent,
+                Path = progress.Path,
+            }) with
+            {
                 UpdatedAtUtc = DateTimeOffset.UtcNow,
             };
         }
 
         Changed?.Invoke();
     }
+
+    private static ManagedRuntimeComponentState MapState(ManagedRuntimeInstallPhase phase) => phase switch
+    {
+        ManagedRuntimeInstallPhase.Checking => ManagedRuntimeComponentState.Checking,
+        ManagedRuntimeInstallPhase.Downloading => ManagedRuntimeComponentState.Downloading,
+        ManagedRuntimeInstallPhase.Installing => ManagedRuntimeComponentState.Installing,
+        ManagedRuntimeInstallPhase.Ready => ManagedRuntimeComponentState.Ready,
+        ManagedRuntimeInstallPhase.Failed => ManagedRuntimeComponentState.Failed,
+        _ => ManagedRuntimeComponentState.Pending,
+    };
 }
 
 public enum ManagedRuntimeWarmupState
@@ -85,5 +148,72 @@ public sealed record ManagedRuntimeWarmupSnapshot
 
     public string Message { get; init; } = string.Empty;
 
+    public IReadOnlyList<ManagedRuntimeComponentSnapshot> Components { get; init; } = [];
+
     public DateTimeOffset UpdatedAtUtc { get; init; } = DateTimeOffset.UtcNow;
+
+    public static ManagedRuntimeWarmupSnapshot CreateInitial() => new()
+    {
+        State = ManagedRuntimeWarmupState.Pending,
+        Message = "Managed runtime warmup pending.",
+        Components =
+        [
+            new ManagedRuntimeComponentSnapshot
+            {
+                Component = ManagedRuntimeInstallComponent.SteamCmd,
+                DisplayName = "SteamCMD",
+                State = ManagedRuntimeComponentState.Pending,
+                Message = "Waiting to check SteamCMD.",
+            },
+            new ManagedRuntimeComponentSnapshot
+            {
+                Component = ManagedRuntimeInstallComponent.DedicatedServer,
+                DisplayName = "Dedicated Server",
+                State = ManagedRuntimeComponentState.Pending,
+                Message = "Waiting to check Dedicated Server.",
+            },
+        ],
+    };
+
+    public ManagedRuntimeWarmupSnapshot Copy() => this with
+    {
+        Components = Components.Select(component => component with { }).ToList(),
+    };
+
+    public ManagedRuntimeWarmupSnapshot WithComponent(
+        ManagedRuntimeInstallComponent component,
+        Func<ManagedRuntimeComponentSnapshot, ManagedRuntimeComponentSnapshot> update) =>
+        WithComponents(current => current.Component == component ? update(current) : current);
+
+    public ManagedRuntimeWarmupSnapshot WithComponents(
+        Func<ManagedRuntimeComponentSnapshot, ManagedRuntimeComponentSnapshot> update) =>
+        this with
+        {
+            Components = Components.Select(update).ToList(),
+        };
+}
+
+public enum ManagedRuntimeComponentState
+{
+    Pending = 0,
+    Checking = 1,
+    Downloading = 2,
+    Installing = 3,
+    Ready = 4,
+    Failed = 5,
+}
+
+public sealed record ManagedRuntimeComponentSnapshot
+{
+    public ManagedRuntimeInstallComponent Component { get; init; }
+
+    public string DisplayName { get; init; } = string.Empty;
+
+    public ManagedRuntimeComponentState State { get; init; }
+
+    public string Message { get; init; } = string.Empty;
+
+    public int? Percent { get; init; }
+
+    public string Path { get; init; } = string.Empty;
 }
