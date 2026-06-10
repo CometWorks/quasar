@@ -15,7 +15,9 @@ managed Space Engineers Dedicated Server install. Missing installs are downloade
 in the background and the Dashboard shows a Managed Runtime panel with live
 status for both. Managed Magnetar server launches are blocked until those
 prerequisites are ready; on Linux this also prepares SteamCMD's `linux64` native
-runtime directory so Quasar can pass it through `LD_LIBRARY_PATH`.
+runtime directory so Quasar can pass it through `LD_LIBRARY_PATH`. The Dedicated
+Server download is attempted up to three times before it is marked failed; the
+Dashboard then shows a retry button on the Dedicated Server row.
 
 ## Where configuration is read from
 

@@ -379,7 +379,19 @@
                                            Value="@(component.Percent ?? 0)"
                                            Indeterminate="@IsRuntimeComponentIndeterminate(component)"
                                            Rounded="true" />
-                        <MudText Typo="Typo.caption">@GetRuntimeComponentLabel(component)</MudText>
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="1">
+                            <MudText Typo="Typo.caption">@GetRuntimeComponentLabel(component)</MudText>
+                            @if (CanRetryRuntimeComponent(component))
+                            {
+                                <MudButton Variant="Variant.Outlined"
+                                           Color="Color.Primary"
+                                           Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.Refresh"
+                                           OnClick="RetryRuntimeWarmupAsync">
+                                    Retry
+                                </MudButton>
+                            }
+                        </MudStack>
                     </div>
                 </div>
             }
@@ -684,6 +696,13 @@ else
         }
     }
 
+    private Task RetryRuntimeWarmupAsync()
+    {
+        _ = RuntimeWarmup.RetryAsync();
+        Snackbar.Add("Dedicated Server download retry started.", Severity.Info);
+        return Task.CompletedTask;
+    }
+
     private async Task StopAsync(string uniqueName)
     {
         try
@@ -877,5 +896,9 @@ else
         ManagedRuntimeComponentState.Checking => "Checking",
         _ => "Pending",
     };
+
+    private static bool CanRetryRuntimeComponent(ManagedRuntimeComponentSnapshot component) =>
+        component.Component == ManagedRuntimeInstallComponent.DedicatedServer &&
+        component.State == ManagedRuntimeComponentState.Failed;
 
 }

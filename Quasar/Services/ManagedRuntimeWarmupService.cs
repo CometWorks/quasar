@@ -7,6 +7,7 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
     private readonly ManagedDedicatedServerRuntimeResolver _runtimeResolver;
     private readonly ILogger<ManagedRuntimeWarmupService> _logger;
     private readonly object _sync = new();
+    private readonly SemaphoreSlim _runLock = new(1, 1);
     private ManagedRuntimeWarmupSnapshot _snapshot = ManagedRuntimeWarmupSnapshot.CreateInitial();
 
     public ManagedRuntimeWarmupService(
@@ -51,8 +52,19 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
         }
     }
 
+    public Task RetryAsync(CancellationToken cancellationToken = default) =>
+        RunWarmupAsync(cancellationToken);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await RunWarmupAsync(stoppingToken);
+    }
+
+    private async Task RunWarmupAsync(CancellationToken stoppingToken)
+    {
+        if (!await _runLock.WaitAsync(0, stoppingToken))
+            return;
+
         try
         {
             SetState(ManagedRuntimeWarmupState.Running, "Preparing managed SteamCMD and Dedicated Server runtime.");
@@ -75,12 +87,20 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
             _logger.LogWarning(exception, "Managed runtime warmup failed.");
             SetState(ManagedRuntimeWarmupState.Failed, exception.Message);
         }
+        finally
+        {
+            _runLock.Release();
+        }
     }
 
     private void SetState(ManagedRuntimeWarmupState state, string message)
     {
         lock (_sync)
         {
+            _snapshot = state == ManagedRuntimeWarmupState.Running
+                ? ManagedRuntimeWarmupSnapshot.CreateInitial()
+                : _snapshot;
+
             _snapshot = _snapshot with
             {
                 State = state,
