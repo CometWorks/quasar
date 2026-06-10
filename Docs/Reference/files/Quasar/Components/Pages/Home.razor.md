@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Routable root page (`/`) serving as the main dashboard. Shows a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, a managed-runtime warmup status alert, and a `ServerCard` grid for all configured instances. Servers can be started, stopped, restarted, and opened in the log dialog directly from the dashboard, and the wizard opens full-screen page dialogs for config-template, world-template, and server creation.
+Routable root page (`/`) serving as the main dashboard. Shows a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, a Managed Runtime panel with SteamCMD and Dedicated Server readiness/download progress, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, and a `ServerCard` grid for all configured instances. Servers can be started, stopped, restarted, and opened in the log dialog directly from the dashboard, and the wizard opens full-screen page dialogs for config-template, world-template, and server creation.
 
 ## Structure
 - **Route:** `@page "/"`; **Implements:** `IDisposable`
@@ -19,15 +19,15 @@ Routable root page (`/`) serving as the main dashboard. Shows a five-step first-
     Plus a Back button when past step 0.
   - Global health-monitoring info alert (`MudAlert`) — a single top-of-dashboard "Health monitoring disabled for this Quasar instance (development mode or configuration)" shown when `Supervisor.HealthMonitoringDisabled` is true, instead of repeating the message on every server card.
   - Problem banner (`MudAlert`) — first unhealthy/crashed/faulted, else first warning instance message.
-  - Runtime warmup alert — shown when `RuntimeWarmupSnapshot.State` is Running or Failed.
+  - Managed Runtime panel — visible only while warmup is pending/running/failed; hides after readiness completes. It shows overall warmup state plus SteamCMD and Dedicated Server component rows with status text, paths, and determinate/indeterminate `MudProgressLinear` progress. Start buttons are disabled until readiness is complete. A Retry button appears on the Dedicated Server row when that download fails.
   - KPI summary grid (4 cards): Online Servers, Players Online, Health Warnings (warning tint when > 0), Errors (error tint when > 0).
-  - `ServerCard` grid — one `<ServerCard>` per server with runtime snapshot and connected agent; callbacks `StartRequested`/`StopRequested`/`RestartRequested`/`OpenLogsRequested`. When no servers and wizard hidden, shows an info alert.
+  - `ServerCard` grid — one `<ServerCard>` per server with runtime snapshot, connected agent, and `LaunchBlocked` readiness state; callbacks `StartRequested`/`StopRequested`/`RestartRequested`/`OpenLogsRequested`. When no servers and wizard hidden, shows an info alert.
 - **Setup-wizard state (fields):** `_setupWizardRequested`, `_setupWizardDismissed`, `_setupWizardActive`, `_skippedSetupSteps` (HashSet), `_setupStepOverride`.
 - **Wizard visibility:** `ShowSetupWizard => (_setupWizardActive || _setupWizardRequested) && !_setupWizardDismissed`. `OnInitialized` sets `_setupWizardActive = ConfiguredServerCount == 0`, so the wizard auto-opens only until the first server exists; once shown it stays for the session. `ShowSetupWizardAgain` re-requests it; `HideSetupWizard` dismisses it.
 - **Step model:** `IsSetupStepComplete(0..4)` keyed on config-profile count / world-template count (or skipped) / server count / running count / connected-agent count; `CurrentSetupStep` returns the first incomplete step (or a clamped override); `SetupProgressPercent`, `SkipCurrentSetupStep`, `GoToPreviousSetupStep`.
-- **KPI/state computed props:** `OnlineServerCount`, `PlayersOnline`, `ConfiguredServerCount`, `RunningServerCount`, `WarningServerCount`, `UnhealthyServerCount`, `ConnectedAgentCount`, `ProblemBanner`, `StartableServers`, `LaunchedServers`.
-- **Actions:** `StartAsync`/`StopAsync` set goal state via `Supervisor.SetGoalStateAsync`; `RestartAsync` calls `Supervisor.RestartServerAsync`; `OpenLogsAsync` opens `ServerConsoleDialog`; all snackbar success/error where applicable. `ShowFullScreenPageDialogAsync<TDialog>` opens full-screen `MudDialog`s.
-- **Helpers:** `GetRuntime`/`GetAgent`/`IsRunning`/`IsOpen`, `GetServerSetupSummary`, `GetSetupRuntimeSummary`, `GetSetup*Text`/`GetSetup*Color`, `GetProblemCardClass`, `GetNextSetupHint`, `GetSetupProgressText`.
+- **KPI/state computed props:** `OnlineServerCount`, `PlayersOnline`, `ConfiguredServerCount`, `RunningServerCount`, `WarningServerCount`, `UnhealthyServerCount`, `ConnectedAgentCount`, `ProblemBanner`, `StartableServers`, `LaunchedServers`, `IsLaunchBlocked`.
+- **Actions:** `StartAsync` blocks with a warning snackbar while managed runtime warmup is incomplete, otherwise sets goal state via `Supervisor.SetGoalStateAsync`; `RetryRuntimeWarmupAsync` calls `RuntimeWarmup.RetryAsync` from the Dedicated Server failed row; `StopAsync` sets goal Off; `RestartAsync` calls `Supervisor.RestartServerAsync`; `OpenLogsAsync` opens `ServerConsoleDialog`; all snackbar success/error where applicable. `ShowFullScreenPageDialogAsync<TDialog>` opens full-screen `MudDialog`s.
+- **Helpers:** `GetRuntime`/`GetAgent`/`IsRunning`/`IsOpen`, `GetServerSetupSummary`, `GetSetupRuntimeSummary`, `GetSetup*Text`/`GetSetup*Color`, `GetRuntimeWarmup*`, `GetRuntimeComponent*`, `CanRetryRuntimeComponent`, `GetProblemCardClass`, `GetNextSetupHint`, `GetSetupProgressText`.
 - **Event subscriptions** (subscribed in `OnInitialized`, released in `Dispose`): `Registry.Changed`, `ServerCatalog.Changed`, `Supervisor.Changed`, `ConfigProfiles.Changed`, `WorldTemplates.Changed`, `RuntimeWarmup.Changed`; `HandleRegistryChanged` marshals `StateHasChanged`.
 
 ## Dependencies
@@ -40,7 +40,7 @@ Routable root page (`/`) serving as the main dashboard. Shows a five-step first-
 - `Quasar/Components/ServerCard.razor` (child component)
 - `Quasar/Components/Pages/ConfigsPageDialog.razor`, `WorldTemplatesPageDialog.razor`, `ServersPageDialog.razor` (full-screen wizard dialogs)
 - `Magnetar.Protocol` — process/health/goal state enums, runtime snapshots
-- MudBlazor (`MudProgressLinear`, `MudAlert`, `MudGrid`, `MudChip`, `IDialogService`, `ISnackbar`)
+- MudBlazor (`MudProgressLinear`, `MudAlert`, `MudGrid`, `MudChip`, `MudPaper`, `IDialogService`, `ISnackbar`)
 
 ## Notes
 - Server existence (`ConfiguredServerCount`) is the authoritative, persisted signal for auto-opening the wizard: once the first server is created the wizard never auto-opens again, but it can be reopened with "Restart Setup Wizard". There is no browser local-storage persistence of wizard state.

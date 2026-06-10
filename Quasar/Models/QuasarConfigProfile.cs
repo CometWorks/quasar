@@ -253,6 +253,22 @@ public sealed class QuasarSessionSettings
 
     public bool EnableRespawnShips { get; set; } = true;
 
+    public bool EnableSpaceSuitRespawn { get; set; } = true;
+
+    public double EnvironmentDamageMultiplier { get; set; } = 1.0;
+
+    public double BackpackDespawnTimer { get; set; } = 5.0;
+
+    public bool EnableRadiation { get; set; } = true;
+
+    public double SolarRadiationIntensity { get; set; }
+
+    public double FoodConsumptionRate { get; set; }
+
+    public bool EnableSurvivalBuffs { get; set; } = true;
+
+    public bool EnableReducedStatsOnRespawn { get; set; } = true;
+
     public bool ScenarioEditMode { get; set; }
 
     public bool Scenario { get; set; }

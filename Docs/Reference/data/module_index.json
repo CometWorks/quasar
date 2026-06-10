@@ -326,7 +326,7 @@
       "name": "ServerCard.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Card component for a single managed server shown on the Dashboard. Displays the server display name, status chip (OFF / STARTING / CONNECTING / OPEN / STOPPING), host/world caption, last message or health summary, Start / Stop / Restart action buttons, and a terminal icon button for opening the server log dialog beside Restart. Embeds `ServerDetailPanel` as its card body content."
+      "summary": "Card component for a single managed server shown on the Dashboard. Displays the server display name, status chip (OFF / STARTING / CONNECTING / OPEN / STOPPING), host/world caption, last message or health summary, Start / Stop / Restart action buttons, and a terminal icon button for opening the server log dialog beside Restart. The Start button can be disabled by the dashboard while managed runtime prerequisites are still preparing. Embeds `ServerDetailPanel` as its card body content."
     },
     {
       "path": "Quasar/Components/Dashboard/ServerDetailPanel.razor",
@@ -494,14 +494,14 @@
       "name": "Home.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable root page (`/`) serving as the main dashboard. Shows a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, a managed-runtime warmup status alert, and a `ServerCard` grid for all configured instances. Servers can be started, stopped, restarted, and opened in the log dialog directly from the dashboard, and the wizard opens full-screen page dialogs for config-template, world-template, and server creation."
+      "summary": "Routable root page (`/`) serving as the main dashboard. Shows a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, a Managed Runtime panel with SteamCMD and Dedicated Server readiness/download progress, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, and a `ServerCard` grid for all configured instances. Servers can be started, stopped, restarted, and opened in the log dialog directly from the dashboard, and the wizard opens full-screen page dialogs for config-template, world-template, and server creation."
     },
     {
       "path": "Quasar/Components/Pages/Home.razor.css",
       "name": "Home.razor.css",
       "kind": "CSS",
       "tier": 3,
-      "summary": "Scoped stylesheet for `Home.razor`. Provides layout primitives for the setup wizard step container, individual step cards, text/action column sizing, and the instance-status list rows within the wizard."
+      "summary": "Scoped stylesheet for `Home.razor`. Provides layout primitives for the setup wizard step container, individual step cards, text/action column sizing, instance-status list rows within the wizard, and the Managed Runtime readiness/progress panel."
     },
     {
       "path": "Quasar/Components/Pages/Hosts.razor",
@@ -699,7 +699,7 @@
       "name": "DedicatedServerDefinition.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Persistent configuration record for a single managed Space Engineers dedicated server. Contains all fields needed to launch, supervise, health-monitor, rotate retained DS logs, emit optional launch diagnostics, select profiler mode, and schedule restarts for a server, as well as process-priority, CPU-affinity, and managed-runtime settings. Serialized to disk as part of the server catalog."
+      "summary": "Persistent configuration record for a single managed Space Engineers dedicated server. Contains all fields needed to launch, supervise, health-monitor, rotate retained DS logs, emit optional launch diagnostics, and schedule restarts for a server, as well as process-priority, CPU-affinity, and managed-runtime settings. Serialized to disk as part of the server catalog."
     },
     {
       "path": "Quasar/Models/DedicatedServerGoalState.cs",
@@ -990,7 +990,7 @@
       "name": "ManagedDedicatedServerRuntimeResolver.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`ManagedDedicatedServerRuntimeResolver` resolves the paths needed to launch a dedicated server \u2014 the Magnetar launcher executable, its working directory, the `DedicatedServer64` directory, and any native-library search paths required by the child process \u2014 and auto-installs Magnetar, SteamCMD, and the DS itself when absent. It supports `.zip`, `.tar.gz`, and `.7z` archives for both Magnetar and SteamCMD downloads, guarded by per-component `SemaphoreSlim` install locks. The Magnetar install path branches by OS: Windows ships both runtime builds (`MagnetarInterim.exe` on .NET 10 and `MagnetarLegacy.exe` on .NET Framework 4.8) side-by-side and honors the per-server `DedicatedServerDefinition.ManagedRuntime` selection, while Linux ships a single Interim build behind a top-level wrapper with the apphost under `Bin/`."
+      "summary": "`ManagedDedicatedServerRuntimeResolver` resolves the paths needed to launch a dedicated server \u2014 the Magnetar launcher executable, its working directory, the `DedicatedServer64` directory, and any native-library search paths required by the child process \u2014 and auto-installs Magnetar, SteamCMD, and the DS itself when absent. It also exposes a startup readiness workflow that reports SteamCMD and Dedicated Server download/install progress before managed launches are allowed. It supports `.zip`, `.tar.gz`, and `.7z` archives for both Magnetar and SteamCMD downloads, guarded by per-component `SemaphoreSlim` install locks. The Magnetar install path branches by OS: Windows ships both runtime builds (`MagnetarInterim.exe` on .NET 10 and `MagnetarLegacy.exe` on .NET Framework 4.8) side-by-side and honors the per-server `DedicatedServerDefinition.ManagedRuntime` selection, while Linux ships a single Interim build behind a top-level wrapper with the apphost under `Bin/`."
     },
     {
       "path": "Quasar/Services/ManagedRuntimeOptions.cs",
@@ -1004,7 +1004,7 @@
       "name": "ManagedRuntimeWarmupService.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`ManagedRuntimeWarmupService` is a `BackgroundService` that proactively resolves the managed runtime (Magnetar + DS) shortly after Quasar starts, so the first real server launch does not block on slow downloads. It exposes a `ManagedRuntimeWarmupSnapshot` for UI status display and fires a `Changed` event on transitions."
+      "summary": "`ManagedRuntimeWarmupService` is a `BackgroundService` that immediately checks and prepares the managed SteamCMD and Space Engineers Dedicated Server installs at Quasar startup, so managed Magnetar launches are blocked until those prerequisites are ready. It exposes a component-level `ManagedRuntimeWarmupSnapshot` for dashboard progress display and fires a `Changed` event on every status update."
     },
     {
       "path": "Quasar/Services/PluginCatalogRefreshService.cs",
@@ -1025,7 +1025,7 @@
       "name": "QuasarConfigMetadata.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Defines the full compile-time schema for every Quasar configuration option that the UI can present and edit. It declares enums for option scope (`Root`/`Session`) and kind (Boolean, Integer, Decimal, Text, LongText, SelectInteger, SelectText), typed record helpers for categories and select options, and a rich `QuasarConfigOptionDefinition` type with validation and full-text search. The static `QuasarConfigMetadata` class holds two read-only lists \u2014 `Categories` (11 groupings) and `Options` (~120 entries) \u2014 and provides reflection-based property lookup and value formatting helpers used by the config editor UI."
+      "summary": "Defines the full compile-time schema for every Quasar configuration option that the UI can present and edit. It declares enums for option scope (`Root`/`Session`) and kind (Boolean, Integer, Decimal, Text, LongText, SelectInteger, SelectText), typed record helpers for categories and select options, and a rich `QuasarConfigOptionDefinition` type with validation and full-text search. The static `QuasarConfigMetadata` class holds two read-only lists \u2014 `Categories` (12 groupings, including Survival) and `Options` (~150 entries) \u2014 and provides reflection-based property lookup and value formatting helpers used by the config editor UI."
     },
     {
       "path": "Quasar/Services/QuasarConfigProfileCatalog.cs",

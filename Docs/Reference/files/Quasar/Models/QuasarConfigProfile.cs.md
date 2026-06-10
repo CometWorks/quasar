@@ -30,7 +30,7 @@ Namespace: `Quasar.Models`
 
 **`QuasarWorldRootSettings`** — sealed class; ~40 properties mirroring Magnetar/DS root config XML: network type, asteroid count, MOTD, auto-restart, auto-update, watcher interval, admin/reserved/banned lists, chat anti-spam, console compatibility, etc.
 
-**`QuasarSessionSettings`** — sealed class; ~90 properties covering game-mode, player limits, PCU, multipliers, gameplay toggles, economy, trash removal, and more — mirrors the SE `MyObjectBuilder_SessionSettings` fields.
+**`QuasarSessionSettings`** — sealed class; ~100 properties covering game-mode, player limits, PCU, multipliers, survival mechanics (oxygen/radiation, hunger, respawn, backpacks, buffs), gameplay toggles, economy, trash removal, and more — mirrors the SE `MyObjectBuilder_SessionSettings` fields.
 
 **`QuasarPluginSelection`** — sealed class; `PluginId`, `DisplayName`, `SelectedVersion`.
 

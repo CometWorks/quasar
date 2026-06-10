@@ -16,6 +16,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     private const string MagnetarLauncherName = "MagnetarInterim";
     private const string DedicatedServerAppId = "298740";
     private const string DedicatedServerExecutableName = "SpaceEngineersDedicated";
+    private const int DedicatedServerInstallMaxAttempts = 3;
     private static readonly string[] MagnetarLauncherFileNames =
     [
         "MagnetarInterim",
@@ -116,6 +117,105 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             workingDirectory,
             dedicatedServer64Path,
             nativeLibrarySearchPaths);
+    }
+
+    public async Task<ManagedRuntimeReadiness> EnsureManagedRuntimeReadyAsync(
+        IProgress<ManagedRuntimeInstallProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        progress?.Report(new ManagedRuntimeInstallProgress(
+            ManagedRuntimeInstallComponent.SteamCmd,
+            ManagedRuntimeInstallPhase.Checking,
+            "Checking SteamCMD install."));
+
+        var steamCmdPath = await EnsureManagedSteamCmdInstallAsync(progress, cancellationToken);
+        if (string.IsNullOrWhiteSpace(steamCmdPath))
+        {
+            return ManagedRuntimeReadiness.Failed(
+                "SteamCMD is not installed and could not be downloaded.",
+                steamCmdPath,
+                string.Empty,
+                string.Empty);
+        }
+
+        var steamCmdRuntimePath = TryGetSteamCmdRuntimeDirectory(steamCmdPath);
+        progress?.Report(new ManagedRuntimeInstallProgress(
+            ManagedRuntimeInstallComponent.SteamCmd,
+            ManagedRuntimeInstallPhase.Ready,
+            "SteamCMD installed.",
+            Path: steamCmdPath));
+
+        var dedicatedServer64Path = Path.Combine(_options.DedicatedServerInstallDirectory, "DedicatedServer64");
+        var dedicatedServerReady = IsValidDedicatedServer64Directory(dedicatedServer64Path);
+        progress?.Report(new ManagedRuntimeInstallProgress(
+            ManagedRuntimeInstallComponent.DedicatedServer,
+            ManagedRuntimeInstallPhase.Checking,
+            "Checking Space Engineers Dedicated Server install.",
+            Path: dedicatedServer64Path));
+
+        if (!dedicatedServerReady)
+        {
+            dedicatedServer64Path = await TryEnsureManagedDedicatedServerInstallAsync(
+                cancellationToken,
+                steamCmdPath,
+                progress);
+            dedicatedServerReady = IsValidDedicatedServer64Directory(dedicatedServer64Path);
+        }
+
+        if (!dedicatedServerReady)
+        {
+            return ManagedRuntimeReadiness.Failed(
+                "Space Engineers Dedicated Server is not installed and could not be downloaded.",
+                steamCmdPath,
+                steamCmdRuntimePath,
+                dedicatedServer64Path);
+        }
+
+        if (OperatingSystem.IsLinux() && !IsValidSteamGameServerRuntimeDirectory(steamCmdRuntimePath))
+        {
+            progress?.Report(new ManagedRuntimeInstallProgress(
+                ManagedRuntimeInstallComponent.SteamCmd,
+                ManagedRuntimeInstallPhase.Installing,
+                "Preparing SteamCMD native runtime."));
+
+            await RunSteamCmdAsync(
+                steamCmdPath,
+                "+quit",
+                "preparing SteamCMD native runtime",
+                cancellationToken);
+        }
+
+        steamCmdRuntimePath = TryGetSteamCmdRuntimeDirectory(steamCmdPath);
+        if (OperatingSystem.IsLinux() && !IsValidSteamGameServerRuntimeDirectory(steamCmdRuntimePath))
+        {
+            return ManagedRuntimeReadiness.Failed(
+                $"SteamCMD native runtime not found under {steamCmdRuntimePath}.",
+                steamCmdPath,
+                steamCmdRuntimePath,
+                dedicatedServer64Path);
+        }
+
+        progress?.Report(new ManagedRuntimeInstallProgress(
+            ManagedRuntimeInstallComponent.SteamCmd,
+            ManagedRuntimeInstallPhase.Ready,
+            OperatingSystem.IsLinux()
+                ? "SteamCMD and linux64 native runtime ready."
+                : "SteamCMD ready.",
+            Path: OperatingSystem.IsLinux() ? steamCmdRuntimePath : steamCmdPath));
+        progress?.Report(new ManagedRuntimeInstallProgress(
+            ManagedRuntimeInstallComponent.DedicatedServer,
+            ManagedRuntimeInstallPhase.Ready,
+            "Space Engineers Dedicated Server ready.",
+            Path: dedicatedServer64Path));
+
+        await EnsureManagedMagnetarInstallAsync(ManagedServerRuntime.DotNet10, cancellationToken);
+
+        return new ManagedRuntimeReadiness(
+            true,
+            steamCmdPath,
+            steamCmdRuntimePath,
+            dedicatedServer64Path,
+            string.Empty);
     }
 
     private Task<string> EnsureManagedMagnetarInstallAsync(ManagedServerRuntime runtime, CancellationToken cancellationToken)
@@ -369,66 +469,111 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             "DedicatedServer64 path not found. Set QUASAR_DS64_PATH, install steamcmd for managed DS download, or point server executable at SpaceEngineersDedicated once so Quasar can infer -ds64.");
     }
 
-    private async Task<string> TryEnsureManagedDedicatedServerInstallAsync(CancellationToken cancellationToken)
+    private Task<string> TryEnsureManagedDedicatedServerInstallAsync(CancellationToken cancellationToken) =>
+        TryEnsureManagedDedicatedServerInstallAsync(cancellationToken, steamCmdPath: null, progress: null);
+
+    private async Task<string> TryEnsureManagedDedicatedServerInstallAsync(
+        CancellationToken cancellationToken,
+        string? steamCmdPath,
+        IProgress<ManagedRuntimeInstallProgress>? progress)
     {
         var dedicatedServer64Path = Path.Combine(_options.DedicatedServerInstallDirectory, "DedicatedServer64");
         var hadValidInstall = IsValidDedicatedServer64Directory(dedicatedServer64Path);
 
-        var steamCmdPath = await ResolveSteamCmdPathAsync(cancellationToken);
+        steamCmdPath = string.IsNullOrWhiteSpace(steamCmdPath)
+            ? await ResolveSteamCmdPathAsync(cancellationToken)
+            : steamCmdPath.Trim();
         if (string.IsNullOrWhiteSpace(steamCmdPath))
             return hadValidInstall ? dedicatedServer64Path : string.Empty;
 
         await _dedicatedServerInstallLock.WaitAsync(cancellationToken);
         try
         {
-            hadValidInstall = IsValidDedicatedServer64Directory(dedicatedServer64Path);
-
-            Directory.CreateDirectory(_options.DedicatedServerInstallDirectory);
-
-            _logger.LogInformation("{Action} Space Engineers Dedicated Server via SteamCMD...", hadValidInstall ? "Updating" : "Downloading");
-            var process = new Process
+            for (var attempt = 1; attempt <= DedicatedServerInstallMaxAttempts; attempt++)
             {
-                StartInfo = CreateSteamCmdStartInfo(
-                    steamCmdPath,
-                    BuildDedicatedServerUpdateArguments(_options.DedicatedServerInstallDirectory)),
-            };
+                hadValidInstall = IsValidDedicatedServer64Directory(dedicatedServer64Path);
 
-            try
-            {
-                if (!process.Start())
+                Directory.CreateDirectory(_options.DedicatedServerInstallDirectory);
+
+                _logger.LogInformation(
+                    "{Action} Space Engineers Dedicated Server via SteamCMD (attempt {Attempt}/{MaxAttempts})...",
+                    hadValidInstall ? "Updating" : "Downloading",
+                    attempt,
+                    DedicatedServerInstallMaxAttempts);
+                progress?.Report(new ManagedRuntimeInstallProgress(
+                    ManagedRuntimeInstallComponent.DedicatedServer,
+                    hadValidInstall ? ManagedRuntimeInstallPhase.Installing : ManagedRuntimeInstallPhase.Downloading,
+                    $"{(hadValidInstall ? "Updating" : "Downloading")} Space Engineers Dedicated Server via SteamCMD (attempt {attempt}/{DedicatedServerInstallMaxAttempts}).",
+                    Path: dedicatedServer64Path));
+                using var process = new Process
+                {
+                    StartInfo = CreateSteamCmdStartInfo(
+                        steamCmdPath,
+                        BuildDedicatedServerUpdateArguments(_options.DedicatedServerInstallDirectory)),
+                };
+
+                try
+                {
+                    if (!process.Start())
+                    {
+                        if (attempt < DedicatedServerInstallMaxAttempts)
+                            continue;
+
+                        return string.Empty;
+                    }
+                }
+                catch (Exception exception)
+                {
+                    _logger.LogWarning(
+                        exception,
+                        "Failed starting steamcmd for managed DS install attempt {Attempt}/{MaxAttempts}.",
+                        attempt,
+                        DedicatedServerInstallMaxAttempts);
+                    if (attempt < DedicatedServerInstallMaxAttempts)
+                        continue;
+
                     return string.Empty;
-            }
-            catch (Exception exception)
-            {
-                _logger.LogWarning(exception, "Failed starting steamcmd for managed DS install.");
-                process.Dispose();
-                return string.Empty;
+                }
+
+                var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+                await process.WaitForExitAsync(cancellationToken);
+                var stdout = await stdoutTask;
+                var stderr = await stderrTask;
+
+                if (process.ExitCode != 0)
+                {
+                    _logger.LogWarning(
+                        "steamcmd failed installing/updating managed DS on attempt {Attempt}/{MaxAttempts}. ExitCode={ExitCode}. Stdout={Stdout}. Stderr={Stderr}",
+                        attempt,
+                        DedicatedServerInstallMaxAttempts,
+                        process.ExitCode,
+                        TrimForLog(stdout),
+                        TrimForLog(stderr));
+                    if (attempt < DedicatedServerInstallMaxAttempts)
+                        continue;
+
+                    return hadValidInstall ? dedicatedServer64Path : string.Empty;
+                }
+
+                if (!IsValidDedicatedServer64Directory(dedicatedServer64Path))
+                {
+                    _logger.LogWarning(
+                        "steamcmd completed but DedicatedServer64 not found under {Path} on attempt {Attempt}/{MaxAttempts}.",
+                        _options.DedicatedServerInstallDirectory,
+                        attempt,
+                        DedicatedServerInstallMaxAttempts);
+                    if (attempt < DedicatedServerInstallMaxAttempts)
+                        continue;
+
+                    return string.Empty;
+                }
+
+                _logger.LogInformation("{Action} managed DedicatedServer64 into {Path}.", hadValidInstall ? "Updated" : "Installed", dedicatedServer64Path);
+                return dedicatedServer64Path;
             }
 
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-            await process.WaitForExitAsync(cancellationToken);
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogWarning(
-                    "steamcmd failed installing/updating managed DS. ExitCode={ExitCode}. Stdout={Stdout}. Stderr={Stderr}",
-                    process.ExitCode,
-                    TrimForLog(stdout),
-                    TrimForLog(stderr));
-                return hadValidInstall ? dedicatedServer64Path : string.Empty;
-            }
-
-            if (!IsValidDedicatedServer64Directory(dedicatedServer64Path))
-            {
-                _logger.LogWarning("steamcmd completed but DedicatedServer64 not found under {Path}.", _options.DedicatedServerInstallDirectory);
-                return string.Empty;
-            }
-
-            _logger.LogInformation("{Action} managed DedicatedServer64 into {Path}.", hadValidInstall ? "Updated" : "Installed", dedicatedServer64Path);
-            return dedicatedServer64Path;
+            return hadValidInstall ? dedicatedServer64Path : string.Empty;
         }
         finally
         {
@@ -474,7 +619,12 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         return string.Empty;
     }
 
-    private async Task<string> TryEnsureManagedSteamCmdInstallAsync(CancellationToken cancellationToken)
+    private Task<string> TryEnsureManagedSteamCmdInstallAsync(CancellationToken cancellationToken) =>
+        EnsureManagedSteamCmdInstallAsync(progress: null, cancellationToken);
+
+    private async Task<string> EnsureManagedSteamCmdInstallAsync(
+        IProgress<ManagedRuntimeInstallProgress>? progress,
+        CancellationToken cancellationToken)
     {
         await _steamCmdInstallLock.WaitAsync(cancellationToken);
         try
@@ -497,6 +647,10 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
                 var archivePath = Path.Combine(extractRoot, "steamcmd-download" + InferArchiveExtension(_options.SteamCmdArchiveUrl));
                 _logger.LogInformation("Downloading SteamCMD...");
+                progress?.Report(new ManagedRuntimeInstallProgress(
+                    ManagedRuntimeInstallComponent.SteamCmd,
+                    ManagedRuntimeInstallPhase.Downloading,
+                    "Downloading SteamCMD archive."));
                 using var response = await client.GetAsync(_options.SteamCmdArchiveUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                 if (!response.IsSuccessStatusCode)
                 {
@@ -508,11 +662,20 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                     return string.Empty;
                 }
 
-                await using (var archiveFile = File.Create(archivePath))
-                {
-                    await response.Content.CopyToAsync(archiveFile, cancellationToken);
-                }
+                await CopyToFileWithProgressAsync(
+                    response.Content,
+                    archivePath,
+                    percent => progress?.Report(new ManagedRuntimeInstallProgress(
+                        ManagedRuntimeInstallComponent.SteamCmd,
+                        ManagedRuntimeInstallPhase.Downloading,
+                        "Downloading SteamCMD archive.",
+                        percent)),
+                    cancellationToken);
 
+                progress?.Report(new ManagedRuntimeInstallProgress(
+                    ManagedRuntimeInstallComponent.SteamCmd,
+                    ManagedRuntimeInstallPhase.Installing,
+                    "Installing SteamCMD."));
                 ExtractArchive(archivePath, extractRoot);
                 TryDeleteFile(archivePath);
 
@@ -573,6 +736,40 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             Path.GetFileName(file),
             fileName,
             StringComparison.OrdinalIgnoreCase))) ?? string.Empty;
+    }
+
+    private async Task RunSteamCmdAsync(
+        string steamCmdPath,
+        string arguments,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        using var process = new Process
+        {
+            StartInfo = CreateSteamCmdStartInfo(steamCmdPath, arguments),
+        };
+
+        try
+        {
+            if (!process.Start())
+                throw new InvalidOperationException($"steamcmd did not start while {action}.");
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            throw new InvalidOperationException($"Failed starting steamcmd while {action}.", exception);
+        }
+
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+        var stdout = await stdoutTask;
+        var stderr = await stderrTask;
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"steamcmd failed while {action}. ExitCode={process.ExitCode}. Stdout={TrimForLog(stdout)}. Stderr={TrimForLog(stderr)}");
+        }
     }
 
     private static string BuildDedicatedServerUpdateArguments(string installDirectory)
@@ -697,13 +894,6 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
     private IEnumerable<string> EnumerateSteamGameServerRuntimePathCandidates()
     {
-        if (!string.IsNullOrWhiteSpace(_options.SteamCmdPath))
-        {
-            var configuredRuntimePath = TryGetSteamCmdRuntimeDirectory(_options.SteamCmdPath);
-            if (!string.IsNullOrWhiteSpace(configuredRuntimePath))
-                yield return configuredRuntimePath;
-        }
-
         if (!string.IsNullOrWhiteSpace(_options.SteamCmdInstallDirectory))
             yield return Path.Combine(_options.SteamCmdInstallDirectory, "linux64");
 
@@ -711,6 +901,13 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         var managedRuntimePath = TryGetSteamCmdRuntimeDirectory(managedSteamCmdPath);
         if (!string.IsNullOrWhiteSpace(managedRuntimePath))
             yield return managedRuntimePath;
+
+        if (!string.IsNullOrWhiteSpace(_options.SteamCmdPath))
+        {
+            var configuredRuntimePath = TryGetSteamCmdRuntimeDirectory(_options.SteamCmdPath);
+            if (!string.IsNullOrWhiteSpace(configuredRuntimePath))
+                yield return configuredRuntimePath;
+        }
 
         var environmentSteamCmdPath = ResolveSteamCmdPathFromEnvironment();
         var environmentRuntimePath = TryGetSteamCmdRuntimeDirectory(environmentSteamCmdPath);
@@ -735,6 +932,46 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             return false;
 
         return SteamGameServerRuntimeFileNames.All(fileName => File.Exists(Path.Combine(path, fileName)));
+    }
+
+    private static async Task CopyToFileWithProgressAsync(
+        HttpContent content,
+        string path,
+        Action<int?> reportProgress,
+        CancellationToken cancellationToken)
+    {
+        var contentLength = content.Headers.ContentLength;
+        long totalRead = 0;
+        var lastPercent = -1;
+        var buffer = new byte[81920];
+
+        await using var input = await content.ReadAsStreamAsync(cancellationToken);
+        await using var output = File.Create(path);
+        while (true)
+        {
+            var read = await input.ReadAsync(buffer, cancellationToken);
+            if (read == 0)
+                break;
+
+            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+            totalRead += read;
+
+            if (contentLength is > 0)
+            {
+                var percent = (int)Math.Clamp(totalRead * 100 / contentLength.Value, 0, 100);
+                if (percent != lastPercent)
+                {
+                    lastPercent = percent;
+                    reportProgress(percent);
+                }
+            }
+            else
+            {
+                reportProgress(null);
+            }
+        }
+
+        reportProgress(100);
     }
 
     private static void ExtractArchive(string archivePath, string destinationRoot)
@@ -1079,3 +1316,41 @@ public sealed record ResolvedDedicatedServerRuntime(
     string WorkingDirectory,
     string DedicatedServer64Path,
     IReadOnlyList<string> NativeLibrarySearchPaths);
+
+public sealed record ManagedRuntimeReadiness(
+    bool IsReady,
+    string SteamCmdPath,
+    string SteamCmdRuntimePath,
+    string DedicatedServer64Path,
+    string FailureMessage)
+{
+    public static ManagedRuntimeReadiness Failed(
+        string failureMessage,
+        string steamCmdPath,
+        string steamCmdRuntimePath,
+        string dedicatedServer64Path) =>
+        new(false, steamCmdPath, steamCmdRuntimePath, dedicatedServer64Path, failureMessage);
+}
+
+public sealed record ManagedRuntimeInstallProgress(
+    ManagedRuntimeInstallComponent Component,
+    ManagedRuntimeInstallPhase Phase,
+    string Message,
+    int? Percent = null,
+    string Path = "");
+
+public enum ManagedRuntimeInstallComponent
+{
+    SteamCmd = 0,
+    DedicatedServer = 1,
+}
+
+public enum ManagedRuntimeInstallPhase
+{
+    Pending = 0,
+    Checking = 1,
+    Downloading = 2,
+    Installing = 3,
+    Ready = 4,
+    Failed = 5,
+}

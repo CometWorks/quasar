@@ -31,6 +31,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private readonly AgentRegistry _registry;
     private readonly DedicatedServerRuntimePreparer _runtimePreparer;
     private readonly ManagedDedicatedServerRuntimeResolver _runtimeResolver;
+    private readonly ManagedRuntimeWarmupService _runtimeWarmup;
     private readonly WebServiceOptions _options;
     private readonly ILogger<DedicatedServerSupervisor> _logger;
     private readonly PluginLogStream _pluginLogStream;
@@ -45,6 +46,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         AgentRegistry registry,
         DedicatedServerRuntimePreparer runtimePreparer,
         ManagedDedicatedServerRuntimeResolver runtimeResolver,
+        ManagedRuntimeWarmupService runtimeWarmup,
         WebServiceOptions options,
         PluginLogStream pluginLogStream,
         ILogger<DedicatedServerSupervisor> logger)
@@ -53,6 +55,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _registry = registry;
         _runtimePreparer = runtimePreparer;
         _runtimeResolver = runtimeResolver;
+        _runtimeWarmup = runtimeWarmup;
         _options = options;
         _pluginLogStream = pluginLogStream;
         _logger = logger;
@@ -78,6 +81,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         SyncDefinitions();
         RestorePersistedRuntimeState();
         _catalog.Changed += HandleCatalogChanged;
+        _runtimeWarmup.Changed += HandleRuntimeWarmupChanged;
         _ = Task.Run(() => ReconcileLoopAsync(_shutdown.Token), _shutdown.Token);
         SchedulePersistState();
         return Task.CompletedTask;
@@ -88,6 +92,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _isStopping = true;
         _shutdown.Cancel();
         _catalog.Changed -= HandleCatalogChanged;
+        _runtimeWarmup.Changed -= HandleRuntimeWarmupChanged;
 
         if (_preserveManagedServersOnShutdown)
         {
@@ -501,6 +506,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         if (string.IsNullOrWhiteSpace(definition.WorldTemplateId))
         {
             SetFaulted(state.UniqueName, "World template required.");
+            return;
+        }
+
+        if (!_runtimeWarmup.IsReady)
+        {
+            SetStopped(state.UniqueName, _runtimeWarmup.BlockLaunchMessage);
             return;
         }
 
@@ -1279,6 +1290,35 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         NotifyChanged();
     }
 
+    private void SetStopped(string uniqueName, string message)
+    {
+        var changed = false;
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out var state))
+                return;
+
+            changed = state.State != DedicatedServerProcessState.Stopped ||
+                      state.Process is not null ||
+                      state.ProcessId is not null ||
+                      state.IsRestartPending ||
+                      !string.Equals(state.LastMessage, message, StringComparison.Ordinal);
+            if (!changed)
+                return;
+
+            state.State = DedicatedServerProcessState.Stopped;
+            state.Process = null;
+            state.ProcessId = null;
+            state.IsRestartPending = false;
+            state.LastMessage = message;
+            state.StoppedAtUtc = DateTimeOffset.UtcNow;
+            ResetHealthTracking(state);
+        }
+
+        if (changed)
+            NotifyChanged();
+    }
+
     private const string MagnetarLogSource = "Magnetar";
 
     private (string StandardOutputPath, string StandardErrorPath) PrepareServerLogSlot(string uniqueName, int dsLogFilesToKeep)
@@ -1933,6 +1973,27 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     {
         SchedulePersistState();
         Changed?.Invoke();
+    }
+
+    private void HandleRuntimeWarmupChanged()
+    {
+        if (!_runtimeWarmup.IsReady || _isStopping)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await ReconcileAsync(_shutdown.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Quasar reconciliation after managed runtime warmup failed.");
+            }
+        }, CancellationToken.None);
     }
 
     private void SchedulePersistState()
