@@ -14,6 +14,7 @@
                         <MudButton Variant="Variant.Filled"
                                    Color="Color.Success"
                                    Size="Size.Small"
+                                   Disabled="@LaunchBlocked"
                                    StartIcon="@Icons.Material.Filled.PlayArrow"
                                    OnClick="StartAsync">
                             Start
@@ -77,6 +78,9 @@
 
     [Parameter]
     public AgentRuntimeState? Agent { get; set; }
+
+    [Parameter]
+    public bool LaunchBlocked { get; set; }
 
     [Parameter]
     public EventCallback<string> StartRequested { get; set; }

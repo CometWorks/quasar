@@ -263,6 +263,7 @@
                                     {
                                         <MudButton Variant="Variant.Filled"
                                                    Color="Color.Primary"
+                                                   Disabled="@IsLaunchBlocked"
                                                    StartIcon="@Icons.Material.Filled.PlayArrow"
                                                    OnClick="@(() => StartAsync(server.UniqueName))">
                                             Start @server.UniqueName
@@ -349,14 +350,42 @@
     </MudAlert>
 }
 
-@if (RuntimeWarmupSnapshot.State is ManagedRuntimeWarmupState.Running or ManagedRuntimeWarmupState.Failed)
-{
-    <MudAlert Severity="@(RuntimeWarmupSnapshot.State == ManagedRuntimeWarmupState.Failed ? Severity.Warning : Severity.Info)"
-              Variant="Variant.Outlined"
-              Class="mb-4">
-        @RuntimeWarmupSnapshot.Message
-    </MudAlert>
-}
+<MudPaper Class="pa-4 summary-card runtime-status mb-4">
+    <MudStack Spacing="2">
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+            <MudStack Spacing="0" Class="runtime-status-copy">
+                <MudText Typo="Typo.subtitle1">Managed Runtime</MudText>
+                <MudText Typo="Typo.body2">@RuntimeWarmupSnapshot.Message</MudText>
+            </MudStack>
+            <MudChip T="string" Variant="Variant.Outlined" Color="@GetRuntimeWarmupColor()" Size="Size.Small">
+                @GetRuntimeWarmupLabel()
+            </MudChip>
+        </MudStack>
+
+        <div class="runtime-status-grid">
+            @foreach (var component in RuntimeWarmupSnapshot.Components)
+            {
+                <div class="runtime-status-row">
+                    <MudStack Spacing="0" Class="runtime-status-copy">
+                        <MudText Typo="Typo.body2">@component.DisplayName</MudText>
+                        <MudText Typo="Typo.caption">@component.Message</MudText>
+                        @if (!string.IsNullOrWhiteSpace(component.Path))
+                        {
+                            <MudText Typo="Typo.caption" Class="mono">@component.Path</MudText>
+                        }
+                    </MudStack>
+                    <div class="runtime-status-progress">
+                        <MudProgressLinear Color="@GetRuntimeComponentColor(component)"
+                                           Value="@(component.Percent ?? 0)"
+                                           Indeterminate="@IsRuntimeComponentIndeterminate(component)"
+                                           Rounded="true" />
+                        <MudText Typo="Typo.caption">@GetRuntimeComponentLabel(component)</MudText>
+                    </div>
+                </div>
+            }
+        </div>
+    </MudStack>
+</MudPaper>
 
 <MudGrid Class="mb-4">
     <MudItem xs="12" sm="6" lg="3">
@@ -403,6 +432,7 @@ else
                 <ServerCard Server="@server"
                             Runtime="@GetRuntime(server.UniqueName)"
                             Agent="@GetAgent(server.UniqueName)"
+                            LaunchBlocked="@IsLaunchBlocked"
                             StartRequested="StartAsync"
                             StopRequested="StopAsync"
                             RestartRequested="RestartAsync"
@@ -426,6 +456,7 @@ else
     private IReadOnlyList<QuasarWorldTemplate> WorldTemplatesPreview => WorldTemplates.GetTemplates().Take(3).ToList();
     private IReadOnlyList<DedicatedServerDefinition> StartableServers => Servers.Where(server => !IsRunning(server.UniqueName)).ToList();
     private IReadOnlyList<DedicatedServerDefinition> LaunchedServers => Servers.Where(server => IsRunning(server.UniqueName)).ToList();
+    private bool IsLaunchBlocked => RuntimeWarmupSnapshot.State != ManagedRuntimeWarmupState.Complete;
 
     private int ConnectedAgentCount => Agents.Count(agent => agent.IsConnected);
 
@@ -638,6 +669,12 @@ else
     {
         try
         {
+            if (IsLaunchBlocked)
+            {
+                Snackbar.Add(RuntimeWarmupSnapshot.Message, Severity.Warning);
+                return;
+            }
+
             await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.On);
             Snackbar.Add($"Start requested for '{uniqueName}'.", Severity.Success);
         }
@@ -798,5 +835,47 @@ else
 
         return runtime.AgentAttached ? Color.Success : Color.Warning;
     }
+
+    private Color GetRuntimeWarmupColor() => RuntimeWarmupSnapshot.State switch
+    {
+        ManagedRuntimeWarmupState.Complete => Color.Success,
+        ManagedRuntimeWarmupState.Failed => Color.Error,
+        ManagedRuntimeWarmupState.Running => Color.Info,
+        _ => Color.Default,
+    };
+
+    private string GetRuntimeWarmupLabel() => RuntimeWarmupSnapshot.State switch
+    {
+        ManagedRuntimeWarmupState.Complete => "Ready",
+        ManagedRuntimeWarmupState.Failed => "Failed",
+        ManagedRuntimeWarmupState.Running => "Preparing",
+        _ => "Pending",
+    };
+
+    private static Color GetRuntimeComponentColor(ManagedRuntimeComponentSnapshot component) => component.State switch
+    {
+        ManagedRuntimeComponentState.Ready => Color.Success,
+        ManagedRuntimeComponentState.Failed => Color.Error,
+        ManagedRuntimeComponentState.Downloading => Color.Info,
+        ManagedRuntimeComponentState.Installing => Color.Info,
+        ManagedRuntimeComponentState.Checking => Color.Info,
+        _ => Color.Default,
+    };
+
+    private static bool IsRuntimeComponentIndeterminate(ManagedRuntimeComponentSnapshot component) =>
+        (component.State is ManagedRuntimeComponentState.Checking
+            or ManagedRuntimeComponentState.Installing) ||
+        component.State == ManagedRuntimeComponentState.Downloading && !component.Percent.HasValue;
+
+    private static string GetRuntimeComponentLabel(ManagedRuntimeComponentSnapshot component) => component.State switch
+    {
+        ManagedRuntimeComponentState.Ready => "Ready",
+        ManagedRuntimeComponentState.Failed => "Failed",
+        ManagedRuntimeComponentState.Downloading when component.Percent.HasValue => $"{component.Percent.Value}%",
+        ManagedRuntimeComponentState.Downloading => "Downloading",
+        ManagedRuntimeComponentState.Installing => "Installing",
+        ManagedRuntimeComponentState.Checking => "Checking",
+        _ => "Pending",
+    };
 
 }
