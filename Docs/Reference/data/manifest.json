@@ -1924,8 +1924,8 @@
       "path": "Quasar/appsettings.json",
       "name": "appsettings.json",
       "ext": ".json",
-      "size": 2498,
-      "sha256": "0d0440347b808bd9e46205caff60815617d4446dd3038cd922791759ce6512ac",
+      "size": 2533,
+      "sha256": "a137f6752489266d18b21e9cb7defa58f3a9dc6ff174ed8e493236d17c857346",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"
