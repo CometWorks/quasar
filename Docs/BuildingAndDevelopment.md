@@ -51,9 +51,9 @@ The solution file is `Quasar.sln`.
   SteamCMD install and the managed Space Engineers Dedicated Server install. If
   either is missing, Quasar downloads it before managed Magnetar servers can be
   launched. The dashboard shows live SteamCMD and Dedicated Server preparation
-  status while this happens. The Dedicated Server SteamCMD download is tried up
-  to three times before Quasar reports failure, and the dashboard exposes a retry
-  action for that row.
+  status while this happens and hides the installer panel once both are ready.
+  The Dedicated Server SteamCMD download is tried up to three times before Quasar
+  reports failure, and the dashboard exposes a retry action for that row.
 - On Linux, Quasar prepares its managed SteamCMD `linux64` native runtime
   directory and exposes it to the Magnetar child process through
   `LD_LIBRARY_PATH` when that directory contains `steamclient.so`,

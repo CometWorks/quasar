@@ -350,54 +350,57 @@
     </MudAlert>
 }
 
-<MudPaper Class="pa-4 summary-card runtime-status mb-4">
-    <MudStack Spacing="2">
-        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-            <MudStack Spacing="0" Class="runtime-status-copy">
-                <MudText Typo="Typo.subtitle1">Managed Runtime</MudText>
-                <MudText Typo="Typo.body2">@RuntimeWarmupSnapshot.Message</MudText>
+@if (RuntimeWarmupSnapshot.State != ManagedRuntimeWarmupState.Complete)
+{
+    <MudPaper Class="pa-4 summary-card runtime-status mb-4">
+        <MudStack Spacing="2">
+            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+                <MudStack Spacing="0" Class="runtime-status-copy">
+                    <MudText Typo="Typo.subtitle1">Managed Runtime</MudText>
+                    <MudText Typo="Typo.body2">@RuntimeWarmupSnapshot.Message</MudText>
+                </MudStack>
+                <MudChip T="string" Variant="Variant.Outlined" Color="@GetRuntimeWarmupColor()" Size="Size.Small">
+                    @GetRuntimeWarmupLabel()
+                </MudChip>
             </MudStack>
-            <MudChip T="string" Variant="Variant.Outlined" Color="@GetRuntimeWarmupColor()" Size="Size.Small">
-                @GetRuntimeWarmupLabel()
-            </MudChip>
-        </MudStack>
 
-        <div class="runtime-status-grid">
-            @foreach (var component in RuntimeWarmupSnapshot.Components)
-            {
-                <div class="runtime-status-row">
-                    <MudStack Spacing="0" Class="runtime-status-copy">
-                        <MudText Typo="Typo.body2">@component.DisplayName</MudText>
-                        <MudText Typo="Typo.caption">@component.Message</MudText>
-                        @if (!string.IsNullOrWhiteSpace(component.Path))
-                        {
-                            <MudText Typo="Typo.caption" Class="mono">@component.Path</MudText>
-                        }
-                    </MudStack>
-                    <div class="runtime-status-progress">
-                        <MudProgressLinear Color="@GetRuntimeComponentColor(component)"
-                                           Value="@(component.Percent ?? 0)"
-                                           Indeterminate="@IsRuntimeComponentIndeterminate(component)"
-                                           Rounded="true" />
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="1">
-                            <MudText Typo="Typo.caption">@GetRuntimeComponentLabel(component)</MudText>
-                            @if (CanRetryRuntimeComponent(component))
+            <div class="runtime-status-grid">
+                @foreach (var component in RuntimeWarmupSnapshot.Components)
+                {
+                    <div class="runtime-status-row">
+                        <MudStack Spacing="0" Class="runtime-status-copy">
+                            <MudText Typo="Typo.body2">@component.DisplayName</MudText>
+                            <MudText Typo="Typo.caption">@component.Message</MudText>
+                            @if (!string.IsNullOrWhiteSpace(component.Path))
                             {
-                                <MudButton Variant="Variant.Outlined"
-                                           Color="Color.Primary"
-                                           Size="Size.Small"
-                                           StartIcon="@Icons.Material.Filled.Refresh"
-                                           OnClick="RetryRuntimeWarmupAsync">
-                                    Retry
-                                </MudButton>
+                                <MudText Typo="Typo.caption" Class="mono">@component.Path</MudText>
                             }
                         </MudStack>
+                        <div class="runtime-status-progress">
+                            <MudProgressLinear Color="@GetRuntimeComponentColor(component)"
+                                               Value="@(component.Percent ?? 0)"
+                                               Indeterminate="@IsRuntimeComponentIndeterminate(component)"
+                                               Rounded="true" />
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="1">
+                                <MudText Typo="Typo.caption">@GetRuntimeComponentLabel(component)</MudText>
+                                @if (CanRetryRuntimeComponent(component))
+                                {
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="Color.Primary"
+                                               Size="Size.Small"
+                                               StartIcon="@Icons.Material.Filled.Refresh"
+                                               OnClick="RetryRuntimeWarmupAsync">
+                                        Retry
+                                    </MudButton>
+                                }
+                            </MudStack>
+                        </div>
                     </div>
-                </div>
-            }
-        </div>
-    </MudStack>
-</MudPaper>
+                }
+            </div>
+        </MudStack>
+    </MudPaper>
+}
 
 <MudGrid Class="mb-4">
     <MudItem xs="12" sm="6" lg="3">

@@ -684,8 +684,8 @@
       "path": "Quasar/Components/Pages/Home.razor",
       "name": "Home.razor",
       "ext": ".razor",
-      "size": 41779,
-      "sha256": "06fa0c375c31a5e6af274fb7a1f244a9a8baa09f64713bc0f5933bb1c4010b82",
+      "size": 42043,
+      "sha256": "125b575d5c711b2dca563cc5552ce75a18b18ed54644826b532974387f1051a4",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
