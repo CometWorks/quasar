@@ -1018,7 +1018,7 @@
       "name": "QuasarConfigMetadata.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Defines the full compile-time schema for every Quasar configuration option that the UI can present and edit. It declares enums for option scope (`Root`/`Session`) and kind (Boolean, Integer, Decimal, Text, LongText, SelectInteger, SelectText), typed record helpers for categories and select options, and a rich `QuasarConfigOptionDefinition` type with validation and full-text search. The static `QuasarConfigMetadata` class holds two read-only lists \u2014 `Categories` (11 groupings) and `Options` (~120 entries) \u2014 and provides reflection-based property lookup and value formatting helpers used by the config editor UI."
+      "summary": "Defines the full compile-time schema for every Quasar configuration option that the UI can present and edit. It declares enums for option scope (`Root`/`Session`) and kind (Boolean, Integer, Decimal, Text, LongText, SelectInteger, SelectText), typed record helpers for categories and select options, and a rich `QuasarConfigOptionDefinition` type with validation and full-text search. The static `QuasarConfigMetadata` class holds two read-only lists \u2014 `Categories` (12 groupings, including Survival) and `Options` (~150 entries) \u2014 and provides reflection-based property lookup and value formatting helpers used by the config editor UI."
     },
     {
       "path": "Quasar/Services/QuasarConfigProfileCatalog.cs",

@@ -1074,8 +1074,8 @@
       "path": "Quasar/Models/QuasarConfigProfile.cs",
       "name": "QuasarConfigProfile.cs",
       "ext": ".cs",
-      "size": 12148,
-      "sha256": "c49cb87cdbfc92c673ab965f225f710744f0dbcd6afb9cb1fbfbfbd5a2c818e1",
+      "size": 12630,
+      "sha256": "8e33230916f7c3506b8be0e95398bbc900b3600176bae2878732f7dec58bb6e1",
       "module": "Quasar.Models",
       "tier": 1,
       "status": "pending"
@@ -1104,8 +1104,8 @@
       "path": "Quasar/Program.cs",
       "name": "Program.cs",
       "ext": ".cs",
-      "size": 31162,
-      "sha256": "dab85a7bac51ca88869d819c4cb4cc1da20b80a4462c7fb0c20f6768241437a9",
+      "size": 39041,
+      "sha256": "1e7a498508b88fa17ef5863ad98ec3da966278428a974c059d9790213539b7ab",
       "module": "Quasar.Host",
       "tier": 1,
       "status": "pending"
@@ -1704,8 +1704,8 @@
       "path": "Quasar/Services/QuasarConfigMetadata.cs",
       "name": "QuasarConfigMetadata.cs",
       "ext": ".cs",
-      "size": 27590,
-      "sha256": "2ed2bd170a514ee1b5e95d6978b4eb4eaca5bfb2507a91351e17c690d2abb8ef",
+      "size": 29051,
+      "sha256": "b5838c7673df7ef642c2cc8c12e7fc18ac1521647038a863f424dacdbb80a8a5",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "pending"

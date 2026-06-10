@@ -320,7 +320,10 @@ public class Program
                 return Results.Redirect("/");
             }).AllowAnonymous();
 
-            app.MapGet("/access-denied", () => Results.Content(CreateAccessDeniedHtml(), "text/html"))
+            app.MapGet("/access-denied", () => Results.Content(
+                    CreateAccessDeniedHtml(),
+                    "text/html",
+                    statusCode: StatusCodes.Status403Forbidden))
                 .AllowAnonymous();
 
             app.MapPost("/api/internal/drain", (HttpContext context, DedicatedServerSupervisor supervisor, QuasarShutdownService shutdownService, IHostApplicationLifetime lifetime, TrustedNetworkEvaluator trustedNetworkEvaluator) =>
@@ -667,12 +670,242 @@ public class Program
     private static string CreateAccessDeniedHtml() => """
         <!doctype html>
         <html lang="en">
-        <head><meta charset="utf-8"><title>Access denied</title></head>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Access denied - Quasar</title>
+            <link rel="icon" type="image/png" href="/Quasar.png">
+            <style>
+                :root {
+                    color-scheme: light dark;
+                    --bg: #f6f7fb;
+                    --surface: #ffffff;
+                    --surface-soft: #f2f5f9;
+                    --text: #20242a;
+                    --muted: #5f6b7a;
+                    --line: #dce2ea;
+                    --primary: #3668d8;
+                    --primary-hover: #2854b9;
+                    --danger: #c23b3b;
+                    --danger-soft: #f8e8e8;
+                    --shadow: 0 20px 48px rgba(28, 39, 57, 0.14);
+                }
+
+                @media (prefers-color-scheme: dark) {
+                    :root {
+                        --bg: #101418;
+                        --surface: #171d24;
+                        --surface-soft: #202832;
+                        --text: #eef2f6;
+                        --muted: #a6b0bd;
+                        --line: #303a46;
+                        --primary: #83a8ff;
+                        --primary-hover: #a2bdff;
+                        --danger: #ff8a8a;
+                        --danger-soft: rgba(255, 138, 138, 0.12);
+                        --shadow: 0 20px 48px rgba(0, 0, 0, 0.32);
+                    }
+                }
+
+                * {
+                    box-sizing: border-box;
+                }
+
+                html,
+                body {
+                    margin: 0;
+                    min-height: 100%;
+                }
+
+                body {
+                    min-height: 100vh;
+                    display: grid;
+                    place-items: center;
+                    padding: 2rem;
+                    background: linear-gradient(135deg, var(--bg), var(--surface-soft));
+                    color: var(--text);
+                    font-family: "Roboto", "Helvetica", "Arial", sans-serif;
+                    line-height: 1.5;
+                }
+
+                main {
+                    width: min(100%, 48rem);
+                    background: var(--surface);
+                    border: 1px solid var(--line);
+                    border-radius: 8px;
+                    box-shadow: var(--shadow);
+                    overflow: hidden;
+                }
+
+                .brand {
+                    display: flex;
+                    align-items: center;
+                    gap: 1rem;
+                    padding: 1.25rem 1.5rem;
+                    border-bottom: 1px solid var(--line);
+                }
+
+                .brand img {
+                    width: 48px;
+                    height: 48px;
+                    object-fit: contain;
+                }
+
+                .brand strong {
+                    display: block;
+                    font-size: 1.05rem;
+                    font-weight: 700;
+                }
+
+                .brand span {
+                    color: var(--muted);
+                    font-size: 0.9rem;
+                }
+
+                .content {
+                    display: grid;
+                    gap: 1.5rem;
+                    padding: clamp(1.5rem, 4vw, 2.5rem);
+                }
+
+                .status {
+                    display: inline-flex;
+                    width: max-content;
+                    align-items: center;
+                    gap: 0.5rem;
+                    padding: 0.35rem 0.65rem;
+                    border: 1px solid rgba(194, 59, 59, 0.28);
+                    border-radius: 999px;
+                    background: var(--danger-soft);
+                    color: var(--danger);
+                    font-size: 0.82rem;
+                    font-weight: 700;
+                    letter-spacing: 0.03em;
+                    text-transform: uppercase;
+                }
+
+                h1 {
+                    margin: 0;
+                    max-width: 38rem;
+                    font-size: clamp(2rem, 5vw, 3.25rem);
+                    line-height: 1.05;
+                    letter-spacing: 0;
+                }
+
+                p {
+                    margin: 0;
+                    max-width: 42rem;
+                    color: var(--muted);
+                    font-size: 1rem;
+                }
+
+                .steps {
+                    margin: 0;
+                    padding: 1rem 1rem 1rem 2.25rem;
+                    border: 1px solid var(--line);
+                    border-radius: 8px;
+                    background: var(--surface-soft);
+                    color: var(--muted);
+                }
+
+                .steps li + li {
+                    margin-top: 0.35rem;
+                }
+
+                .actions {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 0.75rem;
+                    padding-top: 0.25rem;
+                }
+
+                a {
+                    color: inherit;
+                }
+
+                .button {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 2.75rem;
+                    padding: 0.65rem 1rem;
+                    border-radius: 6px;
+                    border: 1px solid var(--line);
+                    font-weight: 700;
+                    text-decoration: none;
+                }
+
+                .button-primary {
+                    border-color: var(--primary);
+                    background: var(--primary);
+                    color: #ffffff;
+                }
+
+                .button-primary:hover,
+                .button-primary:focus-visible {
+                    border-color: var(--primary-hover);
+                    background: var(--primary-hover);
+                }
+
+                .button-secondary:hover,
+                .button-secondary:focus-visible {
+                    border-color: var(--primary);
+                    color: var(--primary);
+                }
+
+                @media (max-width: 520px) {
+                    body {
+                        padding: 1rem;
+                        place-items: stretch;
+                    }
+
+                    main {
+                        align-self: center;
+                    }
+
+                    .brand {
+                        padding: 1rem;
+                    }
+
+                    .brand img {
+                        width: 40px;
+                        height: 40px;
+                    }
+
+                    .actions,
+                    .button {
+                        width: 100%;
+                    }
+                }
+            </style>
+        </head>
         <body>
-        <h1>Access denied</h1>
-        <p>Your account authenticated, but Quasar did not grant a role that can view this app.</p>
-        <p>Ask an administrator to map your SteamID to viewer, editor, or admin.</p>
-        <p><a href="/logout">Sign out</a></p>
+            <main>
+                <section class="brand" aria-label="Quasar">
+                    <img src="/Quasar.png" alt="Quasar logo">
+                    <div>
+                        <strong>Quasar</strong>
+                        <span>Space Engineers server supervisor</span>
+                    </div>
+                </section>
+
+                <section class="content">
+                    <span class="status">403 access denied</span>
+                    <h1>You are signed in, but this account has no Quasar role.</h1>
+                    <p>
+                        Quasar accepted the Steam login, then blocked this session because the account is not mapped
+                        to a viewer, editor, or admin role.
+                    </p>
+                    <ol class="steps">
+                        <li>Ask an administrator to add your SteamID to Quasar security settings.</li>
+                        <li>Sign out, then sign back in after the role has been assigned.</li>
+                    </ol>
+                    <div class="actions" aria-label="Access denied actions">
+                        <a class="button button-primary" href="/logout">Sign out</a>
+                        <a class="button button-secondary" href="/login?forceSteam=true">Retry Steam sign-in</a>
+                    </div>
+                </section>
+            </main>
         </body>
         </html>
         """;
