@@ -84,7 +84,9 @@ agent profiler mode is `SafeContinuous`, which keeps low-overhead high-level
 timing for frame/update, scripts, physics, network/replication/session, and
 game-loop buckets without patching every entity update method. Set the
 per-server mode in the Analytics page to `DeepContinuous` for Harmony IL
-call-site attribution, including grids/entities, or to `Off` when
+call-site attribution. Deep profiler snapshots also surface top grid and entity
+type timing panels in Analytics when those patch groups produce samples. Set it
+to `Off` when
 troubleshooting profiler compatibility. See
 [Architecture](QuasarArchitecture.md) for how this telemetry flows through the
 supervisor.

@@ -4,7 +4,7 @@
 
 ## Summary
 
-Generic Harmony `CodeInstruction` transpiler used by deep profiler mode. It wraps selected `call` / `callvirt` instructions with `AgentProfiler.BeginCallSite` and `AgentProfiler.EndCallSite`, giving TorchMonitor-style call-site attribution without Torch patch-manager MSIL helpers.
+Generic Harmony `CodeInstruction` transpiler used by deep profiler mode. It wraps selected `call` / `callvirt` instructions with `AgentProfiler.BeginCallSite` and `AgentProfiler.EndCallSite`, giving Quasar-native call-site attribution without external patch-manager MSIL helpers.
 
 ## Structure
 

@@ -32,6 +32,16 @@ public sealed record ProfilerAnalyticsMetric(
     bool Kilo,
     double? FixedMax);
 
+public sealed record ProfilerEntryAnalyticsMetric(
+    string Key,
+    string Title,
+    string Subtitle,
+    Func<ProfilerSnapshot, IReadOnlyList<ProfilerEntrySnapshot>> Selector,
+    bool RequiresZero,
+    int Decimals,
+    bool Kilo,
+    double? FixedMax);
+
 public static class AnalyticsMetrics
 {
     // Order here is the default panel order on the Analytics page.
@@ -53,6 +63,7 @@ public static class AnalyticsMetrics
     public static readonly IReadOnlyList<AnalyticsPanelDefinition> Panels =
         All.Select(metric => new AnalyticsPanelDefinition(metric.Key, metric.Title, metric.Subtitle))
             .Concat(ProfilerAnalyticsMetrics.All.Select(metric => new AnalyticsPanelDefinition(metric.Key, metric.Title, metric.Subtitle)))
+            .Concat(ProfilerEntryAnalyticsMetrics.All.Select(metric => new AnalyticsPanelDefinition(metric.Key, metric.Title, metric.Subtitle)))
             .ToList();
 
     private static readonly Dictionary<string, AnalyticsPanelDefinition> PanelMap =
@@ -81,5 +92,20 @@ public static class ProfilerAnalyticsMetrics
         All.ToDictionary(metric => metric.Key, StringComparer.OrdinalIgnoreCase);
 
     public static ProfilerAnalyticsMetric? Find(string? key) =>
+        !string.IsNullOrWhiteSpace(key) && Map.TryGetValue(key, out var metric) ? metric : null;
+}
+
+public static class ProfilerEntryAnalyticsMetrics
+{
+    public static readonly IReadOnlyList<ProfilerEntryAnalyticsMetric> All =
+    [
+        new("profiler-top-grids", "Profiler: Top Grids ms", "Deep profiler grid update cost", static s => s.TopGrids, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+        new("profiler-top-entities", "Profiler: Entity Types ms", "Deep profiler entity update cost", static s => s.TopEntityTypes, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+    ];
+
+    private static readonly Dictionary<string, ProfilerEntryAnalyticsMetric> Map =
+        All.ToDictionary(metric => metric.Key, StringComparer.OrdinalIgnoreCase);
+
+    public static ProfilerEntryAnalyticsMetric? Find(string? key) =>
         !string.IsNullOrWhiteSpace(key) && Map.TryGetValue(key, out var metric) ? metric : null;
 }

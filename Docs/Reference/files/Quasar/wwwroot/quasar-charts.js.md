@@ -20,6 +20,7 @@ Browser-side analytics chart interop module registered as `window.quasarCharts`.
 - Holds a `Map` of chart instances by container id.
 - Uses uPlot cursor sync key `quasar-analytics` so related charts share cursor movement while suppressing the horizontal cursor guide line.
 - Applies the response/request `from` and `to` bounds to uPlot's X scale during both chart creation and incremental refresh, so sparse profiler panels use the same moving time window as scalar panels.
+- Resolves chart series labels through the server-name map, including `server / entry` labels used by deep profiler top-list charts.
 - Suspends periodic refresh while the user is dragging a time selection.
 - Uses `ResizeObserver` and `requestAnimationFrame` to resize charts without layout feedback loops.
 - Converts server chart payloads into uPlot columnar data arrays.

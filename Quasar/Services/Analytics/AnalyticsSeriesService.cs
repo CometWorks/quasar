@@ -1,3 +1,5 @@
+using Magnetar.Protocol.Model;
+
 namespace Quasar.Services.Analytics;
 
 /// <summary>
@@ -13,6 +15,7 @@ public sealed class AnalyticsSeriesService
 {
     public const int MaxPointsCeiling = 1000;
     private const int MaxPointsFloor = 10;
+    private const int MaxProfilerEntrySeriesPerChart = 20;
 
     private readonly MetricsStoreService _store;
     private readonly ProfilerStoreService _profilerStore;
@@ -46,12 +49,20 @@ public sealed class AnalyticsSeriesService
             .Where(metric => metric is not null)
             .Select(metric => metric!)
             .ToList();
-        if (metrics.Count == 0 && profilerMetrics.Count == 0)
+
+        var profilerEntryMetrics = metricKeys
+            .Select(ProfilerEntryAnalyticsMetrics.Find)
+            .Where(metric => metric is not null)
+            .Select(metric => metric!)
+            .ToList();
+
+        if (metrics.Count == 0 && profilerMetrics.Count == 0 && profilerEntryMetrics.Count == 0)
             return new AnalyticsSeriesResponse(fromUnix, toUnix, []);
 
-        var charts = new List<AnalyticsChartDto>(metrics.Count + profilerMetrics.Count);
+        var charts = new List<AnalyticsChartDto>(metrics.Count + profilerMetrics.Count + profilerEntryMetrics.Count);
         charts.AddRange(BuildMetricCharts(fromUnix, toUnix, servers, metrics, maxPoints));
         charts.AddRange(BuildProfilerCharts(fromUnix, toUnix, servers, profilerMetrics, maxPoints));
+        charts.AddRange(BuildProfilerEntryCharts(fromUnix, toUnix, servers, profilerEntryMetrics, maxPoints));
         return new AnalyticsSeriesResponse(fromUnix, toUnix, charts);
     }
 
@@ -295,6 +306,114 @@ public sealed class AnalyticsSeriesService
         return charts;
     }
 
+    private IReadOnlyList<AnalyticsChartDto> BuildProfilerEntryCharts(
+        long fromUnix,
+        long toUnix,
+        IReadOnlyList<string> servers,
+        IReadOnlyList<ProfilerEntryAnalyticsMetric> metrics,
+        int maxPoints)
+    {
+        if (metrics.Count == 0)
+            return [];
+
+        var serverKeys = servers
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (serverKeys.Count == 0)
+            return [];
+
+        var (bucketWidth, alignedFrom, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
+        var response = _profilerStore.Build(alignedFrom, toUnix, serverKeys);
+
+        var bucketsByMetric = new List<Dictionary<string, EntryBuckets>>(metrics.Count);
+        for (var mi = 0; mi < metrics.Count; mi++)
+            bucketsByMetric.Add(new Dictionary<string, EntryBuckets>(StringComparer.OrdinalIgnoreCase));
+
+        var bucketHasDataByMetric = new bool[metrics.Count][];
+        for (var mi = 0; mi < metrics.Count; mi++)
+            bucketHasDataByMetric[mi] = new bool[bucketCount];
+
+        foreach (var server in response.Servers)
+        {
+            foreach (var sample in server.Samples)
+            {
+                var timestamp = sample.CapturedAtUtc.ToUnixTimeSeconds();
+                var bucket = (int)((timestamp - alignedFrom) / bucketWidth);
+                if (bucket < 0 || bucket >= bucketCount)
+                    continue;
+
+                for (var mi = 0; mi < metrics.Count; mi++)
+                {
+                    var metric = metrics[mi];
+                    var entries = metric.Selector(sample);
+                    if (entries.Count == 0)
+                        continue;
+
+                    foreach (var entry in entries)
+                    {
+                        var value = ResolveEntryValue(entry);
+                        if (!double.IsFinite(value) || value <= 0d)
+                            continue;
+
+                        var label = BuildEntrySeriesLabel(server.UniqueName, entry);
+                        var series = GetOrCreateEntryBuckets(bucketsByMetric[mi], label, bucketCount);
+                        series.Sums[bucket] += value;
+                        series.Counts[bucket]++;
+                        series.Total += value;
+                        bucketHasDataByMetric[mi][bucket] = true;
+                    }
+                }
+            }
+        }
+
+        var charts = new List<AnalyticsChartDto>(metrics.Count);
+        for (var mi = 0; mi < metrics.Count; mi++)
+        {
+            var metric = metrics[mi];
+            var kept = new List<int>(bucketCount);
+            for (var bucket = 0; bucket < bucketCount; bucket++)
+            {
+                if (bucketHasDataByMetric[mi][bucket])
+                    kept.Add(bucket);
+            }
+
+            var x = new long[kept.Count];
+            for (var i = 0; i < kept.Count; i++)
+                x[i] = alignedFrom + kept[i] * bucketWidth + bucketWidth / 2;
+
+            var seriesList = new List<AnalyticsSeriesDto>();
+            foreach (var series in bucketsByMetric[mi].Values
+                         .OrderByDescending(series => series.Total)
+                         .ThenBy(series => series.Label, StringComparer.OrdinalIgnoreCase)
+                         .Take(MaxProfilerEntrySeriesPerChart))
+            {
+                var y = new double?[kept.Count];
+                for (var i = 0; i < kept.Count; i++)
+                {
+                    var bucket = kept[i];
+                    if (series.Counts[bucket] <= 0)
+                        continue;
+
+                    y[i] = Math.Round(series.Sums[bucket] / series.Counts[bucket], metric.Decimals + 2, MidpointRounding.AwayFromZero);
+                }
+
+                seriesList.Add(new AnalyticsSeriesDto(series.Label, y));
+            }
+
+            var axis = new AnalyticsAxisDto(
+                Min: metric.RequiresZero ? 0 : null,
+                Max: metric.FixedMax,
+                Decimals: metric.Decimals,
+                Kilo: metric.Kilo,
+                TickAmount: 5);
+
+            charts.Add(new AnalyticsChartDto(metric.Key, metric.Title, metric.Subtitle, axis, x, seriesList));
+        }
+
+        return charts;
+    }
+
     private static double? ResolveMax(AnalyticsMetric metric, double dynamicMax)
     {
         if (metric.DynamicMaxStep5)
@@ -325,6 +444,41 @@ public sealed class AnalyticsSeriesService
         return (bucketWidth, alignedFrom, bucketCount);
     }
 
+    private static EntryBuckets GetOrCreateEntryBuckets(Dictionary<string, EntryBuckets> buckets, string label, int bucketCount)
+    {
+        if (buckets.TryGetValue(label, out var existing))
+            return existing;
+
+        var created = new EntryBuckets(label, new double[bucketCount], new int[bucketCount]);
+        buckets[label] = created;
+        return created;
+    }
+
+    private static double ResolveEntryValue(ProfilerEntrySnapshot entry)
+    {
+        if (entry.TotalMsPerFrame > 0d)
+            return entry.TotalMsPerFrame;
+
+        return entry.TotalMs;
+    }
+
+    private static string BuildEntrySeriesLabel(string uniqueName, ProfilerEntrySnapshot entry)
+    {
+        var name = FirstNonBlank(entry.Name, entry.GridName, entry.BlockName, entry.TypeName, entry.MethodName, entry.Key, entry.Category, "Unknown");
+        return $"{uniqueName} / {name}";
+    }
+
+    private static string FirstNonBlank(params string[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                return value.Trim();
+        }
+
+        return "Unknown";
+    }
+
     // Mirrors the store-tier selection the Analytics page uses: raw 2s samples for short windows,
     // 1-minute rollups up to a day, 1-hour rollups beyond.
     private static MetricSample[] ReadSamplesForRange(ServerMetricsStore store, long fromUnix, long toUnix, long spanSeconds)
@@ -339,6 +493,11 @@ public sealed class AnalyticsSeriesService
     }
 
     private readonly record struct ServerBuckets(string UniqueName, double[][] Sums, int[][] Counts);
+
+    private sealed record EntryBuckets(string Label, double[] Sums, int[] Counts)
+    {
+        public double Total { get; set; }
+    }
 }
 
 public sealed record AnalyticsSeriesResponse(long From, long To, IReadOnlyList<AnalyticsChartDto> Charts);

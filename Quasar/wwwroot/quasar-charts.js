@@ -220,6 +220,21 @@ window.quasarCharts = (function () {
         instances.set(containerId, { chart: chartInstance, seriesCount: chart.series.length, ro: ro });
     }
 
+    function labelForSeries(names, uniqueName) {
+        if (!uniqueName) return "";
+        if (names[uniqueName]) return names[uniqueName];
+
+        const sep = " / ";
+        const i = uniqueName.indexOf(sep);
+        if (i > 0) {
+            const server = uniqueName.slice(0, i);
+            const rest = uniqueName.slice(i + sep.length);
+            if (names[server]) return names[server] + sep + rest;
+        }
+
+        return uniqueName;
+    }
+
     function destroy(containerId) {
         const inst = instances.get(containerId);
         if (!inst) return;
@@ -287,7 +302,7 @@ window.quasarCharts = (function () {
             const panel = containerByMetric.get(chart.metric);
             if (!panel) continue;
             // Attach human-readable series labels from the request's name map (kept server-agnostic).
-            chart.series.forEach((s) => { s.label = names[s.uniqueName] || s.uniqueName; });
+            chart.series.forEach((s) => { s.label = labelForSeries(names, s.uniqueName); });
             renderChart(panel.containerId, chart, !!request.dark, request.colors, spanSeconds, heightByMetric.get(chart.metric), xMin, xMax);
             present.add(panel.containerId);
             rendered++;
