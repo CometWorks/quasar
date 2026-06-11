@@ -18,6 +18,7 @@ No `@code` block; purely markup (no group title text, just the two nav menus).
 | `/configs` | Tune | Configs |
 | `/world-templates` | Public | Worlds |
 | `/players` | Groups | Players |
+| `/chat` | Chat | Chat |
 | `/entities` | ViewInAr | Entities |
 | `/plugins` | Extension | Plugins |
 | `/analytics` | QueryStats | Analytics |

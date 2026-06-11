@@ -1,0 +1,324 @@
+@inject WebServiceOptions Options
+@inject IJSRuntime JS
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+            <MudStack Spacing="0">
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">@DiscordLogStatusText()</MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary quasar-discord-log-path">@_logPath</MudText>
+            </MudStack>
+            <MudStack Row="true" Spacing="1">
+                <MudTooltip Text="Download full Discord log">
+                    <MudIconButton Icon="@Icons.Material.Filled.Download" Href="/api/discord/log/download" Disabled="@(!_loaded || _missing)" Size="Size.Small" />
+                </MudTooltip>
+                <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Search" OnClick="ShowExceptionsAsync">Exceptions</MudButton>
+                <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync">Refresh</MudButton>
+            </MudStack>
+        </MudStack>
+
+        @if (_missing)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                Discord log not found yet. Start or save the Discord integration so Quasar can write Discord-side events.
+            </MudAlert>
+        }
+        else if (!string.IsNullOrEmpty(_error))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
+        }
+        else
+        {
+            <div id="@_scrollContainerId" class="quasar-console-output">
+                <pre class="quasar-info-log-pre">@_content</pre>
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<style>
+    .quasar-console-output {
+        height: 60vh;
+        overflow-y: auto;
+        outline: none;
+        background: var(--mud-palette-background);
+        border: 1px solid var(--mud-palette-divider);
+        border-radius: 4px;
+        padding: 8px 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.8125rem;
+        line-height: 1.45;
+        white-space: normal;
+        word-break: break-word;
+    }
+
+    .quasar-info-log-pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font: inherit;
+        color: var(--mud-palette-text-primary);
+    }
+
+    .quasar-discord-log-path {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        word-break: break-all;
+    }
+</style>
+
+@code
+{
+    private const int LogTailBytes = 256 * 1024;
+    private const int ExceptionSearchBytes = 4 * 1024 * 1024;
+    private const int ExceptionContextLines = 50;
+    private const int ExceptionMatchLimit = 10;
+
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private readonly string _scrollContainerId = $"quasar-discord-log-{Guid.NewGuid():N}";
+    private string _content = string.Empty;
+    private string _logPath = string.Empty;
+    private int _lineCount;
+    private bool _truncated;
+    private bool _missing;
+    private string? _error;
+    private bool _loaded;
+    private bool _scrollPending;
+    private string _mode = "tail";
+
+    protected override void OnInitialized()
+    {
+        _logPath = ResolveLogPath();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_loaded)
+        {
+            await LoadAsync();
+            return;
+        }
+
+        if (_scrollPending)
+        {
+            _scrollPending = false;
+            await ScrollToBottomAsync();
+        }
+    }
+
+    private async Task ScrollToBottomAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.scrollToBottom", _scrollContainerId);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task ShowExceptionsAsync()
+    {
+        await LoadExceptionsAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _logPath = ResolveLogPath();
+
+        try
+        {
+            if (!File.Exists(_logPath))
+            {
+                _missing = true;
+                _content = string.Empty;
+                _lineCount = 0;
+                _truncated = false;
+                _error = null;
+                _mode = "tail";
+            }
+            else
+            {
+                var (text, truncated) = await ReadTailAsync(_logPath, LogTailBytes);
+                _content = text;
+                _truncated = truncated;
+                _lineCount = CountLines(text);
+                _missing = false;
+                _error = null;
+                _mode = "tail";
+            }
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            _content = string.Empty;
+            _lineCount = 0;
+            _truncated = false;
+            _missing = false;
+            _mode = "tail";
+        }
+
+        _loaded = true;
+        _scrollPending = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadExceptionsAsync()
+    {
+        _logPath = ResolveLogPath();
+
+        try
+        {
+            if (!File.Exists(_logPath))
+            {
+                _missing = true;
+                _content = string.Empty;
+                _lineCount = 0;
+                _truncated = false;
+                _error = null;
+                _mode = "exceptions";
+            }
+            else
+            {
+                var (text, truncated) = await ReadTailAsync(_logPath, ExceptionSearchBytes);
+                _content = ExtractExceptionBlocks(text, truncated, "Discord log");
+                _truncated = truncated;
+                _lineCount = CountLines(_content);
+                _missing = false;
+                _error = null;
+                _mode = "exceptions";
+            }
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            _content = string.Empty;
+            _lineCount = 0;
+            _truncated = false;
+            _missing = false;
+            _mode = "exceptions";
+        }
+
+        _loaded = true;
+        _scrollPending = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string DiscordLogStatusText()
+    {
+        if (_missing)
+            return "Discord log not found yet.";
+
+        return _mode == "exceptions"
+            ? $"{_lineCount} line(s) from latest exception excerpts{(_truncated ? " (searched latest log tail)" : string.Empty)}"
+            : $"{_lineCount} line(s){(_truncated ? " (tail only)" : string.Empty)}";
+    }
+
+    private string ResolveLogPath()
+    {
+        return QuasarLoggingConfigurator.ResolveDiscordLogPath(Options);
+    }
+
+    private static async Task<(string Text, bool Truncated)> ReadTailAsync(string path, int maxBytes)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+
+        var truncated = false;
+        if (stream.Length > maxBytes)
+        {
+            stream.Seek(-maxBytes, SeekOrigin.End);
+            truncated = true;
+        }
+
+        using var reader = new StreamReader(stream);
+        if (truncated)
+            await reader.ReadLineAsync();
+
+        var text = await reader.ReadToEndAsync();
+        return (text, truncated);
+    }
+
+    private static int CountLines(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return 0;
+
+        var count = 1;
+        foreach (var c in text)
+        {
+            if (c == '\n')
+                count++;
+        }
+
+        if (text.EndsWith('\n'))
+            count--;
+
+        return count;
+    }
+
+    private static string ExtractExceptionBlocks(string text, bool truncated, string logName)
+    {
+        var lines = text.Replace("\r\n", "\n").Split('\n');
+        var matches = lines
+            .Select((line, index) => (line, index))
+            .Where(item => item.line.Contains("Exception", StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.index)
+            .TakeLast(ExceptionMatchLimit)
+            .ToList();
+
+        if (matches.Count == 0)
+        {
+            return truncated
+                ? $"No lines containing \"Exception\" found in the searched {logName} tail."
+                : $"No lines containing \"Exception\" found in {logName}.";
+        }
+
+        var ranges = new List<(int Start, int End)>();
+        foreach (var index in matches)
+        {
+            var start = index;
+            var end = Math.Min(lines.Length - 1, index + ExceptionContextLines);
+            if (ranges.Count > 0 && start <= ranges[^1].End + 1)
+            {
+                var previous = ranges[^1];
+                ranges[^1] = (previous.Start, Math.Max(previous.End, end));
+            }
+            else
+            {
+                ranges.Add((start, end));
+            }
+        }
+
+        var output = new List<string>();
+        if (truncated)
+            output.Add($"Searched latest {ExceptionSearchBytes / (1024 * 1024)} MB of {logName}.");
+
+        for (var rangeIndex = 0; rangeIndex < ranges.Count; rangeIndex++)
+        {
+            var (start, end) = ranges[rangeIndex];
+            if (output.Count > 0)
+                output.Add(string.Empty);
+
+            output.Add($"--- Exception excerpt {rangeIndex + 1} (line {start + 1} of searched text) ---");
+            for (var i = start; i <= end; i++)
+                output.Add(lines[i]);
+        }
+
+        return string.Join(Environment.NewLine, output);
+    }
+
+    private void Close() => MudDialog.Close();
+}

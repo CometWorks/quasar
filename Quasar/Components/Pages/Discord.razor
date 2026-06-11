@@ -4,12 +4,20 @@
 @inject DeathMessagesCatalog DeathMessagesCatalog
 @inject DedicatedServerCatalog ServerCatalog
 @inject DiscordBotService DiscordBotService
+@inject IDialogService DialogService
 @inject ISnackbar Snackbar
 
 <PageTitle>Discord</PageTitle>
 
-<MudText Typo="Typo.h5" Class="mb-2">Discord</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">One bot, many Quasar servers. Bind command, chat, log, and analytics channels per server.</MudText>
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-2">
+    <div>
+        <MudText Typo="Typo.h5" Class="mb-2">Discord</MudText>
+        <MudText Typo="Typo.body2">One bot, many Quasar servers. Bind command, chat, log, and analytics channels per server.</MudText>
+    </div>
+    <MudTooltip Text="Show Discord integration log">
+        <MudIconButton Icon="@Icons.Material.Filled.Terminal" Color="Color.Default" title="Show Discord integration log" OnClick="OpenDiscordConsoleDialogAsync" />
+    </MudTooltip>
+</MudStack>
 
 <MudGrid>
     <MudItem xs="12" xl="4">
@@ -329,6 +337,18 @@
     private async Task SaveBotSettingsAsync()
     {
         await SaveAsync("Discord bot settings saved.");
+    }
+
+    private async Task OpenDiscordConsoleDialogAsync()
+    {
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            FullWidth = true,
+            MaxWidth = MaxWidth.Large,
+        };
+
+        await DialogService.ShowAsync<DiscordConsoleDialog>("Discord Log", options);
     }
 
     private async Task SaveServerAsync(string uniqueName)

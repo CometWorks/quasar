@@ -29,8 +29,8 @@
     }
 </MudStack>
 
-<MudPaper Class="pa-4 server-card">
-    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-4">
+<MudPaper Class="pa-4 server-card players-list-card">
+    <MudStack Spacing="2" Class="mb-4 players-list-stack">
         @if (KnownPlayerViews.Count == 0)
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
@@ -45,7 +45,7 @@
         }
         else
         {
-            <MudTable T="KnownPlayerView" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredPlayers">
+            <MudTable T="KnownPlayerView" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredPlayers" Class="players-table">
                 <HeaderContent>
                     <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.ServerDisplayName)">Server</MudTableSortLabel></MudTh>
                     <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetPlayerName(x.Record))">Player</MudTableSortLabel></MudTh>

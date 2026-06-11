@@ -9,6 +9,15 @@ namespace Quasar.Services;
 
 public static class QuasarLoggingConfigurator
 {
+    public static string ResolveDiscordLogPath(WebServiceOptions options)
+    {
+        return Path.Combine(
+            string.IsNullOrWhiteSpace(options.LoggingDirectory)
+                ? MagnetarPaths.GetQuasarLogDirectory()
+                : options.LoggingDirectory,
+            "discord.log");
+    }
+
     public static void Configure(WebApplicationBuilder builder, WebServiceOptions options)
     {
         Directory.CreateDirectory(options.LoggingDirectory);
@@ -36,10 +45,20 @@ public static class QuasarLoggingConfigurator
             Layout = BuildLayout(options.LoggingFormat),
         };
 
+        var discordFileTarget = new FileTarget("discord-file")
+        {
+            FileName = ResolveDiscordLogPath(options),
+            KeepFileOpen = false,
+            CreateDirs = true,
+            Layout = BuildLayout(options.LoggingFormat),
+        };
+
         var minimumLevel = ParseMinimumLevel(options.LoggingMinimumLevel);
 
         configuration.AddTarget(fileTarget);
+        configuration.AddTarget(discordFileTarget);
         configuration.AddRule(minimumLevel, NLog.LogLevel.Fatal, fileTarget);
+        configuration.LoggingRules.Add(new LoggingRule("Quasar.Services.Discord.*", minimumLevel, NLog.LogLevel.Fatal, discordFileTarget));
 
         // The bootstrap launches the worker with QUASAR_CONSOLE_LOGGING=true when the user
         // started Quasar from an interactive console. Mirror NLog output to stdout so the

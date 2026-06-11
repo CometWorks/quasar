@@ -265,10 +265,14 @@ public class Program
             var magnetarLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/magnetar/download", (string uniqueName, DedicatedServerCatalog catalog) =>
                 DownloadLogFile(ResolveMagnetarInfoLogPath(uniqueName, catalog)));
 
+            var discordLogDownload = app.MapGet("/api/discord/log/download", (WebServiceOptions options) =>
+                DownloadLogFile(QuasarLoggingConfigurator.ResolveDiscordLogPath(options)));
+
             if (authOptions.Enabled)
             {
                 serverLogDownload.RequireAuthorization(QuasarPolicyNames.CanView);
                 magnetarLogDownload.RequireAuthorization(QuasarPolicyNames.CanView);
+                discordLogDownload.RequireAuthorization(QuasarPolicyNames.CanManageDiscord);
             }
 
             // Generates a fresh configuration backup and streams it as a download.

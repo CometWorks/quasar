@@ -1,0 +1,337 @@
+@page "/chat"
+@implements IDisposable
+@inject AgentRegistry Registry
+@inject DedicatedServerCatalog ServerCatalog
+@inject DedicatedServerSupervisor Supervisor
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<PageTitle>Chat</PageTitle>
+
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-2">
+    <div>
+        <MudText Typo="Typo.h5" Class="mb-2">Chat</MudText>
+        <MudText Typo="Typo.body2">Select a server, watch live chat, send messages, and run chat-command text through the agent.</MudText>
+    </div>
+    <MudChip T="string" Variant="Variant.Outlined">@($"{ConnectedAgents.Count} connected")</MudChip>
+</MudStack>
+
+<MudPaper Class="pa-4 server-card chat-console-card">
+    <MudStack Spacing="3">
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="2">
+            <MudSelect T="string"
+                       Label="Server"
+                       Value="_selectedUniqueName"
+                       ValueChanged="HandleServerChanged"
+                       Variant="Variant.Outlined"
+                       Class="chat-server-select">
+                @foreach (var server in ServerOptions)
+                {
+                    <MudSelectItem T="string" Value="@server.UniqueName">@server.DisplayName</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-3">
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" OnClick="@(() => SendAgentCommandAsync(ServerCommandType.Refresh))" Disabled="@(!CanSendAgentCommand)">
+                    Refresh
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Info" StartIcon="@Icons.Material.Filled.Save" OnClick="@(() => SendAgentCommandAsync(ServerCommandType.SaveWorld))" Disabled="@(!CanSendAgentCommand)">
+                    Save
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Warning" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="RestartSelectedServerAsync" Disabled="@(!HasSelectedDefinition)">
+                    Restart
+                </MudButton>
+            </MudStack>
+        </MudStack>
+
+        @if (ServerOptions.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                No servers defined yet.
+            </MudAlert>
+        }
+        else if (SelectedAgent?.Snapshot is null)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                Selected server has no connected agent snapshot yet.
+            </MudAlert>
+        }
+        else
+        {
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                <MudChip T="string" Variant="Variant.Outlined">Players @SelectedAgent.Snapshot.Metrics.PlayersOnline/@SelectedAgent.Snapshot.Metrics.MaxPlayers</MudChip>
+                <MudChip T="string" Variant="Variant.Outlined">World @SelectedAgent.WorldDisplayName</MudChip>
+                <MudChip T="string" Variant="Variant.Outlined">Agent connected</MudChip>
+            </MudStack>
+        }
+
+        <div id="@_chatScrollContainerId" class="admin-chat-list">
+            @if (SelectedMessages.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">No recent chat for this server.</MudText>
+            }
+            else
+            {
+                @foreach (var message in SelectedMessages)
+                {
+                    <div class="admin-chat-row">
+                        <MudText Typo="Typo.caption" Class="mono">@FormatTimestamp(message.TimestampTicksUtc)</MudText>
+                        <MudText Typo="Typo.body2">
+                            <strong>@FormatAuthor(message)</strong>: @TextSanitizer.CleanGameText(message.Content)
+                        </MudText>
+                    </div>
+                }
+            }
+        </div>
+
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="2">
+            <MudSwitch T="bool" @bind-Value="_commandMode" Label="Command mode" Color="Color.Primary" Class="mt-2" />
+            <MudTextField @bind-Value="_inputText"
+                          Label="@(_commandMode ? "Command text" : "Chat message")"
+                          Variant="Variant.Outlined"
+                          FullWidth="true"
+                          Immediate="true"
+                          Lines="@(_commandMode ? 1 : 2)"
+                          HelperText="@(_commandMode ? "Type the full chat command, including prefix." : "Broadcasts to selected server chat.")"
+                          OnKeyDown="HandleInputKeyDownAsync"
+                          Disabled="@(!CanSendAgentCommand)" />
+            <MudButton Variant="Variant.Filled"
+                       Color="@(_commandMode ? Color.Warning : Color.Success)"
+                       StartIcon="@(_commandMode ? Icons.Material.Filled.Terminal : Icons.Material.Filled.Send)"
+                       Class="mt-3"
+                       Style="height: 40px;"
+                       OnClick="SendInputAsync"
+                       Disabled="@(!CanSendAgentCommand || string.IsNullOrWhiteSpace(_inputText))">
+                @(_commandMode ? "Run" : "Send")
+            </MudButton>
+        </MudStack>
+
+        @if (SelectedAgent?.CommandResults.Count > 0)
+        {
+            <MudDivider />
+            <MudText Typo="Typo.subtitle2">Recent Command Results</MudText>
+            @foreach (var result in SelectedAgent.CommandResults.Take(6))
+            {
+                <MudAlert Dense="true" Severity="@(result.Success ? Severity.Success : Severity.Error)" Variant="Variant.Outlined">
+                    @result.Message
+                </MudAlert>
+            }
+        }
+    </MudStack>
+</MudPaper>
+
+@code
+{
+    private readonly string _chatScrollContainerId = $"admin-chat-{Guid.NewGuid():N}";
+    private string _selectedUniqueName = string.Empty;
+    private string _inputText = string.Empty;
+    private bool _commandMode;
+    private long _lastRenderedLatestMessageTicks;
+    private bool _scrollPending;
+
+    private IReadOnlyList<DedicatedServerDefinition> ServerDefinitions => ServerCatalog.GetServers();
+
+    private IReadOnlyList<AgentRuntimeState> ConnectedAgents => Registry.GetAgents()
+        .Where(agent => agent.IsConnected)
+        .Where(agent => !string.IsNullOrWhiteSpace(agent.UniqueNameKey))
+        .ToList();
+
+    private IReadOnlyList<ServerOption> ServerOptions => BuildServerOptions();
+
+    private AgentRuntimeState? SelectedAgent => ConnectedAgents
+        .Where(agent => string.Equals(agent.UniqueNameKey, _selectedUniqueName, StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(agent => agent.LastSeenUtc)
+        .FirstOrDefault();
+
+    private IReadOnlyList<ChatMessageSnapshot> SelectedMessages => SelectedAgent?.Snapshot?.RecentChat
+        .OrderBy(message => message.TimestampTicksUtc)
+        .ToList() ?? [];
+
+    private bool HasSelectedDefinition => ServerDefinitions.Any(server =>
+        string.Equals(server.UniqueName, _selectedUniqueName, StringComparison.OrdinalIgnoreCase));
+
+    private bool CanSendAgentCommand => SelectedAgent?.IsConnected == true;
+
+    protected override void OnInitialized()
+    {
+        Registry.Changed += HandleChanged;
+        ServerCatalog.Changed += HandleChanged;
+        EnsureSelectedServer();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var latestTicks = SelectedMessages.LastOrDefault()?.TimestampTicksUtc ?? 0;
+        if (firstRender || _scrollPending || latestTicks != _lastRenderedLatestMessageTicks)
+        {
+            _scrollPending = false;
+            _lastRenderedLatestMessageTicks = latestTicks;
+            await ScrollToBottomAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        Registry.Changed -= HandleChanged;
+        ServerCatalog.Changed -= HandleChanged;
+    }
+
+    private async Task ScrollToBottomAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.scrollToBottom", _chatScrollContainerId);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private Task HandleServerChanged(string uniqueName)
+    {
+        _selectedUniqueName = uniqueName ?? string.Empty;
+        _scrollPending = true;
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleInputKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter" && !args.ShiftKey)
+            await SendInputAsync();
+    }
+
+    private async Task SendInputAsync()
+    {
+        var text = _inputText.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        await SendAgentCommandAsync(ServerCommandType.SendChat, text);
+        _inputText = string.Empty;
+    }
+
+    private async Task SendAgentCommandAsync(ServerCommandType commandType, string text = "")
+    {
+        var agent = SelectedAgent;
+        if (agent is null)
+        {
+            Snackbar.Add("Selected server is not connected.", Severity.Error);
+            return;
+        }
+
+        try
+        {
+            await Registry.SendCommandAsync(new ServerCommandEnvelope
+            {
+                UniqueName = agent.UniqueNameKey,
+                AgentId = agent.AgentId,
+                ServerId = agent.ServerKey,
+                CommandType = commandType,
+                Text = text,
+                IssuedAtUtc = DateTimeOffset.UtcNow,
+            });
+
+            Snackbar.Add(GetCommandSentMessage(commandType), Severity.Info);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task RestartSelectedServerAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_selectedUniqueName))
+            return;
+
+        try
+        {
+            await Supervisor.RestartServerAsync(_selectedUniqueName);
+            Snackbar.Add($"Restart requested for {GetServerDisplayName(_selectedUniqueName)}.", Severity.Info);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private IReadOnlyList<ServerOption> BuildServerOptions()
+    {
+        var options = ServerDefinitions
+            .Select(server => new ServerOption(server.UniqueName, string.IsNullOrWhiteSpace(server.DisplayName) ? server.UniqueName : server.DisplayName))
+            .ToList();
+
+        var known = options
+            .Select(option => option.UniqueName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var agent in ConnectedAgents)
+        {
+            if (known.Add(agent.UniqueNameKey))
+                options.Add(new ServerOption(agent.UniqueNameKey, agent.ServerDisplayName));
+        }
+
+        return options
+            .OrderByDescending(option => ConnectedAgents.Any(agent => string.Equals(agent.UniqueNameKey, option.UniqueName, StringComparison.OrdinalIgnoreCase)))
+            .ThenBy(option => option.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void EnsureSelectedServer()
+    {
+        var options = ServerOptions;
+        if (options.Count == 0)
+        {
+            _selectedUniqueName = string.Empty;
+            return;
+        }
+
+        if (options.Any(option => string.Equals(option.UniqueName, _selectedUniqueName, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        _selectedUniqueName = options[0].UniqueName;
+        _scrollPending = true;
+    }
+
+    private string GetServerDisplayName(string uniqueName)
+    {
+        return ServerOptions
+            .FirstOrDefault(option => string.Equals(option.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
+            ?.DisplayName ?? uniqueName;
+    }
+
+    private void HandleChanged()
+    {
+        EnsureSelectedServer();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private static string FormatAuthor(ChatMessageSnapshot message)
+    {
+        var author = TextSanitizer.CleanGameText(message.AuthorName);
+        return string.IsNullOrWhiteSpace(author) ? message.SteamId.ToString() : author;
+    }
+
+    private static string FormatTimestamp(long ticks)
+    {
+        if (ticks <= 0)
+            return "unknown";
+
+        return new DateTimeOffset(ticks, TimeSpan.Zero)
+            .ToLocalTime()
+            .ToString("yyyy-MM-dd HH:mm:ss");
+    }
+
+    private static string GetCommandSentMessage(ServerCommandType commandType)
+    {
+        return commandType switch
+        {
+            ServerCommandType.SendChat => "Chat command sent.",
+            ServerCommandType.Refresh => "Refresh requested.",
+            ServerCommandType.SaveWorld => "Save requested.",
+            _ => $"{commandType} requested.",
+        };
+    }
+
+    private sealed record ServerOption(string UniqueName, string DisplayName);
+}

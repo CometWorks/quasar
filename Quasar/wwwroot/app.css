@@ -172,6 +172,33 @@ h1:focus {
     border-bottom: 1px solid var(--mud-palette-lines-default);
 }
 
+.chat-console-card {
+    min-height: calc(100vh - 11rem);
+}
+
+.chat-server-select {
+    min-width: min(100%, 22rem);
+}
+
+.admin-chat-list {
+    min-height: 22rem;
+    max-height: calc(100vh - 27rem);
+    overflow-y: auto;
+    padding: 0.5rem 0.75rem;
+    background: var(--mud-palette-background);
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: var(--mud-default-borderradius);
+}
+
+.admin-chat-row {
+    padding: 0.55rem 0;
+    border-bottom: 1px solid var(--mud-palette-lines-default);
+}
+
+.admin-chat-row:last-child {
+    border-bottom: 0;
+}
+
 .mono {
     font-family: "JetBrains Mono", "Cascadia Code", monospace;
 }
@@ -234,6 +261,14 @@ h1:focus {
 
 .server-card .mud-table-container {
     border-radius: inherit;
+}
+
+.players-list-card,
+.players-list-stack,
+.players-table,
+.players-list-card .mud-table,
+.players-list-card .mud-table-container {
+    width: 100%;
 }
 
 @media (max-width: 959.98px) {

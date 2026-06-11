@@ -34,6 +34,8 @@ Global stylesheet for the Quasar Blazor Server UI. Overrides MudBlazor's elevati
 **Utility / feature classes:**
 - `.mono` — JetBrains Mono / Cascadia Code monospace font; `.mud-typography-caption.mono` renders monospace ID captions at 50% opacity (`opacity: 0.5`)
 - `.chat-list` / `.chat-row` — scrollable chat log column with row separators
+- `.chat-console-card`, `.chat-server-select`, `.admin-chat-list`, `.admin-chat-row` — full-page chat console sizing, server-select minimum width, and bounded scrollable chat rows for `Chat.razor`
+- `.players-list-card`, `.players-list-stack`, `.players-table`, and descendant table selectors — force the known-player table stack and MudBlazor table/container to consume full available width
 - `.world-template-browse-button` — 1rem top margin
 - `.branding-logo-preview` (+ `-dark`, `-light`) and `.branding-favicon-preview` — bordered preview containers for logo/favicon images
 
