@@ -139,14 +139,15 @@
                         <MudText Typo="Typo.caption" Class="mt-1">
                             Missing: @string.Join(", ", TemplateModsMissingFromProfile.Take(8).Select(mod => mod.DisplayName))@(TemplateModsMissingFromProfile.Count > 8 ? $", +{TemplateModsMissingFromProfile.Count - 8} more" : string.Empty)
                         </MudText>
-                        <MudButton Variant="Variant.Outlined"
-                                   Color="Color.Warning"
-                                   Size="Size.Small"
-                                   Class="mt-2"
-                                   StartIcon="@Icons.Material.Filled.PlaylistAdd"
-                                   OnClick="MergeSelectedWorldTemplateModsIntoProfileAsync">
-                            Merge Into @SelectedProfileName
-                        </MudButton>
+                        <div class="mt-2">
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Warning"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.PlaylistAdd"
+                                       OnClick="MergeSelectedWorldTemplateModsIntoProfileAsync">
+                                Merge Into @SelectedProfileName
+                            </MudButton>
+                        </div>
                     </MudAlert>
                 }
             </section>

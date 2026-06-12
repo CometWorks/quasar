@@ -93,7 +93,10 @@
             <MudStack Spacing="2">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                     <MudText Typo="Typo.h6">Servers</MudText>
-                    <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" OnClick="SelectAllServersAsync">Select all</MudButton>
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                        <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" OnClick="SelectAllServersAsync">Select all</MudButton>
+                        <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" OnClick="SelectNoneServersAsync">Select none</MudButton>
+                    </MudStack>
                 </MudStack>
                 @if (_serverOptions.Count == 0)
                 {
@@ -156,8 +159,6 @@
                 <MudNumericField T="int" Label="Columns" Value="_config.GridColumns" ValueChanged="HandleGridColumnsChanged" Variant="Variant.Outlined" Min="1" Max="6" />
                 <MudNumericField T="int" Label="Rows" Value="_config.GridRows" ValueChanged="HandleGridRowsChanged" Variant="Variant.Outlined" Min="1" Max="12" />
                 <MudNumericField T="int" Label="Row height (px)" Value="_config.RowHeightPx" ValueChanged="HandleRowHeightChanged" Variant="Variant.Outlined" Min="180" Max="960" />
-                <MudNumericField T="int" Label="Max visible lines" Value="_config.MaxVisibleServersForCharts" ValueChanged="HandleMaxVisibleServersChanged" Variant="Variant.Outlined" Min="1" Max="40" Disabled="_config.ShowAllServers" />
-                <MudCheckBox T="bool" Label="Show all selected server lines" Value="_config.ShowAllServers" ValueChanged="HandleShowAllServersChanged" />
             </MudStack>
         </MudItem>
     </MudGrid>
@@ -414,6 +415,13 @@ else
         await RefreshAsync();
     }
 
+    private async Task SelectNoneServersAsync()
+    {
+        _config.SelectedUniqueNames = [];
+        _selectionInitialized = true;
+        await RefreshAsync();
+    }
+
     private async Task HandleServerToggled(string uniqueName, bool value)
     {
         if (value)
@@ -555,18 +563,6 @@ else
     private Task HandleRowHeightChanged(int value)
     {
         _config.RowHeightPx = Math.Clamp(value, 180, 960);
-        return RefreshAsync();
-    }
-
-    private Task HandleMaxVisibleServersChanged(int value)
-    {
-        _config.MaxVisibleServersForCharts = Math.Clamp(value, 1, 40);
-        return RefreshAsync();
-    }
-
-    private Task HandleShowAllServersChanged(bool value)
-    {
-        _config.ShowAllServers = value;
         return RefreshAsync();
     }
 
@@ -760,14 +756,14 @@ else
         _toUnix = toUnix;
         var spanSeconds = toUnix - fromUnix;
 
+        // All selected servers are charted; there is no visible-line cap.
         var selectedServers = GetSelectedUniqueNames();
-        var effectiveServers = ResolveChartServers(selectedServers);
-        _effectiveServers = effectiveServers.ToList();
+        _effectiveServers = selectedServers.ToList();
 
         // Read range samples in-memory purely to drive the summary chips and decide whether there is
         // anything to chart. The bulk series data is fetched by the browser, not sent over the circuit.
         var samplesByServer = new Dictionary<string, MetricSample[]>(StringComparer.OrdinalIgnoreCase);
-        foreach (var uniqueName in effectiveServers)
+        foreach (var uniqueName in selectedServers)
         {
             var store = MetricsStore.GetStore(uniqueName);
             if (store is null)
@@ -779,10 +775,10 @@ else
         }
 
         var hasScalarData = samplesByServer.Count > 0;
-        var hasProfilerData = !hasScalarData && ProfilerStore.HasSamples(fromUnix, toUnix, effectiveServers);
+        var hasProfilerData = !hasScalarData && ProfilerStore.HasSamples(fromUnix, toUnix, selectedServers);
 
-        BuildSummary(selectedServers, samplesByServer, effectiveServers.Count);
-        BuildChartCards(hasScalarData || hasProfilerData, keepEmptyProfilerPanels: effectiveServers.Count > 0);
+        BuildSummary(selectedServers, samplesByServer);
+        BuildChartCards(hasScalarData || hasProfilerData, keepEmptyProfilerPanels: selectedServers.Count > 0);
     }
 
     private void BuildChartCards(bool hasData, bool keepEmptyProfilerPanels)
@@ -925,30 +921,6 @@ else
             : [];
     }
 
-    private IReadOnlyList<string> ResolveChartServers(IReadOnlyList<string> selectedServers)
-    {
-        if (_config.ShowAllServers || selectedServers.Count <= _config.MaxVisibleServersForCharts)
-            return selectedServers;
-
-        var limit = Math.Clamp(_config.MaxVisibleServersForCharts, 1, 40);
-        if (selectedServers.Count <= limit)
-            return selectedServers;
-
-        if (_serverOptions.Count == 0)
-            return selectedServers.Take(limit).ToList();
-
-        var selectedSet = selectedServers.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var visible = _serverOptions
-            .Where(option => selectedSet.Contains(option.UniqueName))
-            .Select(option => option.UniqueName)
-            .Take(limit)
-            .ToList();
-
-        return visible.Count > 0
-            ? visible
-            : selectedServers.Take(limit).ToList();
-    }
-
     private (long FromUnix, long ToUnix) ResolveRange()
     {
         var nowUtc = DateTimeOffset.UtcNow;
@@ -1001,8 +973,7 @@ else
 
     private void BuildSummary(
         IReadOnlyList<string> selectedServers,
-        IReadOnlyDictionary<string, MetricSample[]> samplesByServer,
-        int visibleServerCount)
+        IReadOnlyDictionary<string, MetricSample[]> samplesByServer)
     {
         _summaryChips.Clear();
 
@@ -1014,14 +985,7 @@ else
                 latestSamples.Add(latest[0]);
         }
 
-        if (selectedServers.Count == visibleServerCount)
-        {
-            _summaryChips.Add(new SummaryChipModel("Servers", selectedServers.Count.ToString()));
-        }
-        else
-        {
-            _summaryChips.Add(new SummaryChipModel("Servers", $"{visibleServerCount} of {selectedServers.Count}"));
-        }
+        _summaryChips.Add(new SummaryChipModel("Servers", selectedServers.Count.ToString()));
 
         if (latestSamples.Count == 0)
         {
@@ -1111,8 +1075,6 @@ else
         normalized.GridColumns = Math.Clamp(normalized.GridColumns <= 0 ? 2 : normalized.GridColumns, 1, 6);
         normalized.GridRows = Math.Clamp(normalized.GridRows <= 0 ? 4 : normalized.GridRows, 1, 12);
         normalized.RowHeightPx = Math.Clamp(normalized.RowHeightPx <= 0 ? 320 : normalized.RowHeightPx, 180, 960);
-        normalized.MaxVisibleServersForCharts = normalized.MaxVisibleServersForCharts <= 0 ? 6 : normalized.MaxVisibleServersForCharts;
-        normalized.MaxVisibleServersForCharts = Math.Clamp(normalized.MaxVisibleServersForCharts, 1, 40);
         normalized.AutoRefreshSeconds = normalized.AutoRefreshSeconds switch
         {
             0 or 5 or 15 or 30 or 60 => normalized.AutoRefreshSeconds,
