@@ -12,17 +12,20 @@ public sealed class DiscordCommandDispatcher
     private readonly AgentRegistry _registry;
     private readonly DedicatedServerSupervisor _supervisor;
     private readonly DedicatedServerCatalog _serverCatalog;
+    private readonly DiscordChatRelayService _chatRelayService;
     private readonly ILogger<DiscordCommandDispatcher> _logger;
 
     public DiscordCommandDispatcher(
         AgentRegistry registry,
         DedicatedServerSupervisor supervisor,
         DedicatedServerCatalog serverCatalog,
+        DiscordChatRelayService chatRelayService,
         ILogger<DiscordCommandDispatcher> logger)
     {
         _registry = registry;
         _supervisor = supervisor;
         _serverCatalog = serverCatalog;
+        _chatRelayService = chatRelayService;
         _logger = logger;
     }
 
@@ -44,6 +47,7 @@ public sealed class DiscordCommandDispatcher
                         return;
                     }
 
+                    _chatRelayService.TrackDiscordToGameMessage(serverOptions.UniqueName, args);
                     await SendAgentCommandAsync(serverOptions.UniqueName, ServerCommandType.SendChat, text: args, cancellationToken: cancellationToken);
                     await ReplyAsync(message, "Chat sent.");
                     return;
@@ -120,7 +124,9 @@ public sealed class DiscordCommandDispatcher
             if (string.IsNullOrWhiteSpace(text))
                 return;
 
-            await SendAgentCommandAsync(serverOptions.UniqueName, ServerCommandType.SendChat, text: text.Trim(), cancellationToken: cancellationToken);
+            var trimmed = text.Trim();
+            _chatRelayService.TrackDiscordToGameMessage(serverOptions.UniqueName, trimmed);
+            await SendAgentCommandAsync(serverOptions.UniqueName, ServerCommandType.SendChat, text: trimmed, cancellationToken: cancellationToken);
         }
         catch (Exception exception)
         {

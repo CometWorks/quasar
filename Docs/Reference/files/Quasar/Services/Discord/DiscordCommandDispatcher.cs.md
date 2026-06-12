@@ -3,18 +3,18 @@
 **Module:** Quasar.Services.Discord  **Kind:** class  **Tier:** 2
 
 ## Summary
-Executes Discord bot commands directed at a specific SE dedicated server. Routes the parsed verb to the appropriate action (chat, save, start, stop, restart, kick, ban, unban, promote, demote, status, help) and sends Discord replies. Also handles bidirectional chat relay from Discord to the game.
+Executes Discord bot commands directed at a specific SE dedicated server. Routes the parsed verb to the appropriate action (chat, save, start, stop, restart, kick, ban, unban, promote, demote, status, help) and sends Discord replies. Also handles Discord-to-game chat relay and marks Discord-origin game chat so the outbound relay can suppress matching echoes.
 
 ## Structure
 Namespace: `Quasar.Services.Discord`
 
 `sealed class DiscordCommandDispatcher`
 
-Constructor: `(AgentRegistry registry, DedicatedServerSupervisor supervisor, DedicatedServerCatalog serverCatalog, ILogger<DiscordCommandDispatcher> logger)`
+Constructor: `(AgentRegistry registry, DedicatedServerSupervisor supervisor, DedicatedServerCatalog serverCatalog, DiscordChatRelayService chatRelayService, ILogger<DiscordCommandDispatcher> logger)`
 
 Public members:
-- `DispatchAsync(DiscordServerOptions serverOptions, string verb, string args, SocketMessage message, CancellationToken) : Task` — `switch` on verb; handles: `chat`, `save`, `stop`, `start`, `restart`, `kick`, `ban`, `unban`, `promote`, `demote`, `status`, `help`; unknown verb replies with error + help embed
-- `RelayChatAsync(DiscordServerOptions serverOptions, string text, SocketMessage message, CancellationToken) : Task` — sends non-command Discord messages as in-game chat via `ServerCommandType.SendChat`
+- `DispatchAsync(DiscordServerOptions serverOptions, string verb, string args, SocketMessage message, CancellationToken) : Task` — `switch` on verb; handles: `chat`, `save`, `stop`, `start`, `restart`, `kick`, `ban`, `unban`, `promote`, `demote`, `status`, `help`; the `chat` verb records echo suppression before sending; unknown verb replies with error + help embed
+- `RelayChatAsync(DiscordServerOptions serverOptions, string text, SocketMessage message, CancellationToken) : Task` — sends Discord chat-channel messages as in-game chat via `ServerCommandType.SendChat` after recording echo suppression
 
 Private helpers:
 - `DispatchSteamIdCommandAsync` — validates and parses `long steamId` from args, sends the given `ServerCommandType`
@@ -27,6 +27,7 @@ Private helpers:
 
 ## Dependencies
 - [`Quasar/Services/Discord/DiscordOptions.cs`](DiscordOptions.cs.md) — `DiscordServerOptions`
+- [`Quasar/Services/Discord/DiscordChatRelayService.cs`](DiscordChatRelayService.cs.md) — Discord-origin echo suppression registration
 - [`Quasar/Services/AgentRegistry.cs`](../AgentRegistry.cs.md) — `AgentRegistry`, `AgentRuntimeState`
 - `Quasar/Models/DedicatedServerSupervisor.cs` — `DedicatedServerSupervisor`, `DedicatedServerRuntimeSnapshot`
 - `Quasar/Models/DedicatedServerCatalog.cs` — `DedicatedServerCatalog`

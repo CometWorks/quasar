@@ -1,3 +1,4 @@
+using Discord;
 using Discord.WebSocket;
 
 namespace Quasar.Services.Discord;
@@ -22,7 +23,9 @@ public sealed class DiscordCommandRouter
     {
         try
         {
-            if (message.Author.IsBot || string.IsNullOrWhiteSpace(message.Content))
+            if (message.Source != MessageSource.User ||
+                message.Author.IsBot ||
+                string.IsNullOrWhiteSpace(message.Content))
                 return;
 
             if (message.Channel is not SocketGuildChannel guildChannel)
@@ -57,13 +60,12 @@ public sealed class DiscordCommandRouter
             foreach (var serverOptions in options.Servers)
             {
                 if (!serverOptions.EnableChatRelay ||
-                    !serverOptions.RelayNonCommandMessages ||
                     serverOptions.ChatRelayChannelId != guildChannel.Id)
                 {
                     continue;
                 }
 
-                await _dispatcher.RelayChatAsync(serverOptions, message.Content.Trim(), message);
+                await _dispatcher.RelayChatAsync(serverOptions, message.Content, message);
                 return;
             }
         }
