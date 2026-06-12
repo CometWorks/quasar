@@ -24,26 +24,27 @@
             <MudStack Spacing="3">
                 <MudText Typo="Typo.h6">Create &amp; restore</MudText>
                 <MudText Typo="Typo.body2">
-                    A backup contains servers, config profiles, world templates and all application settings
-                    (Discord, branding, players, security/RBAC and more). Use server and world backups below for
-                    game data. Those backups can be taken while a server is running; when Space Engineers has a
-                    world <code>Backup</code> folder, Quasar uses the latest valid snapshot from it.
+                    A backup contains all Quasar configurations (server configs, Config profiles, world
+                    templates, Discord, branding, players, security/RBAC and more). <b>No world state is
+                        backed up. Please use the per-server backup below for saving game data and mod+plugin
+                        config or state save files.</b>
                 </MudText>
 
                 <MudButton Href="/api/backup/download"
                            Variant="Variant.Filled"
                            Color="Color.Primary"
                            StartIcon="@Icons.Material.Filled.Download">
-                    Create backup
+                    Back up Quasar configuration to file
                 </MudButton>
 
                 <MudDivider />
 
                 <MudText Typo="Typo.subtitle2">Restore</MudText>
                 <MudText Typo="Typo.body2">
-                    Restoring <strong>merges</strong> the backup into the current configuration: items are matched by
-                    ID, so configs, templates and servers with new IDs are added while matching IDs are overwritten.
-                    For a clean restore, delete Quasar's configs first, then restore.
+                    Restoring <strong>merges</strong> the configuration backup into the current configuration:
+                    items are matched by ID, so configs, templates and servers with new IDs are added while
+                    matching IDs are overwritten. For a clean restore, delete Quasar's configs first, then restore.
+                    Restoring the configuration does not change game data. You can restore the servers one by one.
                 </MudText>
                 <MudFileUpload T="IBrowserFile" Accept=".zip" FilesChanged="RestoreFromUploadAsync" Disabled="_busy">
                     <CustomContent Context="upload">
@@ -51,7 +52,7 @@
                                    StartIcon="@Icons.Material.Filled.Restore"
                                    Disabled="_busy"
                                    OnClick="@(() => upload.OpenFilePickerAsync())">
-                            Restore from file…
+                            Restore Quasar configuration from file…
                         </MudButton>
                     </CustomContent>
                 </MudFileUpload>
@@ -103,7 +104,8 @@
                 <MudText Typo="Typo.body2">
                     Server backups include Quasar's server definition, Dedicated Server app data, Magnetar app data,
                     the world and its config. World backups restore only world files and keep the current server/world
-                    config intact.
+                    config intact. These backups can be taken while a server is running; when Space Engineers has a
+                    world <code>Backup</code> folder, Quasar uses the latest valid snapshot from it.
                 </MudText>
 
                 <MudGrid>
