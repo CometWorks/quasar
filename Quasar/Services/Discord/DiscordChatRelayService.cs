@@ -8,12 +8,15 @@ namespace Quasar.Services.Discord;
 public sealed class DiscordChatRelayService
 {
     private static readonly TimeSpan ConsumerDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan DiscordEchoSuppressionWindow = TimeSpan.FromMinutes(2);
     private readonly object _sync = new();
     private readonly AgentRegistry _registry;
     private readonly DiscordRateLimiter _rateLimiter;
     private readonly ILogger<DiscordChatRelayService> _logger;
     private readonly Dictionary<string, DedupState> _dedup = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<SuppressedMessage>> _suppressedDiscordEchoes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ulong, RelayChannelState> _channelStates = new();
+    private long _relayStartedTicksUtc = DateTimeOffset.UtcNow.UtcTicks;
 
     public DiscordChatRelayService(
         AgentRegistry registry,
@@ -57,15 +60,39 @@ public sealed class DiscordChatRelayService
         lock (_sync)
         {
             _dedup.Clear();
+            _suppressedDiscordEchoes.Clear();
             _channelStates.Clear();
+            _relayStartedTicksUtc = DateTimeOffset.UtcNow.UtcTicks;
+        }
+    }
+
+    public void TrackDiscordToGameMessage(string uniqueName, string content)
+    {
+        if (string.IsNullOrWhiteSpace(uniqueName) || string.IsNullOrWhiteSpace(content))
+            return;
+
+        var normalizedContent = NormalizeContent(content);
+        if (string.IsNullOrWhiteSpace(normalizedContent))
+            return;
+
+        lock (_sync)
+        {
+            if (!_suppressedDiscordEchoes.TryGetValue(uniqueName, out var messages))
+            {
+                messages = [];
+                _suppressedDiscordEchoes[uniqueName] = messages;
+            }
+
+            PruneSuppressedMessages(messages);
+            messages.Add(new SuppressedMessage(normalizedContent, DateTimeOffset.UtcNow + DiscordEchoSuppressionWindow));
+
+            if (messages.Count > 100)
+                messages.RemoveRange(0, messages.Count - 100);
         }
     }
 
     private IReadOnlyList<string> CollectFreshMessages(string uniqueName, IReadOnlyList<ChatMessageSnapshot> recentChat)
     {
-        if (recentChat.Count == 0)
-            return [];
-
         lock (_sync)
         {
             if (!_dedup.TryGetValue(uniqueName, out var dedupState))
@@ -74,18 +101,20 @@ public sealed class DiscordChatRelayService
                 _dedup[uniqueName] = dedupState;
             }
 
+            if (recentChat.Count == 0)
+                return [];
+
             var fresh = new List<string>();
             foreach (var message in recentChat.OrderBy(item => item.TimestampTicksUtc))
             {
-                if (!dedupState.Seen.Add(message.TimestampTicksUtc))
+                if (!AddSeen(dedupState, message.TimestampTicksUtc))
                     continue;
 
-                dedupState.Order.Enqueue(message.TimestampTicksUtc);
-                while (dedupState.Order.Count > 1000)
-                {
-                    var expired = dedupState.Order.Dequeue();
-                    dedupState.Seen.Remove(expired);
-                }
+                if (message.TimestampTicksUtc <= _relayStartedTicksUtc)
+                    continue;
+
+                if (message.SteamId == 0 && TryConsumeSuppressedDiscordEcho(uniqueName, message.Content))
+                    continue;
 
                 var author = string.IsNullOrWhiteSpace(message.AuthorName) ? "Unknown" : message.AuthorName.Trim();
                 var content = string.IsNullOrWhiteSpace(message.Content) ? string.Empty : message.Content.Trim();
@@ -94,6 +123,51 @@ public sealed class DiscordChatRelayService
 
             return fresh;
         }
+    }
+
+    private static bool AddSeen(DedupState dedupState, long timestampTicksUtc)
+    {
+        if (!dedupState.Seen.Add(timestampTicksUtc))
+            return false;
+
+        dedupState.Order.Enqueue(timestampTicksUtc);
+        while (dedupState.Order.Count > 1000)
+        {
+            var expired = dedupState.Order.Dequeue();
+            dedupState.Seen.Remove(expired);
+        }
+
+        return true;
+    }
+
+    private bool TryConsumeSuppressedDiscordEcho(string uniqueName, string content)
+    {
+        if (!_suppressedDiscordEchoes.TryGetValue(uniqueName, out var messages))
+            return false;
+
+        PruneSuppressedMessages(messages);
+        if (messages.Count == 0)
+            return false;
+
+        var normalizedContent = NormalizeContent(content);
+        var index = messages.FindIndex(message =>
+            string.Equals(message.Content, normalizedContent, StringComparison.Ordinal));
+        if (index < 0)
+            return false;
+
+        messages.RemoveAt(index);
+        return true;
+    }
+
+    private static void PruneSuppressedMessages(List<SuppressedMessage> messages)
+    {
+        var now = DateTimeOffset.UtcNow;
+        messages.RemoveAll(message => message.ExpiresAtUtc <= now);
+    }
+
+    private static string NormalizeContent(string content)
+    {
+        return (content ?? string.Empty).Trim();
     }
 
     private void Enqueue(DiscordSocketClient client, ulong channelId, string message, CancellationToken cancellationToken)
@@ -154,6 +228,8 @@ public sealed class DiscordChatRelayService
 
         public Queue<long> Order { get; } = new();
     }
+
+    private sealed record SuppressedMessage(string Content, DateTimeOffset ExpiresAtUtc);
 
     private sealed class RelayChannelState
     {

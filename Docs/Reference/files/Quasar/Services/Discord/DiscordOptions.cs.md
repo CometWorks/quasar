@@ -28,7 +28,7 @@ All types are `sealed`.
 - `SimSpeedSharpDropPreviousMinimum`, `SimSpeedSharpDropThreshold`, `SimSpeedSharpDropDelta`, `SimSpeedSharpDropCooldownSeconds` — baseline sharp-drop rule fields
 - `SimSpeedSustainedThreshold`, `SimSpeedSustainedSeconds`, `SimSpeedSustainedCooldownSeconds` — baseline sustained-loss rule fields
 - `DeathMessageEmotes : string` (default `"💀,⚔️,🔥,💥,☠️"`)
-- `RelayNonCommandMessages : bool` (default false)
+- `RelayNonCommandMessages : bool` (default false, retained for persisted config compatibility; chat relay channel messages are no longer gated by this option)
 - `[JsonIgnore] HasCommandBinding : bool` — `CommandChannelId.HasValue && !string.IsNullOrWhiteSpace(CommandPrefix)`
 - `Clone()`, `static Normalize(DiscordServerOptions?)`
 - `private static NormalizeChannelId(ulong?)` — returns null for zero values

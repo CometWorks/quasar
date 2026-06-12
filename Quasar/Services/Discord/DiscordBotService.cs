@@ -1,5 +1,6 @@
 using Discord;
 using Discord.WebSocket;
+using Quasar.Models;
 
 namespace Quasar.Services.Discord;
 
@@ -7,8 +8,10 @@ public sealed class DiscordBotService : IHostedService, IDisposable
 {
     private readonly object _sync = new();
     private readonly SemaphoreSlim _restartGate = new(1, 1);
+    private readonly SemaphoreSlim _presenceGate = new(1, 1);
     private readonly DiscordOptionsCatalog _optionsCatalog;
     private readonly AgentRegistry _registry;
+    private readonly DedicatedServerSupervisor _supervisor;
     private readonly DiscordCommandRouter _commandRouter;
     private readonly DiscordChatRelayService _chatRelayService;
     private readonly DiscordDeathRelayService _deathRelayService;
@@ -23,10 +26,12 @@ public sealed class DiscordBotService : IHostedService, IDisposable
     private int _disposed;
     private string _stateText = "Stopped";
     private string _lastError = string.Empty;
+    private PresenceSnapshot? _lastPresence;
 
     public DiscordBotService(
         DiscordOptionsCatalog optionsCatalog,
         AgentRegistry registry,
+        DedicatedServerSupervisor supervisor,
         DiscordCommandRouter commandRouter,
         DiscordChatRelayService chatRelayService,
         DiscordDeathRelayService deathRelayService,
@@ -37,6 +42,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
     {
         _optionsCatalog = optionsCatalog;
         _registry = registry;
+        _supervisor = supervisor;
         _commandRouter = commandRouter;
         _chatRelayService = chatRelayService;
         _deathRelayService = deathRelayService;
@@ -52,6 +58,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
     {
         _optionsCatalog.Changed += HandleOptionsChanged;
         _registry.Changed += HandleRegistryChanged;
+        _supervisor.Changed += HandleSupervisorChanged;
         return TryRestartBotAsync(cancellationToken);
     }
 
@@ -59,6 +66,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
     {
         _optionsCatalog.Changed -= HandleOptionsChanged;
         _registry.Changed -= HandleRegistryChanged;
+        _supervisor.Changed -= HandleSupervisorChanged;
         _shutdown.Cancel();
         await StopBotCoreAsync(cancellationToken);
         SetState("Stopped", string.Empty);
@@ -79,6 +87,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
 
         _shutdown.Dispose();
         _restartGate.Dispose();
+        _presenceGate.Dispose();
         _botLifetime?.Dispose();
     }
 
@@ -127,6 +136,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
                 await _chatRelayService.HandleChangedAsync(client, options, botLifetimeToken.Value);
                 await _deathRelayService.HandleChangedAsync(client, options, botLifetimeToken.Value);
                 await _simSpeedAlertService.HandleChangedAsync(client, options, botLifetimeToken.Value);
+                await UpdatePresenceAsync(client, botLifetimeToken.Value);
             }
             catch (OperationCanceledException)
             {
@@ -134,6 +144,29 @@ public sealed class DiscordBotService : IHostedService, IDisposable
             catch (Exception exception)
             {
                 _logger.LogWarning(exception, "Discord registry-driven dispatch failed.");
+            }
+        }, CancellationToken.None);
+    }
+
+    private void HandleSupervisorChanged()
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var client = GetClient();
+                var botLifetimeToken = GetBotLifetimeToken();
+                if (client is null || botLifetimeToken is null)
+                    return;
+
+                await UpdatePresenceAsync(client, botLifetimeToken.Value);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception exception)
+            {
+                _logger.LogDebug(exception, "Discord presence update failed after supervisor change.");
             }
         }, CancellationToken.None);
     }
@@ -190,6 +223,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
                 await _analyticsExportService.StartAsync(client, options, botLifetime.Token);
                 await _chatRelayService.HandleChangedAsync(client, options, botLifetime.Token);
                 await _simSpeedAlertService.HandleChangedAsync(client, options, botLifetime.Token);
+                await UpdatePresenceAsync(client, botLifetime.Token);
 
                 SetState("Running", string.Empty);
             }
@@ -232,6 +266,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
             botLifetime = _botLifetime;
             _client = null;
             _botLifetime = null;
+            _lastPresence = null;
         }
 
         botLifetime?.Cancel();
@@ -299,6 +334,97 @@ public sealed class DiscordBotService : IHostedService, IDisposable
         return Task.CompletedTask;
     }
 
+    private async Task UpdatePresenceAsync(DiscordSocketClient client, CancellationToken cancellationToken)
+    {
+        var presence = BuildPresenceSnapshot();
+
+        await _presenceGate.WaitAsync(cancellationToken);
+        try
+        {
+            lock (_sync)
+            {
+                if (_lastPresence == presence)
+                    return;
+            }
+
+            await client.SetStatusAsync(presence.Status);
+            await client.SetGameAsync(presence.Activity, type: ActivityType.Watching);
+
+            lock (_sync)
+            {
+                _lastPresence = presence;
+            }
+        }
+        finally
+        {
+            _presenceGate.Release();
+        }
+    }
+
+    private PresenceSnapshot BuildPresenceSnapshot()
+    {
+        var snapshots = _supervisor.GetSnapshots();
+        var agents = _registry.GetAgents();
+        var totalServers = snapshots.Count;
+        var activeServers = snapshots.Count(snapshot => IsActive(snapshot.State));
+        var issueCount = snapshots.Count(HasIssue);
+        var warningCount = snapshots.Count(snapshot => snapshot.HealthState == DedicatedServerHealthState.Warning);
+        var playersOnline = agents
+            .Where(agent => agent.IsConnected)
+            .Sum(agent => agent.Snapshot?.Metrics.PlayersOnline ?? 0);
+
+        var status = issueCount > 0
+            ? UserStatus.DoNotDisturb
+            : activeServers > 0
+                ? UserStatus.Online
+                : UserStatus.Idle;
+
+        var activity = totalServers == 0
+            ? "0 servers configured"
+            : BuildActivityText(activeServers, totalServers, playersOnline, issueCount, warningCount);
+
+        return new PresenceSnapshot(status, TruncateActivity(activity));
+    }
+
+    private static string BuildActivityText(
+        int activeServers,
+        int totalServers,
+        int playersOnline,
+        int issueCount,
+        int warningCount)
+    {
+        var text = $"{activeServers}/{totalServers} servers online, {playersOnline} players";
+
+        if (issueCount > 0)
+            return $"{text}, {issueCount} issues";
+
+        if (warningCount > 0)
+            return $"{text}, {warningCount} warnings";
+
+        return text;
+    }
+
+    private static bool IsActive(DedicatedServerProcessState state)
+    {
+        return state is DedicatedServerProcessState.Starting
+            or DedicatedServerProcessState.Running
+            or DedicatedServerProcessState.Stopping
+            or DedicatedServerProcessState.Restarting;
+    }
+
+    private static bool HasIssue(DedicatedServerRuntimeSnapshot snapshot)
+    {
+        return snapshot.State is DedicatedServerProcessState.Crashed
+                or DedicatedServerProcessState.Faulted ||
+            snapshot.HealthState == DedicatedServerHealthState.Unhealthy;
+    }
+
+    private static string TruncateActivity(string activity)
+    {
+        const int maxLength = 128;
+        return activity.Length <= maxLength ? activity : activity[..maxLength];
+    }
+
     private void SetState(string stateText, string lastError)
     {
         lock (_sync)
@@ -309,6 +435,8 @@ public sealed class DiscordBotService : IHostedService, IDisposable
 
         Changed?.Invoke();
     }
+
+    private readonly record struct PresenceSnapshot(UserStatus Status, string Activity);
 }
 
 public sealed class DiscordBotStatusSnapshot
