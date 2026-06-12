@@ -12,10 +12,6 @@ public sealed class AnalyticsViewConfig
 
     public int RowHeightPx { get; set; } = 320;
 
-    public int MaxVisibleServersForCharts { get; set; } = 6;
-
-    public bool ShowAllServers { get; set; } = false;
-
     public List<string> SelectedUniqueNames { get; set; } = [];
 
     public DateTime? CustomFromDate { get; set; } = DateTime.UtcNow.Date.AddDays(-1);
