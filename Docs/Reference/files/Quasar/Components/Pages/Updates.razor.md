@@ -4,7 +4,7 @@
 
 ## Summary
 
-Routable MudBlazor page at `/settings/updates` for checking, staging, activating, and rolling back Quasar UI worker releases. It shows current update status from `QuasarUpdateService`, separates selectable Quasar UI releases from launcher candidates, exposes manual check/stage/activate actions for the selected UI worker version, shows launcher update availability, displays configured GitHub release source and asset names, and provides controls for including prerelease versions plus choosing automatic or manual UI staging.
+Routable MudBlazor page at `/settings/updates` for checking, staging, activating, and rolling back Quasar UI worker releases. It shows current update status from `QuasarUpdateService`, separates selectable Quasar UI releases from launcher candidates, exposes manual check/stage/activate actions for the selected UI worker version, shows launcher update availability, displays configured GitHub release source and asset names, provides controls for including prerelease versions plus choosing automatic or manual UI staging, and renders a git-style `appsettings.json` conflict editor when staging cannot auto-merge settings.
 
 ## Structure
 
@@ -26,10 +26,11 @@ Authorization: `QuasarPolicyNames.CanManageSecurity`
 | `OnInitialized()` / `Dispose()` | Subscribes/unsubscribes to `UpdateService.Changed` and initializes `_snapshot`. |
 | `CheckNowAsync()` | Runs an immediate release check through `QuasarUpdateService.CheckNowAsync()`. |
 | `HandleSelectedWebVersionChanged(...)` | Selects the UI release to stage/install from the discovered list, including older rollback targets. |
-| `StageAsync()` | Downloads and stages the selected Quasar UI release unless it is already current or staged. |
+| `StageAsync()` | Downloads and stages the selected Quasar UI release unless it is already current or staged; if appsettings rollover conflicts, loads the conflict text and warns instead of reporting success. |
 | `ActivateAsync()` | Requests staged UI activation; the update service promotes the staged payload into the managed active-release directory and writes the active-release pointer. Older staged releases are allowed for rollback. |
 | `HandleIncludePrereleaseChanged(bool)` | Confirms before enabling prerelease updates, persists the stream setting through `QuasarUpdateService`, refreshes the release list, and shows a strong warning while prereleases are enabled. |
 | `HandleAutoStageWebUpdatesChanged(bool)` | Persists whether release checks should automatically download/stage a newer UI release or only queue releases for manual staging. |
+| `LoadAppSettingsConflictAsync()` / `SaveAppSettingsResolutionAsync()` / `ForceReleaseAppSettingsAsync()` | Reads the staged conflict file, saves a manually resolved JSON file, or force-restages release defaults after confirmation. |
 | `RunBusyAsync(...)` | Shared busy-state/error/snackbar wrapper for the three actions. |
 | `GetStatusSeverity()` | Maps `QuasarUpdateStatus` to MudBlazor alert severity. |
 | `FormatBootstrapVersion()` | Shows the Bootstrap launcher version when the worker was started by Bootstrap, otherwise reports that Bootstrap is not managing this worker. |

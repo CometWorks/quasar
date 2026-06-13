@@ -146,6 +146,9 @@ public static class MagnetarPaths
     public static string GetQuasarActiveReleasePath() =>
         Path.Combine(GetQuasarUpdatesDirectory(), "active-release.json");
 
+    public static string GetQuasarAppSettingsBasePath() =>
+        Path.Combine(GetQuasarUpdatesDirectory(), "appsettings.base.json");
+
     // -------------------------------------------------------------------------
     // Managed runtime (auto-downloaded Magnetar + DS install)
     // -------------------------------------------------------------------------

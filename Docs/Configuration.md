@@ -26,7 +26,9 @@ Both the **Bootstrap launcher** (`Quasar`/`Quasar.exe`) and the replaceable **we
 worker** read JSON config from these locations, later ones overriding earlier:
 
 1. The install directory `appsettings.json` (next to the executable). Auto-updates
-   preserve this file.
+   preserve this file during Bootstrap self-updates. UI-worker activation updates
+   it from the staged, resolved `appsettings.json` so Bootstrap and the managed
+   worker keep the same base settings.
 2. The Quasar **data directory** `appsettings.json` — the recommended place for
    persistent local overrides because it is never touched by updates:
    - Windows: `%APPDATA%\Quasar\appsettings.json`
@@ -34,6 +36,15 @@ worker** read JSON config from these locations, later ones overriding earlier:
      systemd installs (or `$QUASAR_DATA_DIR/appsettings.json`)
 
 The shipped defaults are defined in [`Quasar/appsettings.json`](../Quasar/appsettings.json).
+
+During UI-worker staging, Quasar performs a three-way merge for `appsettings.json`:
+the previous release base stored under the data directory is the merge base, the
+current install-directory `appsettings.json` supplies local values, and the new
+release file supplies new defaults. Clean local changes are carried into the
+staged version automatically. If both the local file and the release changed the
+same setting differently, the Updates page shows a conflict editor with
+git-style markers. Resolve and save the JSON before activation, or use **Force
+release defaults** to discard local appsettings values for that staged release.
 
 ## Per-server launch diagnostics
 

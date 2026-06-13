@@ -490,12 +490,18 @@ Practical guarantee:
 1. Bootstrap downloads the latest web asset on startup if no usable worker exists
 2. Quasar checks GitHub releases every 15 minutes while running
 3. new Linux web assets are downloaded into a staged version directory
-4. UI notifies admins that the update is queued/staged
-5. admin activates the staged UI update from `/settings/updates`
-6. activation promotes the staged payload into `ManagedRuntime/WebService/<version>/`
+4. staging performs a three-way `appsettings.json` rollover: previous release
+   base from the data directory, local install-directory values, and new release
+   defaults
+5. UI notifies admins that the update is queued/staged, or shows a conflict
+   resolver when appsettings cannot be auto-merged
+6. admin activates the staged UI update from `/settings/updates`
+7. activation promotes the staged payload into `ManagedRuntime/WebService/<version>/`,
+   updates the install-directory `appsettings.json` from the resolved staged file,
    and writes the active-release pointer
-7. Bootstrap drains the old worker without stopping managed servers
-8. Bootstrap starts the managed worker on the same port
+8. Bootstrap copies the install-directory `appsettings.json` into the managed
+   worker, drains the old worker without stopping managed servers, and starts the
+   managed worker on the same port
 9. browsers and agents reconnect
 
 ### Future proxy update flow
