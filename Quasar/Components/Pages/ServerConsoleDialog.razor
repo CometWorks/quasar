@@ -13,7 +13,10 @@
                     </MudStack>
                     <MudStack Row="true" Spacing="1">
                         <MudTooltip Text="Download full server log">
-                            <MudIconButton Icon="@Icons.Material.Filled.Download" Href="@ServerLogDownloadHref" Disabled="@(!_serverLogLoaded || _serverLogMissing)" Size="Size.Small" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Download"
+                                           OnClick="DownloadServerLogAsync"
+                                           Disabled="@(!_serverLogLoaded || _serverLogMissing)"
+                                           Size="Size.Small" />
                         </MudTooltip>
                         <MudTooltip Text="Shortcuts in this dialog: Ctrl or Alt + PageUp/PageDown rolls 250 lines; Ctrl or Alt + Home/End jumps to the oldest or newest lines.">
                             <MudIcon Icon="@Icons.Material.Filled.Keyboard" Size="Size.Small" Color="Color.Default" />
@@ -51,8 +54,11 @@
                         <MudText Typo="Typo.caption" Class="mud-text-secondary quasar-info-log-path">@_infoLogPath</MudText>
                     </MudStack>
                     <MudStack Row="true" Spacing="1">
-                        <MudTooltip Text="Download full info.log">
-                            <MudIconButton Icon="@Icons.Material.Filled.Download" Href="@InfoLogDownloadHref" Disabled="@(!_infoLogLoaded || _infoLogMissing)" Size="Size.Small" />
+                        <MudTooltip Text="Download info.log">
+                            <MudIconButton Icon="@Icons.Material.Filled.Download"
+                                           OnClick="DownloadInfoLogAsync"
+                                           Disabled="@(!_infoLogLoaded || _infoLogMissing)"
+                                           Size="Size.Small" />
                         </MudTooltip>
                         <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Search" OnClick="ShowInfoLogExceptionsAsync">Exceptions</MudButton>
                         <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInfoLogAsync">Refresh</MudButton>
@@ -238,6 +244,14 @@
         await LoadServerLogAsync();
     }
 
+    private async Task DownloadServerLogAsync()
+    {
+        var fileName = string.IsNullOrWhiteSpace(_serverLogPath)
+            ? "SpaceEngineersDedicated.log"
+            : Path.GetFileName(_serverLogPath);
+        await JS.InvokeVoidAsync("quasarConfigs.downloadFile", ServerLogDownloadHref, fileName);
+    }
+
     private async Task ShowServerLogExceptionsAsync()
     {
         await LoadServerLogExceptionsAsync();
@@ -393,6 +407,11 @@
     private async Task RefreshInfoLogAsync()
     {
         await LoadInfoLogAsync();
+    }
+
+    private async Task DownloadInfoLogAsync()
+    {
+        await JS.InvokeVoidAsync("quasarConfigs.downloadFile", InfoLogDownloadHref, "info.log");
     }
 
     private async Task ShowInfoLogExceptionsAsync()

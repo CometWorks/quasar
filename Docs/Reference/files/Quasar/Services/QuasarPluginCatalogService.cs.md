@@ -11,7 +11,7 @@ Maintains the in-memory catalog of available Quasar plugins, sourced from the Ma
 **Type:** `QuasarPluginCatalogService` (sealed class)
 
 Constants:
-- `CacheSchemaVersion = 6` — cache is discarded when this changes
+- `CacheSchemaVersion = 7` — cache is discarded when this changes
 - `DotNetCompatPluginId`, `LinuxCompatPluginId` — reserved built-in plugin IDs
 - `DefaultHubName/Repo/Branch` — MagnetarHub on GitHub (`main`)
 - `DotNetCompatManifestFile`, `LinuxCompatManifestFile` — manifest paths within the hub

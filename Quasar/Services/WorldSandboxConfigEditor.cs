@@ -59,24 +59,97 @@ public static class WorldSandboxConfigEditor
         IReadOnlyList<QuasarModSelection> mods,
         CancellationToken cancellationToken = default)
     {
+        var document = LoadDocument(sandboxConfigPath);
+        ApplyMods(GetRoot(document, sandboxConfigPath), mods);
+
+        var content = SerializeXml(document);
+        await AtomicFileWriter.WriteTextAsync(sandboxConfigPath, content, cancellationToken);
+    }
+
+    public static async Task WriteProfileAsync(
+        string sandboxConfigPath,
+        QuasarConfigProfile profile,
+        CancellationToken cancellationToken = default)
+    {
+        var document = LoadDocument(sandboxConfigPath);
+        var root = GetRoot(document, sandboxConfigPath);
+
+        ApplySessionSettings(root, profile.SessionSettings);
+        ApplyMods(root, profile.Mods);
+
+        var content = SerializeXml(document);
+        await AtomicFileWriter.WriteTextAsync(sandboxConfigPath, content, cancellationToken);
+    }
+
+    private static XDocument LoadDocument(string sandboxConfigPath)
+    {
         if (!File.Exists(sandboxConfigPath))
             throw new FileNotFoundException(
                 $"{SandboxConfigFileName} not found at '{sandboxConfigPath}'.",
                 sandboxConfigPath);
 
-        XDocument document;
         try
         {
-            document = XDocument.Load(sandboxConfigPath, LoadOptions.PreserveWhitespace);
+            return XDocument.Load(sandboxConfigPath, LoadOptions.PreserveWhitespace);
         }
         catch (Exception exception)
         {
             throw new InvalidOperationException($"Failed to parse '{sandboxConfigPath}'.", exception);
         }
+    }
 
-        var root = document.Root
+    private static XElement GetRoot(XDocument document, string sandboxConfigPath)
+    {
+        return document.Root
             ?? throw new InvalidOperationException($"'{sandboxConfigPath}' has no root element.");
+    }
 
+    private static void ApplySessionSettings(XElement root, QuasarSessionSettings sessionSettings)
+    {
+        var settingsElement = root.Element("Settings");
+        if (settingsElement is null)
+        {
+            settingsElement = new XElement("Settings");
+            root.AddFirst(settingsElement);
+        }
+
+        foreach (var option in QuasarConfigMetadata.Options.Where(option => option.Scope == QuasarConfigOptionScope.Session))
+        {
+            if (string.IsNullOrWhiteSpace(option.ElementName))
+                continue;
+            if (option.Kind == QuasarConfigOptionKind.KeyValueText)
+                continue;
+
+            UpsertElement(settingsElement, option.ElementName, QuasarConfigMetadata.FormatValue(option, sessionSettings));
+        }
+
+        UpsertBlockTypeLimits(settingsElement, sessionSettings.BlockTypeLimits);
+    }
+
+    private static void UpsertBlockTypeLimits(XElement settingsElement, IReadOnlyDictionary<string, int> limits)
+    {
+        var element = settingsElement.Element("BlockTypeLimits");
+        if (element is null)
+        {
+            element = new XElement("BlockTypeLimits");
+            settingsElement.Add(element);
+        }
+
+        element.RemoveNodes();
+        element.Add(
+            new XElement(
+                "dictionary",
+                limits
+                    .Where(limit => !string.IsNullOrWhiteSpace(limit.Key))
+                    .Select(limit =>
+                        new XElement(
+                            "item",
+                            new XElement("Key", limit.Key),
+                            new XElement("Value", Math.Clamp(limit.Value, 0, short.MaxValue).ToString(CultureInfo.InvariantCulture))))));
+    }
+
+    private static void ApplyMods(XElement root, IReadOnlyList<QuasarModSelection> mods)
+    {
         var modsElement = root.Element("Mods");
         if (modsElement is null)
         {
@@ -109,9 +182,18 @@ public static class WorldSandboxConfigEditor
                 new XElement("PublishedFileId", idString),
                 new XElement("PublishedServiceName", "Steam")));
         }
+    }
 
-        var content = SerializeXml(document);
-        await AtomicFileWriter.WriteTextAsync(sandboxConfigPath, content, cancellationToken);
+    private static void UpsertElement(XElement parent, string name, string value)
+    {
+        var element = parent.Element(name);
+        if (element is null)
+        {
+            parent.Add(new XElement(name, value));
+            return;
+        }
+
+        element.Value = value;
     }
 
     private static string SerializeXml(XDocument document)

@@ -9,7 +9,7 @@ namespace Quasar.Services;
 
 public sealed class QuasarPluginCatalogService
 {
-    private const int CacheSchemaVersion = 6;
+    private const int CacheSchemaVersion = 7;
     public const string DotNetCompatPluginId = "se-dotnet-compat";
     public const string LinuxCompatPluginId = "se-linux-compat";
     public const string DefaultHubName = "MagnetarHub";

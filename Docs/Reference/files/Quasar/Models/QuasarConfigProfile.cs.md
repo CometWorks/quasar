@@ -28,9 +28,9 @@ Namespace: `Quasar.Models`
 - `SourceFolderName` (`[JsonIgnore]`) — computed innermost folder name; used as Magnetar `LocalPlugin.Name` and `LocalFolderConfig.Id`
 - `static GetSourceFolderName(string)` — path utility
 
-**`QuasarWorldRootSettings`** — sealed class; ~40 properties mirroring Magnetar/DS root config XML: network type, asteroid count, MOTD, auto-restart, auto-update, watcher interval, admin/reserved/banned lists, chat anti-spam, console compatibility, etc.
+**`QuasarWorldRootSettings`** — sealed class; ~40 properties mirroring Magnetar/DS root config XML: server password, network type, asteroid count, MOTD, auto-restart, auto-update, watcher interval, admin/reserved/banned lists, chat anti-spam, console compatibility, etc. `ServerPassword` is stored in the profile so Quasar can emit DS-compatible `ServerPasswordHash` / `ServerPasswordSalt` at runtime.
 
-**`QuasarSessionSettings`** — sealed class; ~100 properties covering game-mode, player limits, PCU, multipliers, survival mechanics (oxygen/radiation, hunger, respawn, backpacks, buffs), gameplay toggles, economy, trash removal, and more — mirrors the SE `MyObjectBuilder_SessionSettings` fields.
+**`QuasarSessionSettings`** — sealed class; broad coverage for visible SE `MyObjectBuilder_SessionSettings` fields, including game-mode, player limits, PCU/block-limit mode, block-type world limits, multipliers, survival mechanics (oxygen/radiation, hunger, respawn, backpacks, buffs), gameplay toggles, NPC/global/planetary encounter tuning, PvP/match settings, economy/grid storage, trash removal, and more. `BlockTypeLimits` is modeled as a dictionary and written using the vanilla serializer's `<BlockTypeLimits><dictionary><item><Key>/<Value>` shape.
 
 **`QuasarPluginSelection`** — sealed class; `PluginId`, `DisplayName`, `SelectedVersion`.
 

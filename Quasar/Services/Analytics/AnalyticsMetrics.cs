@@ -80,12 +80,12 @@ public static class ProfilerAnalyticsMetrics
 {
     public static readonly IReadOnlyList<ProfilerAnalyticsMetric> All =
     [
-        new("profiler-frame", "Profiler: Frame ms", "Continuous game-loop frame time", static s => s.FrameMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
-        new("profiler-update", "Profiler: Update ms", "Continuous update work", static s => s.UpdateMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
-        new("profiler-physics", "Profiler: Physics ms", "Continuous physics work", static s => s.PhysicsMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
-        new("profiler-scripts", "Profiler: Scripts ms", "Continuous programmable block work", static s => s.ScriptsMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
-        new("profiler-network", "Profiler: Network ms", "Continuous network and replication work", static s => s.NetworkMs + s.ReplicationMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
-        new("profiler-other", "Profiler: Other ms", "Continuous frame time outside tracked buckets", static s => s.OtherMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+        new("profiler-frame", "Profiler: Frame ms", "Simple profiler total frame time", static s => s.FrameMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+        new("profiler-update", "Profiler: Update ms", "Simple profiler update work", static s => s.UpdateMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+        new("profiler-physics", "Profiler: Physics ms", "Simple profiler physics work", static s => s.PhysicsMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+        new("profiler-scripts", "Profiler: Scripts ms", "Simple profiler programmable block work", static s => s.ScriptsMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+        new("profiler-network", "Profiler: Network ms", "Simple profiler network and replication work", static s => s.NetworkMs + s.ReplicationMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+        new("profiler-other", "Profiler: Other ms", "Simple profiler frame time outside tracked buckets", static s => s.OtherMs, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
     ];
 
     private static readonly Dictionary<string, ProfilerAnalyticsMetric> Map =
@@ -99,8 +99,8 @@ public static class ProfilerEntryAnalyticsMetrics
 {
     public static readonly IReadOnlyList<ProfilerEntryAnalyticsMetric> All =
     [
-        new("profiler-top-grids", "Profiler: Top Grids ms", "Deep profiler grid update cost", static s => s.TopGrids, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
-        new("profiler-top-entities", "Profiler: Entity Types ms", "Deep profiler entity update cost", static s => s.TopEntityTypes, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+        new("profiler-top-grids", "Profiler: Top Grids ms", "Extensive profiler per-grid update cost", static s => s.TopGrids, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
+        new("profiler-top-entities", "Profiler: Entity Types ms", "Extensive profiler per-entity-type update cost", static s => s.TopEntityTypes, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: null),
     ];
 
     private static readonly Dictionary<string, ProfilerEntryAnalyticsMetric> Map =

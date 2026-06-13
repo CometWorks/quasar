@@ -77,12 +77,14 @@ Default:
 
 Supported values:
 
-- `SafeContinuous` - default. Continuous low-overhead Harmony timing for named
-  high-level server paths, without deep IL call-site transpilers or broad entity
-  update patching.
-- `DeepContinuous` - continuous profiler with Harmony IL call-site wrapping for
-  session components, entity update dispatch, physics internals,
-  replication/network paths, scripts, and game-loop timing.
+- `SafeContinuous` - default; shown as "Simple, low overhead" in Analytics.
+  Continuous low-overhead Harmony timing for named high-level server paths,
+  without deep IL call-site transpilers or broad entity update patching.
+- `DeepContinuous` - shown as "Extensive, deep detail" in Analytics.
+  Continuous profiler with Harmony IL call-site wrapping for session components,
+  entity update dispatch, physics internals, replication/network paths, scripts,
+  and game-loop timing. Detailed samples appear in the Profiler: Top Grids and
+  Profiler: Entity Types panels when the deep patch groups produce data.
 - `Off` - disables Quasar profiler patches and profiler snapshots.
 
 The Analytics page exposes this per server/agent. Changing it there saves the

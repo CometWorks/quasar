@@ -113,7 +113,7 @@ public sealed class DiscordChatRelayService
                 if (message.TimestampTicksUtc <= _relayStartedTicksUtc)
                     continue;
 
-                if (message.SteamId == 0 && TryConsumeSuppressedDiscordEcho(uniqueName, message.Content))
+                if (TryConsumeSuppressedDiscordEcho(uniqueName, message.Content))
                     continue;
 
                 var author = string.IsNullOrWhiteSpace(message.AuthorName) ? "Unknown" : message.AuthorName.Trim();

@@ -13,8 +13,8 @@ Namespace: `Quasar.Services.Discord`
 Constructor: `(AgentRegistry registry, DedicatedServerSupervisor supervisor, DedicatedServerCatalog serverCatalog, DiscordChatRelayService chatRelayService, ILogger<DiscordCommandDispatcher> logger)`
 
 Public members:
-- `DispatchAsync(DiscordServerOptions serverOptions, string verb, string args, SocketMessage message, CancellationToken) : Task` — `switch` on verb; handles: `chat`, `save`, `stop`, `start`, `restart`, `kick`, `ban`, `unban`, `promote`, `demote`, `status`, `help`; the `chat` verb records echo suppression before sending; unknown verb replies with error + help embed
-- `RelayChatAsync(DiscordServerOptions serverOptions, string text, SocketMessage message, CancellationToken) : Task` — sends Discord chat-channel messages as in-game chat via `ServerCommandType.SendChat` after recording echo suppression
+- `DispatchAsync(DiscordServerOptions serverOptions, string verb, string args, SocketMessage message, CancellationToken) : Task` — `switch` on verb; handles: `chat`, `save`, `stop`, `start`, `restart`, `kick`, `ban`, `unban`, `promote`, `demote`, `status`, `help`; the `chat` verb formats text as `[Discord] <username>: <message>`, records echo suppression, then sends it; unknown verb replies with error + help embed
+- `RelayChatAsync(DiscordServerOptions serverOptions, string text, SocketMessage message, CancellationToken) : Task` — sends Discord chat-channel messages as in-game chat via `ServerCommandType.SendChat` after formatting them with the Discord username and recording echo suppression
 
 Private helpers:
 - `DispatchSteamIdCommandAsync` — validates and parses `long steamId` from args, sends the given `ServerCommandType`
@@ -22,6 +22,7 @@ Private helpers:
 - `ResolveConnectedAgent(uniqueName)` — finds first connected agent matching the server name
 - `BuildStatusEmbed(uniqueName) : EmbedBuilder` — assembles a rich status embed with state, agent connectivity, world name, metrics, and uptime
 - `BuildHelpEmbed(serverOptions) : EmbedBuilder` — lists all supported `{prefix} <command>` forms
+- `FormatDiscordGameMessage` / `ResolveDiscordAuthorName` / `NormalizeDiscordContent` — normalize whitespace and build the game-visible `[Discord] username: content` message
 - `FormatUptime`, `FormatDuration` — human-readable duration formatting
 - `ResolveCommandName(ServerCommandType)` — maps command type back to verb string for error messages
 

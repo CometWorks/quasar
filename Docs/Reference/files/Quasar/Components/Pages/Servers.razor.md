@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Routable page at `/servers` managing persistent dedicated-server definitions. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status, start/stop/restart controls, and create/clone/edit/delete/console/world-template actions; expandable rows embed a `ServerDetailPanel` with live agent data. A separate panel lists "unmanaged" agents that report in without a matching server definition.
+Routable page at `/servers` managing persistent dedicated-server definitions. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status, a single lifecycle-action column beside Status, and create/clone/edit/delete/console/world-template actions; expandable rows embed a `ServerDetailPanel` with live agent data. A separate panel lists "unmanaged" agents that report in without a matching server definition.
 
 ## Structure
 - **`@page "/servers"`**, **`@implements IDisposable`**
@@ -11,7 +11,7 @@ Routable page at `/servers` managing persistent dedicated-server definitions. Re
 - **`[Parameter]`:** `EventCallback<string> ConfigProfileSelected` — when set, clicking a config name invokes this instead of navigating to `/configs`.
 - **Key UI**
   - Server count chip + "Create Server" button.
-  - `MudTable<DedicatedServerDefinition>` with expand toggle and sortable columns: Status (state chip + inline Start/Stop), Name (display + unique name), Port, Config (clickable `MudLink` when the profile resolves), Players (`online/max`), Process (PID or "stopped"), Agent (attached state). Row actions: Restart (when running), Console, Clone, Template, Edit, Delete.
+  - `MudTable<DedicatedServerDefinition>` with expand toggle and sortable columns: Status (state chip), Actions (Start / Stop / Restart according to process state), Name (display + unique name), Port, Config (clickable `MudLink` when the profile resolves), Players (`online/max`), Process (PID or "stopped"), Agent (attached state). Row actions at the far right are non-lifecycle controls: Console, Clone, Template, Edit, Delete.
   - `ChildRowContent` renders `<ServerDetailPanel Agent=... />` for expanded rows.
   - Unmanaged Agents `MudPaper` (when any): one `MudExpansionPanel` per connected agent lacking a definition, each containing a `ServerDetailPanel`.
 - **State/data:** `_expanded` HashSet drives row expansion; `ServerDefinitions`, `RuntimeSnapshots` (by unique name), `AgentsByUniqueName` (connected, newest by `LastSeenUtc`), `UnmanagedAgents`.
@@ -20,8 +20,8 @@ Routable page at `/servers` managing persistent dedicated-server definitions. Re
   - `OpenConsoleDialogAsync` — opens `ServerConsoleDialog`.
   - `CreateWorldTemplateAsync` — validates the server is stopped and its world path has `Sandbox.sbc`, opens `WorldTemplateFromServerDialog`, then `WorldTemplates.ImportAsync`.
   - `OpenConfigProfileAsync` — invokes `ConfigProfileSelected` or navigates to `/configs?profileId=...`.
-- **Lifecycle controls:** `StartAsync`/`StopAsync` set goal state via `Supervisor.SetGoalStateAsync`; `RestartAsync` calls `Supervisor.RestartServerAsync`; `DeleteAsync` confirms (servers must be stopped), then `ServerCatalog.DeleteAsync` + `Registry.PruneDisconnectedByUniqueName`.
-- **Helpers:** `GetDisplayName`, `GetPlayerCount` (uses configured `MaxPlayers` when available), `GetProcessDisplay`, `GetConfigProfileName`/`CanOpenConfigProfile`, `GetStateText`/`GetStateColor`, `IsRunning`, `CanCreateWorldTemplate`, `GetAttachmentStatus`, plus sort-value helpers.
+- **Lifecycle controls:** `StartAsync`/`StopAsync` set goal state via `Supervisor.SetGoalStateAsync`; `RestartAsync` calls `Supervisor.RestartServerAsync`; `DeleteAsync` confirms (servers must be stopped), then `ServerCatalog.DeleteAsync` + `Registry.PruneDisconnectedByUniqueName`. Lifecycle buttons are hidden in transitionary states except Stop while `Starting` to cancel an accidental launch; `Running` shows Stop and Restart; `Stopped`/`Crashed`/`Faulted` show Start.
+- **Helpers:** `GetDisplayName`, `GetPlayerCount` (uses configured `MaxPlayers` when available), `GetProcessDisplay`, `GetConfigProfileName`/`CanOpenConfigProfile`, `GetStateText`/`GetStateColor`, `IsRunning`, `CanStartServer`, `CanStopServer`, `CanRestartServer`, `CanCreateWorldTemplate`, `GetAttachmentStatus`, plus sort-value helpers.
 - **Blank/clone factories:** `CreateBlank` seeds defaults (port via `AllocateNextPort` from 27016, `ServerIP` 0.0.0.0, health/restart policy fields, health monitoring driven by `Options.DisableServerHealthMonitoring`); `MakeCopyIdentifier` generates a unique `-copy` name; `NormalizeWhitespace`.
 - Subscribes to `ServerCatalog`, `Supervisor`, `Registry`, `ConfigProfiles`, `WorldTemplates` `.Changed` in `OnInitialized`, releases in `Dispose`; `HandleChanged` marshals `StateHasChanged`.
 

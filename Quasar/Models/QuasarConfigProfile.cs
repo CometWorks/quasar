@@ -84,6 +84,8 @@ public sealed class QuasarDevFolderSelection
 
 public sealed class QuasarWorldRootSettings
 {
+    public string ServerPassword { get; set; } = string.Empty;
+
     public bool CrossPlatform { get; set; }
 
     public int AsteroidAmount { get; set; } = 4;
@@ -181,6 +183,8 @@ public sealed class QuasarSessionSettings
 
     public int MaxFactionsCount { get; set; }
 
+    public int BlockLimitsEnabled { get; set; }
+
     public bool EnableRemoteBlockRemoval { get; set; } = true;
 
     public int EnvironmentHostility { get; set; } = 1;
@@ -214,6 +218,8 @@ public sealed class QuasarSessionSettings
     public double HackSpeedMultiplier { get; set; } = 0.33;
 
     public bool PermanentDeath { get; set; }
+
+    public int AutoSaveInMinutes { get; set; } = 5;
 
     public bool EnableSaving { get; set; } = true;
 
@@ -294,6 +300,23 @@ public sealed class QuasarSessionSettings
     public bool EnableSpiders { get; set; }
 
     public double FloraDensityMultiplier { get; set; } = 1.0;
+
+    public Dictionary<string, int> BlockTypeLimits { get; set; } = new()
+    {
+        ["Assembler"] = 24,
+        ["Refinery"] = 24,
+        ["Blast Furnace"] = 24,
+        ["Antenna"] = 30,
+        ["Drill"] = 30,
+        ["InteriorTurret"] = 50,
+        ["GatlingTurret"] = 50,
+        ["MissileTurret"] = 50,
+        ["ExtendedPistonBase"] = 50,
+        ["MotorStator"] = 50,
+        ["MotorAdvancedStator"] = 50,
+        ["ShipWelder"] = 100,
+        ["ShipGrinder"] = 150,
+    };
 
     public bool EnableScripterRole { get; set; }
 
@@ -392,6 +415,122 @@ public sealed class QuasarSessionSettings
     public int MaxPlanets { get; set; } = 99;
 
     public bool OffensiveWordsFiltering { get; set; }
+
+    public int BlueprintShareTimeout { get; set; } = 30;
+
+    public bool BlueprintShare { get; set; } = true;
+
+    public int LimitBlocksBy { get; set; }
+
+    public bool EnableMatchComponent { get; set; }
+
+    public double PreMatchDuration { get; set; }
+
+    public double MatchDuration { get; set; }
+
+    public double PostMatchDuration { get; set; }
+
+    public bool EnableFriendlyFire { get; set; } = true;
+
+    public bool EnableTeamBalancing { get; set; }
+
+    public double CharacterSpeedMultiplier { get; set; } = 1.0;
+
+    public bool EnableRecoil { get; set; } = true;
+
+    public bool EnableGamepadAimAssist { get; set; }
+
+    public bool EnableTeamScoreCounters { get; set; } = true;
+
+    public int MatchRestartWhenEmptyTime { get; set; }
+
+    public bool EnableFactionVoiceChat { get; set; }
+
+    public bool EnableOrca { get; set; } = true;
+
+    public int MaxProductionQueueLength { get; set; } = 50;
+
+    public long PrefetchShapeRayLengthLimit { get; set; } = 15000;
+
+    public double EnemyTargetIndicatorDistance { get; set; } = 20.0;
+
+    public bool EnableTrashSettingsPlatformOverride { get; set; } = true;
+
+    public int MinimumWorldSize { get; set; }
+
+    public int MaxCargoBags { get; set; } = 100;
+
+    public int TrashCleanerCargoBagsMaxLiveTime { get; set; } = 30;
+
+    public bool ScrapEnabled { get; set; } = true;
+
+    public int BroadcastControllerMaxOfflineTransmitDistance { get; set; } = 200;
+
+    public bool TemporaryContainers { get; set; } = true;
+
+    public int GlobalEncounterTimer { get; set; } = 15;
+
+    public int GlobalEncounterCap { get; set; } = 1;
+
+    public bool GlobalEncounterEnableRemovalTimer { get; set; } = true;
+
+    public int GlobalEncounterMinRemovalTimer { get; set; } = 90;
+
+    public int GlobalEncounterMaxRemovalTimer { get; set; } = 180;
+
+    public int GlobalEncounterRemovalTimeClock { get; set; } = 30;
+
+    public double EncounterDensity { get; set; } = 0.35;
+
+    public bool EnablePlanetaryEncounters { get; set; } = true;
+
+    public double PlanetaryEncounterTimerMin { get; set; } = 15.0;
+
+    public double PlanetaryEncounterTimerMax { get; set; } = 30.0;
+
+    public double PlanetaryEncounterTimerFirst { get; set; } = 5.0;
+
+    public int PlanetaryEncounterExistingStructuresRange { get; set; } = 7000;
+
+    public int PlanetaryEncounterAreaLockdownRange { get; set; } = 10000;
+
+    public int PlanetaryEncounterDesiredSpawnRange { get; set; } = 6000;
+
+    public int PlanetaryEncounterPresenceRange { get; set; } = 20000;
+
+    public double PlanetaryEncounterDespawnTimeout { get; set; } = 120.0;
+
+    public int MaxHudChatMessageCount { get; set; } = 100;
+
+    public bool EnableShareInertiaTensor { get; set; }
+
+    public bool EnableUnsafePistonImpulses { get; set; }
+
+    public bool EnableUnsafeRotorTorques { get; set; }
+
+    public bool ResetForageableItems { get; set; } = true;
+
+    public int ResetForageableItemsTimeM { get; set; } = 30;
+
+    public int ResetForageableItemsDistance { get; set; } = 3000;
+
+    public double ReputationDecayRate { get; set; } = 0.5;
+
+    public bool GridStorageAllowsInventory { get; set; }
+
+    public int GridStorageMaxPerPlayer { get; set; } = 100;
+
+    public double GridStorageRetrievalTimeMaxMinutes { get; set; } = 30.0;
+
+    public double GridStorageRetrievalTimeMinMinutes { get; set; } = 2.0;
+
+    public double GridStorageRetrievalTimeMultiplier { get; set; } = 1.0;
+
+    public double GridStorageMinutesPerPcu { get; set; } = 0.001;
+
+    public double GridStorageExpediteFactor { get; set; } = 0.5;
+
+    public double GridStorageExpediteCostPerSecond { get; set; } = 1000.0;
 }
 
 public sealed class QuasarPluginSelection

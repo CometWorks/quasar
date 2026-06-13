@@ -3,7 +3,7 @@
 **Module:** Quasar.Services.Core  **Kind:** class  **Tier:** 1
 
 ## Summary
-Static editor for the Space Engineers `Sandbox_config.sbc` XML file. Provides two operations: reading the current mod list from the `<Mods>` element and atomically rewriting it with a new list of `QuasarModSelection` records. XML whitespace is preserved on read; output is normalized to LF line endings and UTF-8 without BOM.
+Static editor for the Space Engineers `Sandbox_config.sbc` XML file. Provides operations for reading the current mod list from the `<Mods>` element and atomically applying a `QuasarConfigProfile` by upserting `<Settings>` values, writing `BlockTypeLimits` in the vanilla dictionary shape, plus rewriting `<Mods>`. XML whitespace is preserved on read; output is normalized to LF line endings and UTF-8 without BOM.
 
 ## Structure
 **Namespace:** `Quasar.Services`
@@ -14,9 +14,15 @@ Static editor for the Space Engineers `Sandbox_config.sbc` XML file. Provides tw
 |---|---|
 | `SandboxConfigFileName` (const) | `"Sandbox_config.sbc"` |
 | `ReadMods(sandboxConfigPath)` | Parses `<Mods>/<ModItem>` elements; extracts `PublishedFileId` (long) and `FriendlyName` attribute; deduplicates by workshopId; returns empty list if file or `<Mods>` element absent. |
-| `WriteModsAsync(sandboxConfigPath, mods, ct)` | Loads existing XML, replaces or creates the `<Mods>` element, serializes with invariant decimal formatting, writes atomically. Throws `FileNotFoundException` if the file does not exist. |
+| `WriteModsAsync(sandboxConfigPath, mods, ct)` | Compatibility path that rewrites only the mod list without touching session settings. |
+| `WriteProfileAsync(sandboxConfigPath, profile, ct)` | Loads existing XML, creates `<Settings>` when absent, upserts every session option from `QuasarConfigMetadata`, replaces or creates the `<Mods>` element, then writes atomically. Throws `FileNotFoundException` if the file does not exist. |
 
 Private:
+- `ApplySessionSettings(root, sessionSettings)` — writes profile session values using exact DS XML element names
+- `UpsertBlockTypeLimits(settingsElement, limits)` — writes `<BlockTypeLimits><dictionary><item><Key>...</Key><Value>...</Value></item></dictionary></BlockTypeLimits>`
+- `ApplyMods(root, mods)` — replaces mod entries with profile mods
+- `LoadDocument(sandboxConfigPath)` / `GetRoot(document, sandboxConfigPath)` — shared XML loading and validation helpers
+- `UpsertElement(parent, name, value)` — creates or updates one XML element
 - `SerializeXml(document)` — `XmlWriter` with `Indent=true`, UTF-8 no-BOM, no XML declaration omission, `\n` line endings
 - `Utf8StringWriter` (private nested class) — overrides `Encoding` to UTF-8 no-BOM
 
@@ -26,6 +32,8 @@ Each written `<ModItem>` contains:
 
 ## Dependencies
 - `Quasar/Models/QuasarModSelection.cs`
+- `Quasar/Models/QuasarConfigProfile.cs`
+- `Quasar/Services/QuasarConfigMetadata.cs`
 - `Magnetar.Protocol.Runtime.AtomicFileWriter` (safe write)
 - `System.Xml.Linq` / `System.Xml.XmlWriter`
 

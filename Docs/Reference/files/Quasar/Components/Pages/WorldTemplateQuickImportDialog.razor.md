@@ -18,7 +18,7 @@ MudBlazor dialog for importing a Space Engineers save folder as a world template
   - Step 1 details form with `MudForm` and `@bind-IsValid`.
   - Name field (required, auto-focus), Description field (multi-line, optional).
   - Source world path text field + "Browse" button that opens `FolderPickerDialog`.
-  - Step 2 mod handling view when source mods are found, with radio options for creating a profile, importing into an existing profile, or doing nothing.
+  - Step 2 mod handling view when source mods are found, with radio options for creating a profile, importing into an existing profile, or doing nothing. The info alert explains that Quasar writes the selected profile's session settings and mods into the active world's `Sandbox_config.sbc` on server start.
   - Mod preview table listing display name and Workshop ID.
   - Back / Cancel / primary action buttons; primary button shows "Importing..." while `_importing` is true.
 - **`OpenFolderPickerAsync`** — opens `FolderPickerDialog` with `InitialPath = _sourcePath`, applies selected path on non-cancelled result.

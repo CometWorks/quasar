@@ -1,5 +1,6 @@
 @page "/configs"
 @implements IDisposable
+@using System.Globalization
 @using System.IO
 @using System.Text.Json
 @inject QuasarConfigProfileCatalog ConfigProfiles
@@ -211,6 +212,12 @@
                                                                     case QuasarConfigOptionKind.LongText:
                                                                         <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="3"/>
                                                                         break;
+                                                                    case QuasarConfigOptionKind.Password:
+                                                                        <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" InputType="InputType.Password"/>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.KeyValueText:
+                                                                        <MudTextField T="string" Value="GetKeyValueTextOption(option)" ValueChanged="@(value => SetKeyValueTextOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="8"/>
+                                                                        break;
                                                                     default:
                                                                         <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined"/>
                                                                         break;
@@ -333,6 +340,9 @@
                                                                         break;
                                                                     case QuasarConfigOptionKind.LongText:
                                                                         <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="3"/>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.KeyValueText:
+                                                                        <MudTextField T="string" Value="GetKeyValueTextOption(option)" ValueChanged="@(value => SetKeyValueTextOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="8"/>
                                                                         break;
                                                                     default:
                                                                         <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined"/>
@@ -870,14 +880,12 @@
         .Where(MatchesPluginSearch)
         .ToList();
 
-    private int SelectableCatalogEntryCount => CatalogEntries.Count(entry => !entry.Hidden);
+    private int SelectableCatalogEntryCount => CatalogEntries.Count(entry =>
+        !entry.Hidden && QuasarPluginCatalogService.IsManualSelectionAllowed(entry.PluginId));
 
     private bool HasHiddenCatalogEntries => CatalogEntries.Any(entry => entry.Hidden);
 
-    private bool IsCatalogEntryVisible(QuasarPluginCatalogEntry entry) =>
-        !entry.Hidden ||
-        IsPluginSelected(entry.PluginId) ||
-        !string.IsNullOrWhiteSpace(_pluginSearch);
+    private static bool IsCatalogEntryVisible(QuasarPluginCatalogEntry entry) => !entry.Hidden;
 
     private List<QuasarPluginSelection> FilteredPlugins => (_editor?.Plugins ?? [])
         .Where(plugin => MatchesPluginSearch(plugin))
@@ -1301,6 +1309,15 @@
         return value?.ToString() ?? string.Empty;
     }
 
+    private string GetKeyValueTextOption(QuasarConfigOptionDefinition option)
+    {
+        var value = GetPropertyValue(option);
+        if (value is not IReadOnlyDictionary<string, int> limits)
+            return string.Empty;
+
+        return string.Join(Environment.NewLine, limits.Select(limit => $"{limit.Key}={limit.Value.ToString(CultureInfo.InvariantCulture)}"));
+    }
+
     private void SetBoolOption(QuasarConfigOptionDefinition option, bool value) => SetPropertyValue(option, value);
 
     private void SetIntOption(QuasarConfigOptionDefinition option, int value) => SetPropertyValue(option, value);
@@ -1321,6 +1338,50 @@
         SetPropertyValue(option, value);
     }
 
+    private void SetKeyValueTextOption(QuasarConfigOptionDefinition option, string value)
+    {
+        var limits = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var invalidLines = new List<string>();
+
+        foreach (var line in value.Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Length == 0)
+                continue;
+
+            var separatorIndex = trimmed.IndexOf('=');
+            if (separatorIndex < 0)
+                separatorIndex = trimmed.IndexOf(':');
+
+            if (separatorIndex <= 0 || separatorIndex == trimmed.Length - 1)
+            {
+                invalidLines.Add(trimmed);
+                continue;
+            }
+
+            var key = trimmed[..separatorIndex].Trim();
+            var rawValue = trimmed[(separatorIndex + 1)..].Trim();
+            if (key.Length == 0 ||
+                !int.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedValue) ||
+                parsedValue < 0 ||
+                parsedValue > short.MaxValue)
+            {
+                invalidLines.Add(trimmed);
+                continue;
+            }
+
+            limits.TryAdd(key, parsedValue);
+        }
+
+        if (invalidLines.Count > 0)
+        {
+            var preview = string.Join(", ", invalidLines.Take(3));
+            Snackbar.Add($"Ignored invalid block limit line(s): {preview}", Severity.Warning);
+        }
+
+        SetPropertyValue(option, limits);
+    }
+
     private object? GetPropertyValue(QuasarConfigOptionDefinition option)
     {
         var target = GetOptionTarget(option);
@@ -1336,7 +1397,12 @@
         if (target is null)
             return;
 
-        QuasarConfigMetadata.GetProperty(option).SetValue(target, value);
+        var property = QuasarConfigMetadata.GetProperty(option);
+        var converted = value;
+        if (value is not null && property.PropertyType != value.GetType())
+            converted = Convert.ChangeType(value, property.PropertyType, System.Globalization.CultureInfo.InvariantCulture);
+
+        property.SetValue(target, converted);
     }
 
     private object? GetOptionTarget(QuasarConfigOptionDefinition option)
@@ -1378,7 +1444,7 @@
                 $"Toggles {subject}.",
             QuasarConfigOptionKind.Integer or QuasarConfigOptionKind.Decimal =>
                 $"Sets {subject}.",
-            QuasarConfigOptionKind.Text or QuasarConfigOptionKind.LongText =>
+            QuasarConfigOptionKind.Text or QuasarConfigOptionKind.LongText or QuasarConfigOptionKind.Password or QuasarConfigOptionKind.KeyValueText =>
                 $"Sets {subject}.",
             QuasarConfigOptionKind.SelectInteger or QuasarConfigOptionKind.SelectText =>
                 $"Chooses {subject}.",

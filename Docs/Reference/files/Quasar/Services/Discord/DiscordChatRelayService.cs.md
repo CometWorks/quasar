@@ -18,7 +18,7 @@ Public members:
 - `TrackDiscordToGameMessage(uniqueName, content)` — records Discord-origin text sent into the game so the outbound relay can suppress the matching server-authored echo when it appears in the next agent snapshot
 
 Private internals:
-- `CollectFreshMessages(uniqueName, recentChat)` — lock-protected sliding-window dedup (up to 1000 ticks retained per server); skips messages at or before the latest relay reset timestamp; suppresses tracked Discord echoes with `SteamId == 0`; formats remaining messages as `"**AuthorName**: content"`
+- `CollectFreshMessages(uniqueName, recentChat)` — lock-protected sliding-window dedup (up to 1000 ticks retained per server); skips messages at or before the latest relay reset timestamp; suppresses tracked Discord-origin echoes by normalized content regardless of the in-game author/SteamId; formats remaining messages as `"**AuthorName**: content"`
 - `AddSeen(dedupState, timestampTicksUtc)` — records one chat timestamp in the bounded dedup window
 - `TryConsumeSuppressedDiscordEcho(uniqueName, content)` / `PruneSuppressedMessages(...)` / `NormalizeContent(...)` — maintain a short-lived list of Discord-origin chat content used for echo suppression
 - `Enqueue(client, channelId, message, ct)` — lazily creates a `RelayChannelState` per channel and starts a consumer task if needed

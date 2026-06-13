@@ -72,7 +72,7 @@
                                        Required="true"
                                        RequiredError="Config profile required."
                                        Validation="@(new Func<string, string?>(ValidateConfigProfileField))"
-                                       HelperText="Reusable world, plugin, and mod preset from Configs page. The profile's mod list is written into the world's Sandbox_config.sbc on every start.">
+                                       HelperText="Reusable world, plugin, and mod preset from Configs page. Profile session settings and mods are written into the world's Sandbox_config.sbc on every start.">
                                 @foreach (var template in ConfigProfiles.GetProfiles())
                                 {
                                     <MudSelectItem T="string" Value="@template.ConfigProfileId">@template.Name</MudSelectItem>
@@ -134,7 +134,7 @@
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
                         <MudText Typo="Typo.subtitle2">World template has @TemplateModsMissingFromProfile.Count mod(s) not in the selected config profile.</MudText>
                         <MudText Typo="Typo.body2" Class="mt-1">
-                            Quasar writes the profile's mod list into the world's <code>Sandbox_config.sbc</code> on every start, which will drop these mods from the world.
+                            Quasar writes the profile's mods into the world's <code>Sandbox_config.sbc</code> on every start, which will drop these mods from the world.
                         </MudText>
                         <MudText Typo="Typo.caption" Class="mt-1">
                             Missing: @string.Join(", ", TemplateModsMissingFromProfile.Take(8).Select(mod => mod.DisplayName))@(TemplateModsMissingFromProfile.Count > 8 ? $", +{TemplateModsMissingFromProfile.Count - 8} more" : string.Empty)

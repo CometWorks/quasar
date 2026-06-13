@@ -47,8 +47,9 @@ public sealed class DiscordCommandDispatcher
                         return;
                     }
 
-                    _chatRelayService.TrackDiscordToGameMessage(serverOptions.UniqueName, args);
-                    await SendAgentCommandAsync(serverOptions.UniqueName, ServerCommandType.SendChat, text: args, cancellationToken: cancellationToken);
+                    var commandChatText = FormatDiscordGameMessage(message, args);
+                    _chatRelayService.TrackDiscordToGameMessage(serverOptions.UniqueName, commandChatText);
+                    await SendAgentCommandAsync(serverOptions.UniqueName, ServerCommandType.SendChat, text: commandChatText, cancellationToken: cancellationToken);
                     await ReplyAsync(message, "Chat sent.");
                     return;
 
@@ -124,9 +125,12 @@ public sealed class DiscordCommandDispatcher
             if (string.IsNullOrWhiteSpace(text))
                 return;
 
-            var trimmed = text.Trim();
-            _chatRelayService.TrackDiscordToGameMessage(serverOptions.UniqueName, trimmed);
-            await SendAgentCommandAsync(serverOptions.UniqueName, ServerCommandType.SendChat, text: trimmed, cancellationToken: cancellationToken);
+            var gameText = FormatDiscordGameMessage(message, text);
+            if (string.IsNullOrWhiteSpace(gameText))
+                return;
+
+            _chatRelayService.TrackDiscordToGameMessage(serverOptions.UniqueName, gameText);
+            await SendAgentCommandAsync(serverOptions.UniqueName, ServerCommandType.SendChat, text: gameText, cancellationToken: cancellationToken);
         }
         catch (Exception exception)
         {
@@ -279,6 +283,24 @@ public sealed class DiscordCommandDispatcher
             _ => commandType.ToString(),
         };
     }
+
+    private static string FormatDiscordGameMessage(SocketMessage message, string text)
+    {
+        var content = NormalizeDiscordContent(text);
+        if (string.IsNullOrWhiteSpace(content))
+            return string.Empty;
+
+        return $"[Discord] {ResolveDiscordAuthorName(message)}: {content}";
+    }
+
+    private static string ResolveDiscordAuthorName(SocketMessage message)
+    {
+        var author = message.Author?.Username?.Trim();
+        return string.IsNullOrWhiteSpace(author) ? "Discord user" : author;
+    }
+
+    private static string NormalizeDiscordContent(string text) =>
+        string.Join(' ', (text ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     private static string FormatDuration(TimeSpan duration)
     {

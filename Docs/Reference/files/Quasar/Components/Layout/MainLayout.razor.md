@@ -38,7 +38,7 @@ Implements: `IDisposable`
 - Notification bell links to `/settings/updates`; it shows a warning badge when a newer UI release is ready to download/staged for activation or when a launcher update is available.
 - Theme-mode `MudMenu` (System / Light / Dark) via `SetThemeModeAsync`; icon from `GetThemeModeIcon`.
 - `<AuthorizeView>` — Logout icon button (tooltip from `GetAuthTooltip`, uses `ClaimsPrincipal.GetQuasarDisplayName`) for authenticated users; Login button for guests.
-- `<AuthorizeView Policy="CanShutdownQuasar">` — when `IsUnderBootstrap`, a restart-worker icon (`HandleRestartWorkerClickAsync`); always a red power-off icon (`HandleShutdownClickAsync`). Both disabled while `_isShuttingDown`. The stop-all tooltip is explicitly suppressed on click and re-enabled only after blur/mouse-leave so it cannot linger behind or after the confirmation dialog.
+- `<AuthorizeView Policy="CanShutdownQuasar">` — when `IsUnderBootstrap`, a restart-worker icon (`HandleRestartWorkerClickAsync`); always a red power-off icon (`HandleShutdownClickAsync`). Both disabled while `_isShuttingDown`. The stop-all tooltip is explicitly suppressed on click and re-enabled only after mouse-leave so focus changes from the confirmation dialog cannot re-open it under the pointer.
 
 **Shutdown flow:** `HandleShutdownClickAsync` suppresses the stop-all tooltip, shows `_shutdownMessageBox`, and on confirm starts `ShutdownService.StopAllServersAsync(setGoalStateOff: true)` without awaiting it. This matches pressing Stop on every server card: servers wind down in the background, goal state is set to Off, Quasar itself stays up, and Dashboard / Servers reflect progress.
 
