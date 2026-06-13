@@ -118,6 +118,10 @@
 
                     <MudDivider Class="my-2" />
                     <MudText Typo="Typo.h6">Profiler</MudText>
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                        Simple captures low-overhead game-loop buckets. Extensive also enables deep call-site timing;
+                        when samples exist, they appear in the Profiler: Top Grids and Profiler: Entity Types panels.
+                    </MudAlert>
                     <MudGrid>
                         @foreach (var option in _serverOptions)
                         {
@@ -128,7 +132,7 @@
                                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                                         <MudText Typo="Typo.subtitle2">@option.DisplayName</MudText>
                                         <MudChip T="string" Size="Size.Small" Color="@GetProfilerChipColor(profiler)" Variant="Variant.Outlined">
-                                            @(string.IsNullOrWhiteSpace(profiler.LiveMode) ? "Offline" : profiler.LiveMode)
+                                            @(string.IsNullOrWhiteSpace(profiler.LiveMode) ? "Offline" : GetProfilerModeLabel(profiler.LiveMode))
                                         </MudChip>
                                     </MudStack>
                                     <MudSelect T="string"
@@ -140,7 +144,7 @@
                                                Disabled="@(!profiler.CanConfigure)">
                                         @foreach (var mode in ProfilerModeOptions)
                                         {
-                                            <MudSelectItem T="string" Value="@mode">@mode</MudSelectItem>
+                                            <MudSelectItem T="string" Value="@mode.Value">@mode.Label</MudSelectItem>
                                         }
                                     </MudSelect>
                                 </MudStack>
@@ -235,7 +239,12 @@ else
         ("custom", "Custom"),
     ];
 
-    private static readonly string[] ProfilerModeOptions = ["Off", "SafeContinuous", "DeepContinuous"];
+    private static readonly ProfilerModeOption[] ProfilerModeOptions =
+    [
+        new("SafeContinuous", "Simple, low overhead"),
+        new("DeepContinuous", "Extensive, deep detail"),
+        new("Off", "Off"),
+    ];
 
     private readonly List<ChartCard> _chartCards = [];
     private readonly List<SummaryChipModel> _summaryChips = [];
@@ -894,6 +903,10 @@ else
         };
     }
 
+    private static string GetProfilerModeLabel(string mode) =>
+        ProfilerModeOptions.FirstOrDefault(option => string.Equals(option.Value, mode, StringComparison.OrdinalIgnoreCase))?.Label
+        ?? mode;
+
     private void NormalizeSelection()
     {
         var validIds = _serverOptions.Select(option => option.UniqueName).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -1128,6 +1141,8 @@ else
     }
 
     private sealed record ServerOption(string UniqueName, string DisplayName);
+
+    private sealed record ProfilerModeOption(string Value, string Label);
 
     private sealed record ProfilerView(string ConfiguredMode, string LiveMode, bool CanConfigure);
 

@@ -86,6 +86,16 @@ explicit; the UI copies the staged payload into
 payloads, and Bootstrap drains the old worker, starts the managed `Quasar.exe` on
 the same port, and leaves managed Magnetar servers running.
 
+Staging also resolves `appsettings.json`. Quasar uses the stored release base in
+the data directory (`%APPDATA%\Quasar\Updates\appsettings.base.json`) as the
+merge base, applies local values from the install directory, and writes the
+resolved file into the staged worker. If the merge conflicts, auto-staging stops
+with a warning and `/settings/updates` shows a git-style conflict editor. Resolve
+and save the JSON there, or choose **Force release defaults** to stage the
+release file without local appsettings values. During activation, the resolved
+file is copied back to the install directory so Bootstrap and the managed worker
+launch with the same base settings.
+
 ## Bootstrap Updates
 
 Bootstrap checks the primary Quasar release stream every 15 minutes. When it finds a

@@ -26,6 +26,47 @@
         @_snapshot.Message
     </MudAlert>
 
+    @if (_snapshot.AppSettingsConflict)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+            appsettings.json could not be merged automatically. Resolve the conflict markers below, or force the release defaults.
+        </MudAlert>
+
+        <MudPaper Class="pa-4">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">appsettings.json conflict</MudText>
+                @if (!string.IsNullOrWhiteSpace(_snapshot.AppSettingsConflictPath))
+                {
+                    <MudText Typo="Typo.caption">@_snapshot.AppSettingsConflictPath</MudText>
+                }
+                <MudTextField T="string"
+                              @bind-Value="_appSettingsConflictText"
+                              Label="appsettings.json"
+                              Variant="Variant.Outlined"
+                              Lines="18"
+                              FullWidth="true"
+                              Disabled="_busy"
+                              Immediate="true" />
+                <MudStack Row="true" Spacing="2">
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Save"
+                               Disabled="_busy || string.IsNullOrWhiteSpace(_appSettingsConflictText)"
+                               OnClick="SaveAppSettingsResolutionAsync">
+                        Save resolution
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Warning"
+                               StartIcon="@Icons.Material.Filled.PriorityHigh"
+                               Disabled="_busy || _snapshot.Web is null"
+                               OnClick="ForceReleaseAppSettingsAsync">
+                        Force release defaults
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    }
+
     @if (_includePrerelease)
     {
         <MudAlert Severity="Severity.Error" Variant="Variant.Filled">
@@ -187,6 +228,7 @@
     private bool _includePrerelease;
     private bool _autoStageWebUpdates = true;
     private string _selectedWebVersion = string.Empty;
+    private string _appSettingsConflictText = string.Empty;
 
     protected override void OnInitialized()
     {
@@ -195,6 +237,8 @@
         _autoStageWebUpdates = Options.AutoStageWebUpdates;
         _selectedWebVersion = _snapshot.SelectedWebVersion;
         UpdateService.Changed += OnUpdatesChanged;
+        if (_snapshot.AppSettingsConflict)
+            _ = LoadAppSettingsConflictAsync();
     }
 
     public void Dispose()
@@ -208,7 +252,11 @@
         _includePrerelease = Options.IncludePrerelease;
         _autoStageWebUpdates = Options.AutoStageWebUpdates;
         _selectedWebVersion = _snapshot.SelectedWebVersion;
+        if (!_snapshot.AppSettingsConflict)
+            _appSettingsConflictText = string.Empty;
         StateHasChanged();
+        if (_snapshot.AppSettingsConflict)
+            _ = LoadAppSettingsConflictAsync();
     });
 
     private async Task CheckNowAsync()
@@ -221,10 +269,29 @@
 
     private async Task StageAsync()
     {
-        await RunBusyAsync(
-            () => UpdateService.StageWebUpdateAsync(),
-            "Quasar UI update staged.",
-            "Failed staging update");
+        _busy = true;
+        try
+        {
+            await UpdateService.StageWebUpdateAsync();
+            _snapshot = UpdateService.GetSnapshot();
+            if (_snapshot.AppSettingsConflict)
+            {
+                await LoadAppSettingsConflictAsync();
+                Snackbar.Add("appsettings.json needs manual conflict resolution before activation.", Severity.Warning);
+            }
+            else
+            {
+                Snackbar.Add("Quasar UI update staged.", Severity.Success);
+            }
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed staging update: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task ActivateAsync()
@@ -324,6 +391,44 @@
         }
     }
 
+    private async Task LoadAppSettingsConflictAsync()
+    {
+        try
+        {
+            _appSettingsConflictText = await UpdateService.ReadAppSettingsConflictTextAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed loading appsettings.json conflict: {exception.Message}", Severity.Error);
+        }
+    }
+
+    private async Task SaveAppSettingsResolutionAsync()
+    {
+        await RunBusyAsync(
+            () => UpdateService.ResolveAppSettingsConflictAsync(_appSettingsConflictText),
+            "appsettings.json conflict resolved.",
+            "Failed saving appsettings.json");
+    }
+
+    private async Task ForceReleaseAppSettingsAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Force release appsettings.json?",
+            "This discards local appsettings.json values for the staged update and uses the release defaults.",
+            yesText: "Force defaults",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        await RunBusyAsync(
+            () => UpdateService.StageWebUpdateAsync(forceAppSettingsOverride: true),
+            "Release appsettings.json staged.",
+            "Failed forcing release appsettings.json");
+    }
+
     private async Task RunBusyAsync(Func<Task> action, string successMessage, string failurePrefix)
     {
         _busy = true;
@@ -345,6 +450,7 @@
 
     private Severity GetStatusSeverity() => _snapshot.Status switch
     {
+        _ when _snapshot.AppSettingsConflict => Severity.Warning,
         QuasarUpdateStatus.Failed => Severity.Error,
         QuasarUpdateStatus.Staged => Severity.Success,
         QuasarUpdateStatus.UpdateQueued or QuasarUpdateStatus.Staging or QuasarUpdateStatus.Activating => Severity.Info,

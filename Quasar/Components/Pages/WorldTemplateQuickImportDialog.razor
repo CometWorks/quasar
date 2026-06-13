@@ -50,7 +50,7 @@
             <MudStack Spacing="3">
                 <MudText Typo="Typo.subtitle2">Template mods</MudText>
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                    Found @_sourceMods.Count mod(s) in the source world's <code>Sandbox_config.sbc</code>. Quasar writes the selected config profile's mod list into the active world on server start.
+                    Found @_sourceMods.Count mod(s) in the source world's <code>Sandbox_config.sbc</code>. Quasar writes the selected config profile's session settings and mods into the active world on server start.
                 </MudAlert>
 
                 <MudRadioGroup T="WorldImportModAction" @bind-Value="_modAction">

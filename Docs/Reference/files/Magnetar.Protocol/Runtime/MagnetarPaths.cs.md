@@ -13,13 +13,14 @@ Namespace `Magnetar.Protocol.Runtime`; `public static class MagnetarPaths`. Pure
 - Supervisor files: `GetQuasarLogDirectory()`, `GetQuasarServerLogDirectory(uniqueName)` → `Logs/Magnetars/<uniqueName>/`, `GetQuasarSupervisorStatePath()`, `GetQuasarKnownPlayersPath()`, `GetQuasarDiscordOptionsPath()`, `GetQuasarBrandingPath()`, `GetQuasarBrandingDirectory(webRootPath)`, `GetQuasarDeathMessagesPath()`, `GetQuasarWorkshopOptionsPath()`, `GetQuasarDataProtectionKeyringDirectory()`, `GetQuasarBackupSettingsPath()` → `backup-settings.json`, `GetQuasarBackupsDirectory()` → `Backups/` (generated configuration backup ZIPs, manual + scheduled).
 - Per-Magnetar server data (`Magnetars/<unique-name>/`): `GetQuasarServersDirectory()`, `GetQuasarServerDirectory()`, `GetQuasarServerDedicatedServerAppDataDirectory()` (DS `-path`), `GetQuasarServerMagnetarAppDataDirectory()` (DS `-config`), `GetQuasarServerDefinitionPath()` → `server.json`, `GetQuasarServerHistoryDirectory()`, `GetQuasarServerAnalyticsPath()` → `analytics.jsonl`.
 - World templates (`WorldTemplates/<id>/`): `GetQuasarWorldTemplatesDirectory()`, `GetLegacyQuasarWorldProfilesDirectory()` (legacy `WorldProfiles/`), `GetQuasarWorldTemplateDirectory()`, `GetQuasarWorldTemplateDefinitionPath()` → `template.json`, `GetQuasarWorldTemplateWorldDirectory()`, `GetQuasarWorldTemplateHistoryDirectory()`.
-- Bootstrap update/release staging (`Updates/`): `GetQuasarUpdatesDirectory()`, `GetQuasarStagingDirectory()` → `Updates/Staged/`, `GetQuasarActiveReleasePath()` → `Updates/active-release.json`.
+- Bootstrap update/release staging (`Updates/`): `GetQuasarUpdatesDirectory()`, `GetQuasarStagingDirectory()` → `Updates/Staged/`, `GetQuasarActiveReleasePath()` → `Updates/active-release.json`, `GetQuasarAppSettingsBasePath()` → `Updates/appsettings.base.json` (release-base ancestor for appsettings rollover).
 - Managed runtime (`ManagedRuntime/`): `GetQuasarManagedRuntimeDirectory()`, `GetQuasarManagedRuntimeCacheDirectory()`, `GetQuasarManagedRuntimeToolsDirectory()`, `GetQuasarManagedWebServiceDirectory()` → `WebService/`, `GetQuasarManagedWebReleaseDirectory(version)` → `WebService/<version>/`, `GetQuasarManagedMagnetarInstallDirectory()` → `Tools/Magnetar/`, `GetQuasarManagedSteamCmdInstallDirectory()` → `Tools/SteamCMD/`, `GetQuasarManagedDedicatedServerInstallDirectory()` → `Tools/SpaceEngineersDedicatedServer/`.
 - Private `SanitizePathSegment(value)`: trims, replaces invalid filename chars with `-`, returns `default` for empty input.
 
 ## Dependencies
 - [`Magnetar.Protocol/Discovery/WebServiceDiscoveryManifest.cs`](../Discovery/WebServiceDiscoveryManifest.cs.md) — file resolved by `GetWebServiceManifestPath()`.
 - [`Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs`](QuasarActiveReleasePointer.cs.md) — file resolved by `GetQuasarActiveReleasePath()`.
+- `Quasar/Services/Updates/QuasarUpdateService.cs` — uses `GetQuasarAppSettingsBasePath()` as the stored merge base for staged `appsettings.json` rollover.
 - `System`, `System.IO` (BCL only).
 
 ## Notes

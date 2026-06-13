@@ -15,7 +15,12 @@
         <MudText Typo="Typo.body2">One bot, many Quasar servers. Bind command, chat, log, and analytics channels per server.</MudText>
     </div>
     <MudTooltip Text="Show Discord integration log">
-        <MudIconButton Icon="@Icons.Material.Filled.Terminal" Color="Color.Default" title="Show Discord integration log" OnClick="OpenDiscordConsoleDialogAsync" />
+        <MudButton StartIcon="@Icons.Material.Filled.Terminal"
+                   Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   OnClick="OpenDiscordConsoleDialogAsync">
+            Console Logs
+        </MudButton>
     </MudTooltip>
 </MudStack>
 

@@ -1414,13 +1414,16 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
 
         var workerBaseUri = new Uri(_options.BaseUrl);
+        var workerWorkingDirectory = string.IsNullOrWhiteSpace(pointer.WorkingDirectory)
+            ? Path.GetDirectoryName(resolvedFileName) ?? AppContext.BaseDirectory
+            : pointer.WorkingDirectory;
+        SyncInstallAppSettingsToWorker(workerWorkingDirectory);
+
         var startInfo = new ProcessStartInfo
         {
             FileName = resolvedFileName,
             Arguments = pointer.Arguments,
-            WorkingDirectory = string.IsNullOrWhiteSpace(pointer.WorkingDirectory)
-                ? Path.GetDirectoryName(resolvedFileName) ?? AppContext.BaseDirectory
-                : pointer.WorkingDirectory,
+            WorkingDirectory = workerWorkingDirectory,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = _foregroundOptions.IsForeground,
@@ -1431,6 +1434,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         startInfo.Environment["QUASAR_MODE"] = "service";
         startInfo.Environment["QUASAR_LAUNCHER_TOKEN"] = _launcherToken;
         startInfo.Environment["QUASAR_BOOTSTRAP_VERSION"] = _options.Version;
+        startInfo.Environment["QUASAR_INSTALL_DIR"] = AppContext.BaseDirectory;
         startInfo.Environment["QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN"] = _options.PreserveServersOnShutdown ? "true" : "false";
         if (_foregroundOptions.IsForeground)
             startInfo.Environment["QUASAR_CONSOLE_LOGGING"] = "true";
@@ -1473,6 +1477,26 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
         process.Dispose();
         return null;
+    }
+
+    private static void SyncInstallAppSettingsToWorker(string workerDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(workerDirectory))
+            return;
+
+        var sourcePath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        var destinationPath = Path.Combine(workerDirectory, "appsettings.json");
+        if (!File.Exists(sourcePath) || IsSamePath(sourcePath, destinationPath))
+            return;
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            File.Copy(sourcePath, destinationPath, overwrite: true);
+        }
+        catch
+        {
+        }
     }
 
     private async Task<bool> WaitForWorkerHealthyAsync(WorkerProcessHandle worker, CancellationToken cancellationToken)

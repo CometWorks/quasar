@@ -29,6 +29,12 @@ public sealed record QuasarUpdateSnapshot
     public string SelectedWebVersion { get; init; } = string.Empty;
 
     public QuasarUpdateCandidate? Bootstrap { get; init; }
+
+    public bool AppSettingsConflict { get; init; }
+
+    public string AppSettingsConflictPath { get; init; } = string.Empty;
+
+    public string AppSettingsConflictMessage { get; init; } = string.Empty;
 }
 
 public sealed record QuasarUpdateCandidate

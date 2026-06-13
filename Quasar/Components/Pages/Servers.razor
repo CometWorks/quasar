@@ -37,6 +37,7 @@
             <HeaderContent>
                 <MudTh Style="width: 36px;"></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetStateText(x.UniqueName))">Status</MudTableSortLabel></MudTh>
+                <MudTh Style="width: 180px;">Actions</MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetDisplayName(x))">Name</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.ServerPort)">Port</MudTableSortLabel></MudTh>
                 <MudTh Style="text-align: center;"><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetConfigProfileName(x.ConfigProfileId))">Config</MudTableSortLabel></MudTh>
@@ -53,17 +54,23 @@
                                    title="Show live data" />
                 </MudTd>
                 <MudTd DataLabel="Status">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                        <MudChip T="string" Color="@GetStateColor(context.UniqueName)" Variant="Variant.Outlined">
-                            @GetStateText(context.UniqueName)
-                        </MudChip>
-                        @if (context.GoalState == DedicatedServerGoalState.On)
+                    <MudChip T="string" Color="@GetStateColor(context.UniqueName)" Variant="Variant.Outlined">
+                        @GetStateText(context.UniqueName)
+                    </MudChip>
+                </MudTd>
+                <MudTd DataLabel="Actions">
+                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                        @if (CanStartServer(context.UniqueName))
                         {
-                            <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Warning" OnClick="@(() => StopAsync(context.UniqueName))">Stop</MudButton>
+                            <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Success" StartIcon="@Icons.Material.Filled.PlayArrow" OnClick="@(() => StartAsync(context.UniqueName))">Start</MudButton>
                         }
-                        else
+                        @if (CanStopServer(context.UniqueName))
                         {
-                            <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Success" OnClick="@(() => StartAsync(context.UniqueName))">Start</MudButton>
+                            <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Error" StartIcon="@Icons.Material.Filled.Stop" OnClick="@(() => StopAsync(context.UniqueName))">Stop</MudButton>
+                        }
+                        @if (CanRestartServer(context.UniqueName))
+                        {
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Primary" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="@(() => RestartAsync(context.UniqueName))">Restart</MudButton>
                         }
                     </MudStack>
                 </MudTd>
@@ -92,13 +99,6 @@
                 <MudTd DataLabel="Agent">@GetAttachmentStatus(context.UniqueName)</MudTd>
                 <MudTd Style="text-align: right;">
                     <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.FlexEnd" Spacing="0">
-                        @if (context.GoalState == DedicatedServerGoalState.On)
-                        {
-                            @if (IsRunning(context.UniqueName))
-                            {
-                                <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" OnClick="@(() => RestartAsync(context.UniqueName))">Restart</MudButton>
-                            }
-                        }
                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Terminal" Color="Color.Default" title="Show console output" OnClick="@(() => OpenConsoleDialogAsync(context.UniqueName))" />
                         <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => OpenCloneDialogAsync(context))">Clone</MudButton>
                         <MudButton Variant="Variant.Text" Size="Size.Small" Disabled="@(!CanCreateWorldTemplate(context))" OnClick="@(() => CreateWorldTemplateAsync(context))">Template</MudButton>
@@ -111,7 +111,7 @@
                 @if (IsExpanded(context.UniqueName))
                 {
                     <MudTr>
-                        <td colspan="9" style="padding: 0.75rem 1rem; background: var(--mud-palette-background);">
+                        <td colspan="10" style="padding: 0.75rem 1rem; background: var(--mud-palette-background);">
                             <ServerDetailPanel Agent="@GetAgent(context.UniqueName)" />
                         </td>
                     </MudTr>
@@ -535,6 +535,27 @@
             or DedicatedServerProcessState.Running
             or DedicatedServerProcessState.Restarting
             or DedicatedServerProcessState.Stopping;
+    }
+
+    private bool CanStartServer(string uniqueName)
+    {
+        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped;
+        return state is DedicatedServerProcessState.Stopped
+            or DedicatedServerProcessState.Crashed
+            or DedicatedServerProcessState.Faulted;
+    }
+
+    private bool CanStopServer(string uniqueName)
+    {
+        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped;
+        return state is DedicatedServerProcessState.Starting
+            or DedicatedServerProcessState.Running;
+    }
+
+    private bool CanRestartServer(string uniqueName)
+    {
+        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped;
+        return state == DedicatedServerProcessState.Running;
     }
 
     private bool CanCreateWorldTemplate(DedicatedServerDefinition definition)

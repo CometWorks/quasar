@@ -4,7 +4,7 @@
 
 ## Summary
 
-Central catalogue of analytics chart panels exposed by the `/analytics` dashboard and `/api/analytics/series` endpoint. Scalar entries define metric key, panel title/subtitle, sample selector, availability check, axis formatting, and fixed/dynamic Y-axis behaviour. Profiler entries define continuous game-loop timing selectors and deep-profiler top-entry selectors while keeping browser chart rendering on the same existing payload shape.
+Central catalogue of analytics chart panels exposed by the `/analytics` dashboard and `/api/analytics/series` endpoint. Scalar entries define metric key, panel title/subtitle, sample selector, availability check, axis formatting, and fixed/dynamic Y-axis behaviour. Profiler entries define simple game-loop timing selectors and extensive-profiler top-entry selectors while keeping browser chart rendering on the same existing payload shape.
 
 ## Structure
 
@@ -46,7 +46,7 @@ Members:
 - `All : IReadOnlyList<ProfilerEntryAnalyticsMetric>` — deep profiler top-list panels appended after game-loop profiler panels.
 - `Find(string? key) : ProfilerEntryAnalyticsMetric?` — case-insensitive lookup.
 
-Profiler entry metrics:
+Extensive profiler entry metrics:
 - `profiler-top-grids`
 - `profiler-top-entities`
 
@@ -58,4 +58,4 @@ Profiler entry metrics:
 
 ## Notes
 
-Profiler panel metadata is separate from scalar sample selectors so the chart page can add profiler panels without changing the browser chart interop. Entry-backed profiler panels use Quasar's own `ProfilerSnapshot` top lists.
+Profiler panel metadata is separate from scalar sample selectors so the chart page can add profiler panels without changing the browser chart interop. Entry-backed profiler panels use Quasar's own `ProfilerSnapshot` top lists and are labelled as extensive/deep data in the UI.

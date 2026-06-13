@@ -11,6 +11,9 @@ namespace Quasar.Services.Updates;
 
 public sealed class QuasarUpdateService : BackgroundService
 {
+    private const string AppSettingsFileName = "appsettings.json";
+    private const string AppSettingsReleaseBaseFileName = ".quasar-appsettings-release-base.json";
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,
@@ -209,7 +212,10 @@ public sealed class QuasarUpdateService : BackgroundService
         }
     }
 
-    public async Task StageWebUpdateAsync(CancellationToken cancellationToken = default)
+    public Task StageWebUpdateAsync(CancellationToken cancellationToken = default) =>
+        StageWebUpdateAsync(forceAppSettingsOverride: false, cancellationToken);
+
+    public async Task StageWebUpdateAsync(bool forceAppSettingsOverride, CancellationToken cancellationToken = default)
     {
         var candidate = GetSnapshot().Web;
         if (candidate is null)
@@ -257,6 +263,30 @@ public sealed class QuasarUpdateService : BackgroundService
         }
 
         QuasarWebReleaseLayout.ValidateDirectory(stageDirectory);
+        var appSettingsResolution = await ResolveStagedAppSettingsAsync(
+            stageDirectory,
+            candidate.Version,
+            forceAppSettingsOverride,
+            cancellationToken).ConfigureAwait(false);
+
+        if (appSettingsResolution.HasConflict)
+        {
+            SetSnapshot(_snapshot with
+            {
+                Status = QuasarUpdateStatus.Failed,
+                Message = appSettingsResolution.Message,
+                AppSettingsConflict = true,
+                AppSettingsConflictPath = appSettingsResolution.Path,
+                AppSettingsConflictMessage = appSettingsResolution.Message,
+                Web = candidate with
+                {
+                    IsStaged = false,
+                    StagedDirectory = stageDirectory,
+                    ExpectedSha256 = expectedSha256,
+                },
+            });
+            return;
+        }
 
         EnsureExecutableBit(workerPath);
         var staged = candidate with
@@ -275,10 +305,75 @@ public sealed class QuasarUpdateService : BackgroundService
         SetSnapshot(_snapshot with
         {
             Status = QuasarUpdateStatus.Staged,
+            Message = appSettingsResolution.Message,
+            Web = staged,
+            WebReleases = webReleases,
+            SelectedWebVersion = staged.Version,
+            AppSettingsConflict = false,
+            AppSettingsConflictPath = string.Empty,
+            AppSettingsConflictMessage = string.Empty,
+        });
+    }
+
+    public async Task<string> ReadAppSettingsConflictTextAsync(CancellationToken cancellationToken = default)
+    {
+        var path = GetSnapshot().AppSettingsConflictPath;
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return string.Empty;
+
+        return await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task ResolveAppSettingsConflictAsync(string resolvedText, CancellationToken cancellationToken = default)
+    {
+        var snapshot = GetSnapshot();
+        var candidate = snapshot.Web;
+        if (candidate is null || string.IsNullOrWhiteSpace(candidate.StagedDirectory))
+            throw new InvalidOperationException("No staged appsettings.json conflict is available to resolve.");
+
+        var appSettingsPath = snapshot.AppSettingsConflictPath;
+        if (string.IsNullOrWhiteSpace(appSettingsPath))
+            appSettingsPath = Path.Combine(candidate.StagedDirectory, AppSettingsFileName);
+
+        if (ContainsConflictMarkers(resolvedText))
+            throw new InvalidOperationException("Resolve all conflict markers before saving appsettings.json.");
+
+        var resolved = ParseJsonObject(resolvedText, "resolved appsettings.json");
+        await AtomicFileWriter.WriteTextAsync(appSettingsPath, FormatJson(resolved), cancellationToken).ConfigureAwait(false);
+
+        var releaseBasePath = Path.Combine(candidate.StagedDirectory, AppSettingsReleaseBaseFileName);
+        if (File.Exists(releaseBasePath))
+        {
+            var releaseBase = await ReadJsonObjectAsync(releaseBasePath, "release appsettings.json", cancellationToken).ConfigureAwait(false);
+            await PersistAppSettingsBaseAsync(releaseBase, cancellationToken).ConfigureAwait(false);
+            TryDeleteFile(releaseBasePath);
+        }
+
+        QuasarWebReleaseLayout.ValidateDirectory(candidate.StagedDirectory);
+        EnsureExecutableBit(Path.Combine(candidate.StagedDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName));
+
+        var staged = candidate with
+        {
+            IsStaged = true,
+            StagedDirectory = candidate.StagedDirectory,
+        };
+
+        var webReleases = _snapshot.WebReleases
+            .Select(release => string.Equals(release.Version, staged.Version, StringComparison.OrdinalIgnoreCase)
+                ? staged
+                : release)
+            .ToArray();
+
+        SetSnapshot(_snapshot with
+        {
+            Status = QuasarUpdateStatus.Staged,
             Message = $"Quasar UI {candidate.Version} is staged and ready to activate.",
             Web = staged,
             WebReleases = webReleases,
             SelectedWebVersion = staged.Version,
+            AppSettingsConflict = false,
+            AppSettingsConflictPath = string.Empty,
+            AppSettingsConflictMessage = string.Empty,
         });
     }
 
@@ -305,6 +400,7 @@ public sealed class QuasarUpdateService : BackgroundService
         var activeDirectory = MagnetarPaths.GetQuasarManagedWebReleaseDirectory(candidate.Version);
         var activeWorkerPath = Path.Combine(activeDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName);
         PrepareActiveWebRelease(candidate.StagedDirectory, activeDirectory);
+        TrySyncActiveAppSettingsToInstallDirectory(activeDirectory);
 
         var pointer = new QuasarActiveReleasePointer
         {
@@ -451,6 +547,348 @@ public sealed class QuasarUpdateService : BackgroundService
         return created;
     }
 
+    private async Task<AppSettingsResolution> ResolveStagedAppSettingsAsync(
+        string stageDirectory,
+        string version,
+        bool forceAppSettingsOverride,
+        CancellationToken cancellationToken)
+    {
+        var appSettingsPath = Path.Combine(stageDirectory, AppSettingsFileName);
+        if (!File.Exists(appSettingsPath))
+            return AppSettingsResolution.Clean($"Quasar UI {version} is staged and ready to activate.", appSettingsPath);
+
+        var releaseBasePath = Path.Combine(stageDirectory, AppSettingsReleaseBaseFileName);
+        if (HasUnresolvedAppSettingsConflict(stageDirectory))
+        {
+            if (!File.Exists(releaseBasePath))
+                return AppSettingsResolution.Conflict(
+                    "appsettings.json rollover conflict is unresolved and the release base sidecar is missing. Resolve the staged file manually.",
+                    appSettingsPath);
+
+            var conflictRelease = await ReadJsonObjectAsync(releaseBasePath, "release appsettings.json", cancellationToken).ConfigureAwait(false);
+            if (forceAppSettingsOverride)
+            {
+                await AtomicFileWriter.WriteTextAsync(appSettingsPath, FormatJson(conflictRelease), cancellationToken).ConfigureAwait(false);
+                await PersistAppSettingsBaseAsync(conflictRelease, cancellationToken).ConfigureAwait(false);
+                TryDeleteFile(releaseBasePath);
+                return AppSettingsResolution.Clean($"Quasar UI {version} is staged with release appsettings.json.", appSettingsPath);
+            }
+
+            return AppSettingsResolution.Conflict(
+                "appsettings.json rollover conflict is unresolved. Resolve it manually or force the release defaults.",
+                appSettingsPath);
+        }
+
+        var release = await ReadJsonObjectAsync(appSettingsPath, "release appsettings.json", cancellationToken).ConfigureAwait(false);
+        TryDeleteFile(releaseBasePath);
+
+        if (forceAppSettingsOverride)
+        {
+            await AtomicFileWriter.WriteTextAsync(appSettingsPath, FormatJson(release), cancellationToken).ConfigureAwait(false);
+            await PersistAppSettingsBaseAsync(release, cancellationToken).ConfigureAwait(false);
+            return AppSettingsResolution.Clean($"Quasar UI {version} is staged with release appsettings.json.", appSettingsPath);
+        }
+
+        var currentPath = ResolveCurrentAppSettingsPath(stageDirectory);
+        if (currentPath is null)
+        {
+            await PersistAppSettingsBaseAsync(release, cancellationToken).ConfigureAwait(false);
+            return AppSettingsResolution.Clean($"Quasar UI {version} is staged with release appsettings.json.", appSettingsPath);
+        }
+
+        JsonObject current;
+        try
+        {
+            current = await ReadJsonObjectAsync(currentPath, "current appsettings.json", cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            await WriteConflictFileAsync(
+                appSettingsPath,
+                releaseBasePath,
+                currentPath,
+                $"Current appsettings.json could not be parsed: {exception.Message}",
+                string.Empty,
+                release,
+                cancellationToken).ConfigureAwait(false);
+
+            return AppSettingsResolution.Conflict(
+                $"appsettings.json rollover conflict: current appsettings.json is invalid. Resolve it manually or force the release defaults.",
+                appSettingsPath);
+        }
+
+        var basePath = MagnetarPaths.GetQuasarAppSettingsBasePath();
+        var hasBase = TryReadJsonObject(basePath, out var mergeBase, out var baseError);
+        if (!hasBase)
+        {
+            if (!string.IsNullOrWhiteSpace(baseError))
+            {
+                _logger.LogWarning(
+                    "Ignoring invalid appsettings.json merge base at {Path}: {Error}",
+                    basePath,
+                    baseError);
+            }
+
+            var overlaid = (JsonObject)release.DeepClone();
+            OverlayObject(overlaid, current);
+            await AtomicFileWriter.WriteTextAsync(appSettingsPath, FormatJson(overlaid), cancellationToken).ConfigureAwait(false);
+            await PersistAppSettingsBaseAsync(release, cancellationToken).ConfigureAwait(false);
+            return AppSettingsResolution.Clean($"Quasar UI {version} is staged with current appsettings.json values.", appSettingsPath);
+        }
+
+        var conflicts = new List<string>();
+        var merged = MergeObjects(mergeBase!, current, release, "root", conflicts);
+        if (conflicts.Count > 0)
+        {
+            var message = $"appsettings.json rollover conflict at {string.Join(", ", conflicts.Take(5))}. Resolve it manually or force the release defaults.";
+            await WriteConflictFileAsync(
+                appSettingsPath,
+                releaseBasePath,
+                currentPath,
+                message,
+                FormatJson(current),
+                release,
+                cancellationToken).ConfigureAwait(false);
+
+            return AppSettingsResolution.Conflict(message, appSettingsPath);
+        }
+
+        await AtomicFileWriter.WriteTextAsync(appSettingsPath, FormatJson(merged), cancellationToken).ConfigureAwait(false);
+        await PersistAppSettingsBaseAsync(release, cancellationToken).ConfigureAwait(false);
+        return AppSettingsResolution.Clean($"Quasar UI {version} is staged with current appsettings.json values.", appSettingsPath);
+    }
+
+    private static async Task WriteConflictFileAsync(
+        string appSettingsPath,
+        string releaseBasePath,
+        string currentPath,
+        string message,
+        string currentText,
+        JsonObject release,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(currentText) && File.Exists(currentPath))
+            currentText = await File.ReadAllTextAsync(currentPath, cancellationToken).ConfigureAwait(false);
+
+        var releaseText = FormatJson(release);
+        var conflictText =
+            "<<<<<<< CURRENT appsettings.json (" + currentPath + ")" + Environment.NewLine +
+            currentText.TrimEnd() + Environment.NewLine +
+            "=======" + Environment.NewLine +
+            releaseText.TrimEnd() + Environment.NewLine +
+            ">>>>>>> RELEASE appsettings.json" + Environment.NewLine +
+            Environment.NewLine +
+            "Conflict: " + message + Environment.NewLine;
+
+        await AtomicFileWriter.WriteTextAsync(appSettingsPath, conflictText, cancellationToken).ConfigureAwait(false);
+        await AtomicFileWriter.WriteTextAsync(releaseBasePath, releaseText, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static JsonObject MergeObjects(JsonObject mergeBase, JsonObject current, JsonObject release, string path, ICollection<string> conflicts)
+    {
+        var result = new JsonObject();
+        var names = mergeBase.Select(property => property.Key)
+            .Concat(current.Select(property => property.Key))
+            .Concat(release.Select(property => property.Key))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        foreach (var name in names)
+        {
+            var propertyPath = string.Equals(path, "root", StringComparison.Ordinal)
+                ? name
+                : $"{path}:{name}";
+            var hasBase = mergeBase.TryGetPropertyValue(name, out var baseValue);
+            var hasCurrent = current.TryGetPropertyValue(name, out var currentValue);
+            var hasRelease = release.TryGetPropertyValue(name, out var releaseValue);
+
+            if (hasCurrent && hasRelease && JsonNode.DeepEquals(currentValue, releaseValue))
+            {
+                result[name] = CloneNode(currentValue);
+                continue;
+            }
+
+            if (hasBase && hasCurrent && JsonNode.DeepEquals(baseValue, currentValue))
+            {
+                if (hasRelease)
+                    result[name] = CloneNode(releaseValue);
+                continue;
+            }
+
+            if (hasBase && hasRelease && JsonNode.DeepEquals(baseValue, releaseValue))
+            {
+                if (hasCurrent)
+                    result[name] = CloneNode(currentValue);
+                continue;
+            }
+
+            if (!hasBase)
+            {
+                if (!hasCurrent && hasRelease)
+                {
+                    result[name] = CloneNode(releaseValue);
+                    continue;
+                }
+
+                if (hasCurrent && !hasRelease)
+                {
+                    result[name] = CloneNode(currentValue);
+                    continue;
+                }
+            }
+
+            if (baseValue is JsonObject baseObject &&
+                currentValue is JsonObject currentObject &&
+                releaseValue is JsonObject releaseObject)
+            {
+                result[name] = MergeObjects(baseObject, currentObject, releaseObject, propertyPath, conflicts);
+                continue;
+            }
+
+            conflicts.Add(propertyPath);
+            if (hasRelease)
+                result[name] = CloneNode(releaseValue);
+            else if (hasCurrent)
+                result[name] = CloneNode(currentValue);
+        }
+
+        return result;
+    }
+
+    private static void OverlayObject(JsonObject target, JsonObject source)
+    {
+        foreach (var property in source.ToArray())
+        {
+            if (property.Value is JsonObject sourceObject &&
+                target[property.Key] is JsonObject targetObject)
+            {
+                OverlayObject(targetObject, sourceObject);
+                continue;
+            }
+
+            target[property.Key] = CloneNode(property.Value);
+        }
+    }
+
+    private static JsonNode? CloneNode(JsonNode? node) => node?.DeepClone();
+
+    private static async Task<JsonObject> ReadJsonObjectAsync(string path, string label, CancellationToken cancellationToken)
+    {
+        var text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+        return ParseJsonObject(text, label);
+    }
+
+    private static bool TryReadJsonObject(string path, out JsonObject? value, out string error)
+    {
+        value = null;
+        error = string.Empty;
+        if (!File.Exists(path))
+            return false;
+
+        try
+        {
+            value = ParseJsonObject(File.ReadAllText(path), path);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            error = exception.Message;
+            return false;
+        }
+    }
+
+    private static JsonObject ParseJsonObject(string text, string label)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return new JsonObject();
+
+        try
+        {
+            return JsonNode.Parse(text)?.AsObject()
+                   ?? throw new InvalidOperationException($"{label} must contain a JSON object.");
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidOperationException($"{label} is invalid JSON: {exception.Message}", exception);
+        }
+    }
+
+    private static string FormatJson(JsonObject value) => value.ToJsonString(JsonOptions);
+
+    private static bool ContainsConflictMarkers(string text) =>
+        text.Contains("<<<<<<<", StringComparison.Ordinal) ||
+        text.Contains("=======", StringComparison.Ordinal) ||
+        text.Contains(">>>>>>>", StringComparison.Ordinal);
+
+    private static bool HasUnresolvedAppSettingsConflict(string stageDirectory)
+    {
+        var appSettingsPath = Path.Combine(stageDirectory, AppSettingsFileName);
+        if (!File.Exists(appSettingsPath))
+            return false;
+
+        try
+        {
+            return ContainsConflictMarkers(File.ReadAllText(appSettingsPath));
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    private static string? ResolveCurrentAppSettingsPath(string stageDirectory)
+    {
+        var candidates = new[]
+        {
+            Path.Combine(Environment.GetEnvironmentVariable("QUASAR_INSTALL_DIR") ?? string.Empty, AppSettingsFileName),
+            Path.Combine(AppContext.BaseDirectory, AppSettingsFileName),
+            Path.Combine(Directory.GetCurrentDirectory(), AppSettingsFileName),
+            Path.Combine(AppContext.BaseDirectory, "WebService", AppSettingsFileName),
+        };
+
+        foreach (var candidate in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(candidate))
+                continue;
+
+            if (!File.Exists(candidate) || IsSamePath(candidate, Path.Combine(stageDirectory, AppSettingsFileName)))
+                continue;
+
+            return candidate;
+        }
+
+        return null;
+    }
+
+    private static async Task PersistAppSettingsBaseAsync(JsonObject release, CancellationToken cancellationToken)
+    {
+        var path = MagnetarPaths.GetQuasarAppSettingsBasePath();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await AtomicFileWriter.WriteTextAsync(path, FormatJson(release), cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void TrySyncActiveAppSettingsToInstallDirectory(string activeDirectory)
+    {
+        var installDirectory = Environment.GetEnvironmentVariable("QUASAR_INSTALL_DIR");
+        if (string.IsNullOrWhiteSpace(installDirectory))
+            return;
+
+        var sourcePath = Path.Combine(activeDirectory, AppSettingsFileName);
+        var destinationPath = Path.Combine(installDirectory, AppSettingsFileName);
+        if (!File.Exists(sourcePath) || IsSamePath(sourcePath, destinationPath))
+            return;
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            File.Copy(sourcePath, destinationPath, overwrite: true);
+        }
+        catch
+        {
+        }
+    }
+
     private static GitHubAsset? FindAsset(GitHubRelease release, string assetName) =>
         release.Assets.FirstOrDefault(asset => string.Equals(asset.Name, assetName, StringComparison.OrdinalIgnoreCase));
 
@@ -509,7 +947,9 @@ public sealed class QuasarUpdateService : BackgroundService
         var stageDirectory = requiresPrivilegedInstall
             ? null
             : Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), version);
-        var isStaged = stageDirectory is not null && File.Exists(Path.Combine(stageDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName));
+        var isStaged = stageDirectory is not null &&
+                       File.Exists(Path.Combine(stageDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName)) &&
+                       !HasUnresolvedAppSettingsConflict(stageDirectory);
         var checksumAsset = FindAsset(release, "SHA256SUMS");
 
         return new QuasarUpdateCandidate
@@ -539,6 +979,7 @@ public sealed class QuasarUpdateService : BackgroundService
             Directory.Delete(activeDirectory, recursive: true);
 
         CopyDirectory(stagedDirectory, activeDirectory);
+        TryDeleteFile(Path.Combine(activeDirectory, AppSettingsReleaseBaseFileName));
         QuasarWebReleaseLayout.ValidateDirectory(activeDirectory);
         EnsureExecutableBit(Path.Combine(activeDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName));
     }
@@ -652,6 +1093,15 @@ public sealed class QuasarUpdateService : BackgroundService
         }
 
         Changed?.Invoke();
+    }
+
+    private sealed record AppSettingsResolution(bool HasConflict, string Message, string Path)
+    {
+        public static AppSettingsResolution Clean(string message, string path) =>
+            new(false, message, path);
+
+        public static AppSettingsResolution Conflict(string message, string path) =>
+            new(true, message, path);
     }
 
     private sealed class GitHubRelease

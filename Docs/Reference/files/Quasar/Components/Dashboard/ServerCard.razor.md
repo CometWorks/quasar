@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Card component for a single managed server shown on the Dashboard. Displays the server display name, status chip (OFF / STARTING / CONNECTING / OPEN / STOPPING), host/world caption, last message or health summary, Start / Stop / Restart action buttons, and a terminal icon button for opening the server log dialog beside Restart. The Start button can be disabled by the dashboard while managed runtime prerequisites are still preparing. Embeds `ServerDetailPanel` as its card body content.
+Card component for a single managed server shown on the Dashboard. Displays the server display name, status chip (OFF / STARTING / CONNECTING / OPEN / STOPPING / RESTARTING / CRASHED / FAULTED), host/world caption, last message or health summary, lifecycle action buttons, and a terminal icon button for opening the server log dialog beside Restart. The Start button can be disabled by the dashboard while managed runtime prerequisites are still preparing. Embeds `ServerDetailPanel` as its card body content.
 
 ## Structure
 No `@page` route — used as a child component.
@@ -24,7 +24,7 @@ No `@page` route — used as a child component.
 
 **Private helpers:**
 - `ProcessState` — derives `DedicatedServerProcessState` from `Runtime?.State`.
-- `IsProcessActive`, `CanStart`, `CanStop`, `CanRestart` — button visibility logic. Restart is shown for every active process state (`Starting`, `Running`, `Restarting`, `Stopping`), not only the fully running state.
+- `IsProcessActive`, `CanStart`, `CanStop`, `CanRestart` — lifecycle button visibility logic. Start is shown only for `Stopped`, `Crashed`, and `Faulted`; Stop is shown for `Starting` (cancel launch) and `Running`; Restart is shown only for `Running`. No lifecycle button is shown during `Stopping` or `Restarting`.
 - `GetDisplayName()` — prefers `Server.DisplayName`, falls back to `Agent.ServerDisplayName`, then `UniqueName`.
 - `GetHostLabel()` — shows `Agent.HostDisplayName` or "Local host".
 - `GetWorldLabel()` — shows `Agent.WorldDisplayName`, else last path segment of `Server.WorldPath`, else "World pending".

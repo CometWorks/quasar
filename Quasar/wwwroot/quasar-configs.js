@@ -34,6 +34,18 @@ window.quasarConfigs = window.quasarConfigs || {
         }
         element.scrollTop = element.scrollHeight;
     },
+    downloadFile(url, fileName) {
+        const link = document.createElement("a");
+        link.href = url;
+        if (fileName) {
+            link.download = fileName;
+        }
+        link.rel = "noopener";
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    },
     scrollToRatio(id, ratio) {
         const element = document.getElementById(id);
         if (!element) {

@@ -108,39 +108,64 @@
                     world <code>Backup</code> folder, Quasar uses the latest valid snapshot from it.
                 </MudText>
 
-                <MudGrid>
-                    <MudItem xs="12" md="6">
-                        <MudSelect T="string"
-                                   Label="Server"
-                                   Value="_selectedServerUniqueName"
-                                   ValueChanged="HandleSelectedServerChanged"
-                                   Variant="Variant.Outlined"
-                                   Disabled="_servers.Count == 0">
-                            @foreach (var server in _servers)
-                            {
-                                <MudSelectItem T="string" Value="@server.UniqueName">@server.DisplayName</MudSelectItem>
+                @if (_servers.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No servers configured yet.</MudAlert>
+                }
+                else
+                {
+                    <MudTable Items="_servers" Hover="true" Dense="true">
+                        <HeaderContent>
+                            <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.DisplayName)">Server</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.UniqueName)">Unique name</MudTableSortLabel></MudTh>
+                            <MudTh Style="text-align:right">Actions</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            @{
+                                var latestServerBackup = FindLatestBackup(context.UniqueName, QuasarBackupKind.Server);
+                                var latestWorldBackup = FindLatestBackup(context.UniqueName, QuasarBackupKind.World);
                             }
-                        </MudSelect>
-                    </MudItem>
-                    <MudItem xs="12" md="6">
-                        <MudStack Row="true" Spacing="2" Class="mt-2">
-                            <MudButton Variant="Variant.Filled"
-                                       Color="Color.Primary"
-                                       StartIcon="@Icons.Material.Filled.Inventory2"
-                                       OnClick="MakeServerBackupNowAsync"
-                                       Disabled="_busy || string.IsNullOrWhiteSpace(_selectedServerUniqueName)">
-                                Back up server
-                            </MudButton>
-                            <MudButton Variant="Variant.Outlined"
-                                       Color="Color.Primary"
-                                       StartIcon="@Icons.Material.Filled.Public"
-                                       OnClick="MakeWorldBackupNowAsync"
-                                       Disabled="_busy || string.IsNullOrWhiteSpace(_selectedServerUniqueName)">
-                                Back up world
-                            </MudButton>
-                        </MudStack>
-                    </MudItem>
-                </MudGrid>
+                            <MudTd DataLabel="Server">@context.DisplayName</MudTd>
+                            <MudTd DataLabel="Unique name"><code>@context.UniqueName</code></MudTd>
+                            <MudTd Style="text-align:right">
+                                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Justify="Justify.FlexEnd">
+                                    <MudButton Variant="Variant.Filled"
+                                               Color="Color.Primary"
+                                               Size="Size.Small"
+                                               StartIcon="@Icons.Material.Filled.Inventory2"
+                                               OnClick="@(() => MakeServerBackupNowAsync(context.UniqueName))"
+                                               Disabled="_busy">
+                                        Back up server
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="Color.Primary"
+                                               Size="Size.Small"
+                                               StartIcon="@Icons.Material.Filled.Restore"
+                                               OnClick="@(() => RestoreLatestServerBackupAsync(context.UniqueName))"
+                                               Disabled="@(_busy || latestServerBackup is null)">
+                                        Restore server
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Filled"
+                                               Color="Color.Secondary"
+                                               Size="Size.Small"
+                                               StartIcon="@Icons.Material.Filled.Public"
+                                               OnClick="@(() => MakeWorldBackupNowAsync(context.UniqueName))"
+                                               Disabled="_busy">
+                                        Back up world
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="Color.Secondary"
+                                               Size="Size.Small"
+                                               StartIcon="@Icons.Material.Filled.RestorePage"
+                                               OnClick="@(() => RestoreLatestWorldBackupAsync(context.UniqueName))"
+                                               Disabled="@(_busy || latestWorldBackup is null)">
+                                        Restore world
+                                    </MudButton>
+                                </MudStack>
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
 
                 <MudDivider />
 
@@ -151,7 +176,7 @@
                 </MudText>
 
                 <MudExpansionPanels MultiExpansion="true">
-                    <MudExpansionPanel Text="Quasar config" Expanded="true">
+                    <MudExpansionPanel Text="Quasar config" Expanded="@_settings.Configuration.Enabled">
                         <MudStack Spacing="3">
                             <MudSwitch @bind-Value="_settings.Configuration.Enabled" Color="Color.Primary" Label="Enable Quasar config backups" />
                             <MudGrid>
@@ -192,7 +217,7 @@
                         </MudStack>
                     </MudExpansionPanel>
 
-                    <MudExpansionPanel Text="Servers">
+                    <MudExpansionPanel Text="Servers" Expanded="@_settings.Server.Enabled">
                         <MudStack Spacing="3">
                             <MudSwitch @bind-Value="_settings.Server.Enabled" Color="Color.Primary" Label="Enable server backups" />
                             <MudGrid>
@@ -233,7 +258,7 @@
                         </MudStack>
                     </MudExpansionPanel>
 
-                    <MudExpansionPanel Text="Worlds">
+                    <MudExpansionPanel Text="Worlds" Expanded="@_settings.World.Enabled">
                         <MudStack Spacing="3">
                             <MudSwitch @bind-Value="_settings.World.Enabled" Color="Color.Primary" Label="Enable world backups" />
                             <MudGrid>
@@ -301,11 +326,11 @@
                 {
                     <MudTable Items="_backups" Hover="true" Dense="true">
                         <HeaderContent>
-                            <MudTh>Name</MudTh>
-                            <MudTh>Type</MudTh>
-                            <MudTh>Server</MudTh>
-                            <MudTh>Size</MudTh>
-                            <MudTh>Created</MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.Name)">Name</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => FormatBackupType(x))">Type</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.ServerDisplayName ?? x.ServerUniqueName ?? string.Empty)">Server</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.SizeBytes)">Size</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="new Func<QuasarBackupFileInfo, object>(x => x.CreatedAtUtc)">Created</MudTableSortLabel></MudTh>
                             <MudTh Style="text-align:right">Actions</MudTh>
                         </HeaderContent>
                         <RowTemplate>
@@ -348,7 +373,6 @@
     private TimeSpan? _worldTimeOfDay;
     private IReadOnlyList<QuasarBackupFileInfo> _backups = [];
     private IReadOnlyList<DedicatedServerDefinition> _servers = [];
-    private string _selectedServerUniqueName = string.Empty;
     private QuasarRestoreReport? _lastReport;
     private bool _busy;
 
@@ -375,22 +399,17 @@
         _worldTimeOfDay = _settings.World.TimeOfDay.ToTimeSpan();
     }
 
-    private void RefreshBackups() => _backups = BackupService.ListBackups();
+    private void RefreshBackups() => _backups = BackupService.ListBackups()
+        .OrderByDescending(backup => backup.CreatedAtUtc)
+        .ThenBy(backup => backup.Name, StringComparer.OrdinalIgnoreCase)
+        .ToList();
 
     private void RefreshServers()
     {
-        _servers = ServerCatalog.GetServers();
-        if (_servers.Count == 0)
-        {
-            _selectedServerUniqueName = string.Empty;
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(_selectedServerUniqueName) ||
-            !_servers.Any(server => string.Equals(server.UniqueName, _selectedServerUniqueName, StringComparison.OrdinalIgnoreCase)))
-        {
-            _selectedServerUniqueName = _servers[0].UniqueName;
-        }
+        _servers = ServerCatalog.GetServers()
+            .OrderBy(server => server.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(server => server.UniqueName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private void OnSettingsChanged() => InvokeAsync(() =>
@@ -404,11 +423,6 @@
         RefreshServers();
         StateHasChanged();
     });
-
-    private void HandleSelectedServerChanged(string? uniqueName)
-    {
-        _selectedServerUniqueName = uniqueName ?? string.Empty;
-    }
 
     private async Task SaveSettingsAsync()
     {
@@ -461,15 +475,15 @@
         }
     }
 
-    private async Task MakeServerBackupNowAsync()
+    private async Task MakeServerBackupNowAsync(string uniqueName)
     {
-        if (string.IsNullOrWhiteSpace(_selectedServerUniqueName))
+        if (string.IsNullOrWhiteSpace(uniqueName))
             return;
 
         _busy = true;
         try
         {
-            await BackupService.WriteServerBackupFileAsync(_selectedServerUniqueName, DateTimeOffset.Now);
+            await BackupService.WriteServerBackupFileAsync(uniqueName, DateTimeOffset.Now);
             RefreshBackups();
             Snackbar.Add("Server backup created in the Backups folder.", Severity.Success);
         }
@@ -483,15 +497,15 @@
         }
     }
 
-    private async Task MakeWorldBackupNowAsync()
+    private async Task MakeWorldBackupNowAsync(string uniqueName)
     {
-        if (string.IsNullOrWhiteSpace(_selectedServerUniqueName))
+        if (string.IsNullOrWhiteSpace(uniqueName))
             return;
 
         _busy = true;
         try
         {
-            await BackupService.WriteWorldBackupFileAsync(_selectedServerUniqueName, DateTimeOffset.Now);
+            await BackupService.WriteWorldBackupFileAsync(uniqueName, DateTimeOffset.Now);
             RefreshBackups();
             Snackbar.Add("World backup created in the Backups folder.", Severity.Success);
         }
@@ -503,6 +517,24 @@
         {
             _busy = false;
         }
+    }
+
+    private Task RestoreLatestServerBackupAsync(string uniqueName) =>
+        RestoreLatestBackupAsync(uniqueName, QuasarBackupKind.Server);
+
+    private Task RestoreLatestWorldBackupAsync(string uniqueName) =>
+        RestoreLatestBackupAsync(uniqueName, QuasarBackupKind.World);
+
+    private async Task RestoreLatestBackupAsync(string uniqueName, QuasarBackupKind kind)
+    {
+        var backup = FindLatestBackup(uniqueName, kind);
+        if (backup is null)
+        {
+            Snackbar.Add($"No {FormatBackupKind(kind).ToLowerInvariant()} backup exists for that server.", Severity.Info);
+            return;
+        }
+
+        await RestoreFromStoredAsync(backup);
     }
 
     private async Task RestoreFromUploadAsync(IBrowserFile? file)
@@ -625,13 +657,23 @@
 
     private static string FormatBackupType(QuasarBackupFileInfo backup)
     {
-        var kind = backup.Kind switch
+        var kind = FormatBackupKind(backup.Kind);
+        return backup.Automatic ? $"{kind} (auto)" : kind;
+    }
+
+    private static string FormatBackupKind(QuasarBackupKind kind) =>
+        kind switch
         {
             QuasarBackupKind.Server => "Server",
             QuasarBackupKind.World => "World",
             _ => "Quasar config",
         };
 
-        return backup.Automatic ? $"{kind} (auto)" : kind;
-    }
+    private QuasarBackupFileInfo? FindLatestBackup(string uniqueName, QuasarBackupKind kind) =>
+        _backups
+            .Where(backup => backup.Kind == kind &&
+                             string.Equals(backup.ServerUniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(backup => backup.CreatedAtUtc)
+            .ThenBy(backup => backup.Name, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
 }

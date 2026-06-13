@@ -64,7 +64,7 @@ public sealed class DedicatedServerRuntimePreparer
 
         await PrepareRuntimeConfigAsync(definition, configProfile, runtimeConfigPath, cancellationToken);
         await PrepareMagnetarConfigAsync(definition, configProfile, magnetarAppDataPath, cancellationToken);
-        await PrepareWorldModListAsync(definition, configProfile, worldPath, cancellationToken);
+        await PrepareWorldConfigAsync(definition, configProfile, worldPath, cancellationToken);
         await WriteLastSessionAsync(definition, worldPath, dedicatedServerAppDataPath, lastSessionPath, cancellationToken);
 
         var arguments = BuildLaunchArguments(
@@ -231,7 +231,7 @@ public sealed class DedicatedServerRuntimePreparer
                         new XElement("Enabled", "true"))))));
 
         // Mods are written authoritatively into the world's Sandbox_config.sbc by
-        // PrepareWorldModListAsync; Magnetar's profile override is intentionally
+        // PrepareWorldConfigAsync; Magnetar's profile override is intentionally
         // empty so it cannot drift from the world's mod list.
         var currentProfileDocument = new XDocument(
             new XDeclaration("1.0", "utf-8", null),
@@ -522,7 +522,7 @@ public sealed class DedicatedServerRuntimePreparer
         return template;
     }
 
-    private async Task PrepareWorldModListAsync(
+    private async Task PrepareWorldConfigAsync(
         DedicatedServerDefinition definition,
         QuasarConfigProfile configProfile,
         string worldPath,
@@ -537,9 +537,9 @@ public sealed class DedicatedServerRuntimePreparer
             return;
         }
 
-        await WorldSandboxConfigEditor.WriteModsAsync(sandboxConfigPath, configProfile.Mods, cancellationToken);
+        await WorldSandboxConfigEditor.WriteProfileAsync(sandboxConfigPath, configProfile, cancellationToken);
         _logger.LogInformation(
-            "Wrote {Count} mod entr(y/ies) from profile '{ProfileName}' into {Path}.",
+            "Wrote profile '{ProfileName}' settings and {Count} mod entr(y/ies) into {Path}.",
             configProfile.Mods.Count, configProfile.Name, sandboxConfigPath);
     }
 
@@ -565,6 +565,11 @@ public sealed class DedicatedServerRuntimePreparer
 
         foreach (var option in QuasarConfigMetadata.Options)
         {
+            if (string.IsNullOrWhiteSpace(option.ElementName))
+                continue;
+            if (option.Kind == QuasarConfigOptionKind.KeyValueText)
+                continue;
+
             var target = option.Scope == QuasarConfigOptionScope.Root
                 ? (object)configProfile.RootSettings
                 : configProfile.SessionSettings;
@@ -576,10 +581,50 @@ public sealed class DedicatedServerRuntimePreparer
                 UpsertElement(sessionSettings, option.ElementName, value);
         }
 
+        UpsertBlockTypeLimits(sessionSettings, configProfile.SessionSettings.BlockTypeLimits);
+
         UpsertElement(root, "GroupID", configProfile.RootSettings.GroupId.ToString(CultureInfo.InvariantCulture));
         UpsertArray(root, "Administrators", "unsignedLong", configProfile.RootSettings.Administrators);
         UpsertArray(root, "Reserved", "unsignedLong", configProfile.RootSettings.Reserved.Select(value => value.ToString(CultureInfo.InvariantCulture)));
         UpsertArray(root, "Banned", "unsignedLong", configProfile.RootSettings.Banned.Select(value => value.ToString(CultureInfo.InvariantCulture)));
+        UpsertPassword(root, configProfile.RootSettings.ServerPassword);
+    }
+
+    private static void UpsertBlockTypeLimits(XElement sessionSettings, IReadOnlyDictionary<string, int> limits)
+    {
+        var element = sessionSettings.Element("BlockTypeLimits");
+        if (element is null)
+        {
+            element = new XElement("BlockTypeLimits");
+            sessionSettings.Add(element);
+        }
+
+        element.RemoveNodes();
+        element.Add(
+            new XElement(
+                "dictionary",
+                limits
+                    .Where(limit => !string.IsNullOrWhiteSpace(limit.Key))
+                    .Select(limit =>
+                        new XElement(
+                            "item",
+                            new XElement("Key", limit.Key),
+                            new XElement("Value", Math.Clamp(limit.Value, 0, short.MaxValue).ToString(CultureInfo.InvariantCulture))))));
+    }
+
+    private static void UpsertPassword(XElement root, string password)
+    {
+        if (string.IsNullOrEmpty(password))
+        {
+            UpsertElement(root, "ServerPasswordHash", string.Empty);
+            UpsertElement(root, "ServerPasswordSalt", string.Empty);
+            return;
+        }
+
+        var salt = RandomNumberGenerator.GetBytes(16);
+        var hash = Rfc2898DeriveBytes.Pbkdf2(password, salt, 10000, HashAlgorithmName.SHA1, 20);
+        UpsertElement(root, "ServerPasswordHash", Convert.ToBase64String(hash));
+        UpsertElement(root, "ServerPasswordSalt", Convert.ToBase64String(salt));
     }
 
     private static string BuildLaunchArguments(
