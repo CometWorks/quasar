@@ -192,6 +192,7 @@ public class Program
             builder.Services.AddSingleton<QuasarUpdateService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUpdateService>());
             builder.Services.AddSingleton<QuasarBackupSettingsService>();
+            builder.Services.AddSingleton<ServerRestoreCoordinator>();
             builder.Services.AddSingleton<QuasarBackupService>();
             builder.Services.AddSingleton<AutomaticBackupService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<AutomaticBackupService>());

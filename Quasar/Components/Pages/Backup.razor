@@ -6,6 +6,7 @@
 @inject QuasarBackupSettingsService BackupSettingsService
 @inject AutomaticBackupService AutomaticBackup
 @inject DedicatedServerCatalog ServerCatalog
+@inject DedicatedServerSupervisor Supervisor
 @inject WebServiceOptions WebServiceOptions
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -124,6 +125,8 @@
                             @{
                                 var latestServerBackup = FindLatestBackup(context.UniqueName, QuasarBackupKind.Server);
                                 var latestWorldBackup = FindLatestBackup(context.UniqueName, QuasarBackupKind.World);
+                                var serverRunning = IsServerRunning(context.UniqueName);
+                                var restoreBlockedReason = serverRunning ? "Stop the server before restoring." : null;
                             }
                             <MudTd DataLabel="Server">@context.DisplayName</MudTd>
                             <MudTd DataLabel="Unique name"><code>@context.UniqueName</code></MudTd>
@@ -137,14 +140,16 @@
                                                Disabled="_busy">
                                         Back up server
                                     </MudButton>
-                                    <MudButton Variant="Variant.Outlined"
-                                               Color="Color.Primary"
-                                               Size="Size.Small"
-                                               StartIcon="@Icons.Material.Filled.Restore"
-                                               OnClick="@(() => RestoreLatestServerBackupAsync(context.UniqueName))"
-                                               Disabled="@(_busy || latestServerBackup is null)">
-                                        Restore server
-                                    </MudButton>
+                                    <MudTooltip Text="@restoreBlockedReason" Disabled="@(!serverRunning)">
+                                        <MudButton Variant="Variant.Outlined"
+                                                   Color="Color.Primary"
+                                                   Size="Size.Small"
+                                                   StartIcon="@Icons.Material.Filled.Restore"
+                                                   OnClick="@(() => RestoreLatestServerBackupAsync(context.UniqueName))"
+                                                   Disabled="@(_busy || serverRunning || latestServerBackup is null)">
+                                            Restore server
+                                        </MudButton>
+                                    </MudTooltip>
                                     <MudButton Variant="Variant.Filled"
                                                Color="Color.Secondary"
                                                Size="Size.Small"
@@ -153,14 +158,16 @@
                                                Disabled="_busy">
                                         Back up world
                                     </MudButton>
-                                    <MudButton Variant="Variant.Outlined"
-                                               Color="Color.Secondary"
-                                               Size="Size.Small"
-                                               StartIcon="@Icons.Material.Filled.RestorePage"
-                                               OnClick="@(() => RestoreLatestWorldBackupAsync(context.UniqueName))"
-                                               Disabled="@(_busy || latestWorldBackup is null)">
-                                        Restore world
-                                    </MudButton>
+                                    <MudTooltip Text="@restoreBlockedReason" Disabled="@(!serverRunning)">
+                                        <MudButton Variant="Variant.Outlined"
+                                                   Color="Color.Secondary"
+                                                   Size="Size.Small"
+                                                   StartIcon="@Icons.Material.Filled.RestorePage"
+                                                   OnClick="@(() => RestoreLatestWorldBackupAsync(context.UniqueName))"
+                                                   Disabled="@(_busy || serverRunning || latestWorldBackup is null)">
+                                            Restore world
+                                        </MudButton>
+                                    </MudTooltip>
                                 </MudStack>
                             </MudTd>
                         </RowTemplate>
@@ -340,10 +347,10 @@
                                                    Href="@($"/api/backup/download/{context.Name}")"
                                                    Size="Size.Small" />
                                 </MudTooltip>
-                                <MudTooltip Text="Restore">
+                                <MudTooltip Text="@(IsBackupRestoreBlocked(context) ? "Stop the server before restoring." : "Restore")">
                                     <MudIconButton Icon="@Icons.Material.Filled.Restore"
                                                    OnClick="@(() => RestoreFromStoredAsync(context))"
-                                                   Disabled="_busy" Size="Size.Small" />
+                                                   Disabled="@(_busy || IsBackupRestoreBlocked(context))" Size="Size.Small" />
                                 </MudTooltip>
                                 <MudTooltip Text="Delete">
                                     <MudIconButton Icon="@Icons.Material.Filled.Delete"
@@ -373,6 +380,7 @@
     private TimeSpan? _worldTimeOfDay;
     private IReadOnlyList<QuasarBackupFileInfo> _backups = [];
     private IReadOnlyList<DedicatedServerDefinition> _servers = [];
+    private HashSet<string> _runningServers = new(StringComparer.OrdinalIgnoreCase);
     private QuasarRestoreReport? _lastReport;
     private bool _busy;
 
@@ -381,9 +389,11 @@
         LoadSettingsDraft();
         RefreshServers();
         RefreshBackups();
+        RefreshRuntime();
         BackupSettingsService.Changed += OnSettingsChanged;
         ServerCatalog.Changed += OnServersChanged;
         BackupService.Changed += OnBackupsChanged;
+        Supervisor.Changed += OnRuntimeChanged;
         AutomaticBackup.QueuedBackupCompleted += OnQueuedBackupCompleted;
     }
 
@@ -392,8 +402,34 @@
         BackupSettingsService.Changed -= OnSettingsChanged;
         ServerCatalog.Changed -= OnServersChanged;
         BackupService.Changed -= OnBackupsChanged;
+        Supervisor.Changed -= OnRuntimeChanged;
         AutomaticBackup.QueuedBackupCompleted -= OnQueuedBackupCompleted;
     }
+
+    // A running (or transitioning) server has its files in use, so restoring over
+    // it is refused. This mirrors DedicatedServerSupervisor.IsServerProcessActive.
+    private void RefreshRuntime() => _runningServers = Supervisor.GetSnapshots()
+        .Where(snapshot => snapshot.State is DedicatedServerProcessState.Starting
+            or DedicatedServerProcessState.Running
+            or DedicatedServerProcessState.Restarting
+            or DedicatedServerProcessState.Stopping)
+        .Select(snapshot => snapshot.UniqueName)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private bool IsServerRunning(string? uniqueName) =>
+        !string.IsNullOrWhiteSpace(uniqueName) && _runningServers.Contains(uniqueName);
+
+    // Only server/world backups target a specific server; configuration backups
+    // are global and never blocked by a running server.
+    private bool IsBackupRestoreBlocked(QuasarBackupFileInfo backup) =>
+        backup.Kind is QuasarBackupKind.Server or QuasarBackupKind.World
+        && IsServerRunning(backup.ServerUniqueName);
+
+    private void OnRuntimeChanged() => InvokeAsync(() =>
+    {
+        RefreshRuntime();
+        StateHasChanged();
+    });
 
     private void LoadSettingsDraft()
     {
@@ -556,6 +592,14 @@
 
     private async Task RestoreFromStoredAsync(QuasarBackupFileInfo backup)
     {
+        if (IsBackupRestoreBlocked(backup))
+        {
+            Snackbar.Add(
+                $"'{backup.ServerDisplayName ?? backup.ServerUniqueName}' is running. Stop it before restoring.",
+                Severity.Warning);
+            return;
+        }
+
         if (!await ConfirmRestoreAsync(backup))
             return;
 

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Text.Json;
 using Magnetar.Protocol.Runtime;
@@ -85,6 +86,8 @@ public sealed class QuasarBackupService
     private readonly KnownPlayerCatalog _knownPlayers;
     private readonly QuasarDevFolderCatalog _devFolders;
     private readonly DedicatedServerCatalog _servers;
+    private readonly DedicatedServerSupervisor _supervisor;
+    private readonly ServerRestoreCoordinator _restoreCoordinator;
     private readonly string _brandingAssetsDirectory;
 
     public event Action? Changed;
@@ -95,13 +98,17 @@ public sealed class QuasarBackupService
         IWebHostEnvironment environment,
         KnownPlayerCatalog knownPlayers,
         QuasarDevFolderCatalog devFolders,
-        DedicatedServerCatalog servers)
+        DedicatedServerCatalog servers,
+        DedicatedServerSupervisor supervisor,
+        ServerRestoreCoordinator restoreCoordinator)
     {
         _logger = logger;
         _options = options;
         _knownPlayers = knownPlayers;
         _devFolders = devFolders;
         _servers = servers;
+        _supervisor = supervisor;
+        _restoreCoordinator = restoreCoordinator;
 
         var webRootPath = string.IsNullOrWhiteSpace(environment.WebRootPath)
             ? Path.Combine(environment.ContentRootPath, "wwwroot")
@@ -568,21 +575,84 @@ public sealed class QuasarBackupService
         if (target is null)
             return QuasarRestoreReport.Failed("The server backup does not identify a target server.", manifest.QuasarVersion, _options.Version);
 
-        var restored = RestoreServerEntries(archive, target, includeWorldConfig: true, cancellationToken);
-        _logger.LogInformation(
-            "Restored {Count} files from server backup for {UniqueName}.",
-            restored,
-            target.UniqueName);
+        if (!TryBeginServerRestore(target, manifest, "server", out var restoreScope, out var refusal))
+            return refusal;
 
-        return new QuasarRestoreReport
+        using (restoreScope)
         {
-            Success = true,
-            FilesRestored = restored,
-            BackupVersion = manifest.QuasarVersion,
-            RunningVersion = _options.Version,
-            Message = $"Restored {restored} server backup file(s) for {target.DisplayName}. Restart that server before relying on restored files.",
-        };
+            var restored = RestoreServerEntries(archive, target, includeWorldConfig: true, cancellationToken);
+            _logger.LogInformation(
+                "Restored {Count} files from server backup for {UniqueName}.",
+                restored,
+                target.UniqueName);
+
+            return new QuasarRestoreReport
+            {
+                Success = true,
+                FilesRestored = restored,
+                BackupVersion = manifest.QuasarVersion,
+                RunningVersion = _options.Version,
+                Message = $"Restored {restored} server backup file(s) for {target.DisplayName}. Restart that server before relying on restored files.",
+            };
+        }
     }
+
+    /// <summary>
+    /// Refuses to restore a server/world backup over a server that is running (or
+    /// transitioning), and otherwise claims a restore slot so the supervisor will
+    /// not start the server while its files are being rewritten. On success
+    /// <paramref name="restoreScope"/> must be disposed once the restore completes;
+    /// on failure <paramref name="refusal"/> carries the user-facing reason.
+    /// </summary>
+    private bool TryBeginServerRestore(
+        DedicatedServerDefinition target,
+        QuasarBackupManifest manifest,
+        string backupKindLabel,
+        [NotNullWhen(true)] out IDisposable? restoreScope,
+        [NotNullWhen(false)] out QuasarRestoreReport? refusal)
+    {
+        restoreScope = null;
+        refusal = null;
+
+        // Fast path: refuse outright if the server is already live.
+        if (_supervisor.IsServerProcessActive(target.UniqueName))
+        {
+            refusal = BuildServerRunningRefusal(target, backupKindLabel, manifest);
+            return false;
+        }
+
+        if (!_restoreCoordinator.TryBeginRestore(target.UniqueName, out var scope))
+        {
+            refusal = QuasarRestoreReport.Failed(
+                $"A restore is already in progress for '{target.DisplayName}'. Wait for it to finish before restoring again.",
+                manifest.QuasarVersion,
+                _options.Version);
+            return false;
+        }
+
+        // Re-check after claiming the slot: the supervisor only refuses a start
+        // once the slot is held, so a start that raced in just before we claimed it
+        // is caught here. Both the start and restore checks observe a consistent
+        // ordering, so the two can never proceed at the same time.
+        if (_supervisor.IsServerProcessActive(target.UniqueName))
+        {
+            scope.Dispose();
+            refusal = BuildServerRunningRefusal(target, backupKindLabel, manifest);
+            return false;
+        }
+
+        restoreScope = scope;
+        return true;
+    }
+
+    private QuasarRestoreReport BuildServerRunningRefusal(
+        DedicatedServerDefinition target,
+        string backupKindLabel,
+        QuasarBackupManifest manifest) =>
+        QuasarRestoreReport.Failed(
+            $"Server '{target.DisplayName}' is running. Stop it before restoring its {backupKindLabel} backup.",
+            manifest.QuasarVersion,
+            _options.Version);
 
     private async Task<QuasarRestoreReport> RestoreWorldArchiveAsync(
         ZipArchive archive,
@@ -600,20 +670,26 @@ public sealed class QuasarBackupService
                 _options.Version);
         }
 
-        var restored = RestoreWorldEntries(archive, target, includeWorldConfig: false, cancellationToken);
-        _logger.LogInformation(
-            "Restored {Count} world files from backup for {UniqueName}.",
-            restored,
-            target.UniqueName);
+        if (!TryBeginServerRestore(target, manifest, "world", out var restoreScope, out var refusal))
+            return refusal;
 
-        return new QuasarRestoreReport
+        using (restoreScope)
         {
-            Success = true,
-            FilesRestored = restored,
-            BackupVersion = manifest.QuasarVersion,
-            RunningVersion = _options.Version,
-            Message = $"Restored {restored} world file(s) for {target.DisplayName}; existing world and server config was kept.",
-        };
+            var restored = RestoreWorldEntries(archive, target, includeWorldConfig: false, cancellationToken);
+            _logger.LogInformation(
+                "Restored {Count} world files from backup for {UniqueName}.",
+                restored,
+                target.UniqueName);
+
+            return new QuasarRestoreReport
+            {
+                Success = true,
+                FilesRestored = restored,
+                BackupVersion = manifest.QuasarVersion,
+                RunningVersion = _options.Version,
+                Message = $"Restored {restored} world file(s) for {target.DisplayName}; existing world and server config was kept.",
+            };
+        }
     }
 
     private int RestoreServerEntries(
