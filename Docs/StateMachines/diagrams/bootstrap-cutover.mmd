@@ -1,0 +1,15 @@
+stateDiagram-v2
+    [*] --> NoWorker
+    NoWorker --> WorkerLaunching: activate current release & start worker
+    WorkerLaunching --> WorkerHealthy: /api/health OK (within 60s)
+    WorkerLaunching --> ForceKilled: health timeout
+    WorkerHealthy --> Running: serving the public port
+    Running --> Draining: active-release.json changed
+    Draining --> Retired: worker exits within grace window
+    Draining --> ForceKilled: grace timeout -> Kill
+    Retired --> WorkerLaunching: start new-release worker
+    ForceKilled --> WorkerLaunching: start new-release worker
+    Running --> Restarting: worker exits unexpectedly
+    Restarting --> WorkerLaunching: relaunch (force)
+    Running --> SelfUpgrade: newer Bootstrap asset applied
+    SelfUpgrade --> [*]: exit 75 (Linux) / detached relaunch + exit 0 (Windows)

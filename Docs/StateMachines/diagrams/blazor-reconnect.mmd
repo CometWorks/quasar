@@ -1,0 +1,12 @@
+stateDiagram-v2
+    [*] --> Connected
+    Connected --> FirstAttempt: SignalR circuit dropped
+    FirstAttempt --> Connected: reconnected
+    FirstAttempt --> RepeatedAttempt: first retry failed
+    RepeatedAttempt --> Connected: reconnected
+    RepeatedAttempt --> Failed: retries exhausted
+    Failed --> Connected: manual Retry succeeds
+    Connected --> Paused: session paused
+    Paused --> Connected: resume succeeds
+    Paused --> ResumeFailed: resume fails
+    ResumeFailed --> Connected: manual Resume succeeds

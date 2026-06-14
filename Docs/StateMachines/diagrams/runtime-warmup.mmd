@@ -1,0 +1,7 @@
+stateDiagram-v2
+    [*] --> Pending
+    Pending --> Running: ExecuteAsync starts warmup
+    Running --> Complete: all components reach Ready
+    Running --> Failed: any component Failed
+    Failed --> Running: RetryAsync
+    Complete --> [*]

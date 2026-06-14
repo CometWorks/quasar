@@ -1,0 +1,6 @@
+stateDiagram-v2
+    [*] --> Off
+    Off --> On: operator Start / SetGoalStateAsync(On)
+    On --> Off: operator Stop / SetGoalStateAsync(Off)
+    On --> Off: in-game admin !quit / !stop (AdminStop signal)
+    On --> Off: Discord !stop command

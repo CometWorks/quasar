@@ -1,0 +1,20 @@
+stateDiagram-v2
+    direction LR
+    [*] --> Stopped
+    Stopped --> Starting: goal On (no restart pending)
+    Stopped --> Restarting: goal On (restart pending)
+    Starting --> Running: agent attached, snapshot ready
+    Starting --> Stopping: operator Stop (cancel launch)
+    Starting --> Faulted: launch prep failure
+    Running --> Stopping: goal Off
+    Running --> Restarting: unhealthy, uptime or scheduled
+    Running --> Crashed: unexpected exit (code != 0)
+    Running --> Stopped: clean exit, not requested
+    Restarting --> Starting: relaunch begins
+    Restarting --> Faulted: attempts exhausted
+    Stopping --> Stopped: process exited
+    Stopping --> Faulted: stop failure
+    Crashed --> Restarting: RestartOnCrash, within budget
+    Crashed --> Starting: goal On retry
+    Crashed --> Stopped: goal Off
+    Faulted --> Starting: cause fixed, goal On

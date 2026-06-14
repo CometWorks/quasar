@@ -2,6 +2,11 @@
 
 This document is the implementation reference for the supervisor-based management stack that replaces the PoC Python web UI and the REST-only admin plugin.
 
+> **Diagrams:** the object states and state machines referenced throughout this
+> document (server lifecycle, agent connection, self-update cutover, runtime
+> provisioning, backups, and more) are drawn as Mermaid + PNG state diagrams in
+> the [State Machine Diagrams](StateMachines/Index.md) section.
+
 It captures the agreed hybrid flow:
 
 - `Quasar` is the primary long-running supervisor
@@ -314,6 +319,9 @@ while `Starting` so an admin can cancel an accidental launch before the world is
 open. `Running` shows `Stop` and `Restart`; `Stopped`, `Crashed`, and `Faulted`
 show `Start`.
 
+> See [Dedicated Server Lifecycle](StateMachines/DedicatedServerLifecycle.md)
+> for the goal-state, process-state, and health-state diagrams.
+
 Quasar should behave like infrastructure/configuration management:
 
 - if goal state is `On` and the server is not running, Quasar starts it
@@ -432,6 +440,9 @@ If the user closes the browser, `Quasar` keeps running and the user can return v
 `Quasar` should be able to stage its own updates and roll forward without stopping managed Dedicated Server processes.
 
 The important nuance is what "seamless" actually means here.
+
+> See [Self-Update and Release Cutover](StateMachines/SelfUpdateAndRelease.md)
+> for the update-status and Bootstrap worker-cutover state diagrams.
 
 Required guarantees for the Linux-first update path:
 

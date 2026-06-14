@@ -1,0 +1,13 @@
+stateDiagram-v2
+    [*] --> Untracked
+    Untracked --> Attached: Hello received (UpsertHello)
+    Attached --> Active: Snapshot received (UpdateSnapshot)
+    Active --> Active: Snapshot every 2s (LastSeenUtc refreshed)
+    Active --> Stale: LastSeenUtc older than AgentHeartbeatTimeoutSeconds
+    Stale --> Active: snapshot resumes
+    Attached --> Disconnected: socket close / error (MarkDisconnected)
+    Active --> Disconnected: socket close / error
+    Stale --> Disconnected: socket close / error
+    Disconnected --> Attached: agent reconnects with new Hello
+    Disconnected --> Pruned: PruneDisconnectedByUniqueName
+    Pruned --> [*]

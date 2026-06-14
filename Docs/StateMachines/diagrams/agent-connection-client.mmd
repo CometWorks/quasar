@@ -1,0 +1,12 @@
+stateDiagram-v2
+    [*] --> Locating
+    Locating --> Locating: unhealthy, spawn Quasar.Bootstrap and poll
+    Locating --> Connecting: service URI resolved
+    Connecting --> Handshaking: WebSocket opened
+    Connecting --> Reconnecting: connect failed
+    Handshaking --> Streaming: Hello and PluginConfigSnapshot sent
+    Streaming --> Streaming: Snapshot every 2s, handle Command, Ping, ConfigUpdate
+    Streaming --> Reconnecting: socket closed or error
+    Reconnecting --> Locating: backoff elapsed (~10s, 3s jitter)
+    Reconnecting --> AutonomousSaveStop: offline past window (default 1h), had connected
+    AutonomousSaveStop --> [*]: SaveAndQuit, server exits

@@ -1,0 +1,13 @@
+stateDiagram-v2
+    [*] --> Uninitialized
+    Uninitialized --> System: InitializeAsync (no stored preference)
+    Uninitialized --> Light: stored "light"
+    Uninitialized --> Dark: stored "dark"
+    Uninitialized --> System: stored "system"
+    System --> Light: SetModeAsync(Light)
+    System --> Dark: SetModeAsync(Dark)
+    Light --> Dark: SetModeAsync(Dark)
+    Light --> System: SetModeAsync(System)
+    Dark --> Light: SetModeAsync(Light)
+    Dark --> System: SetModeAsync(System)
+    System --> System: SyncSystemDarkMode (OS dark/light toggles)

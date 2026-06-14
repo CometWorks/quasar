@@ -1,0 +1,12 @@
+stateDiagram-v2
+    [*] --> SafeContinuous: default mode at agent start
+    Off --> SafeContinuous: SetProfilerMode(SafeContinuous)
+    Off --> DeepContinuous: SetProfilerMode(DeepContinuous)
+    SafeContinuous --> DeepContinuous: SetProfilerMode(DeepContinuous)
+    SafeContinuous --> Off: SetProfilerMode(Off)
+    DeepContinuous --> SafeContinuous: SetProfilerMode(SafeContinuous)
+    DeepContinuous --> Off: SetProfilerMode(Off)
+    note right of SafeContinuous
+        Reconfigure() re-applies Harmony
+        patches live, no server restart
+    end note

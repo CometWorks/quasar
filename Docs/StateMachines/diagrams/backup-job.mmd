@@ -1,0 +1,11 @@
+stateDiagram-v2
+    [*] --> Queued
+    Queued --> Running: scheduler tick or manual dequeue
+    Running --> Succeeded: archive written
+    Running --> Failed: error / nothing to back up
+    Succeeded --> [*]: QueuedBackupCompleted event
+    Failed --> [*]: QueuedBackupCompleted event
+    note right of Succeeded
+        Retention prune removes the oldest
+        archives beyond RetentionCount
+    end note

@@ -1,0 +1,11 @@
+stateDiagram-v2
+    [*] --> Pending
+    Pending --> Checking: EnsureManagedRuntimeReadyAsync
+    Checking --> Ready: already installed & validated
+    Checking --> Downloading: component missing
+    Downloading --> Installing: archive downloaded
+    Downloading --> Failed: download error
+    Installing --> Ready: extracted & validated
+    Installing --> Failed: extraction / validation error
+    Failed --> Checking: retry (up to 3x for Dedicated Server)
+    Ready --> [*]

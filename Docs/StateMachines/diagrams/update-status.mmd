@@ -1,0 +1,13 @@
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Checking: CheckNowAsync / 15-min timer
+    Checking --> Idle: no newer release
+    Checking --> UpdateQueued: newer release found (manual staging)
+    Checking --> Staging: newer release + auto-stage enabled
+    Checking --> Failed: check error
+    UpdateQueued --> Staging: StageWebUpdateAsync
+    Staging --> Staged: downloaded, SHA256 verified, appsettings merged
+    Staging --> Failed: appsettings merge conflict / download error
+    Staged --> Activating: ActivateStagedWebUpdateAsync
+    Activating --> Idle: active-release.json written (Bootstrap cuts over)
+    Failed --> Idle: conflict resolved / settings changed

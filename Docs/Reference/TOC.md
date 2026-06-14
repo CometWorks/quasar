@@ -2,7 +2,7 @@
 
 Generated reference handbook for the **Quasar** stack — a supervisor and management system for Space Engineers (v1) dedicated server instances. Quasar is a Blazor Server supervisor that manages DS processes; an in-process plugin (Quasar.Agent) attaches to each server over raw WebSockets to report telemetry and execute commands; Quasar.Bootstrap keeps the supervisor running; and Magnetar.Protocol defines the shared contracts between them.
 
-For the hand-written architecture narrative and design rationale, see [QuasarArchitecture.md](../QuasarArchitecture.md).
+For the hand-written architecture narrative and design rationale, see [QuasarArchitecture.md](../QuasarArchitecture.md). For object states and state machines (server lifecycle, agent connection, self-update, runtime provisioning, backups, …) as Mermaid + PNG diagrams, see the [State Machine Diagrams](../StateMachines/Index.md).
 
 This handbook covers **200 source files** across **11 modules**. Browse by module below, or jump to the flat [file Index](Index.md).
 
