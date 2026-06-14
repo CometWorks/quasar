@@ -102,6 +102,11 @@
     min-width: min(22rem, 100%);
 }
 
+.configs-search-field-compact {
+    flex: 0 1 16rem;
+    min-width: min(14rem, 100%);
+}
+
 .plugin-description-line {
     white-space: normal;
     overflow-wrap: anywhere;

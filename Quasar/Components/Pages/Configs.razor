@@ -435,7 +435,11 @@
                                             Immediate="true"
                                             Adornment="Adornment.Start"
                                             AdornmentIcon="@Icons.Material.Filled.Search"
-                                            Class="configs-search-field" />
+                                            Class="configs-search-field configs-search-field-compact" />
+                                        @if (GlobalDevFolders.Count > 0)
+                                        {
+                                            <MudCheckBox T="bool" @bind-Value="_showDevFolderPlugins" Color="Color.Primary" Label="Show dev folders" />
+                                        }
                                         <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="@(() => RefreshPluginCatalogAsync())" Disabled="@_catalogRefreshing">
                                             @(_catalogRefreshing ? "Refreshing..." : "Refresh Catalog")
                                         </MudButton>
@@ -467,7 +471,7 @@
                                             </HeaderContent>
                                             <RowTemplate>
                                                 <MudTd DataLabel="Use">
-                                                    <MudCheckBox T="bool" Value="IsPluginSelected(context.PluginId)" ValueChanged="@(value => SetPluginSelection(context, value))" />
+                                                    <MudCheckBox @key="context.PluginId" T="bool" Value="IsPluginSelected(context.PluginId)" ValueChanged="@(value => SetPluginSelection(context, value))" />
                                                 </MudTd>
                                                 <MudTd DataLabel="Name">
                                                     <MudStack Spacing="0">
@@ -809,6 +813,7 @@
     private string _newProfileName = string.Empty;
     private string _worldSearch = string.Empty;
     private string _pluginSearch = string.Empty;
+    private bool _showDevFolderPlugins = true;
     private string _modSearch = string.Empty;
     private string _workshopSearchText = string.Empty;
     private string _customPluginId = string.Empty;
@@ -879,6 +884,7 @@
 
     private List<QuasarPluginCatalogEntry> FilteredCatalogEntries => CatalogEntries
         .Where(IsCatalogEntryVisible)
+        .Where(entry => _showDevFolderPlugins || !entry.IsLocalDevFolder)
         .Where(MatchesPluginSearch)
         .ToList();
 
