@@ -326,15 +326,15 @@
                 {
                     <MudTable Items="_backups" Hover="true" Dense="true">
                         <HeaderContent>
-                            <MudTh>Actions</MudTh>
-                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.Name)">Name</MudTableSortLabel></MudTh>
+                            <MudTh Style="width:1px; white-space:nowrap">Actions</MudTh>
+                            <MudTh Style="width:1px; white-space:nowrap"><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="new Func<QuasarBackupFileInfo, object>(x => x.CreatedAtUtc)">Created</MudTableSortLabel></MudTh>
                             <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => FormatBackupType(x))">Type</MudTableSortLabel></MudTh>
                             <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.ServerDisplayName ?? x.ServerUniqueName ?? string.Empty)">Server</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.Name)">Name</MudTableSortLabel></MudTh>
                             <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.SizeBytes)">Size</MudTableSortLabel></MudTh>
-                            <MudTh><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="new Func<QuasarBackupFileInfo, object>(x => x.CreatedAtUtc)">Created</MudTableSortLabel></MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd DataLabel="Actions">
+                            <MudTd DataLabel="Actions" Style="width:1px; white-space:nowrap">
                                 <MudTooltip Text="Download">
                                     <MudIconButton Icon="@Icons.Material.Filled.Download"
                                                    Href="@($"/api/backup/download/{context.Name}")"
@@ -351,11 +351,11 @@
                                                    Disabled="_busy" Size="Size.Small" Color="Color.Error" />
                                 </MudTooltip>
                             </MudTd>
-                            <MudTd DataLabel="Name">@context.Name</MudTd>
+                            <MudTd DataLabel="Created" Style="width:1px; white-space:nowrap">@context.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
                             <MudTd DataLabel="Type">@FormatBackupType(context)</MudTd>
                             <MudTd DataLabel="Server">@(context.ServerDisplayName ?? context.ServerUniqueName ?? "-")</MudTd>
+                            <MudTd DataLabel="Name">@context.Name</MudTd>
                             <MudTd DataLabel="Size">@FormatSize(context.SizeBytes)</MudTd>
-                            <MudTd DataLabel="Created">@context.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
                         </RowTemplate>
                     </MudTable>
                 }
