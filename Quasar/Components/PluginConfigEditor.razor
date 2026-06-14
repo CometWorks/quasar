@@ -239,7 +239,7 @@ else
                                      Value="@GetNumber(get())"
                                      ValueChanged="@((double? value) => { set(CreateNumberValue(field.Type, value)); MarkDirty(); })"
                                      Min="@field.Min" Max="@field.Max"
-                                     HelperText="@field.Description" Immediate="false" />
+                                     HelperText="@field.Description" Immediate="true" />
                 }
                 break;
 
@@ -251,6 +251,7 @@ else
                               Lines="@(field.Multiline ? 3 : 1)"
                               Sizing="@(field.Multiline ? InputSizing.Auto : InputSizing.Fixed)"
                               MaxLines="@(field.Multiline ? 10000 : 1)"
+                              Immediate="true"
                               HelperText="@field.Description" />
                 break;
 
@@ -345,7 +346,7 @@ else
                     <MudNumericField T="double?" Label="@component.ToUpperInvariant()"
                                      Value="@GetObjectNumber(get(), component)"
                                      ValueChanged="@((double? value) => { SetVectorComponent(get, set, component, value, integer); })"
-                                     Immediate="false" />
+                                     Immediate="true" />
                 </MudItem>
             }
         </MudGrid>
@@ -376,7 +377,7 @@ else
                     <MudNumericField T="double?" Label="@component.ToUpperInvariant()"
                                      Value="@GetObjectNumber(GetNestedObject(get, key), component)"
                                      ValueChanged="@((double? value) => { SetNestedVectorComponent(get, set, key, component, value, integer); })"
-                                     Immediate="false" />
+                                     Immediate="true" />
                 </MudItem>
             }
         </MudGrid>
@@ -558,7 +559,7 @@ else
                                           Label="Key"
                                           Value="@key"
                                           ValueChanged="@((string value) => RenameDictKey(dict, field, key, value))"
-                                          Immediate="false"
+                                          Immediate="true"
                                           Class="plugin-config-key-field" />
                             <div class="plugin-config-row-editor">
                                 @RenderField(valueField.WithName(key), () => dict[key], value => SetObjectValue(dict, key, value), itemPath, null)
@@ -587,6 +588,7 @@ else
         Value="@GetRaw(get())"
         ValueChanged="@((string value) => OnRaw(path, value, set))"
         Lines="3"
+        Immediate="true"
         Error="@(_rawErrors.TryGetValue(path, out var error) && error is not null)"
         ErrorText="@(_rawErrors.TryGetValue(path, out var errorText) ? errorText : null)"
         HelperText="@(field.Description ?? "Raw JSON value")" />;
