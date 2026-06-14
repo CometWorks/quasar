@@ -249,8 +249,8 @@ else
                               ValueChanged="@((string value) => { set(JsonValue.Create(value ?? string.Empty)); MarkDirty(); })"
                               MaxLength="@(field.MaxLength ?? 524288)"
                               Lines="@(field.Multiline ? 3 : 1)"
-                              AutoGrow="@field.Multiline"
-                              MaxLines="@(field.Multiline ? 20 : 1)"
+                              Sizing="@(field.Multiline ? InputSizing.Auto : InputSizing.Fixed)"
+                              MaxLines="@(field.Multiline ? 10000 : 1)"
                               HelperText="@field.Description" />
                 break;
 
