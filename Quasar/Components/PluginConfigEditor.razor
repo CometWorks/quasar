@@ -588,6 +588,8 @@ else
         Value="@GetRaw(get())"
         ValueChanged="@((string value) => OnRaw(path, value, set))"
         Lines="3"
+        Sizing="InputSizing.Auto"
+        MaxLines="10000"
         Immediate="true"
         Error="@(_rawErrors.TryGetValue(path, out var error) && error is not null)"
         ErrorText="@(_rawErrors.TryGetValue(path, out var errorText) ? errorText : null)"

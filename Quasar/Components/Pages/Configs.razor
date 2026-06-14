@@ -210,13 +210,13 @@
                                                                         </MudSelect>
                                                                         break;
                                                                     case QuasarConfigOptionKind.LongText:
-                                                                        <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="3"/>
+                                                                        <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="3" Sizing="InputSizing.Auto" MaxLines="10000"/>
                                                                         break;
                                                                     case QuasarConfigOptionKind.Password:
                                                                         <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" InputType="InputType.Password"/>
                                                                         break;
                                                                     case QuasarConfigOptionKind.KeyValueText:
-                                                                        <MudTextField T="string" Value="GetKeyValueTextOption(option)" ValueChanged="@(value => SetKeyValueTextOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="8"/>
+                                                                        <MudTextField T="string" Value="GetKeyValueTextOption(option)" ValueChanged="@(value => SetKeyValueTextOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="8" Sizing="InputSizing.Auto" MaxLines="10000"/>
                                                                         break;
                                                                     default:
                                                                         <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined"/>
@@ -263,7 +263,7 @@
                                                         <div style="@ConfigOptionTooltipStyle">@GetAccessTooltipText("Steam IDs that receive administrator rights on this server.")</div>
                                                     </TooltipContent>
                                                     <ChildContent>
-                                                        <MudTextField T="string" Value="GetAdministratorText()" ValueChanged="@(v => SetAdministratorText(FilterNumericListInput(v)))" Label="Admin User IDs" Variant="Variant.Outlined" Lines="4" HelperText="Comma, space, or newline separated Steam IDs (numeric only)." id="@AccessAdministratorsAnchorId"/>
+                                                        <MudTextField T="string" Value="GetAdministratorText()" ValueChanged="@(v => SetAdministratorText(FilterNumericListInput(v)))" Label="Admin User IDs" Variant="Variant.Outlined" Lines="4" Sizing="InputSizing.Auto" MaxLines="10000" HelperText="Comma, space, or newline separated Steam IDs (numeric only)." id="@AccessAdministratorsAnchorId"/>
                                                     </ChildContent>
                                                 </MudTooltip>
                                                 <MudTooltip Placement="Placement.Top" Arrow="true" Delay="350" Inline="false">
@@ -271,7 +271,7 @@
                                                         <div style="@ConfigOptionTooltipStyle">@GetAccessTooltipText("Steam IDs allowed to use reserved player slots.")</div>
                                                     </TooltipContent>
                                                     <ChildContent>
-                                                        <MudTextField T="string" Value="GetReservedText()" ValueChanged="@(v => SetReservedText(FilterNumericListInput(v)))" Label="Reserved Slot User IDs" Variant="Variant.Outlined" Lines="4" HelperText="Comma, space, or newline separated numeric IDs." id="@AccessReservedAnchorId"/>
+                                                        <MudTextField T="string" Value="GetReservedText()" ValueChanged="@(v => SetReservedText(FilterNumericListInput(v)))" Label="Reserved Slot User IDs" Variant="Variant.Outlined" Lines="4" Sizing="InputSizing.Auto" MaxLines="10000" HelperText="Comma, space, or newline separated numeric IDs." id="@AccessReservedAnchorId"/>
                                                     </ChildContent>
                                                 </MudTooltip>
                                                 <MudTooltip Placement="Placement.Top" Arrow="true" Delay="350" Inline="false">
@@ -279,7 +279,7 @@
                                                         <div style="@ConfigOptionTooltipStyle">@GetAccessTooltipText("Steam IDs blocked from joining this server.")</div>
                                                     </TooltipContent>
                                                     <ChildContent>
-                                                        <MudTextField T="string" Value="GetBannedText()" ValueChanged="@(v => SetBannedText(FilterNumericListInput(v)))" Label="Banned / Blacklisted User IDs" Variant="Variant.Outlined" Lines="4" HelperText="Comma, space, or newline separated numeric IDs." id="@AccessBannedAnchorId"/>
+                                                        <MudTextField T="string" Value="GetBannedText()" ValueChanged="@(v => SetBannedText(FilterNumericListInput(v)))" Label="Banned / Blacklisted User IDs" Variant="Variant.Outlined" Lines="4" Sizing="InputSizing.Auto" MaxLines="10000" HelperText="Comma, space, or newline separated numeric IDs." id="@AccessBannedAnchorId"/>
                                                     </ChildContent>
                                                 </MudTooltip>
                                             </MudStack>
@@ -339,10 +339,10 @@
                                                                         </MudSelect>
                                                                         break;
                                                                     case QuasarConfigOptionKind.LongText:
-                                                                        <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="3"/>
+                                                                        <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="3" Sizing="InputSizing.Auto" MaxLines="10000"/>
                                                                         break;
                                                                     case QuasarConfigOptionKind.KeyValueText:
-                                                                        <MudTextField T="string" Value="GetKeyValueTextOption(option)" ValueChanged="@(value => SetKeyValueTextOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="8"/>
+                                                                        <MudTextField T="string" Value="GetKeyValueTextOption(option)" ValueChanged="@(value => SetKeyValueTextOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="8" Sizing="InputSizing.Auto" MaxLines="10000"/>
                                                                         break;
                                                                     default:
                                                                         <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined"/>
@@ -707,6 +707,8 @@
                                             Label="Workshop URLs, IDs, or collection"
                                             Variant="Variant.Outlined"
                                             Lines="4"
+                                            Sizing="InputSizing.Auto"
+                                            MaxLines="10000"
                                             Immediate="true"
                                             HelperText="Paste single Steam Workshop URL, collection URL/ID, or bulk list of IDs. Collections expand into individual workshop items." />
                                     </MudItem>

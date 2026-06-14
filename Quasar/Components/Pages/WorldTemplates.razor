@@ -13,7 +13,7 @@
 
             <MudStack Spacing="2">
                 <MudTextField @bind-Value="_name" Label="Template name" Variant="Variant.Outlined" />
-                <MudTextField @bind-Value="_description" Label="Description" Variant="Variant.Outlined" Lines="2" />
+                <MudTextField @bind-Value="_description" Label="Description" Variant="Variant.Outlined" Lines="3" Sizing="InputSizing.Auto" MaxLines="10000" />
                 <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Start">
                     <MudTextField
                         @bind-Value="_sourcePath"

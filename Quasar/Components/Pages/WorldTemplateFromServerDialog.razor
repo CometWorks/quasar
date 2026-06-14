@@ -12,7 +12,9 @@
             <MudTextField @bind-Value="_description"
                           Label="Description"
                           Variant="Variant.Outlined"
-                          Lines="2" />
+                          Lines="3"
+                          Sizing="InputSizing.Auto"
+                          MaxLines="10000" />
             <div>
                 <MudText Typo="Typo.caption">Source world path</MudText>
                 <MudText Typo="Typo.caption" Class="mono">@WorldPath</MudText>
