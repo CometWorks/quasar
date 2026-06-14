@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Magnetar.Protocol.Runtime;
 using Magnetar.Protocol.Transport;
 using Quasar.Models;
+using Quasar.Services.Backup;
 using Quasar.Services.PluginSdk;
 
 namespace Quasar.Services;
@@ -23,6 +24,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private const string StandardErrorLogName = "stderr";
     private const string ActiveLogExtension = ".log";
     private const string ReniceHelperPath = "/usr/local/bin/quasar-renice";
+    private const string RestoreInProgressMessage = "Start deferred: a backup restore is in progress for this server.";
     private const int MaxModDownloadFailures = 20;
     private static readonly Regex PrefixedLogLinePattern = new(
         @"^(?<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,7})?)\s*[:\-]\s*(?<message>.*)$",
@@ -36,6 +38,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private readonly WebServiceOptions _options;
     private readonly ILogger<DedicatedServerSupervisor> _logger;
     private readonly PluginLogStream _pluginLogStream;
+    private readonly ServerRestoreCoordinator _restoreCoordinator;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Dictionary<string, ManagedServerState> _states = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _persistDebounce;
@@ -50,6 +53,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         ManagedRuntimeWarmupService runtimeWarmup,
         WebServiceOptions options,
         PluginLogStream pluginLogStream,
+        ServerRestoreCoordinator restoreCoordinator,
         ILogger<DedicatedServerSupervisor> logger)
     {
         _catalog = catalog;
@@ -59,6 +63,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _runtimeWarmup = runtimeWarmup;
         _options = options;
         _pluginLogStream = pluginLogStream;
+        _restoreCoordinator = restoreCoordinator;
         _logger = logger;
 
         // When set (the default), Quasar leaves managed servers running on its own
@@ -170,9 +175,34 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             await ReconcileAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// True when the server's process is running or transitioning (starting,
+    /// running, restarting or stopping). Used to refuse a restore that would
+    /// rewrite the files of a live server.
+    /// </summary>
+    public bool IsServerProcessActive(string uniqueName)
+    {
+        if (string.IsNullOrWhiteSpace(uniqueName))
+            return false;
+
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out var state))
+                return false;
+
+            return IsProcessActive(state.Process)
+                || state.State is DedicatedServerProcessState.Starting
+                    or DedicatedServerProcessState.Running
+                    or DedicatedServerProcessState.Restarting
+                    or DedicatedServerProcessState.Stopping;
+        }
+    }
+
     public async Task StartServerAsync(string uniqueName, CancellationToken cancellationToken = default)
     {
         ManagedServerState? state;
+        var restoreDeferred = false;
+        var notifyDeferred = false;
 
         lock (_sync)
         {
@@ -190,14 +220,40 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (state.StartInProgress)
                 return;
 
-            state.StartInProgress = true;
-            state.StopRequested = false;
-            state.State = state.IsRestartPending
-                ? DedicatedServerProcessState.Restarting
-                : DedicatedServerProcessState.Starting;
-            state.LastMessage = "Starting process.";
-            if (!state.IsRestartPending)
-                state.RestartAttempts = 0;
+            // A restore rewrites this server's files in place; launching now would
+            // race the file copy and could load a half-restored world. Claiming the
+            // start (StartInProgress / State below) happens in the SAME locked block
+            // as this check, while a restore claims its slot before re-checking that
+            // the server is inactive — so a concurrent restore and start can never
+            // both proceed. The reconcile loop starts the server once the restore
+            // finishes, if the goal state is still on.
+            if (_restoreCoordinator.IsRestoreInProgress(uniqueName))
+            {
+                restoreDeferred = true;
+                if (state.LastMessage != RestoreInProgressMessage)
+                {
+                    state.LastMessage = RestoreInProgressMessage;
+                    notifyDeferred = true;
+                }
+            }
+            else
+            {
+                state.StartInProgress = true;
+                state.StopRequested = false;
+                state.State = state.IsRestartPending
+                    ? DedicatedServerProcessState.Restarting
+                    : DedicatedServerProcessState.Starting;
+                state.LastMessage = "Starting process.";
+                if (!state.IsRestartPending)
+                    state.RestartAttempts = 0;
+            }
+        }
+
+        if (restoreDeferred)
+        {
+            if (notifyDeferred)
+                NotifyChanged();
+            return;
         }
 
         NotifyChanged();
