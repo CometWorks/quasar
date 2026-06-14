@@ -68,6 +68,10 @@
                         {
                             <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Error" StartIcon="@Icons.Material.Filled.Stop" OnClick="@(() => StopAsync(context.UniqueName))">Stop</MudButton>
                         }
+                        @if (CanKillStartingServer(context.UniqueName))
+                        {
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error" StartIcon="@Icons.Material.Filled.StopCircle" OnClick="@(() => KillStartingAsync(context.UniqueName))">Kill</MudButton>
+                        }
                         @if (CanRestartServer(context.UniqueName))
                         {
                             <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Primary" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="@(() => RestartAsync(context.UniqueName))">Restart</MudButton>
@@ -376,7 +380,8 @@
     {
         try
         {
-            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.On);
+            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.On, reconcile: false);
+            await Supervisor.StartServerAsync(uniqueName);
             Snackbar.Add("Server start requested.", Severity.Success);
         }
         catch (Exception exception)
@@ -391,6 +396,19 @@
         {
             await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.Off);
             Snackbar.Add("Server stop requested.", Severity.Info);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task KillStartingAsync(string uniqueName)
+    {
+        try
+        {
+            await Supervisor.KillStartingServerAsync(uniqueName);
+            Snackbar.Add("Starting server killed.", Severity.Warning);
         }
         catch (Exception exception)
         {
@@ -552,6 +570,13 @@
             or DedicatedServerProcessState.Running;
     }
 
+    private bool CanKillStartingServer(string uniqueName)
+    {
+        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped;
+        return state is DedicatedServerProcessState.Starting
+            or DedicatedServerProcessState.Restarting;
+    }
+
     private bool CanRestartServer(string uniqueName)
     {
         var state = GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped;
@@ -589,6 +614,8 @@
             EnableHealthMonitoring = healthMonitoringEnabled,
             AutoRestartOnUnhealthy = healthMonitoringEnabled,
             AgentStartupGraceSeconds = 180,
+            AgentAttachRetryAttempts = DedicatedServerDefinition.DefaultAgentAttachRetryAttempts,
+            AgentAttachRetryDelaySeconds = DedicatedServerDefinition.DefaultAgentAttachRetryDelaySeconds,
             AgentHeartbeatTimeoutSeconds = 20,
             SimulationProgressWindowSeconds = 30,
             MinimumSimulationProgressScore = 0.05f,

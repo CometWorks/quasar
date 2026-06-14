@@ -2,9 +2,9 @@
 
 Generated reference handbook for the **Quasar** stack — a supervisor and management system for Space Engineers (v1) dedicated server instances. Quasar is a Blazor Server supervisor that manages DS processes; an in-process plugin (Quasar.Agent) attaches to each server over raw WebSockets to report telemetry and execute commands; Quasar.Bootstrap keeps the supervisor running; and Magnetar.Protocol defines the shared contracts between them.
 
-For the hand-written architecture narrative and design rationale, see [QuasarArchitecture.md](../QuasarArchitecture.md). For object states and state machines (server lifecycle, agent connection, self-update, runtime provisioning, backups, …) as Mermaid + PNG diagrams, see the [State Machine Diagrams](../StateMachines/Index.md).
+For the hand-written architecture narrative and design rationale, see [QuasarArchitecture.md](../QuasarArchitecture.md).
 
-This handbook covers **200 source files** across **11 modules**. Browse by module below, or jump to the flat [file Index](Index.md).
+This handbook covers **204 source files** across **11 modules**. Browse by module below, or jump to the flat [file Index](Index.md).
 
 ## Runtime topology
 
@@ -24,7 +24,7 @@ This handbook covers **200 source files** across **11 modules**. Browse by modul
 | [Magnetar.Protocol](Modules/Magnetar.Protocol.md) | 29 | Shared wire/discovery contracts and release/runtime helpers between agent and supervisor. |
 | [Quasar.Host](Modules/Quasar.Host.md) | 10 | Blazor Server host: DI graph, auth, endpoints, static assets. |
 | [Quasar.Models](Modules/Quasar.Models.md) | 15 | Domain models for instances, config profiles, templates, branding. |
-| [Quasar.Services.Core](Modules/Quasar.Services.Core.md) | 42 | Supervisor engine, agent registry, runtime preparation, catalogs. |
+| [Quasar.Services.Core](Modules/Quasar.Services.Core.md) | 43 | Supervisor engine, agent registry, runtime preparation, catalogs. |
 | [Quasar.Services.Analytics](Modules/Quasar.Services.Analytics.md) | 12 | RRD-style per-instance metrics storage and persistence. |
 | [Quasar.Services.Auth](Modules/Quasar.Services.Auth.md) | 6 | Steam OpenID auth, RBAC, trusted-network bypass. |
 | [Quasar.Services.Discord](Modules/Quasar.Services.Discord.md) | 13 | Discord bot: chat/death/simspeed/log relay, commands, analytics export. |
@@ -37,11 +37,12 @@ This handbook covers **200 source files** across **11 modules**. Browse by modul
 
 Cross-module references (source module → modules it depends on):
 
+- **[Magnetar.Protocol](Modules/Magnetar.Protocol.md)** → [Quasar.Services.Core](Modules/Quasar.Services.Core.md)
 - **[Quasar.Host](Modules/Quasar.Host.md)** → [Magnetar.Protocol](Modules/Magnetar.Protocol.md), [Quasar.Agent](Modules/Quasar.Agent.md), [Quasar.Components](Modules/Quasar.Components.md), [Quasar.Models](Modules/Quasar.Models.md), [Quasar.Services.Core](Modules/Quasar.Services.Core.md)
 - **[Quasar.Models](Modules/Quasar.Models.md)** → [Quasar.Components](Modules/Quasar.Components.md), [Quasar.Host](Modules/Quasar.Host.md), [Quasar.Services.Core](Modules/Quasar.Services.Core.md)
 - **[Quasar.Services.Core](Modules/Quasar.Services.Core.md)** → [Magnetar.Protocol](Modules/Magnetar.Protocol.md), [Quasar.Components](Modules/Quasar.Components.md), [Quasar.Models](Modules/Quasar.Models.md), [Quasar.Services.Analytics](Modules/Quasar.Services.Analytics.md), [Quasar.Services.Auth](Modules/Quasar.Services.Auth.md), [Quasar.Services.PluginSdk](Modules/Quasar.Services.PluginSdk.md)
 - **[Quasar.Services.Analytics](Modules/Quasar.Services.Analytics.md)** → [Magnetar.Protocol](Modules/Magnetar.Protocol.md), [Quasar.Services.Core](Modules/Quasar.Services.Core.md)
-- **[Quasar.Services.Discord](Modules/Quasar.Services.Discord.md)** → [Quasar.Services.Analytics](Modules/Quasar.Services.Analytics.md), [Quasar.Services.Core](Modules/Quasar.Services.Core.md)
+- **[Quasar.Services.Discord](Modules/Quasar.Services.Discord.md)** → [Quasar.Models](Modules/Quasar.Models.md), [Quasar.Services.Analytics](Modules/Quasar.Services.Analytics.md), [Quasar.Services.Core](Modules/Quasar.Services.Core.md)
 - **[Quasar.Services.PluginSdk](Modules/Quasar.Services.PluginSdk.md)** → [Quasar.Services.Core](Modules/Quasar.Services.Core.md)
 - **[Quasar.Components](Modules/Quasar.Components.md)** → [Magnetar.Protocol](Modules/Magnetar.Protocol.md), [Quasar.Host](Modules/Quasar.Host.md), [Quasar.Models](Modules/Quasar.Models.md), [Quasar.Services.Analytics](Modules/Quasar.Services.Analytics.md), [Quasar.Services.Auth](Modules/Quasar.Services.Auth.md), [Quasar.Services.Core](Modules/Quasar.Services.Core.md), [Quasar.Services.PluginSdk](Modules/Quasar.Services.PluginSdk.md)
 - **[Quasar.Agent](Modules/Quasar.Agent.md)** → [Magnetar.Protocol](Modules/Magnetar.Protocol.md)

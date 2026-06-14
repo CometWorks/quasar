@@ -48,9 +48,11 @@ stateDiagram-v2
 ## Process state
 
 The observed supervisor lifecycle. The UI treats `Starting`, `Stopping`, and
-`Restarting` as transitionary states (lifecycle buttons are hidden, except
-`Stop` while `Starting` so an accidental launch can be cancelled). `Running`
-shows `Stop`/`Restart`; `Stopped`, `Crashed`, and `Faulted` show `Start`.
+`Restarting` as transitionary states. `Starting` shows `Stop` and an immediate
+`Kill` action so an accidental or wedged launch can be cancelled before the
+agent attaches; `Restarting` shows `Kill` to cancel the pending relaunch.
+`Running` shows `Stop`/`Restart`; `Stopped`, `Crashed`, and `Faulted` show
+`Start`.
 
 ```mermaid
 stateDiagram-v2
@@ -59,20 +61,22 @@ stateDiagram-v2
     Stopped --> Starting: goal On (no restart pending)
     Stopped --> Restarting: goal On (restart pending)
     Starting --> Running: agent attached, snapshot ready
-    Starting --> Stopping: operator Stop (cancel launch)
-    Starting --> Faulted: launch prep failure
+    Starting --> Restarting: attach grace expired, retry budget remains
+    Starting --> Stopping: operator Stop/Kill (cancel launch)
+    Starting --> Faulted: launch prep failure / attach retries exhausted
     Running --> Stopping: goal Off
     Running --> Restarting: unhealthy, uptime or scheduled
     Running --> Crashed: unexpected exit (code != 0)
     Running --> Stopped: clean exit, not requested
     Restarting --> Starting: relaunch begins
+    Restarting --> Stopping: operator Kill pending launch
     Restarting --> Faulted: attempts exhausted
     Stopping --> Stopped: process exited
     Stopping --> Faulted: stop failure
     Crashed --> Restarting: RestartOnCrash, within budget
-    Crashed --> Starting: goal On retry
+    Crashed --> Starting: operator Start retry
     Crashed --> Stopped: goal Off
-    Faulted --> Starting: cause fixed, goal On
+    Faulted --> Starting: operator Start after cause fixed
 ```
 
 ![Dedicated server process state](diagrams/ds-process-state.png)
@@ -91,13 +95,22 @@ stateDiagram-v2
 
 - Crash detection: a non-zero exit with no stop requested becomes `Crashed`;
   `HandleProcessExitedAsync` re-launches via `Restarting` when `RestartOnCrash`
-  is set and the attempt budget (`RestartAttempts` vs max) is not exhausted,
-  after `RestartDelaySeconds`. The attempt counter resets after a server runs
-  past the reset window.
+  is set and the consecutive attempt budget (`RestartAttempts` vs
+  `MaxRestartAttempts`, default 3) is not exhausted, after
+  `RestartDelaySeconds`. When the budget is exhausted the server becomes
+  `Faulted` and reconciliation does not keep trying. The attempt counter resets
+  after a server runs past the reset window.
 - `Faulted` is reached from `SetFaulted` on launch-prep failures (missing world
   template, runtime not ready, executable/working-dir missing, runtime prep
-  failure, process start failure). There is no explicit "unfault": fixing the
-  cause lets the reconcile loop retry `Start` while the goal is `On`.
+  failure, process start failure) or from crash-restart budget exhaustion. An
+  explicit operator `Start` resets the streak and retries after the cause is
+  fixed; the reconcile loop does not auto-retry `Crashed`/`Faulted` states.
+- Agent attach retries: while a process is still `Starting`, health monitoring
+  waits `AgentStartupGraceSeconds` for Quasar.Agent. If it does not attach and
+  `AutoRestartOnUnhealthy` is enabled, the supervisor kills the starting process,
+  waits `AgentAttachRetryDelaySeconds`, and relaunches. After
+  `AgentAttachRetryAttempts` consecutive attach retries, the server becomes
+  `Faulted`.
 - Planned restarts come from the health policy (`Unhealthy` +
   `AutoRestartOnUnhealthy`), `MaximumUptime`, and `DailyRestartTimeLocal`
   (optionally staggered by `AvoidSimultaneousScheduledRestarts`).

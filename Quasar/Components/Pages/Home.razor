@@ -450,6 +450,7 @@ else
                             LaunchBlocked="@IsLaunchBlocked"
                             StartRequested="StartAsync"
                             StopRequested="StopAsync"
+                            KillStartingRequested="KillStartingAsync"
                             RestartRequested="RestartAsync"
                             OpenLogsRequested="OpenLogsAsync" />
             </MudItem>
@@ -690,7 +691,8 @@ else
                 return;
             }
 
-            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.On);
+            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.On, reconcile: false);
+            await Supervisor.StartServerAsync(uniqueName);
             Snackbar.Add($"Start requested for '{uniqueName}'.", Severity.Success);
         }
         catch (Exception exception)
@@ -712,6 +714,19 @@ else
         {
             await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.Off);
             Snackbar.Add($"Stop requested for '{uniqueName}'.", Severity.Warning);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task KillStartingAsync(string uniqueName)
+    {
+        try
+        {
+            await Supervisor.KillStartingServerAsync(uniqueName);
+            Snackbar.Add($"Starting server '{uniqueName}' killed.", Severity.Warning);
         }
         catch (Exception exception)
         {

@@ -171,7 +171,7 @@
                                     <MudNumericField T="int" @bind-Value="_editor.RestartDelaySeconds" Label="Restart delay (seconds)" Variant="Variant.Outlined" Min="0" />
                                 </MudItem>
                                 <MudItem xs="12" md="4">
-                                    <MudNumericField T="int" @bind-Value="_editor.MaxRestartAttempts" Label="Max restart attempts (0 = unlimited)" Variant="Variant.Outlined" Min="0" />
+                                    <MudNumericField T="int" @bind-Value="_editor.MaxRestartAttempts" Label="Max consecutive restart attempts" Variant="Variant.Outlined" Min="1" />
                                 </MudItem>
                                 <MudItem xs="12" md="4" Class="d-flex align-center">
                                     <MudCheckBox @bind-Value="_editor.RestartOnCrash" Label="Restart when process crashes" />
@@ -215,6 +215,12 @@
                                 </MudItem>
                                 <MudItem xs="12" md="6" lg="4">
                                     <MudNumericField T="int" @bind-Value="_editor.AgentStartupGraceSeconds" Label="Agent startup grace (seconds)" Variant="Variant.Outlined" Min="0" />
+                                </MudItem>
+                                <MudItem xs="12" md="6" lg="4">
+                                    <MudNumericField T="int" @bind-Value="_editor.AgentAttachRetryAttempts" Label="Agent attach retry attempts" Variant="Variant.Outlined" Min="1" />
+                                </MudItem>
+                                <MudItem xs="12" md="6" lg="4">
+                                    <MudNumericField T="int" @bind-Value="_editor.AgentAttachRetryDelaySeconds" Label="Agent attach retry delay (seconds)" Variant="Variant.Outlined" Min="0" />
                                 </MudItem>
                                 <MudItem xs="12" md="6" lg="4">
                                     <MudNumericField T="int" @bind-Value="_editor.AgentHeartbeatTimeoutSeconds" Label="Agent heartbeat timeout (seconds)" Variant="Variant.Outlined" Min="1" />

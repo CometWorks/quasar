@@ -46,6 +46,16 @@
                             Stop
                         </MudButton>
                     }
+                    @if (CanKillStarting)
+                    {
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Error"
+                                   Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.StopCircle"
+                                   OnClick="KillStartingAsync">
+                            Kill
+                        </MudButton>
+                    }
                 </MudStack>
             </MudStack>
             <MudStack Spacing="0">
@@ -89,6 +99,9 @@
     public EventCallback<string> StopRequested { get; set; }
 
     [Parameter]
+    public EventCallback<string> KillStartingRequested { get; set; }
+
+    [Parameter]
     public EventCallback<string> RestartRequested { get; set; }
 
     [Parameter]
@@ -108,11 +121,16 @@
     private bool CanStop => ProcessState is DedicatedServerProcessState.Starting
         or DedicatedServerProcessState.Running;
 
+    private bool CanKillStarting => ProcessState is DedicatedServerProcessState.Starting
+        or DedicatedServerProcessState.Restarting;
+
     private bool CanRestart => ProcessState == DedicatedServerProcessState.Running;
 
     private Task StartAsync() => StartRequested.InvokeAsync(Server.UniqueName);
 
     private Task StopAsync() => StopRequested.InvokeAsync(Server.UniqueName);
+
+    private Task KillStartingAsync() => KillStartingRequested.InvokeAsync(Server.UniqueName);
 
     private Task RestartAsync() => RestartRequested.InvokeAsync(Server.UniqueName);
 

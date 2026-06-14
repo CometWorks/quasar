@@ -17,6 +17,7 @@ No `@page` route — used as a child component.
 | `LaunchBlocked` | `bool` | Disables Start while the dashboard waits for managed runtime readiness. |
 | `StartRequested` | `EventCallback<string>` | Fires with `UniqueName` when Start clicked. |
 | `StopRequested` | `EventCallback<string>` | Fires with `UniqueName` when Stop clicked. |
+| `KillStartingRequested` | `EventCallback<string>` | Fires with `UniqueName` when Kill clicked during `Starting`/`Restarting`. |
 | `RestartRequested` | `EventCallback<string>` | Fires with `UniqueName` when Restart clicked. |
 | `OpenLogsRequested` | `EventCallback<string>` | Fires with `UniqueName` when the terminal/log button is clicked. |
 
@@ -24,7 +25,7 @@ No `@page` route — used as a child component.
 
 **Private helpers:**
 - `ProcessState` — derives `DedicatedServerProcessState` from `Runtime?.State`.
-- `IsProcessActive`, `CanStart`, `CanStop`, `CanRestart` — lifecycle button visibility logic. Start is shown only for `Stopped`, `Crashed`, and `Faulted`; Stop is shown for `Starting` (cancel launch) and `Running`; Restart is shown only for `Running`. No lifecycle button is shown during `Stopping` or `Restarting`.
+- `IsProcessActive`, `CanStart`, `CanStop`, `CanKillStarting`, `CanRestart` — lifecycle button visibility logic. Start is shown only for `Stopped`, `Crashed`, and `Faulted`; Stop is shown for `Starting` (cancel launch) and `Running`; Kill is shown for `Starting`/`Restarting`; Restart is shown only for `Running`. No lifecycle button is shown during `Stopping`.
 - `GetDisplayName()` — prefers `Server.DisplayName`, falls back to `Agent.ServerDisplayName`, then `UniqueName`.
 - `GetHostLabel()` — shows `Agent.HostDisplayName` or "Local host".
 - `GetWorldLabel()` — shows `Agent.WorldDisplayName`, else last path segment of `Server.WorldPath`, else "World pending".

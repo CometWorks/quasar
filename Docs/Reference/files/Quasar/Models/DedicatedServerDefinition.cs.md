@@ -12,6 +12,8 @@ Namespace: `Quasar.Models`
 | Member | Description |
 |---|---|
 | `DefaultDsLogFilesToKeep` / `MinimumDsLogFilesToKeep` / `MaximumDsLogFilesToKeep` | Retention bounds for Quasar-managed DS stdout/stderr logs (default 10, range 1-1000). |
+| `DefaultMaxRestartAttempts` | Default consecutive crash-restart budget before the supervisor faults the server (3). |
+| `DefaultAgentAttachRetryAttempts` / `DefaultAgentAttachRetryDelaySeconds` | Defaults for restarting a launched server when Quasar.Agent does not attach during startup grace (3 retries, 5 s delay). |
 | `UniqueName` | Stable machine key for the server (filename-safe slug). |
 | `DisplayName` | Human-readable label shown in the UI. |
 | `OriginalUniqueName` | Pre-rename value used during rename operations; `[JsonIgnore]`, never persisted. |
@@ -35,6 +37,8 @@ Namespace: `Quasar.Models`
 | `EnableHealthMonitoring` | Enables simulation-progress health checks. |
 | `AutoRestartOnUnhealthy` | Trigger restart when health degrades to Unhealthy. |
 | `AgentStartupGraceSeconds` | Seconds to wait for agent attach before declaring unhealthy (default 180). |
+| `AgentAttachRetryAttempts` | Consecutive attach-timeout retry cap before faulting (default 3, minimum 1). |
+| `AgentAttachRetryDelaySeconds` | Delay between attach-timeout relaunch attempts (default 5 s). |
 | `AgentHeartbeatTimeoutSeconds` | Agent heartbeat timeout (default 20 s). |
 | `SimulationProgressWindowSeconds` | Rolling window for sim-progress score (default 30 s). |
 | `MinimumSimulationProgressScore` | Floor sim-progress score before unhealthy (default 0.1). |
@@ -42,7 +46,7 @@ Namespace: `Quasar.Models`
 | `RecycleAfterUptimeHours` | Hours before a scheduled graceful restart (0 = disabled). |
 | `RestartOnCrash` | Whether to restart after an unexpected process exit. |
 | `RestartDelaySeconds` | Pause before restart attempt (default 5 s). |
-| `MaxRestartAttempts` | Restart attempt cap (0 = unlimited). |
+| `MaxRestartAttempts` | Consecutive restart attempt cap before faulting (default 3, minimum 1). |
 | `DailyRestartTimeLocal` | Local time string for a daily scheduled restart (empty = disabled). |
 | `MaximumUptime` | TimeSpan string for maximum uptime before forced restart (empty = disabled). |
 | `AvoidSimultaneousScheduledRestarts` | Staggers restarts so multiple servers don't stop at once. |

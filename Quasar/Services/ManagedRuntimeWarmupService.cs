@@ -4,6 +4,7 @@ namespace Quasar.Services;
 
 public sealed class ManagedRuntimeWarmupService : BackgroundService
 {
+    private static readonly TimeSpan MagnetarUpdateCheckInterval = TimeSpan.FromMinutes(15);
     private readonly ManagedDedicatedServerRuntimeResolver _runtimeResolver;
     private readonly ILogger<ManagedRuntimeWarmupService> _logger;
     private readonly object _sync = new();
@@ -58,6 +59,18 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await RunWarmupAsync(stoppingToken);
+
+        using var timer = new PeriodicTimer(MagnetarUpdateCheckInterval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(stoppingToken))
+            {
+                await RunMagnetarUpdateCheckAsync(stoppingToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private async Task RunWarmupAsync(CancellationToken stoppingToken)
@@ -86,6 +99,28 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
         {
             _logger.LogWarning(exception, "Managed runtime warmup failed.");
             SetState(ManagedRuntimeWarmupState.Failed, exception.Message);
+        }
+        finally
+        {
+            _runLock.Release();
+        }
+    }
+
+    private async Task RunMagnetarUpdateCheckAsync(CancellationToken stoppingToken)
+    {
+        if (!await _runLock.WaitAsync(0, stoppingToken))
+            return;
+
+        try
+        {
+            await _runtimeResolver.EnsureManagedMagnetarCurrentAsync(stoppingToken);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Managed Magnetar update check failed.");
         }
         finally
         {

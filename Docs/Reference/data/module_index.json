@@ -326,7 +326,7 @@
       "name": "ServerCard.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Card component for a single managed server shown on the Dashboard. Displays the server display name, status chip (OFF / STARTING / CONNECTING / OPEN / STOPPING), host/world caption, last message or health summary, Start / Stop / Restart action buttons, and a terminal icon button for opening the server log dialog beside Restart. The Start button can be disabled by the dashboard while managed runtime prerequisites are still preparing. Embeds `ServerDetailPanel` as its card body content."
+      "summary": "Card component for a single managed server shown on the Dashboard. Displays the server display name, status chip (OFF / STARTING / CONNECTING / OPEN / STOPPING / RESTARTING / CRASHED / FAULTED), host/world caption, last message or health summary, lifecycle action buttons, and a terminal icon button for opening the server log dialog beside Restart. The Start button can be disabled by the dashboard while managed runtime prerequisites are still preparing. Embeds `ServerDetailPanel` as its card body content."
     },
     {
       "path": "Quasar/Components/Dashboard/ServerDetailPanel.razor",
@@ -347,7 +347,7 @@
       "name": "MainLayout.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Top-level application shell layout with MudBlazor providers, responsive app bar, branding, update bell, theme/auth controls, and a single Quasar power dialog trigger for restart, Quasar shutdown, or normal server shutdown."
+      "summary": "Top-level application shell layout. Provides the MudBlazor theme/provider setup, a responsive app bar with branding, update notification bell, theme-mode switcher, auth (login/logout) controls, and a Quasar power dialog trigger. It hosts a collapsible side drawer with `NavMenu`, the main content area that renders `@Body`, and a full-screen overlay while Quasar is restarting or shutting down."
     },
     {
       "path": "Quasar/Components/Layout/MainLayout.razor.css",
@@ -357,10 +357,17 @@
       "summary": "Scoped CSS for `MainLayout.razor`. Styles the brand logo mark in the app bar and the Blazor framework error banner."
     },
     {
+      "path": "Quasar/Components/Layout/NavMenu.razor",
+      "name": "NavMenu.razor",
+      "kind": "Blazor component",
+      "tier": 2,
+      "summary": "Side-drawer navigation menu. Renders two `MudNavMenu` groups separated by a `MudDivider` \u2014 a primary group with the visible main app routes and a settings group with the appearance and backup links plus a policy-gated security link."
+    },
+    {
       "path": "Quasar/Components/Layout/QuasarControlAction.cs",
       "name": "QuasarControlAction.cs",
       "kind": "enum",
-      "tier": 3,
+      "tier": 2,
       "summary": "Enum returned by `QuasarControlDialog` to tell `MainLayout` which confirmed power action the operator selected: restart Quasar, shut down Quasar while keeping servers running, or shut down all servers while Quasar stays online."
     },
     {
@@ -376,13 +383,6 @@
       "kind": "CSS",
       "tier": 3,
       "summary": "Scoped CSS for `QuasarControlDialog.razor`. Makes each power action a full-width, left-aligned button with stable height and wrapping title/body text for narrow mobile screens."
-    },
-    {
-      "path": "Quasar/Components/Layout/NavMenu.razor",
-      "name": "NavMenu.razor",
-      "kind": "Blazor component",
-      "tier": 2,
-      "summary": "Side-drawer navigation menu. Renders two `MudNavMenu` groups separated by a `MudDivider` \u2014 a primary group with the visible main app routes and a settings group with the appearance and backup links plus a policy-gated security link."
     },
     {
       "path": "Quasar/Components/Layout/ReconnectModal.razor",
@@ -438,7 +438,14 @@
       "name": "Backup.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page (`@page \"/backup\"`) for creating, restoring, scheduling and managing Quasar configuration, server, and world backups. Manual stored-backup creation queues background jobs so page rendering and navigation are not blocked by ZIP creation."
+      "summary": "Routable page (`@page \"/backup\"`) for creating, restoring, scheduling and managing Quasar configuration, server, and world backups. Gated by `@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]` and `@implements IDisposable`."
+    },
+    {
+      "path": "Quasar/Components/Pages/Chat.razor",
+      "name": "Chat.razor",
+      "kind": "Blazor component",
+      "tier": 2,
+      "summary": "Routable page (`/chat`) that gives admins a full-width chat and command console for managed servers. It combines a server dropdown, live recent-chat feed from the selected agent snapshot, a chat/command input that sends text through `ServerCommandType.SendChat`, quick Refresh/Save/Restart actions, and recent command-result feedback."
     },
     {
       "path": "Quasar/Components/Pages/ConfigProfilePendingChangesDialog.razor",
@@ -480,7 +487,14 @@
       "name": "Discord.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page (`/discord`) for configuring the Quasar Discord bot. Combines global bot settings (token, guild ID, enabled flag), per-server channel bindings (command, chat-relay, log, analytics, death-messages, simspeed-alert channels plus interval and feature toggles), configurable simspeed alert rules, and editable death-message template text areas organised by death-type category."
+      "summary": "Routable page (`/discord`) for configuring the Quasar Discord bot. Combines global bot settings (token, guild ID, enabled flag), per-server channel bindings (command, chat-relay, log, analytics, death-messages, simspeed-alert channels plus interval and feature toggles), configurable simspeed alert rules, editable death-message template text areas organised by death-type category, and a primary `Console Logs` button that opens the dedicated Discord integration log dialog."
+    },
+    {
+      "path": "Quasar/Components/Pages/DiscordConsoleDialog.razor",
+      "name": "DiscordConsoleDialog.razor",
+      "kind": "Blazor component",
+      "tier": 2,
+      "summary": "MudBlazor dialog that displays the dedicated Discord integration log (`discord.log`). It mirrors the server console log UX with a file path caption, full-log download button, Refresh action, exception-excerpt mode, and a scrollable monospace log pane."
     },
     {
       "path": "Quasar/Components/Pages/Entities.razor",
@@ -613,7 +627,7 @@
       "name": "Servers.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page at `/servers` managing persistent dedicated-server definitions. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status, start/stop/restart controls, and create/clone/edit/delete/console/world-template actions; expandable rows embed a `ServerDetailPanel` with live agent data. A separate panel lists \"unmanaged\" agents that report in without a matching server definition."
+      "summary": "Routable page at `/servers` managing persistent dedicated-server definitions. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status, a single lifecycle-action column beside Status, and create/clone/edit/delete/console/world-template actions; expandable rows embed a `ServerDetailPanel` with live agent data. A separate panel lists \"unmanaged\" agents that report in without a matching server definition."
     },
     {
       "path": "Quasar/Components/Pages/ServersPageDialog.razor",
@@ -634,7 +648,7 @@
       "name": "Updates.razor",
       "kind": "component",
       "tier": 2,
-      "summary": "Routable MudBlazor page at `/settings/updates` for checking, staging, activating, and rolling back Quasar UI worker releases. It shows current update status from `QuasarUpdateService`, separates selectable Quasar UI releases from launcher candidates, exposes manual check/stage/activate actions for the selected UI worker version, shows launcher update availability, displays configured GitHub release source and asset names, and provides controls for including prerelease versions plus choosing automatic or manual UI staging."
+      "summary": "Routable MudBlazor page at `/settings/updates` for checking, staging, activating, and rolling back Quasar UI worker releases. It shows current update status from `QuasarUpdateService`, separates selectable Quasar UI releases from launcher candidates, exposes manual check/stage/activate actions for the selected UI worker version, shows launcher update availability, displays configured GitHub release source and asset names, provides controls for including prerelease versions plus choosing automatic or manual UI staging, and renders a git-style `appsettings.json` conflict editor when staging cannot auto-merge settings."
     },
     {
       "path": "Quasar/Components/Pages/WorldTemplateFromServerDialog.razor",
@@ -906,7 +920,7 @@
       "name": "AutomaticBackupService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Background scheduler and manual backup queue that writes automatic and queued Quasar config, server, and world backups into the Backups directory, serializing jobs and pruning automatic backups to each rule's retention count."
+      "summary": "Background scheduler and manual backup queue that writes Quasar config, server, and world backups into the Backups directory. Scheduled runs follow separate `QuasarBackupSettings` rules and prune to each rule's retention count; manual UI starts are queued so Blazor page navigation is not blocked by ZIP creation."
     },
     {
       "path": "Quasar/Services/Backup/BackupCompatibility.cs",
@@ -927,7 +941,7 @@
       "name": "QuasarBackupService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Builds and restores ZIP backups for three scopes: Quasar configuration, server runtime state, and world-only data. Stored writes publish complete `.zip` files atomically from temp files; server backups include server definition plus non-cache Dedicated Server and Magnetar app data."
+      "summary": "Builds and restores ZIP backups for three scopes: Quasar configuration, server runtime state, and world-only data. Configuration backups still capture Quasar's own singleton/config/catalog files; server backups include the server definition plus non-cache Dedicated Server and Magnetar app data; world backups restore world files while excluding `Sandbox_config.sbc*`. Stored backup writes publish atomically by writing `final.zip.tmp` in the Backups directory first and renaming it to `final.zip` only after the archive is complete."
     },
     {
       "path": "Quasar/Services/Backup/QuasarBackupSettingsService.cs",
@@ -935,6 +949,13 @@
       "kind": "class",
       "tier": 2,
       "summary": "Singleton store for automatic-backup rules. Persists `backup-settings.json` (`MagnetarPaths.GetQuasarBackupSettingsPath()`) in the Quasar data directory and picks up external edits via a debounced (250 ms) `FileSystemWatcher`, mirroring `BrandingService`."
+    },
+    {
+      "path": "Quasar/Services/Backup/ServerRestoreCoordinator.cs",
+      "name": "ServerRestoreCoordinator.cs",
+      "kind": "class",
+      "tier": 2,
+      "summary": "`ServerRestoreCoordinator` tracks which managed server unique names currently have a backup restore in progress. Restores rewrite server files in place, so callers can use this coordinator to prevent a server start or a second restore from racing against the same server data."
     },
     {
       "path": "Quasar/Services/BrandingPresets.cs",
@@ -969,7 +990,7 @@
       "name": "DedicatedServerRuntimePreparer.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`DedicatedServerRuntimePreparer` transforms a `DedicatedServerDefinition` into a fully staged on-disk runtime immediately before a dedicated server process is launched. It writes the runtime DS config XML, the Magnetar plugin sources/profile XML, the world mod list, and the `LastSession.sbl` pointer file; deploys the Quasar.Agent DLLs plus runtime-specific Harmony dependency; seeds the world from a template if needed; and computes the final command-line arguments string. The output is a `PreparedDedicatedServerLaunch` record."
+      "summary": "`DedicatedServerRuntimePreparer` transforms a `DedicatedServerDefinition` into a fully staged on-disk runtime immediately before a dedicated server process is launched. It writes the runtime DS config XML, the Magnetar plugin sources/profile XML, the world `Sandbox_config.sbc` session settings and mod list, and the `LastSession.sbl` pointer file; deploys the Quasar.Agent DLLs plus runtime-specific Harmony dependency; seeds the world from a template if needed; and computes the final command-line arguments string. The output is a `PreparedDedicatedServerLaunch` record."
     },
     {
       "path": "Quasar/Services/DedicatedServerSupervisor.cs",
@@ -1011,7 +1032,7 @@
       "name": "ManagedDedicatedServerRuntimeResolver.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`ManagedDedicatedServerRuntimeResolver` resolves the paths needed to launch a dedicated server \u2014 the Magnetar launcher executable, its working directory, the `DedicatedServer64` directory, and any native-library search paths required by the child process \u2014 and auto-installs Magnetar, SteamCMD, and the DS itself when absent. It also exposes a startup readiness workflow that reports SteamCMD and Dedicated Server download/install progress before managed launches are allowed. It supports `.zip`, `.tar.gz`, and `.7z` archives for both Magnetar and SteamCMD downloads, guarded by per-component `SemaphoreSlim` install locks. The Magnetar install path branches by OS: Windows ships both runtime builds (`MagnetarInterim.exe` on .NET 10 and `MagnetarLegacy.exe` on .NET Framework 4.8) side-by-side and honors the per-server `DedicatedServerDefinition.ManagedRuntime` selection, while Linux ships a single Interim build behind a top-level wrapper with the apphost under `Bin/`."
+      "summary": "`ManagedDedicatedServerRuntimeResolver` resolves the paths needed to launch a dedicated server \u2014 the Magnetar launcher executable, its working directory, the `DedicatedServer64` directory, and any native-library search paths required by the child process \u2014 and auto-installs Magnetar, SteamCMD, and the DS itself when absent. It also exposes a startup readiness workflow that reports SteamCMD and Dedicated Server download/install progress before managed launches are allowed. It supports `.zip`, `.tar.gz`, and `.7z` archives for both Magnetar and SteamCMD downloads, guarded by per-component `SemaphoreSlim` install locks. Managed Magnetar installs are tracked by a `.quasar-magnetar-release.json` marker, so launch-time and background checks can compare the installed release to GitHub's latest full release instead of reusing stale launchers forever. The Magnetar install path branches by OS: Windows ships both runtime builds (`MagnetarInterim.exe` on .NET 10 and `MagnetarLegacy.exe` on .NET Framework 4.8) side-by-side and honors the per-server `DedicatedServerDefinition.ManagedRuntime` selection, while Linux ships a single Interim build behind a top-level wrapper with the apphost under `Bin/`."
     },
     {
       "path": "Quasar/Services/ManagedRuntimeOptions.cs",
@@ -1025,7 +1046,7 @@
       "name": "ManagedRuntimeWarmupService.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`ManagedRuntimeWarmupService` is a `BackgroundService` that immediately checks and prepares the managed SteamCMD and Space Engineers Dedicated Server installs at Quasar startup, so managed Magnetar launches are blocked until those prerequisites are ready. It exposes a component-level `ManagedRuntimeWarmupSnapshot` for dashboard progress display and fires a `Changed` event on every status update."
+      "summary": "`ManagedRuntimeWarmupService` is a `BackgroundService` that immediately checks and prepares the managed SteamCMD and Space Engineers Dedicated Server installs at Quasar startup, so managed Magnetar launches are blocked until those prerequisites are ready. After the startup warmup, it checks the managed Magnetar install for updates every 15 minutes without changing the visible SteamCMD/Dedicated Server readiness snapshot. It exposes a component-level `ManagedRuntimeWarmupSnapshot` for dashboard progress display and fires a `Changed` event on every status update."
     },
     {
       "path": "Quasar/Services/PluginCatalogRefreshService.cs",
@@ -1046,7 +1067,7 @@
       "name": "QuasarConfigMetadata.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Defines the full compile-time schema for every Quasar configuration option that the UI can present and edit. It declares enums for option scope (`Root`/`Session`) and kind (Boolean, Integer, Decimal, Text, LongText, SelectInteger, SelectText), typed record helpers for categories and select options, and a rich `QuasarConfigOptionDefinition` type with validation and full-text search. The static `QuasarConfigMetadata` class holds two read-only lists \u2014 `Categories` (12 groupings, including Survival) and `Options` (~150 entries) \u2014 and provides reflection-based property lookup and value formatting helpers used by the config editor UI."
+      "summary": "Defines the full compile-time schema for every Quasar configuration option that the UI can present and edit. It declares enums for option scope (`Root`/`Session`) and kind (Boolean, Integer, Decimal, Text, LongText, Password, KeyValueText, SelectInteger, SelectText), typed record helpers for categories and select options, and a rich `QuasarConfigOptionDefinition` type with validation and full-text search. The static `QuasarConfigMetadata` class holds two read-only lists \u2014 `Categories` (12 groupings, including Survival) and `Options` (covering Quasar root settings plus DS-visible session settings, including block type limits) \u2014 and provides reflection-based property lookup and value formatting helpers used by the config editor UI."
     },
     {
       "path": "Quasar/Services/QuasarConfigProfileCatalog.cs",
@@ -1067,7 +1088,7 @@
       "name": "QuasarLoggingConfigurator.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Static configurator that wires NLog into the ASP.NET Core host at startup. It builds an NLog `LoggingConfiguration` with a mandatory file target and an optional console target (activated when `QUASAR_CONSOLE_LOGGING=true`), then replaces the default Microsoft logging providers with NLog via `UseNLog()`."
+      "summary": "Static configurator that wires NLog into the ASP.NET Core host at startup. It builds an NLog `LoggingConfiguration` with the main Quasar file target, a dedicated Discord integration file target, and an optional console target (activated when `QUASAR_CONSOLE_LOGGING=true`), then replaces the default Microsoft logging providers with NLog via `UseNLog()`."
     },
     {
       "path": "Quasar/Services/QuasarPluginCatalogService.cs",
@@ -1081,7 +1102,7 @@
       "name": "QuasarShutdownService.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`QuasarShutdownService` orchestrates normal server shutdown, full stop-server-then-host shutdown, worker restart with server preservation, and Quasar shutdown that preserves detached running servers by stopping the launcher/worker."
+      "summary": "`QuasarShutdownService` orchestrates stopping all managed Magnetar servers and stopping or recycling the Quasar worker with clear server-preservation semantics. It distinguishes four operations: stop every running server while Quasar stays up, full shutdown that stops servers then stops the host, worker restart that leaves servers running for Bootstrap to re-adopt, and Quasar shutdown that stops the worker/launcher while preserving running servers."
     },
     {
       "path": "Quasar/Services/QuasarTheme.cs",
@@ -1137,14 +1158,14 @@
       "name": "QuasarUpdateService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Hosted service that checks Quasar GitHub releases on Linux and Windows, discovers selectable UI-worker releases plus newer launcher assets from a unified combined release, verifies `SHA256SUMS`, stages the selected UI worker under the Quasar updates directory, and activates a staged worker by promoting it into `ManagedRuntime/WebService/<version>` before writing `active-release.json` for Bootstrap. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI, raises `Changed` whenever status moves, and persists the operator-controlled prerelease stream and UI auto-stage flags."
+      "summary": "Hosted service that checks Quasar GitHub releases on Linux and Windows, discovers selectable UI-worker releases plus newer launcher assets from a unified combined release, verifies `SHA256SUMS`, stages the selected UI worker under the Quasar updates directory, resolves staged `appsettings.json` through a three-way merge, and activates a staged worker by promoting it into `ManagedRuntime/WebService/<version>` before writing `active-release.json` for Bootstrap. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI, raises `Changed` whenever status moves, and persists the operator-controlled prerelease stream and UI auto-stage flags."
     },
     {
       "path": "Quasar/Services/Updates/QuasarUpdateSnapshot.cs",
       "name": "QuasarUpdateSnapshot.cs",
       "kind": "class (DTO)",
       "tier": 2,
-      "summary": "DTO records and status enum used by the update service and Updates page. `QuasarUpdateSnapshot` describes the current checker state, current UI worker and Bootstrap versions, active prerelease/staging settings, last check/change timestamps, the selected web release, all selectable web releases, and optional web/Bootstrap candidates. `QuasarUpdateCandidate` describes one release asset and whether it is current, newer, prerelease, staged, or requires privileged installation."
+      "summary": "DTO records and status enum used by the update service and Updates page. `QuasarUpdateSnapshot` describes the current checker state, current UI worker and Bootstrap versions, active prerelease/staging settings, appsettings conflict state, last check/change timestamps, the selected web release, all selectable web releases, and optional web/Bootstrap candidates. `QuasarUpdateCandidate` describes one release asset and whether it is current, newer, prerelease, staged, or requires privileged installation."
     },
     {
       "path": "Quasar/Services/WebServiceManifestHostedService.cs",
@@ -1158,7 +1179,7 @@
       "name": "WebServiceOptions.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Immutable configuration record for the Quasar web service host. Reads config/env values, carries agent launch settings forwarded to managed servers, and stores Bootstrap metadata including launcher token and Bootstrap version."
+      "summary": "Immutable configuration record for the Quasar web service host. All properties are `init`-only and populated by the static factory method `Create(IConfiguration)`, which reads from the `Quasar` (or legacy `MagnetarWeb`) config section and a defined set of environment variables, with environment variables taking priority. It also carries agent launch settings that the supervisor forwards to each managed dedicated server process."
     },
     {
       "path": "Quasar/Services/WebServiceState.cs",
@@ -1172,7 +1193,7 @@
       "name": "WorldSandboxConfigEditor.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Static editor for the Space Engineers `Sandbox_config.sbc` XML file. Provides two operations: reading the current mod list from the `<Mods>` element and atomically rewriting it with a new list of `QuasarModSelection` records. XML whitespace is preserved on read; output is normalized to LF line endings and UTF-8 without BOM."
+      "summary": "Static editor for the Space Engineers `Sandbox_config.sbc` XML file. Provides operations for reading the current mod list from the `<Mods>` element and atomically applying a `QuasarConfigProfile` by upserting `<Settings>` values, writing `BlockTypeLimits` in the vanilla dictionary shape, plus rewriting `<Mods>`. XML whitespace is preserved on read; output is normalized to LF line endings and UTF-8 without BOM."
     }
   ],
   "Quasar.Services.Analytics": [
@@ -1181,7 +1202,7 @@
       "name": "AnalyticsMetrics.cs",
       "kind": "record + class",
       "tier": 2,
-      "summary": "Central catalogue of analytics chart panels exposed by the `/analytics` dashboard and `/api/analytics/series` endpoint. Scalar entries define metric key, panel title/subtitle, sample selector, availability check, axis formatting, and fixed/dynamic Y-axis behaviour. Profiler entries define continuous game-loop timing selectors and deep-profiler top-entry selectors while keeping browser chart rendering on the same existing payload shape."
+      "summary": "Central catalogue of analytics chart panels exposed by the `/analytics` dashboard and `/api/analytics/series` endpoint. Scalar entries define metric key, panel title/subtitle, sample selector, availability check, axis formatting, and fixed/dynamic Y-axis behaviour. Profiler entries define simple game-loop timing selectors and extensive-profiler top-entry selectors while keeping browser chart rendering on the same existing payload shape."
     },
     {
       "path": "Quasar/Services/Analytics/AnalyticsSeriesService.cs",
@@ -1332,28 +1353,28 @@
       "name": "DiscordBotService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "`IHostedService` that owns the `DiscordSocketClient` lifecycle. It starts, stops, and restarts the bot in response to options changes or agent registry changes, orchestrating all relay, alert, and export sub-services. Also exposes a status snapshot for the Quasar UI."
+      "summary": "`IHostedService` that owns the `DiscordSocketClient` lifecycle. It starts, stops, and restarts the bot in response to options changes, tracks server/agent changes for relay dispatch, and publishes aggregate managed-server activity through the bot's Discord presence. Also exposes a status snapshot for the Quasar UI."
     },
     {
       "path": "Quasar/Services/Discord/DiscordChatRelayService.cs",
       "name": "DiscordChatRelayService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Relays in-game chat messages from connected SE server agents to configured Discord channels. Deduplicates messages by UTC-tick timestamp per server and delivers them through a per-channel bounded queue with a 500 ms inter-message delay to avoid flooding."
+      "summary": "Relays in-game chat messages from connected SE server agents to configured Discord channels. Deduplicates messages by UTC-tick timestamp per server, ignores chat history older than the current bot relay lifetime, suppresses Discord-origin server echoes, and delivers new messages through a per-channel bounded queue with a 500 ms inter-message delay to avoid flooding."
     },
     {
       "path": "Quasar/Services/Discord/DiscordCommandDispatcher.cs",
       "name": "DiscordCommandDispatcher.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Executes Discord bot commands directed at a specific SE dedicated server. Routes the parsed verb to the appropriate action (chat, save, start, stop, restart, kick, ban, unban, promote, demote, status, help) and sends Discord replies. Also handles bidirectional chat relay from Discord to the game."
+      "summary": "Executes Discord bot commands directed at a specific SE dedicated server. Routes the parsed verb to the appropriate action (chat, save, start, stop, restart, kick, ban, unban, promote, demote, status, help) and sends Discord replies. Also handles Discord-to-game chat relay and marks Discord-origin game chat so the outbound relay can suppress matching echoes."
     },
     {
       "path": "Quasar/Services/Discord/DiscordCommandRouter.cs",
       "name": "DiscordCommandRouter.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Handles the `MessageReceived` event from the Discord client and routes each incoming guild message to either the command dispatcher (if the message matches a configured command prefix) or the chat-relay dispatcher (if `RelayNonCommandMessages` is enabled for the channel). Acts as the entry-point gateway between Discord.Net events and Quasar's command/relay logic."
+      "summary": "Handles the `MessageReceived` event from the Discord client and routes each incoming user guild message to either the command dispatcher (if the message matches a configured command prefix) or the chat-relay dispatcher (if it was posted in a configured chat relay channel). Acts as the entry-point gateway between Discord.Net events and Quasar's command/relay logic."
     },
     {
       "path": "Quasar/Services/Discord/DiscordDeathRelayService.cs",

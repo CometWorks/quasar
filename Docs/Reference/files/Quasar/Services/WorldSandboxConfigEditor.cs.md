@@ -32,8 +32,8 @@ Each written `<ModItem>` contains:
 
 ## Dependencies
 - `Quasar/Models/QuasarModSelection.cs`
-- `Quasar/Models/QuasarConfigProfile.cs`
-- `Quasar/Services/QuasarConfigMetadata.cs`
+- [`Quasar/Models/QuasarConfigProfile.cs`](../Models/QuasarConfigProfile.cs.md)
+- [`Quasar/Services/QuasarConfigMetadata.cs`](QuasarConfigMetadata.cs.md)
 - `Magnetar.Protocol.Runtime.AtomicFileWriter` (safe write)
 - `System.Xml.Linq` / `System.Xml.XmlWriter`
 

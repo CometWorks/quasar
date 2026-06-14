@@ -71,7 +71,8 @@
   ],
   "Magnetar.Protocol/Runtime/MagnetarPaths.cs": [
     "Magnetar.Protocol/Discovery/WebServiceDiscoveryManifest.cs",
-    "Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs"
+    "Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs",
+    "Quasar/Services/Updates/QuasarUpdateService.cs"
   ],
   "Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs": [
     "Magnetar.Protocol/Runtime/MagnetarPaths.cs"
@@ -184,6 +185,8 @@
   "Quasar/Components/Layout/MainLayout.razor": [
     "Quasar/Components/Layout/BrandingHeadContent.razor",
     "Quasar/Components/Layout/NavMenu.razor",
+    "Quasar/Components/Layout/QuasarControlAction.cs",
+    "Quasar/Components/Layout/QuasarControlDialog.razor",
     "Quasar/Services/BrandingService.cs",
     "Quasar/Services/QuasarShutdownService.cs",
     "Quasar/Services/ThemePreferenceService.cs",
@@ -191,6 +194,13 @@
   ],
   "Quasar/Components/Layout/MainLayout.razor.css": [],
   "Quasar/Components/Layout/NavMenu.razor": [],
+  "Quasar/Components/Layout/QuasarControlAction.cs": [],
+  "Quasar/Components/Layout/QuasarControlDialog.razor": [
+    "Quasar/Components/Layout/QuasarControlAction.cs"
+  ],
+  "Quasar/Components/Layout/QuasarControlDialog.razor.css": [
+    "Quasar/Components/Layout/QuasarControlDialog.razor"
+  ],
   "Quasar/Components/Layout/ReconnectModal.razor": [
     "Quasar/Components/Layout/ReconnectModal.razor.css",
     "Quasar/Components/Layout/ReconnectModal.razor.js"
@@ -229,6 +239,15 @@
     "Quasar/Services/DedicatedServerCatalog.cs",
     "Quasar/Services/WebServiceOptions.cs"
   ],
+  "Quasar/Components/Pages/Chat.razor": [
+    "Magnetar.Protocol/Model/ChatMessageSnapshot.cs",
+    "Magnetar.Protocol/Transport/ServerCommandEnvelope.cs",
+    "Magnetar.Protocol/Transport/ServerCommandType.cs",
+    "Quasar/Services/AgentRegistry.cs",
+    "Quasar/Services/DedicatedServerCatalog.cs",
+    "Quasar/Services/DedicatedServerSupervisor.cs",
+    "Quasar/Services/TextSanitizer.cs"
+  ],
   "Quasar/Components/Pages/ConfigProfilePendingChangesDialog.razor": [
     "Quasar/Components/Pages/Configs.razor"
   ],
@@ -253,7 +272,13 @@
     "Quasar/Components/Pages/Configs.razor"
   ],
   "Quasar/Components/Pages/Discord.razor": [
+    "Quasar/Components/Pages/DiscordConsoleDialog.razor",
     "Quasar/Services/DedicatedServerCatalog.cs"
+  ],
+  "Quasar/Components/Pages/DiscordConsoleDialog.razor": [
+    "Quasar/Program.cs",
+    "Quasar/Services/QuasarLoggingConfigurator.cs",
+    "Quasar/Services/WebServiceOptions.cs"
   ],
   "Quasar/Components/Pages/Entities.razor": [
     "Quasar/Services/AgentRegistry.cs",
@@ -553,6 +578,7 @@
     "Quasar/Models/QuasarBackupSettings.cs",
     "Quasar/Services/AtomicFileWriter.cs"
   ],
+  "Quasar/Services/Backup/ServerRestoreCoordinator.cs": [],
   "Quasar/Services/BrandingPresets.cs": [],
   "Quasar/Services/BrandingService.cs": [
     "Quasar/Models/BrandingSettings.cs",
@@ -595,7 +621,9 @@
     "Quasar/Services/Discord/DiscordRateLimiter.cs"
   ],
   "Quasar/Services/Discord/DiscordBotService.cs": [
+    "Quasar/Models/DedicatedServerRuntimeSnapshot.cs",
     "Quasar/Services/AgentRegistry.cs",
+    "Quasar/Services/DedicatedServerSupervisor.cs",
     "Quasar/Services/Discord/DiscordAnalyticsExportService.cs",
     "Quasar/Services/Discord/DiscordChatRelayService.cs",
     "Quasar/Services/Discord/DiscordCommandRouter.cs",
@@ -612,6 +640,7 @@
   "Quasar/Services/Discord/DiscordCommandDispatcher.cs": [
     "Quasar/Services/AgentRegistry.cs",
     "Quasar/Services/Analytics/MetricsStoreService.cs",
+    "Quasar/Services/Discord/DiscordChatRelayService.cs",
     "Quasar/Services/Discord/DiscordOptions.cs"
   ],
   "Quasar/Services/Discord/DiscordCommandRouter.cs": [
@@ -684,7 +713,8 @@
     "Quasar/Services/QuasarDevFolderCatalog.cs"
   ],
   "Quasar/Services/QuasarShutdownService.cs": [
-    "Quasar/Services/DedicatedServerSupervisor.cs"
+    "Quasar/Services/DedicatedServerSupervisor.cs",
+    "Quasar/Services/WebServiceOptions.cs"
   ],
   "Quasar/Services/QuasarTheme.cs": [],
   "Quasar/Services/QuasarWorkshopModResolver.cs": [
@@ -726,7 +756,10 @@
     "Quasar/Services/DedicatedServerSupervisor.cs",
     "Quasar/Services/WebServiceOptions.cs"
   ],
-  "Quasar/Services/WorldSandboxConfigEditor.cs": [],
+  "Quasar/Services/WorldSandboxConfigEditor.cs": [
+    "Quasar/Models/QuasarConfigProfile.cs",
+    "Quasar/Services/QuasarConfigMetadata.cs"
+  ],
   "Quasar/appsettings.Development.json": [
     "Quasar/Properties/launchSettings.json",
     "Quasar/appsettings.json"

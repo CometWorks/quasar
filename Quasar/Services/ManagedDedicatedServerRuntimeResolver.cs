@@ -14,6 +14,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private const string MagnetarLauncherName = "MagnetarInterim";
+    private const string MagnetarReleaseMarkerFileName = ".quasar-magnetar-release.json";
     private const string DedicatedServerAppId = "298740";
     private const string DedicatedServerExecutableName = "SpaceEngineersDedicated";
     private const int DedicatedServerInstallMaxAttempts = 3;
@@ -218,12 +219,15 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             string.Empty);
     }
 
+    public Task EnsureManagedMagnetarCurrentAsync(CancellationToken cancellationToken = default) =>
+        EnsureManagedMagnetarInstallAsync(ManagedServerRuntime.DotNet10, cancellationToken);
+
     private Task<string> EnsureManagedMagnetarInstallAsync(ManagedServerRuntime runtime, CancellationToken cancellationToken)
     {
         // Windows ships both Magnetar builds side-by-side (exes + per-runtime Libraries
         // subfolders, no Bin/ wrapper); Linux ships a single Interim build behind a
         // top-level wrapper with the apphost under Bin/. The two layouts need different
-        // install logic, so branch here and keep the Linux path byte-for-byte as before.
+        // install logic, but both paths compare the installed marker against latest first.
         return OperatingSystem.IsWindows()
             ? EnsureWindowsManagedMagnetarInstallAsync(runtime, cancellationToken)
             : EnsureLinuxManagedMagnetarInstallAsync(cancellationToken);
@@ -233,21 +237,28 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     {
         var installDirectory = _options.MagnetarInstallDirectory;
 
-        // Resolve to the actual apphost binary under Bin/, never the top-level
-        // MagnetarInterim wrapper script. The wrapper only `cd`s into Bin/ and execs
-        // this binary; Quasar runs the binary directly with Bin/ as the working
-        // directory (Path.GetDirectoryName of the returned path), so no extra shell
-        // is spawned to set up the environment and the tracked PID is the server's.
-        var binaryLauncherPath = FindImmediateFile(Path.Combine(installDirectory, "Bin"), MagnetarLauncherFileNames);
-        if (!string.IsNullOrWhiteSpace(binaryLauncherPath))
-            return binaryLauncherPath;
-
         await _magnetarInstallLock.WaitAsync(cancellationToken);
         try
         {
-            binaryLauncherPath = FindImmediateFile(Path.Combine(installDirectory, "Bin"), MagnetarLauncherFileNames);
-            if (!string.IsNullOrWhiteSpace(binaryLauncherPath))
+            // Resolve to the actual apphost binary under Bin/, never the top-level
+            // MagnetarInterim wrapper script. The wrapper only `cd`s into Bin/ and execs
+            // this binary; Quasar runs the binary directly with Bin/ as the working
+            // directory (Path.GetDirectoryName of the returned path), so no extra shell
+            // is spawned to set up the environment and the tracked PID is the server's.
+            var binaryLauncherPath = FindImmediateFile(Path.Combine(installDirectory, "Bin"), MagnetarLauncherFileNames);
+            var archive = await ResolveMagnetarArchiveReferenceOrUseExistingAsync(
+                binaryLauncherPath ?? string.Empty,
+                cancellationToken);
+            if (!string.IsNullOrWhiteSpace(binaryLauncherPath) && IsCurrentMagnetarInstall(installDirectory, archive))
                 return binaryLauncherPath;
+
+            if (!string.IsNullOrWhiteSpace(binaryLauncherPath))
+            {
+                _logger.LogInformation(
+                    "Updating managed Magnetar runtime from {InstalledRelease} to {LatestRelease}.",
+                    DescribeInstalledMagnetarRelease(installDirectory),
+                    archive.DisplayName);
+            }
 
             Directory.CreateDirectory(MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory());
             var extractRoot = Path.Combine(MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory(), $"magnetar-{Guid.NewGuid():N}");
@@ -255,7 +266,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
             try
             {
-                await DownloadAndExtractMagnetarArchiveAsync(extractRoot, cancellationToken);
+                await DownloadAndExtractMagnetarArchiveAsync(archive, extractRoot, cancellationToken);
 
                 var source = FindMagnetarSource(extractRoot)
                              ?? throw new InvalidOperationException("Downloaded Magnetar archive did not contain MagnetarInterim with a Bin payload.");
@@ -274,8 +285,20 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                     ?? throw new InvalidOperationException(
                         $"Magnetar apphost binary not found under {Path.Combine(installDirectory, "Bin")} after install.");
                 EnsureExecutableBit(binaryLauncherPath);
+                await WriteInstalledMagnetarReleaseAsync(installDirectory, archive, cancellationToken);
 
-                _logger.LogInformation("Installed managed Magnetar runtime into {Path}.", installDirectory);
+                _logger.LogInformation("Installed managed Magnetar runtime {Release} into {Path}.", archive.DisplayName, installDirectory);
+                return binaryLauncherPath;
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested &&
+                                             !string.IsNullOrWhiteSpace(binaryLauncherPath) &&
+                                             File.Exists(binaryLauncherPath))
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Failed updating managed Magnetar runtime to {Release}. Continuing with existing runtime at {Path}.",
+                    archive.DisplayName,
+                    binaryLauncherPath);
                 return binaryLauncherPath;
             }
             finally
@@ -294,20 +317,26 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         var installDirectory = _options.MagnetarInstallDirectory;
         var launcherFileName = GetWindowsMagnetarLauncherFileName(runtime);
 
-        // Both builds (Interim + Legacy) install together into a single folder, so once
-        // either launcher is present the install is complete and switching runtime per
-        // server never needs a re-download. Resolve to the requested exe; its containing
-        // folder is the working directory (where the Libraries payload lives).
-        var launcherPath = Path.Combine(installDirectory, launcherFileName);
-        if (File.Exists(launcherPath))
-            return launcherPath;
-
         await _magnetarInstallLock.WaitAsync(cancellationToken);
         try
         {
-            launcherPath = Path.Combine(installDirectory, launcherFileName);
-            if (File.Exists(launcherPath))
+            // Both builds (Interim + Legacy) install together into a single folder. Resolve
+            // to the requested exe; its containing folder is the working directory (where
+            // the Libraries payload lives).
+            var launcherPath = Path.Combine(installDirectory, launcherFileName);
+            var archive = await ResolveMagnetarArchiveReferenceOrUseExistingAsync(
+                File.Exists(launcherPath) ? launcherPath : string.Empty,
+                cancellationToken);
+            if (File.Exists(launcherPath) && IsCurrentMagnetarInstall(installDirectory, archive))
                 return launcherPath;
+
+            if (File.Exists(launcherPath))
+            {
+                _logger.LogInformation(
+                    "Updating managed Magnetar runtime from {InstalledRelease} to {LatestRelease}.",
+                    DescribeInstalledMagnetarRelease(installDirectory),
+                    archive.DisplayName);
+            }
 
             Directory.CreateDirectory(MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory());
             var extractRoot = Path.Combine(MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory(), $"magnetar-{Guid.NewGuid():N}");
@@ -315,7 +344,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
             try
             {
-                await DownloadAndExtractMagnetarArchiveAsync(extractRoot, cancellationToken);
+                await DownloadAndExtractMagnetarArchiveAsync(archive, extractRoot, cancellationToken);
 
                 var source = FindWindowsMagnetarSource(extractRoot)
                              ?? throw new InvalidOperationException(
@@ -332,7 +361,18 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                     throw new InvalidOperationException(
                         $"Magnetar launcher {launcherFileName} not found under {installDirectory} after install.");
 
-                _logger.LogInformation("Installed managed Magnetar runtime into {Path}.", installDirectory);
+                await WriteInstalledMagnetarReleaseAsync(installDirectory, archive, cancellationToken);
+
+                _logger.LogInformation("Installed managed Magnetar runtime {Release} into {Path}.", archive.DisplayName, installDirectory);
+                return launcherPath;
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested && File.Exists(launcherPath))
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Failed updating managed Magnetar runtime to {Release}. Continuing with existing runtime at {Path}.",
+                    archive.DisplayName,
+                    launcherPath);
                 return launcherPath;
             }
             finally
@@ -346,20 +386,22 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         }
     }
 
-    private async Task DownloadAndExtractMagnetarArchiveAsync(string extractRoot, CancellationToken cancellationToken)
+    private async Task DownloadAndExtractMagnetarArchiveAsync(
+        MagnetarArchiveReference archive,
+        string extractRoot,
+        CancellationToken cancellationToken)
     {
         using var client = _httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromMinutes(5);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Quasar");
 
-        var archiveUrl = await ResolveMagnetarArchiveUrlAsync(client, cancellationToken);
-        var archivePath = Path.Combine(extractRoot, "magnetar-download" + InferArchiveExtension(archiveUrl));
-        _logger.LogInformation("Downloading Magnetar runtime...");
-        using var response = await client.GetAsync(archiveUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        var archivePath = Path.Combine(extractRoot, "magnetar-download" + InferArchiveExtension(archive.ArchiveUrl));
+        _logger.LogInformation("Downloading Magnetar runtime {Release}...", archive.DisplayName);
+        using var response = await client.GetAsync(archive.ArchiveUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
-                $"Failed downloading Magnetar archive from {archiveUrl}. Status={(int)response.StatusCode} {response.ReasonPhrase}.");
+                $"Failed downloading Magnetar archive from {archive.ArchiveUrl}. Status={(int)response.StatusCode} {response.ReasonPhrase}.");
         }
 
         await using (var archiveFile = File.Create(archivePath))
@@ -370,10 +412,48 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         ExtractArchive(archivePath, extractRoot);
     }
 
-    private async Task<string> ResolveMagnetarArchiveUrlAsync(HttpClient client, CancellationToken cancellationToken)
+    private async Task<MagnetarArchiveReference> ResolveMagnetarArchiveReferenceOrUseExistingAsync(
+        string existingLauncherPath,
+        CancellationToken cancellationToken)
+    {
+        using var client = _httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromMinutes(5);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("Quasar");
+
+        try
+        {
+            return await ResolveMagnetarArchiveReferenceAsync(client, cancellationToken);
+        }
+        catch (Exception exception) when (!string.IsNullOrWhiteSpace(existingLauncherPath) && !cancellationToken.IsCancellationRequested)
+        {
+            var installDirectory = _options.MagnetarInstallDirectory;
+            var installed = ReadInstalledMagnetarRelease(installDirectory);
+            _logger.LogWarning(
+                exception,
+                "Failed checking latest Magnetar release. Continuing with installed runtime {Release} at {Path}.",
+                installed?.DisplayName ?? "unknown",
+                existingLauncherPath);
+
+            return installed is null
+                ? MagnetarArchiveReference.UnknownExisting
+                : new MagnetarArchiveReference(
+                    installed.SourceKind,
+                    installed.ReleaseTagName,
+                    installed.AssetName,
+                    installed.ArchiveUrl);
+        }
+    }
+
+    private async Task<MagnetarArchiveReference> ResolveMagnetarArchiveReferenceAsync(HttpClient client, CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(_options.MagnetarArchiveUrl))
-            return _options.MagnetarArchiveUrl;
+        {
+            return new MagnetarArchiveReference(
+                MagnetarArchiveSourceKinds.DirectUrl,
+                string.Empty,
+                InferArchiveAssetName(_options.MagnetarArchiveUrl),
+                _options.MagnetarArchiveUrl);
+        }
 
         using var response = await client.GetAsync(_options.MagnetarReleaseApiUrl, cancellationToken);
         if (!response.IsSuccessStatusCode)
@@ -400,11 +480,82 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 $"Expected one Magnetar archive asset matching '{_options.MagnetarArchiveAssetPattern}' in latest release {release.TagName}, found {matches.Count}. Assets: {names}");
         }
 
-        var archiveUrl = matches[0].BrowserDownloadUrl;
-        if (string.IsNullOrWhiteSpace(archiveUrl))
-            throw new InvalidOperationException($"Magnetar archive asset '{matches[0].Name}' has no browser_download_url.");
+        var asset = matches[0];
+        if (string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
+            throw new InvalidOperationException($"Magnetar archive asset '{asset.Name}' has no browser_download_url.");
 
-        return archiveUrl;
+        return new MagnetarArchiveReference(
+            MagnetarArchiveSourceKinds.GitHubRelease,
+            release.TagName,
+            asset.Name,
+            asset.BrowserDownloadUrl);
+    }
+
+    private static bool IsCurrentMagnetarInstall(string installDirectory, MagnetarArchiveReference archive)
+    {
+        if (archive.SourceKind == MagnetarArchiveSourceKinds.ExistingUnknown)
+            return true;
+
+        var installed = ReadInstalledMagnetarRelease(installDirectory);
+        return installed is not null &&
+               string.Equals(installed.SourceKind, archive.SourceKind, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(installed.ReleaseTagName, archive.ReleaseTagName, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(installed.AssetName, archive.AssetName, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(installed.ArchiveUrl, archive.ArchiveUrl, StringComparison.Ordinal);
+    }
+
+    private static string DescribeInstalledMagnetarRelease(string installDirectory) =>
+        ReadInstalledMagnetarRelease(installDirectory)?.DisplayName ?? "unknown";
+
+    private static InstalledMagnetarRelease? ReadInstalledMagnetarRelease(string installDirectory)
+    {
+        var markerPath = GetMagnetarReleaseMarkerPath(installDirectory);
+        if (!File.Exists(markerPath))
+            return null;
+
+        try
+        {
+            var json = File.ReadAllText(markerPath);
+            return JsonSerializer.Deserialize<InstalledMagnetarRelease>(json, JsonOptions);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static async Task WriteInstalledMagnetarReleaseAsync(
+        string installDirectory,
+        MagnetarArchiveReference archive,
+        CancellationToken cancellationToken)
+    {
+        var installed = new InstalledMagnetarRelease
+        {
+            SourceKind = archive.SourceKind,
+            ReleaseTagName = archive.ReleaseTagName,
+            AssetName = archive.AssetName,
+            ArchiveUrl = archive.ArchiveUrl,
+            InstalledAtUtc = DateTimeOffset.UtcNow,
+        };
+        var json = JsonSerializer.Serialize(installed, JsonOptions);
+        await AtomicFileWriter.WriteTextAsync(GetMagnetarReleaseMarkerPath(installDirectory), json, cancellationToken);
+    }
+
+    private static string GetMagnetarReleaseMarkerPath(string installDirectory) =>
+        Path.Combine(installDirectory, MagnetarReleaseMarkerFileName);
+
+    private static string InferArchiveAssetName(string archiveUrl)
+    {
+        if (Uri.TryCreate(archiveUrl, UriKind.Absolute, out var uri))
+        {
+            var fileName = Path.GetFileName(uri.LocalPath);
+            if (!string.IsNullOrWhiteSpace(fileName))
+                return fileName;
+        }
+
+        var queryIndex = archiveUrl.IndexOf('?', StringComparison.Ordinal);
+        var trimmed = queryIndex < 0 ? archiveUrl : archiveUrl[..queryIndex];
+        return Path.GetFileName(trimmed);
     }
 
     private static bool MatchesAssetPattern(string assetName, string pattern)
@@ -1194,6 +1345,67 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         string Directory,
         string LauncherPath,
         string BinDirectory);
+
+    private sealed record MagnetarArchiveReference(
+        string SourceKind,
+        string ReleaseTagName,
+        string AssetName,
+        string ArchiveUrl)
+    {
+        public static MagnetarArchiveReference UnknownExisting { get; } = new(
+            MagnetarArchiveSourceKinds.ExistingUnknown,
+            string.Empty,
+            string.Empty,
+            string.Empty);
+
+        public string DisplayName
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(ReleaseTagName) && !string.IsNullOrWhiteSpace(AssetName))
+                    return $"{ReleaseTagName}/{AssetName}";
+                if (!string.IsNullOrWhiteSpace(AssetName))
+                    return AssetName;
+                if (!string.IsNullOrWhiteSpace(ArchiveUrl))
+                    return ArchiveUrl;
+                return SourceKind;
+            }
+        }
+    }
+
+    private sealed class InstalledMagnetarRelease
+    {
+        public string SourceKind { get; set; } = string.Empty;
+
+        public string ReleaseTagName { get; set; } = string.Empty;
+
+        public string AssetName { get; set; } = string.Empty;
+
+        public string ArchiveUrl { get; set; } = string.Empty;
+
+        public DateTimeOffset InstalledAtUtc { get; set; }
+
+        public string DisplayName
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(ReleaseTagName) && !string.IsNullOrWhiteSpace(AssetName))
+                    return $"{ReleaseTagName}/{AssetName}";
+                if (!string.IsNullOrWhiteSpace(AssetName))
+                    return AssetName;
+                if (!string.IsNullOrWhiteSpace(ArchiveUrl))
+                    return ArchiveUrl;
+                return SourceKind;
+            }
+        }
+    }
+
+    private static class MagnetarArchiveSourceKinds
+    {
+        public const string DirectUrl = "direct-url";
+        public const string ExistingUnknown = "existing-unknown";
+        public const string GitHubRelease = "github-release";
+    }
 
     private static void CopyDirectory(string sourceDirectory, string destinationDirectory)
     {

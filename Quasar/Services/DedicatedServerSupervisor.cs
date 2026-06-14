@@ -201,6 +201,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     public async Task StartServerAsync(string uniqueName, CancellationToken cancellationToken = default)
     {
         ManagedServerState? state;
+        CancellationTokenSource? startCancellation = null;
         var restoreDeferred = false;
         var notifyDeferred = false;
 
@@ -238,6 +239,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             }
             else
             {
+                state.StartCancellation?.Cancel();
+                state.StartCancellation?.Dispose();
+                startCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdown.Token);
+                state.StartCancellation = startCancellation;
                 state.StartInProgress = true;
                 state.StopRequested = false;
                 state.State = state.IsRestartPending
@@ -245,7 +250,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     : DedicatedServerProcessState.Starting;
                 state.LastMessage = "Starting process.";
                 if (!state.IsRestartPending)
+                {
                     state.RestartAttempts = 0;
+                    state.AgentAttachRetryAttempts = 0;
+                }
             }
         }
 
@@ -259,14 +267,22 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         NotifyChanged();
         try
         {
-            await StartProcessAsync(state, cancellationToken);
+            await StartProcessAsync(state, startCancellation?.Token ?? cancellationToken);
+        }
+        catch (OperationCanceledException) when (startCancellation?.IsCancellationRequested == true)
+        {
+            SetStopped(uniqueName, "Start cancelled.");
         }
         finally
         {
             lock (_sync)
             {
                 state.StartInProgress = false;
+                if (ReferenceEquals(state.StartCancellation, startCancellation))
+                    state.StartCancellation = null;
             }
+
+            startCancellation?.Dispose();
         }
     }
 
@@ -286,9 +302,18 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             process = state.Process;
             state.StopRequested = true;
             state.IsRestartPending = false;
+            state.StartCancellation?.Cancel();
 
             if (!IsProcessActive(process))
             {
+                if (state.StartInProgress)
+                {
+                    state.State = DedicatedServerProcessState.Stopping;
+                    state.LastMessage = "Cancelling start.";
+                    NotifyChanged();
+                    return;
+                }
+
                 state.State = DedicatedServerProcessState.Stopped;
                 state.LastMessage = "Already stopped.";
                 NotifyChanged();
@@ -345,6 +370,64 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         if (!IsProcessActive(process))
             await HandleProcessExitedAsync(uniqueName);
+    }
+
+    public async Task KillStartingServerAsync(string uniqueName, CancellationToken cancellationToken = default)
+    {
+        ManagedServerState? state;
+        Process? process;
+        var waitForStartCancellation = false;
+
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out state))
+                return;
+
+            if (state.State is not (DedicatedServerProcessState.Starting or DedicatedServerProcessState.Restarting))
+                return;
+
+            process = state.Process;
+            waitForStartCancellation = state.StartInProgress && !IsProcessActive(process);
+            state.StopRequested = true;
+            state.IsRestartPending = false;
+            state.StartCancellation?.Cancel();
+            state.State = DedicatedServerProcessState.Stopping;
+            state.LastMessage = IsProcessActive(process)
+                ? "Killing starting process."
+                : "Cancelling start.";
+        }
+
+        NotifyChanged();
+        await _catalog.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.Off, cancellationToken);
+
+        if (IsProcessActive(process))
+        {
+            try
+            {
+                process!.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            catch (InvalidOperationException)
+            {
+                // The process exited between the active check and kill/wait.
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Failed killing starting server {UniqueName}.", uniqueName);
+                throw;
+            }
+
+            if (!IsProcessActive(process))
+                await HandleProcessExitedAsync(uniqueName);
+            return;
+        }
+
+        if (!waitForStartCancellation)
+            SetStopped(uniqueName, "Start cancelled.");
     }
 
     public async Task RestartServerAsync(string uniqueName, CancellationToken cancellationToken = default)
@@ -450,6 +533,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 {
                     state.State = DedicatedServerProcessState.Running;
                     state.LastMessage = "Server online.";
+                    state.AgentAttachRetryAttempts = 0;
                     healthChanged = true;
                 }
 
@@ -473,11 +557,16 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
                 if (goalState == DedicatedServerGoalState.On)
                 {
-                    if (!processActive && state.State is DedicatedServerProcessState.Stopped
-                            or DedicatedServerProcessState.Crashed
-                            or DedicatedServerProcessState.Faulted)
+                    if (!processActive && state.State == DedicatedServerProcessState.Stopped)
                     {
                         actions.Add((state.UniqueName, ReconcileAction.Start, "goal state is on"));
+                    }
+                    else if (processActive &&
+                             health.State == DedicatedServerHealthState.Unhealthy &&
+                             state.Definition.AutoRestartOnUnhealthy &&
+                             state.State == DedicatedServerProcessState.Starting)
+                    {
+                        actions.Add((state.UniqueName, ReconcileAction.RetryAttach, health.Summary));
                     }
                     else if (processActive &&
                              health.State == DedicatedServerHealthState.Unhealthy &&
@@ -553,8 +642,137 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     _logger.LogWarning("Quasar health recovery restarting server {UniqueName}: {Reason}", uniqueName, reason);
                     await RestartServerAsync(uniqueName, cancellationToken);
                     break;
+
+                case ReconcileAction.RetryAttach:
+                    await RetryAgentAttachAsync(uniqueName, reason, cancellationToken);
+                    break;
             }
         }
+    }
+
+    private async Task RetryAgentAttachAsync(string uniqueName, string reason, CancellationToken cancellationToken)
+    {
+        ManagedServerState? state;
+        DedicatedServerDefinition definition;
+        Process? process;
+        int attempt;
+        int maxAttempts;
+        int retryDelaySeconds;
+        var faulted = false;
+
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out state))
+                return;
+
+            process = state.Process;
+            if (state.State != DedicatedServerProcessState.Starting || !IsProcessActive(process))
+                return;
+
+            definition = Clone(state.Definition);
+            maxAttempts = EffectiveAgentAttachRetryAttempts(definition);
+            retryDelaySeconds = Math.Max(0, definition.AgentAttachRetryDelaySeconds);
+            attempt = state.AgentAttachRetryAttempts + 1;
+            state.AgentAttachRetryAttempts = Math.Min(attempt, maxAttempts);
+            state.StopRequested = true;
+            state.IsRestartPending = false;
+            state.State = DedicatedServerProcessState.Stopping;
+
+            if (attempt > maxAttempts)
+            {
+                faulted = true;
+                state.LastMessage = $"Quasar.Agent did not attach after {maxAttempts} attempt(s). Faulting.";
+            }
+            else
+            {
+                state.LastMessage = $"Quasar.Agent attach timed out ({attempt}/{maxAttempts}). Retrying in {retryDelaySeconds}s.";
+            }
+        }
+
+        NotifyChanged();
+
+        if (IsProcessActive(process))
+        {
+            try
+            {
+                _logger.LogWarning(
+                    "Quasar.Agent attach timed out for server {UniqueName}. Killing starting process. Attempt {Attempt}/{MaxAttempts}. Reason: {Reason}",
+                    uniqueName,
+                    Math.Min(attempt, maxAttempts),
+                    maxAttempts,
+                    reason);
+                process!.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            catch (InvalidOperationException)
+            {
+                // Process exited between active check and kill/wait.
+            }
+        }
+
+        if (!IsProcessActive(process))
+            await HandleProcessExitedAsync(uniqueName);
+
+        if (faulted)
+        {
+            lock (_sync)
+            {
+                if (_states.TryGetValue(uniqueName, out state))
+                {
+                    state.Process = null;
+                    state.ProcessId = null;
+                    state.State = DedicatedServerProcessState.Faulted;
+                    state.StopRequested = false;
+                    state.IsRestartPending = false;
+                    state.StartedAtUtc = null;
+                    state.StoppedAtUtc = DateTimeOffset.UtcNow;
+                    state.LastMessage = $"Quasar.Agent did not attach after {maxAttempts} attempt(s). {reason}";
+                    ResetHealthTracking(state);
+                }
+            }
+
+            NotifyChanged();
+            return;
+        }
+
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out state) ||
+                state.Definition.GoalState != DedicatedServerGoalState.On ||
+                state.StopRequested && state.State != DedicatedServerProcessState.Stopped)
+            {
+                return;
+            }
+
+            state.State = DedicatedServerProcessState.Restarting;
+            state.IsRestartPending = true;
+            state.StopRequested = false;
+            state.LastMessage = $"Retrying Quasar.Agent attach in {retryDelaySeconds}s.";
+        }
+
+        NotifyChanged();
+
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(retryDelaySeconds), cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out state) ||
+                state.Definition.GoalState != DedicatedServerGoalState.On ||
+                state.StopRequested ||
+                state.State != DedicatedServerProcessState.Restarting)
+            {
+                return;
+            }
+        }
+
+        await StartServerAsync(uniqueName, cancellationToken);
     }
 
     private async Task StartProcessAsync(ManagedServerState state, CancellationToken cancellationToken)
@@ -578,12 +796,17 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         {
             runtime = await _runtimeResolver.ResolveAsync(definition, cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception exception)
         {
             SetFaulted(state.UniqueName, exception.Message);
             _logger.LogWarning(exception, "Failed resolving managed runtime for server {UniqueName}.", state.UniqueName);
             return;
         }
+        cancellationToken.ThrowIfCancellationRequested();
 
         var executablePath = runtime.ExecutablePath;
         var workingDirectory = runtime.WorkingDirectory;
@@ -605,12 +828,17 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         {
             launch = await _runtimePreparer.PrepareAsync(definition, runtime.DedicatedServer64Path, cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception exception)
         {
             SetFaulted(state.UniqueName, exception.Message);
             _logger.LogWarning(exception, "Failed preparing runtime files for server {UniqueName}.", state.UniqueName);
             return;
         }
+        cancellationToken.ThrowIfCancellationRequested();
 
         string stdoutPath;
         string stderrPath;
@@ -624,6 +852,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             _logger.LogWarning(exception, "Failed preparing DS log files for server {UniqueName}.", state.UniqueName);
             return;
         }
+        cancellationToken.ThrowIfCancellationRequested();
 
         var process = new Process
         {
@@ -690,32 +919,57 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             return;
         }
 
+        var discardStartedProcess = false;
         lock (_sync)
         {
             if (!_states.TryGetValue(state.UniqueName, out var current))
             {
+                discardStartedProcess = true;
+            }
+            else if (current.StopRequested || cancellationToken.IsCancellationRequested)
+            {
+                current.State = DedicatedServerProcessState.Stopping;
+                current.LastMessage = "Killing cancelled start.";
+                current.IsRestartPending = false;
+                discardStartedProcess = true;
+            }
+            else
+            {
+                current.Process = process;
+                current.State = DedicatedServerProcessState.Starting;
+                current.ProcessId = process.Id;
+                current.StartedAtUtc = DateTimeOffset.UtcNow;
+                current.AgentWatchSinceUtc = current.StartedAtUtc;
+                current.StoppedAtUtc = null;
+                current.LastExitCode = null;
+                current.LastMessage = "Process started; waiting for server online signal.";
+                current.StandardOutputLogPath = stdoutPath;
+                current.StandardErrorLogPath = stderrPath;
+                current.IsRestartPending = false;
+                current.StopRequested = false;
+                current.ModDownloadFailures.Clear();
+                current.LastAppliedProcessPriority = null;
+                current.LastFailedProcessPriority = null;
+                current.LastAppliedCpuAffinity = null;
+                current.LastFailedCpuAffinity = null;
+                ResetHealthTracking(current);
+            }
+        }
+
+        if (discardStartedProcess)
+        {
+            try
+            {
                 process.Kill(entireProcessTree: true);
-                return;
+                await process.WaitForExitAsync(CancellationToken.None);
+            }
+            catch (InvalidOperationException)
+            {
             }
 
-            current.Process = process;
-            current.State = DedicatedServerProcessState.Starting;
-            current.ProcessId = process.Id;
-            current.StartedAtUtc = DateTimeOffset.UtcNow;
-            current.AgentWatchSinceUtc = current.StartedAtUtc;
-            current.StoppedAtUtc = null;
-            current.LastExitCode = null;
-            current.LastMessage = "Process started; waiting for server online signal.";
-            current.StandardOutputLogPath = stdoutPath;
-            current.StandardErrorLogPath = stderrPath;
-            current.IsRestartPending = false;
-            current.StopRequested = false;
-            current.ModDownloadFailures.Clear();
-            current.LastAppliedProcessPriority = null;
-            current.LastFailedProcessPriority = null;
-            current.LastAppliedCpuAffinity = null;
-            current.LastFailedCpuAffinity = null;
-            ResetHealthTracking(current);
+            process.Dispose();
+            SetStopped(state.UniqueName, "Start cancelled.");
+            return;
         }
 
         _logger.LogInformation("Started server {UniqueName} with pid {Pid}.", state.UniqueName, process.Id);
@@ -723,8 +977,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         TryApplyCpuAffinity(state.UniqueName, definition.CpuAffinity, "startup");
         NotifyChanged();
 
-        _ = PumpStandardOutputAsync(process.StandardOutput, stdoutPath, state.UniqueName, cancellationToken);
-        _ = PumpStandardErrorAsync(process.StandardError, stderrPath, state.UniqueName, cancellationToken);
+        _ = PumpStandardOutputAsync(process.StandardOutput, stdoutPath, state.UniqueName, _shutdown.Token);
+        _ = PumpStandardErrorAsync(process.StandardError, stderrPath, state.UniqueName, _shutdown.Token);
     }
 
     private static void ConfigureNativeLibrarySearchPath(
@@ -1118,7 +1372,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 definition.RestartOnCrash)
             {
                 var nextAttempt = state.RestartAttempts + 1;
-                var hasBudget = definition.MaxRestartAttempts <= 0 || nextAttempt <= definition.MaxRestartAttempts;
+                var maxAttempts = EffectiveMaxRestartAttempts(definition);
+                var hasBudget = nextAttempt <= maxAttempts;
                 if (hasBudget)
                 {
                     state.RestartAttempts = nextAttempt;
@@ -1128,21 +1383,31 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     shouldRestart = true;
                     restartDelaySeconds = Math.Max(0, definition.RestartDelaySeconds);
                 }
+                else
+                {
+                    state.RestartAttempts = maxAttempts;
+                    state.IsRestartPending = false;
+                    state.State = DedicatedServerProcessState.Faulted;
+                    state.LastMessage = $"Process exited with code {exitCode}. Restart attempt limit ({maxAttempts}) reached.";
+                }
             }
 
             if (!shouldRestart)
             {
-                state.IsRestartPending = false;
-                state.State = stopRequested
-                    ? DedicatedServerProcessState.Stopped
-                    : exitCode == 0
+                if (state.State != DedicatedServerProcessState.Faulted)
+                {
+                    state.IsRestartPending = false;
+                    state.State = stopRequested
                         ? DedicatedServerProcessState.Stopped
-                        : DedicatedServerProcessState.Crashed;
-                state.LastMessage = stopRequested
-                    ? "Stopped by supervisor."
-                    : exitCode == 0
-                        ? "Process exited normally."
-                        : $"Process exited with code {exitCode}.";
+                        : exitCode == 0
+                            ? DedicatedServerProcessState.Stopped
+                            : DedicatedServerProcessState.Crashed;
+                    state.LastMessage = stopRequested
+                        ? "Stopped by supervisor."
+                        : exitCode == 0
+                            ? "Process exited normally."
+                            : $"Process exited with code {exitCode}.";
+                }
             }
         }
 
@@ -2132,6 +2397,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
     }
 
+    private static int EffectiveMaxRestartAttempts(DedicatedServerDefinition definition) =>
+        Math.Max(1, definition.MaxRestartAttempts);
+
+    private static int EffectiveAgentAttachRetryAttempts(DedicatedServerDefinition definition) =>
+        Math.Max(1, definition.AgentAttachRetryAttempts);
+
     private static DedicatedServerDefinition Clone(DedicatedServerDefinition definition)
     {
         return new DedicatedServerDefinition
@@ -2157,6 +2428,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             EnableHealthMonitoring = definition.EnableHealthMonitoring,
             AutoRestartOnUnhealthy = definition.AutoRestartOnUnhealthy,
             AgentStartupGraceSeconds = definition.AgentStartupGraceSeconds,
+            AgentAttachRetryAttempts = definition.AgentAttachRetryAttempts,
+            AgentAttachRetryDelaySeconds = definition.AgentAttachRetryDelaySeconds,
             AgentHeartbeatTimeoutSeconds = definition.AgentHeartbeatTimeoutSeconds,
             SimulationProgressWindowSeconds = definition.SimulationProgressWindowSeconds,
             MinimumSimulationProgressScore = definition.MinimumSimulationProgressScore,
@@ -2251,7 +2524,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         // IsProcessActive guard and launch duplicate processes.
         public bool StartInProgress { get; set; }
 
+        public CancellationTokenSource? StartCancellation { get; set; }
+
         public int RestartAttempts { get; set; }
+
+        public int AgentAttachRetryAttempts { get; set; }
 
         public int? ProcessId { get; set; }
 
@@ -2312,6 +2589,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         Start = 0,
         Stop = 1,
         Restart = 2,
+        RetryAttach = 3,
     }
 
     private readonly record struct ServerHealthAssessment(

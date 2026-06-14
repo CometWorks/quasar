@@ -47,6 +47,12 @@ The solution file is `Quasar.sln`.
   Magnetar release asset matching `MagnetarForLinux-*.7z`; a `NetFramework48`
   selection carried over from a Windows `server.json` is silently downgraded to
   .NET 10.
+- Managed Magnetar installs record the GitHub release tag, asset name, and
+  download URL in `.quasar-magnetar-release.json` under the install directory.
+  Quasar compares that marker with the latest full Magnetar release whenever a
+  managed instance starts and every 15 minutes while the web service is running.
+  If the latest check or replacement fails while a launcher already exists,
+  Quasar logs the failure and continues using the installed launcher.
 - At Quasar startup, the managed runtime warmup immediately checks the managed
   SteamCMD install and the managed Space Engineers Dedicated Server install. If
   either is missing, Quasar downloads it before managed Magnetar servers can be

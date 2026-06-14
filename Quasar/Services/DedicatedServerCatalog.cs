@@ -276,6 +276,10 @@ public sealed class DedicatedServerCatalog : IDisposable
         server.GoalState = server.AutoStart ? DedicatedServerGoalState.On : DedicatedServerGoalState.Off;
         if (server.AgentStartupGraceSeconds < 0)
             server.AgentStartupGraceSeconds = 0;
+        if (server.AgentAttachRetryAttempts < 1)
+            server.AgentAttachRetryAttempts = DedicatedServerDefinition.DefaultAgentAttachRetryAttempts;
+        if (server.AgentAttachRetryDelaySeconds < 0)
+            server.AgentAttachRetryDelaySeconds = DedicatedServerDefinition.DefaultAgentAttachRetryDelaySeconds;
         if (server.AgentHeartbeatTimeoutSeconds < 1)
             server.AgentHeartbeatTimeoutSeconds = 1;
         if (server.SimulationProgressWindowSeconds < 1)
@@ -290,8 +294,8 @@ public sealed class DedicatedServerCatalog : IDisposable
             server.RecycleAfterUptimeHours = 0;
         if (server.RestartDelaySeconds < 0)
             server.RestartDelaySeconds = 0;
-        if (server.MaxRestartAttempts < 0)
-            server.MaxRestartAttempts = 0;
+        if (server.MaxRestartAttempts < 1)
+            server.MaxRestartAttempts = DedicatedServerDefinition.DefaultMaxRestartAttempts;
         server.DailyRestartTimeLocal = server.DailyRestartTimeLocal?.Trim() ?? string.Empty;
         server.MaximumUptime = server.MaximumUptime?.Trim() ?? string.Empty;
         if (!Enum.IsDefined(server.StartupProcessPriority))
@@ -348,6 +352,8 @@ public sealed class DedicatedServerCatalog : IDisposable
             EnableHealthMonitoring = server.EnableHealthMonitoring,
             AutoRestartOnUnhealthy = server.AutoRestartOnUnhealthy,
             AgentStartupGraceSeconds = server.AgentStartupGraceSeconds,
+            AgentAttachRetryAttempts = server.AgentAttachRetryAttempts,
+            AgentAttachRetryDelaySeconds = server.AgentAttachRetryDelaySeconds,
             AgentHeartbeatTimeoutSeconds = server.AgentHeartbeatTimeoutSeconds,
             SimulationProgressWindowSeconds = server.SimulationProgressWindowSeconds,
             MinimumSimulationProgressScore = server.MinimumSimulationProgressScore,

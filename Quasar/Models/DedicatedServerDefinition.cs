@@ -7,6 +7,9 @@ public sealed class DedicatedServerDefinition
     public const int DefaultDsLogFilesToKeep = 10;
     public const int MinimumDsLogFilesToKeep = 1;
     public const int MaximumDsLogFilesToKeep = 1000;
+    public const int DefaultMaxRestartAttempts = 3;
+    public const int DefaultAgentAttachRetryAttempts = 3;
+    public const int DefaultAgentAttachRetryDelaySeconds = 5;
 
     public string UniqueName { get; set; } = string.Empty;
 
@@ -58,6 +61,10 @@ public sealed class DedicatedServerDefinition
 
     public int AgentStartupGraceSeconds { get; set; } = 180;
 
+    public int AgentAttachRetryAttempts { get; set; } = DefaultAgentAttachRetryAttempts;
+
+    public int AgentAttachRetryDelaySeconds { get; set; } = DefaultAgentAttachRetryDelaySeconds;
+
     public int AgentHeartbeatTimeoutSeconds { get; set; } = 20;
 
     public int SimulationProgressWindowSeconds { get; set; } = 30;
@@ -72,7 +79,7 @@ public sealed class DedicatedServerDefinition
 
     public int RestartDelaySeconds { get; set; } = 5;
 
-    public int MaxRestartAttempts { get; set; }
+    public int MaxRestartAttempts { get; set; } = DefaultMaxRestartAttempts;
 
     public string DailyRestartTimeLocal { get; set; } = string.Empty;
 
@@ -119,6 +126,8 @@ public sealed class DedicatedServerDefinition
             EnableHealthMonitoring = EnableHealthMonitoring,
             AutoRestartOnUnhealthy = AutoRestartOnUnhealthy,
             AgentStartupGraceSeconds = AgentStartupGraceSeconds,
+            AgentAttachRetryAttempts = AgentAttachRetryAttempts,
+            AgentAttachRetryDelaySeconds = AgentAttachRetryDelaySeconds,
             AgentHeartbeatTimeoutSeconds = AgentHeartbeatTimeoutSeconds,
             SimulationProgressWindowSeconds = SimulationProgressWindowSeconds,
             MinimumSimulationProgressScore = MinimumSimulationProgressScore,
