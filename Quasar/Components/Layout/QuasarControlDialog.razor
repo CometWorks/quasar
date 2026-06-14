@@ -1,0 +1,168 @@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Quasar power</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_pendingAction is null)
+        {
+            <MudStack Spacing="2">
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Warning"
+                           StartIcon="@Icons.Material.Filled.RestartAlt"
+                           Disabled="@(!IsRestartAvailable)"
+                           OnClick="@(() => Select(QuasarControlAction.RestartQuasar))"
+                           Class="quasar-control-action">
+                    <span>
+                        <span class="quasar-control-action-title">Restart Quasar</span>
+                        <span class="quasar-control-action-body">Servers continue to run while the web UI restarts.</span>
+                    </span>
+                </MudButton>
+                @if (!IsRestartAvailable)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        Restart needs the Quasar launcher. This standalone process can only be shut down.
+                    </MudText>
+                }
+
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Error"
+                           StartIcon="@Icons.Material.Filled.PowerSettingsNew"
+                           OnClick="@(() => Select(QuasarControlAction.ShutdownQuasar))"
+                           Class="quasar-control-action">
+                    <span>
+                        <span class="quasar-control-action-title">Shutdown Quasar</span>
+                        <span class="quasar-control-action-body">Servers continue to run without Quasar supervision.</span>
+                    </span>
+                </MudButton>
+
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Error"
+                           StartIcon="@Icons.Material.Filled.StopCircle"
+                           OnClick="@(() => Select(QuasarControlAction.ShutdownAllServers))"
+                           Class="quasar-control-action">
+                    <span>
+                        <span class="quasar-control-action-title">Shutdown all servers normally</span>
+                        <span class="quasar-control-action-body">Quasar keeps running and tracks the shutdown progress.</span>
+                    </span>
+                </MudButton>
+            </MudStack>
+        }
+        else
+        {
+            <MudStack Spacing="3">
+                <MudAlert Severity="@ConfirmationSeverity" Variant="Variant.Outlined">
+                    @ConfirmationLead
+                </MudAlert>
+                <MudText Typo="Typo.body2">@ConfirmationBody</MudText>
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_pendingAction is null)
+        {
+            <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Close</MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Back">Back</MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="@ConfirmationButtonColor"
+                       StartIcon="@ConfirmationIcon"
+                       OnClick="Confirm">
+                @ConfirmationButtonText
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public bool IsRestartAvailable { get; set; }
+
+    [Parameter]
+    public int AgentOfflineShutdownSeconds { get; set; }
+
+    private QuasarControlAction? _pendingAction;
+
+    private Severity ConfirmationSeverity => _pendingAction switch
+    {
+        QuasarControlAction.RestartQuasar => Severity.Info,
+        _ => Severity.Warning,
+    };
+
+    private Color ConfirmationButtonColor => _pendingAction switch
+    {
+        QuasarControlAction.RestartQuasar => Color.Warning,
+        _ => Color.Error,
+    };
+
+    private string ConfirmationIcon => _pendingAction switch
+    {
+        QuasarControlAction.RestartQuasar => Icons.Material.Filled.RestartAlt,
+        QuasarControlAction.ShutdownAllServers => Icons.Material.Filled.StopCircle,
+        _ => Icons.Material.Filled.PowerSettingsNew,
+    };
+
+    private string ConfirmationButtonText => _pendingAction switch
+    {
+        QuasarControlAction.RestartQuasar => "Restart Quasar",
+        QuasarControlAction.ShutdownAllServers => "Shutdown Servers",
+        _ => "Shutdown Quasar",
+    };
+
+    private string ConfirmationLead => _pendingAction switch
+    {
+        QuasarControlAction.RestartQuasar => "Running servers continue to run.",
+        QuasarControlAction.ShutdownAllServers => "Every running server will be shut down normally.",
+        _ => "Quasar will stop, but running servers continue.",
+    };
+
+    private string ConfirmationBody => _pendingAction switch
+    {
+        QuasarControlAction.RestartQuasar =>
+            "The Quasar web worker exits and the launcher starts it again. The web UI briefly disconnects, then reloads and re-adopts running servers by process id. Use this after restoring Quasar configuration from backup.",
+        QuasarControlAction.ShutdownAllServers =>
+            "Quasar stays online. Each running server receives a normal graceful stop request, and its goal state is set to Off so Quasar does not restart it.",
+        _ =>
+            $"The Quasar web UI and supervisor stop. Running servers are left detached and can continue for {FormatOfflineGrace()} without Quasar before their agent offline policy takes over. Start Quasar again to re-adopt them.",
+    };
+
+    private void Select(QuasarControlAction action)
+    {
+        _pendingAction = action;
+    }
+
+    private void Back()
+    {
+        _pendingAction = null;
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private void Confirm()
+    {
+        if (_pendingAction is { } action)
+            MudDialog.Close(DialogResult.Ok(action));
+    }
+
+    private string FormatOfflineGrace()
+    {
+        if (AgentOfflineShutdownSeconds <= 0)
+            return "no grace period";
+
+        var span = TimeSpan.FromSeconds(AgentOfflineShutdownSeconds);
+        if (span.TotalHours >= 1 && span.TotalHours % 1 == 0)
+            return $"{(int)span.TotalHours} hour{(span.TotalHours == 1 ? string.Empty : "s")}";
+
+        if (span.TotalMinutes >= 1 && span.TotalMinutes % 1 == 0)
+            return $"{(int)span.TotalMinutes} minute{(span.TotalMinutes == 1 ? string.Empty : "s")}";
+
+        return $"{AgentOfflineShutdownSeconds} second{(AgentOfflineShutdownSeconds == 1 ? string.Empty : "s")}";
+    }
+}

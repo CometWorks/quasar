@@ -1,12 +1,29 @@
+using System.Threading.Channels;
 using Quasar.Models;
 
 namespace Quasar.Services.Backup;
 
+public enum QueuedBackupJobKind
+{
+    EnabledRules,
+    Server,
+    World,
+}
+
+public sealed record QueuedBackupJobResult(
+    Guid Id,
+    QueuedBackupJobKind Kind,
+    string? ServerUniqueName,
+    bool Success,
+    int CreatedCount,
+    string Message,
+    Exception? Exception = null);
+
+internal sealed record QueuedBackupJob(Guid Id, QueuedBackupJobKind Kind, string? ServerUniqueName);
+
 /// <summary>
-/// Background scheduler that writes automatic backups into the
-/// Backups directory according to <see cref="QuasarBackupSettings"/> and prunes
-/// old ones to the configured retention count. Modeled on the
-/// <see cref="PluginCatalogRefreshService"/> PeriodicTimer pattern.
+/// Background scheduler and manual queue for stored backup creation. Work is
+/// serialized so long-running ZIP creation does not run on the Blazor circuit.
 /// </summary>
 public sealed class AutomaticBackupService : BackgroundService
 {
@@ -17,6 +34,13 @@ public sealed class AutomaticBackupService : BackgroundService
     private readonly QuasarBackupSettingsService _settingsService;
     private readonly DedicatedServerCatalog _servers;
     private readonly ILogger<AutomaticBackupService> _logger;
+    private readonly Channel<QueuedBackupJob> _queue = Channel.CreateUnbounded<QueuedBackupJob>(
+        new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false,
+        });
+    private readonly SemaphoreSlim _backupGate = new(1, 1);
 
     public AutomaticBackupService(
         QuasarBackupService backupService,
@@ -30,7 +54,56 @@ public sealed class AutomaticBackupService : BackgroundService
         _logger = logger;
     }
 
+    public event Action<QueuedBackupJobResult>? QueuedBackupCompleted;
+
+    /// <summary>Queues all enabled automatic-backup rules to run in the background.</summary>
+    public Guid QueueEnabledBackupsNow() =>
+        QueueBackup(QueuedBackupJobKind.EnabledRules);
+
+    /// <summary>Queues a server-scope backup for one configured server.</summary>
+    public Guid QueueServerBackup(string uniqueName) =>
+        QueueBackup(QueuedBackupJobKind.Server, uniqueName);
+
+    /// <summary>Queues a world-scope backup for one configured server.</summary>
+    public Guid QueueWorldBackup(string uniqueName) =>
+        QueueBackup(QueuedBackupJobKind.World, uniqueName);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        _backupService.CleanupIncompleteBackupFiles();
+
+        var scheduler = RunSchedulerAsync(stoppingToken);
+        var queue = RunQueueAsync(stoppingToken);
+        await Task.WhenAll(scheduler, queue);
+    }
+
+    /// <summary>
+    /// Performs all enabled automatic-backup rules immediately, regardless of
+    /// schedule. The scheduler and manual queue share this path.
+    /// </summary>
+    public async Task<int> RunEnabledBackupsNowAsync(CancellationToken cancellationToken = default)
+    {
+        await _backupGate.WaitAsync(cancellationToken);
+        try
+        {
+            return await RunEnabledBackupsNowCoreAsync(cancellationToken);
+        }
+        finally
+        {
+            _backupGate.Release();
+        }
+    }
+
+    private Guid QueueBackup(QueuedBackupJobKind kind, string? uniqueName = null)
+    {
+        var id = Guid.NewGuid();
+        if (!_queue.Writer.TryWrite(new QueuedBackupJob(id, kind, uniqueName)))
+            throw new InvalidOperationException("Backup queue is not accepting new work.");
+
+        return id;
+    }
+
+    private async Task RunSchedulerAsync(CancellationToken stoppingToken)
     {
         try
         {
@@ -48,11 +121,55 @@ public sealed class AutomaticBackupService : BackgroundService
         }
     }
 
-    /// <summary>
-    /// Performs all enabled automatic-backup rules immediately, regardless of
-    /// schedule. Used by the Backup page.
-    /// </summary>
-    public async Task<int> RunEnabledBackupsNowAsync(CancellationToken cancellationToken = default)
+    private async Task RunQueueAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            await foreach (var job in _queue.Reader.ReadAllAsync(stoppingToken))
+                await RunQueuedBackupAsync(job, stoppingToken);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task RunQueuedBackupAsync(QueuedBackupJob job, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var created = job.Kind switch
+            {
+                QueuedBackupJobKind.Server => await RunSingleServerBackupAsync(job, QuasarBackupKind.Server, cancellationToken),
+                QueuedBackupJobKind.World => await RunSingleServerBackupAsync(job, QuasarBackupKind.World, cancellationToken),
+                _ => await RunEnabledBackupsNowAsync(cancellationToken),
+            };
+
+            QueuedBackupCompleted?.Invoke(new QueuedBackupJobResult(
+                job.Id,
+                job.Kind,
+                job.ServerUniqueName,
+                Success: true,
+                CreatedCount: created,
+                Message: CreateSuccessMessage(job, created)));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Queued {Kind} backup failed.", job.Kind);
+            QueuedBackupCompleted?.Invoke(new QueuedBackupJobResult(
+                job.Id,
+                job.Kind,
+                job.ServerUniqueName,
+                Success: false,
+                CreatedCount: 0,
+                Message: CreateFailureMessage(job, exception),
+                Exception: exception));
+        }
+    }
+
+    private async Task<int> RunEnabledBackupsNowCoreAsync(CancellationToken cancellationToken)
     {
         var settings = _settingsService.GetSettings();
         var now = DateTimeOffset.Now;
@@ -66,6 +183,31 @@ public sealed class AutomaticBackupService : BackgroundService
             created += await PerformBackupAsync(QuasarBackupKind.World, settings.World, now, cancellationToken);
 
         return created;
+    }
+
+    private async Task<int> RunSingleServerBackupAsync(
+        QueuedBackupJob job,
+        QuasarBackupKind kind,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(job.ServerUniqueName))
+            throw new InvalidOperationException("Backup target server was not specified.");
+
+        await _backupGate.WaitAsync(cancellationToken);
+        try
+        {
+            var timestamp = DateTimeOffset.Now;
+            if (kind == QuasarBackupKind.World)
+                await _backupService.WriteWorldBackupFileAsync(job.ServerUniqueName, timestamp, cancellationToken: cancellationToken);
+            else
+                await _backupService.WriteServerBackupFileAsync(job.ServerUniqueName, timestamp, cancellationToken: cancellationToken);
+
+            return 1;
+        }
+        finally
+        {
+            _backupGate.Release();
+        }
     }
 
     private async Task RunDueBackupAsync(CancellationToken cancellationToken)
@@ -100,7 +242,15 @@ public sealed class AutomaticBackupService : BackgroundService
 
         try
         {
-            await PerformBackupAsync(kind, rule, timestamp, cancellationToken);
+            await _backupGate.WaitAsync(cancellationToken);
+            try
+            {
+                await PerformBackupAsync(kind, rule, timestamp, cancellationToken);
+            }
+            finally
+            {
+                _backupGate.Release();
+            }
         }
         catch (OperationCanceledException)
         {
@@ -111,6 +261,23 @@ public sealed class AutomaticBackupService : BackgroundService
             _logger.LogWarning(exception, "Scheduled {Kind} backup failed.", kind);
         }
     }
+
+    private static string CreateSuccessMessage(QueuedBackupJob job, int created) =>
+        job.Kind switch
+        {
+            QueuedBackupJobKind.Server => "Server backup created in the Backups folder.",
+            QueuedBackupJobKind.World => "World backup created in the Backups folder.",
+            _ when created == 0 => "No enabled automatic backup rules created a backup.",
+            _ => $"Created {created} backup(s) in the Backups folder.",
+        };
+
+    private static string CreateFailureMessage(QueuedBackupJob job, Exception exception) =>
+        job.Kind switch
+        {
+            QueuedBackupJobKind.Server => $"Server backup failed: {exception.Message}",
+            QueuedBackupJobKind.World => $"World backup failed: {exception.Message}",
+            _ => $"Automatic backup failed: {exception.Message}",
+        };
 
     private async Task<int> PerformBackupAsync(
         QuasarBackupKind kind,

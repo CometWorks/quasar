@@ -1584,6 +1584,13 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         var exitCode = SafeGetExitCode(worker.Process);
         var shouldRestart = false;
 
+        if (TryConsumeLauncherShutdownRequest())
+        {
+            _logger.LogInformation("Quasar worker requested launcher shutdown; exiting without restarting worker.");
+            Environment.Exit(0);
+            return;
+        }
+
         lock (_sync)
         {
             if (!_isStopping && ReferenceEquals(_currentWorker, worker))
@@ -1613,6 +1620,26 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             return -1;
         }
     }
+
+    private static bool TryConsumeLauncherShutdownRequest()
+    {
+        var path = GetLauncherShutdownRequestPath();
+        if (!File.Exists(path))
+            return false;
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+        }
+
+        return true;
+    }
+
+    private static string GetLauncherShutdownRequestPath() =>
+        Path.Combine(MagnetarPaths.GetQuasarDirectory(), "launcher-shutdown-request");
 
     private static QuasarActiveReleasePointer Normalize(QuasarActiveReleasePointer pointer)
     {

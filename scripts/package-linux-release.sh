@@ -171,6 +171,7 @@ cp -a "$PUBLISH_DIR/Quasar" "$BOOTSTRAP_DIR/Quasar"
 cp -a "$REPO_DIR/Quasar/appsettings.json" "$BOOTSTRAP_DIR/appsettings.json"
 cp -a "$REPO_DIR/install.sh" "$BOOTSTRAP_DIR/install.sh"
 cp -a "$REPO_DIR/uninstall.sh" "$BOOTSTRAP_DIR/uninstall.sh"
+cp -a "$REPO_DIR/tools/quasar-renice.c" "$BOOTSTRAP_DIR/quasar-renice.c"
 build_packaged_readme "$REPO_DIR/README.md" "$SCRIPT_DIR/readme-install-linux.md" "$BOOTSTRAP_DIR/README.md"
 chmod +x "$BOOTSTRAP_DIR/Quasar" "$BOOTSTRAP_DIR/install.sh" "$BOOTSTRAP_DIR/uninstall.sh"
 tar -C "$BOOTSTRAP_DIR" -czf "$ARTIFACT_DIR/quasar-linux-x64.tar.gz" .

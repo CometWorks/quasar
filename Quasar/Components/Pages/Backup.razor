@@ -26,8 +26,8 @@
                 <MudText Typo="Typo.body2">
                     A backup contains all Quasar configurations (server configs, Config profiles, world
                     templates, Discord, branding, players, security/RBAC and more). <b>No world state is
-                        backed up. Please use the per-server backup below for saving game data and mod+plugin
-                        config or state save files.</b>
+                        backed up. Please use the world backup below for save files, and the server backup for
+                        non-cache Dedicated Server and Magnetar app data.</b>
                 </MudText>
 
                 <MudButton Href="/api/backup/download"
@@ -102,10 +102,10 @@
             <MudStack Spacing="3">
                 <MudText Typo="Typo.h6">Server &amp; world backups</MudText>
                 <MudText Typo="Typo.body2">
-                    Server backups include Quasar's server definition, Dedicated Server app data, Magnetar app data,
-                    the world and its config. World backups restore only world files and keep the current server/world
-                    config intact. These backups can be taken while a server is running; when Space Engineers has a
-                    world <code>Backup</code> folder, Quasar uses the latest valid snapshot from it.
+                    Server backups include Quasar's server definition plus non-cache Dedicated Server and Magnetar app
+                    data. World backups restore only world files and keep the current server/world config intact. World
+                    backups can be taken while a server is running; when Space Engineers has a world <code>Backup</code>
+                    folder, Quasar uses the latest valid snapshot from it.
                 </MudText>
 
                 @if (_servers.Count == 0)
@@ -326,20 +326,15 @@
                 {
                     <MudTable Items="_backups" Hover="true" Dense="true">
                         <HeaderContent>
+                            <MudTh>Actions</MudTh>
                             <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.Name)">Name</MudTableSortLabel></MudTh>
                             <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => FormatBackupType(x))">Type</MudTableSortLabel></MudTh>
                             <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.ServerDisplayName ?? x.ServerUniqueName ?? string.Empty)">Server</MudTableSortLabel></MudTh>
                             <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.SizeBytes)">Size</MudTableSortLabel></MudTh>
                             <MudTh><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="new Func<QuasarBackupFileInfo, object>(x => x.CreatedAtUtc)">Created</MudTableSortLabel></MudTh>
-                            <MudTh Style="text-align:right">Actions</MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd DataLabel="Name">@context.Name</MudTd>
-                            <MudTd DataLabel="Type">@FormatBackupType(context)</MudTd>
-                            <MudTd DataLabel="Server">@(context.ServerDisplayName ?? context.ServerUniqueName ?? "-")</MudTd>
-                            <MudTd DataLabel="Size">@FormatSize(context.SizeBytes)</MudTd>
-                            <MudTd DataLabel="Created">@context.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
-                            <MudTd Style="text-align:right">
+                            <MudTd DataLabel="Actions">
                                 <MudTooltip Text="Download">
                                     <MudIconButton Icon="@Icons.Material.Filled.Download"
                                                    Href="@($"/api/backup/download/{context.Name}")"
@@ -356,6 +351,11 @@
                                                    Disabled="_busy" Size="Size.Small" Color="Color.Error" />
                                 </MudTooltip>
                             </MudTd>
+                            <MudTd DataLabel="Name">@context.Name</MudTd>
+                            <MudTd DataLabel="Type">@FormatBackupType(context)</MudTd>
+                            <MudTd DataLabel="Server">@(context.ServerDisplayName ?? context.ServerUniqueName ?? "-")</MudTd>
+                            <MudTd DataLabel="Size">@FormatSize(context.SizeBytes)</MudTd>
+                            <MudTd DataLabel="Created">@context.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
                         </RowTemplate>
                     </MudTable>
                 }
@@ -383,12 +383,16 @@
         RefreshBackups();
         BackupSettingsService.Changed += OnSettingsChanged;
         ServerCatalog.Changed += OnServersChanged;
+        BackupService.Changed += OnBackupsChanged;
+        AutomaticBackup.QueuedBackupCompleted += OnQueuedBackupCompleted;
     }
 
     public void Dispose()
     {
         BackupSettingsService.Changed -= OnSettingsChanged;
         ServerCatalog.Changed -= OnServersChanged;
+        BackupService.Changed -= OnBackupsChanged;
+        AutomaticBackup.QueuedBackupCompleted -= OnQueuedBackupCompleted;
     }
 
     private void LoadSettingsDraft()
@@ -424,6 +428,19 @@
         StateHasChanged();
     });
 
+    private void OnBackupsChanged() => InvokeAsync(() =>
+    {
+        RefreshBackups();
+        StateHasChanged();
+    });
+
+    private void OnQueuedBackupCompleted(QueuedBackupJobResult result) => InvokeAsync(() =>
+    {
+        RefreshBackups();
+        Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Error);
+        StateHasChanged();
+    });
+
     private async Task SaveSettingsAsync()
     {
         _settings.Configuration.TimeOfDay = _configurationTimeOfDay is { } configurationTime
@@ -452,70 +469,48 @@
         }
     }
 
-    private async Task MakeBackupNowAsync()
+    private void MakeBackupNowAsync()
     {
-        _busy = true;
         try
         {
-            var created = await AutomaticBackup.RunEnabledBackupsNowAsync();
-            RefreshBackups();
-            Snackbar.Add(
-                created == 0
-                    ? "No enabled automatic backup rules created a backup."
-                    : $"Created {created} backup(s) in the Backups folder.",
-                created == 0 ? Severity.Info : Severity.Success);
+            AutomaticBackup.QueueEnabledBackupsNow();
+            Snackbar.Add("Enabled backup rules queued.", Severity.Info);
         }
         catch (Exception exception)
         {
-            Snackbar.Add($"Automatic backup failed: {exception.Message}", Severity.Error);
-        }
-        finally
-        {
-            _busy = false;
+            Snackbar.Add($"Failed to queue automatic backup: {exception.Message}", Severity.Error);
         }
     }
 
-    private async Task MakeServerBackupNowAsync(string uniqueName)
+    private void MakeServerBackupNowAsync(string uniqueName)
     {
         if (string.IsNullOrWhiteSpace(uniqueName))
             return;
 
-        _busy = true;
         try
         {
-            await BackupService.WriteServerBackupFileAsync(uniqueName, DateTimeOffset.Now);
-            RefreshBackups();
-            Snackbar.Add("Server backup created in the Backups folder.", Severity.Success);
+            AutomaticBackup.QueueServerBackup(uniqueName);
+            Snackbar.Add("Server backup queued.", Severity.Info);
         }
         catch (Exception exception)
         {
-            Snackbar.Add($"Server backup failed: {exception.Message}", Severity.Error);
-        }
-        finally
-        {
-            _busy = false;
+            Snackbar.Add($"Failed to queue server backup: {exception.Message}", Severity.Error);
         }
     }
 
-    private async Task MakeWorldBackupNowAsync(string uniqueName)
+    private void MakeWorldBackupNowAsync(string uniqueName)
     {
         if (string.IsNullOrWhiteSpace(uniqueName))
             return;
 
-        _busy = true;
         try
         {
-            await BackupService.WriteWorldBackupFileAsync(uniqueName, DateTimeOffset.Now);
-            RefreshBackups();
-            Snackbar.Add("World backup created in the Backups folder.", Severity.Success);
+            AutomaticBackup.QueueWorldBackup(uniqueName);
+            Snackbar.Add("World backup queued.", Severity.Info);
         }
         catch (Exception exception)
         {
-            Snackbar.Add($"World backup failed: {exception.Message}", Severity.Error);
-        }
-        finally
-        {
-            _busy = false;
+            Snackbar.Add($"Failed to queue world backup: {exception.Message}", Severity.Error);
         }
     }
 

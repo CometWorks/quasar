@@ -347,7 +347,7 @@
       "name": "MainLayout.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Top-level application shell layout. Provides the MudBlazor theme/provider setup, a responsive app bar with branding, update notification bell, theme-mode switcher, auth (login/logout) controls, and Quasar shutdown / worker-restart controls. It hosts a collapsible side drawer with `NavMenu`, the main content area that renders `@Body`, a full-screen restart overlay, and two confirmation `MudMessageBox` dialogs (shut-down-all-servers and restart-worker)."
+      "summary": "Top-level application shell layout with MudBlazor providers, responsive app bar, branding, update bell, theme/auth controls, and a single Quasar power dialog trigger for restart, Quasar shutdown, or normal server shutdown."
     },
     {
       "path": "Quasar/Components/Layout/MainLayout.razor.css",
@@ -355,6 +355,27 @@
       "kind": "CSS",
       "tier": 3,
       "summary": "Scoped CSS for `MainLayout.razor`. Styles the brand logo mark in the app bar and the Blazor framework error banner."
+    },
+    {
+      "path": "Quasar/Components/Layout/QuasarControlAction.cs",
+      "name": "QuasarControlAction.cs",
+      "kind": "enum",
+      "tier": 3,
+      "summary": "Enum returned by `QuasarControlDialog` to tell `MainLayout` which confirmed power action the operator selected: restart Quasar, shut down Quasar while keeping servers running, or shut down all servers while Quasar stays online."
+    },
+    {
+      "path": "Quasar/Components/Layout/QuasarControlDialog.razor",
+      "name": "QuasarControlDialog.razor",
+      "kind": "Blazor component",
+      "tier": 2,
+      "summary": "Mobile-friendly MudBlazor dialog opened from the app bar power button. It presents the three Quasar power actions, then requires a second confirmation step with action-specific clarification before returning a `QuasarControlAction` to `MainLayout`."
+    },
+    {
+      "path": "Quasar/Components/Layout/QuasarControlDialog.razor.css",
+      "name": "QuasarControlDialog.razor.css",
+      "kind": "CSS",
+      "tier": 3,
+      "summary": "Scoped CSS for `QuasarControlDialog.razor`. Makes each power action a full-width, left-aligned button with stable height and wrapping title/body text for narrow mobile screens."
     },
     {
       "path": "Quasar/Components/Layout/NavMenu.razor",
@@ -417,7 +438,7 @@
       "name": "Backup.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page (`@page \"/backup\"`) for creating, restoring, scheduling and managing Quasar configuration, server, and world backups. Gated by `@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]` and `@implements IDisposable`."
+      "summary": "Routable page (`@page \"/backup\"`) for creating, restoring, scheduling and managing Quasar configuration, server, and world backups. Manual stored-backup creation queues background jobs so page rendering and navigation are not blocked by ZIP creation."
     },
     {
       "path": "Quasar/Components/Pages/ConfigProfilePendingChangesDialog.razor",
@@ -885,7 +906,7 @@
       "name": "AutomaticBackupService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Background scheduler that writes automatic Quasar config, server, and world backups into the Backups directory according to separate `QuasarBackupSettings` rules and prunes them to each rule's retention count. Modeled on `PluginCatalogRefreshService`'s `PeriodicTimer` pattern."
+      "summary": "Background scheduler and manual backup queue that writes automatic and queued Quasar config, server, and world backups into the Backups directory, serializing jobs and pruning automatic backups to each rule's retention count."
     },
     {
       "path": "Quasar/Services/Backup/BackupCompatibility.cs",
@@ -906,7 +927,7 @@
       "name": "QuasarBackupService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Builds and restores ZIP backups for three scopes: Quasar configuration, whole server data, and world-only data. Configuration backups still capture Quasar's own singleton/config/catalog files; server backups include the server definition, Dedicated Server app data, Magnetar app data, and world files including config; world backups restore world files while excluding `Sandbox_config.sbc*`."
+      "summary": "Builds and restores ZIP backups for three scopes: Quasar configuration, server runtime state, and world-only data. Stored writes publish complete `.zip` files atomically from temp files; server backups include server definition plus non-cache Dedicated Server and Magnetar app data."
     },
     {
       "path": "Quasar/Services/Backup/QuasarBackupSettingsService.cs",
@@ -1060,7 +1081,7 @@
       "name": "QuasarShutdownService.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`QuasarShutdownService` orchestrates stopping all managed Magnetar servers and recycling the Quasar worker \u2014 with or without leaving those servers running. It distinguishes three operations: stop every running server (leaving Quasar up), full shutdown (stop servers then stop the host), and worker restart (leave servers running, drain the supervisor, and stop the worker so a launcher respawns it). An `IProgress<string>` parameter streams status messages to the UI during each sequence."
+      "summary": "`QuasarShutdownService` orchestrates normal server shutdown, full stop-server-then-host shutdown, worker restart with server preservation, and Quasar shutdown that preserves detached running servers by stopping the launcher/worker."
     },
     {
       "path": "Quasar/Services/QuasarTheme.cs",
@@ -1137,7 +1158,7 @@
       "name": "WebServiceOptions.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Immutable configuration record for the Quasar web service host. All properties are `init`-only and populated by the static factory method `Create(IConfiguration)`, which reads from the `Quasar` (or legacy `MagnetarWeb`) config section and a defined set of environment variables, with environment variables taking priority. It also carries agent launch settings that the supervisor forwards to each managed dedicated server process."
+      "summary": "Immutable configuration record for the Quasar web service host. Reads config/env values, carries agent launch settings forwarded to managed servers, and stores Bootstrap metadata including launcher token and Bootstrap version."
     },
     {
       "path": "Quasar/Services/WebServiceState.cs",

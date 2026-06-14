@@ -1,20 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_NAME="quasar"
-INSTALL_DIR="/opt/quasar"
+INSTALL_DIR=""
+INSTALL_MODE="user"
 PURGE=false
 
 usage() {
     cat <<EOF
-Usage: sudo ./uninstall.sh [options]
+Usage: ./uninstall.sh [options]
 
 Stops and removes the Quasar systemd service installed by install.sh.
 Runtime/config data under the Quasar user's home directory is not removed.
 
 Options:
   --service-name <name>     systemd service name (default: quasar)
-  --install-dir <dir>       Install directory (default: /opt/quasar)
+  --install-dir <dir>       Install directory (default: ~/.local/share/Quasar)
+  --user-service            Remove a user systemd service (default)
+  --system                  Remove a system service under /etc/systemd/system
   --purge                   Also remove the install directory
   -h, --help                Show this help
 EOF
@@ -29,6 +33,17 @@ while [[ $# -gt 0 ]]; do
         --install-dir)
             INSTALL_DIR="${2:?Missing value for --install-dir}"
             shift 2
+            ;;
+        --user-service)
+            INSTALL_MODE="user"
+            shift
+            ;;
+        --system|--system-service)
+            INSTALL_MODE="system"
+            if [[ -z "$INSTALL_DIR" ]]; then
+                INSTALL_DIR="/opt/quasar"
+            fi
+            shift
             ;;
         --purge)
             PURGE=true
@@ -51,8 +66,8 @@ if [[ "$(uname -s)" != "Linux" ]]; then
     exit 1
 fi
 
-if [[ "${EUID}" -ne 0 ]]; then
-    echo "Run as root, usually: sudo ./uninstall.sh" >&2
+if [[ "$INSTALL_MODE" == "system" && "${EUID}" -ne 0 ]]; then
+    echo "System service uninstall needs root. Run: sudo ./uninstall.sh --system" >&2
     exit 1
 fi
 
@@ -61,10 +76,21 @@ if ! command -v systemctl >/dev/null 2>&1; then
     exit 1
 fi
 
-SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
+if [[ -z "$INSTALL_DIR" ]]; then
+    INSTALL_DIR="$SCRIPT_DIR"
+fi
+INSTALL_DIR="$(realpath -m "$INSTALL_DIR")"
+
+if [[ "$INSTALL_MODE" == "system" ]]; then
+    SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
+    SYSTEMCTL=(systemctl)
+else
+    SERVICE_PATH="$HOME/.config/systemd/user/${SERVICE_NAME}.service"
+    SYSTEMCTL=(systemctl --user)
+fi
 SERVICE_UNIT="${SERVICE_NAME}.service"
-SERVICE_LISTING="$(systemctl list-unit-files "$SERVICE_UNIT" --no-legend 2>/dev/null || true)"
-LOADED_SERVICE_LISTING="$(systemctl list-units "$SERVICE_UNIT" --all --no-legend 2>/dev/null || true)"
+SERVICE_LISTING="$("${SYSTEMCTL[@]}" list-unit-files "$SERVICE_UNIT" --no-legend 2>/dev/null || true)"
+LOADED_SERVICE_LISTING="$("${SYSTEMCTL[@]}" list-units "$SERVICE_UNIT" --all --no-legend 2>/dev/null || true)"
 SERVICE_EXISTS=false
 if [[ -n "$SERVICE_LISTING" || -n "$LOADED_SERVICE_LISTING" || -f "$SERVICE_PATH" ]]; then
     SERVICE_EXISTS=true
@@ -72,11 +98,11 @@ fi
 
 if [[ "$SERVICE_EXISTS" == "true" ]]; then
     echo "Stopping $SERVICE_UNIT..."
-    systemctl stop "$SERVICE_UNIT"
+    "${SYSTEMCTL[@]}" stop "$SERVICE_UNIT"
 
-    if systemctl is-enabled --quiet "$SERVICE_UNIT" 2>/dev/null; then
+    if "${SYSTEMCTL[@]}" is-enabled --quiet "$SERVICE_UNIT" 2>/dev/null; then
         echo "Disabling $SERVICE_UNIT..."
-        systemctl disable "$SERVICE_UNIT"
+        "${SYSTEMCTL[@]}" disable "$SERVICE_UNIT"
     fi
 fi
 
@@ -85,8 +111,8 @@ if [[ -f "$SERVICE_PATH" ]]; then
     rm -f "$SERVICE_PATH"
 fi
 
-systemctl daemon-reload
-systemctl reset-failed "$SERVICE_UNIT" >/dev/null 2>&1 || true
+"${SYSTEMCTL[@]}" daemon-reload
+"${SYSTEMCTL[@]}" reset-failed "$SERVICE_UNIT" >/dev/null 2>&1 || true
 
 if [[ "$PURGE" == "true" ]]; then
     case "$INSTALL_DIR" in
@@ -106,15 +132,25 @@ cat <<EOF
 Uninstalled Quasar service.
 
 Removed service: ${SERVICE_NAME}.service
+Mode: ${INSTALL_MODE}
 EOF
 
 if [[ "$PURGE" == "true" ]]; then
     echo "Removed install dir: $INSTALL_DIR"
 else
-    cat <<EOF
+    if [[ "$INSTALL_MODE" == "system" ]]; then
+        cat <<EOF
 
 Install dir left in place: $INSTALL_DIR
 Remove binaries too:
-  sudo ./uninstall.sh --purge
+  sudo ./uninstall.sh --system --purge
 EOF
+    else
+        cat <<EOF
+
+Install dir left in place: $INSTALL_DIR
+Remove binaries too:
+  ./uninstall.sh --purge
+EOF
+    fi
 fi

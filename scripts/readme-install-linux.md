@@ -25,25 +25,26 @@ Install the **.NET 10 runtime** before running `install.sh`.
 ```bash
 mkdir -p /tmp/quasar
 tar -xzf quasar-linux-x64.tar.gz -C /tmp/quasar
-sudo /tmp/quasar/install.sh --start
+/tmp/quasar/install.sh --start
 ```
 
-This installs Quasar to `/opt/quasar`, creates the run user's
-`~/.config/Quasar` data directory, and starts `quasar.service`. Pass
-`--data-dir <dir>` to store Quasar state elsewhere. The web UI is then served at
-`http://localhost:8080`. Manage the service with the usual systemd commands:
+This installs Quasar to `~/.local/share/Quasar`, creates the user's
+`~/.config/Quasar` data directory, and starts the user `quasar.service`. Pass
+`--system` with `sudo` for a machine-wide service, or `--data-dir <dir>` to
+store Quasar state elsewhere. The web UI is then served at
+`http://localhost:8080`. Manage the service with:
 
 ```bash
-sudo systemctl status  quasar.service
-sudo systemctl stop    quasar.service
-sudo systemctl restart quasar.service
+systemctl --user status  quasar.service
+systemctl --user stop    quasar.service
+systemctl --user restart quasar.service
 ```
 
 ### Uninstall
 
 ```bash
-sudo /opt/quasar/uninstall.sh          # stop and remove the service
-sudo /opt/quasar/uninstall.sh --purge  # also delete /opt/quasar
+~/.local/share/Quasar/uninstall.sh          # stop and remove the user service
+~/.local/share/Quasar/uninstall.sh --purge  # also delete ~/.local/share/Quasar
 ```
 
 The uninstall script stops `quasar.service` before removing it.
