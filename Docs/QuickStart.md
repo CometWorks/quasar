@@ -41,26 +41,27 @@ Declining the prompt exits before files or services are changed.
 
 ```bash
 tar -xzf quasar-linux-x64.tar.gz -C /tmp/quasar
-sudo /tmp/quasar/install.sh --start   # installs to /opt/quasar and starts quasar.service
+/tmp/quasar/install.sh --start        # installs to ~/.local/share/Quasar and starts quasar.service
 ```
 
-The Linux installer creates the run user's `~/.config/Quasar` data directory by
-default and writes it to the systemd unit as `QUASAR_DATA_DIR`. Pass
-`--data-dir <dir>` to store Quasar state elsewhere.
+The Linux installer defaults to a user systemd service, stores Bootstrap under
+`~/.local/share/Quasar`, creates `~/.config/Quasar`, and writes that data path to
+the unit as `QUASAR_DATA_DIR`. Pass `--system` with `sudo` for a machine-wide
+service, or `--data-dir <dir>` to store Quasar state elsewhere.
 
 Manage the service with the usual systemd commands:
 
 ```bash
-sudo systemctl status  quasar.service
-sudo systemctl stop    quasar.service
-sudo systemctl restart quasar.service
+systemctl --user status  quasar.service
+systemctl --user stop    quasar.service
+systemctl --user restart quasar.service
 ```
 
 To remove:
 
 ```bash
-sudo /opt/quasar/uninstall.sh          # stop and remove the service
-sudo /opt/quasar/uninstall.sh --purge  # also delete /opt/quasar
+~/.local/share/Quasar/uninstall.sh          # stop and remove the user service
+~/.local/share/Quasar/uninstall.sh --purge  # also delete ~/.local/share/Quasar
 ```
 
 The uninstall script stops `quasar.service` before removing it.

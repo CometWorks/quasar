@@ -58,8 +58,10 @@ metadata is normalized to `major.minor.build`.
 
 ## First Start
 
-The systemd service runs Bootstrap from `/opt/quasar/Quasar serve --quiet` and
-sets `QUASAR_DATA_DIR` to the run user's Quasar data directory.
+The default systemd user service runs Bootstrap from
+`~/.local/share/Quasar/Quasar serve --quiet` and sets `QUASAR_DATA_DIR` to the
+user's Quasar data directory. A machine-wide service is still available with
+`install.sh --system`.
 
 If Bootstrap has no usable `Updates/active-release.json` and no packaged
 `WebService/Quasar`, it downloads the latest Linux web asset from GitHub,
@@ -93,8 +95,8 @@ a matching `SHA256SUMS` entry for the downloaded asset.
 
 Staging also resolves `appsettings.json`. Quasar uses the stored release base in
 the data directory (`$QUASAR_DATA_DIR/Updates/appsettings.base.json`) as the
-merge base, applies local values from the install directory (`/opt/quasar` by
-default), and writes the resolved file into the staged worker. If the merge
+merge base, applies local values from the install directory
+(`~/.local/share/Quasar` by default), and writes the resolved file into the staged worker. If the merge
 conflicts, auto-staging stops with a warning and `/settings/updates` shows a
 git-style conflict editor. Resolve and save the JSON there, or choose **Force
 release defaults** to stage the release file without local appsettings values.
@@ -141,31 +143,49 @@ prompt exits before files or services are changed.
 
 ```bash
 tar -xzf quasar-linux-x64.tar.gz -C /tmp/quasar
-sudo /tmp/quasar/install.sh          # publish to /opt/quasar and install quasar.service
-sudo /tmp/quasar/install.sh --start  # also start the service immediately
+/tmp/quasar/install.sh          # publish to ~/.local/share/Quasar and install user quasar.service
+/tmp/quasar/install.sh --start  # also start the user service immediately
 ```
 
-`install.sh` publishes Quasar to `/opt/quasar`, creates the Quasar data directory
-at the run user's `~/.config/Quasar` by default, and installs `quasar.service`.
-Use `--data-dir <dir>` to place Quasar state elsewhere. The generated service
-sets `HOME` and `QUASAR_DATA_DIR` explicitly so Bootstrap and the worker never
-fall back to the install directory for update/runtime state. The service grants
-`CAP_SYS_NICE` through systemd ambient capabilities so Quasar can raise managed
-server priority via `renice`. The installer enables the service but does not
-start or restart it unless `--start` is passed; start it later with
-`sudo systemctl restart quasar.service`. When installing from source instead of
-an extracted release archive, the installer stamps the launcher with `VERSION`,
-an exact git tag, or a short commit-derived prerelease identity so Bootstrap
-update comparisons do not fall back to plain `0.1.0`.
+`install.sh` publishes Quasar to `~/.local/share/Quasar`, creates the Quasar
+data directory at `~/.config/Quasar` by default, and installs a user
+`quasar.service`. Use `--system` with `sudo` for a machine-wide service, or
+`--data-dir <dir>` to place Quasar state elsewhere. The generated service sets
+`HOME` and `QUASAR_DATA_DIR` explicitly so Bootstrap and the worker never fall
+back to the install directory for update/runtime state. The installer enables
+the service but does not start or restart it unless `--start` is passed; start it
+later with `systemctl --user restart quasar.service`. When installing from
+source instead of an extracted release archive, the installer stamps the launcher
+with `VERSION`, an exact git tag, or a short commit-derived prerelease identity
+so Bootstrap update comparisons do not fall back to plain `0.1.0`.
+
+If a previous `/opt/quasar` system install exists, the new user-mode installer
+installs the new Bootstrap and user service first, then calls the old
+`/opt/quasar/uninstall.sh --purge` through `sudo` to stop and remove the old
+system service and files.
+
+Raising managed server priority no longer requires granting `CAP_SYS_NICE` to
+the whole Quasar service. The installer can build and install a narrow setuid
+root helper when the feature is needed:
 
 ```bash
-sudo ./uninstall.sh           # remove the systemd service
-sudo ./uninstall.sh --purge   # also remove /opt/quasar
+/tmp/quasar/install.sh --install-renice-helper --no-build --no-enable
+```
+
+The helper is installed as `/usr/local/bin/quasar-renice`, accepts only Quasar's
+known nice values, requires the target process to be owned by the caller, and
+checks that the target executable basename is one of Quasar's Magnetar launcher
+names before calling `setpriority`.
+
+```bash
+~/.local/share/Quasar/uninstall.sh           # remove the user systemd service
+~/.local/share/Quasar/uninstall.sh --purge   # also remove ~/.local/share/Quasar
 ```
 
 `uninstall.sh` runs `systemctl stop quasar.service` before disabling and removing
 the service. With `--service-name <name>`, it stops the matching `<name>.service`
-unit instead.
+unit instead. Use `sudo ./uninstall.sh --system --purge` from a system install
+to remove a machine-wide service.
 
 ## Configuration
 

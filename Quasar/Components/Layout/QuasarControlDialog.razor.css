@@ -1,0 +1,22 @@
+.quasar-control-action {
+    width: 100%;
+    min-height: 68px;
+    justify-content: flex-start;
+    text-align: left;
+    text-transform: none;
+}
+
+.quasar-control-action-title,
+.quasar-control-action-body {
+    display: block;
+    white-space: normal;
+}
+
+.quasar-control-action-title {
+    font-weight: 600;
+}
+
+.quasar-control-action-body {
+    line-height: 1.35;
+    opacity: 0.78;
+}

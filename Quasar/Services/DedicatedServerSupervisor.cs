@@ -22,6 +22,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private const string StandardOutputLogName = "stdout";
     private const string StandardErrorLogName = "stderr";
     private const string ActiveLogExtension = ".log";
+    private const string ReniceHelperPath = "/usr/local/bin/quasar-renice";
     private const int MaxModDownloadFailures = 20;
     private static readonly Regex PrefixedLogLinePattern = new(
         @"^(?<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,7})?)\s*[:\-]\s*(?<message>.*)$",
@@ -821,12 +822,15 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         try
         {
+            var useHelper = File.Exists(ReniceHelperPath);
             using var renice = new Process
             {
                 StartInfo = new ProcessStartInfo
                 {
-                    FileName = "renice",
-                    Arguments = $"-n {nice} -p {processId}",
+                    FileName = useHelper ? ReniceHelperPath : "renice",
+                    Arguments = useHelper
+                        ? $"{nice} {processId}"
+                        : $"-n {nice} -p {processId}",
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
@@ -842,22 +846,31 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             renice.WaitForExit(3000);
             if (renice.ExitCode == 0)
             {
-                _logger.LogInformation("Applied {Phase} nice {Nice} to server {UniqueName}.", phase, nice, uniqueName);
+                _logger.LogInformation(
+                    "Applied {Phase} nice {Nice} to server {UniqueName} using {Tool}.",
+                    phase,
+                    nice,
+                    uniqueName,
+                    useHelper ? ReniceHelperPath : "renice");
                 return true;
             }
 
             _logger.LogWarning(
-                "renice failed applying {Phase} nice {Nice} to server {UniqueName}. ExitCode={ExitCode}. Stdout={Stdout}. Stderr={Stderr}",
+                "{Tool} failed applying {Phase} nice {Nice} to server {UniqueName}. ExitCode={ExitCode}. Stdout={Stdout}. Stderr={Stderr}",
+                useHelper ? ReniceHelperPath : "renice",
                 phase,
                 nice,
                 uniqueName,
                 renice.ExitCode,
                 TrimForLog(stdout),
                 TrimForLog(stderr));
+
+            if (!useHelper && nice < 0)
+                SetRuntimeMessage(uniqueName, $"Install {ReniceHelperPath} to use {priority} process priority on Linux.");
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Failed running renice for server {UniqueName}.", uniqueName);
+            _logger.LogWarning(exception, "Failed applying Unix nice for server {UniqueName}.", uniqueName);
         }
 
         return false;

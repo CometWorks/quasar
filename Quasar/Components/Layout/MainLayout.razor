@@ -7,6 +7,7 @@
 @inject QuasarUpdateService UpdateService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
+@inject IDialogService DialogService
 
 <MudThemeProvider Theme="@ThemePreference.Theme" IsDarkMode="@_isDarkMode" IsDarkModeChanged="OnSystemDarkModeChangedAsync" ObserveSystemDarkModeChange="@(_themeMode == ThemeMode.System)" />
 <MudPopoverProvider />
@@ -61,77 +62,16 @@
         </AuthorizeView>
         <AuthorizeView Policy="@QuasarPolicyNames.CanShutdownQuasar">
             <Authorized>
-                @if (IsUnderBootstrap)
-                {
-                    <MudTooltip Text="Restart Quasar worker (keeps servers running)">
-                        <MudIconButton
-                            Icon="@Icons.Material.Filled.RestartAlt"
-                            Color="Color.Inherit"
-                            Disabled="@_isShuttingDown"
-                            OnClick="HandleRestartWorkerClickAsync" />
-                    </MudTooltip>
-                }
-                <MudTooltip Text="Shut down all servers"
-                            Disabled="@_shutdownTooltipSuppressed"
-                            Visible="@_shutdownTooltipVisible"
-                            VisibleChanged="HandleShutdownTooltipVisibleChanged">
+                <MudTooltip Text="Quasar power actions">
                     <MudIconButton
                         Icon="@Icons.Material.Filled.PowerSettingsNew"
                         Color="Color.Error"
                         Disabled="@_isShuttingDown"
-                        OnClick="HandleShutdownClickAsync"
-                        @onmouseleave="ReleaseShutdownTooltip" />
+                        OnClick="HandlePowerClickAsync" />
                 </MudTooltip>
             </Authorized>
         </AuthorizeView>
     </MudAppBar>
-
-    <MudMessageBox @ref="_shutdownMessageBox" Title="Shut down all servers?">
-        <MessageContent>
-            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">
-                This stops every running Magnetar server.
-            </MudAlert>
-            <MudText Typo="Typo.body2">
-                Each server is sent a graceful shutdown command and winds down in the background —
-                follow their progress on the Dashboard. Quasar itself keeps running. To take Quasar
-                fully offline, stop the Bootstrap process separately or relaunch with <code>--force</code>.
-            </MudText>
-        </MessageContent>
-        <YesButton>
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Error"
-                       StartIcon="@Icons.Material.Filled.PowerSettingsNew">
-                Shut Down Servers
-            </MudButton>
-        </YesButton>
-        <CancelButton>
-            <MudButton Variant="Variant.Text" Color="Color.Default">Cancel</MudButton>
-        </CancelButton>
-    </MudMessageBox>
-
-    <MudMessageBox @ref="_restartWorkerMessageBox" Title="Restart Quasar worker?">
-        <MessageContent>
-            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">
-                Running Magnetar servers keep running — none are stopped.
-            </MudAlert>
-            <MudText Typo="Typo.body2">
-                The Quasar web worker restarts and re-adopts the detached servers by process id.
-                The web UI briefly disconnects and reconnects. Requires
-                <strong>the Quasar launcher</strong> to bring the worker back; without it the worker
-                only stops.
-            </MudText>
-        </MessageContent>
-        <YesButton>
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Warning"
-                       StartIcon="@Icons.Material.Filled.RestartAlt">
-                Restart Worker
-            </MudButton>
-        </YesButton>
-        <CancelButton>
-            <MudButton Variant="Variant.Text" Color="Color.Default">Cancel</MudButton>
-        </CancelButton>
-    </MudMessageBox>
 
     <MudOverlay Visible="@_isShuttingDown" DarkBackground="true" AutoClose="false" ZIndex="9999">
         <MudStack AlignItems="AlignItems.Center" Spacing="4">
@@ -173,14 +113,10 @@
     private string _shutdownStatus = string.Empty;
     private string _lastUpdateNotice = string.Empty;
     private QuasarUpdateSnapshot _updateSnapshot = new();
-    private bool _shutdownTooltipVisible;
-    private bool _shutdownTooltipSuppressed;
-    private MudMessageBox? _shutdownMessageBox;
-    private MudMessageBox? _restartWorkerMessageBox;
 
     // The worker is restartable only when it was launched by the Quasar launcher, which
     // injects QUASAR_LAUNCHER_TOKEN (surfaced as WebServiceOptions.LauncherToken).
-    // Standalone runs have no launcher to respawn the worker, so hide the button.
+    // Standalone runs have no launcher to respawn the worker, so restart is disabled.
     private bool IsUnderBootstrap => !string.IsNullOrWhiteSpace(WebServiceOptions.LauncherToken);
 
     private string LogoSrc => _isDarkMode
@@ -303,44 +239,37 @@
         return string.IsNullOrWhiteSpace(displayName) ? "Sign out" : $"Sign out {displayName}";
     }
 
-    private async Task HandleShutdownClickAsync()
+    private async Task HandlePowerClickAsync()
     {
-        SuppressShutdownTooltip();
-        await InvokeAsync(StateHasChanged);
-        var result = await _shutdownMessageBox!.ShowAsync();
-        if (result != true)
+        var parameters = new DialogParameters
+        {
+            [nameof(QuasarControlDialog.IsRestartAvailable)] = IsUnderBootstrap,
+            [nameof(QuasarControlDialog.AgentOfflineShutdownSeconds)] = WebServiceOptions.AgentOfflineShutdownSeconds,
+        };
+        var options = new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small };
+        var dialog = await DialogService.ShowAsync<QuasarControlDialog>("Quasar power", parameters, options);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not QuasarControlAction action)
             return;
 
-        // Issue a stop on every running server — exactly as if Stop had been pressed on
-        // each card. The servers wind down in the background and the Dashboard / Servers
-        // list reflect their status, so there is no blocking overlay or status readout here.
-        _ = ShutdownService.StopAllServersAsync(setGoalStateOff: true);
+        switch (action)
+        {
+            case QuasarControlAction.RestartQuasar:
+                await RestartQuasarAsync();
+                break;
+            case QuasarControlAction.ShutdownQuasar:
+                await ShutdownQuasarAsync();
+                break;
+            case QuasarControlAction.ShutdownAllServers:
+                ShutdownAllServers();
+                break;
+        }
     }
 
-    private void HandleShutdownTooltipVisibleChanged(bool visible)
+    private async Task RestartQuasarAsync()
     {
-        _shutdownTooltipVisible = _shutdownTooltipSuppressed ? false : visible;
-    }
-
-    private void SuppressShutdownTooltip()
-    {
-        _shutdownTooltipVisible = false;
-        _shutdownTooltipSuppressed = true;
-    }
-
-    private void ReleaseShutdownTooltip()
-    {
-        _shutdownTooltipSuppressed = false;
-    }
-
-    private async Task HandleRestartWorkerClickAsync()
-    {
-        var result = await _restartWorkerMessageBox!.ShowAsync();
-        if (result != true)
-            return;
-
         _isShuttingDown = true;
-        _shutdownStatus = "Restarting Quasar worker… the page will reload when it is back.";
+        _shutdownStatus = "Restarting Quasar… the page will reload when it is back.";
         await InvokeAsync(StateHasChanged);
 
         // The worker is about to stop, dropping this Blazor circuit, so hand off to a
@@ -349,5 +278,22 @@
         await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/");
 
         ShutdownService.RestartWorker();
+    }
+
+    private async Task ShutdownQuasarAsync()
+    {
+        _isShuttingDown = true;
+        _shutdownStatus = "Shutting down Quasar… running servers continue.";
+        await InvokeAsync(StateHasChanged);
+        ShutdownService.ShutdownQuasarPreservingServers();
+    }
+
+    private void ShutdownAllServers()
+    {
+        // Issue a stop on every running server — exactly as if Stop had been pressed on
+        // each card. The servers wind down in the background and the Dashboard / Servers
+        // list reflect their status, so there is no blocking overlay or status readout here.
+        _ = ShutdownService.StopAllServersAsync(setGoalStateOff: true);
+        Snackbar.Add("Server shutdown queued.", Severity.Info);
     }
 }

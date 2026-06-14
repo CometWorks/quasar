@@ -1,3 +1,4 @@
+using Magnetar.Protocol.Runtime;
 using Quasar.Models;
 
 namespace Quasar.Services;
@@ -10,11 +11,19 @@ public sealed class QuasarShutdownService
 {
     private readonly IHostApplicationLifetime _lifetime;
     private readonly DedicatedServerSupervisor _supervisor;
+    private readonly WebServiceOptions _options;
+    private readonly ILogger<QuasarShutdownService> _logger;
 
-    public QuasarShutdownService(IHostApplicationLifetime lifetime, DedicatedServerSupervisor supervisor)
+    public QuasarShutdownService(
+        IHostApplicationLifetime lifetime,
+        DedicatedServerSupervisor supervisor,
+        WebServiceOptions options,
+        ILogger<QuasarShutdownService> logger)
     {
         _lifetime = lifetime;
         _supervisor = supervisor;
+        _options = options;
+        _logger = logger;
     }
 
     /// <summary>
@@ -91,4 +100,35 @@ public sealed class QuasarShutdownService
         _supervisor.BeginLauncherDrain();
         _lifetime.StopApplication();
     }
+
+    /// <summary>
+    /// Stops Quasar while preserving managed servers. When launched by Bootstrap,
+    /// the worker first asks the launcher process to exit so it does not
+    /// respawn the worker.
+    /// </summary>
+    public void ShutdownQuasarPreservingServers(IProgress<string>? progress = null)
+    {
+        progress?.Report("Shutting down Quasar…");
+        _supervisor.BeginLauncherDrain();
+        RequestLauncherShutdown();
+        _lifetime.StopApplication();
+    }
+
+    private void RequestLauncherShutdown()
+    {
+        if (string.IsNullOrWhiteSpace(_options.LauncherToken))
+            return;
+
+        try
+        {
+            File.WriteAllText(GetLauncherShutdownRequestPath(), DateTimeOffset.UtcNow.ToString("O"));
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed writing Quasar launcher shutdown request.");
+        }
+    }
+
+    private static string GetLauncherShutdownRequestPath() =>
+        Path.Combine(MagnetarPaths.GetQuasarDirectory(), "launcher-shutdown-request");
 }

@@ -4,32 +4,41 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SERVICE_NAME="quasar"
-INSTALL_DIR="/opt/quasar"
+INSTALL_DIR=""
 DATA_DIR=""
 CONFIGURATION="Release"
 RUNTIME="linux-x64"
 ENABLE_SERVICE=true
 START_SERVICE=false
 SKIP_BUILD=false
-RUN_USER="${SUDO_USER:-${USER:-}}"
+INSTALL_MODE="user"
+INSTALL_RENICE_HELPER=false
+RENICE_HELPER_PATH="/usr/local/bin/quasar-renice"
+RUN_USER="${USER:-}"
+RUN_USER_EXPLICIT=false
 REQUIRED_DOTNET_MAJOR=10
 
 usage() {
     cat <<EOF
-Usage: sudo ./install.sh [options]
+Usage: ./install.sh [options]
 
-Publishes Quasar, installs a systemd service, and grants CAP_SYS_NICE through
-systemd so Quasar can raise managed server priority with renice.
+Publishes Quasar and installs a systemd user service by default. The default
+install is user-only and writes Bootstrap to ~/.local/share/Quasar.
+
+For machine-wide service installation, pass --system and run with sudo.
 
 If the required .NET 10 SDK/runtime is missing, the installer detects apt, dnf,
 yum, pacman, or zypper, prints the exact install commands, and prompts before
 running them.
 
 Options:
-  --install-dir <dir>       Install directory (default: /opt/quasar)
+  --install-dir <dir>       Install directory (default: <run-user-home>/.local/share/Quasar)
   --data-dir <dir>          Quasar data directory (default: <run-user-home>/.config/Quasar)
   --service-name <name>     systemd service name (default: quasar)
-  --user <user>             User to run Quasar as (default: sudo caller)
+  --user <user>             User to run Quasar as (system installs only; default: sudo caller)
+  --user-service            Install a user systemd service (default)
+  --system                  Install a system service under /etc/systemd/system
+  --install-renice-helper   Build and install /usr/local/bin/quasar-renice as setuid root
   --configuration <name>    Build configuration (default: Release)
   --runtime <rid>           Publish runtime identifier (default: linux-x64)
   --no-enable               Do not enable the service at boot
@@ -41,6 +50,52 @@ EOF
 
 have() {
     command -v "$1" >/dev/null 2>&1
+}
+
+privileged_prefix() {
+    if [[ "${EUID}" -eq 0 ]]; then
+        return
+    fi
+
+    if have sudo; then
+        printf 'sudo '
+        return
+    fi
+
+    echo "sudo is required to install system packages or the renice helper." >&2
+    exit 1
+}
+
+install_renice_helper() {
+    local source_path="$SCRIPT_DIR/tools/quasar-renice.c"
+    if [[ ! -f "$source_path" ]]; then
+        source_path="$SCRIPT_DIR/quasar-renice.c"
+    fi
+    if [[ ! -f "$source_path" ]]; then
+        echo "Renice helper source not found beside installer." >&2
+        exit 1
+    fi
+    if ! have cc; then
+        echo "A C compiler (cc) is required to build the renice helper." >&2
+        exit 1
+    fi
+
+    local temp_binary
+    temp_binary="$(mktemp /tmp/quasar-renice.XXXXXX)"
+    cc -O2 -Wall -Wextra "$source_path" -o "$temp_binary"
+
+    if [[ "${EUID}" -eq 0 ]]; then
+        install -o root -g root -m 4755 "$temp_binary" "$RENICE_HELPER_PATH"
+    else
+        if ! have sudo; then
+            rm -f "$temp_binary"
+            echo "sudo is required to install the renice helper." >&2
+            exit 1
+        fi
+        sudo install -o root -g root -m 4755 "$temp_binary" "$RENICE_HELPER_PATH"
+    fi
+    rm -f "$temp_binary"
+    echo "Installed setuid renice helper: $RENICE_HELPER_PATH"
 }
 
 normalize_version_component() {
@@ -152,28 +207,30 @@ build_dotnet_install_commands() {
     local packages="$2"
 
     DOTNET_INSTALL_COMMANDS=()
+    local sudo_prefix
+    sudo_prefix="$(privileged_prefix)"
     case "$package_manager" in
         apt)
-            DOTNET_INSTALL_COMMANDS+=("apt-get update")
-            DOTNET_INSTALL_COMMANDS+=("apt-get install -y $packages")
+            DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}apt-get update")
+            DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}apt-get install -y $packages")
             ;;
         dnf)
-            DOTNET_INSTALL_COMMANDS+=("dnf install -y $packages")
+            DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}dnf install -y $packages")
             ;;
         yum)
-            DOTNET_INSTALL_COMMANDS+=("yum install -y $packages")
+            DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}yum install -y $packages")
             ;;
         pacman)
-            DOTNET_INSTALL_COMMANDS+=("pacman -Sy --noconfirm $packages")
+            DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}pacman -Sy --noconfirm $packages")
             ;;
         zypper)
-            DOTNET_INSTALL_COMMANDS+=("zypper --non-interactive install $packages")
+            DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}zypper --non-interactive install $packages")
             ;;
         *)
             return 1
             ;;
     esac
-    DOTNET_INSTALL_COMMANDS+=('if ! command -v dotnet >/dev/null 2>&1; then for dotnet_path in /usr/share/dotnet/dotnet /usr/lib64/dotnet/dotnet /opt/dotnet/dotnet; do if [ -x "$dotnet_path" ] && [ ! -e /usr/local/bin/dotnet ]; then mkdir -p /usr/local/bin && ln -s "$dotnet_path" /usr/local/bin/dotnet; break; fi; done; fi')
+    DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}sh -c 'if ! command -v dotnet >/dev/null 2>&1; then for dotnet_path in /usr/share/dotnet/dotnet /usr/lib64/dotnet/dotnet /opt/dotnet/dotnet; do if [ -x \"\$dotnet_path\" ] && [ ! -e /usr/local/bin/dotnet ]; then mkdir -p /usr/local/bin && ln -s \"\$dotnet_path\" /usr/local/bin/dotnet; break; fi; done; fi'")
 }
 
 prompt_and_install_dotnet() {
@@ -286,7 +343,27 @@ while [[ $# -gt 0 ]]; do
             ;;
         --user)
             RUN_USER="${2:?Missing value for --user}"
+            RUN_USER_EXPLICIT=true
             shift 2
+            ;;
+        --user-service)
+            INSTALL_MODE="user"
+            shift
+            ;;
+        --system|--system-service)
+            INSTALL_MODE="system"
+            if [[ "$RUN_USER_EXPLICIT" == "false" ]]; then
+                if [[ -z "${SUDO_USER:-}" ]]; then
+                    RUN_USER="${RUN_USER:-root}"
+                else
+                    RUN_USER="$SUDO_USER"
+                fi
+            fi
+            shift
+            ;;
+        --install-renice-helper)
+            INSTALL_RENICE_HELPER=true
+            shift
             ;;
         --configuration)
             CONFIGURATION="${2:?Missing value for --configuration}"
@@ -329,13 +406,29 @@ if [[ "$(uname -s)" != "Linux" ]]; then
     exit 1
 fi
 
-if [[ "${EUID}" -ne 0 ]]; then
-    echo "Run as root, usually: sudo ./install.sh" >&2
-    exit 1
+if [[ "$INSTALL_RENICE_HELPER" == "true" && "$SKIP_BUILD" == "true" && "$ENABLE_SERVICE" == "false" && "$START_SERVICE" == "false" ]]; then
+    install_renice_helper
+    exit 0
 fi
 
 if ! command -v systemctl >/dev/null 2>&1; then
     echo "systemctl not found; systemd install cannot continue." >&2
+    exit 1
+fi
+
+if [[ "$INSTALL_MODE" == "system" && "${EUID}" -ne 0 ]]; then
+    echo "System service install needs root. Run: sudo ./install.sh --system" >&2
+    exit 1
+fi
+
+if [[ "$INSTALL_MODE" == "user" && "${EUID}" -eq 0 ]]; then
+    echo "User service install is the default; run install.sh without sudo." >&2
+    echo "For a machine-wide service, rerun with: sudo ./install.sh --system" >&2
+    exit 1
+fi
+
+if [[ "$INSTALL_MODE" == "user" && "$RUN_USER" != "${USER:-}" ]]; then
+    echo "--user is only supported with --system installs." >&2
     exit 1
 fi
 
@@ -349,6 +442,9 @@ RUN_HOME="$(getent passwd "$RUN_USER" | cut -d: -f6)"
 if [[ -z "$RUN_HOME" ]]; then
     echo "Could not resolve home directory for '$RUN_USER'." >&2
     exit 1
+fi
+if [[ -z "$INSTALL_DIR" ]]; then
+    INSTALL_DIR="$RUN_HOME/.local/share/Quasar"
 fi
 if [[ -z "$DATA_DIR" ]]; then
     DATA_DIR="$RUN_HOME/.config/Quasar"
@@ -377,6 +473,161 @@ fi
 
 require_dotnet_installation
 
+write_service_unit() {
+    if [[ "$INSTALL_MODE" == "system" ]]; then
+        SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
+        echo "Writing $SERVICE_PATH..."
+        cat > "$SERVICE_PATH" <<EOF
+[Unit]
+Description=Quasar Space Engineers supervisor
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=$RUN_USER
+Group=$RUN_GROUP
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$INSTALL_DIR/Quasar serve --quiet
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+KillMode=process
+TimeoutStopSec=1800
+SuccessExitStatus=130 143
+Environment=QUASAR_MODE=Service
+Environment=QUASAR_OPEN_BROWSER_ON_START=false
+Environment=HOME=$RUN_HOME
+Environment=QUASAR_DATA_DIR=$DATA_DIR
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        return
+    fi
+
+    USER_SERVICE_DIR="$RUN_HOME/.config/systemd/user"
+    SERVICE_PATH="$USER_SERVICE_DIR/${SERVICE_NAME}.service"
+    install -d -m 0755 "$USER_SERVICE_DIR"
+    echo "Writing $SERVICE_PATH..."
+    cat > "$SERVICE_PATH" <<EOF
+[Unit]
+Description=Quasar Space Engineers supervisor
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$INSTALL_DIR/Quasar serve --quiet
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+KillMode=process
+TimeoutStopSec=1800
+SuccessExitStatus=130 143
+Environment=QUASAR_MODE=Service
+Environment=QUASAR_OPEN_BROWSER_ON_START=false
+Environment=HOME=$RUN_HOME
+Environment=QUASAR_DATA_DIR=$DATA_DIR
+
+[Install]
+WantedBy=default.target
+EOF
+    systemctl --user daemon-reload
+}
+
+enable_service() {
+    if [[ "$INSTALL_MODE" == "system" ]]; then
+        systemctl enable "$SERVICE_NAME.service"
+    else
+        systemctl --user enable "$SERVICE_NAME.service"
+    fi
+}
+
+restart_service() {
+    if [[ "$INSTALL_MODE" == "system" ]]; then
+        systemctl restart "$SERVICE_NAME.service"
+    else
+        systemctl --user restart "$SERVICE_NAME.service"
+    fi
+}
+
+cleanup_old_opt_install() {
+    local old_install_dir="/opt/quasar"
+    if [[ "$INSTALL_MODE" != "user" || "$INSTALL_DIR" == "$old_install_dir" || ! -x "$old_install_dir/uninstall.sh" ]]; then
+        return
+    fi
+
+    echo "Old system install found at $old_install_dir."
+    local uninstall_args=(--install-dir "$old_install_dir" --purge)
+    if grep -q -- "--system" "$old_install_dir/uninstall.sh"; then
+        uninstall_args=(--system "${uninstall_args[@]}")
+    fi
+
+    if [[ "${EUID}" -eq 0 ]]; then
+        "$old_install_dir/uninstall.sh" "${uninstall_args[@]}" || true
+    elif have sudo; then
+        echo "Removing old system install with sudo..."
+        sudo "$old_install_dir/uninstall.sh" "${uninstall_args[@]}" || true
+    else
+        echo "sudo not found; old system install remains at $old_install_dir." >&2
+    fi
+}
+
+publish_quasar() {
+    local build_version="$1"
+    local nuget_version="$2"
+    local assembly_file_version="$3"
+    local publish_project="$SCRIPT_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj"
+
+    if [[ "${EUID}" -eq 0 && "$RUN_USER" != "root" ]]; then
+        chown "$RUN_USER:$RUN_GROUP" "$PUBLISH_DIR"
+        if have runuser; then
+            runuser -u "$RUN_USER" -- \
+                env HOME="$RUN_HOME" \
+                dotnet publish "$publish_project" \
+                    -c "$CONFIGURATION" \
+                    -r "$RUNTIME" \
+                    -p:CopyToDeployDir=false \
+                    -p:Version="$nuget_version" \
+                    -p:AssemblyVersion="$assembly_file_version" \
+                    -p:FileVersion="$assembly_file_version" \
+                    -p:InformationalVersion="$nuget_version" \
+                    -o "$PUBLISH_DIR" \
+                    -v minimal
+            return
+        fi
+
+        sudo -u "$RUN_USER" \
+            env HOME="$RUN_HOME" \
+            dotnet publish "$publish_project" \
+                -c "$CONFIGURATION" \
+                -r "$RUNTIME" \
+                -p:CopyToDeployDir=false \
+                -p:Version="$nuget_version" \
+                -p:AssemblyVersion="$assembly_file_version" \
+                -p:FileVersion="$assembly_file_version" \
+                -p:InformationalVersion="$nuget_version" \
+                -o "$PUBLISH_DIR" \
+                -v minimal
+        return
+    fi
+
+    env HOME="$RUN_HOME" \
+        dotnet publish "$publish_project" \
+            -c "$CONFIGURATION" \
+            -r "$RUNTIME" \
+            -p:CopyToDeployDir=false \
+            -p:Version="$nuget_version" \
+            -p:AssemblyVersion="$assembly_file_version" \
+            -p:FileVersion="$assembly_file_version" \
+            -p:InformationalVersion="$nuget_version" \
+            -o "$PUBLISH_DIR" \
+            -v minimal
+}
+
 PUBLISH_DIR="$(mktemp -d /tmp/quasar-publish.XXXXXX)"
 cleanup() {
     rm -rf "$PUBLISH_DIR"
@@ -401,93 +652,80 @@ else
     BUILD_VERSION="$(resolve_build_version)"
     NUGET_VERSION="$(normalize_nuget_version "$BUILD_VERSION")"
     ASSEMBLY_FILE_VERSION="$(build_assembly_file_version "$BUILD_VERSION")"
-    chown "$RUN_USER:$RUN_GROUP" "$PUBLISH_DIR"
     echo "Publishing Quasar ($CONFIGURATION, $RUNTIME, version $NUGET_VERSION)..."
-    sudo -u "$RUN_USER" \
-        env HOME="$RUN_HOME" \
-        dotnet publish "$SCRIPT_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj" \
-            -c "$CONFIGURATION" \
-            -r "$RUNTIME" \
-            -p:CopyToDeployDir=false \
-            -p:Version="$NUGET_VERSION" \
-            -p:AssemblyVersion="$ASSEMBLY_FILE_VERSION" \
-            -p:FileVersion="$ASSEMBLY_FILE_VERSION" \
-            -p:InformationalVersion="$NUGET_VERSION" \
-            -o "$PUBLISH_DIR" \
-            -v minimal
+    publish_quasar "$BUILD_VERSION" "$NUGET_VERSION" "$ASSEMBLY_FILE_VERSION"
 fi
 
 echo "Installing Quasar to $INSTALL_DIR..."
-install -d -m 0755 -o "$RUN_USER" -g "$RUN_GROUP" "$INSTALL_DIR"
-install -d -m 0755 -o "$RUN_USER" -g "$RUN_GROUP" "$DATA_DIR"
+if [[ "${EUID}" -eq 0 ]]; then
+    install -d -m 0755 -o "$RUN_USER" -g "$RUN_GROUP" "$INSTALL_DIR"
+    install -d -m 0755 -o "$RUN_USER" -g "$RUN_GROUP" "$DATA_DIR"
+else
+    install -d -m 0755 "$INSTALL_DIR"
+    install -d -m 0755 "$DATA_DIR"
+fi
 find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 cp -a "$PUBLISH_DIR/." "$INSTALL_DIR/"
-chown -R "$RUN_USER:$RUN_GROUP" "$INSTALL_DIR"
+if [[ -f "$SCRIPT_DIR/install.sh" ]]; then
+    cp -a "$SCRIPT_DIR/install.sh" "$INSTALL_DIR/install.sh"
+fi
+if [[ -f "$SCRIPT_DIR/uninstall.sh" ]]; then
+    cp -a "$SCRIPT_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
+fi
+if [[ -f "$SCRIPT_DIR/tools/quasar-renice.c" ]]; then
+    cp -a "$SCRIPT_DIR/tools/quasar-renice.c" "$INSTALL_DIR/quasar-renice.c"
+elif [[ -f "$SCRIPT_DIR/quasar-renice.c" ]]; then
+    cp -a "$SCRIPT_DIR/quasar-renice.c" "$INSTALL_DIR/quasar-renice.c"
+fi
+if [[ "${EUID}" -eq 0 ]]; then
+    chown -R "$RUN_USER:$RUN_GROUP" "$INSTALL_DIR"
+fi
 chmod +x "$INSTALL_DIR/Quasar"
+if [[ -f "$INSTALL_DIR/install.sh" ]]; then
+    chmod +x "$INSTALL_DIR/install.sh"
+fi
+if [[ -f "$INSTALL_DIR/uninstall.sh" ]]; then
+    chmod +x "$INSTALL_DIR/uninstall.sh"
+fi
 if [[ -f "$INSTALL_DIR/WebService/Quasar" ]]; then
     chmod +x "$INSTALL_DIR/WebService/Quasar"
 fi
 
-SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
-echo "Writing $SERVICE_PATH..."
-cat > "$SERVICE_PATH" <<EOF
-[Unit]
-Description=Quasar Space Engineers supervisor
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=simple
-User=$RUN_USER
-Group=$RUN_GROUP
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/Quasar serve --quiet
-Restart=on-failure
-RestartSec=5
-KillSignal=SIGINT
-KillMode=process
-TimeoutStopSec=1800
-SuccessExitStatus=130 143
-Environment=QUASAR_MODE=Service
-Environment=QUASAR_OPEN_BROWSER_ON_START=false
-Environment=HOME=$RUN_HOME
-Environment=QUASAR_DATA_DIR=$DATA_DIR
-AmbientCapabilities=CAP_SYS_NICE
-CapabilityBoundingSet=CAP_SYS_NICE
-NoNewPrivileges=false
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-
-if [[ "$ENABLE_SERVICE" == "true" ]]; then
-    systemctl enable "$SERVICE_NAME.service"
+if [[ "$INSTALL_RENICE_HELPER" == "true" ]]; then
+    install_renice_helper
 fi
 
+write_service_unit
+
+if [[ "$ENABLE_SERVICE" == "true" ]]; then
+    enable_service
+fi
+
+cleanup_old_opt_install
+
 if [[ "$START_SERVICE" == "true" ]]; then
-    systemctl restart "$SERVICE_NAME.service"
+    restart_service
 fi
 
 cat <<EOF
 Installed Quasar.
 
-Service:     $SERVICE_NAME.service
+Service:     $SERVICE_NAME.service ($INSTALL_MODE)
 Install dir: $INSTALL_DIR
 Data dir:    $DATA_DIR
 Run user:    $RUN_USER
 
-CAP_SYS_NICE is configured through systemd:
-  AmbientCapabilities=CAP_SYS_NICE
-  CapabilityBoundingSet=CAP_SYS_NICE
-
-Verify after starting:
-  systemctl status $SERVICE_NAME.service
-  PID=\$(systemctl show -p MainPID --value $SERVICE_NAME.service)
-  grep CapAmb /proc/\$PID/status
-  capsh --decode=\$(awk '/CapAmb/ {print \$2}' /proc/\$PID/status)
+Renice helper:
+  $RENICE_HELPER_PATH
+  Install when needed: $INSTALL_DIR/install.sh --install-renice-helper --no-build --no-enable
 
 Start/restart when ready:
-  sudo systemctl restart $SERVICE_NAME.service
 EOF
+if [[ "$INSTALL_MODE" == "system" ]]; then
+    echo "  sudo systemctl restart $SERVICE_NAME.service"
+else
+    echo "  systemctl --user restart $SERVICE_NAME.service"
+    echo
+    echo "To run the user service before login, enable linger once:"
+    echo "  sudo loginctl enable-linger $RUN_USER"
+fi
