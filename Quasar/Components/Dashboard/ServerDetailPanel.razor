@@ -165,7 +165,7 @@ else
         {
             <div class="chat-row">
                 <MudText Typo="Typo.caption" Class="mono">@FormatTimestamp(message.TimestampTicksUtc)</MudText>
-                <MudText Typo="Typo.body2"><strong>@TextSanitizer.CleanGameText(message.AuthorName)</strong>: @TextSanitizer.CleanGameText(message.Content)</MudText>
+                <MudText Typo="Typo.body2"><strong>@FormatChatAuthor(message)</strong>: @TextSanitizer.CleanGameText(message.Content)</MudText>
             </div>
         }
     </div>
@@ -365,6 +365,29 @@ else
             return string.Empty;
 
         return new DateTime(ticksUtc, DateTimeKind.Utc).ToLocalTime().ToString("HH:mm:ss");
+    }
+
+    private static string FormatChatAuthor(ChatMessageSnapshot message)
+    {
+        if (IsServerMessage(message))
+            return "Server";
+
+        var author = TextSanitizer.CleanGameText(message.AuthorName);
+        return string.IsNullOrWhiteSpace(author) ? message.SteamId.ToString() : author;
+    }
+
+    private static bool IsServerMessage(ChatMessageSnapshot message)
+    {
+        return message.IsServerMessage ||
+               message.SteamId <= 0 ||
+               IsServerAuthorName(message.AuthorName);
+    }
+
+    private static bool IsServerAuthorName(string authorName)
+    {
+        var normalized = TextSanitizer.CleanGameText(authorName).Trim();
+        return string.Equals(normalized, "Good.bot", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(normalized, "Server", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string GetServiceLabel(string? serviceName)

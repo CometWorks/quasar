@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Detail panel embedded inside `ServerCard`. When the agent snapshot is absent it shows a waiting/error message and basic process state chips. When a snapshot is present it renders live metrics chips, Refresh/Save buttons, a chat broadcast field, a players table with per-player action menus (kick/ban/set role), a recent-chat list, a plugins table, and recent command results. The plugin table merges live agent-reported plugins with plugins configured on the server's assigned config profile, so Magnetar-managed plugin selections still show on the landing-page card even when the DS runtime does not report them through `ConfigDedicated.Plugins`. In both the snapshot-present and snapshot-absent states, an outlined "Affinity <value>" chip (Memory icon) is shown in the metrics chip rows when `Server.CpuAffinity` is set, and mod-download failures captured from runtime output are shown as an explicit error alert.
+Detail panel embedded inside `ServerCard`. When the agent snapshot is absent it shows a waiting/error message and basic process state chips. When a snapshot is present it renders live metrics chips, Refresh/Save buttons, a chat broadcast field, a players table with per-player action menus (kick/ban/set role), a recent-chat list, a plugins table, and recent command results. Server-authored chat (`IsServerMessage`, SteamId 0, `Good.bot`, or `Server`) is displayed as `Server`. The plugin table merges live agent-reported plugins with plugins configured on the server's assigned config profile, so Magnetar-managed plugin selections still show on the landing-page card even when the DS runtime does not report them through `ConfigDedicated.Plugins`. In both the snapshot-present and snapshot-absent states, an outlined "Affinity <value>" chip (Memory icon) is shown in the metrics chip rows when `Server.CpuAffinity` is set, and mod-download failures captured from runtime output are shown as an explicit error alert.
 
 ## Structure
 No `@page` route — used as a child component.
@@ -29,7 +29,7 @@ No `@page` route — used as a child component.
 - `SendCommandAsync(ServerCommandType, text, steamId?)` — builds and sends a `ServerCommandEnvelope` via `AgentRegistry`, shows a snackbar.
 - `SendChatAsync()` — validates and dispatches `ServerCommandType.SendChat`.
 - `HandleChatKeyDownAsync` — triggers send on Enter key.
-- `FormatDuration(int)` / `FormatTimestamp(long)` — display helpers.
+- `FormatDuration(int)` / `FormatTimestamp(long)` / `FormatChatAuthor` — display helpers, including server-message author normalization.
 - `GetMaxPlayers()` — checks config profile first, falls back to snapshot metrics.
 - `BuildPluginRows()` — merges configured profile plugins (`configured`) and live agent plugins (`loaded`/`declared`) by plugin id for the card table.
 - `GetWaitingText()` — state-dependent placeholder message. For a `Running` process with no snapshot yet (agent reconnecting) it reads "Connecting. Waiting for Quasar.Agent to reconnect."; for `Starting`/`Restarting` it reads "Starting. Waiting for Quasar.Agent and first game snapshot.".

@@ -102,7 +102,19 @@ public sealed class DiscordChatRelayService
             }
 
             if (recentChat.Count == 0)
+            {
+                dedupState.HasObservedSnapshot = true;
                 return [];
+            }
+
+            if (!dedupState.HasObservedSnapshot)
+            {
+                foreach (var message in recentChat)
+                    AddSeen(dedupState, message.TimestampTicksUtc);
+
+                dedupState.HasObservedSnapshot = true;
+                return [];
+            }
 
             var fresh = new List<string>();
             foreach (var message in recentChat.OrderBy(item => item.TimestampTicksUtc))
@@ -111,6 +123,9 @@ public sealed class DiscordChatRelayService
                     continue;
 
                 if (message.TimestampTicksUtc <= _relayStartedTicksUtc)
+                    continue;
+
+                if (IsServerAuthoredMessage(message))
                     continue;
 
                 if (TryConsumeSuppressedDiscordEcho(uniqueName, message.Content))
@@ -138,6 +153,20 @@ public sealed class DiscordChatRelayService
         }
 
         return true;
+    }
+
+    private static bool IsServerAuthoredMessage(ChatMessageSnapshot message)
+    {
+        return message.IsServerMessage ||
+               message.SteamId <= 0 ||
+               IsServerAuthorName(message.AuthorName);
+    }
+
+    private static bool IsServerAuthorName(string authorName)
+    {
+        var normalized = (authorName ?? string.Empty).Trim();
+        return string.Equals(normalized, "Good.bot", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(normalized, "Server", StringComparison.OrdinalIgnoreCase);
     }
 
     private bool TryConsumeSuppressedDiscordEcho(string uniqueName, string content)
@@ -227,6 +256,8 @@ public sealed class DiscordChatRelayService
         public HashSet<long> Seen { get; } = [];
 
         public Queue<long> Order { get; } = new();
+
+        public bool HasObservedSnapshot { get; set; }
     }
 
     private sealed record SuppressedMessage(string Content, DateTimeOffset ExpiresAtUtc);

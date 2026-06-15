@@ -30,6 +30,7 @@ namespace Quasar.Agent
     public class GameBridge
     {
         private static readonly TimeSpan SnapshotInterval = TimeSpan.FromSeconds(1);
+        private const string ServerChatAuthorName = "Server";
         private static readonly MyPromoteLevel[] PromoteLevels =
         {
             MyPromoteLevel.None,
@@ -729,12 +730,16 @@ namespace Quasar.Agent
             {
                 foreach (var message in dedicatedServer.GlobalChatHistory.Skip(Math.Max(0, dedicatedServer.GlobalChatHistory.Count - 100)))
                 {
+                    var steamId = (long)message.SteamId;
+                    var authorName = message.AuthorName ?? string.Empty;
+                    var isServerMessage = IsServerChatMessage(steamId, authorName);
                     result.Add(new ChatMessageSnapshot
                     {
-                        SteamId = (long)message.SteamId,
-                        AuthorName = message.AuthorName ?? string.Empty,
+                        SteamId = steamId,
+                        AuthorName = isServerMessage ? ServerChatAuthorName : authorName,
                         Content = message.Text ?? string.Empty,
                         TimestampTicksUtc = message.Timestamp.Ticks,
+                        IsServerMessage = isServerMessage,
                     });
                 }
             }
@@ -743,6 +748,16 @@ namespace Quasar.Agent
             }
 
             return result;
+        }
+
+        private static bool IsServerChatMessage(long steamId, string authorName)
+        {
+            if (steamId <= 0)
+                return true;
+
+            var normalizedAuthor = (authorName ?? string.Empty).Trim();
+            return string.Equals(normalizedAuthor, "Good.bot", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(normalizedAuthor, ServerChatAuthorName, StringComparison.OrdinalIgnoreCase);
         }
 
         private List<PluginRuntimeInfo> GetPlugins()
