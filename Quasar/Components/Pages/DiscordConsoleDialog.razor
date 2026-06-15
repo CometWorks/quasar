@@ -6,7 +6,7 @@
         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
             <MudStack Spacing="0">
                 <MudText Typo="Typo.body2" Class="mud-text-secondary">@DiscordLogStatusText()</MudText>
-                <MudText Typo="Typo.caption" Class="mud-text-secondary quasar-discord-log-path">@_logPath</MudText>
+                <CopyablePath Value="@_logPath" />
             </MudStack>
             <MudStack Row="true" Spacing="1">
                 <MudTooltip Text="Download full Discord log">
@@ -63,10 +63,6 @@
         color: var(--mud-palette-text-primary);
     }
 
-    .quasar-discord-log-path {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        word-break: break-all;
-    }
 </style>
 
 @code

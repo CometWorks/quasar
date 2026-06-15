@@ -392,6 +392,14 @@
 
     private async Task StopAsync(string uniqueName)
     {
+        if (!await ConfirmDestructiveActionAsync(
+                "Stop server?",
+                $"Server '{uniqueName}' will save and shut down normally.",
+                "Stop"))
+        {
+            return;
+        }
+
         try
         {
             await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.Off);
@@ -405,6 +413,14 @@
 
     private async Task KillStartingAsync(string uniqueName)
     {
+        if (!await ConfirmDestructiveActionAsync(
+                "Kill starting server?",
+                $"Server '{uniqueName}' will be killed while it is starting. Unsaved startup progress can be lost.",
+                "Kill"))
+        {
+            return;
+        }
+
         try
         {
             await Supervisor.KillStartingServerAsync(uniqueName);
@@ -414,6 +430,17 @@
         {
             Snackbar.Add(exception.Message, Severity.Error);
         }
+    }
+
+    private async Task<bool> ConfirmDestructiveActionAsync(string title, string message, string yesText)
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            title,
+            message,
+            yesText: yesText,
+            cancelText: "Cancel");
+
+        return confirmed == true;
     }
 
     private async Task RestartAsync(string uniqueName)

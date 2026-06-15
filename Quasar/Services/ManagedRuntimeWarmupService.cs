@@ -4,7 +4,7 @@ namespace Quasar.Services;
 
 public sealed class ManagedRuntimeWarmupService : BackgroundService
 {
-    private static readonly TimeSpan MagnetarUpdateCheckInterval = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan MagnetarUpdateCheckInterval = TimeSpan.FromHours(1);
     private readonly ManagedDedicatedServerRuntimeResolver _runtimeResolver;
     private readonly ILogger<ManagedRuntimeWarmupService> _logger;
     private readonly object _sync = new();

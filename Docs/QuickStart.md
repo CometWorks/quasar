@@ -4,24 +4,24 @@
 
 Grab the latest release from GitHub. Each release contains platform archives:
 
-- **Linux** — `quasar-linux-x64.tar.gz`
-- **Windows** — `quasar-win-x64.zip`
+- **Linux** — `quasar-installer-linux.tar.gz`
+- **Windows** — `quasar-installer-windows.zip`
 
 ## Run from the terminal (foreground)
 
 **Linux**
 
 ```bash
-tar -xzf quasar-linux-x64.tar.gz -C ~/quasar
-cd ~/quasar
+tar -xzf quasar-installer-linux.tar.gz
+cd quasar-installer-linux
 ./Quasar serve
 ```
 
 **Windows** (PowerShell or cmd)
 
 ```cmd
-Expand-Archive quasar-win-x64.zip -DestinationPath C:\quasar
-cd C:\quasar
+Expand-Archive quasar-installer-windows.zip -DestinationPath C:\quasar
+cd C:\quasar\quasar-installer-windows
 Quasar.exe serve
 ```
 
@@ -36,12 +36,14 @@ If .NET 10 is missing, the Linux installer detects the available package manager
 run to install the required .NET 10 SDK/runtime, includes the conditional
 `/usr/local/bin/dotnet` PATH-link command, and asks before running anything.
 Declining the prompt exits before files or services are changed.
+On Debian 13, the prompt also includes the Microsoft package feed bootstrap
+commands needed before installing the .NET packages.
 
 **Linux — systemd**
 
 ```bash
-tar -xzf quasar-linux-x64.tar.gz -C /tmp/quasar
-/tmp/quasar/install.sh --start        # installs to ~/.local/share/Quasar and starts quasar.service
+tar -xzf quasar-installer-linux.tar.gz -C /tmp
+/tmp/quasar-installer-linux/install.sh --start        # installs to ~/.local/share/Quasar and starts quasar.service
 ```
 
 The Linux installer defaults to a user systemd service, stores Bootstrap under
@@ -74,8 +76,8 @@ For release assets, auto-update behaviour, and advanced configuration see
 Run from an **elevated PowerShell**:
 
 ```powershell
-Expand-Archive quasar-win-x64.zip -DestinationPath "$env:ProgramFiles\QuasarSetup"
-cd "$env:ProgramFiles\QuasarSetup"
+Expand-Archive quasar-installer-windows.zip -DestinationPath "$env:ProgramFiles\QuasarSetup"
+cd "$env:ProgramFiles\QuasarSetup\quasar-installer-windows"
 .\install.ps1 -Start   # installs to %ProgramFiles%\Quasar and starts the task
 ```
 

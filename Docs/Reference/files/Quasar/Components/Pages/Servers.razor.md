@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Routable page at `/servers` managing persistent dedicated-server definitions. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status, a single lifecycle-action column beside Status, and create/clone/edit/delete/console/world-template actions; expandable rows embed a `ServerDetailPanel` with live agent data. A separate panel lists "unmanaged" agents that report in without a matching server definition.
+Routable page at `/servers` managing persistent dedicated-server definitions. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status, a single lifecycle-action column beside Status, and create/clone/edit/delete/console/world-template actions; destructive Stop/Kill/Delete actions require confirmation. Expandable rows embed a `ServerDetailPanel` with live agent data. A separate panel lists "unmanaged" agents that report in without a matching server definition.
 
 ## Structure
 - **`@page "/servers"`**, **`@implements IDisposable`**
@@ -20,7 +20,7 @@ Routable page at `/servers` managing persistent dedicated-server definitions. Re
   - `OpenConsoleDialogAsync` — opens `ServerConsoleDialog`.
   - `CreateWorldTemplateAsync` — validates the server is stopped and its world path has `Sandbox.sbc`, opens `WorldTemplateFromServerDialog`, then `WorldTemplates.ImportAsync`.
   - `OpenConfigProfileAsync` — invokes `ConfigProfileSelected` or navigates to `/configs?profileId=...`.
-- **Lifecycle controls:** `StartAsync` sets goal On and explicitly starts so `Crashed`/`Faulted` can be operator-retried; `StopAsync` sets goal Off; `KillStartingAsync` calls `Supervisor.KillStartingServerAsync`; `RestartAsync` calls `Supervisor.RestartServerAsync`; `DeleteAsync` confirms (servers must be stopped), then `ServerCatalog.DeleteAsync` + `Registry.PruneDisconnectedByUniqueName`. `Starting` shows Stop and Kill; `Restarting` shows Kill; `Running` shows Stop and Restart; `Stopped`/`Crashed`/`Faulted` show Start.
+- **Lifecycle controls:** `StartAsync` sets goal On and explicitly starts so `Crashed`/`Faulted` can be operator-retried; `StopAsync` confirms then sets goal Off; `KillStartingAsync` confirms then calls `Supervisor.KillStartingServerAsync`; `RestartAsync` calls `Supervisor.RestartServerAsync`; `DeleteAsync` confirms (servers must be stopped), then `ServerCatalog.DeleteAsync` + `Registry.PruneDisconnectedByUniqueName`. `Starting` shows Stop and Kill; `Restarting` shows Kill; `Running` shows Stop and Restart; `Stopped`/`Crashed`/`Faulted` show Start.
 - **Helpers:** `GetDisplayName`, `GetPlayerCount` (uses configured `MaxPlayers` when available), `GetProcessDisplay`, `GetConfigProfileName`/`CanOpenConfigProfile`, `GetStateText`/`GetStateColor`, `IsRunning`, `CanStartServer`, `CanStopServer`, `CanKillStartingServer`, `CanRestartServer`, `CanCreateWorldTemplate`, `GetAttachmentStatus`, plus sort-value helpers.
 - **Blank/clone factories:** `CreateBlank` seeds defaults (port via `AllocateNextPort` from 27016, `ServerIP` 0.0.0.0, health/restart policy fields, health monitoring driven by `Options.DisableServerHealthMonitoring`); `MakeCopyIdentifier` generates a unique `-copy` name; `NormalizeWhitespace`.
 - Subscribes to `ServerCatalog`, `Supervisor`, `Registry`, `ConfigProfiles`, `WorldTemplates` `.Changed` in `OnInitialized`, releases in `Dispose`; `HandleChanged` marshals `StateHasChanged`.

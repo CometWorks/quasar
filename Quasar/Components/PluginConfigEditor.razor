@@ -66,6 +66,8 @@ else
 
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
 
+    [Inject] private IDialogService DialogService { get; set; } = default!;
+
     private PluginConfigEnvelope? _envelope;
     private JsonObject _values = new();
     private string? _signature;
@@ -471,7 +473,7 @@ else
                                 <MudStack Row="true" Spacing="0">
                                     <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp" Size="Size.Small" Disabled="@(index == 0)" OnClick="@(() => MoveListItem(array, index, -1))" />
                                     <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown" Size="Size.Small" Disabled="@(index >= array.Count - 1)" OnClick="@(() => MoveListItem(array, index, 1))" />
-                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error" OnClick="@(() => RemoveListItem(array, index))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error" OnClick="@(() => RemoveListItemAsync(array, index))" />
                                 </MudStack>
                             </MudStack>
                         </TitleContent>
@@ -498,7 +500,7 @@ else
                             <MudStack Row="true" Spacing="0">
                                 <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp" Size="Size.Small" Disabled="@(index == 0)" OnClick="@(() => MoveListItem(array, index, -1))" />
                                 <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown" Size="Size.Small" Disabled="@(index >= array.Count - 1)" OnClick="@(() => MoveListItem(array, index, 1))" />
-                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error" OnClick="@(() => RemoveListItem(array, index))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error" OnClick="@(() => RemoveListItemAsync(array, index))" />
                             </MudStack>
                         </MudStack>
                     </MudPaper>
@@ -564,7 +566,7 @@ else
                             <div class="plugin-config-row-editor">
                                 @RenderField(valueField.WithName(key), () => dict[key], value => SetObjectValue(dict, key, value), itemPath, null)
                             </div>
-                            <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveDictEntry(dict, key))" />
+                            <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveDictEntryAsync(dict, key))" />
                         </MudStack>
                     </MudPaper>
                 }
@@ -811,9 +813,12 @@ else
         MarkDirty();
     }
 
-    private void RemoveListItem(JsonArray array, int index)
+    private async Task RemoveListItemAsync(JsonArray array, int index)
     {
         if (index < 0 || index >= array.Count)
+            return;
+
+        if (!await ConfirmDestructiveActionAsync("Remove list item?", "This item will be removed from the pending plugin configuration changes.", "Remove"))
             return;
 
         array.RemoveAt(index);
@@ -892,10 +897,24 @@ else
         MarkDirty();
     }
 
-    private void RemoveDictEntry(JsonObject dict, string key)
+    private async Task RemoveDictEntryAsync(JsonObject dict, string key)
     {
+        if (!await ConfirmDestructiveActionAsync("Remove dictionary entry?", $"Entry '{key}' will be removed from the pending plugin configuration changes.", "Remove"))
+            return;
+
         dict.Remove(key);
         MarkDirty();
+    }
+
+    private async Task<bool> ConfirmDestructiveActionAsync(string title, string message, string yesText)
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            title,
+            message,
+            yesText: yesText,
+            cancelText: "Cancel");
+
+        return confirmed == true;
     }
 
     private void RenameDictKey(JsonObject dict, FieldModel field, string oldKey, string? newKeyRaw)

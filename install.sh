@@ -29,7 +29,8 @@ For machine-wide service installation, pass --system and run with sudo.
 
 If the required .NET 10 SDK/runtime is missing, the installer detects apt, dnf,
 yum, pacman, or zypper, prints the exact install commands, and prompts before
-running them.
+running them. On Debian 13, apt installs first add Microsoft's Debian 13 package
+feed.
 
 Options:
   --install-dir <dir>       Install directory (default: <run-user-home>/.local/share/Quasar)
@@ -182,6 +183,16 @@ detect_package_manager() {
     echo ""
 }
 
+is_debian_13() {
+    [[ -r /etc/os-release ]] || return 1
+
+    (
+        # shellcheck disable=SC1091
+        . /etc/os-release
+        [[ "${ID:-}" == "debian" && "${VERSION_ID:-}" == "13" ]]
+    )
+}
+
 dotnet_package_for_manager() {
     local package_kind="$1"
     local package_manager="$2"
@@ -211,8 +222,17 @@ build_dotnet_install_commands() {
     sudo_prefix="$(privileged_prefix)"
     case "$package_manager" in
         apt)
-            DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}apt-get update")
-            DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}apt-get install -y $packages")
+            if is_debian_13; then
+                DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}apt-get update")
+                DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}apt-get install -y ca-certificates wget")
+                DOTNET_INSTALL_COMMANDS+=("wget https://packages.microsoft.com/config/debian/13/packages-microsoft-prod.deb -O packages-microsoft-prod.deb")
+                DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}dpkg -i packages-microsoft-prod.deb")
+                DOTNET_INSTALL_COMMANDS+=("rm packages-microsoft-prod.deb")
+                DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}apt-get update && ${sudo_prefix}apt-get install -y $packages")
+            else
+                DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}apt-get update")
+                DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}apt-get install -y $packages")
+            fi
             ;;
         dnf)
             DOTNET_INSTALL_COMMANDS+=("${sudo_prefix}dnf install -y $packages")

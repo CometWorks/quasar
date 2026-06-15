@@ -1,0 +1,73 @@
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+@if (!string.IsNullOrWhiteSpace(Value))
+{
+    @if (Inline)
+    {
+        <span class="@RootCssClass">
+            <span class="@TextCssClass">@Value</span>
+            <MudTooltip Text="@Tooltip">
+                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
+                               Size="Size.Small"
+                               Color="Color.Default"
+                               Class="copyable-path-button"
+                               OnClick="CopyAsync" />
+            </MudTooltip>
+        </span>
+    }
+    else
+    {
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="@RootCssClass">
+            <MudText Typo="@Typo" Class="@TextCssClass">@Value</MudText>
+            <MudTooltip Text="@Tooltip">
+                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
+                               Size="Size.Small"
+                               Color="Color.Default"
+                               OnClick="CopyAsync" />
+            </MudTooltip>
+        </MudStack>
+    }
+}
+
+@code
+{
+    [Parameter]
+    public string Value { get; set; } = string.Empty;
+
+    [Parameter]
+    public Typo Typo { get; set; } = Typo.caption;
+
+    [Parameter]
+    public string Class { get; set; } = string.Empty;
+
+    [Parameter]
+    public string TextClass { get; set; } = "mud-text-secondary";
+
+    [Parameter]
+    public bool Inline { get; set; }
+
+    [Parameter]
+    public string Tooltip { get; set; } = "Copy path";
+
+    [Parameter]
+    public string SuccessMessage { get; set; } = "Path copied to clipboard.";
+
+    [Parameter]
+    public string FailureMessage { get; set; } = "Copy failed - select and copy the path manually.";
+
+    private string RootCssClass => Inline
+        ? JoinCss("copyable-path-inline", Class)
+        : JoinCss("copyable-path", Class);
+
+    private string TextCssClass => JoinCss("copyable-path-text", TextClass);
+
+    private async Task CopyAsync()
+    {
+        var ok = await JS.InvokeAsync<bool>("quasarConfigs.copyText", Value);
+        Snackbar.Add(ok ? SuccessMessage : FailureMessage, ok ? Severity.Info : Severity.Warning);
+    }
+
+    private static string JoinCss(params string?[] values) =>
+        string.Join(" ", values.Where(value => !string.IsNullOrWhiteSpace(value)));
+}

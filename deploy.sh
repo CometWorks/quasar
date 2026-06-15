@@ -122,16 +122,14 @@ stop_running_quasar() {
 #  - Updates/Staged             : staged update bits that could be activated.
 #  - service-manifest.json      : leftover discovery manifest from a hard-killed
 #    worker that would otherwise be treated as a healthy running service.
-#  - ManagedRuntime/Tools/Magnetar : the cached Magnetar install. Quasar reuses it
-#    as soon as Bin/MagnetarInterim exists and never re-downloads, so a stale copy
-#    would keep running after a new Magnetar build. Removing it forces a fresh
-#    install on the next server launch.
+#  - ManagedRuntime/Tools/Magnetar is intentionally kept. Quasar records the
+#    installed Magnetar release and compares it with the latest release on
+#    startup, so local deploys should not force a runtime re-download.
 # -----------------------------------------------------------------------------
 purge_stale_state() {
     echo "Purging stale Quasar runtime state in $DATA_DIR..."
     rm -rf "$DATA_DIR/Updates"
     rm -f "$DATA_DIR/service-manifest.json"
-    rm -rf "$DATA_DIR/ManagedRuntime/Tools/Magnetar"
 }
 
 stop_running_quasar

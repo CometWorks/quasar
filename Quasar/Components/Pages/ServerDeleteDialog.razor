@@ -1,6 +1,3 @@
-@inject IJSRuntime JS
-@inject ISnackbar Snackbar
-
 <MudDialog>
     <DialogContent>
         <MudStack Spacing="3">
@@ -21,15 +18,7 @@
 
             <div>
                 <MudText Typo="Typo.caption" Class="mud-text-secondary">Server folder</MudText>
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                    <MudText Typo="Typo.body2" Class="mono" Style="word-break: break-all;">@FolderPath</MudText>
-                    <MudTooltip Text="Copy path">
-                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
-                                       Size="Size.Small"
-                                       Color="Color.Default"
-                                       OnClick="CopyPathAsync" />
-                    </MudTooltip>
-                </MudStack>
+                <CopyablePath Value="@FolderPath" Typo="Typo.body2" TextClass="" />
             </div>
 
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
@@ -70,14 +59,6 @@
 
     [Parameter]
     public bool Confirm { get; set; }
-
-    private async Task CopyPathAsync()
-    {
-        var ok = await JS.InvokeAsync<bool>("quasarConfigs.copyText", FolderPath);
-        Snackbar.Add(
-            ok ? "Path copied to clipboard." : "Copy failed — select and copy the path manually.",
-            ok ? Severity.Info : Severity.Warning);
-    }
 
     private void Cancel() => MudDialog.Cancel();
 

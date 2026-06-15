@@ -308,8 +308,25 @@
 
     private static string FormatAuthor(ChatMessageSnapshot message)
     {
+        if (IsServerMessage(message))
+            return "Server";
+
         var author = TextSanitizer.CleanGameText(message.AuthorName);
         return string.IsNullOrWhiteSpace(author) ? message.SteamId.ToString() : author;
+    }
+
+    private static bool IsServerMessage(ChatMessageSnapshot message)
+    {
+        return message.IsServerMessage ||
+               message.SteamId <= 0 ||
+               IsServerAuthorName(message.AuthorName);
+    }
+
+    private static bool IsServerAuthorName(string authorName)
+    {
+        var normalized = TextSanitizer.CleanGameText(authorName).Trim();
+        return string.Equals(normalized, "Good.bot", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(normalized, "Server", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string FormatTimestamp(long ticks)

@@ -3,26 +3,30 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Routable page at `/world-templates` for managing reusable Space Engineers world templates. Provides an inline import form (name, description, source path with folder browser), and a sortable table of existing templates showing size and a missing-world indicator with Clone and Delete actions. Template world files are copied into managed Quasar storage via `QuasarWorldTemplateCatalog`.
+Routable page at `/world-templates` for managing reusable Space Engineers world templates. Provides an inline manual import form (name, description, source path with folder browser), a collapsed optional panel for one-click importing installed Dedicated Server world/scenario templates without entering a name or path, and a sortable table of existing templates showing size and a missing-world indicator with Clone and Delete actions. The folder browser is seeded from the last imported source folder or the managed Dedicated Server content folders (`Content/CustomWorlds`, `Content/QuickStarts`, `Content/Scenarios`) and shows those locations as shortcut chips. Template world files are copied into managed Quasar storage via `QuasarWorldTemplateCatalog`.
 
 ## Structure
 - **`@page "/world-templates"`**, **`@implements IDisposable`**
-- **`[Inject]`:** `QuasarWorldTemplateCatalog WorldTemplateCatalog`, `ISnackbar Snackbar`, `IDialogService DialogService`
+- **`[Inject]`:** `QuasarWorldTemplateCatalog WorldTemplateCatalog`, `ISnackbar Snackbar`, `IDialogService DialogService`, `WorldTemplateImportLocationService ImportLocations`
 - **Key UI**
   - Left panel (xl:5) — import form: `MudTextField` for name, description, and source path with a "Browse" folder-picker button, plus Import (shows "Importing…" while `_importing`) and Clear buttons.
+  - Left panel installed-template expansion — collapsed by default; shows discovered installed Space Engineers templates from DS `Content/CustomWorlds`, `Content/QuickStarts`, and `Content/Scenarios`, with search, Refresh, source/category display, and per-row Add buttons.
   - Right panel (xl:7) — `MudTable<WorldTemplateRow>` with sortable columns Name, Description, Size (MB or a "missing" warning chip), Updated; row actions Clone (disabled when world missing or importing) and Delete.
 - **`WorldTemplateRow` (private sealed record)** — `(QuasarWorldTemplate Template, bool WorldExists, long FileSizeMb)`.
 - **`Templates` computed property** — maps catalog entries to rows, computing the on-disk world directory size in MB by summing all file lengths (`DirectoryInfo.GetFiles("*", AllDirectories)`).
+- **Installed sources:** `_installedTemplates`, `_installedTemplateSearch`, `FilteredInstalledTemplates`, `MatchesInstalledTemplateSearch`.
 - **Key methods**
   - `ImportAsync` — validates name and source path are present, calls `WorldTemplateCatalog.ImportAsync(name, description, sourcePath)`, then resets the form.
+  - `ImportInstalledTemplateAsync` — imports an `InstalledWorldTemplateSource` using its discovered display name, description, and source path without requiring manual form fields.
   - `CloneAsync` — re-imports using the template's managed world directory as the source, naming it "<name> (Copy)".
-  - `OpenFolderPickerAsync` — opens `FolderPickerDialog` seeded with the current source path and stores the picked path.
+  - `OpenFolderPickerAsync` — opens `FolderPickerDialog` seeded with the current source path, the remembered last source folder, or the first existing managed DS content folder; passes DS content shortcut chips and remembers the picked path.
   - `DeleteAsync` — confirms via `ShowMessageBoxAsync`, then `WorldTemplateCatalog.DeleteAsync`.
-  - `ResetForm`, `HandleChanged`.
+  - `RefreshInstalledTemplates`, `ResetForm`, `HandleChanged`.
 - Subscribes to `WorldTemplateCatalog.Changed` in `OnInitialized`, releases in `Dispose`.
 
 ## Dependencies
 - [`Quasar/Services/QuasarWorldTemplateCatalog.cs`](../../Services/QuasarWorldTemplateCatalog.cs.md) — import/delete, world directory resolution
+- [`Quasar/Services/WorldTemplateImportLocationService.cs`](../../Services/WorldTemplateImportLocationService.cs.md) — source-folder shortcuts, installed template discovery, and last-folder persistence
 - `Quasar/Models/QuasarWorldTemplate.cs` — `QuasarWorldTemplate`
 - `Quasar/Components/Shared/FolderPickerDialog.razor`
 - MudBlazor — `MudGrid`, `MudPaper`, `MudTable`, `MudTextField`, `MudButton`, `MudChip`, `MudAlert`, `ISnackbar`, `IDialogService`

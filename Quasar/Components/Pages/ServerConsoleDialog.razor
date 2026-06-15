@@ -9,7 +9,7 @@
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
                     <MudStack Spacing="0">
                         <MudText Typo="Typo.body2" Class="mud-text-secondary">@ServerLogStatusText()</MudText>
-                        <MudText Typo="Typo.caption" Class="mud-text-secondary quasar-info-log-path">@_serverLogPath</MudText>
+                        <CopyablePath Value="@_serverLogPath" />
                     </MudStack>
                     <MudStack Row="true" Spacing="1">
                         <MudTooltip Text="Download full server log">
@@ -51,7 +51,7 @@
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
                     <MudStack Spacing="0">
                         <MudText Typo="Typo.body2" Class="mud-text-secondary">@InfoLogStatusText()</MudText>
-                        <MudText Typo="Typo.caption" Class="mud-text-secondary quasar-info-log-path">@_infoLogPath</MudText>
+                        <CopyablePath Value="@_infoLogPath" />
                     </MudStack>
                     <MudStack Row="true" Spacing="1">
                         <MudTooltip Text="Download info.log">
@@ -124,10 +124,6 @@
         color: var(--mud-palette-text-primary);
     }
 
-    .quasar-info-log-path {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        word-break: break-all;
-    }
 </style>
 
 @code

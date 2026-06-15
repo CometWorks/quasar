@@ -4,9 +4,24 @@
     <DialogContent>
         <MudStack Spacing="2">
             <MudText Typo="Typo.body2">
-                Store the Steam Web API key used by Quasar server-side for Workshop search. The key is saved under Quasar runtime data and is not sent to browser JavaScript.
+                Store the Steam Web API key used by Quasar server-side for Workshop search.
             </MudText>
-            <MudLink Href="https://steamcommunity.com/dev/apikey" Target="_blank">Get a Steam Web API key</MudLink>
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.body2">Generate or find the key on Steam's developer page.</MudText>
+                    <MudLink Href="https://steamcommunity.com/dev/apikey"
+                             Target="_blank"
+                             Underline="Underline.Always"
+                             Color="Color.Primary"
+                             Typo="Typo.subtitle1"
+                             Style="font-weight: 700;">
+                        Open Steam Web API key page
+                    </MudLink>
+                </MudStack>
+            </MudAlert>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                @StorageProtectionDescription
+            </MudText>
             <MudTextField
                 @bind-Value="_webApiKey"
                 Label="Steam Web API key"
@@ -33,6 +48,11 @@
 
     private string _webApiKey = string.Empty;
 
+    private static string StorageProtectionDescription =>
+        $"After saving, Quasar stores an encrypted value in {System.IO.Path.GetFileName(MagnetarPaths.GetQuasarWorkshopOptionsPath())} under {GetPlatformStorageLocation()}. " +
+        "It can be decrypted only by this Quasar installation while its local Data Protection keyring is intact. " +
+        GetPlatformFileProtectionDescription();
+
     protected override void OnInitialized()
     {
         _webApiKey = CurrentWebApiKey;
@@ -50,5 +70,27 @@
             return;
 
         MudDialog.Close(DialogResult.Ok(key));
+    }
+
+    private static string GetPlatformStorageLocation()
+    {
+        if (OperatingSystem.IsWindows())
+            return "%APPDATA%\\Quasar, or QUASAR_DATA_DIR when that override is set";
+
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+            return "~/.config/Quasar, or QUASAR_DATA_DIR when that override is set";
+
+        return "the Quasar data directory, or QUASAR_DATA_DIR when that override is set";
+    }
+
+    private static string GetPlatformFileProtectionDescription()
+    {
+        if (OperatingSystem.IsWindows())
+            return "Windows access is controlled by the current account's profile ACLs.";
+
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+            return "On this platform Quasar also restricts the credentials file to owner read/write permissions (0600) when the filesystem supports it.";
+
+        return "Restrict access to the Quasar data directory with the host operating system's file permissions.";
     }
 }

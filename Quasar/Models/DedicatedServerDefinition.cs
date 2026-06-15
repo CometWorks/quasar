@@ -15,6 +15,10 @@ public sealed class DedicatedServerDefinition
 
     public string DisplayName { get; set; } = string.Empty;
 
+    public string InGameServerName { get; set; } = string.Empty;
+
+    public string InGameWorldName { get; set; } = string.Empty;
+
     [JsonIgnore]
     public string OriginalUniqueName { get; set; } = string.Empty;
 
@@ -105,6 +109,8 @@ public sealed class DedicatedServerDefinition
         {
             UniqueName = UniqueName,
             DisplayName = DisplayName,
+            InGameServerName = InGameServerName,
+            InGameWorldName = InGameWorldName,
             OriginalUniqueName = OriginalUniqueName,
             GoalState = GoalState,
             ExecutablePath = ExecutablePath,

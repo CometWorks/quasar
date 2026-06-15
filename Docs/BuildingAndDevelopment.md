@@ -49,10 +49,19 @@ The solution file is `Quasar.sln`.
   .NET 10.
 - Managed Magnetar installs record the GitHub release tag, asset name, and
   download URL in `.quasar-magnetar-release.json` under the install directory.
-  Quasar compares that marker with the latest full Magnetar release whenever a
-  managed instance starts and every 15 minutes while the web service is running.
-  If the latest check or replacement fails while a launcher already exists,
-  Quasar logs the failure and continues using the installed launcher.
+  Quasar compares the stable release identity (release tag + asset name) with
+  the latest full Magnetar release at startup and whenever a managed instance
+  needs a launcher, so an unchanged release is reused instead of downloaded
+  again. A successful GitHub release check is cached in memory for five minutes,
+  so multiple managed instance starts in that window reuse the same version
+  result instead of calling GitHub again. Direct archive URL overrides are cached
+  by exact URL because they do not expose a separate release tag. If the latest
+  check or replacement fails while a launcher already exists, Quasar logs the
+  failure and continues using the installed launcher. The background Magnetar
+  update check runs once per hour after startup warmup.
+- `deploy.sh` keeps `ManagedRuntime/Tools/Magnetar` intact during local source
+  deployments. The managed runtime resolver owns freshness checks, so a local
+  deploy no longer forces the Magnetar archive to be downloaded again.
 - At Quasar startup, the managed runtime warmup immediately checks the managed
   SteamCMD install and the managed Space Engineers Dedicated Server install. If
   either is missing, Quasar downloads it before managed Magnetar servers can be

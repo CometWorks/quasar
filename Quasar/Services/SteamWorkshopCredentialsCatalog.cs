@@ -9,6 +9,9 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
 {
     private const string DataProtectionPurpose = "Quasar.SteamWorkshopCredentials.v1";
 
+    private static readonly UnixFileMode CredentialUnixFileMode =
+        UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -67,6 +70,7 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
         var path = MagnetarPaths.GetQuasarWorkshopOptionsPath();
 
         await AtomicFileWriter.WriteTextAsync(path, json, cancellationToken);
+        RestrictCredentialFileAccess(path);
 
         lock (_sync)
         {
@@ -216,6 +220,24 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
 
     private static string CreateSnapshot(SteamWorkshopCredentials credentials) =>
         JsonSerializer.Serialize(SteamWorkshopCredentials.Normalize(credentials), JsonOptions);
+
+    private void RestrictCredentialFileAccess(string path)
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        try
+        {
+            File.SetUnixFileMode(path, CredentialUnixFileMode);
+        }
+        catch (Exception exception) when (exception is IOException or NotSupportedException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(exception,
+                "Failed setting owner-only permissions on Steam Workshop credentials file {Path}. " +
+                "The key remains encrypted, but the host filesystem permissions should be checked.",
+                path);
+        }
+    }
 
     private sealed class PersistedCredentials
     {

@@ -2,6 +2,7 @@
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarPluginCatalogService PluginCatalog
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 @{
     IReadOnlyList<string> modDownloadFailures = Runtime is null
@@ -165,26 +166,29 @@ else
         {
             <div class="chat-row">
                 <MudText Typo="Typo.caption" Class="mono">@FormatTimestamp(message.TimestampTicksUtc)</MudText>
-                <MudText Typo="Typo.body2"><strong>@TextSanitizer.CleanGameText(message.AuthorName)</strong>: @TextSanitizer.CleanGameText(message.Content)</MudText>
+                <MudText Typo="Typo.body2"><strong>@FormatChatAuthor(message)</strong>: @TextSanitizer.CleanGameText(message.Content)</MudText>
             </div>
         }
     </div>
 
     <MudDivider Class="my-3" />
 
-    <MudText Typo="Typo.subtitle2" Class="mb-2">Plugins</MudText>
-    <MudTable T="PluginDisplayRow" Dense="true" Items="PluginRows">
-        <HeaderContent>
-            <MudTh>Plugin</MudTh>
-            <MudTh>Version</MudTh>
-            <MudTh>Status</MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd DataLabel="Plugin">@context.DisplayName</MudTd>
-            <MudTd DataLabel="Version">@context.Version</MudTd>
-            <MudTd DataLabel="Status">@context.Status</MudTd>
-        </RowTemplate>
-    </MudTable>
+    @if (PluginRows.Count > 0)
+    {
+        <MudText Typo="Typo.subtitle2" Class="mb-2">Plugins</MudText>
+        <MudTable T="PluginDisplayRow" Dense="true" Items="PluginRows">
+            <HeaderContent>
+                <MudTh>Plugin</MudTh>
+                <MudTh>Version</MudTh>
+                <MudTh>Status</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Plugin">@context.DisplayName</MudTd>
+                <MudTd DataLabel="Version">@context.Version</MudTd>
+                <MudTd DataLabel="Status">@context.Status</MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
 
     @if (Agent.CommandResults.Count > 0)
     {
@@ -202,6 +206,17 @@ else
 @code
 {
     private static readonly string[] PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"];
+    private static readonly string[] HiddenPluginKeys =
+    [
+        "MagnetarInterim",
+        "MagnetarInterim.exe",
+        "LinuxCompat",
+        "DotNetCompat",
+        "Quasar.Agent",
+        "quasar-agent",
+        QuasarPluginCatalogService.LinuxCompatPluginId,
+        QuasarPluginCatalogService.DotNetCompatPluginId,
+    ];
 
     [Parameter]
     public DedicatedServerDefinition? Server { get; set; }
@@ -253,6 +268,12 @@ else
         if (Agent is null)
             return;
 
+        if (RequiresPlayerCommandConfirmation(commandType) &&
+            !await ConfirmPlayerCommandAsync(commandType, steamId))
+        {
+            return;
+        }
+
         try
         {
             await Registry.SendCommandAsync(new ServerCommandEnvelope
@@ -272,6 +293,28 @@ else
             Snackbar.Add(exception.Message, Severity.Error);
         }
     }
+
+    private async Task<bool> ConfirmPlayerCommandAsync(ServerCommandType commandType, long? steamId)
+    {
+        var action = commandType switch
+        {
+            ServerCommandType.KickPlayer => "Kick",
+            ServerCommandType.BanPlayer => "Ban",
+            _ => commandType.ToString(),
+        };
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            $"{action} player?",
+            steamId is null
+                ? $"{action} this player?"
+                : $"{action} player {steamId.Value}?",
+            yesText: action,
+            cancelText: "Cancel");
+
+        return confirmed == true;
+    }
+
+    private static bool RequiresPlayerCommandConfirmation(ServerCommandType commandType) =>
+        commandType is ServerCommandType.KickPlayer or ServerCommandType.BanPlayer;
 
     private static string FormatDuration(int totalSeconds)
     {
@@ -306,9 +349,13 @@ else
     private IReadOnlyList<PluginDisplayRow> BuildPluginRows()
     {
         var rows = new Dictionary<string, PluginDisplayRow>(StringComparer.OrdinalIgnoreCase);
+        var catalogEntries = PluginCatalog.GetEntries();
 
         foreach (var plugin in GetConfiguredPlugins())
         {
+            if (IsHiddenDashboardPlugin(plugin.PluginId, plugin.DisplayName, catalogEntries))
+                continue;
+
             rows[plugin.PluginId] = new PluginDisplayRow(
                 plugin.PluginId,
                 plugin.DisplayName,
@@ -324,6 +371,9 @@ else
             if (string.IsNullOrWhiteSpace(pluginId))
                 continue;
 
+            if (IsHiddenDashboardPlugin(pluginId, plugin.DisplayName, catalogEntries))
+                continue;
+
             rows[pluginId] = new PluginDisplayRow(
                 pluginId.Trim(),
                 ResolvePluginDisplayName(pluginId, plugin.DisplayName),
@@ -335,6 +385,47 @@ else
             .OrderBy(row => row.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(row => row.PluginId, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static bool IsHiddenDashboardPlugin(
+        string pluginId,
+        string displayName,
+        IReadOnlyList<QuasarPluginCatalogEntry> catalogEntries)
+    {
+        if (HiddenPluginKeys.Any(key => MatchesPluginKey(pluginId, key) || MatchesPluginKey(displayName, key)))
+            return true;
+
+        return catalogEntries.Any(entry =>
+            entry.Hidden &&
+            (MatchesPluginKey(pluginId, entry.PluginId) ||
+             MatchesPluginKey(displayName, entry.PluginId) ||
+             MatchesPluginKey(pluginId, entry.FriendlyName) ||
+             MatchesPluginKey(displayName, entry.FriendlyName)));
+    }
+
+    private static bool MatchesPluginKey(string value, string key)
+    {
+        var normalizedValue = NormalizePluginKey(value);
+        var normalizedKey = NormalizePluginKey(key);
+        return normalizedValue.Length > 0 &&
+               normalizedKey.Length > 0 &&
+               string.Equals(normalizedValue, normalizedKey, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizePluginKey(string value)
+    {
+        var normalized = (value ?? string.Empty).Trim();
+        if (normalized.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
+            normalized.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = Path.GetFileNameWithoutExtension(normalized);
+        }
+
+        return normalized
+            .Replace(" ", string.Empty, StringComparison.Ordinal)
+            .Replace("_", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .Replace(".", string.Empty, StringComparison.Ordinal);
     }
 
     private IReadOnlyList<QuasarPluginSelection> GetConfiguredPlugins()
@@ -365,6 +456,29 @@ else
             return string.Empty;
 
         return new DateTime(ticksUtc, DateTimeKind.Utc).ToLocalTime().ToString("HH:mm:ss");
+    }
+
+    private static string FormatChatAuthor(ChatMessageSnapshot message)
+    {
+        if (IsServerMessage(message))
+            return "Server";
+
+        var author = TextSanitizer.CleanGameText(message.AuthorName);
+        return string.IsNullOrWhiteSpace(author) ? message.SteamId.ToString() : author;
+    }
+
+    private static bool IsServerMessage(ChatMessageSnapshot message)
+    {
+        return message.IsServerMessage ||
+               message.SteamId <= 0 ||
+               IsServerAuthorName(message.AuthorName);
+    }
+
+    private static bool IsServerAuthorName(string authorName)
+    {
+        var normalized = TextSanitizer.CleanGameText(authorName).Trim();
+        return string.Equals(normalized, "Good.bot", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(normalized, "Server", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string GetServiceLabel(string? serviceName)

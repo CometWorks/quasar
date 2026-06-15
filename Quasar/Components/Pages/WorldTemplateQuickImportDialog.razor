@@ -145,6 +145,9 @@
     [Inject]
     private IDialogService DialogService { get; set; } = default!;
 
+    [Inject]
+    private WorldTemplateImportLocationService ImportLocations { get; set; } = default!;
+
     [Parameter]
     public string? InitialConfigProfileId { get; set; }
 
@@ -180,9 +183,11 @@
 
     private async Task OpenFolderPickerAsync()
     {
+        var initialPath = await ImportLocations.GetInitialPathAsync(_sourcePath);
         var parameters = new DialogParameters
         {
-            [nameof(FolderPickerDialog.InitialPath)] = _sourcePath,
+            [nameof(FolderPickerDialog.InitialPath)] = initialPath,
+            [nameof(FolderPickerDialog.AdditionalShortcuts)] = ImportLocations.GetContentShortcuts(),
         };
 
         var dialog = await DialogService.ShowAsync<FolderPickerDialog>(
@@ -192,7 +197,10 @@
 
         var result = await dialog.Result;
         if (result is { Canceled: false, Data: string path })
+        {
             _sourcePath = path;
+            await ImportLocations.RememberAsync(path);
+        }
     }
 
     private async Task ContinueAsync()

@@ -37,7 +37,7 @@
                 <MudText Typo="Typo.h6">appsettings.json conflict</MudText>
                 @if (!string.IsNullOrWhiteSpace(_snapshot.AppSettingsConflictPath))
                 {
-                    <MudText Typo="Typo.caption">@_snapshot.AppSettingsConflictPath</MudText>
+                    <CopyablePath Value="@_snapshot.AppSettingsConflictPath" />
                 }
                 <MudTextField T="string"
                               @bind-Value="_appSettingsConflictText"

@@ -9,4 +9,6 @@ public class ChatMessageSnapshot
     public string Content { get; set; } = string.Empty;
 
     public long TimestampTicksUtc { get; set; }
+
+    public bool IsServerMessage { get; set; }
 }

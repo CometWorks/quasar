@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Lightweight MudBlazor confirmation dialog opened by the Servers page when the user requests to create a world template from a stopped server's current world directory. Collects the template name and description, displays the source world path (read-only), and returns a `TemplateRequest` record to the caller.
+Lightweight MudBlazor confirmation dialog opened by the Servers page when the user requests to create a world template from a stopped server's current world directory. Collects the template name and description, displays a copyable source world path (read-only), and returns a `TemplateRequest` record to the caller.
 
 ## Structure
 - **No `@page` route** — dialog only.
@@ -14,11 +14,12 @@ Lightweight MudBlazor confirmation dialog opened by the Servers page when the us
   - `string WorldPath` — shown as read-only caption so the user can confirm the source.
 - **Key UI**
   - `MudTextField` for name (required) and description (multi-line, optional).
-  - Read-only caption displaying `WorldPath` in monospace.
+  - Read-only `CopyablePath` displaying `WorldPath` in monospace with a clipboard action.
   - Cancel / Create buttons; Create disabled while `_name` is blank.
 - **`TemplateRequest`** — `public sealed record TemplateRequest(string Name, string Description)` returned in `DialogResult.Ok`.
 - **`Create`** — trims name and description, closes with `Ok(new TemplateRequest(...))`.
 
 ## Dependencies
 - [`Quasar/Components/Pages/Servers.razor`](Servers.razor.md) — sole caller.
+- [`Quasar/Components/Shared/CopyablePath.razor`](../Shared/CopyablePath.razor.md)
 - MudBlazor — `MudDialog`, `MudTextField`, `MudText`, `MudButton`.

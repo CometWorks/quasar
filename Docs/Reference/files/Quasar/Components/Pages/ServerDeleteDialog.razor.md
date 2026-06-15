@@ -7,9 +7,6 @@ MudBlazor dialog that confirms deletion of a server definition or reports that t
 
 ## Structure
 - **No `@page` route** — dialog only; launched by server-management workflows.
-- **`@inject`**
-  - `IJSRuntime JS`
-  - `ISnackbar Snackbar`
 - **`[CascadingParameter]` `IMudDialogInstance MudDialog`**
 - **`[Parameter]`s**
   - `Slug` — server identifier shown in confirmation text.
@@ -17,13 +14,12 @@ MudBlazor dialog that confirms deletion of a server definition or reports that t
   - `Confirm` — toggles between confirmation mode and post-delete acknowledgement mode.
 - **Key UI**
   - Conditional body text for pre-delete confirmation or post-delete acknowledgement.
-  - Folder path row with copy icon button.
+  - Folder path row rendered through `CopyablePath`.
   - Informational alerts explaining that Quasar does not delete the server folder and that recreating the slug reuses leftover files unless the folder is moved or deleted.
   - Cancel/Delete actions in confirmation mode; Close action in acknowledgement mode.
-- **`CopyPathAsync`** — calls `quasarConfigs.copyText` and reports success or fallback instructions through snackbar.
 - **`Accept`** — closes with `DialogResult.Ok(true)`.
 - **`Cancel`** — cancels the dialog.
 
 ## Dependencies
-- MudBlazor — `MudDialog`, `MudStack`, `MudText`, `MudTooltip`, `MudIconButton`, `MudAlert`, `MudButton`, `ISnackbar`.
-- JavaScript helper `quasarConfigs.copyText` from [`Quasar/wwwroot/quasar-configs.js`](../../wwwroot/quasar-configs.js.md).
+- [`Quasar/Components/Shared/CopyablePath.razor`](../Shared/CopyablePath.razor.md)
+- MudBlazor — `MudDialog`, `MudStack`, `MudText`, `MudAlert`, `MudButton`.

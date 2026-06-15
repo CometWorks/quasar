@@ -13,6 +13,7 @@ namespace Quasar.Services;
 public sealed class ManagedDedicatedServerRuntimeResolver
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly TimeSpan MagnetarReleaseCheckCooldown = TimeSpan.FromMinutes(5);
     private const string MagnetarLauncherName = "MagnetarInterim";
     private const string MagnetarReleaseMarkerFileName = ".quasar-magnetar-release.json";
     private const string DedicatedServerAppId = "298740";
@@ -63,6 +64,9 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     private readonly SemaphoreSlim _magnetarInstallLock = new(1, 1);
     private readonly SemaphoreSlim _steamCmdInstallLock = new(1, 1);
     private readonly SemaphoreSlim _dedicatedServerInstallLock = new(1, 1);
+    private readonly object _magnetarReleaseCheckSync = new();
+    private MagnetarArchiveReference? _cachedMagnetarArchiveReference;
+    private DateTimeOffset _cachedMagnetarArchiveReferenceCheckedAtUtc;
 
     public ManagedDedicatedServerRuntimeResolver(
         ILogger<ManagedDedicatedServerRuntimeResolver> logger,
@@ -416,13 +420,18 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         string existingLauncherPath,
         CancellationToken cancellationToken)
     {
+        if (TryGetCachedMagnetarArchiveReference(out var cachedArchive))
+            return cachedArchive;
+
         using var client = _httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromMinutes(5);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Quasar");
 
         try
         {
-            return await ResolveMagnetarArchiveReferenceAsync(client, cancellationToken);
+            var archive = await ResolveMagnetarArchiveReferenceAsync(client, cancellationToken);
+            CacheMagnetarArchiveReference(archive);
+            return archive;
         }
         catch (Exception exception) when (!string.IsNullOrWhiteSpace(existingLauncherPath) && !cancellationToken.IsCancellationRequested)
         {
@@ -441,6 +450,37 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                     installed.ReleaseTagName,
                     installed.AssetName,
                     installed.ArchiveUrl);
+        }
+    }
+
+    private bool TryGetCachedMagnetarArchiveReference(out MagnetarArchiveReference archive)
+    {
+        archive = null!;
+        if (!string.IsNullOrWhiteSpace(_options.MagnetarArchiveUrl))
+            return false;
+
+        lock (_magnetarReleaseCheckSync)
+        {
+            if (_cachedMagnetarArchiveReference is null)
+                return false;
+
+            if (DateTimeOffset.UtcNow - _cachedMagnetarArchiveReferenceCheckedAtUtc >= MagnetarReleaseCheckCooldown)
+                return false;
+
+            archive = _cachedMagnetarArchiveReference;
+            return true;
+        }
+    }
+
+    private void CacheMagnetarArchiveReference(MagnetarArchiveReference archive)
+    {
+        if (!string.Equals(archive.SourceKind, MagnetarArchiveSourceKinds.GitHubRelease, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        lock (_magnetarReleaseCheckSync)
+        {
+            _cachedMagnetarArchiveReference = archive;
+            _cachedMagnetarArchiveReferenceCheckedAtUtc = DateTimeOffset.UtcNow;
         }
     }
 
@@ -497,9 +537,19 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             return true;
 
         var installed = ReadInstalledMagnetarRelease(installDirectory);
-        return installed is not null &&
-               string.Equals(installed.SourceKind, archive.SourceKind, StringComparison.OrdinalIgnoreCase) &&
-               string.Equals(installed.ReleaseTagName, archive.ReleaseTagName, StringComparison.OrdinalIgnoreCase) &&
+        if (installed is null ||
+            !string.Equals(installed.SourceKind, archive.SourceKind, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (string.Equals(archive.SourceKind, MagnetarArchiveSourceKinds.GitHubRelease, StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Equals(installed.ReleaseTagName, archive.ReleaseTagName, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(installed.AssetName, archive.AssetName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return string.Equals(installed.ReleaseTagName, archive.ReleaseTagName, StringComparison.OrdinalIgnoreCase) &&
                string.Equals(installed.AssetName, archive.AssetName, StringComparison.OrdinalIgnoreCase) &&
                string.Equals(installed.ArchiveUrl, archive.ArchiveUrl, StringComparison.Ordinal);
     }

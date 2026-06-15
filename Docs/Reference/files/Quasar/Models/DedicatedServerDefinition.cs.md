@@ -3,7 +3,7 @@
 **Module:** Quasar.Models  **Kind:** class  **Tier:** 1
 
 ## Summary
-Persistent configuration record for a single managed Space Engineers dedicated server. Contains all fields needed to launch, supervise, health-monitor, rotate retained DS logs, emit optional launch diagnostics, select profiler mode, and schedule restarts for a server, as well as process-priority, CPU-affinity, and managed-runtime settings. Serialized to disk as part of the server catalog.
+Persistent configuration record for a single managed Space Engineers dedicated server. Contains all fields needed to launch, supervise, health-monitor, rotate retained DS logs, emit optional launch diagnostics, select profiler mode, schedule restarts, and set the DS-advertised server/world names, as well as process-priority, CPU-affinity, and managed-runtime settings. Serialized to disk as part of the server catalog.
 
 ## Structure
 Namespace: `Quasar.Models`  
@@ -16,6 +16,8 @@ Namespace: `Quasar.Models`
 | `DefaultAgentAttachRetryAttempts` / `DefaultAgentAttachRetryDelaySeconds` | Defaults for restarting a launched server when Quasar.Agent does not attach during startup grace (3 retries, 5 s delay). |
 | `UniqueName` | Stable machine key for the server (filename-safe slug). |
 | `DisplayName` | Human-readable label shown in the UI. |
+| `InGameServerName` | Optional Space Engineers multiplayer-list server name written to `SpaceEngineers-Dedicated.cfg` as `ServerName`; when blank the preparer falls back to `DisplayName`, then `UniqueName`. |
+| `InGameWorldName` | Optional Space Engineers world/save name written to `SpaceEngineers-Dedicated.cfg` as `WorldName` and to `LastSession.sbl` as `GameName`; when blank the preparer falls back to `UniqueName`. |
 | `OriginalUniqueName` | Pre-rename value used during rename operations; `[JsonIgnore]`, never persisted. |
 | `GoalState` | Desired on/off state (`DedicatedServerGoalState`). |
 | `ExecutablePath` | Path to the SE dedicated server executable. |
@@ -54,7 +56,7 @@ Namespace: `Quasar.Models`
 | `ReadyProcessPriority` | OS process priority once the server is running. |
 | `CpuAffinity` | Canonical cpuset string (e.g. "0-7" or "0-7,16-23") pinning the server process to a fixed set of logical cores; empty = no affinity (all cores); when set must contain >=2 cores; applied locally by the supervisor each time the process starts (see `CpuAffinitySpec`). Default empty. |
 | `UpdatedAtUtc` | Timestamp of the last configuration save. |
-| `Clone()` | Shallow copy of all fields (including `ManagedRuntime`, `AgentProfilerMode`, `CpuAffinity`, `LogLaunchEnvironment`, and `DsLogFilesToKeep`, used before mutations). |
+| `Clone()` | Shallow copy of all fields (including in-game names, `ManagedRuntime`, `AgentProfilerMode`, `CpuAffinity`, `LogLaunchEnvironment`, and `DsLogFilesToKeep`, used before mutations). |
 
 ## Dependencies
 - [`Quasar/Models/DedicatedServerGoalState.cs`](DedicatedServerGoalState.cs.md)

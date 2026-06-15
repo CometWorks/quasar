@@ -21,9 +21,9 @@ Namespace: `Quasar.Services.Updates`
 | `AutoStageWebUpdates` | `true`; `QUASAR_UPDATES_AUTO_STAGE_WEB` |
 | `CheckInterval` | 900 seconds minimum 60; `QUASAR_UPDATES_CHECK_INTERVAL_SECONDS` |
 | `LinuxWebAssetName` | `quasar-web-linux-x64.tar.gz`; `QUASAR_UPDATES_LINUX_WEB_ASSET` |
-| `LinuxBootstrapAssetName` | `quasar-linux-x64.tar.gz`; `QUASAR_UPDATES_LINUX_BOOTSTRAP_ASSET` |
+| `LinuxBootstrapAssetName` | `quasar-installer-linux.tar.gz`; `QUASAR_UPDATES_LINUX_BOOTSTRAP_ASSET` |
 | `WindowsWebAssetName` | `quasar-web-win-x64.zip`; `QUASAR_UPDATES_WINDOWS_WEB_ASSET` |
-| `WindowsBootstrapAssetName` | `quasar-win-x64.zip`; `QUASAR_UPDATES_WINDOWS_BOOTSTRAP_ASSET` |
+| `WindowsBootstrapAssetName` | `quasar-installer-windows.zip`; `QUASAR_UPDATES_WINDOWS_BOOTSTRAP_ASSET` |
 | `WebAssetName` *(computed)* | resolves to `WindowsWebAssetName` on Windows, `LinuxWebAssetName` otherwise |
 | `BootstrapAssetName` *(computed)* | resolves to `WindowsBootstrapAssetName` on Windows, `LinuxBootstrapAssetName` otherwise |
 

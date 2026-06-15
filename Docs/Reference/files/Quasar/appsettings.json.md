@@ -18,7 +18,7 @@ Default application configuration for the Quasar host. Provides baseline values 
 - `AgentOfflineShutdownSeconds`: `3600`
 - `AgentReconnectIntervalSeconds`: `10`, `AgentReconnectJitterSeconds`: `3`
 - `AgentProfilerMode`: `"SafeContinuous"` — fallback profiler mode forwarded to managed agents as `QUASAR_AGENT_PROFILER_MODE` when a server has no per-server profiler mode
-- `Updates`: enabled GitHub update checks against `viktor-ferenczi/Quasar`, 900 s interval; Linux assets `quasar-web-linux-x64.tar.gz` / `quasar-linux-x64.tar.gz`, Windows assets `quasar-web-win-x64.zip` / `quasar-win-x64.zip`; prereleases disabled by default
+- `Updates`: enabled GitHub update checks against `viktor-ferenczi/Quasar`, 900 s interval; Linux assets `quasar-web-linux-x64.tar.gz` / `quasar-installer-linux.tar.gz`, Windows assets `quasar-web-win-x64.zip` / `quasar-installer-windows.zip`; prereleases disabled by default
 
 **`Quasar.ManagedRuntime`** (maps to `ManagedRuntimeOptions`):
 - `MagnetarArchiveUrl`, `MagnetarInstallDirectory`

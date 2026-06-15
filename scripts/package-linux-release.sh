@@ -9,6 +9,9 @@ RUNTIME="${RUNTIME:-linux-x64}"
 VERSION="${VERSION:-}"
 ASSEMBLY_FILE_VERSION="0.1.1"
 NUGET_VERSION="$VERSION"
+WEB_ARCHIVE_NAME="quasar-web-linux-x64.tar.gz"
+INSTALLER_ARCHIVE_NAME="quasar-installer-linux.tar.gz"
+INSTALLER_ROOT_NAME="quasar-installer-linux"
 
 normalize_version_component() {
     local value="${1:-0}"
@@ -52,7 +55,7 @@ normalize_nuget_version() {
 }
 
 # Builds the launcher archive's README from the repo README plus the Linux
-# install/run instructions, so whoever unpacks quasar-linux-x64.tar.gz learns how
+# install/run instructions, so whoever unpacks quasar-installer-linux.tar.gz learns how
 # to actually run the binary they downloaded — not just the project overview.
 #
 # Two transforms are applied to the packaged copy (the in-repo README is left
@@ -121,7 +124,7 @@ ASSEMBLY_FILE_VERSION="$(build_assembly_file_version "$VERSION")"
 
 PUBLISH_DIR="$ARTIFACT_DIR/publish"
 WEB_DIR="$ARTIFACT_DIR/web"
-BOOTSTRAP_DIR="$ARTIFACT_DIR/bootstrap"
+BOOTSTRAP_DIR="$ARTIFACT_DIR/$INSTALLER_ROOT_NAME"
 
 rm -rf "$ARTIFACT_DIR"
 mkdir -p "$PUBLISH_DIR" "$WEB_DIR" "$BOOTSTRAP_DIR"
@@ -165,7 +168,7 @@ for required_file in "${required_web_files[@]}"; do
     fi
 done
 
-tar -C "$WEB_DIR" -czf "$ARTIFACT_DIR/quasar-web-linux-x64.tar.gz" .
+tar -C "$WEB_DIR" -czf "$ARTIFACT_DIR/$WEB_ARCHIVE_NAME" .
 
 cp -a "$PUBLISH_DIR/Quasar" "$BOOTSTRAP_DIR/Quasar"
 cp -a "$REPO_DIR/Quasar/appsettings.json" "$BOOTSTRAP_DIR/appsettings.json"
@@ -174,11 +177,11 @@ cp -a "$REPO_DIR/uninstall.sh" "$BOOTSTRAP_DIR/uninstall.sh"
 cp -a "$REPO_DIR/tools/quasar-renice.c" "$BOOTSTRAP_DIR/quasar-renice.c"
 build_packaged_readme "$REPO_DIR/README.md" "$SCRIPT_DIR/readme-install-linux.md" "$BOOTSTRAP_DIR/README.md"
 chmod +x "$BOOTSTRAP_DIR/Quasar" "$BOOTSTRAP_DIR/install.sh" "$BOOTSTRAP_DIR/uninstall.sh"
-tar -C "$BOOTSTRAP_DIR" -czf "$ARTIFACT_DIR/quasar-linux-x64.tar.gz" .
+tar -C "$ARTIFACT_DIR" -czf "$ARTIFACT_DIR/$INSTALLER_ARCHIVE_NAME" "$INSTALLER_ROOT_NAME"
 
 (
     cd "$ARTIFACT_DIR"
-    sha256sum quasar-web-linux-x64.tar.gz quasar-linux-x64.tar.gz > SHA256SUMS
+    sha256sum "$WEB_ARCHIVE_NAME" "$INSTALLER_ARCHIVE_NAME" > SHA256SUMS
 )
 
 echo "Created Linux release artifacts in $ARTIFACT_DIR"

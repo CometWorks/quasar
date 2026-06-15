@@ -4,6 +4,7 @@
 @inject DedicatedServerCatalog ServerCatalog
 @inject KnownPlayerCatalog KnownPlayers
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <PageTitle>Players</PageTitle>
 
@@ -251,6 +252,12 @@
                     return;
                 }
 
+                if (RequiresPlayerCommandConfirmation(commandType) &&
+                    !await ConfirmPlayerCommandAsync(view, commandType))
+                {
+                    return;
+                }
+
                 try
                 {
                     await Registry.SendCommandAsync(new ServerCommandEnvelope
@@ -270,6 +277,30 @@
                     Snackbar.Add(exception.Message, Severity.Error);
                 }
             }
+
+            private async Task<bool> ConfirmPlayerCommandAsync(KnownPlayerView view, ServerCommandType commandType)
+            {
+                var action = commandType switch
+                {
+                    ServerCommandType.KickPlayer => "Kick",
+                    ServerCommandType.BanPlayer => "Ban",
+                    _ => commandType.ToString(),
+                };
+                var playerName = GetPlayerName(view.Record);
+                var target = string.IsNullOrWhiteSpace(playerName)
+                    ? view.Record.SteamId.ToString()
+                    : $"{playerName} ({view.Record.SteamId})";
+                var confirmed = await DialogService.ShowMessageBoxAsync(
+                    $"{action} player?",
+                    $"{action} {target}?",
+                    yesText: action,
+                    cancelText: "Cancel");
+
+                return confirmed == true;
+            }
+
+            private static bool RequiresPlayerCommandConfirmation(ServerCommandType commandType) =>
+                commandType is ServerCommandType.KickPlayer or ServerCommandType.BanPlayer;
 
             private void HandleChanged()
             {

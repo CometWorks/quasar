@@ -3,13 +3,13 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-MudBlazor dialog that displays the dedicated Discord integration log (`discord.log`). It mirrors the server console log UX with a file path caption, full-log download button, Refresh action, exception-excerpt mode, and a scrollable monospace log pane.
+MudBlazor dialog that displays the dedicated Discord integration log (`discord.log`). It mirrors the server console log UX with a copyable file path, full-log download button, Refresh action, exception-excerpt mode, and a scrollable monospace log pane.
 
 ## Structure
 - **No route:** opened as a dialog from `Discord.razor`.
 - **Injected services:** `WebServiceOptions`, `IJSRuntime`
 - **Key UI sections:**
-  - Status/path header showing line count, tail/exceptions mode, and resolved `discord.log` path.
+  - Status/path header showing line count, tail/exceptions mode, and copyable resolved `discord.log` path.
   - Actions: download (`/api/discord/log/download`), Exceptions, Refresh.
   - Missing-log info alert, error alert, or scrollable `.quasar-console-output` containing a `<pre>` with log text.
 - **Key constants:** `LogTailBytes` (256 KiB), `ExceptionSearchBytes` (4 MiB), `ExceptionContextLines` (50), `ExceptionMatchLimit` (10).
@@ -20,6 +20,7 @@ MudBlazor dialog that displays the dedicated Discord integration log (`discord.l
 - [`Quasar/Services/QuasarLoggingConfigurator.cs`](../../Services/QuasarLoggingConfigurator.cs.md) — resolves the Discord log path
 - [`Quasar/Services/WebServiceOptions.cs`](../../Services/WebServiceOptions.cs.md) — supplies the configured log directory
 - [`Quasar/Program.cs`](../../Program.cs.md) — maps `/api/discord/log/download`
+- [`Quasar/Components/Shared/CopyablePath.razor`](../Shared/CopyablePath.razor.md)
 - MudBlazor dialog components and JS interop (`quasarConfigs.scrollToBottom`)
 
 ## Notes

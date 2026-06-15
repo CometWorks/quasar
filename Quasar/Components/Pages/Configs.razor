@@ -129,8 +129,10 @@
                     </MudStack>
                 </MudPaper>
 
-                <MudTabs Rounded="true" ApplyEffectsToContainer="true" >
+                <MudTabs Rounded="true" ApplyEffectsToContainer="true" KeepPanelsAlive="false" @bind-ActivePanelIndex="_activeConfigTabIndex">
                     <MudTabPanel Text="World">
+                        @if (IsConfigTabActive(WorldTabIndex))
+                        {
                         <MudPaper Class="server-card pa-4" Square="true">
                             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
                             <MudTextField
@@ -161,7 +163,7 @@
                                 @if (TryGetVisibleCategory(ServerCategoryKey, out var serverCategory))
                                 {
                                     var serverOptions = GetCategoryOptions(serverCategory.Key);
-                                    <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsCategoryExpanded(serverCategory.Key)" ExpandedChanged="@(expanded => SetCategoryExpanded(serverCategory.Key, expanded))" @key="serverCategory.Key">
+                                    <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsCategoryExpanded(serverCategory.Key)" ExpandedChanged="@(expanded => SetCategoryExpanded(serverCategory.Key, expanded))" KeepContentAlive="false" @key="serverCategory.Key">
                                         <TitleContent>
                                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
                                                 <MudStack Spacing="0">
@@ -238,7 +240,7 @@
 
                                 @if (IsAccessSectionVisible)
                                 {
-                                    <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsCategoryExpanded(AccessCategoryKey)" ExpandedChanged="@(expanded => SetCategoryExpanded(AccessCategoryKey, expanded))" @key="AccessCategoryKey">
+                                    <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsCategoryExpanded(AccessCategoryKey)" ExpandedChanged="@(expanded => SetCategoryExpanded(AccessCategoryKey, expanded))" KeepContentAlive="false" @key="AccessCategoryKey">
                                         <TitleContent>
                                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
                                                 <MudStack Spacing="0">
@@ -290,7 +292,7 @@
                                 @foreach (var category in RemainingVisibleCategories)
                                 {
                                     var categoryOptions = GetCategoryOptions(category.Key);
-                                    <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsCategoryExpanded(category.Key)" ExpandedChanged="@(expanded => SetCategoryExpanded(category.Key, expanded))" @key="category.Key">
+                                    <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsCategoryExpanded(category.Key)" ExpandedChanged="@(expanded => SetCategoryExpanded(category.Key, expanded))" KeepContentAlive="false" @key="category.Key">
                                         <TitleContent>
                                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
                                                 <MudStack Spacing="0">
@@ -364,12 +366,15 @@
                             </MudExpansionPanels>
                         }
                         </MudPaper>
+                        }
                     </MudTabPanel>
 
                     <MudTabPanel Text="Plugins">
+                        @if (IsConfigTabActive(PluginsTabIndex))
+                        {
                         <MudPaper Class="server-card pa-4" Square="true">
                         <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="configs-expansion-panels mb-4">
-                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsPluginPanelExpanded(PluginListPanelKey)" ExpandedChanged="@(expanded => SetPluginPanelExpandedAsync(PluginListPanelKey, expanded))">
+                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsPluginPanelExpanded(PluginListPanelKey)" ExpandedChanged="@(expanded => SetPluginPanelExpandedAsync(PluginListPanelKey, expanded))" KeepContentAlive="false">
                                 <TitleContent>
                                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                         <MudText Typo="Typo.subtitle2">Plugins to load</MudText>
@@ -391,14 +396,32 @@
                                     <MudTable T="QuasarPluginSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="FilteredPlugins">
                                         <HeaderContent>
                                             <MudTh>Name</MudTh>
+                                            <MudTh>Debug build</MudTh>
                                             <MudTh Style="width:96px;"></MudTh>
                                         </HeaderContent>
                                         <RowTemplate>
+                                            @{
+                                                var devFolder = GetDevFolderForPlugin(context.PluginId);
+                                            }
                                             <MudTd DataLabel="Name">
                                                 <MudStack Spacing="0">
                                                     <MudText Typo="Typo.subtitle2">@context.DisplayName</MudText>
                                                     <MudText Typo="Typo.caption" Class="config-secondary mono">@context.PluginId</MudText>
+                                                    @if (devFolder is not null)
+                                                    {
+                                                        <MudText Typo="Typo.caption" Class="config-secondary">Local dev folder</MudText>
+                                                    }
                                                 </MudStack>
+                                            </MudTd>
+                                            <MudTd DataLabel="Debug build">
+                                                @if (devFolder is not null)
+                                                {
+                                                    <MudCheckBox T="bool"
+                                                                 Value="@devFolder.DebugBuild"
+                                                                 ValueChanged="@(value => SetDevFolderDebugAsync(devFolder, value))"
+                                                                 Color="Color.Primary"
+                                                                 Label="Debug" />
+                                                }
                                             </MudTd>
                                             <MudTd>
                                                 <div class="plugin-actions">
@@ -406,7 +429,7 @@
                                                     {
                                                         <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetPluginSourceUrl(context)" Target="_blank" Size="Size.Small" title="Open GitHub repository" />
                                                     }
-                                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePlugin(context.PluginId))" Size="Size.Small" title="Remove plugin" />
+                                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePluginAsync(context.PluginId))" Size="Size.Small" title="Remove plugin" />
                                                 </div>
                                             </MudTd>
                                         </RowTemplate>
@@ -419,7 +442,7 @@
                                 </ChildContent>
                             </MudExpansionPanel>
 
-                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsPluginPanelExpanded(PluginCatalogPanelKey)" ExpandedChanged="@(expanded => SetPluginPanelExpandedAsync(PluginCatalogPanelKey, expanded))">
+                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsPluginPanelExpanded(PluginCatalogPanelKey)" ExpandedChanged="@(expanded => SetPluginPanelExpandedAsync(PluginCatalogPanelKey, expanded))" KeepContentAlive="false">
                                 <TitleContent>
                                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                         <MudText Typo="Typo.subtitle2">Plugin catalog</MudText>
@@ -520,7 +543,7 @@
                                 </ChildContent>
                             </MudExpansionPanel>
 
-                            <MudExpansionPanel Class="configs-expansion-panel" Text="Advanced/manual plugin setup" Expanded="@IsPluginPanelExpanded(AdvancedPluginsPanelKey)" ExpandedChanged="@(expanded => SetPluginPanelExpandedAsync(AdvancedPluginsPanelKey, expanded))">
+                            <MudExpansionPanel Class="configs-expansion-panel" Text="Advanced/manual plugin setup" Expanded="@IsPluginPanelExpanded(AdvancedPluginsPanelKey)" ExpandedChanged="@(expanded => SetPluginPanelExpandedAsync(AdvancedPluginsPanelKey, expanded))" KeepContentAlive="false">
                                 <ChildContent>
                                     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.End" Spacing="1" Class="mt-2">
                                         <MudTextField @bind-Value="_customPluginId" Label="Add custom plugin ID" Variant="Variant.Outlined" Immediate="true" />
@@ -532,12 +555,15 @@
                             </MudExpansionPanel>
                         </MudExpansionPanels>
                         </MudPaper>
+                        }
                     </MudTabPanel>
 
                     <MudTabPanel Text="Mods">
+                        @if (IsConfigTabActive(ModsTabIndex))
+                        {
                         <MudPaper Class="server-card pa-4" Square="true">
                         <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="configs-expansion-panels mb-4">
-                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsModPanelExpanded(ModListPanelKey)" ExpandedChanged="@(expanded => SetModPanelExpanded(ModListPanelKey, expanded))">
+                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsModPanelExpanded(ModListPanelKey)" ExpandedChanged="@(expanded => SetModPanelExpanded(ModListPanelKey, expanded))" KeepContentAlive="false">
                                 <TitleContent>
                                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                         <MudText Typo="Typo.subtitle2">Mod list</MudText>
@@ -595,7 +621,7 @@
                                         <MudTd DataLabel="Name">@context.DisplayName</MudTd>
                                         <MudTd DataLabel="Workshop ID" Class="mono">@context.WorkshopId</MudTd>
                                         <MudTd Style="text-align:right;">
-                                            <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveMod(context.WorkshopId))" />
+                                            <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveModAsync(context.WorkshopId))" />
                                         </MudTd>
                                     </RowTemplate>
                                     <NoRecordsContent>
@@ -607,7 +633,7 @@
                                 </ChildContent>
                             </MudExpansionPanel>
 
-                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsModPanelExpanded(WorkshopPanelKey)" ExpandedChanged="@(expanded => SetModPanelExpanded(WorkshopPanelKey, expanded))">
+                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsModPanelExpanded(WorkshopPanelKey)" ExpandedChanged="@(expanded => SetModPanelExpanded(WorkshopPanelKey, expanded))" KeepContentAlive="false">
                                 <TitleContent>
                                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                         <MudText Typo="Typo.subtitle2">Steam Workshop</MudText>
@@ -701,7 +727,7 @@
                                 </ChildContent>
                             </MudExpansionPanel>
 
-                            <MudExpansionPanel Class="configs-expansion-panel" Text="Advanced/manual mod setup" Expanded="@IsModPanelExpanded(AdvancedModsPanelKey)" ExpandedChanged="@(expanded => SetModPanelExpanded(AdvancedModsPanelKey, expanded))">
+                            <MudExpansionPanel Class="configs-expansion-panel" Text="Advanced/manual mod setup" Expanded="@IsModPanelExpanded(AdvancedModsPanelKey)" ExpandedChanged="@(expanded => SetModPanelExpanded(AdvancedModsPanelKey, expanded))" KeepContentAlive="false">
                                 <ChildContent>
                                 <MudGrid Class="mt-2">
                                     <MudItem xs="12">
@@ -737,11 +763,12 @@
                             </MudExpansionPanel>
                         </MudExpansionPanels>
                         </MudPaper>
+                        }
                     </MudTabPanel>
                 </MudTabs>
 
                 <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="configs-expansion-panels mt-4">
-                    <MudExpansionPanel Class="configs-expansion-panel" Text="Developer" Expanded="false">
+                    <MudExpansionPanel Class="configs-expansion-panel" Text="Developer" Expanded="@_developerPanelExpanded" ExpandedChanged="SetDeveloperPanelExpanded" KeepContentAlive="false">
                         <ChildContent>
                         <MudText Typo="Typo.body2" Class="mb-3 mt-2">
                             Register local plugin source folders so they appear in the plugin catalog. Enable them per config profile before Magnetar loads them.
@@ -752,7 +779,6 @@
                                 <MudTh>Name</MudTh>
                                 <MudTh>Folder</MudTh>
                                 <MudTh>Manifest</MudTh>
-                                <MudTh>Debug</MudTh>
                                 <MudTh></MudTh>
                             </HeaderContent>
                             <RowTemplate>
@@ -762,11 +788,10 @@
                                         <MudText Typo="Typo.caption" Class="config-secondary">@context.PluginId</MudText>
                                     </MudStack>
                                 </MudTd>
-                                <MudTd DataLabel="Folder" Class="mono">@context.FolderPath</MudTd>
-                                <MudTd DataLabel="Manifest" Class="mono">@context.DataFile</MudTd>
-                                <MudTd DataLabel="Debug">
-                                    <MudSwitch T="bool" Value="@context.DebugBuild" ValueChanged="@(value => SetDevFolderDebugAsync(context, value))" Color="Color.Primary" />
+                                <MudTd DataLabel="Folder">
+                                    <CopyablePath Value="@context.FolderPath" TextClass="" />
                                 </MudTd>
+                                <MudTd DataLabel="Manifest" Class="mono">@context.DataFile</MudTd>
                                 <MudTd Style="text-align:right;">
                                     <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveDevFolder(context))" />
                                 </MudTd>
@@ -806,8 +831,12 @@
     private const string PluginListPanelKey = "plugin-list";
     private const string PluginCatalogPanelKey = "plugin-catalog";
     private const string AdvancedPluginsPanelKey = "advanced-plugins";
+    private const int WorldTabIndex = 0;
+    private const int PluginsTabIndex = 1;
+    private const int ModsTabIndex = 2;
     private const int PluginDescriptionFallbackMaxLength = 50;
     private const string ConfigOptionTooltipStyle = "white-space: pre-line; max-width: 34rem; text-align: left; line-height: 1.35; font-size: 0.78rem;";
+    private int _activeConfigTabIndex = WorldTabIndex;
     private string _selectedProfileId = string.Empty;
     private QuasarConfigProfile? _editor;
     private string _newProfileName = string.Empty;
@@ -833,6 +862,7 @@
     private string? _expandedCategoryKey;
     private string _expandedModPanelKey = ModListPanelKey;
     private string _expandedPluginPanelKey = PluginListPanelKey;
+    private bool _developerPanelExpanded;
     private string _selectedProfileSnapshot = string.Empty;
     private bool _hasExplicitCategoryExpansion;
 
@@ -901,6 +931,18 @@
         .ThenBy(plugin => plugin.PluginId, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
+    private QuasarDevFolderSelection? GetDevFolderForPlugin(string pluginId)
+    {
+        if (string.IsNullOrWhiteSpace(pluginId))
+            return null;
+
+        return GlobalDevFolders.FirstOrDefault(devFolder =>
+            string.Equals(
+                QuasarPluginCatalogService.GetDevFolderPluginId(devFolder),
+                pluginId.Trim(),
+                StringComparison.OrdinalIgnoreCase));
+    }
+
     private List<QuasarModSelection> FilteredMods => (_editor?.Mods ?? [])
         .Where(mod => MatchesModSearch(mod))
         .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
@@ -914,18 +956,6 @@
         ServerCatalog.Changed += HandleServersChanged;
         WorkshopCredentials.Changed += HandleWorkshopCredentialsChanged;
         SelectProfile(GetInitialProfileId());
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!firstRender)
-            return;
-
-        if (CatalogEntries.Count == 0)
-            await RefreshPluginCatalogAsync();
-
-        if (WorkshopCredentials.HasWebApiKey)
-            await LoadPopularWorkshopModsAsync();
     }
 
     public void Dispose()
@@ -1188,12 +1218,19 @@
     private bool IsModPanelExpanded(string panelKey) =>
         string.Equals(_expandedModPanelKey, panelKey, StringComparison.OrdinalIgnoreCase);
 
-    private Task SetModPanelExpanded(string panelKey, bool expanded)
+    private async Task SetModPanelExpanded(string panelKey, bool expanded)
     {
         _expandedModPanelKey = expanded
             ? panelKey
             : string.Empty;
-        return Task.CompletedTask;
+
+        if (expanded &&
+            string.Equals(panelKey, WorkshopPanelKey, StringComparison.OrdinalIgnoreCase) &&
+            !_workshopResultsLoaded &&
+            WorkshopCredentials.HasWebApiKey)
+        {
+            await LoadPopularWorkshopModsAsync();
+        }
     }
 
     private bool IsPluginPanelExpanded(string panelKey) =>
@@ -1208,6 +1245,14 @@
         if (expanded && string.Equals(panelKey, PluginCatalogPanelKey, StringComparison.OrdinalIgnoreCase))
             await RefreshPluginCatalogAsync(showSuccessMessage: false);
     }
+
+    private Task SetDeveloperPanelExpanded(bool expanded)
+    {
+        _developerPanelExpanded = expanded;
+        return Task.CompletedTask;
+    }
+
+    private bool IsConfigTabActive(int tabIndex) => _activeConfigTabIndex == tabIndex;
 
     private string? GetExpandedCategoryKey()
     {
@@ -1629,10 +1674,22 @@
         }
     }
 
-    private void RemovePlugin(string pluginId)
+    private async Task RemovePluginAsync(string pluginId)
     {
         if (_editor is null)
             return;
+
+        var displayName = _editor.Plugins
+            .FirstOrDefault(plugin => string.Equals(plugin.PluginId, pluginId, StringComparison.OrdinalIgnoreCase))
+            ?.DisplayName;
+        var name = string.IsNullOrWhiteSpace(displayName) ? pluginId : displayName.Trim();
+        if (!await ConfirmDestructiveActionAsync(
+                "Remove plugin?",
+                $"Plugin '{name}' will be removed from the pending config profile changes.",
+                "Remove"))
+        {
+            return;
+        }
 
         _editor.Plugins.RemoveAll(plugin => string.Equals(plugin.PluginId, pluginId, StringComparison.OrdinalIgnoreCase));
     }
@@ -1908,6 +1965,24 @@
         _editor.Mods.RemoveAll(mod => mod.WorkshopId == workshopId);
     }
 
+    private async Task RemoveModAsync(long workshopId)
+    {
+        if (_editor is null)
+            return;
+
+        var modName = _editor.Mods.FirstOrDefault(mod => mod.WorkshopId == workshopId)?.DisplayName;
+        var name = string.IsNullOrWhiteSpace(modName) ? workshopId.ToString(System.Globalization.CultureInfo.InvariantCulture) : modName.Trim();
+        if (!await ConfirmDestructiveActionAsync(
+                "Remove mod?",
+                $"Mod '{name}' will be removed from the pending config profile changes.",
+                "Remove"))
+        {
+            return;
+        }
+
+        RemoveMod(workshopId);
+    }
+
     private async Task AddDevFolderAsync()
     {
         var parameters = new DialogParameters
@@ -1975,7 +2050,27 @@
 
     private async Task RemoveDevFolder(QuasarDevFolderSelection devFolder)
     {
+        var name = string.IsNullOrWhiteSpace(devFolder.Name) ? devFolder.FolderPath : devFolder.Name.Trim();
+        if (!await ConfirmDestructiveActionAsync(
+                "Remove dev folder?",
+                $"Dev folder '{name}' will be removed from Quasar.",
+                "Remove"))
+        {
+            return;
+        }
+
         await DevFolderCatalog.DeleteAsync(devFolder.FolderPath, devFolder.DataFile);
+    }
+
+    private async Task<bool> ConfirmDestructiveActionAsync(string title, string message, string yesText)
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            title,
+            message,
+            yesText: yesText,
+            cancelText: "Cancel");
+
+        return confirmed == true;
     }
 
     private async Task MergeModsFromWorldTemplateAsync()

@@ -1,15 +1,14 @@
 ## Install and run on Linux (x64)
 
-You downloaded **`quasar-linux-x64.tar.gz`**. It contains the Quasar launcher
-(`Quasar`), the `install.sh` / `uninstall.sh` scripts, and a default
-`appsettings.json`.
+You downloaded **`quasar-installer-linux.tar.gz`**. It contains one
+`quasar-installer-linux/` folder with the Quasar launcher (`Quasar`), the
+`install.sh` / `uninstall.sh` scripts, and a default `appsettings.json`.
 
 ### Run in the foreground
 
 ```bash
-mkdir -p ~/quasar
-tar -xzf quasar-linux-x64.tar.gz -C ~/quasar
-cd ~/quasar
+tar -xzf quasar-installer-linux.tar.gz
+cd quasar-installer-linux
 ./Quasar serve
 ```
 
@@ -23,9 +22,8 @@ port is configurable — see [Configuration](Docs/Configuration.md).
 Install the **.NET 10 runtime** before running `install.sh`.
 
 ```bash
-mkdir -p /tmp/quasar
-tar -xzf quasar-linux-x64.tar.gz -C /tmp/quasar
-/tmp/quasar/install.sh --start
+tar -xzf quasar-installer-linux.tar.gz -C /tmp
+/tmp/quasar-installer-linux/install.sh --start
 ```
 
 This installs Quasar to `~/.local/share/Quasar`, creates the user's
