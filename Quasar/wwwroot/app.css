@@ -207,6 +207,28 @@ h1:focus {
     opacity: 0.5;
 }
 
+.copyable-path {
+    min-width: 0;
+}
+
+.copyable-path-inline {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    vertical-align: middle;
+}
+
+.copyable-path-text {
+    font-family: "JetBrains Mono", "Cascadia Code", monospace;
+    word-break: break-all;
+    min-width: 0;
+}
+
+.copyable-path-button {
+    margin-left: 2px;
+    vertical-align: middle;
+}
+
 .branding-logo-preview {
     display: flex;
     align-items: center;

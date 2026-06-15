@@ -116,41 +116,6 @@
                         }
                     </MudGrid>
 
-                    <MudDivider Class="my-2" />
-                    <MudText Typo="Typo.h6">Profiler</MudText>
-                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                        Simple captures low-overhead game-loop buckets. Extensive also enables deep call-site timing;
-                        when samples exist, they appear in the Profiler: Top Grids and Profiler: Entity Types panels.
-                    </MudAlert>
-                    <MudGrid>
-                        @foreach (var option in _serverOptions)
-                        {
-                            var profiler = GetProfilerView(option.UniqueName);
-
-                            <MudItem xs="12" md="6">
-                                <MudStack Spacing="1">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                        <MudText Typo="Typo.subtitle2">@option.DisplayName</MudText>
-                                        <MudChip T="string" Size="Size.Small" Color="@GetProfilerChipColor(profiler)" Variant="Variant.Outlined">
-                                            @(string.IsNullOrWhiteSpace(profiler.LiveMode) ? "Offline" : GetProfilerModeLabel(profiler.LiveMode))
-                                        </MudChip>
-                                    </MudStack>
-                                    <MudSelect T="string"
-                                               Label="Mode"
-                                               Value="@profiler.ConfiguredMode"
-                                               ValueChanged="@(value => HandleProfilerModeChanged(option.UniqueName, value))"
-                                               Variant="Variant.Outlined"
-                                               Dense="true"
-                                               Disabled="@(!profiler.CanConfigure)">
-                                        @foreach (var mode in ProfilerModeOptions)
-                                        {
-                                            <MudSelectItem T="string" Value="@mode.Value">@mode.Label</MudSelectItem>
-                                        }
-                                    </MudSelect>
-                                </MudStack>
-                            </MudItem>
-                        }
-                    </MudGrid>
                 }
             </MudStack>
         </MudItem>
@@ -167,6 +132,91 @@
         </MudItem>
     </MudGrid>
 </MudPaper>
+
+<MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="mb-4">
+    <MudExpansionPanel Expanded="@_analyticsProfilesExpanded" ExpandedChanged="SetAnalyticsProfilesExpanded" KeepContentAlive="false">
+        <TitleContent>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                    <MudText Typo="Typo.h6">Analytics Profiles</MudText>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@GetAnalyticsProfilesChipColor()">
+                        @GetAnalyticsProfilesChipText()
+                    </MudChip>
+                </MudStack>
+                <MudText Typo="Typo.caption">@GetAnalyticsProfilesSummaryText()</MudText>
+            </MudStack>
+        </TitleContent>
+        <ChildContent>
+            <MudStack Spacing="2" Class="mt-2">
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                    Profiler samples render in the chart panels below. Simple mode fills Profiler: Frame, Update, Physics, Scripts, Network, and Other. Extensive mode also fills Profiler: Top Grids and Profiler: Entity Types.
+                </MudAlert>
+
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" AlignItems="AlignItems.Center">
+                    <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Visibility" OnClick="@(() => ShowProfilerPanelsAsync(includeExtensive: false))">
+                        Show simple profiler charts
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Visibility" OnClick="@(() => ShowProfilerPanelsAsync(includeExtensive: true))">
+                        Show extensive charts
+                    </MudButton>
+                </MudStack>
+
+                @if (SelectedServerOptions.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
+                        Select at least one server above to configure analytics profiles.
+                    </MudAlert>
+                }
+                else
+                {
+                    <MudTable T="ServerOption" Items="SelectedServerOptions" Dense="true" Hover="true">
+                        <HeaderContent>
+                            <MudTh>Server</MudTh>
+                            <MudTh>Mode</MudTh>
+                            <MudTh>Live state</MudTh>
+                            <MudTh>Data appears in</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            @{
+                                var profiler = GetProfilerView(context.UniqueName);
+                            }
+                            <MudTd DataLabel="Server">
+                                <MudText Typo="Typo.subtitle2">@context.DisplayName</MudText>
+                                <MudText Typo="Typo.caption">@context.UniqueName</MudText>
+                            </MudTd>
+                            <MudTd DataLabel="Mode">
+                                <MudSelect T="string"
+                                           Label="Startup and live mode"
+                                           HelperText="@GetProfilerModeHelperText(profiler)"
+                                           Value="@profiler.ConfiguredMode"
+                                           ValueChanged="@(value => HandleProfilerModeChanged(context.UniqueName, value))"
+                                           Variant="Variant.Outlined"
+                                           Dense="true"
+                                           Disabled="@(!profiler.CanConfigure)">
+                                    @foreach (var mode in ProfilerModeOptions)
+                                    {
+                                        <MudSelectItem T="string" Value="@mode.Value">@mode.Label</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </MudTd>
+                            <MudTd DataLabel="Live state">
+                                <MudStack Spacing="1">
+                                    <MudChip T="string" Size="Size.Small" Color="@GetProfilerChipColor(profiler)" Variant="Variant.Outlined">
+                                        @GetLiveProfilerChipText(profiler)
+                                    </MudChip>
+                                    <MudText Typo="Typo.caption">@GetLiveProfilerStatusText(profiler)</MudText>
+                                </MudStack>
+                            </MudTd>
+                            <MudTd DataLabel="Data appears in">
+                                <MudText Typo="Typo.body2">@GetProfilerChartTargetText(profiler)</MudText>
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </MudStack>
+        </ChildContent>
+    </MudExpansionPanel>
+</MudExpansionPanels>
 
 <MudStack Row="true" Spacing="1" Class="mb-4 analytics-chip-row">
     @foreach (var chip in _summaryChips)
@@ -260,6 +310,8 @@ else
     private int _refreshing;
     private int _refreshRequested;
     private bool _isDarkTheme = true;
+    private bool _analyticsProfilesExpanded;
+    private bool _analyticsProfilesExpansionTouched;
 
     private long _fromUnix;
     private long _toUnix;
@@ -272,6 +324,10 @@ else
     private IReadOnlyList<AnalyticsPanelConfig> HiddenPanels => _config.Panels
         .Where(panel => !panel.Visible)
         .OrderBy(panel => panel.Order)
+        .ToList();
+
+    private IReadOnlyList<ServerOption> SelectedServerOptions => _serverOptions
+        .Where(option => IsServerSelected(option.UniqueName))
         .ToList();
 
     private string ChartGridStyle =>
@@ -492,12 +548,13 @@ else
                 applied = true;
             }
 
+            var label = GetProfilerModeLabel(mode);
             if (persisted && applied)
-                Snackbar.Add($"Profiler mode saved and applied: {mode}.", Severity.Success);
+                Snackbar.Add($"Profiler mode saved for future starts and applied to the running agent now: {label}.", Severity.Success);
             else if (persisted)
-                Snackbar.Add($"Profiler mode saved: {mode}.", Severity.Success);
+                Snackbar.Add($"Profiler mode saved for future starts: {label}. It will apply when the server starts or reconnects.", Severity.Success);
             else if (applied)
-                Snackbar.Add($"Profiler mode applied: {mode}.", Severity.Success);
+                Snackbar.Add($"Profiler mode applied to the running agent now: {label}. No server config was updated.", Severity.Success);
             else
                 Snackbar.Add("No configured server or connected agent matched that profiler target.", Severity.Warning);
         }
@@ -579,6 +636,29 @@ else
     {
         panel.Visible = true;
         await RefreshAsync();
+    }
+
+    private async Task ShowProfilerPanelsAsync(bool includeExtensive)
+    {
+        var keys = ProfilerAnalyticsMetrics.All.Select(metric => metric.Key);
+        if (includeExtensive)
+            keys = keys.Concat(ProfilerEntryAnalyticsMetrics.All.Select(metric => metric.Key));
+
+        var keySet = keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var panel in _config.Panels)
+        {
+            if (keySet.Contains(panel.Key))
+                panel.Visible = true;
+        }
+
+        await RefreshAsync();
+    }
+
+    private Task SetAnalyticsProfilesExpanded(bool expanded)
+    {
+        _analyticsProfilesExpanded = expanded;
+        _analyticsProfilesExpansionTouched = true;
+        return Task.CompletedTask;
     }
 
     private void HandleSourceChanged()
@@ -759,6 +839,7 @@ else
         _serverOptions = BuildServerOptions();
         NormalizeSelection();
         _serverNameMap = _serverOptions.ToDictionary(option => option.UniqueName, option => option.DisplayName, StringComparer.OrdinalIgnoreCase);
+        SyncAnalyticsProfilesExpansion();
 
         var (fromUnix, toUnix) = ResolveRange();
         _fromUnix = fromUnix;
@@ -805,7 +886,7 @@ else
             if (metric is null)
                 continue;
 
-            if (!hasData && ProfilerAnalyticsMetrics.Find(panel.Key) is null)
+            if (!hasData && !IsProfilerPanel(panel.Key))
                 continue;
 
             var layoutStyle = $"grid-column: span {Math.Clamp(panel.ColumnSpan, 1, _config.GridColumns)}; grid-row: span {Math.Clamp(panel.RowSpan, 1, Math.Max(1, _config.GridRows))};";
@@ -884,7 +965,19 @@ else
         return new ProfilerView(
             ConfiguredMode: configuredMode,
             LiveMode: liveMode,
-            CanConfigure: definition is not null || agent is { IsConnected: true });
+            CanConfigure: definition is not null || agent is { IsConnected: true },
+            HasDefinition: definition is not null,
+            IsConnected: agent is { IsConnected: true });
+    }
+
+    private void SyncAnalyticsProfilesExpansion()
+    {
+        if (_analyticsProfilesExpansionTouched)
+            return;
+
+        _analyticsProfilesExpanded = SelectedServerOptions
+            .Select(option => GetProfilerView(option.UniqueName))
+            .Any(IsExtensiveProfilerEnabled);
     }
 
     private static Color GetProfilerChipColor(ProfilerView profiler)
@@ -906,6 +999,76 @@ else
     private static string GetProfilerModeLabel(string mode) =>
         ProfilerModeOptions.FirstOrDefault(option => string.Equals(option.Value, mode, StringComparison.OrdinalIgnoreCase))?.Label
         ?? mode;
+
+    private static bool IsExtensiveProfilerEnabled(ProfilerView profiler) =>
+        string.Equals(profiler.ConfiguredMode, "DeepContinuous", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(profiler.LiveMode, "DeepContinuous", StringComparison.OrdinalIgnoreCase);
+
+    private Color GetAnalyticsProfilesChipColor() =>
+        SelectedServerOptions
+            .Select(option => GetProfilerView(option.UniqueName))
+            .Any(IsExtensiveProfilerEnabled)
+            ? Color.Info
+            : Color.Default;
+
+    private string GetAnalyticsProfilesChipText() =>
+        SelectedServerOptions
+            .Select(option => GetProfilerView(option.UniqueName))
+            .Any(IsExtensiveProfilerEnabled)
+            ? "Extensive on"
+            : "Simple/off";
+
+    private string GetAnalyticsProfilesSummaryText()
+    {
+        if (SelectedServerOptions.Count == 0)
+            return "No selected servers";
+
+        return $"{SelectedServerOptions.Count} selected server(s)";
+    }
+
+    private static string GetProfilerModeHelperText(ProfilerView profiler)
+    {
+        if (profiler.HasDefinition && profiler.IsConnected)
+            return "Saved for future starts and sent to the running agent immediately.";
+
+        if (profiler.HasDefinition)
+            return "Saved for future starts; applies when the server starts or reconnects.";
+
+        if (profiler.IsConnected)
+            return "Sent to the running agent immediately; no saved server config exists.";
+
+        return "No configured server or connected agent is available.";
+    }
+
+    private static string GetLiveProfilerChipText(ProfilerView profiler) =>
+        string.IsNullOrWhiteSpace(profiler.LiveMode)
+            ? "Offline"
+            : GetProfilerModeLabel(profiler.LiveMode);
+
+    private static string GetLiveProfilerStatusText(ProfilerView profiler)
+    {
+        if (string.IsNullOrWhiteSpace(profiler.LiveMode))
+            return "Not applied to a running server.";
+
+        if (!string.Equals(profiler.LiveMode, profiler.ConfiguredMode, StringComparison.OrdinalIgnoreCase))
+            return $"Running {GetProfilerModeLabel(profiler.LiveMode)} now; future starts use {GetProfilerModeLabel(profiler.ConfiguredMode)}.";
+
+        return "Running with the saved mode now.";
+    }
+
+    private static string GetProfilerChartTargetText(ProfilerView profiler)
+    {
+        if (string.Equals(profiler.ConfiguredMode, "Off", StringComparison.OrdinalIgnoreCase) &&
+            !IsExtensiveProfilerEnabled(profiler))
+        {
+            return "Profiler charts stop receiving new data.";
+        }
+
+        if (IsExtensiveProfilerEnabled(profiler))
+            return "Profiler panels below, plus Top Grids and Entity Types.";
+
+        return "Profiler Frame, Update, Physics, Scripts, Network, and Other panels below.";
+    }
 
     private void NormalizeSelection()
     {
@@ -1079,6 +1242,10 @@ else
 
     private string ResolveMetricTitle(string key) => AnalyticsMetrics.FindPanel(key)?.Title ?? key;
 
+    private static bool IsProfilerPanel(string key) =>
+        ProfilerAnalyticsMetrics.Find(key) is not null ||
+        ProfilerEntryAnalyticsMetrics.Find(key) is not null;
+
     private static AnalyticsViewConfig NormalizeConfig(AnalyticsViewConfig? config)
     {
         var normalized = config ?? CreateDefaultConfig();
@@ -1144,7 +1311,12 @@ else
 
     private sealed record ProfilerModeOption(string Value, string Label);
 
-    private sealed record ProfilerView(string ConfiguredMode, string LiveMode, bool CanConfigure);
+    private sealed record ProfilerView(
+        string ConfiguredMode,
+        string LiveMode,
+        bool CanConfigure,
+        bool HasDefinition,
+        bool IsConnected);
 
     private sealed record SummaryChipModel(string Label, string Value);
 

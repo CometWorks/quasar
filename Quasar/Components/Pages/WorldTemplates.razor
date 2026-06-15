@@ -3,6 +3,7 @@
 @inject QuasarWorldTemplateCatalog WorldTemplateCatalog
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject WorldTemplateImportLocationService ImportLocations
 
 <PageTitle>World Templates</PageTitle>
 
@@ -41,6 +42,77 @@
                     <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ResetForm">Clear</MudButton>
                 </MudStack>
             </MudStack>
+
+            <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="mt-4">
+                <MudExpansionPanel KeepContentAlive="false">
+                    <TitleContent>
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudText Typo="Typo.subtitle2">Installed Space Engineers templates</MudText>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_installedTemplates.Count</MudChip>
+                        </MudStack>
+                    </TitleContent>
+                    <ChildContent>
+                        <MudStack Spacing="2" Class="mt-2">
+                            <MudText Typo="Typo.body2">
+                                Add a template from Dedicated Server content without entering a name or path.
+                            </MudText>
+                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                                <MudTextField
+                                    @bind-Value="_installedTemplateSearch"
+                                    Label="Search installed templates"
+                                    Variant="Variant.Outlined"
+                                    Immediate="true"
+                                    Adornment="Adornment.Start"
+                                    AdornmentIcon="@Icons.Material.Filled.Search"
+                                    Class="flex-grow-1" />
+                                <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInstalledTemplates">
+                                    Refresh
+                                </MudButton>
+                            </MudStack>
+
+                            @if (_installedTemplates.Count == 0)
+                            {
+                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                    No installed Dedicated Server world or scenario templates found.
+                                </MudAlert>
+                            }
+                            else
+                            {
+                                <MudTable T="InstalledWorldTemplateSource" Dense="true" Hover="true" Items="FilteredInstalledTemplates" Breakpoint="Breakpoint.Sm">
+                                    <HeaderContent>
+                                        <MudTh>Name</MudTh>
+                                        <MudTh>Source</MudTh>
+                                        <MudTh></MudTh>
+                                    </HeaderContent>
+                                    <RowTemplate>
+                                        <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+                                        <MudTd DataLabel="Source">
+                                            <MudStack Spacing="0">
+                                                <MudText Typo="Typo.caption">@context.Category</MudText>
+                                                <MudText Typo="Typo.caption" Class="mono">@context.SourcePath</MudText>
+                                            </MudStack>
+                                        </MudTd>
+                                        <MudTd Style="text-align:right;">
+                                            <MudButton Variant="Variant.Outlined"
+                                                       Color="Color.Primary"
+                                                       Size="Size.Small"
+                                                       Disabled="_importing"
+                                                       OnClick="@(() => ImportInstalledTemplateAsync(context))">
+                                                Add
+                                            </MudButton>
+                                        </MudTd>
+                                    </RowTemplate>
+                                    <NoRecordsContent>
+                                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                            No installed templates match current search.
+                                        </MudAlert>
+                                    </NoRecordsContent>
+                                </MudTable>
+                            }
+                        </MudStack>
+                    </ChildContent>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
         </MudPaper>
     </MudItem>
 
@@ -98,7 +170,9 @@
     private string _name = string.Empty;
     private string _description = string.Empty;
     private string _sourcePath = string.Empty;
+    private string _installedTemplateSearch = string.Empty;
     private bool _importing;
+    private IReadOnlyList<InstalledWorldTemplateSource> _installedTemplates = [];
 
     private sealed record WorldTemplateRow(
         QuasarWorldTemplate Template,
@@ -118,8 +192,14 @@
             })
             .ToList();
 
+    private IReadOnlyList<InstalledWorldTemplateSource> FilteredInstalledTemplates =>
+        _installedTemplates
+            .Where(MatchesInstalledTemplateSearch)
+            .ToList();
+
     protected override void OnInitialized()
     {
+        RefreshInstalledTemplates();
         WorldTemplateCatalog.Changed += HandleChanged;
     }
 
@@ -179,11 +259,31 @@
         }
     }
 
+    private async Task ImportInstalledTemplateAsync(InstalledWorldTemplateSource source)
+    {
+        _importing = true;
+        try
+        {
+            var template = await WorldTemplateCatalog.ImportAsync(source.DisplayName, source.Description, source.SourcePath);
+            Snackbar.Add($"World template '{template.Name}' added.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _importing = false;
+        }
+    }
+
     private async Task OpenFolderPickerAsync()
     {
+        var initialPath = await ImportLocations.GetInitialPathAsync(_sourcePath);
         var parameters = new DialogParameters
         {
-            [nameof(FolderPickerDialog.InitialPath)] = _sourcePath,
+            [nameof(FolderPickerDialog.InitialPath)] = initialPath,
+            [nameof(FolderPickerDialog.AdditionalShortcuts)] = ImportLocations.GetContentShortcuts(),
         };
 
         var dialog = await DialogService.ShowAsync<FolderPickerDialog>(
@@ -193,7 +293,10 @@
 
         var result = await dialog.Result;
         if (result is { Canceled: false, Data: string path })
+        {
             _sourcePath = path;
+            await ImportLocations.RememberAsync(path);
+        }
     }
 
     private async Task DeleteAsync(QuasarWorldTemplate template)
@@ -217,6 +320,26 @@
         _description = string.Empty;
         _sourcePath = string.Empty;
     }
+
+    private void RefreshInstalledTemplates()
+    {
+        _installedTemplates = ImportLocations.GetInstalledWorldTemplates();
+    }
+
+    private bool MatchesInstalledTemplateSearch(InstalledWorldTemplateSource template)
+    {
+        var search = _installedTemplateSearch?.Trim();
+        if (string.IsNullOrWhiteSpace(search))
+            return true;
+
+        return Contains(template.DisplayName, search) ||
+               Contains(template.Category, search) ||
+               Contains(template.SourcePath, search);
+    }
+
+    private static bool Contains(string value, string search) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        value.Contains(search, StringComparison.OrdinalIgnoreCase);
 
     private void HandleChanged() => _ = InvokeAsync(StateHasChanged);
 }

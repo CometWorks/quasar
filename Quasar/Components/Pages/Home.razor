@@ -373,7 +373,7 @@
                             <MudText Typo="Typo.caption">@component.Message</MudText>
                             @if (!string.IsNullOrWhiteSpace(component.Path))
                             {
-                                <MudText Typo="Typo.caption" Class="mono">@component.Path</MudText>
+                                <CopyablePath Value="@component.Path" TextClass="" />
                             }
                         </MudStack>
                         <div class="runtime-status-progress">
@@ -710,6 +710,14 @@ else
 
     private async Task StopAsync(string uniqueName)
     {
+        if (!await ConfirmDestructiveActionAsync(
+                "Stop server?",
+                $"Server '{uniqueName}' will save and shut down normally.",
+                "Stop"))
+        {
+            return;
+        }
+
         try
         {
             await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.Off);
@@ -723,6 +731,14 @@ else
 
     private async Task KillStartingAsync(string uniqueName)
     {
+        if (!await ConfirmDestructiveActionAsync(
+                "Kill starting server?",
+                $"Server '{uniqueName}' will be killed while it is starting. Unsaved startup progress can be lost.",
+                "Kill"))
+        {
+            return;
+        }
+
         try
         {
             await Supervisor.KillStartingServerAsync(uniqueName);
@@ -732,6 +748,17 @@ else
         {
             Snackbar.Add(exception.Message, Severity.Error);
         }
+    }
+
+    private async Task<bool> ConfirmDestructiveActionAsync(string title, string message, string yesText)
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            title,
+            message,
+            yesText: yesText,
+            cancelText: "Cancel");
+
+        return confirmed == true;
     }
 
     private async Task RestartAsync(string uniqueName)

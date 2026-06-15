@@ -155,6 +155,7 @@ public class Program
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
             builder.Services.AddSingleton<QuasarWorldTemplateCatalog>();
+            builder.Services.AddScoped<WorldTemplateImportLocationService>();
             builder.Services.AddSingleton<QuasarPluginCatalogService>();
             builder.Services.AddSingleton<PluginCatalogRefreshService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PluginCatalogRefreshService>());

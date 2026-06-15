@@ -7,8 +7,9 @@ web UI worker.
 
 `scripts/package-linux-release.sh` produces:
 
-- `quasar-linux-x64.tar.gz`
-  - root `Quasar` Bootstrap launcher
+- `quasar-installer-linux.tar.gz`
+  - top-level `quasar-installer-linux/` directory
+  - `Quasar` Bootstrap launcher
   - `install.sh`
   - `uninstall.sh`
   - default `appsettings.json`
@@ -117,11 +118,12 @@ them detached with `-daemon`.
 ## Bootstrap Updates
 
 Bootstrap checks the primary Quasar release stream every 15 minutes by default.
-When it finds an actually newer `quasar-linux-x64.tar.gz` asset (semver core and
-prerelease compared against the running launcher's release identity), it verifies
-the release's `SHA256SUMS` entry, extracts the archive, replaces the installed
-launcher files, drains the UI worker, and exits with a failure code so systemd
-restarts the updated launcher. Existing `appsettings.json` is preserved.
+When it finds an actually newer `quasar-installer-linux.tar.gz` asset (semver
+core and prerelease compared against the running launcher's release identity), it
+verifies the release's `SHA256SUMS` entry, extracts the archive, strips the
+single top-level installer directory, replaces the installed launcher files,
+drains the UI worker, and exits with a failure code so systemd restarts the
+updated launcher. Existing `appsettings.json` is preserved.
 Bootstrap must not drain the worker for a release whose normalized version is
 the same as the running launcher; it also skips drain/restart if the downloaded
 launcher is byte-identical to the installed launcher, which prevents a repeated
@@ -130,7 +132,7 @@ self-update loop when a source-built launcher reports stale version metadata.
 ## Install
 
 The first install uses the Linux installer flow from an extracted
-`quasar-linux-x64.tar.gz`:
+`quasar-installer-linux.tar.gz`:
 
 If .NET 10 is missing, `install.sh` detects the available package manager (`apt`,
 `dnf`, `yum`, `pacman`, or `zypper`), prints the exact commands it would run, and
@@ -139,12 +141,15 @@ and a conditional `/usr/local/bin/dotnet` PATH-link command in case the package
 manager installs dotnet but does not expose it on `PATH`. Source installs require
 the .NET 10 SDK for `dotnet publish`; no-build/package installs require the .NET
 10 ASP.NET Core runtime, which includes the base .NET runtime. Declining the
-prompt exits before files or services are changed.
+prompt exits before files or services are changed. On Debian 13, the apt flow
+first adds Microsoft's Debian 13 package feed with
+`packages-microsoft-prod.deb`, then runs `apt-get update` and installs the
+selected .NET package.
 
 ```bash
-tar -xzf quasar-linux-x64.tar.gz -C /tmp/quasar
-/tmp/quasar/install.sh          # publish to ~/.local/share/Quasar and install user quasar.service
-/tmp/quasar/install.sh --start  # also start the user service immediately
+tar -xzf quasar-installer-linux.tar.gz -C /tmp
+/tmp/quasar-installer-linux/install.sh          # publish to ~/.local/share/Quasar and install user quasar.service
+/tmp/quasar-installer-linux/install.sh --start  # also start the user service immediately
 ```
 
 `install.sh` publishes Quasar to `~/.local/share/Quasar`, creates the Quasar
@@ -169,7 +174,7 @@ the whole Quasar service. The installer can build and install a narrow setuid
 root helper when the feature is needed:
 
 ```bash
-/tmp/quasar/install.sh --install-renice-helper --no-build --no-enable
+/tmp/quasar-installer-linux/install.sh --install-renice-helper --no-build --no-enable
 ```
 
 The helper is installed as `/usr/local/bin/quasar-renice`, accepts only Quasar's
@@ -207,7 +212,7 @@ both read that data-directory file on startup.
   "AutoStageWebUpdates": true,
   "CheckIntervalSeconds": 900,
   "LinuxWebAssetName": "quasar-web-linux-x64.tar.gz",
-  "LinuxBootstrapAssetName": "quasar-linux-x64.tar.gz"
+  "LinuxBootstrapAssetName": "quasar-installer-linux.tar.gz"
 }
 ```
 

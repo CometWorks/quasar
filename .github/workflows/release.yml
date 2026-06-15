@@ -274,7 +274,7 @@ jobs:
           name: quasar-linux
           path: |
             artifacts/linux/quasar-web-linux-x64.tar.gz
-            artifacts/linux/quasar-linux-x64.tar.gz
+            artifacts/linux/quasar-installer-linux.tar.gz
 
   build-windows:
     needs: metadata
@@ -413,7 +413,7 @@ jobs:
           name: quasar-windows
           path: |
             artifacts/windows/quasar-web-win-x64.zip
-            artifacts/windows/quasar-win-x64.zip
+            artifacts/windows/quasar-installer-windows.zip
 
   # Publish a single GitHub release/tag carrying every Linux and Windows archive
   # plus one combined SHA256SUMS. The updater finds the asset it needs by name,
@@ -432,9 +432,9 @@ jobs:
           set -euo pipefail
           mkdir -p release
           for asset in \
-            quasar-linux-x64.tar.gz \
+            quasar-installer-linux.tar.gz \
             quasar-web-linux-x64.tar.gz \
-            quasar-win-x64.zip \
+            quasar-installer-windows.zip \
             quasar-web-win-x64.zip; do
             found="$(find dist -type f -name "$asset" -print -quit)"
             if [ -z "$found" ]; then
@@ -446,9 +446,9 @@ jobs:
 
           cd release
           sha256sum \
-            quasar-linux-x64.tar.gz \
+            quasar-installer-linux.tar.gz \
             quasar-web-linux-x64.tar.gz \
-            quasar-win-x64.zip \
+            quasar-installer-windows.zip \
             quasar-web-win-x64.zip > SHA256SUMS
           echo "Combined release archives:"; ls -1
           echo "Combined SHA256SUMS:"; cat SHA256SUMS
@@ -468,10 +468,10 @@ jobs:
 
             | Operating system | Download |
             | --- | --- |
-            | **Linux** (x64) | **`quasar-linux-x64.tar.gz`** |
-            | **Windows** (x64) | **`quasar-win-x64.zip`** |
+            | **Linux** (x64) | **`quasar-installer-linux.tar.gz`** |
+            | **Windows** (x64) | **`quasar-installer-windows.zip`** |
 
-            That archive is the installer: it contains the Quasar **Bootstrap launcher**, the install/uninstall scripts, and a default `appsettings.json`. Follow the [Linux](https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md) or [Windows](https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md) deployment guide to install it. The web UI is available on http://127.0.0.1:8080 by default (the web server listens on all interfaces at 0.0.0.0:8080).
+            Download the archive with **installer** in its name. It contains one top-level folder with the Quasar **Bootstrap launcher**, the install/uninstall scripts, and a default `appsettings.json`. Follow the [Linux](https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md) or [Windows](https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md) deployment guide to install it. The web UI is available on http://127.0.0.1:8080 by default (the web server listens on all interfaces at 0.0.0.0:8080).
 
             The other two archives (`quasar-web-linux-x64.tar.gz` and `quasar-web-win-x64.zip`) are updates that Quasar downloads and applies automatically — you never download them by hand.
 
@@ -479,8 +479,8 @@ jobs:
 
             Quasar deploys as two layers — a small, stable **Bootstrap launcher** (the installer) and a larger, frequently-updated **web UI worker** — shipped separately so the launcher can update the web UI, and itself, in place with no manual reinstall.
           files: |
-            release/quasar-linux-x64.tar.gz
+            release/quasar-installer-linux.tar.gz
             release/quasar-web-linux-x64.tar.gz
-            release/quasar-win-x64.zip
+            release/quasar-installer-windows.zip
             release/quasar-web-win-x64.zip
             release/SHA256SUMS

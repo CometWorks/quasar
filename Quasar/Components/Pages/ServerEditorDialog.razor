@@ -45,6 +45,22 @@
                             HelperText="@GetUniqueNameHelperText()" />
                     </MudItem>
                     <MudItem xs="12" md="6">
+                        <MudTextField
+                            @bind-Value="_editor.InGameServerName"
+                            Label="In-game server name"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            HelperText="Advertised in the Space Engineers multiplayer list. Leave blank to use Display name." />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudTextField
+                            @bind-Value="_editor.InGameWorldName"
+                            Label="In-game world name"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            HelperText="Visible as the world/save name when joining. Leave blank to use Identifier." />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
                         <MudNumericField T="int"
                                          Value="_editor.ServerPort"
                                          ValueChanged="HandlePortChanged"
@@ -569,6 +585,8 @@
 
         var updated = _editor.Clone();
         updated.DisplayName = NormalizeWhitespace(updated.DisplayName);
+        updated.InGameServerName = NormalizeWhitespace(updated.InGameServerName);
+        updated.InGameWorldName = NormalizeWhitespace(updated.InGameWorldName);
         MudDialog.Close(DialogResult.Ok(updated));
     }
 

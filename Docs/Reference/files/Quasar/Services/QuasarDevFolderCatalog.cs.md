@@ -3,7 +3,7 @@
 **Module:** Quasar.Services.Core  **Kind:** class  **Tier:** 1
 
 ## Summary
-Manages a persisted list of local developer plugin folders used during plugin development. Each entry (`QuasarDevFolderSelection`) maps a folder path and plugin manifest data file to an optional plugin-id override and debug-build flag. The catalog loads from and saves to a single `dev-folders.json` file in the Quasar data directory, and fires a `Changed` event after every mutation.
+Manages a persisted list of local developer plugin folders used during plugin development. Each entry (`QuasarDevFolderSelection`) maps a folder path and plugin manifest data file to an optional plugin-id override and debug-build flag, which defaults to `true` for new or legacy entries without an explicit value. The catalog loads from and saves to a single `dev-folders.json` file in the Quasar data directory, and fires a `Changed` event after every mutation.
 
 ## Structure
 **Namespace:** `Quasar.Services`

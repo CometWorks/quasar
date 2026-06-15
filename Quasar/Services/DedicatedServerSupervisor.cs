@@ -2409,6 +2409,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         {
             UniqueName = definition.UniqueName,
             DisplayName = definition.DisplayName,
+            InGameServerName = definition.InGameServerName,
+            InGameWorldName = definition.InGameWorldName,
             OriginalUniqueName = definition.OriginalUniqueName,
             GoalState = definition.GoalState,
             ExecutablePath = definition.ExecutablePath,

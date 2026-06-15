@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Reusable editor that renders a plugin's configuration schema as a fully interactive MudBlazor form. Parses `PluginConfigData.ConfigJson` into a typed layout (tabs, sections, columns, fields) and generates field controls for every supported type. Tracks dirty state and submits changes via `PluginConfigService`.
+Reusable editor that renders a plugin's configuration schema as a fully interactive MudBlazor form. Parses `PluginConfigData.ConfigJson` into a typed layout (tabs, sections, columns, fields) and generates field controls for every supported type. Tracks dirty state, confirms list/dictionary item removals, and submits changes via `PluginConfigService`.
 
 ## Structure
 No `@page` route — used as a child component on plugin management pages.
@@ -17,6 +17,7 @@ No `@page` route — used as a child component on plugin management pages.
 **Injected services:**
 - `PluginConfigService Service` — sends the updated JSON to the agent.
 - `ISnackbar Snackbar` — validation/error/success toasts.
+- `IDialogService DialogService` — confirms destructive list/dictionary item removals.
 
 **Private state:**
 - `_envelope` (`PluginConfigEnvelope?`) — parsed schema + default values.
@@ -40,7 +41,7 @@ No `@page` route — used as a child component on plugin management pages.
 - `RenderContainerBody` — renders columns as `MudGrid`, sections as `MudExpansionPanel`, then fields.
 - `RenderContainerContent` — wraps non-tab containers in expansion panels or plain stacks.
 - `RenderField` — dispatches to a type-specific fragment.
-- `RenderListField` / `RenderDictField` — collection editors with full CRUD.
+- `RenderListField` / `RenderDictField` — collection editors with full CRUD; red remove buttons call confirmation-backed async handlers before changing `_values`.
 - `RenderTreeParentSelector` — `MudSelect` dropdown populated from sibling list items when the field is the tree-parent reference.
 
 **Key code methods:**
@@ -48,6 +49,7 @@ No `@page` route — used as a child component on plugin management pages.
 - `BuildLayout()` — constructs the container/field tree from `_envelope.Schema`.
 - `ApplyAsync()` — serializes `_values` to JSON and calls `Service.UpdatePluginConfigAsync`.
 - `ResetToDefaults()` — replaces `_values` with `_envelope.CloneDefaults()`.
+- `RemoveListItemAsync` / `RemoveDictEntryAsync` — confirm item removal before mutating pending config JSON.
 - `GetListOrder` — DFS tree-ordering of list items when a `TreeContext` is present.
 
 **MudBlazor components used:** `MudTabs`, `MudTabPanel`, `MudExpansionPanels`, `MudExpansionPanel`, `MudGrid`, `MudItem`, `MudPaper`, `MudStack`, `MudText`, `MudCheckBox`, `MudNumericField`, `MudTextField`, `MudSelect`, `MudSelectItem`, `MudColorPicker`, `MudAlert`, `MudButton`, `MudIconButton`, `MudChip`.

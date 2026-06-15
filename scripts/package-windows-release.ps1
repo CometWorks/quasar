@@ -3,7 +3,7 @@
 #
 # Produces the win-x64 release artifacts under artifacts/windows:
 #   - quasar-web-win-x64.zip   (replaceable web UI worker + wwwroot)
-#   - quasar-win-x64.zip       (stable launcher + install/uninstall scripts)
+#   - quasar-installer-windows.zip (stable launcher + install/uninstall scripts)
 #   - SHA256SUMS               (sha256 of both archives, lowercase, two-space separated)
 #
 # The version-normalization rules mirror package-linux-release.sh exactly so the
@@ -22,6 +22,9 @@ $Configuration = if ($env:CONFIGURATION) { $env:CONFIGURATION } else { 'Release'
 $Runtime = if ($env:RUNTIME) { $env:RUNTIME } else { 'win-x64' }
 $Version = if ($env:VERSION) { $env:VERSION } else { '' }
 $DefaultAssemblyFileVersion = '0.1.1'
+$WebArchiveName = 'quasar-web-win-x64.zip'
+$InstallerArchiveName = 'quasar-installer-windows.zip'
+$InstallerRootName = 'quasar-installer-windows'
 
 function Normalize-VersionComponent {
     param([string]$Value)
@@ -121,7 +124,7 @@ function Copy-Tree {
 }
 
 # Builds the launcher archive's README from the repo README plus the Windows
-# install/run instructions, so whoever unpacks quasar-win-x64.zip learns how to
+# install/run instructions, so whoever unpacks quasar-installer-windows.zip learns how to
 # actually run the binary they downloaded — not just the project overview.
 #
 # Two transforms are applied to the packaged copy (the in-repo README is left
@@ -154,20 +157,22 @@ function Build-PackagedReadme {
 }
 
 function New-ZipFromDirectory {
-    param([string]$SourceDir, [string]$ZipPath)
+    param(
+        [string]$SourceDir,
+        [string]$ZipPath,
+        [switch]$IncludeBaseDirectory
+    )
     if (-not ('System.IO.Compression.ZipFile' -as [type])) {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
     }
     if (Test-Path -LiteralPath $ZipPath) {
         Remove-Item -LiteralPath $ZipPath -Force
     }
-    # includeBaseDirectory = $false zips the contents of $SourceDir at the archive
-    # root, matching `tar -C "$DIR" -czf archive .` on Linux.
     [System.IO.Compression.ZipFile]::CreateFromDirectory(
         (Resolve-Path -LiteralPath $SourceDir).Path,
         $ZipPath,
         [System.IO.Compression.CompressionLevel]::Optimal,
-        $false)
+        $IncludeBaseDirectory.IsPresent)
 }
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
@@ -185,7 +190,7 @@ $AssemblyFileVersion = Build-AssemblyFileVersion $Version
 
 $PublishDir = Join-Path $ArtifactDir 'publish'
 $WebDir = Join-Path $ArtifactDir 'web'
-$BootstrapDir = Join-Path $ArtifactDir 'bootstrap'
+$BootstrapDir = Join-Path $ArtifactDir $InstallerRootName
 
 if (Test-Path -LiteralPath $ArtifactDir) {
     Remove-Item -LiteralPath $ArtifactDir -Recurse -Force
@@ -235,7 +240,7 @@ foreach ($requiredFile in $requiredWebFiles) {
     }
 }
 
-$webZip = Join-Path $ArtifactDir 'quasar-web-win-x64.zip'
+$webZip = Join-Path $ArtifactDir $WebArchiveName
 New-ZipFromDirectory $WebDir $webZip
 
 # Launcher archive: the stable bootstrap launcher plus config and helper scripts.
@@ -245,12 +250,12 @@ Copy-Item -LiteralPath (Join-Path $ScriptDir 'install.ps1') -Destination (Join-P
 Copy-Item -LiteralPath (Join-Path $ScriptDir 'uninstall.ps1') -Destination (Join-Path $BootstrapDir 'uninstall.ps1') -Force
 Build-PackagedReadme (Join-Path $RepoDir 'README.md') (Join-Path $ScriptDir 'readme-install-windows.md') (Join-Path $BootstrapDir 'README.md')
 
-$bootstrapZip = Join-Path $ArtifactDir 'quasar-win-x64.zip'
-New-ZipFromDirectory $BootstrapDir $bootstrapZip
+$bootstrapZip = Join-Path $ArtifactDir $InstallerArchiveName
+New-ZipFromDirectory $BootstrapDir $bootstrapZip -IncludeBaseDirectory
 
 Push-Location $ArtifactDir
 try {
-    $sumLines = foreach ($name in @('quasar-web-win-x64.zip', 'quasar-win-x64.zip')) {
+    $sumLines = foreach ($name in @($WebArchiveName, $InstallerArchiveName)) {
         $hash = (Get-FileHash -LiteralPath $name -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $name"
     }

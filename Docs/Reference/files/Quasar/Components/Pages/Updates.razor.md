@@ -4,7 +4,7 @@
 
 ## Summary
 
-Routable MudBlazor page at `/settings/updates` for checking, staging, activating, and rolling back Quasar UI worker releases. It shows current update status from `QuasarUpdateService`, separates selectable Quasar UI releases from launcher candidates, exposes manual check/stage/activate actions for the selected UI worker version, shows launcher update availability, displays configured GitHub release source and asset names, provides controls for including prerelease versions plus choosing automatic or manual UI staging, and renders a git-style `appsettings.json` conflict editor when staging cannot auto-merge settings.
+Routable MudBlazor page at `/settings/updates` for checking, staging, activating, and rolling back Quasar UI worker releases. It shows current update status from `QuasarUpdateService`, separates selectable Quasar UI releases from launcher candidates, exposes manual check/stage/activate actions for the selected UI worker version, shows launcher update availability, displays configured GitHub release source and asset names, provides controls for including prerelease versions plus choosing automatic or manual UI staging, and renders a git-style `appsettings.json` conflict editor with a copyable conflict-file path when staging cannot auto-merge settings.
 
 ## Structure
 
@@ -41,4 +41,5 @@ Authorization: `QuasarPolicyNames.CanManageSecurity`
 - [`Quasar/Services/Updates/QuasarUpdateService.cs`](../../Services/Updates/QuasarUpdateService.cs.md) — update checks, staging, activation
 - [`Quasar/Services/Updates/QuasarUpdateOptions.cs`](../../Services/Updates/QuasarUpdateOptions.cs.md) — release source and asset names
 - [`Quasar/Services/Updates/QuasarUpdateSnapshot.cs`](../../Services/Updates/QuasarUpdateSnapshot.cs.md) — status/candidate DTOs displayed by the page
+- [`Quasar/Components/Shared/CopyablePath.razor`](../Shared/CopyablePath.razor.md)
 - `Quasar/Services/WebServiceOptions.cs` — current Quasar UI and Bootstrap versions

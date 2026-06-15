@@ -4,7 +4,7 @@
 
 ## Summary
 
-`DedicatedServerSupervisor` is the heart of Quasar's process management. It is an `IHostedService` that maintains in-memory `ManagedServerState` for every configured dedicated server, runs a 2-second reconcile loop that starts/stops/restarts processes to match goal state, evaluates server health (agent heartbeat, simulation frame progress, uptime thresholds), rotates and prunes Quasar-captured DS stdout/stderr logs, captures mod-download failure lines for dashboard surfacing, persists runtime state across Quasar worker restarts and **adopts surviving detached processes by PID on startup**, and coordinates graceful stop (save + stop commands to the agent before kill) plus scheduled and maximum-uptime restarts.
+`DedicatedServerSupervisor` is the heart of Quasar's process management. It is an `IHostedService` that maintains in-memory `ManagedServerState` for every configured dedicated server, runs a 2-second reconcile loop that starts/stops/restarts processes to match goal state, evaluates server health (agent heartbeat, simulation frame progress, uptime thresholds), rotates and prunes Quasar-captured DS stdout/stderr logs, captures mod-download failure lines for dashboard surfacing, persists runtime state across Quasar worker restarts and **adopts surviving detached processes by PID on startup**, carries per-server advertised server/world names into launch preparation, and coordinates graceful stop (save + stop commands to the agent before kill) plus scheduled and maximum-uptime restarts.
 
 ## Structure
 

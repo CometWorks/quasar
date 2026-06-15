@@ -8,6 +8,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using Magnetar.Protocol.Bridge;
 using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Transport;
@@ -785,13 +786,17 @@ namespace Quasar.Agent
 
             foreach (var pluginPath in pluginPaths)
             {
-                if (HasPluginKey(seen, pluginPath))
+                var declared = ResolveDeclaredPlugin(pluginPath);
+                if (string.IsNullOrWhiteSpace(declared.PluginId) && string.IsNullOrWhiteSpace(declared.DisplayName))
+                    continue;
+
+                if (HasAnyPluginKey(seen, declared.Keys))
                     continue;
 
                 result.Add(new PluginRuntimeInfo
                 {
-                    PluginId = pluginPath ?? string.Empty,
-                    DisplayName = Path.GetFileNameWithoutExtension(pluginPath ?? string.Empty),
+                    PluginId = declared.PluginId,
+                    DisplayName = declared.DisplayName,
                     Version = string.Empty,
                     IsLoaded = false,
                 });
@@ -815,29 +820,146 @@ namespace Quasar.Agent
             }
         }
 
-        private static bool HasPluginKey(HashSet<string> seen, string value)
+        private static DeclaredPlugin ResolveDeclaredPlugin(string pluginPath)
         {
-            if (string.IsNullOrWhiteSpace(value))
-                return false;
+            var trimmed = pluginPath == null ? string.Empty : pluginPath.Trim();
+            var fileStem = GetFileNameWithoutExtension(trimmed);
+            var parentName = GetParentDirectoryName(trimmed);
+            var keys = new List<string>();
+            AddPluginKeys(keys, trimmed);
 
-            if (seen.Contains(value.Trim()))
-                return true;
+            var manifestId = string.Empty;
+            var friendlyName = string.Empty;
+            if (string.Equals(GetExtension(trimmed), ".xml", StringComparison.OrdinalIgnoreCase) &&
+                File.Exists(trimmed))
+            {
+                try
+                {
+                    var root = XDocument.Load(trimmed, LoadOptions.None).Root;
+                    if (root != null)
+                    {
+                        manifestId = GetXmlValue(root, "Id");
+                        friendlyName = GetXmlValue(root, "FriendlyName");
+                        AddPluginKeys(keys, manifestId);
+                        AddPluginKeys(keys, friendlyName);
+                    }
+                }
+                catch
+                {
+                }
+            }
 
-            var fileName = Path.GetFileNameWithoutExtension(value.Trim());
-            return !string.IsNullOrWhiteSpace(fileName) && seen.Contains(fileName);
+            return new DeclaredPlugin
+            {
+                PluginId = FirstNonEmpty(manifestId, trimmed),
+                DisplayName = FirstNonEmpty(friendlyName, fileStem, parentName, manifestId, trimmed),
+                Keys = keys
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+            };
+        }
+
+        private static string GetXmlValue(XElement root, string name)
+        {
+            var value = root.Element(name)?.Value;
+            return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+        }
+
+        private static bool HasAnyPluginKey(HashSet<string> seen, IEnumerable<string> values)
+        {
+            foreach (var value in values)
+            {
+                if (seen.Contains(value))
+                    return true;
+            }
+
+            return false;
         }
 
         private static void AddPluginKeys(HashSet<string> seen, string value)
+        {
+            var keys = new List<string>();
+            AddPluginKeys(keys, value);
+            foreach (var key in keys)
+                seen.Add(key);
+        }
+
+        private static void AddPluginKeys(List<string> keys, string value)
         {
             if (string.IsNullOrWhiteSpace(value))
                 return;
 
             var trimmed = value.Trim();
-            seen.Add(trimmed);
+            keys.Add(trimmed);
 
-            var fileName = Path.GetFileNameWithoutExtension(trimmed);
+            var fileName = GetFileNameWithoutExtension(trimmed);
             if (!string.IsNullOrWhiteSpace(fileName))
-                seen.Add(fileName);
+                keys.Add(fileName);
+
+            var parentName = GetParentDirectoryName(trimmed);
+            if (!string.IsNullOrWhiteSpace(parentName))
+                keys.Add(parentName);
+        }
+
+        private static string GetFileNameWithoutExtension(string value)
+        {
+            var fileName = GetFileName(value);
+            var extension = GetExtension(fileName);
+            return string.IsNullOrEmpty(extension)
+                ? fileName
+                : fileName.Substring(0, fileName.Length - extension.Length);
+        }
+
+        private static string GetExtension(string value)
+        {
+            var fileName = GetFileName(value);
+            return string.IsNullOrWhiteSpace(fileName) ? string.Empty : Path.GetExtension(fileName);
+        }
+
+        private static string GetFileName(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            var normalized = value.Trim().Replace('\\', '/').TrimEnd('/');
+            var slash = normalized.LastIndexOf('/');
+            return slash >= 0 ? normalized.Substring(slash + 1) : normalized;
+        }
+
+        private static string GetParentDirectoryName(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            var normalized = value.Trim().Replace('\\', '/').TrimEnd('/');
+            var slash = normalized.LastIndexOf('/');
+            if (slash <= 0)
+                return string.Empty;
+
+            var parent = normalized.Substring(0, slash).TrimEnd('/');
+            var parentSlash = parent.LastIndexOf('/');
+            return parentSlash >= 0 ? parent.Substring(parentSlash + 1) : parent;
+        }
+
+        private static string FirstNonEmpty(params string[] values)
+        {
+            foreach (var value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value.Trim();
+            }
+
+            return string.Empty;
+        }
+
+        private sealed class DeclaredPlugin
+        {
+            public string PluginId { get; set; }
+
+            public string DisplayName { get; set; }
+
+            public List<string> Keys { get; set; }
         }
 
         private List<DeathEventSnapshot> GetRecentDeaths()

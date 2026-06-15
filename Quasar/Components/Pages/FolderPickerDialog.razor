@@ -106,6 +106,9 @@
     [Parameter]
     public bool RequireWorldFolder { get; set; } = true;
 
+    [Parameter]
+    public IReadOnlyList<FileBrowserShortcut> AdditionalShortcuts { get; set; } = Array.Empty<FileBrowserShortcut>();
+
     private string _currentPath = string.Empty;
     private string _error = string.Empty;
     private IReadOnlyList<FileBrowserEntry> _entries = Array.Empty<FileBrowserEntry>();
@@ -119,9 +122,27 @@
 
     protected override void OnInitialized()
     {
-        _shortcuts = Browser.GetShortcuts();
+        _shortcuts = BuildShortcuts();
         var seed = string.IsNullOrWhiteSpace(InitialPath) ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) : InitialPath;
         NavigateTo(seed);
+    }
+
+    private IReadOnlyList<FileBrowserShortcut> BuildShortcuts()
+    {
+        var shortcuts = new List<FileBrowserShortcut>();
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var shortcut in Browser.GetShortcuts().Concat(AdditionalShortcuts))
+        {
+            if (string.IsNullOrWhiteSpace(shortcut.FullPath) || !Directory.Exists(shortcut.FullPath))
+                continue;
+
+            var fullPath = Path.GetFullPath(shortcut.FullPath);
+            if (seenPaths.Add(fullPath))
+                shortcuts.Add(shortcut with { FullPath = fullPath });
+        }
+
+        return shortcuts;
     }
 
     private void NavigateTo(string path)

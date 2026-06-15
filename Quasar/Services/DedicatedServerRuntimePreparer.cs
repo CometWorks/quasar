@@ -62,7 +62,7 @@ public sealed class DedicatedServerRuntimePreparer
         Directory.CreateDirectory(magnetarAppDataPath);
         Directory.CreateDirectory(Path.Combine(dedicatedServerAppDataPath, "Saves"));
 
-        await PrepareRuntimeConfigAsync(definition, configProfile, runtimeConfigPath, cancellationToken);
+        await PrepareRuntimeConfigAsync(definition, configProfile, worldPath, runtimeConfigPath, cancellationToken);
         await PrepareMagnetarConfigAsync(definition, configProfile, magnetarAppDataPath, cancellationToken);
         await PrepareWorldConfigAsync(definition, configProfile, worldPath, cancellationToken);
         await WriteLastSessionAsync(definition, worldPath, dedicatedServerAppDataPath, lastSessionPath, cancellationToken);
@@ -89,6 +89,7 @@ public sealed class DedicatedServerRuntimePreparer
     private async Task PrepareRuntimeConfigAsync(
         DedicatedServerDefinition definition,
         QuasarConfigProfile configProfile,
+        string worldPath,
         string runtimeConfigPath,
         CancellationToken cancellationToken)
     {
@@ -137,6 +138,8 @@ public sealed class DedicatedServerRuntimePreparer
             UpsertElement(root, "ServerIP", definition.ServerIP.Trim());
 
         ApplyConfigProfile(root, configProfile);
+        UpsertElement(root, "ServerName", GetServerDisplayName(definition));
+        UpsertElement(root, "WorldName", GetWorldDisplayName(definition, worldPath));
 
         var content = SerializeXml(document);
         await AtomicFileWriter.WriteTextAsync(runtimeConfigPath, content, cancellationToken);
@@ -786,10 +789,24 @@ public sealed class DedicatedServerRuntimePreparer
 
     private static string GetWorldDisplayName(DedicatedServerDefinition definition, string worldPath)
     {
+        if (!string.IsNullOrWhiteSpace(definition.InGameWorldName))
+            return definition.InGameWorldName.Trim();
+
         if (!string.IsNullOrWhiteSpace(definition.UniqueName))
             return definition.UniqueName.Trim();
 
         return Path.GetFileName(worldPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+    }
+
+    private static string GetServerDisplayName(DedicatedServerDefinition definition)
+    {
+        if (!string.IsNullOrWhiteSpace(definition.InGameServerName))
+            return definition.InGameServerName.Trim();
+
+        if (!string.IsNullOrWhiteSpace(definition.DisplayName))
+            return definition.DisplayName.Trim();
+
+        return definition.UniqueName.Trim();
     }
 
     private static string? TryGetRelativePath(string rootPath, string fullPath)

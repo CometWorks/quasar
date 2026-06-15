@@ -16,11 +16,11 @@ public sealed class QuasarUpdateOptions
 
     public string LinuxWebAssetName { get; init; } = "quasar-web-linux-x64.tar.gz";
 
-    public string LinuxBootstrapAssetName { get; init; } = "quasar-linux-x64.tar.gz";
+    public string LinuxBootstrapAssetName { get; init; } = "quasar-installer-linux.tar.gz";
 
     public string WindowsWebAssetName { get; init; } = "quasar-web-win-x64.zip";
 
-    public string WindowsBootstrapAssetName { get; init; } = "quasar-win-x64.zip";
+    public string WindowsBootstrapAssetName { get; init; } = "quasar-installer-windows.zip";
 
     // Asset names resolved for the current operating system. Windows uses the .zip
     // assets; every other platform keeps the Linux .tar.gz assets.
@@ -72,13 +72,13 @@ public sealed class QuasarUpdateOptions
                                 ?? "quasar-web-linux-x64.tar.gz",
             LinuxBootstrapAssetName = Environment.GetEnvironmentVariable("QUASAR_UPDATES_LINUX_BOOTSTRAP_ASSET")
                                        ?? section["LinuxBootstrapAssetName"]
-                                       ?? "quasar-linux-x64.tar.gz",
+                                       ?? "quasar-installer-linux.tar.gz",
             WindowsWebAssetName = Environment.GetEnvironmentVariable("QUASAR_UPDATES_WINDOWS_WEB_ASSET")
                                   ?? section["WindowsWebAssetName"]
                                   ?? "quasar-web-win-x64.zip",
             WindowsBootstrapAssetName = Environment.GetEnvironmentVariable("QUASAR_UPDATES_WINDOWS_BOOTSTRAP_ASSET")
                                         ?? section["WindowsBootstrapAssetName"]
-                                        ?? "quasar-win-x64.zip",
+                                        ?? "quasar-installer-windows.zip",
         };
     }
 }

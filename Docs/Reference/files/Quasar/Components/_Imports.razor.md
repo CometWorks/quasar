@@ -13,7 +13,7 @@ Namespaces imported (in order):
 - `static Microsoft.AspNetCore.Components.Web.RenderMode`
 - `Microsoft.AspNetCore.Components.Web.Virtualization`
 - `Microsoft.JSInterop`
-- `Quasar`, `Quasar.Components`, `Quasar.Components.Dashboard`, `Quasar.Components.Layout`
+- `Quasar`, `Quasar.Components`, `Quasar.Components.Dashboard`, `Quasar.Components.Layout`, `Quasar.Components.Shared`
 - `Quasar.Models`, `Quasar.Services`, `Quasar.Services.Analytics`, `Quasar.Services.Auth`, `Quasar.Services.Discord`, `Quasar.Services.PluginSdk`
 - `MudBlazor`
 

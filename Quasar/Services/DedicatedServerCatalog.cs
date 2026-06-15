@@ -248,6 +248,8 @@ public sealed class DedicatedServerCatalog : IDisposable
         server.UniqueName = server.UniqueName?.Trim() ?? string.Empty;
         ValidateUniqueName(server.UniqueName);
         server.DisplayName = NormalizeDisplayName(server.DisplayName, server.UniqueName);
+        server.InGameServerName = NormalizeOptionalName(server.InGameServerName);
+        server.InGameWorldName = NormalizeOptionalName(server.InGameWorldName);
         server.OriginalUniqueName = string.IsNullOrWhiteSpace(server.OriginalUniqueName)
             ? server.UniqueName
             : server.OriginalUniqueName.Trim();
@@ -331,6 +333,8 @@ public sealed class DedicatedServerCatalog : IDisposable
         {
             UniqueName = server.UniqueName,
             DisplayName = server.DisplayName,
+            InGameServerName = server.InGameServerName,
+            InGameWorldName = server.InGameWorldName,
             OriginalUniqueName = server.OriginalUniqueName,
             GoalState = server.GoalState,
             ExecutablePath = server.ExecutablePath,
@@ -388,6 +392,9 @@ public sealed class DedicatedServerCatalog : IDisposable
         var normalized = WhitespaceRegex.Replace(displayName?.Trim() ?? string.Empty, " ");
         return string.IsNullOrWhiteSpace(normalized) ? uniqueName : normalized;
     }
+
+    private static string NormalizeOptionalName(string? value) =>
+        WhitespaceRegex.Replace(value?.Trim() ?? string.Empty, " ");
 
     /// <summary>
     /// Derives a unique-name slug from the supplied text, appending a "-N" suffix when

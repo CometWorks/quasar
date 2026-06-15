@@ -24,7 +24,7 @@ Namespace: `Quasar.Models`
 - `UpdatedAtUtc`
 
 **`QuasarDevFolderSelection`** — sealed class; describes a local development plugin folder:
-- `Name`, `FolderPath`, `DataFile`, `PluginId`, `DebugBuild`
+- `Name`, `FolderPath`, `DataFile`, `PluginId`, `DebugBuild` (`true` by default)
 - `SourceFolderName` (`[JsonIgnore]`) — computed innermost folder name; used as Magnetar `LocalPlugin.Name` and `LocalFolderConfig.Id`
 - `static GetSourceFolderName(string)` — path utility
 

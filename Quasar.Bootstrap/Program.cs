@@ -585,11 +585,11 @@ internal sealed class BootstrapOptions
 
     public string LinuxWebAssetName { get; init; } = "quasar-web-linux-x64.tar.gz";
 
-    public string LinuxBootstrapAssetName { get; init; } = "quasar-linux-x64.tar.gz";
+    public string LinuxBootstrapAssetName { get; init; } = "quasar-installer-linux.tar.gz";
 
     public string WindowsWebAssetName { get; init; } = "quasar-web-win-x64.zip";
 
-    public string WindowsBootstrapAssetName { get; init; } = "quasar-win-x64.zip";
+    public string WindowsBootstrapAssetName { get; init; } = "quasar-installer-windows.zip";
 
     // Asset names resolved for the current operating system. Windows uses the .zip
     // assets; every other platform keeps the Linux .tar.gz assets.
@@ -671,13 +671,13 @@ internal sealed class BootstrapOptions
                                 ?? "quasar-web-linux-x64.tar.gz",
             LinuxBootstrapAssetName = Environment.GetEnvironmentVariable("QUASAR_UPDATES_LINUX_BOOTSTRAP_ASSET")
                                        ?? updatesSection["LinuxBootstrapAssetName"]
-                                       ?? "quasar-linux-x64.tar.gz",
+                                       ?? "quasar-installer-linux.tar.gz",
             WindowsWebAssetName = Environment.GetEnvironmentVariable("QUASAR_UPDATES_WINDOWS_WEB_ASSET")
                                   ?? updatesSection["WindowsWebAssetName"]
                                   ?? "quasar-web-win-x64.zip",
             WindowsBootstrapAssetName = Environment.GetEnvironmentVariable("QUASAR_UPDATES_WINDOWS_BOOTSTRAP_ASSET")
                                         ?? updatesSection["WindowsBootstrapAssetName"]
-                                        ?? "quasar-win-x64.zip",
+                                        ?? "quasar-installer-windows.zip",
         };
     }
 
@@ -940,7 +940,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         ExtractArchive(archivePath, extractDirectory);
         TryDeleteFile(archivePath);
 
-        var replacement = Path.Combine(extractDirectory, LauncherExecutableFileName);
+        var payloadDirectory = ResolveBootstrapPayloadDirectory(extractDirectory);
+        var replacement = Path.Combine(payloadDirectory, LauncherExecutableFileName);
         if (!File.Exists(replacement))
             throw new InvalidOperationException($"Bootstrap update archive did not contain executable '{replacement}'.");
 
@@ -954,7 +955,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             return;
         }
 
-        ApplyBootstrapUpdate(extractDirectory, AppContext.BaseDirectory);
+        ApplyBootstrapUpdate(payloadDirectory, AppContext.BaseDirectory);
         _logger.LogInformation("Installed Bootstrap update {Version}; restarting Bootstrap.", version);
         _isRestartingForBootstrapUpdate = true;
 
@@ -974,6 +975,21 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     // Worker and launcher are both named Quasar (Linux/macOS) or Quasar.exe (Windows).
     private static string LauncherExecutableFileName =>
         OperatingSystem.IsWindows() ? "Quasar.exe" : "Quasar";
+
+    private static string ResolveBootstrapPayloadDirectory(string extractDirectory)
+    {
+        if (File.Exists(Path.Combine(extractDirectory, LauncherExecutableFileName)))
+            return extractDirectory;
+
+        var childDirectories = Directory.EnumerateDirectories(extractDirectory).Take(2).ToArray();
+        if (childDirectories.Length == 1 &&
+            File.Exists(Path.Combine(childDirectories[0], LauncherExecutableFileName)))
+        {
+            return childDirectories[0];
+        }
+
+        return extractDirectory;
+    }
 
     // Linux runs under systemd, which restarts the unit when Bootstrap exits with a
     // failure code. Windows has no systemd: spawn a detached replacement launcher from
