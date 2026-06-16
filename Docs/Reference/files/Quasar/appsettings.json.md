@@ -31,7 +31,7 @@ Default application configuration for the Quasar host. Provides baseline values 
 
 **`Quasar.Auth`** (maps to `QuasarAuthOptions`):
 - `Enabled`: `true`, `RequireHttpsForPublicAccess`: `true`, `DefaultProvider`: `"Steam"`
-- `TrustedNetworkBypass`: `AllowLoopback`/`AllowSameSubnet` true, empty `TrustedProxies`, roles `["admin"]`
+- `TrustedNetworkBypass`: `AllowLoopback`/`AllowSameSubnet` true, empty `TrustedProxies` (loopback reverse proxies are trusted by default; explicit entries can be IPs or CIDR ranges), roles `["admin"]`
 - `Steam.Enabled`: `true`
 - `ExternalProviders.Oidc`: disabled template (`Authority`, `ClientId`, `ClientSecret`, `Scopes`, `NameClaim`/`SubjectClaim`/`EmailClaim`/`RoleClaim`)
 - `Workshop`: enabled, `AppId` 244850 (SE), popular/search limits 50, required tag `"Mod"`, `MatchingFileType` `Items`, query types `RankedByTotalUniqueSubscriptions`/`RankedByTextSearch`, cache 300 s, search debounce 350 ms

@@ -3,7 +3,7 @@
 **Module:** Quasar.Services.Auth  **Kind:** class  **Tier:** 2
 
 ## Summary
-Determines whether an incoming HTTP request originates from a trusted network address (loopback or same local subnet), enabling the trusted-network authentication bypass. Used during authentication middleware to decide whether to issue a trusted-network principal without requiring a Steam login.
+Determines whether an incoming HTTP request originates from a trusted network address (loopback or same local subnet), enabling the trusted-network authentication bypass. Requests carrying proxy/forwarding headers are rejected for bypass unless ASP.NET's forwarded-header middleware has accepted them from a known proxy first. Used during authentication middleware to decide whether to issue a trusted-network principal without requiring a Steam login.
 
 ## Structure
 Namespace: `Quasar.Services.Auth`
@@ -13,9 +13,10 @@ Namespace: `Quasar.Services.Auth`
 Constructor: `(QuasarAuthOptions options)`
 
 Public members:
-- `IsTrusted(HttpContext context) : bool` — extracts `RemoteIpAddress`, maps IPv4-in-IPv6 to plain IPv4, then checks loopback (if `AllowLoopback`) and local-subnet membership (if `AllowSameSubnet`)
+- `IsTrusted(HttpContext context) : bool` — refuses unaccepted forwarding headers, extracts `RemoteIpAddress`, maps IPv4-in-IPv6 to plain IPv4, then checks loopback (if `AllowLoopback`) and local-subnet membership (if `AllowSameSubnet`)
 
 Private helpers:
+- `HasForwardingHeader(HttpRequest request)` / `HasHeader` — detect `Forwarded`, `X-Forwarded-*`, and `X-Real-IP`; `X-Original-For` must be present for bypass when forwarding headers were supplied, indicating accepted forwarded-header middleware processing
 - `IsOnLocalSubnet(IPAddress remoteIp)` — enumerates all up, non-loopback, non-tunnel IPv4 unicast addresses via `NetworkInterface` and tests each subnet mask
 - `GetLocalIPv4UnicastAddresses()` — yields `UnicastIPAddressInformation` for qualifying interfaces
 - `IsSameSubnet(IPAddress remoteIp, IPAddress localIp, IPAddress mask)` — byte-level bitwise AND comparison

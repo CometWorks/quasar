@@ -6,6 +6,15 @@ namespace Quasar.Services.Auth;
 
 public sealed class TrustedNetworkEvaluator
 {
+    private static readonly string[] ForwardingHeaders =
+    [
+        "Forwarded",
+        "X-Forwarded-For",
+        "X-Forwarded-Host",
+        "X-Forwarded-Proto",
+        "X-Real-IP",
+    ];
+
     private readonly QuasarAuthOptions _options;
 
     public TrustedNetworkEvaluator(QuasarAuthOptions options)
@@ -15,6 +24,9 @@ public sealed class TrustedNetworkEvaluator
 
     public bool IsTrusted(HttpContext context)
     {
+        if (HasForwardingHeader(context.Request) && !HasHeader(context.Request, "X-Original-For"))
+            return false;
+
         var remoteIp = context.Connection.RemoteIpAddress;
         if (remoteIp is null)
             return false;
@@ -27,6 +39,13 @@ public sealed class TrustedNetworkEvaluator
 
         return _options.TrustedNetworkBypass.AllowSameSubnet && IsOnLocalSubnet(remoteIp);
     }
+
+    private static bool HasForwardingHeader(HttpRequest request) =>
+        ForwardingHeaders.Any(headerName => HasHeader(request, headerName));
+
+    private static bool HasHeader(HttpRequest request, string headerName) =>
+        request.Headers.TryGetValue(headerName, out var values) &&
+        values.Any(value => !string.IsNullOrWhiteSpace(value));
 
     private static bool IsOnLocalSubnet(IPAddress remoteIp)
     {

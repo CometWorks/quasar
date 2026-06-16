@@ -22,7 +22,7 @@ All types are `sealed`.
 
 **`TrustedNetworkBypassOptions`**
 - `AllowLoopback` (default `true`), `AllowSameSubnet` (default `true`)
-- `TrustedProxies : List<string>` — explicit proxy IP list
+- `TrustedProxies : List<string>` — explicit reverse-proxy IP or CIDR list used by forwarded-header handling
 - `Roles : List<string>` — roles granted to trusted-network sessions (default `["admin"]`)
 - `Normalize()` — deduplicates proxies, filters roles against `QuasarRoles.All`, falls back to `["admin"]`
 

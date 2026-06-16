@@ -165,6 +165,65 @@ as unhealthy. They are fine only when running the worker directly (e.g.
 > collide with the UI by default. If you run other software on `8080`, or point a
 > server's Remote API at `8080` manually, pick a different `Quasar:Port`.
 
+## Reverse proxy auth
+
+Quasar can grant a trusted-network session to loopback or same-subnet clients.
+When Quasar sits behind NGINX Proxy Manager, Caddy, Traefik, or another reverse
+proxy, the TCP peer seen by Quasar is the proxy, not the browser. Without proxy
+handling this can make every proxied browser look like a local or LAN client.
+
+These settings can be changed in **Settings → Security**. The page includes a
+public reverse-proxy preset and a step-by-step exposure checklist. It writes the
+same data-directory `appsettings.json` values shown below.
+
+Quasar now accepts `X-Forwarded-For`, `X-Forwarded-Proto`, and
+`X-Forwarded-Host` only from trusted proxies:
+
+- loopback proxies (`127.0.0.1` and `::1`) are trusted by default
+- additional proxy IP addresses or CIDR ranges must be listed in
+  `Quasar:Auth:TrustedNetworkBypass:TrustedProxies`
+- if a request has forwarding headers but they were not accepted from a trusted
+  proxy, trusted-network bypass is refused and the user must sign in
+
+For NGINX Proxy Manager running on the same host, no proxy entry is usually
+needed because loopback is trusted. For a Docker bridge or a separate reverse
+proxy host, add the proxy container/host address or bridge CIDR:
+
+```json
+{
+  "Quasar": {
+    "Auth": {
+      "TrustedNetworkBypass": {
+        "AllowLoopback": true,
+        "AllowSameSubnet": true,
+        "TrustedProxies": [ "172.18.0.0/16" ],
+        "Roles": [ "admin" ]
+      }
+    }
+  }
+}
+```
+
+For public deployments, prefer disabling same-subnet bypass so browser access is
+always tied to Steam/RBAC identity:
+
+```json
+{
+  "Quasar": {
+    "Auth": {
+      "TrustedNetworkBypass": {
+        "AllowLoopback": true,
+        "AllowSameSubnet": false,
+        "TrustedProxies": [ "172.18.0.0/16" ]
+      }
+    }
+  }
+}
+```
+
+Keep Quasar's port private to the proxy when exposing it to the internet. Do not
+trust broad networks unless every host in that range is under your control.
+
 ### Development port
 
 Running the worker directly with `dotnet run --project Quasar/Quasar.csproj` uses

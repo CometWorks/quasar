@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
 @implements IDisposable
 @inject QuasarAuthOptions AuthOptions
+@inject QuasarAuthSettingsService AuthSettingsService
 @inject RbacConfigCatalog RbacConfigCatalog
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -10,7 +11,7 @@
 
 <MudText Typo="Typo.h5" Class="mb-2">Security</MudText>
 <MudText Typo="Typo.body2" Class="mb-4">
-    Manage SteamID-based RBAC mappings and review provider defaults.
+    Manage trusted-network access, reverse proxy settings, and SteamID-based RBAC mappings.
 </MudText>
 
 <MudGrid>
@@ -20,16 +21,101 @@
                 <MudText Typo="Typo.h6">Auth Provider</MudText>
                 <MudText Typo="Typo.body2">Default provider: <strong>@AuthOptions.DefaultProvider</strong></MudText>
                 <MudText Typo="Typo.body2">Steam login: <strong>@(AuthOptions.Steam.Enabled ? "Enabled" : "Disabled")</strong></MudText>
-                <MudText Typo="Typo.body2">Trusted loopback: <strong>@(AuthOptions.TrustedNetworkBypass.AllowLoopback ? "Enabled" : "Disabled")</strong></MudText>
-                <MudText Typo="Typo.body2">Trusted same subnet: <strong>@(AuthOptions.TrustedNetworkBypass.AllowSameSubnet ? "Enabled" : "Disabled")</strong></MudText>
+                <MudText Typo="Typo.body2">Trusted loopback: <strong>@(_trustedNetworkSettings.AllowLoopback ? "Enabled" : "Disabled")</strong></MudText>
+                <MudText Typo="Typo.body2">Trusted same subnet: <strong>@(_trustedNetworkSettings.AllowSameSubnet ? "Enabled" : "Disabled")</strong></MudText>
+                <MudText Typo="Typo.body2">Trusted proxies: <strong>@TrustedProxySummary</strong></MudText>
                 <MudText Typo="Typo.caption">
-                    Provider and trusted network defaults come from <code>appsettings.json</code>.
+                    Settings are saved to <CopyablePath Value="@AuthSettingsService.SettingsPath" Inline="true" TextClass="" />
                 </MudText>
             </MudStack>
         </MudPaper>
     </MudItem>
 
     <MudItem xs="12" lg="8">
+        <MudPaper Class="pa-4">
+            <MudStack Spacing="3">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                    <MudText Typo="Typo.h6">Trusted Network and Reverse Proxy</MudText>
+                    <MudChip T="string"
+                             Color="@(_trustedNetworkSettings.AllowSameSubnet ? Color.Warning : Color.Success)"
+                             Variant="Variant.Outlined">
+                        @(_trustedNetworkSettings.AllowSameSubnet ? "LAN bypass enabled" : "Same-subnet disabled")
+                    </MudChip>
+                </MudStack>
+
+                @if (_trustedNetworkSettings.AllowSameSubnet)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                        Same-subnet bypass is convenient on a private LAN, but it is not safe for an internet-facing reverse proxy. Disable it before exposing Quasar publicly.
+                    </MudAlert>
+                }
+
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <MudCheckBox T="bool"
+                                     @bind-Value="_trustedNetworkSettings.AllowLoopback"
+                                     Label="Trust loopback access" />
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            Allows local tools and same-host reverse proxies to use trusted-network auth.
+                        </MudText>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudCheckBox T="bool"
+                                     @bind-Value="_trustedNetworkSettings.AllowSameSubnet"
+                                     Label="Trust same subnet access" />
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            Disable this when Quasar is reachable through a public reverse proxy.
+                        </MudText>
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudTextField @bind-Value="_trustedProxiesText"
+                                      Label="Trusted reverse proxies"
+                                      Variant="Variant.Outlined"
+                                      Lines="4"
+                                      HelperText="One IP or CIDR per line, comma, or space. Example: 172.18.0.0/16 or 192.168.1.10." />
+                    </MudItem>
+                </MudGrid>
+
+                @if (TrustedProxyRestartRequired)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                        Restart Quasar after changing trusted proxies. Loopback and same-subnet toggles apply immediately.
+                    </MudAlert>
+                }
+
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+                    <MudButton StartIcon="@Icons.Material.Filled.Save"
+                               Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               Disabled="@_savingAuthSettings"
+                               OnClick="SaveTrustedNetworkSettingsAsync">
+                        Save Security Settings
+                    </MudButton>
+                    <MudButton StartIcon="@Icons.Material.Filled.Security"
+                               Variant="Variant.Outlined"
+                               Color="Color.Secondary"
+                               OnClick="ApplyPublicReverseProxyPreset">
+                        Apply Public Proxy Preset
+                    </MudButton>
+                </MudStack>
+
+                <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true">
+                    <MudExpansionPanel Text="Safely expose Quasar to the internet">
+                        <ol>
+                            <li>Put Quasar behind a reverse proxy with HTTPS enabled, such as NGINX Proxy Manager.</li>
+                            <li>Keep the Quasar port private. Do not forward the Quasar port directly from the router.</li>
+                            <li>Click <strong>Apply Public Proxy Preset</strong> so same-subnet bypass is disabled.</li>
+                            <li>If the proxy is not on the same machine, add its IP address or Docker bridge CIDR to Trusted reverse proxies.</li>
+                            <li>Make sure the proxy sends <code>X-Forwarded-For</code>, <code>X-Forwarded-Proto</code>, and <code>X-Forwarded-Host</code>.</li>
+                            <li>Restart Quasar after changing trusted proxies, then test from a phone or other external network. You should see the Steam sign-in flow.</li>
+                        </ol>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12">
         <MudPaper Class="pa-4">
             <MudStack Spacing="3">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
@@ -101,9 +187,21 @@
 {
     private RbacConfig _config = new();
     private const string OidcProviderName = "Oidc";
+    private QuasarTrustedNetworkSettings _trustedNetworkSettings = new();
+    private string _trustedProxiesText = string.Empty;
+    private string _trustedProxiesSavedText = string.Empty;
+    private bool _savingAuthSettings;
     private string _newProvider = QuasarAuthSchemes.Steam;
     private string _newSubject = string.Empty;
     private string _newRole = QuasarRoles.Viewer;
+
+    private string TrustedProxySummary =>
+        _trustedNetworkSettings.TrustedProxies.Count == 0
+            ? "Loopback only"
+            : string.Join(", ", _trustedNetworkSettings.TrustedProxies);
+
+    private bool TrustedProxyRestartRequired =>
+        !string.Equals(_trustedProxiesText.Trim(), _trustedProxiesSavedText.Trim(), StringComparison.Ordinal);
 
     private bool CanAddMapping =>
         !string.IsNullOrWhiteSpace(_newSubject) &&
@@ -112,6 +210,7 @@
     protected override void OnInitialized()
     {
         Reload();
+        ReloadTrustedNetworkSettings();
         RbacConfigCatalog.Changed += HandleRbacChanged;
     }
 
@@ -132,6 +231,40 @@
     private void Reload()
     {
         _config = RbacConfigCatalog.GetConfig();
+    }
+
+    private void ReloadTrustedNetworkSettings()
+    {
+        _trustedNetworkSettings = AuthSettingsService.GetTrustedNetworkSettings();
+        _trustedProxiesText = FormatTrustedProxies(_trustedNetworkSettings.TrustedProxies);
+        _trustedProxiesSavedText = _trustedProxiesText;
+    }
+
+    private void ApplyPublicReverseProxyPreset()
+    {
+        _trustedNetworkSettings.AllowLoopback = true;
+        _trustedNetworkSettings.AllowSameSubnet = false;
+        Snackbar.Add("Public reverse proxy preset applied. Save to persist it.", Severity.Info);
+    }
+
+    private async Task SaveTrustedNetworkSettingsAsync()
+    {
+        _savingAuthSettings = true;
+        try
+        {
+            _trustedNetworkSettings.TrustedProxies = QuasarAuthSettingsService.ParseTrustedProxiesText(_trustedProxiesText);
+            await AuthSettingsService.SaveTrustedNetworkSettingsAsync(_trustedNetworkSettings);
+            ReloadTrustedNetworkSettings();
+            Snackbar.Add("Security settings saved.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed saving security settings: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _savingAuthSettings = false;
+        }
     }
 
     private async Task AddMappingAsync()
@@ -169,4 +302,7 @@
         _config = RbacConfigCatalog.GetConfig();
         Snackbar.Add(message, Severity.Success);
     }
+
+    private static string FormatTrustedProxies(IEnumerable<string> proxies) =>
+        string.Join(Environment.NewLine, proxies);
 }

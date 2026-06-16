@@ -12,10 +12,12 @@ using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.FileProviders;
 using MudBlazor;
 using MudBlazor.Services;
 using NLog;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Claims;
 
@@ -145,6 +147,7 @@ public class Program
             builder.Services.AddSingleton(analyticsStoreOptions);
             builder.Services.AddSingleton<QuasarRoleMapper>();
             builder.Services.AddSingleton<TrustedNetworkEvaluator>();
+            builder.Services.AddSingleton<QuasarAuthSettingsService>();
             builder.Services.AddSingleton<KnownPlayerCatalog>();
             builder.Services.AddSingleton<MetricsStoreService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<MetricsStoreService>());
@@ -203,6 +206,7 @@ public class Program
             if (!app.Environment.IsDevelopment())
                 app.UseExceptionHandler("/Error");
 
+            app.UseForwardedHeaders(CreateForwardedHeadersOptions(authOptions));
             app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
             app.UseWebSockets(new WebSocketOptions
             {
@@ -545,6 +549,52 @@ public class Program
     private static void AddRolePolicy(AuthorizationOptions options, string policyName, params string[] roles)
     {
         options.AddPolicy(policyName, policy => policy.RequireRole(roles));
+    }
+
+    private static ForwardedHeadersOptions CreateForwardedHeadersOptions(QuasarAuthOptions authOptions)
+    {
+        var options = new ForwardedHeadersOptions
+        {
+            ForwardedHeaders = ForwardedHeaders.XForwardedFor |
+                ForwardedHeaders.XForwardedProto |
+                ForwardedHeaders.XForwardedHost,
+            ForwardLimit = 1,
+        };
+
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+        options.KnownProxies.Add(IPAddress.Loopback);
+        options.KnownProxies.Add(IPAddress.IPv6Loopback);
+
+        foreach (var proxy in authOptions.TrustedNetworkBypass.TrustedProxies)
+            AddTrustedProxy(options, proxy);
+
+        return options;
+    }
+
+    private static void AddTrustedProxy(ForwardedHeadersOptions options, string value)
+    {
+        var slashIndex = value.IndexOf('/');
+        if (slashIndex < 0)
+        {
+            if (IPAddress.TryParse(value, out var address))
+                options.KnownProxies.Add(address);
+            return;
+        }
+
+        var addressPart = value[..slashIndex];
+        var prefixPart = value[(slashIndex + 1)..];
+        if (!IPAddress.TryParse(addressPart, out var prefix) ||
+            !int.TryParse(prefixPart, out var prefixLength))
+        {
+            return;
+        }
+
+        var maxPrefixLength = prefix.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 32 : 128;
+        if (prefixLength < 0 || prefixLength > maxPrefixLength)
+            return;
+
+        options.KnownIPNetworks.Add(new System.Net.IPNetwork(prefix, prefixLength));
     }
 
     private static IResult DownloadLogFile(string? path)
