@@ -164,7 +164,7 @@ namespace Quasar.Agent
 
             AddGeneratedBlockModelParts(grid, block, dto, catalog, warnings);
             AddRuntimeSubparts(grid, block, dto, catalog, warnings);
-            AddSkinTextureChanges(block, dto, catalog, warnings);
+            AddSkinTextureChanges(block, dto);
             return dto;
         }
 
@@ -297,48 +297,15 @@ namespace Quasar.Agent
             }
         }
 
-        private static void AddSkinTextureChanges(
-            MySlimBlock block,
-            ViewerBlockInstance dto,
-            MetadataAssetCatalog catalog,
-            List<string> warnings)
+        private static void AddSkinTextureChanges(MySlimBlock block, ViewerBlockInstance dto)
         {
             if (block.SkinSubtypeId == MyStringHash.NullOrEmpty)
                 return;
 
-            try
-            {
-                var modifiers = MyDefinitionManager.Static.GetAssetModifierDefinitionForRender(block.SkinSubtypeId);
-                if (modifiers?.SkinTextureChanges == null)
-                    return;
-
-                foreach (var pair in modifiers.SkinTextureChanges.OrderBy(pair => pair.Key.String, StringComparer.Ordinal))
-                {
-                    var changeDto = new ViewerMaterialTextureChange { MaterialName = pair.Key.String };
-                    AddSkinTextureChange(changeDto, "ColorMetalTexture", pair.Value.ColorMetalFileName, "base color", catalog);
-                    AddSkinTextureChange(changeDto, "NormalGlossTexture", pair.Value.NormalGlossFileName, "normal", catalog);
-                    AddSkinTextureChange(changeDto, "AddMapsTexture", pair.Value.ExtensionsFileName, "orm/add maps", catalog);
-                    AddSkinTextureChange(changeDto, "AlphamaskTexture", pair.Value.AlphamaskFileName, "alpha", catalog);
-                    if (changeDto.Textures.Count > 0)
-                        dto.SkinTextureChanges.Add(changeDto);
-                }
-            }
-            catch (Exception exception)
-            {
-                warnings.Add("Failed to resolve skin texture changes for block " + block.Position + ": " + exception.Message);
-            }
-        }
-
-        private static void AddSkinTextureChange(
-            ViewerMaterialTextureChange dto,
-            string slot,
-            string texturePath,
-            string usage,
-            MetadataAssetCatalog catalog)
-        {
-            var textureId = catalog.RegisterTexture(texturePath, usage);
-            if (!string.IsNullOrEmpty(textureId))
-                dto.Textures[slot] = textureId;
+            // Dedicated-server builds do not reference VRage.Render, where the
+            // client-side texture-change payload types live. Keep SkinSubtypeId as
+            // metadata and let the browser/local-content path decide fallbacks.
+            dto.SkinTextureChanges.Clear();
         }
 
         private static string DefinitionId(MyCubeBlockDefinition definition)
