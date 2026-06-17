@@ -3,7 +3,7 @@
 **Module:** Magnetar.Protocol  **Kind:** class  **Tier:** 1
 
 ## Summary
-Periodic snapshot pushed by `Quasar.Agent` to the Quasar supervisor containing the full observable state of one running SE dedicated server: identity fields, runtime status, scalar performance metrics, current profiler mode, optional profiler timing data, online players, kicked players (serving a kick cooldown), recent chat, recent deaths, and loaded plugin list.
+Periodic snapshot pushed by `Quasar.Agent` to the Quasar supervisor containing the full observable state of one running SE dedicated server: identity fields, runtime status, scalar performance metrics, current profiler mode, optional profiler timing data, online human players, hidden NPC/bot player ids, kicked players (serving a kick cooldown), recent chat, recent deaths, and loaded plugin list.
 
 ## Structure
 Namespace: `Magnetar.Protocol.Model`
@@ -21,7 +21,8 @@ Class `AgentSnapshot` (concrete, no base type):
 | `Metrics` | `ServerMetrics` | CPU, sim-speed, PCU, uptime, etc. |
 | `ProfilerMode` | `string` | Current agent profiler mode (`Off`, `SafeContinuous`, or `DeepContinuous`). |
 | `Profiler` | `ProfilerSnapshot?` | Latest completed profiler window, if available. |
-| `Players` | `List<PlayerSnapshot>` | All currently connected players. |
+| `Players` | `List<PlayerSnapshot>` | Currently connected human players. |
+| `HiddenPlayerSteamIds` / `HiddenPlayerIdentityIds` | `List<long>` | Steam/identity ids for online `MyPlayer` entries filtered out as zero-SteamId, bot, or NPC identities, allowing Quasar to purge stale known-player rows without hiding those entities from entity inspection. |
 | `KickedPlayers` | `List<KickedPlayerSnapshot>` | Offline players currently serving a server-side kick cooldown (separate from `Players`). |
 | `RecentChat` | `List<ChatMessageSnapshot>` | Chat messages since last snapshot. |
 | `RecentDeaths` | `List<DeathEventSnapshot>` | Death events since last snapshot. |

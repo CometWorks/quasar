@@ -30,7 +30,7 @@ Routable page at `/settings/security`, protected by the `CanManageSecurity` poli
   - `HandleRbacChanged` — live reload when catalog changes externally.
 
 ## Dependencies
-- `Quasar/Services/Auth/QuasarAuthSettingsService.cs`
+- [`Quasar/Services/Auth/QuasarAuthSettingsService.cs`](../../Services/Auth/QuasarAuthSettingsService.cs.md)
 - `Quasar/Services/RbacConfigCatalog.cs`
 - `Quasar/Models/RbacConfig.cs`, `SubjectRoleMapping.cs`
 - `Quasar/Auth/QuasarAuthOptions.cs`

@@ -4,7 +4,7 @@
 
 ## Summary
 
-`KnownPlayerCatalog` accumulates and persists a historical record of every player seen across all managed dedicated servers. It is updated from `AgentSnapshot` telemetry and from successful command outcomes (ban/unban/promote/demote), deduplicates by `{uniqueName}::{steamId}` key, and saves to `known-players.json` with a 500 ms debounce.
+`KnownPlayerCatalog` accumulates and persists a historical record of every human player seen across all managed dedicated servers. It is updated from `AgentSnapshot` telemetry and from successful command outcomes (ban/unban/promote/demote), deduplicates by `{uniqueName}::{steamId}` key, prunes snapshot-reported hidden NPC/bot player ids, and saves to `known-players.json` with a 500 ms debounce.
 
 ## Structure
 
@@ -16,12 +16,13 @@ Namespace: `Quasar.Services`
 |---|---|
 | `event Action? Changed` | Raised after any player record mutation. |
 | `GetPlayers()` | Returns a cloned list sorted by server name, display name, Steam ID. |
-| `ObserveSnapshot(AgentSnapshot)` | Upserts player records from a snapshot's `Players` list; updates identity/faction/ping fields; advances `LastSeenUtc` and `LastOnlineUtc`. |
+| `ObserveSnapshot(AgentSnapshot)` | Removes records matching snapshot `HiddenPlayerSteamIds` / `HiddenPlayerIdentityIds`, then upserts records from `Players`; updates identity/faction/ping fields; advances `LastSeenUtc` and `LastOnlineUtc`. |
 | `ApplyCommandOutcome(ServerCommandEnvelope, ServerCommandResult)` | On successful `BanPlayer`/`UnbanPlayer`/`PromotePlayer`/`DemotePlayer`/`SetPlayerPromoteLevel`, updates `IsBanned`/`PromoteLevel`/`IsAdmin`. |
 | `void ReloadFromDisk()` | Re-reads known players from disk, replacing the in-memory set, and fires `Changed`; used after a backup restore (this catalog has no file watcher). |
 
 Internal helpers:
 - `ApplySnapshot` / `ApplyCommand` — field-level change detection via generic `Assign<T>` helper (returns `true` if changed).
+- `RemoveHiddenPlayers` — deletes persisted rows for the same server when the agent reports that a SteamId or identity id belongs to a filtered bot/NPC player.
 - `GetAdjacentPromoteLevel` / `NormalizePromoteLevel` — navigate the `["None","Scripter","Moderator","SpaceMaster","Admin"]` ladder.
 - `ScheduleSave` / `SaveAsync` — 500 ms debounced atomic JSON write to `known-players.json`.
 

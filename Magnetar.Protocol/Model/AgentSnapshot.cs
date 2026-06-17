@@ -31,6 +31,10 @@ public class AgentSnapshot
 
     public List<PlayerSnapshot> Players { get; set; } = new List<PlayerSnapshot>();
 
+    public List<long> HiddenPlayerSteamIds { get; set; } = new List<long>();
+
+    public List<long> HiddenPlayerIdentityIds { get; set; } = new List<long>();
+
     public List<KickedPlayerSnapshot> KickedPlayers { get; set; } = new List<KickedPlayerSnapshot>();
 
     public List<ChatMessageSnapshot> RecentChat { get; set; } = new List<ChatMessageSnapshot>();

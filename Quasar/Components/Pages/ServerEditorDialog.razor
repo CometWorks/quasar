@@ -395,6 +395,26 @@
                                         Variant="Variant.Outlined"
                                         HelperText="@($"Must be an existing SE save folder containing Sandbox.sbc. Default (auto-created on first DS boot): {GetDefaultWorldPath()}")" />
                                 </MudItem>
+                                @if (_isEditing)
+                                {
+                                    <MudItem xs="12">
+                                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
+                                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+                                                <MudStack Spacing="0">
+                                                    <MudText Typo="Typo.subtitle2">Reset world state</MudText>
+                                                    <MudText Typo="Typo.body2">@ResetWorldStatusText</MudText>
+                                                </MudStack>
+                                                <MudButton Variant="Variant.Filled"
+                                                           Color="Color.Error"
+                                                           StartIcon="@Icons.Material.Filled.DeleteForever"
+                                                           Disabled="@(!CanResetWorld)"
+                                                           OnClick="ResetWorldAsync">
+                                                    Reset World
+                                                </MudButton>
+                                            </MudStack>
+                                        </MudAlert>
+                                    </MudItem>
+                                }
                                 <MudItem xs="12" md="6">
                                     <MudTextField
                                         @bind-Value="_editor.ConfigFilePath"
@@ -430,6 +450,9 @@
 
     [Inject]
     private DedicatedServerCatalog ServerCatalog { get; set; } = default!;
+
+    [Inject]
+    private DedicatedServerSupervisor Supervisor { get; set; } = default!;
 
     [Inject]
     private IDialogService DialogService { get; set; } = default!;
@@ -577,6 +600,78 @@
         MudDialog.Cancel();
     }
 
+    private bool CanResetWorld =>
+        _isEditing &&
+        !IsEditedServerActive() &&
+        !string.IsNullOrWhiteSpace(_editor.WorldPath) &&
+        Directory.Exists(_editor.WorldPath);
+
+    private string ResetWorldStatusText
+    {
+        get
+        {
+            if (IsEditedServerActive())
+                return "Stop this server before deleting its world folder.";
+
+            if (string.IsNullOrWhiteSpace(_editor.WorldPath))
+                return "No world path is set.";
+
+            if (!Directory.Exists(_editor.WorldPath))
+                return "No world folder exists at the configured path.";
+
+            return "Deletes the current world folder. On next start Quasar recreates it from the selected world template.";
+        }
+    }
+
+    private async Task ResetWorldAsync()
+    {
+        if (!CanResetWorld)
+        {
+            Snackbar.Add(ResetWorldStatusText, Severity.Warning);
+            return;
+        }
+
+        var worldPath = _editor.WorldPath.Trim();
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Reset world?",
+            $"Delete the world folder '{worldPath}'? The next start will recreate the world from the selected template.",
+            yesText: "Delete World",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        try
+        {
+            await Task.Run(() => Directory.Delete(worldPath, recursive: true));
+            Snackbar.Add("World folder deleted. Next start will recreate it from the selected template.", Severity.Success);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed to reset world: {exception.Message}", Severity.Error);
+        }
+    }
+
+    private bool IsEditedServerActive()
+    {
+        var uniqueName = string.IsNullOrWhiteSpace(_editor.OriginalUniqueName)
+            ? _editor.UniqueName
+            : _editor.OriginalUniqueName;
+        if (string.IsNullOrWhiteSpace(uniqueName))
+            return false;
+
+        var state = Supervisor
+            .GetSnapshots()
+            .FirstOrDefault(snapshot => string.Equals(snapshot.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
+            ?.State ?? DedicatedServerProcessState.Stopped;
+
+        return state is DedicatedServerProcessState.Starting
+            or DedicatedServerProcessState.Running
+            or DedicatedServerProcessState.Restarting
+            or DedicatedServerProcessState.Stopping;
+    }
+
     private async Task SaveAsync()
     {
         await _form!.ValidateAsync();
@@ -622,7 +717,7 @@
             {
                 CloseOnEscapeKey = true,
                 FullWidth = true,
-                MaxWidth = MaxWidth.Medium,
+                MaxWidth = MaxWidth.Large,
             });
 
         var result = await dialog.Result;

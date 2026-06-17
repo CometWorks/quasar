@@ -2,50 +2,128 @@
     <DialogContent>
         @if (_step == ImportStep.Details)
         {
-        <MudForm @ref="_form" @bind-IsValid="_formIsValid">
-        <MudStack Spacing="3">
-            <MudText Typo="Typo.body2">
-                Import an existing Space Engineers save folder as a reusable world template, then select it in the server editor.
-            </MudText>
+            <MudTabs Elevation="0"
+                     Rounded="true"
+                     Outlined="true"
+                     ApplyEffectsToContainer="true"
+                     KeepPanelsAlive="false"
+                     TabPanelsClass="pa-4"
+                     @bind-ActivePanelIndex="_activeDetailsTabIndex">
+                <MudTabPanel Text="Predefined worlds" Icon="@Icons.Material.Filled.Public">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                            <div>
+                                <MudText Typo="Typo.subtitle1">Predefined Worlds</MudText>
+                                <MudText Typo="Typo.body2">
+                                    Add a template from Dedicated Server content without entering a name or path.
+                                </MudText>
+                            </div>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_installedTemplates.Count</MudChip>
+                        </MudStack>
 
-            <MudTextField
-                @bind-Value="_name"
-                Label="Template name"
-                Variant="Variant.Outlined"
-                Immediate="true"
-                AutoFocus="true"
-                Required="true"
-                RequiredError="Template name required." />
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudTextField
+                                @bind-Value="_installedTemplateSearch"
+                                Label="Search installed templates"
+                                Variant="Variant.Outlined"
+                                Immediate="true"
+                                Adornment="Adornment.Start"
+                                AdornmentIcon="@Icons.Material.Filled.Search"
+                                Class="flex-grow-1" />
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInstalledTemplates">
+                                Refresh
+                            </MudButton>
+                        </MudStack>
 
-            <MudTextField
-                @bind-Value="_description"
-                Label="Description"
-                Variant="Variant.Outlined"
-                Immediate="true"
-                Lines="3"
-                Sizing="InputSizing.Auto"
-                MaxLines="10000" />
+                        @if (_installedTemplates.Count == 0)
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                No installed Dedicated Server world or scenario templates found.
+                            </MudAlert>
+                        }
+                        else
+                        {
+                            <MudTable T="InstalledWorldTemplateSource" Dense="true" Hover="true" Items="FilteredInstalledTemplates" Breakpoint="Breakpoint.Sm">
+                                <HeaderContent>
+                                    <MudTh>Name</MudTh>
+                                    <MudTh>Source</MudTh>
+                                    <MudTh></MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+                                    <MudTd DataLabel="Source">
+                                        <MudStack Spacing="0">
+                                            <MudText Typo="Typo.caption">@context.Category</MudText>
+                                            <MudText Typo="Typo.caption" Class="mono">@context.SourcePath</MudText>
+                                        </MudStack>
+                                    </MudTd>
+                                    <MudTd Style="text-align:right;">
+                                        <MudButton Variant="Variant.Outlined"
+                                                   Color="Color.Primary"
+                                                   Size="Size.Small"
+                                                   Disabled="_importing"
+                                                   OnClick="@(() => ImportPredefinedTemplateAsync(context))">
+                                            Add
+                                        </MudButton>
+                                    </MudTd>
+                                </RowTemplate>
+                                <NoRecordsContent>
+                                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                        No installed templates match current search.
+                                    </MudAlert>
+                                </NoRecordsContent>
+                            </MudTable>
+                        }
+                    </MudStack>
+                </MudTabPanel>
 
-            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Start">
-                <MudTextField
-                    @bind-Value="_sourcePath"
-                    Label="Source world path"
-                    Variant="Variant.Outlined"
-                    Immediate="true"
-                    Class="flex-grow-1"
-                    Required="true"
-                    RequiredError="Source world path required."
-                    HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc." />
-                <MudButton Variant="Variant.Outlined"
-                           Color="Color.Default"
-                           StartIcon="@Icons.Material.Filled.FolderOpen"
-                           Class="world-template-browse-button"
-                           OnClick="OpenFolderPickerAsync">
-                    Browse
-                </MudButton>
-            </MudStack>
-        </MudStack>
-        </MudForm>
+                <MudTabPanel Text="Custom import" Icon="@Icons.Material.Filled.FolderOpen">
+                    <MudForm @ref="_form" @bind-IsValid="_formIsValid">
+                    <MudStack Spacing="3">
+                        <MudText Typo="Typo.body2">
+                            Import an existing Space Engineers save folder as a reusable world template, then select it in the server editor.
+                        </MudText>
+
+                        <MudTextField
+                            @bind-Value="_name"
+                            Label="Template name"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            AutoFocus="true"
+                            Required="true"
+                            RequiredError="Template name required." />
+
+                        <MudTextField
+                            @bind-Value="_description"
+                            Label="Description"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            Lines="3"
+                            Sizing="InputSizing.Auto"
+                            MaxLines="10000" />
+
+                        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Start">
+                            <MudTextField
+                                @bind-Value="_sourcePath"
+                                Label="Source world path"
+                                Variant="Variant.Outlined"
+                                Immediate="true"
+                                Class="flex-grow-1"
+                                Required="true"
+                                RequiredError="Source world path required."
+                                HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc." />
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Default"
+                                       StartIcon="@Icons.Material.Filled.FolderOpen"
+                                       Class="world-template-browse-button"
+                                       OnClick="OpenFolderPickerAsync">
+                                Browse
+                            </MudButton>
+                        </MudStack>
+                    </MudStack>
+                    </MudForm>
+                </MudTabPanel>
+            </MudTabs>
         }
         else
         {
@@ -122,9 +200,12 @@
             <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="BackToDetails" Disabled="@_importing">Back</MudButton>
         }
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel" Disabled="@_importing">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ContinueAsync" Disabled="@_importing">
-            @GetPrimaryButtonText()
-        </MudButton>
+        @if (_step == ImportStep.Mods || IsCustomImportTabActive)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ContinueAsync" Disabled="@_importing">
+                @GetPrimaryButtonText()
+            </MudButton>
+        }
     </DialogActions>
 </MudDialog>
 
@@ -156,16 +237,27 @@
     private string _name = string.Empty;
     private string _description = string.Empty;
     private string _sourcePath = string.Empty;
+    private string _installedTemplateSearch = string.Empty;
     private string _selectedConfigProfileId = string.Empty;
     private string _newProfileName = string.Empty;
     private string _newProfileDescription = string.Empty;
     private List<QuasarModSelection> _sourceMods = [];
+    private IReadOnlyList<InstalledWorldTemplateSource> _installedTemplates = [];
     private ImportStep _step = ImportStep.Details;
+    private int _activeDetailsTabIndex;
     private WorldImportModAction _modAction = WorldImportModAction.CreateProfile;
     private bool _importing;
 
+    private bool IsCustomImportTabActive => _activeDetailsTabIndex == CustomImportTabIndex;
+
+    private IReadOnlyList<InstalledWorldTemplateSource> FilteredInstalledTemplates =>
+        _installedTemplates
+            .Where(MatchesInstalledTemplateSearch)
+            .ToList();
+
     protected override void OnInitialized()
     {
+        RefreshInstalledTemplates();
         _selectedConfigProfileId = GetInitialConfigProfileId();
         if (!string.IsNullOrWhiteSpace(_selectedConfigProfileId))
             _modAction = WorldImportModAction.ExistingProfile;
@@ -211,10 +303,29 @@
             return;
         }
 
+        if (_form is null)
+        {
+            Snackbar.Add("Choose a predefined world or open Custom import.", Severity.Info);
+            return;
+        }
+
         await _form!.ValidateAsync();
         if (!_formIsValid)
             return;
 
+        await ContinueFromDetailsAsync();
+    }
+
+    private async Task ImportPredefinedTemplateAsync(InstalledWorldTemplateSource source)
+    {
+        _name = source.DisplayName;
+        _description = source.Description;
+        _sourcePath = source.SourcePath;
+        await ContinueFromDetailsAsync();
+    }
+
+    private async Task ContinueFromDetailsAsync()
+    {
         _sourceMods = LoadSourceMods();
         if (_sourceMods.Count > 0)
         {
@@ -235,6 +346,26 @@
 
         await ImportAsync();
     }
+
+    private void RefreshInstalledTemplates()
+    {
+        _installedTemplates = ImportLocations.GetInstalledWorldTemplates();
+    }
+
+    private bool MatchesInstalledTemplateSearch(InstalledWorldTemplateSource template)
+    {
+        var search = _installedTemplateSearch?.Trim();
+        if (string.IsNullOrWhiteSpace(search))
+            return true;
+
+        return Contains(template.DisplayName, search) ||
+               Contains(template.Category, search) ||
+               Contains(template.SourcePath, search);
+    }
+
+    private static bool Contains(string value, string search) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        value.Contains(search, StringComparison.OrdinalIgnoreCase);
 
     private async Task ImportAsync()
     {
@@ -383,6 +514,8 @@
         Details,
         Mods,
     }
+
+    private const int CustomImportTabIndex = 1;
 
     private enum WorldImportModAction
     {

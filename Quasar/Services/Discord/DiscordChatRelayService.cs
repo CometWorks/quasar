@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using Discord;
 using Discord.WebSocket;
 using Magnetar.Protocol.Model;
+using Quasar.Services;
 
 namespace Quasar.Services.Discord;
 
@@ -131,8 +132,11 @@ public sealed class DiscordChatRelayService
                 if (TryConsumeSuppressedDiscordEcho(uniqueName, message.Content))
                     continue;
 
-                var author = string.IsNullOrWhiteSpace(message.AuthorName) ? "Unknown" : message.AuthorName.Trim();
-                var content = string.IsNullOrWhiteSpace(message.Content) ? string.Empty : message.Content.Trim();
+                var author = TextSanitizer.CleanGameText(message.AuthorName);
+                if (string.IsNullOrWhiteSpace(author))
+                    author = "Unknown";
+
+                var content = TextSanitizer.CleanGameText(message.Content);
                 fresh.Add($"**{author}**: {content}");
             }
 
@@ -164,7 +168,7 @@ public sealed class DiscordChatRelayService
 
     private static bool IsServerAuthorName(string authorName)
     {
-        var normalized = (authorName ?? string.Empty).Trim();
+        var normalized = TextSanitizer.CleanGameText(authorName);
         return string.Equals(normalized, "Good.bot", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(normalized, "Server", StringComparison.OrdinalIgnoreCase);
     }
