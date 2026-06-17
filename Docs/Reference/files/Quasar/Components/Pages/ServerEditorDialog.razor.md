@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-MudBlazor dialog (no `@page` route) for creating or editing a `DedicatedServerDefinition`. It validates server identity/runtime settings, exposes per-server Space Engineers multiplayer-list server/world name overrides, opens inline config/world-template creation dialogs, consumes world-import results that include a config-profile id, can merge missing world-template mods directly into the selected config profile before save, and offers a confirmed reset-world action while editing stopped servers.
+MudBlazor dialog (no `@page` route) for creating, cloning, or editing a `DedicatedServerDefinition`. It validates server identity/runtime settings, exposes per-server Space Engineers multiplayer-list server/world name overrides, opens inline config/world-template creation dialogs, consumes world-import results that include a config-profile id, can merge missing world-template mods directly into the selected config profile before save, and offers a confirmed reset-world action while editing stopped servers.
 
 ## Structure
 - **`[CascadingParameter]`** — `IMudDialogInstance MudDialog`
@@ -17,6 +17,7 @@ MudBlazor dialog (no `@page` route) for creating or editing a `DedicatedServerDe
 - **`[Parameter]`s**
   - `DedicatedServerDefinition Definition` — the definition to edit (cloned internally on `OnInitialized`).
   - `bool IsEditing` — true when editing an existing server; false for create/clone.
+  - `bool IsClone` — true for the clone workflow; changes title, intro copy, and primary action text while keeping create-style validation/editability.
   - `bool UniqueNameLocked` — true when the server is currently running, disabling the identifier field.
 - **Key UI sections**
   - Identity section: display name, identifier (slug), in-game server name (`ServerName`) override, in-game world name (`WorldName`) override, listen port (validated unique), listen IP, config template select with inline "New Template" button (opens `ConfigProfileQuickCreateDialog`), world template select with inline "New Template" button (opens the tabbed `WorldTemplateQuickImportDialog` for predefined-world or custom import), and a `.NET runtime` select bound to `DedicatedServerDefinition.ManagedRuntime`. The runtime select is disabled (and forced to .NET 10) on non-Windows hosts; on Windows it offers `.NET 10` (default) and `.NET Framework 4.8` (Legacy). Helper text notes that profile session settings and mods are written into the world's `Sandbox_config.sbc` on every start. Warning alert when selected world template has mods not present in the config profile, including a "Merge Into ..." action that imports missing mods directly into the selected profile.
@@ -37,6 +38,7 @@ MudBlazor dialog (no `@page` route) for creating or editing a `DedicatedServerDe
 - **`MergeSelectedWorldTemplateModsIntoProfileAsync`** — one-click merge for the warning alert; appends only missing template mods to the selected profile, saves it, and updates the editor state.
 - **`SaveAsync`** — validates form, clones editor state, normalises whitespace in UI and in-game names, closes dialog with `Ok(updated)`.
 - **`ResetWorldAsync`** — edit-only destructive action that is disabled while the server is active; confirms the configured world path, deletes that folder recursively, and leaves the definition/template selection unchanged so the next start recreates the world from the selected template.
+- **Mode text helpers** — `DialogTitle`, `DialogDescription`, and `PrimaryActionText` render Create/Clone/Edit-specific labels so the shared dialog does not present clone as create.
 - **`IsWindowsHost` / `FormatRuntime` / `RuntimeHelperText`** — `IsWindowsHost` (`OperatingSystem.IsWindows()`) gates the runtime selector; `FormatRuntime` maps the enum to display text; `RuntimeHelperText` explains the choice (or that .NET 10 is the only runtime off Windows). `OnInitialized` pins `ManagedRuntime` to `DotNet10` on non-Windows hosts to keep the disabled selector coherent.
 
 ## Dependencies

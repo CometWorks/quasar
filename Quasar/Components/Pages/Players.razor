@@ -13,18 +13,85 @@
     <MudText Typo="Typo.body2" Class="mb-4">Known players observed per server, with client service and Steam/member id retained for moderation.</MudText>
 </div>
 
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-4">
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+        <MudSelect T="string"
+                   Label="Server"
+                   @bind-Value="_serverFilter"
+                   Variant="Variant.Outlined"
+                   Dense="true"
+                   Style="min-width: 14rem;">
+            <MudSelectItem T="string" Value="@AllServersFilter">All servers</MudSelectItem>
+            @foreach (var option in ServerFilterOptions)
+            {
+                <MudSelectItem T="string" Value="@option.Value">@option.Label</MudSelectItem>
+            }
+        </MudSelect>
+
+        <MudSelect T="string"
+                   Label="Type"
+                   @bind-Value="_typeFilter"
+                   Variant="Variant.Outlined"
+                   Dense="true"
+                   Style="min-width: 10rem;">
+            @foreach (var option in PlayerTypeOptions)
+            {
+                <MudSelectItem T="string" Value="@option.Value">@option.Label</MudSelectItem>
+            }
+        </MudSelect>
+
+        <MudTextField @bind-Value="_searchText"
+                      Label="Search players"
+                      Variant="Variant.Outlined"
+                      Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.Search"
+                      Clearable="true"
+                      Immediate="true"
+                      Style="min-width: 16rem;" />
+
+        <MudButton Variant="Variant.Outlined"
+                   Color="Color.Error"
+                   StartIcon="@Icons.Material.Filled.DeleteSweep"
+                   OnClick="CleanSelectedServerAsync"
+                   Disabled="@(!CanCleanSelectedServer)">
+            Clean Server
+        </MudButton>
+
+        <MudButton Variant="Variant.Outlined"
+                   Color="Color.Error"
+                   StartIcon="@Icons.Material.Filled.DeleteSweep"
+                   OnClick="CleanAllAsync"
+                   Disabled="@(KnownPlayerViews.Count == 0)">
+            Clean All
+        </MudButton>
+    </MudStack>
+
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+        <MudNumericField T="int"
+                         Label="Auto clear after"
+                         Value="_retentionDays"
+                         ValueChanged="@(value => _retentionDays = value)"
+                         Variant="Variant.Outlined"
+                         Min="@KnownPlayerCatalog.MinRetentionDays"
+                         Max="@KnownPlayerCatalog.MaxRetentionDays"
+                         Step="1"
+                         Immediate="true"
+                         HelperText="days since last seen"
+                         Style="width: 11rem;" />
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Save"
+                   OnClick="SaveRetentionDaysAsync"
+                   Disabled="@(!_retentionDaysDirty)">
+            Save
+        </MudButton>
+    </MudStack>
+</MudStack>
+
 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
-    <MudTextField @bind-Value="_searchText"
-                  Label="Search players"
-                  Variant="Variant.Outlined"
-                  Adornment="Adornment.Start"
-                  AdornmentIcon="@Icons.Material.Filled.Search"
-                  Clearable="true"
-                  Immediate="true"
-                  Class="players-search" />
     <MudChip T="string" Variant="Variant.Outlined">Known @KnownPlayerViews.Count</MudChip>
     <MudChip T="string" Variant="Variant.Outlined">Online @KnownPlayerViews.Count(player => player.IsOnline)</MudChip>
-    @if (!string.IsNullOrWhiteSpace(_searchText))
+    @if (HasActiveFilter)
     {
         <MudChip T="string" Variant="Variant.Outlined">Shown @FilteredPlayers.Count</MudChip>
     }
@@ -41,7 +108,7 @@
         else if (FilteredPlayers.Count == 0)
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                No players match the current search.
+                No players match the current filters.
             </MudAlert>
         }
         else
@@ -134,8 +201,27 @@
         @code
         {
             private static readonly string[] PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"];
+            private const string AllServersFilter = "";
+            private const string PlayerTypeAll = "all";
+            private const string PlayerTypeOnline = "online";
+            private const string PlayerTypeOffline = "offline";
+            private const string PlayerTypeBanned = "banned";
+            private const string PlayerTypeKicked = "kicked";
 
+            private static readonly PlayerFilterOption[] PlayerTypeOptions =
+            [
+                new(PlayerTypeAll, "All"),
+                new(PlayerTypeOnline, "Online"),
+                new(PlayerTypeOffline, "Offline"),
+                new(PlayerTypeBanned, "Banned"),
+                new(PlayerTypeKicked, "Kick cooldown"),
+            ];
+
+            private string _serverFilter = AllServersFilter;
+            private string _typeFilter = PlayerTypeAll;
             private string _searchText = string.Empty;
+            private int _retentionDays = KnownPlayerCatalog.DefaultRetentionDays;
+            private int _savedRetentionDays = KnownPlayerCatalog.DefaultRetentionDays;
 
             // True while a row's action menu is open. The live data feed keeps pushing updates;
             // re-rendering the table underneath an open menu would close it, so we hold renders
@@ -144,12 +230,27 @@
 
             private IReadOnlyList<KnownPlayerView> KnownPlayerViews => BuildKnownPlayerViews();
 
+            private List<PlayerFilterOption> ServerFilterOptions => BuildServerFilterOptions();
+
             private List<KnownPlayerView> FilteredPlayers => KnownPlayerViews
-                .Where(MatchesSearch)
+                .Where(MatchesFilters)
                 .ToList();
+
+            private bool HasActiveFilter =>
+                !string.IsNullOrWhiteSpace(_serverFilter) ||
+                !string.Equals(_typeFilter, PlayerTypeAll, StringComparison.OrdinalIgnoreCase) ||
+                !string.IsNullOrWhiteSpace(_searchText);
+
+            private bool CanCleanSelectedServer =>
+                !string.IsNullOrWhiteSpace(_serverFilter) &&
+                KnownPlayerViews.Any(MatchesServerFilter);
+
+            private bool _retentionDaysDirty => _retentionDays != _savedRetentionDays;
 
             protected override void OnInitialized()
             {
+                _savedRetentionDays = KnownPlayers.RetentionDays;
+                _retentionDays = _savedRetentionDays;
                 Registry.Changed += HandleChanged;
                 ServerCatalog.Changed += HandleChanged;
                 KnownPlayers.Changed += HandleChanged;
@@ -229,6 +330,64 @@
                     .ToList();
             }
 
+            private List<PlayerFilterOption> BuildServerFilterOptions()
+            {
+                var options = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var server in ServerCatalog.GetServers())
+                {
+                    var uniqueName = NormalizeFilterValue(server.UniqueName);
+                    if (string.IsNullOrWhiteSpace(uniqueName))
+                        continue;
+
+                    options[uniqueName] = string.IsNullOrWhiteSpace(server.DisplayName)
+                        ? uniqueName
+                        : server.DisplayName.Trim();
+                }
+
+                foreach (var view in KnownPlayerViews)
+                {
+                    var uniqueName = NormalizeFilterValue(view.Record.UniqueName);
+                    if (string.IsNullOrWhiteSpace(uniqueName) || options.ContainsKey(uniqueName))
+                        continue;
+
+                    options[uniqueName] = view.ServerDisplayName;
+                }
+
+                return options
+                    .Select(pair => new PlayerFilterOption(pair.Key, pair.Value))
+                    .OrderBy(option => option.Label, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(option => option.Value, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+
+            private bool MatchesFilters(KnownPlayerView view) =>
+                MatchesServerFilter(view) &&
+                MatchesTypeFilter(view) &&
+                MatchesSearch(view);
+
+            private bool MatchesServerFilter(KnownPlayerView view)
+            {
+                if (string.IsNullOrWhiteSpace(_serverFilter))
+                    return true;
+
+                return string.Equals(
+                    NormalizeFilterValue(view.Record.UniqueName),
+                    NormalizeFilterValue(_serverFilter),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+
+            private bool MatchesTypeFilter(KnownPlayerView view)
+            {
+                return _typeFilter switch
+                {
+                    PlayerTypeOnline => view.IsOnline,
+                    PlayerTypeOffline => !view.IsOnline,
+                    PlayerTypeBanned => view.Record.IsBanned,
+                    PlayerTypeKicked => view.IsKickCooldownActive,
+                    _ => true,
+                };
+            }
+
             private bool MatchesSearch(KnownPlayerView view)
             {
                 var search = _searchText?.Trim();
@@ -242,6 +401,72 @@
                        || Contains(view.Record.ServiceName, search)
                        || Contains(view.Record.FactionTag, search)
                        || view.Record.SteamId.ToString().Contains(search, StringComparison.OrdinalIgnoreCase);
+            }
+
+            private async Task SaveRetentionDaysAsync()
+            {
+                try
+                {
+                    var removed = await KnownPlayers.SetRetentionDaysAsync(_retentionDays);
+                    _savedRetentionDays = KnownPlayers.RetentionDays;
+                    _retentionDays = _savedRetentionDays;
+
+                    var message = removed > 0
+                        ? $"Known player auto-clear set to {_savedRetentionDays} days. Removed {removed} expired players."
+                        : $"Known player auto-clear set to {_savedRetentionDays} days.";
+                    Snackbar.Add(message, Severity.Success);
+                }
+                catch (Exception exception)
+                {
+                    Snackbar.Add($"Failed to save known player cleanup setting: {exception.Message}", Severity.Error);
+                }
+            }
+
+            private async Task CleanSelectedServerAsync()
+            {
+                var uniqueName = NormalizeFilterValue(_serverFilter);
+                if (string.IsNullOrWhiteSpace(uniqueName))
+                    return;
+
+                var serverName = GetSelectedServerDisplayName();
+                var confirmed = await DialogService.ShowMessageBoxAsync(
+                    "Clean server known players?",
+                    $"Remove all saved known players for '{serverName}'? Live players will be recorded again on the next snapshot.",
+                    yesText: "Clean Server",
+                    cancelText: "Cancel");
+                if (confirmed != true)
+                    return;
+
+                try
+                {
+                    var removed = await KnownPlayers.CleanServerAsync(uniqueName);
+                    Snackbar.Add($"Removed {removed} known players for {serverName}.", Severity.Success);
+                }
+                catch (Exception exception)
+                {
+                    Snackbar.Add($"Failed to clean known players: {exception.Message}", Severity.Error);
+                }
+            }
+
+            private async Task CleanAllAsync()
+            {
+                var confirmed = await DialogService.ShowMessageBoxAsync(
+                    "Clean all known players?",
+                    "Remove all saved known players from every server? Live players will be recorded again on the next snapshot.",
+                    yesText: "Clean All",
+                    cancelText: "Cancel");
+                if (confirmed != true)
+                    return;
+
+                try
+                {
+                    var removed = await KnownPlayers.CleanAllAsync();
+                    Snackbar.Add($"Removed {removed} known players.", Severity.Success);
+                }
+                catch (Exception exception)
+                {
+                    Snackbar.Add($"Failed to clean known players: {exception.Message}", Severity.Error);
+                }
             }
 
             private async Task SendPlayerCommandAsync(KnownPlayerView view, ServerCommandType commandType, string text = "")
@@ -304,7 +529,15 @@
 
             private void HandleChanged()
             {
-                _ = InvokeAsync(StateHasChanged);
+                _ = InvokeAsync(() =>
+                {
+                    var currentRetentionDays = KnownPlayers.RetentionDays;
+                    if (!_retentionDaysDirty)
+                        _retentionDays = currentRetentionDays;
+
+                    _savedRetentionDays = currentRetentionDays;
+                    StateHasChanged();
+                });
             }
 
             private static bool Contains(string? value, string search)
@@ -360,10 +593,27 @@
                 return value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
             }
 
+            private string GetSelectedServerDisplayName()
+            {
+                var selected = NormalizeFilterValue(_serverFilter);
+                if (string.IsNullOrWhiteSpace(selected))
+                    return "selected server";
+
+                return ServerFilterOptions
+                           .FirstOrDefault(option => string.Equals(option.Value, selected, StringComparison.OrdinalIgnoreCase))
+                           ?.Label
+                       ?? selected;
+            }
+
+            private static string NormalizeFilterValue(string? value) =>
+                value?.Trim() ?? string.Empty;
+
             private static string BuildPlayerKey(string uniqueName, long steamId)
             {
                 return $"{uniqueName?.Trim() ?? string.Empty}::{steamId}";
             }
+
+            private sealed record PlayerFilterOption(string Value, string Label);
 
             private sealed class KnownPlayerView
             {

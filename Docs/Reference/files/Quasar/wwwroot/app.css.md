@@ -25,6 +25,7 @@ Global stylesheet for the Quasar Blazor Server UI. Overrides MudBlazor's elevati
 **Card classes:**
 - `.summary-card` — flat bordered surface card (no shadow), with `.summary-card-warning` / `.summary-card-error` rgba-tint + border variants
 - `.server-card` — flat surface card for server panels; `.mud-table-container` inherits border radius
+- `.servers-list-table` — forces the embedded server table to keep a minimum table width inside a horizontally scrollable MudBlazor table container, used when the dashboard list view disables MudBlazor's responsive row/card layout
 
 **MudBlazor overrides:**
 - `.mud-expansion-panels > .mud-expand-panel` — flat bordered panels with `0.5rem` gap, hover/focus header highlight, expanded-header bottom border
@@ -38,6 +39,7 @@ Global stylesheet for the Quasar Blazor Server UI. Overrides MudBlazor's elevati
 - `.chat-console-card`, `.chat-server-select`, `.admin-chat-list`, `.admin-chat-row` — full-page chat console sizing, server-select minimum width, and bounded scrollable chat rows for `Chat.razor`
 - `.players-list-card`, `.players-list-stack`, `.players-table`, and descendant table selectors — force the known-player table stack and MudBlazor table/container to consume full available width
 - `.world-template-browse-button` — 1rem top margin
+- `.installed-world-template-table`, `.installed-world-template-name-cell`, `.installed-world-template-source-cell`, `.installed-world-template-action-cell`, `.installed-world-template-name-text`, `.installed-world-template-source-stack`, `.installed-world-template-source-text` — fixed-layout predefined-world tables where Add stays in a fixed action column and long source/category text ellipsizes instead of forcing horizontal overflow
 - `.branding-logo-preview` (+ `-dark`, `-light`) and `.branding-favicon-preview` — bordered preview containers for logo/favicon images
 
 **Responsive adjustments:**

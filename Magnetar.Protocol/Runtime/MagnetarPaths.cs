@@ -52,6 +52,9 @@ public static class MagnetarPaths
     public static string GetQuasarKnownPlayersPath() =>
         Path.Combine(GetQuasarDirectory(), "known-players.json");
 
+    public static string GetQuasarKnownPlayerSettingsPath() =>
+        Path.Combine(GetQuasarDirectory(), "known-player-settings.json");
+
     public static string GetQuasarDiscordOptionsPath() =>
         Path.Combine(GetQuasarDirectory(), "discord.json");
 

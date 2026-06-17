@@ -3,7 +3,7 @@
 **Module:** Quasar.Services.Backup  **Kind:** class  **Tier:** 1
 
 ## Summary
-Builds and restores ZIP backups for three scopes: Quasar configuration, server runtime state, and world-only data. Configuration backups still capture Quasar's own singleton/config/catalog files; server backups include the server definition plus non-cache Dedicated Server and Magnetar app data; world backups restore world files while excluding `Sandbox_config.sbc*`. Stored backup writes publish atomically by writing `final.zip.tmp` in the Backups directory first and renaming it to `final.zip` only after the archive is complete.
+Builds and restores ZIP backups for three scopes: Quasar configuration, server runtime state, and world-only data. Configuration backups still capture Quasar's own singleton/config/catalog files, including known-player rows and known-player retention settings; server backups include the server definition plus non-cache Dedicated Server and Magnetar app data; world backups restore world files while excluding `Sandbox_config.sbc*`. Stored backup writes publish atomically by writing `final.zip.tmp` in the Backups directory first and renaming it to `final.zip` only after the archive is complete.
 
 ## Structure
 Namespace: `Quasar.Services.Backup`
@@ -12,7 +12,7 @@ Namespace: `Quasar.Services.Backup`
 `public sealed record QuasarBackupFileInfo(string Name, long SizeBytes, DateTimeOffset CreatedAtUtc, QuasarBackupKind Kind, bool Automatic, string? ServerUniqueName, string? ServerDisplayName)` — stored-backup listing entry with manifest-derived type and target-server metadata.
 `public sealed class QuasarBackupService`
 
-Const `CurrentFormatVersion = 1`. All archives carry `quasar-backup.json`. Configuration layout uses `data/` plus `branding-assets/`. Server/world layouts use `server/server.json`, `dedicated-server/`, optional `dedicated-config/`, `magnetar/`, and/or `world/`. Filenames: `quasar-backup-{yyyyMMdd-HHmmss}{-auto?}.zip`, `quasar-server-{uniqueName}-{yyyyMMdd-HHmmss}{-auto?}.zip`, `quasar-world-{uniqueName}-{yyyyMMdd-HHmmss}{-auto?}.zip`, with `-2`, `-3`, etc. appended when a file already exists. `JsonSerializerOptions`: Web + `WriteIndented`. `Changed` fires after a stored backup is published or removed.
+Const `CurrentFormatVersion = 1`. All archives carry `quasar-backup.json`. Configuration layout uses `data/` plus `branding-assets/` and allow-lists singleton config files such as `known-players.json`, `known-player-settings.json`, Discord/death-message/branding/workshop/RBAC/dev-folder settings. Server/world layouts use `server/server.json`, `dedicated-server/`, optional `dedicated-config/`, `magnetar/`, and/or `world/`. Filenames: `quasar-backup-{yyyyMMdd-HHmmss}{-auto?}.zip`, `quasar-server-{uniqueName}-{yyyyMMdd-HHmmss}{-auto?}.zip`, `quasar-world-{uniqueName}-{yyyyMMdd-HHmmss}{-auto?}.zip`, with `-2`, `-3`, etc. appended when a file already exists. `JsonSerializerOptions`: Web + `WriteIndented`. `Changed` fires after a stored backup is published or removed.
 
 | Member | Description |
 |---|---|

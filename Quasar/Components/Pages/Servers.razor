@@ -1,4 +1,3 @@
-@page "/servers"
 @implements IDisposable
 @inject DedicatedServerCatalog ServerCatalog
 @inject DedicatedServerSupervisor Supervisor
@@ -10,10 +9,16 @@
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
 
-<PageTitle>Servers</PageTitle>
+@if (!Embedded)
+{
+    <PageTitle>Servers</PageTitle>
+}
 
-<MudText Typo="Typo.h5" Class="mb-2">Servers</MudText>
-<MudText Typo="Typo.body2">Persistent dedicated servers. Quasar launches, stops, and restarts processes from these definitions, and Quasar.Agent attaches once the server is up for live data. Expand a row to see live agent data: players, chat, plugins, command results.</MudText>
+@if (!HideHeader)
+{
+    <MudText Typo="Typo.h5" Class="mb-2">Servers</MudText>
+    <MudText Typo="Typo.body2">Persistent dedicated servers. Quasar launches, stops, and restarts processes from these definitions, and Quasar.Agent attaches once the server is up for live data. Expand a row to see live agent data: players, chat, and command results.</MudText>
+}
 
 <MudPaper Class="pa-4 server-card mt-2">
     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-4">
@@ -33,7 +38,7 @@
     }
     else
     {
-        <MudTable T="DedicatedServerDefinition" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="ServerDefinitions">
+        <MudTable T="DedicatedServerDefinition" Dense="true" Hover="true" Breakpoint="@ServerTableBreakpoint" Items="ServerDefinitions" Class="servers-list-table">
             <HeaderContent>
                 <MudTh Style="width: 36px;"></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetStateText(x.UniqueName))">Status</MudTableSortLabel></MudTh>
@@ -62,7 +67,7 @@
                     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
                         @if (CanStartServer(context.UniqueName))
                         {
-                            <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Success" StartIcon="@Icons.Material.Filled.PlayArrow" OnClick="@(() => StartAsync(context.UniqueName))">Start</MudButton>
+                            <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Success" StartIcon="@Icons.Material.Filled.PlayArrow" Disabled="@LaunchBlocked" OnClick="@(() => StartAsync(context.UniqueName))">Start</MudButton>
                         }
                         @if (CanStopServer(context.UniqueName))
                         {
@@ -116,7 +121,7 @@
                 {
                     <MudTr>
                         <td colspan="10" style="padding: 0.75rem 1rem; background: var(--mud-palette-background);">
-                            <ServerDetailPanel Agent="@GetAgent(context.UniqueName)" />
+                            <ServerDetailPanel Server="@context" Runtime="@GetRuntime(context.UniqueName)" Agent="@GetAgent(context.UniqueName)" />
                         </td>
                     </MudTr>
                 }
@@ -158,6 +163,23 @@
 
     [Parameter]
     public EventCallback<string> ConfigProfileSelected { get; set; }
+
+    [Parameter]
+    public bool Embedded { get; set; }
+
+    [Parameter]
+    public bool HideHeader { get; set; }
+
+    [Parameter]
+    public bool DisableResponsiveLayout { get; set; }
+
+    [Parameter]
+    public bool LaunchBlocked { get; set; }
+
+    [Parameter]
+    public string LaunchBlockedMessage { get; set; } = "Managed runtime is still preparing.";
+
+    private Breakpoint ServerTableBreakpoint => DisableResponsiveLayout ? Breakpoint.None : Breakpoint.Md;
 
     private IReadOnlyList<DedicatedServerDefinition> ServerDefinitions => ServerCatalog.GetServers();
 
@@ -222,7 +244,7 @@
 
     private async Task OpenCreateDialogAsync()
     {
-        var definition = await ShowEditorDialogAsync(CreateBlank(), isEditing: false);
+        var definition = await ShowEditorDialogAsync(CreateBlank(), isEditing: false, isClone: false);
         if (definition is null)
             return;
 
@@ -243,7 +265,7 @@
         cloned.WorldPath = string.Empty;
         cloned.ConfigFilePath = string.Empty;
 
-        var created = await ShowEditorDialogAsync(cloned, isEditing: false);
+        var created = await ShowEditorDialogAsync(cloned, isEditing: false, isClone: true);
         if (created is null)
             return;
 
@@ -277,7 +299,7 @@
 
     private async Task OpenEditDialogAsync(DedicatedServerDefinition definition)
     {
-        var updated = await ShowEditorDialogAsync(definition, isEditing: true);
+        var updated = await ShowEditorDialogAsync(definition, isEditing: true, isClone: false);
         if (updated is null)
             return;
 
@@ -369,12 +391,13 @@
         }
     }
 
-    private async Task<DedicatedServerDefinition?> ShowEditorDialogAsync(DedicatedServerDefinition definition, bool isEditing)
+    private async Task<DedicatedServerDefinition?> ShowEditorDialogAsync(DedicatedServerDefinition definition, bool isEditing, bool isClone)
     {
         var parameters = new DialogParameters
         {
             [nameof(ServerEditorDialog.Definition)] = definition.Clone(),
             [nameof(ServerEditorDialog.IsEditing)] = isEditing,
+            [nameof(ServerEditorDialog.IsClone)] = isClone,
             [nameof(ServerEditorDialog.UniqueNameLocked)] = isEditing && IsRunning(definition.UniqueName),
         };
 
@@ -385,7 +408,12 @@
             MaxWidth = MaxWidth.ExtraLarge,
         };
 
-        var dialog = await DialogService.ShowAsync<ServerEditorDialog>(isEditing ? "Edit Server" : "Create Server", parameters, options);
+        var title = isEditing
+            ? "Edit Server"
+            : isClone
+                ? "Clone Server"
+                : "Create Server";
+        var dialog = await DialogService.ShowAsync<ServerEditorDialog>(title, parameters, options);
         var result = await dialog.Result;
         if (result is null || result.Canceled || result.Data is not DedicatedServerDefinition updated)
             return null;
@@ -591,6 +619,12 @@
     {
         try
         {
+            if (LaunchBlocked)
+            {
+                Snackbar.Add(LaunchBlockedMessage, Severity.Warning);
+                return;
+            }
+
             await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.On, reconcile: false);
             await Supervisor.StartServerAsync(uniqueName);
             Snackbar.Add("Server start requested.", Severity.Success);

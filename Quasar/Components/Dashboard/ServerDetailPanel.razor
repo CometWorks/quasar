@@ -1,6 +1,5 @@
 @inject AgentRegistry Registry
 @inject QuasarConfigProfileCatalog ConfigProfiles
-@inject QuasarPluginCatalogService PluginCatalog
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
@@ -47,23 +46,6 @@
         }
     </MudStack>
 
-    @if (PluginRows.Count > 0)
-    {
-        <MudDivider Class="my-3" />
-        <MudText Typo="Typo.subtitle2" Class="mb-2">Plugins</MudText>
-        <MudTable T="PluginDisplayRow" Dense="true" Items="PluginRows">
-            <HeaderContent>
-                <MudTh>Plugin</MudTh>
-                <MudTh>Version</MudTh>
-                <MudTh>Status</MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd DataLabel="Plugin">@context.DisplayName</MudTd>
-                <MudTd DataLabel="Version">@context.Version</MudTd>
-                <MudTd DataLabel="Status">@context.Status</MudTd>
-            </RowTemplate>
-        </MudTable>
-    }
 }
 else
 {
@@ -173,23 +155,6 @@ else
 
     <MudDivider Class="my-3" />
 
-    @if (PluginRows.Count > 0)
-    {
-        <MudText Typo="Typo.subtitle2" Class="mb-2">Plugins</MudText>
-        <MudTable T="PluginDisplayRow" Dense="true" Items="PluginRows">
-            <HeaderContent>
-                <MudTh>Plugin</MudTh>
-                <MudTh>Version</MudTh>
-                <MudTh>Status</MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd DataLabel="Plugin">@context.DisplayName</MudTd>
-                <MudTd DataLabel="Version">@context.Version</MudTd>
-                <MudTd DataLabel="Status">@context.Status</MudTd>
-            </RowTemplate>
-        </MudTable>
-    }
-
     @if (Agent.CommandResults.Count > 0)
     {
         <MudDivider Class="my-3" />
@@ -206,17 +171,6 @@ else
 @code
 {
     private static readonly string[] PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"];
-    private static readonly string[] HiddenPluginKeys =
-    [
-        "MagnetarInterim",
-        "MagnetarInterim.exe",
-        "LinuxCompat",
-        "DotNetCompat",
-        "Quasar.Agent",
-        "quasar-agent",
-        QuasarPluginCatalogService.LinuxCompatPluginId,
-        QuasarPluginCatalogService.DotNetCompatPluginId,
-    ];
 
     [Parameter]
     public DedicatedServerDefinition? Server { get; set; }
@@ -226,8 +180,6 @@ else
 
     [Parameter]
     public AgentRuntimeState? Agent { get; set; }
-
-    private IReadOnlyList<PluginDisplayRow> PluginRows => BuildPluginRows();
 
     private string _chatText = string.Empty;
 
@@ -346,110 +298,6 @@ else
         return Agent?.Snapshot?.Metrics.MaxPlayers ?? 0;
     }
 
-    private IReadOnlyList<PluginDisplayRow> BuildPluginRows()
-    {
-        var rows = new Dictionary<string, PluginDisplayRow>(StringComparer.OrdinalIgnoreCase);
-        var catalogEntries = PluginCatalog.GetEntries();
-
-        foreach (var plugin in GetConfiguredPlugins())
-        {
-            if (IsHiddenDashboardPlugin(plugin.PluginId, plugin.DisplayName, catalogEntries))
-                continue;
-
-            rows[plugin.PluginId] = new PluginDisplayRow(
-                plugin.PluginId,
-                plugin.DisplayName,
-                plugin.SelectedVersion,
-                "configured");
-        }
-
-        foreach (var plugin in Agent?.Snapshot?.Plugins ?? [])
-        {
-            var pluginId = string.IsNullOrWhiteSpace(plugin.PluginId)
-                ? plugin.DisplayName
-                : plugin.PluginId;
-            if (string.IsNullOrWhiteSpace(pluginId))
-                continue;
-
-            if (IsHiddenDashboardPlugin(pluginId, plugin.DisplayName, catalogEntries))
-                continue;
-
-            rows[pluginId] = new PluginDisplayRow(
-                pluginId.Trim(),
-                ResolvePluginDisplayName(pluginId, plugin.DisplayName),
-                plugin.Version,
-                plugin.IsLoaded ? "loaded" : "declared");
-        }
-
-        return rows.Values
-            .OrderBy(row => row.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(row => row.PluginId, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    private static bool IsHiddenDashboardPlugin(
-        string pluginId,
-        string displayName,
-        IReadOnlyList<QuasarPluginCatalogEntry> catalogEntries)
-    {
-        if (HiddenPluginKeys.Any(key => MatchesPluginKey(pluginId, key) || MatchesPluginKey(displayName, key)))
-            return true;
-
-        return catalogEntries.Any(entry =>
-            entry.Hidden &&
-            (MatchesPluginKey(pluginId, entry.PluginId) ||
-             MatchesPluginKey(displayName, entry.PluginId) ||
-             MatchesPluginKey(pluginId, entry.FriendlyName) ||
-             MatchesPluginKey(displayName, entry.FriendlyName)));
-    }
-
-    private static bool MatchesPluginKey(string value, string key)
-    {
-        var normalizedValue = NormalizePluginKey(value);
-        var normalizedKey = NormalizePluginKey(key);
-        return normalizedValue.Length > 0 &&
-               normalizedKey.Length > 0 &&
-               string.Equals(normalizedValue, normalizedKey, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string NormalizePluginKey(string value)
-    {
-        var normalized = (value ?? string.Empty).Trim();
-        if (normalized.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
-            normalized.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-        {
-            normalized = Path.GetFileNameWithoutExtension(normalized);
-        }
-
-        return normalized
-            .Replace(" ", string.Empty, StringComparison.Ordinal)
-            .Replace("_", string.Empty, StringComparison.Ordinal)
-            .Replace("-", string.Empty, StringComparison.Ordinal)
-            .Replace(".", string.Empty, StringComparison.Ordinal);
-    }
-
-    private IReadOnlyList<QuasarPluginSelection> GetConfiguredPlugins()
-    {
-        if (string.IsNullOrWhiteSpace(Server?.ConfigProfileId))
-            return [];
-
-        return ConfigProfiles.GetProfile(Server.ConfigProfileId)?.Plugins ?? [];
-    }
-
-    private string ResolvePluginDisplayName(string pluginId, string displayName)
-    {
-        if (!string.IsNullOrWhiteSpace(displayName))
-            return displayName.Trim();
-
-        var catalogName = PluginCatalog.GetEntries()
-            .FirstOrDefault(entry => string.Equals(entry.PluginId, pluginId, StringComparison.OrdinalIgnoreCase))
-            ?.FriendlyName;
-        if (!string.IsNullOrWhiteSpace(catalogName))
-            return catalogName.Trim();
-
-        return pluginId.Trim();
-    }
-
     private static string FormatTimestamp(long ticksUtc)
     {
         if (ticksUtc <= 0)
@@ -500,7 +348,7 @@ else
         if (Runtime?.State == DedicatedServerProcessState.Running && Agent?.Snapshot is null)
             return "Connecting. Waiting for Quasar.Agent to reconnect.";
 
-        return "No live game snapshot. Start the server to see metrics, players, chat, and plugins.";
+        return "No live game snapshot. Start the server to see metrics, players, and chat.";
     }
 
     private static string GetPlatformName(PlayerSnapshot player)
@@ -529,6 +377,4 @@ else
         string.Equals(GetRoleLabel(player), promoteLevel, StringComparison.OrdinalIgnoreCase) ||
         (string.Equals(promoteLevel, "None", StringComparison.OrdinalIgnoreCase) &&
          string.Equals(GetRoleLabel(player), "Player", StringComparison.OrdinalIgnoreCase));
-
-    private sealed record PluginDisplayRow(string PluginId, string DisplayName, string Version, string Status);
 }

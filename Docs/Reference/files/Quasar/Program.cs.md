@@ -17,7 +17,7 @@ Namespace `Quasar`; `public class Program` with `static void Main(string[] args)
 - UI/infra: `AddHttpClient`, local storage, `AddApexCharts`, `AddMudServices` (snackbar bottom-start, no dupes, newest-on-top).
 - Options singletons + RBAC: `WebServiceOptions`, `ManagedRuntimeOptions`, `QuasarAuthOptions`, `AnalyticsStoreOptions`, `RbacConfigCatalog`, `QuasarRoleMapper`, `TrustedNetworkEvaluator`, `QuasarAuthSettingsService`.
 - Core services: `KnownPlayerCatalog`, `MetricsStoreService` (+hosted), `AnalyticsSeriesService`, `ProfilerStoreService`, `AgentRegistry`, `EntityService`, config catalogs (`QuasarConfigProfileCatalog`, `QuasarDevFolderCatalog`, `QuasarWorldTemplateCatalog`, `QuasarPluginCatalogService`, `PluginCatalogRefreshService` (+hosted)), `WorldTemplateImportLocationService` (scoped), `SteamWorkshopCredentialsCatalog`, `QuasarWorkshopModResolver`.
-- Managed runtime + server supervision: `ManagedDedicatedServerRuntimeResolver`, `ManagedRuntimeWarmupService` (+hosted), `DedicatedServerCatalog`, `DedicatedServerSupervisor` (+hosted), `DedicatedServerRuntimePreparer`.
+- Managed runtime + server supervision: `ManagedDedicatedServerRuntimeResolver`, `ManagedRuntimeWarmupService` (+hosted), `DedicatedServerCatalog`, `DedicatedServerSupervisor` (+hosted), `DedicatedServerRuntimePreparer`, `ServerManagementActions` (scoped UI action coordinator).
 - Web/agent: `FileBrowserService`, `WebServiceState`, `PluginLogStream`, `PluginConfigService` (+hosted), `AgentSocketHandler`, `WebServiceManifestHostedService` (hosted).
 - Discord: options/rate-limiter/death-messages catalogs, command dispatcher+router, chat/death/simspeed-alert/log/analytics services, `DiscordBotService` (+hosted).
 - Branding/theme/shutdown/update: `BrandingService`, `ThemePreferenceService` (scoped), `QuasarShutdownService`, `QuasarUpdateService` (+hosted).
@@ -38,7 +38,7 @@ On Linux/macOS, SIGINT/SIGTERM handlers either `StopApplication` (when preservin
 - `Quasar/Components/App.razor` (root component)
 - `Quasar/Services/AgentRegistry.cs`, [`Quasar/Services/AgentSocketHandler.cs`](Services/AgentSocketHandler.cs.md), `Quasar/Services/EntityService.cs`, `Quasar/Services/PluginLogStream.cs`, `Quasar/Services/PluginConfigService.cs`
 - `Quasar/Services/Auth/*` (`QuasarAuthOptions`, `QuasarRoleMapper`, `RbacConfigCatalog`, `TrustedNetworkEvaluator`, `QuasarAuthSchemes`, `QuasarClaimTypes`, `QuasarPolicyNames`, `QuasarRoles`)
-- `Quasar/Services/DedicatedServerCatalog.cs`, `DedicatedServerSupervisor.cs`, `DedicatedServerRuntimePreparer.cs`, `QuasarShutdownService.cs`, `WebServiceState.cs`, `WebServiceOptions.cs`, `WebServiceManifestHostedService.cs`, `ManagedRuntimeOptions.cs`
+- `Quasar/Services/DedicatedServerCatalog.cs`, `DedicatedServerSupervisor.cs`, `DedicatedServerRuntimePreparer.cs`, `ServerManagementActions.cs`, `QuasarShutdownService.cs`, `WebServiceState.cs`, `WebServiceOptions.cs`, `WebServiceManifestHostedService.cs`, `ManagedRuntimeOptions.cs`
 - `Quasar/Services/Analytics/*`, `Quasar/Services/Discord/*`, `Quasar/Services/PluginSdk/QuasarPluginCatalogService.cs`
 - `Quasar/Services/Backup/*` (`QuasarBackupService`, `QuasarBackupSettingsService`, `AutomaticBackupService`)
 - `Quasar/Models/DedicatedServerProcessState.cs`

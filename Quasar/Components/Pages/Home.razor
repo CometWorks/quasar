@@ -8,20 +8,18 @@
 @inject ManagedRuntimeWarmupService RuntimeWarmup
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
 
-<PageTitle>Dashboard</PageTitle>
+<PageTitle>@(IsListView ? "Servers" : "Dashboard")</PageTitle>
 
-<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-2">
-    <div>
-        <MudText Typo="Typo.h5" Class="mb-2">Dashboard</MudText>        
-    </div>
-    @if (!ShowSetupWizard)
-    {
+@if (!ShowSetupWizard)
+{
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Spacing="2" Class="mb-2">
         <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="ShowSetupWizardAgain">
             Restart Setup Wizard
         </MudButton>
-    }
-</MudStack>
+    </MudStack>
+}
 
 @if (Supervisor.HealthMonitoringDisabled)
 {
@@ -429,7 +427,35 @@
     </MudItem>
 </MudGrid>
 
-@if (Servers.Count == 0)
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-3">
+    <MudText Typo="Typo.h6">Servers</MudText>
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+        <MudButton Variant="@(IsCardsView ? Variant.Filled : Variant.Outlined)"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Dashboard"
+                   OnClick="@(() => SetServerView(DashboardServerView.Cards))">
+            Cards
+        </MudButton>
+        <MudButton Variant="@(IsListView ? Variant.Filled : Variant.Outlined)"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.ViewList"
+                   OnClick="@(() => SetServerView(DashboardServerView.List))">
+            List
+        </MudButton>
+    </MudStack>
+</MudStack>
+
+@* Keep this conditional: the landing page must not build hidden server-list/card DOM. *@
+@if (IsListView)
+{
+    <Servers Embedded="true"
+             HideHeader="true"
+             DisableResponsiveLayout="true"
+             LaunchBlocked="@IsLaunchBlocked"
+             LaunchBlockedMessage="@RuntimeWarmupSnapshot.Message"
+             ConfigProfileSelected="OpenConfigProfileFromServerListAsync" />
+}
+else if (Servers.Count == 0)
 {
     @if (!ShowSetupWizard)
     {
@@ -451,8 +477,7 @@ else
                             StartRequested="StartAsync"
                             StopRequested="StopAsync"
                             KillStartingRequested="KillStartingAsync"
-                            RestartRequested="RestartAsync"
-                            OpenLogsRequested="OpenLogsAsync" />
+                            RestartRequested="RestartAsync" />
             </MudItem>
         }
     </MudGrid>
@@ -460,6 +485,15 @@ else
 
 @code
 {
+    private enum DashboardServerView
+    {
+        Cards,
+        List,
+    }
+
+    [SupplyParameterFromQuery(Name = "view")]
+    public string? ServerViewQuery { get; set; }
+
     private IReadOnlyList<AgentRuntimeState> Agents => Registry.GetAgents();
     private IReadOnlyList<DedicatedServerDefinition> Servers => ServerCatalog.GetServers();
     private IReadOnlyList<DedicatedServerRuntimeSnapshot> RuntimeSnapshotList => Supervisor.GetSnapshots();
@@ -473,6 +507,11 @@ else
     private IReadOnlyList<DedicatedServerDefinition> StartableServers => Servers.Where(server => !IsRunning(server.UniqueName)).ToList();
     private IReadOnlyList<DedicatedServerDefinition> LaunchedServers => Servers.Where(server => IsRunning(server.UniqueName)).ToList();
     private bool IsLaunchBlocked => RuntimeWarmupSnapshot.State != ManagedRuntimeWarmupState.Complete;
+    private DashboardServerView ServerView => string.Equals(ServerViewQuery, "list", StringComparison.OrdinalIgnoreCase)
+        ? DashboardServerView.List
+        : DashboardServerView.Cards;
+    private bool IsCardsView => ServerView == DashboardServerView.Cards;
+    private bool IsListView => ServerView == DashboardServerView.List;
 
     private int ConnectedAgentCount => Agents.Count(agent => agent.IsConnected);
 
@@ -669,7 +708,23 @@ else
     private Task OpenCreateServerDialogAsync() =>
         ShowFullScreenPageDialogAsync<ServersPageDialog>("Servers");
 
-    private async Task ShowFullScreenPageDialogAsync<TDialog>(string title) where TDialog : ComponentBase
+    private Task OpenConfigProfileFromServerListAsync(string configProfileId)
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(ConfigsPageDialog.InitialProfileId)] = configProfileId,
+        };
+
+        return ShowFullScreenPageDialogAsync<ConfigsPageDialog>("Config Profiles", parameters);
+    }
+
+    private void SetServerView(DashboardServerView view)
+    {
+        var target = view == DashboardServerView.List ? "/?view=list" : "/";
+        Navigation.NavigateTo(target, replace: true);
+    }
+
+    private async Task ShowFullScreenPageDialogAsync<TDialog>(string title, DialogParameters? parameters = null) where TDialog : ComponentBase
     {
         var options = new DialogOptions
         {
@@ -677,7 +732,7 @@ else
             FullScreen = true,
         };
 
-        var dialog = await DialogService.ShowAsync<TDialog>(title, new DialogParameters(), options);
+        var dialog = await DialogService.ShowAsync<TDialog>(title, parameters ?? new DialogParameters(), options);
         await dialog.Result;
     }
 
@@ -772,23 +827,6 @@ else
         {
             Snackbar.Add(exception.Message, Severity.Error);
         }
-    }
-
-    private async Task OpenLogsAsync(string uniqueName)
-    {
-        var parameters = new DialogParameters
-        {
-            [nameof(ServerConsoleDialog.UniqueName)] = uniqueName,
-        };
-
-        var options = new DialogOptions
-        {
-            CloseOnEscapeKey = true,
-            FullWidth = true,
-            MaxWidth = MaxWidth.Large,
-        };
-
-        await DialogService.ShowAsync<ServerConsoleDialog>($"Logs — {uniqueName}", parameters, options);
     }
 
     private bool IsRunning(string uniqueName)

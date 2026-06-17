@@ -43,21 +43,23 @@
                         }
                         else
                         {
-                            <MudTable T="InstalledWorldTemplateSource" Dense="true" Hover="true" Items="FilteredInstalledTemplates" Breakpoint="Breakpoint.Sm">
+                            <MudTable T="InstalledWorldTemplateSource" Dense="true" Hover="true" Items="FilteredInstalledTemplates" Breakpoint="Breakpoint.Sm" Class="installed-world-template-table">
                                 <HeaderContent>
-                                    <MudTh>Name</MudTh>
-                                    <MudTh>Source</MudTh>
-                                    <MudTh></MudTh>
+                                    <MudTh Class="installed-world-template-name-cell">Name</MudTh>
+                                    <MudTh Class="installed-world-template-source-cell">Source</MudTh>
+                                    <MudTh Class="installed-world-template-action-cell"></MudTh>
                                 </HeaderContent>
                                 <RowTemplate>
-                                    <MudTd DataLabel="Name">@context.DisplayName</MudTd>
-                                    <MudTd DataLabel="Source">
-                                        <MudStack Spacing="0">
-                                            <MudText Typo="Typo.caption">@context.Category</MudText>
-                                            <MudText Typo="Typo.caption" Class="mono">@context.SourcePath</MudText>
+                                    <MudTd DataLabel="Name" Class="installed-world-template-name-cell">
+                                        <MudText Typo="Typo.body2" Class="installed-world-template-name-text">@context.DisplayName</MudText>
+                                    </MudTd>
+                                    <MudTd DataLabel="Source" Class="installed-world-template-source-cell">
+                                        <MudStack Spacing="0" Class="installed-world-template-source-stack">
+                                            <MudText Typo="Typo.caption" Class="installed-world-template-source-text">@context.Category</MudText>
+                                            <MudText Typo="Typo.caption" Class="mono installed-world-template-source-text">@context.SourcePath</MudText>
                                         </MudStack>
                                     </MudTd>
-                                    <MudTd Style="text-align:right;">
+                                    <MudTd Class="installed-world-template-action-cell">
                                         <MudButton Variant="Variant.Outlined"
                                                    Color="Color.Primary"
                                                    Size="Size.Small"

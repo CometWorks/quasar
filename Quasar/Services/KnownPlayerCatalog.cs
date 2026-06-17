@@ -9,6 +9,10 @@ namespace Quasar.Services;
 
 public sealed class KnownPlayerCatalog
 {
+    public const int DefaultRetentionDays = 30;
+    public const int MinRetentionDays = 1;
+    public const int MaxRetentionDays = 3650;
+
     private static readonly string[] PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"];
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -21,10 +25,12 @@ public sealed class KnownPlayerCatalog
     private readonly ILogger<KnownPlayerCatalog> _logger;
     private readonly Dictionary<string, KnownPlayerRecord> _players = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _saveDebounce;
+    private int _retentionDays = DefaultRetentionDays;
 
     public KnownPlayerCatalog(ILogger<KnownPlayerCatalog> logger)
     {
         _logger = logger;
+        _retentionDays = NormalizeRetentionDays(LoadSettings().RetentionDays);
 
         foreach (var player in LoadPlayers())
         {
@@ -33,16 +39,33 @@ public sealed class KnownPlayerCatalog
 
             _players[player.PlayerKey] = NormalizeRecord(Clone(player));
         }
+
+        if (RemoveExpiredPlayers(DateTimeOffset.UtcNow) > 0)
+            _ = SaveAsync(CancellationToken.None);
     }
 
     public event Action? Changed;
 
+    public int RetentionDays
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _retentionDays;
+            }
+        }
+    }
+
     /// <summary>Re-reads the known players from disk, replacing the in-memory set (used after a backup restore).</summary>
     public void ReloadFromDisk()
     {
+        var settings = LoadSettings();
         var reloaded = LoadPlayers();
+        var removed = 0;
         lock (_sync)
         {
+            _retentionDays = NormalizeRetentionDays(settings.RetentionDays);
             _players.Clear();
             foreach (var player in reloaded)
             {
@@ -51,22 +74,108 @@ public sealed class KnownPlayerCatalog
 
                 _players[player.PlayerKey] = NormalizeRecord(Clone(player));
             }
+
+            removed = RemoveExpiredPlayers(DateTimeOffset.UtcNow);
         }
+
+        if (removed > 0)
+            ScheduleSave();
 
         Changed?.Invoke();
     }
 
     public IReadOnlyList<KnownPlayerRecord> GetPlayers()
     {
+        var removed = 0;
+        List<KnownPlayerRecord> snapshot;
         lock (_sync)
         {
-            return _players.Values
+            removed = RemoveExpiredPlayers(DateTimeOffset.UtcNow);
+            snapshot = _players.Values
                 .Select(Clone)
                 .OrderBy(player => player.ServerName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(player => player.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(player => player.SteamId)
                 .ToList();
         }
+
+        if (removed > 0)
+        {
+            ScheduleSave();
+            Changed?.Invoke();
+        }
+
+        return snapshot;
+    }
+
+    public async Task<int> SetRetentionDaysAsync(int retentionDays, CancellationToken cancellationToken = default)
+    {
+        var normalized = NormalizeRetentionDays(retentionDays);
+        var settingsChanged = false;
+        var removed = 0;
+
+        lock (_sync)
+        {
+            if (_retentionDays != normalized)
+            {
+                _retentionDays = normalized;
+                settingsChanged = true;
+            }
+
+            removed = RemoveExpiredPlayers(DateTimeOffset.UtcNow);
+        }
+
+        if (settingsChanged)
+            await SaveSettingsAsync(cancellationToken);
+
+        if (removed > 0)
+            await SaveAsync(cancellationToken);
+
+        if (settingsChanged || removed > 0)
+            Changed?.Invoke();
+
+        return removed;
+    }
+
+    public async Task<int> CleanExpiredAsync(CancellationToken cancellationToken = default)
+    {
+        int removed;
+        lock (_sync)
+        {
+            removed = RemoveExpiredPlayers(DateTimeOffset.UtcNow);
+        }
+
+        await SavePlayersIfChangedAsync(removed, cancellationToken);
+        return removed;
+    }
+
+    public async Task<int> CleanAllAsync(CancellationToken cancellationToken = default)
+    {
+        int removed;
+        lock (_sync)
+        {
+            removed = _players.Count;
+            _players.Clear();
+        }
+
+        await SavePlayersIfChangedAsync(removed, cancellationToken);
+        return removed;
+    }
+
+    public async Task<int> CleanServerAsync(string uniqueName, CancellationToken cancellationToken = default)
+    {
+        var normalized = NormalizeUniqueName(uniqueName);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return 0;
+
+        int removed;
+        lock (_sync)
+        {
+            removed = RemovePlayers(player => BelongsToServer(player, normalized));
+        }
+
+        await SavePlayersIfChangedAsync(removed, cancellationToken);
+        return removed;
     }
 
     public void ObserveSnapshot(AgentSnapshot snapshot)
@@ -80,6 +189,7 @@ public sealed class KnownPlayerCatalog
         var changed = false;
         lock (_sync)
         {
+            changed |= RemoveExpiredPlayers(DateTimeOffset.UtcNow) > 0;
             changed |= RemoveHiddenPlayers(snapshot);
 
             foreach (var player in snapshot.Players ?? [])
@@ -123,6 +233,7 @@ public sealed class KnownPlayerCatalog
         var changed = false;
         lock (_sync)
         {
+            changed |= RemoveExpiredPlayers(DateTimeOffset.UtcNow) > 0;
             var uniqueName = NormalizeUniqueName(command.UniqueName);
             var playerKey = BuildPlayerKey(uniqueName, command.SteamId.Value);
             if (!_players.TryGetValue(playerKey, out var record))
@@ -150,6 +261,33 @@ public sealed class KnownPlayerCatalog
         Changed?.Invoke();
     }
 
+    private async Task SavePlayersIfChangedAsync(int removed, CancellationToken cancellationToken)
+    {
+        if (removed <= 0)
+            return;
+
+        await SaveAsync(cancellationToken);
+        Changed?.Invoke();
+    }
+
+    private KnownPlayerSettings LoadSettings()
+    {
+        var path = MagnetarPaths.GetQuasarKnownPlayerSettingsPath();
+        if (!File.Exists(path))
+            return new KnownPlayerSettings();
+
+        try
+        {
+            var json = File.ReadAllText(path);
+            return JsonSerializer.Deserialize<KnownPlayerSettings>(json, JsonOptions) ?? new KnownPlayerSettings();
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed to load known player settings from {Path}", path);
+            return new KnownPlayerSettings();
+        }
+    }
+
     private List<KnownPlayerRecord> LoadPlayers()
     {
         var path = MagnetarPaths.GetQuasarKnownPlayersPath();
@@ -166,6 +304,16 @@ public sealed class KnownPlayerCatalog
             _logger.LogWarning(exception, "Failed to load known players from {Path}", path);
             return [];
         }
+    }
+
+    private async Task SaveSettingsAsync(CancellationToken cancellationToken)
+    {
+        var settings = new KnownPlayerSettings
+        {
+            RetentionDays = RetentionDays,
+        };
+        var json = JsonSerializer.Serialize(settings, JsonOptions);
+        await AtomicFileWriter.WriteTextAsync(MagnetarPaths.GetQuasarKnownPlayerSettingsPath(), json, cancellationToken);
     }
 
     private static bool ApplySnapshot(
@@ -283,6 +431,40 @@ public sealed class KnownPlayerCatalog
             _players.Remove(key);
 
         return removedKeys.Count > 0;
+    }
+
+    private int RemoveExpiredPlayers(DateTimeOffset now)
+    {
+        var cutoff = now.AddDays(-_retentionDays);
+        return RemovePlayers(player =>
+        {
+            var lastSeen = GetRetentionTimestamp(player);
+            return lastSeen != default && lastSeen < cutoff;
+        });
+    }
+
+    private int RemovePlayers(Func<KnownPlayerRecord, bool> predicate)
+    {
+        var removedKeys = _players
+            .Where(pair => predicate(pair.Value))
+            .Select(pair => pair.Key)
+            .ToList();
+
+        foreach (var key in removedKeys)
+            _players.Remove(key);
+
+        return removedKeys.Count;
+    }
+
+    private static DateTimeOffset GetRetentionTimestamp(KnownPlayerRecord player)
+    {
+        if (player.LastSeenUtc != default)
+            return player.LastSeenUtc;
+
+        if (player.LastOnlineUtc is { } lastOnlineUtc && lastOnlineUtc != default)
+            return lastOnlineUtc;
+
+        return player.FirstSeenUtc;
     }
 
     private static string GetAdjacentPromoteLevel(string currentLevel, int direction)
@@ -416,5 +598,13 @@ public sealed class KnownPlayerCatalog
         player.DisplayName = TextSanitizer.CleanGameText(player.DisplayName);
         player.PlatformDisplayName = TextSanitizer.CleanGameText(player.PlatformDisplayName);
         return player;
+    }
+
+    private static int NormalizeRetentionDays(int retentionDays) =>
+        Math.Clamp(retentionDays, MinRetentionDays, MaxRetentionDays);
+
+    private sealed class KnownPlayerSettings
+    {
+        public int RetentionDays { get; set; } = DefaultRetentionDays;
     }
 }

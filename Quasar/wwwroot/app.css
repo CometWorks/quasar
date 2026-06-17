@@ -158,6 +158,41 @@ h1:focus {
     margin-top: 1rem;
 }
 
+.installed-world-template-table,
+.installed-world-template-table .mud-table-root {
+    width: 100%;
+    table-layout: fixed;
+}
+
+.installed-world-template-name-cell {
+    width: 32%;
+    min-width: 0;
+}
+
+.installed-world-template-source-cell {
+    min-width: 0;
+    max-width: 0;
+}
+
+.installed-world-template-action-cell {
+    width: 5.5rem;
+    min-width: 5.5rem;
+    max-width: 5.5rem;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.installed-world-template-name-text,
+.installed-world-template-source-stack,
+.installed-world-template-source-text {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .chat-list {
     display: flex;
     flex-direction: column;
@@ -283,6 +318,14 @@ h1:focus {
 
 .server-card .mud-table-container {
     border-radius: inherit;
+}
+
+.servers-list-table .mud-table-container {
+    overflow-x: auto;
+}
+
+.servers-list-table .mud-table-root {
+    min-width: 72rem;
 }
 
 .players-list-card,

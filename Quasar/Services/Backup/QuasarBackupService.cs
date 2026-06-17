@@ -59,6 +59,7 @@ public sealed class QuasarBackupService
     private static readonly string[] SingletonConfigFiles =
     [
         "known-players.json",
+        "known-player-settings.json",
         "discord.json",
         "death-messages.json",
         "branding.json",

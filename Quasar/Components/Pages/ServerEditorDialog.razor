@@ -2,16 +2,14 @@
     <TitleContent>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
             <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" OnClick="Cancel" title="Discard changes" />
-            <MudText Typo="Typo.h6">@(_isEditing ? "Edit Server" : "Create Server")</MudText>
+            <MudText Typo="Typo.h6">@DialogTitle</MudText>
         </MudStack>
     </TitleContent>
     <DialogContent>
         <div class="server-editor-dialog-content">
         <MudForm @ref="_form" @bind-IsValid="_formIsValid">
         <MudStack Spacing="3">
-            <MudText Typo="Typo.body2">
-                Define the full Quasar-managed server here. Create and edit use the same workflow so paths, launch settings, and health policy stay in one place.
-            </MudText>
+            <MudText Typo="Typo.body2">@DialogDescription</MudText>
 
             <section>
                 <MudText Typo="Typo.subtitle2" Class="mb-2">Identity</MudText>
@@ -433,7 +431,7 @@
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">@(_isEditing ? "Save Changes" : "Create Server")</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">@PrimaryActionText</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -471,12 +469,16 @@
     public bool IsEditing { get; set; }
 
     [Parameter]
+    public bool IsClone { get; set; }
+
+    [Parameter]
     public bool UniqueNameLocked { get; set; }
 
     private static readonly System.Text.RegularExpressions.Regex UniqueNameRegex = new("^[a-zA-Z0-9_-]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private DedicatedServerDefinition _editor = new();
     private bool _isEditing;
+    private bool _isClone;
     private bool _restartPolicyExpanded;
     private bool _healthPolicyExpanded;
     private bool _runtimeExpanded;
@@ -496,6 +498,7 @@
     {
         _editor = Definition.Clone();
         _isEditing = IsEditing;
+        _isClone = IsClone && !_isEditing;
         _restartPolicyExpanded = _isEditing;
         _healthPolicyExpanded = _isEditing;
         _runtimeExpanded = _isEditing;
@@ -511,6 +514,24 @@
 
         _identifierManuallyEdited = _isEditing || !string.IsNullOrWhiteSpace(_editor.UniqueName);
     }
+
+    private string DialogTitle => _isEditing
+        ? "Edit Server"
+        : _isClone
+            ? "Clone Server"
+            : "Create Server";
+
+    private string DialogDescription => _isEditing
+        ? "Update this Quasar-managed server definition. Stop the server before changing identity or deleting world state."
+        : _isClone
+            ? "Review the cloned server definition. The clone starts with independent managed paths; after this dialog you will choose whether to copy world state or create a fresh world from the selected template."
+            : "Define a new Quasar-managed server. Paths, launch settings, health policy, config profile, and world template stay in one definition.";
+
+    private string PrimaryActionText => _isEditing
+        ? "Save Changes"
+        : _isClone
+            ? "Clone Server"
+            : "Create Server";
 
     private void HandleDisplayNameChanged(string value)
     {

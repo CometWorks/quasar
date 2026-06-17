@@ -172,12 +172,12 @@
     "Quasar/Components/Routes.razor"
   ],
   "Quasar/Components/Dashboard/ServerCard.razor": [
-    "Quasar/Components/Dashboard/ServerDetailPanel.razor"
+    "Quasar/Components/Dashboard/ServerDetailPanel.razor",
+    "Quasar/Services/ServerManagementActions.cs"
   ],
   "Quasar/Components/Dashboard/ServerDetailPanel.razor": [
     "Quasar/Services/AgentRegistry.cs",
-    "Quasar/Services/QuasarConfigProfileCatalog.cs",
-    "Quasar/Services/QuasarPluginCatalogService.cs"
+    "Quasar/Services/QuasarConfigProfileCatalog.cs"
   ],
   "Quasar/Components/Layout/BrandingHeadContent.razor": [
     "Quasar/Services/BrandingService.cs"
@@ -297,6 +297,7 @@
   ],
   "Quasar/Components/Pages/Home.razor": [
     "Quasar/Components/Pages/ConfigsPageDialog.razor",
+    "Quasar/Components/Pages/Servers.razor",
     "Quasar/Components/Shared/CopyablePath.razor",
     "Quasar/Services/AgentRegistry.cs",
     "Quasar/Services/DedicatedServerCatalog.cs",
@@ -360,13 +361,15 @@
     "Quasar/Components/Pages/ServerEditorDialog.razor"
   ],
   "Quasar/Components/Pages/Servers.razor": [
+    "Quasar/Components/Pages/Home.razor",
     "Quasar/Components/Pages/ServerEditorDialog.razor",
     "Quasar/Services/AgentRegistry.cs",
     "Quasar/Services/DedicatedServerCatalog.cs",
     "Quasar/Services/DedicatedServerSupervisor.cs",
     "Quasar/Services/QuasarConfigProfileCatalog.cs",
     "Quasar/Services/QuasarWorldTemplateCatalog.cs",
-    "Quasar/Services/WebServiceOptions.cs"
+    "Quasar/Services/WebServiceOptions.cs",
+    "Quasar/wwwroot/app.css"
   ],
   "Quasar/Components/Pages/ServersPageDialog.razor": [
     "Quasar/Components/Pages/Servers.razor"
@@ -746,6 +749,17 @@
   "Quasar/Services/QuasarWorldTemplateCatalog.cs": [
     "Quasar/Models/QuasarWorldTemplate.cs",
     "Quasar/Services/AtomicFileWriter.cs"
+  ],
+  "Quasar/Services/ServerManagementActions.cs": [
+    "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
+    "Quasar/Components/Pages/ServerConsoleDialog.razor",
+    "Quasar/Components/Pages/ServerDeleteDialog.razor",
+    "Quasar/Components/Pages/ServerEditorDialog.razor",
+    "Quasar/Components/Pages/WorldTemplateFromServerDialog.razor",
+    "Quasar/Services/AgentRegistry.cs",
+    "Quasar/Services/DedicatedServerCatalog.cs",
+    "Quasar/Services/DedicatedServerSupervisor.cs",
+    "Quasar/Services/QuasarWorldTemplateCatalog.cs"
   ],
   "Quasar/Services/SteamWorkshopCredentialsCatalog.cs": [],
   "Quasar/Services/TextSanitizer.cs": [],
