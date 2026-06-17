@@ -3,14 +3,15 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Routable page at `/world-templates` for managing reusable Space Engineers world templates. Provides an inline manual import form (name, description, source path with folder browser), a collapsed optional panel for one-click importing installed Dedicated Server world/scenario templates without entering a name or path, and a sortable table of existing templates showing size and a missing-world indicator with Clone and Delete actions. The folder browser is seeded from the last imported source folder or the managed Dedicated Server content folders (`Content/CustomWorlds`, `Content/QuickStarts`, `Content/Scenarios`) and shows those locations as shortcut chips. Template world files are copied into managed Quasar storage via `QuasarWorldTemplateCatalog`.
+Routable page at `/world-templates` for managing reusable Space Engineers world templates. Provides a two-tab import card: a Predefined Worlds tab for one-click importing installed Dedicated Server world/scenario templates without entering a name or path, and a Custom World Import tab with name, description, source path, and folder browser controls. The folder browser is seeded from the last imported source folder or the managed Dedicated Server content folders (`Content/CustomWorlds`, `Content/QuickStarts`, `Content/Scenarios`) and shows those locations as shortcut chips. A sortable table lists existing templates with size and missing-world indicators plus Clone and Delete actions. Template world files are copied into managed Quasar storage via `QuasarWorldTemplateCatalog`.
 
 ## Structure
 - **`@page "/world-templates"`**, **`@implements IDisposable`**
 - **`[Inject]`:** `QuasarWorldTemplateCatalog WorldTemplateCatalog`, `ISnackbar Snackbar`, `IDialogService DialogService`, `WorldTemplateImportLocationService ImportLocations`
 - **Key UI**
-  - Left panel (xl:5) — import form: `MudTextField` for name, description, and source path with a "Browse" folder-picker button, plus Import (shows "Importing…" while `_importing`) and Clear buttons.
-  - Left panel installed-template expansion — collapsed by default; shows discovered installed Space Engineers templates from DS `Content/CustomWorlds`, `Content/QuickStarts`, and `Content/Scenarios`, with search, Refresh, source/category display, and per-row Add buttons.
+  - Left panel (xl:5) — `MudTabs` import card with separate Predefined Worlds and Custom Import panels; panels are not kept alive when hidden.
+  - Predefined Worlds tab — shows discovered installed Space Engineers templates from DS `Content/CustomWorlds`, `Content/QuickStarts`, and `Content/Scenarios`, with search, Refresh, source/category display, and per-row Add buttons.
+  - Custom Import tab — `MudTextField` controls for name, description, and source path with a "Browse" folder-picker button, plus Import (shows "Importing…" while `_importing`) and Clear buttons.
   - Right panel (xl:7) — `MudTable<WorldTemplateRow>` with sortable columns Name, Description, Size (MB or a "missing" warning chip), Updated; row actions Clone (disabled when world missing or importing) and Delete.
 - **`WorldTemplateRow` (private sealed record)** — `(QuasarWorldTemplate Template, bool WorldExists, long FileSizeMb)`.
 - **`Templates` computed property** — maps catalog entries to rows, computing the on-disk world directory size in MB by summing all file lengths (`DirectoryInfo.GetFiles("*", AllDirectories)`).
@@ -29,7 +30,7 @@ Routable page at `/world-templates` for managing reusable Space Engineers world 
 - [`Quasar/Services/WorldTemplateImportLocationService.cs`](../../Services/WorldTemplateImportLocationService.cs.md) — source-folder shortcuts, installed template discovery, and last-folder persistence
 - `Quasar/Models/QuasarWorldTemplate.cs` — `QuasarWorldTemplate`
 - `Quasar/Components/Shared/FolderPickerDialog.razor`
-- MudBlazor — `MudGrid`, `MudPaper`, `MudTable`, `MudTextField`, `MudButton`, `MudChip`, `MudAlert`, `ISnackbar`, `IDialogService`
+- MudBlazor — `MudGrid`, `MudTabs`, `MudPaper`, `MudTable`, `MudTextField`, `MudButton`, `MudChip`, `MudAlert`, `ISnackbar`, `IDialogService`
 
 ## Notes
 - Directory size is recomputed inline on every render by walking all files, which can be slow for large templates.

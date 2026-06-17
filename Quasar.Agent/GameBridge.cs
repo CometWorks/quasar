@@ -208,6 +208,8 @@ namespace Quasar.Agent
                 ProfilerMode = AgentProfiler.Mode.ToString(),
                 Profiler = AgentProfiler.GetLatestSnapshot(),
                 Players = GetPlayers(session),
+                HiddenPlayerSteamIds = GetHiddenPlayerSteamIds(session),
+                HiddenPlayerIdentityIds = GetHiddenPlayerIdentityIds(session),
                 KickedPlayers = GetKickedPlayers(session),
                 RecentChat = GetRecentChat(),
                 RecentDeaths = GetRecentDeaths(),
@@ -661,19 +663,23 @@ namespace Quasar.Agent
             {
                 foreach (var player in session.Players.GetOnlinePlayers())
                 {
+                    if (!IsHumanPlayer(session, player))
+                        continue;
+
                     var steamId = (long)player.Id.SteamId;
+                    var identityId = player.Identity?.IdentityId ?? 0;
 
                     result.Add(new PlayerSnapshot
                     {
                         SteamId = steamId,
-                        IdentityId = player.Identity?.IdentityId ?? 0,
+                        IdentityId = identityId,
                         SerialId = player.Id.SerialId,
                         DisplayName = player.DisplayName ?? string.Empty,
                         PlatformDisplayName = player.PlatformDisplayName ?? string.Empty,
                         PlatformIcon = player.PlatformIcon ?? string.Empty,
                         GameAcronym = player.GameAcronym ?? string.Empty,
                         ServiceName = GetPlayerServiceName(player.Id.SteamId),
-                        FactionTag = GetPlayerFaction(session, player.Identity?.IdentityId ?? 0),
+                        FactionTag = GetPlayerFaction(session, identityId),
                         PromoteLevel = session.GetUserPromoteLevel(player.Id.SteamId).ToString(),
                         IsAdmin = session.IsUserAdmin(player.Id.SteamId),
                         PingMs = 0,
@@ -685,6 +691,53 @@ namespace Quasar.Agent
             }
 
             return result;
+        }
+
+        private static bool IsHumanPlayer(MySession session, MyPlayer player)
+        {
+            if (player == null || player.Id.SteamId == 0 || player.IsBot)
+                return false;
+
+            var identityId = player.Identity?.IdentityId ?? 0;
+            return !IsNpcIdentity(session, identityId);
+        }
+
+        private static bool IsNpcIdentity(MySession session, long identityId)
+        {
+            return identityId != 0 &&
+                   session?.Players != null &&
+                   session.Players.IdentityIsNpc(identityId);
+        }
+
+        private static List<long> GetHiddenPlayerSteamIds(MySession session) =>
+            GetHiddenPlayerIds(session, player => (long)player.Id.SteamId, id => id > 0);
+
+        private static List<long> GetHiddenPlayerIdentityIds(MySession session) =>
+            GetHiddenPlayerIds(session, player => player.Identity?.IdentityId ?? 0, id => id != 0);
+
+        private static List<long> GetHiddenPlayerIds(MySession session, Func<MyPlayer, long> selectId, Predicate<long> shouldInclude)
+        {
+            var result = new HashSet<long>();
+            if (session == null || !session.Ready)
+                return result.ToList();
+
+            try
+            {
+                foreach (var player in session.Players.GetOnlinePlayers())
+                {
+                    if (IsHumanPlayer(session, player))
+                        continue;
+
+                    var id = selectId(player);
+                    if (shouldInclude(id))
+                        result.Add(id);
+                }
+            }
+            catch
+            {
+            }
+
+            return result.ToList();
         }
 
         // Mirrors the game's own kick-cooldown bookkeeping (see MyKickedPlayersController in
@@ -1112,7 +1165,7 @@ namespace Quasar.Agent
         {
             try
             {
-                return session?.Players?.GetOnlinePlayers()?.Count ?? 0;
+                return session?.Players?.GetOnlinePlayers()?.Count(player => IsHumanPlayer(session, player)) ?? 0;
             }
             catch
             {

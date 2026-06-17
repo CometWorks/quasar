@@ -3,7 +3,7 @@
 **Module:** Quasar.Services.Discord  **Kind:** class  **Tier:** 2
 
 ## Summary
-Relays player-authored in-game chat messages from connected SE server agents to configured Discord channels. Deduplicates messages by UTC-tick timestamp per server, seeds each server's dedup state from the first observed agent snapshot so existing `GlobalChatHistory` is not replayed on attach, suppresses Discord-origin server echoes, skips dedicated-server/Good.bot messages so bot broadcasts do not loop back into Discord, and delivers new messages through a per-channel bounded queue with a 500 ms inter-message delay to avoid flooding.
+Relays player-authored in-game chat messages from connected SE server agents to configured Discord channels. Deduplicates messages by UTC-tick timestamp per server, seeds each server's dedup state from the first observed agent snapshot so existing `GlobalChatHistory` is not replayed on attach, suppresses Discord-origin server echoes, skips dedicated-server/Good.bot messages so bot broadcasts do not loop back into Discord, sanitizes game-originated author/content text through `TextSanitizer`, and delivers new messages through a per-channel bounded queue with a 500 ms inter-message delay to avoid flooding.
 
 ## Structure
 Namespace: `Quasar.Services.Discord`
@@ -18,7 +18,7 @@ Public members:
 - `TrackDiscordToGameMessage(uniqueName, content)` — records Discord-origin text sent into the game so the outbound relay can suppress the matching server-authored echo when it appears in the next agent snapshot
 
 Private internals:
-- `CollectFreshMessages(uniqueName, recentChat)` — lock-protected sliding-window dedup (up to 1000 ticks retained per server); on the first observed snapshot for a server, marks the current chat history seen and returns no relay messages; after that, skips messages at or before the latest relay reset timestamp, skips `IsServerMessage`, SteamId 0, `Good.bot`, and `Server` authors, suppresses tracked Discord-origin echoes by normalized content regardless of the in-game author/SteamId, and formats remaining player messages as `"**AuthorName**: content"`
+- `CollectFreshMessages(uniqueName, recentChat)` — lock-protected sliding-window dedup (up to 1000 ticks retained per server); on the first observed snapshot for a server, marks the current chat history seen and returns no relay messages; after that, skips messages at or before the latest relay reset timestamp, skips `IsServerMessage`, SteamId 0, `Good.bot`, and `Server` authors, suppresses tracked Discord-origin echoes by normalized content regardless of the in-game author/SteamId, sanitizes author/content text, and formats remaining player messages as `"**AuthorName**: content"`
 - `AddSeen(dedupState, timestampTicksUtc)` — records one chat timestamp in the bounded dedup window
 - `IsServerAuthoredMessage` / `IsServerAuthorName` — identify server/Good.bot messages that must not be relayed to Discord
 - `TryConsumeSuppressedDiscordEcho(uniqueName, content)` / `PruneSuppressedMessages(...)` / `NormalizeContent(...)` — maintain a short-lived list of Discord-origin chat content used for echo suppression
@@ -34,6 +34,7 @@ Inner types:
 - [`Quasar/Services/Discord/DiscordOptions.cs`](DiscordOptions.cs.md) — `DiscordOptions`, `DiscordServerOptions`
 - [`Quasar/Services/Discord/DiscordRateLimiter.cs`](DiscordRateLimiter.cs.md)
 - [`Quasar/Services/AgentRegistry.cs`](../AgentRegistry.cs.md) — `AgentRegistry`, `AgentRuntimeState`
+- [`Quasar/Services/TextSanitizer.cs`](../TextSanitizer.cs.md) — game-originated author/content cleanup
 - `Magnetar.Protocol.Model` — `ChatMessageSnapshot`
 - Discord.Net — `DiscordSocketClient`, `IMessageChannel`
 - `System.Threading.Channels`

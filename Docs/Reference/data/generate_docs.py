@@ -73,8 +73,10 @@ MODULES = [
      "Authentication and role-based access control. Steam OpenID, plus an optional trusted-network bypass, map "
      "users onto three roles (viewer / editor / admin) and a set of named authorization policies. "
      "`QuasarRoleMapper` builds claims principals by consulting the file-backed `RbacConfigCatalog` (`rbac.json`), "
-     "`QuasarAuthOptions` reads provider configuration from the `Quasar:Auth` section, and "
-     "`TrustedNetworkEvaluator` recognises loopback and same-subnet clients. Consumed by "
+     "`QuasarAuthOptions` reads provider configuration from the `Quasar:Auth` section, "
+     "`QuasarAuthSettingsService` persists Security-page trusted-network edits into `appsettings.json`, and "
+     "`TrustedNetworkEvaluator` recognises loopback and same-subnet clients after rejecting unaccepted proxy "
+     "forwarding headers. Consumed by "
      "[Program.cs](../files/Quasar/Program.cs.md) and the [Security page](../files/Quasar/Components/Pages/Security.razor.md)."),
 
     ("Quasar.Services.Discord", "Quasar.Services.Discord — Discord Integration",

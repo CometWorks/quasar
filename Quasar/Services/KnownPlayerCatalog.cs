@@ -73,9 +73,6 @@ public sealed class KnownPlayerCatalog
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        if (snapshot.Players is null || snapshot.Players.Count == 0)
-            return;
-
         var observedAt = snapshot.CapturedAtUtc == default
             ? DateTimeOffset.UtcNow
             : snapshot.CapturedAtUtc;
@@ -83,7 +80,9 @@ public sealed class KnownPlayerCatalog
         var changed = false;
         lock (_sync)
         {
-            foreach (var player in snapshot.Players)
+            changed |= RemoveHiddenPlayers(snapshot);
+
+            foreach (var player in snapshot.Players ?? [])
             {
                 if (player is null || player.SteamId <= 0)
                     continue;
@@ -260,6 +259,32 @@ public sealed class KnownPlayerCatalog
         return changed;
     }
 
+    private bool RemoveHiddenPlayers(AgentSnapshot snapshot)
+    {
+        var hiddenSteamIds = snapshot.HiddenPlayerSteamIds?
+            .Where(id => id > 0)
+            .ToHashSet() ?? [];
+        var hiddenIdentityIds = snapshot.HiddenPlayerIdentityIds?
+            .Where(id => id != 0)
+            .ToHashSet() ?? [];
+
+        if (hiddenSteamIds.Count == 0 && hiddenIdentityIds.Count == 0)
+            return false;
+
+        var uniqueName = NormalizeUniqueName(snapshot.UniqueName);
+        var removedKeys = _players
+            .Where(pair => BelongsToServer(pair.Value, uniqueName) &&
+                           (hiddenSteamIds.Contains(pair.Value.SteamId) ||
+                            hiddenIdentityIds.Contains(pair.Value.IdentityId)))
+            .Select(pair => pair.Key)
+            .ToList();
+
+        foreach (var key in removedKeys)
+            _players.Remove(key);
+
+        return removedKeys.Count > 0;
+    }
+
     private static string GetAdjacentPromoteLevel(string currentLevel, int direction)
     {
         var normalized = NormalizePromoteLevel(currentLevel);
@@ -324,6 +349,17 @@ public sealed class KnownPlayerCatalog
 
     private static string BuildPlayerKey(string? uniqueName, long steamId) =>
         $"{NormalizeUniqueName(uniqueName)}::{steamId}";
+
+    private static bool BelongsToServer(KnownPlayerRecord player, string uniqueName)
+    {
+        if (string.Equals(NormalizeUniqueName(player.UniqueName), uniqueName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (string.IsNullOrWhiteSpace(uniqueName))
+            return false;
+
+        return player.PlayerKey.StartsWith($"{uniqueName}::", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static bool ShouldAdvanceLastSeen(DateTimeOffset previous, DateTimeOffset current)
     {
