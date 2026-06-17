@@ -5,6 +5,7 @@
 @inject EntityService EntityService
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
 
 <PageTitle>Entities</PageTitle>
 
@@ -121,8 +122,18 @@ else
                 <MudChip T="string" Size="Size.Small" Color="@GetTypeColor(context.TypeTag)" Variant="Variant.Outlined">@context.TypeTag</MudChip>
             </MudTd>
             <MudTd DataLabel="Name">
-                <MudText Typo="Typo.body2">@context.DisplayName</MudText>
-                <MudText Typo="Typo.caption" Class="mono">#@context.EntityId</MudText>
+                <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="1">
+                    <MudIconButton Icon="@Icons.Material.Filled.Visibility"
+                                   Color="Color.Primary"
+                                   Size="Size.Small"
+                                   Disabled="@(!CanViewEntity(context))"
+                                   OnClick="@(() => OpenViewer(context))"
+                                   title="Open grid viewer" />
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.body2">@context.DisplayName</MudText>
+                        <MudText Typo="Typo.caption" Class="mono">#@context.EntityId</MudText>
+                    </MudStack>
+                </MudStack>
             </MudTd>
             <MudTd DataLabel="Sub-type">@context.SubType</MudTd>
             <MudTd DataLabel="Blocks">@(context.BlockCount?.ToString() ?? "-")</MudTd>
@@ -298,6 +309,21 @@ else
 
         return ConnectedAgents.FirstOrDefault(agent =>
             string.Equals(agent.AgentId, _selectedAgentId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool CanViewEntity(EntitySummary entity)
+    {
+        return string.Equals(entity.TypeTag, "Grid", StringComparison.OrdinalIgnoreCase) && GetSelectedAgent() is not null;
+    }
+
+    private void OpenViewer(EntitySummary entity)
+    {
+        var agent = GetSelectedAgent();
+        if (agent is null || !CanViewEntity(entity))
+            return;
+
+        var agentId = Uri.EscapeDataString(agent.AgentId);
+        Navigation.NavigateTo($"/viewer/entity?agentId={agentId}&entityId={entity.EntityId}");
     }
 
     private bool MatchesSearch(EntitySummary entity)

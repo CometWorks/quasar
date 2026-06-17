@@ -1040,6 +1040,9 @@ namespace Quasar.Agent
                 case ServerCommandType.DeleteEntity:
                     return DeleteEntity(command);
 
+                case ServerCommandType.GetEntityRenderScene:
+                    return GetEntityRenderScene(command);
+
                 default:
                     return CreateResult(command, false, $"Unsupported command '{command.CommandType}'.");
             }
@@ -1094,6 +1097,17 @@ namespace Quasar.Agent
 
             var success = EntityInspector.TryDelete(request.EntityId, out var message);
             return CreateResult(command, success, message);
+        }
+
+        private ServerCommandResult GetEntityRenderScene(ServerCommandEnvelope command)
+        {
+            var request = DeserializePayload<EntityRenderSceneRequest>(command.Payload);
+            if (request == null || request.EntityId == 0)
+                return CreateResult(command, false, "Viewer scene request is missing an entity id.");
+
+            var gameVersion = MySession.Static?.AppVersionFromSave.ToString() ?? string.Empty;
+            var scene = GridRenderSceneInspector.Build(request.EntityId, gameVersion, _pluginVersion);
+            return CreateResult(command, true, "Viewer scene snapshot captured.", SerializePayload(scene));
         }
 
         private static string SerializePayload(object value)

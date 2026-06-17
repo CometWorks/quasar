@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quasar Grid Viewer</title>
+    <link rel="icon" type="image/png" href="/Quasar.png">
+    <link rel="stylesheet" href="/viewer/styles.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <main class="viewer-shell">
+        <aside class="panel" aria-label="Viewer controls">
+            <header>
+                <p class="eyebrow">Quasar viewer</p>
+                <h1>Grid Viewer</h1>
+                <p class="lede">Metadata comes from the server agent. Models and textures must come from your local Space Engineers <code>Content</code> folder.</p>
+            </header>
+
+            <section class="card">
+                <h2>Scene</h2>
+                <dl id="sceneSummary" class="summary-list"></dl>
+                <button id="reloadScene" type="button" class="wide">Reload Scene</button>
+            </section>
+
+            <section class="card">
+                <h2>Local Content</h2>
+                <p id="contentStatus" class="status-text">No Content folder selected.</p>
+                <button id="pickContent" type="button" class="wide">Select Space Engineers Content Folder</button>
+                <p class="hint">Quasar does not transmit .mwm files, texture files, or extracted geometry. Missing local files render as proxy boxes.</p>
+            </section>
+
+            <section class="card">
+                <h2>Render</h2>
+                <label class="check-row">
+                    <input id="showGridHelper" type="checkbox" checked>
+                    Show floor grid
+                </label>
+                <label class="check-row">
+                    <input id="showSun" type="checkbox" checked>
+                    Show sun marker
+                </label>
+                <label>
+                    Camera mode
+                    <select id="cameraMode">
+                        <option value="orbit" selected>Orbit</option>
+                        <option value="fly">Free fly</option>
+                    </select>
+                </label>
+                <button id="resetCamera" type="button" class="wide">Reset Camera</button>
+            </section>
+
+            <section class="card stats-card">
+                <h2>Stats</h2>
+                <dl id="stats"></dl>
+            </section>
+
+            <section class="card log-card">
+                <h2>Warnings</h2>
+                <button id="downloadLog" type="button" class="wide">Download Log</button>
+                <pre id="log" aria-live="polite"></pre>
+            </section>
+        </aside>
+
+        <section class="viewport-wrap" aria-label="3D viewport">
+            <div id="viewport" class="viewport"></div>
+            <div id="cameraHint" class="camera-hint">Orbit mode</div>
+            <div id="hoverReadout" class="hover-readout">No block selected</div>
+        </section>
+    </main>
+
+    <script type="module" src="/viewer/main.js"></script>
+</body>
+</html>

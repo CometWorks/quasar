@@ -1,0 +1,621 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using Magnetar.Protocol.Model;
+using Sandbox.Definitions;
+using Sandbox.Game.Entities;
+using Sandbox.Game.Entities.Cube;
+using Sandbox.Game.World;
+using VRage.Game;
+using VRage.Game.Entity;
+using VRage.Utils;
+using VRageMath;
+
+namespace Quasar.Agent
+{
+    /// <summary>
+    /// Builds metadata-only grid scene snapshots for Quasar's browser viewer.
+    /// Every member must be called on the game thread.
+    /// </summary>
+    internal static class GridRenderSceneInspector
+    {
+        private const int ChunkSizeCells = 16;
+
+        public static EntityRenderScene Build(long entityId, string gameVersion, string pluginVersion)
+        {
+            if (!MyEntities.TryGetEntityById<MyCubeGrid>(entityId, out var grid) || grid == null || grid.MarkedForClose || grid.Closed)
+                throw new InvalidOperationException("Grid not found or not loaded on this server.");
+
+            var catalog = new MetadataAssetCatalog();
+            var scene = new EntityRenderScene
+            {
+                GameVersion = gameVersion ?? string.Empty,
+                PluginVersion = pluginVersion ?? string.Empty,
+                Grid = ToGrid(grid),
+                CapturedAtUtc = DateTimeOffset.UtcNow,
+            };
+
+            var definitions = new Dictionary<string, ViewerBlockDefinition>(StringComparer.Ordinal);
+            var chunks = new Dictionary<string, ChunkBuilder>(StringComparer.Ordinal);
+
+            foreach (var block in grid.CubeBlocks)
+            {
+                if (block == null || block.BlockDefinition == null)
+                    continue;
+
+                var definitionId = DefinitionId(block.BlockDefinition);
+                if (!definitions.ContainsKey(definitionId))
+                    definitions[definitionId] = ToBlockDefinition(block.BlockDefinition, catalog, scene.Warnings);
+
+                var chunkCoord = ChunkCoordinate(block.Position, ChunkSizeCells);
+                var chunkId = ChunkId(chunkCoord);
+                if (!chunks.TryGetValue(chunkId, out var chunk))
+                {
+                    chunk = new ChunkBuilder(chunkId);
+                    chunks.Add(chunkId, chunk);
+                }
+
+                chunk.Include(block.Min, block.Max);
+                scene.BlockInstances.Add(ToBlockInstance(grid, block, definitionId, chunkId, catalog, scene.Warnings));
+            }
+
+            scene.BlockDefinitions = definitions.Values.OrderBy(definition => definition.Id, StringComparer.Ordinal).ToList();
+            scene.Chunks = chunks.Values.Select(chunk => chunk.ToDto(grid.GridSize)).OrderBy(chunk => chunk.Id, StringComparer.Ordinal).ToList();
+            scene.ModelAssets = catalog.ModelAssetsSnapshot();
+            scene.TextureAssets = catalog.TextureAssetsSnapshot();
+            return scene;
+        }
+
+        private static ViewerGrid ToGrid(MyCubeGrid grid)
+        {
+            return new ViewerGrid
+            {
+                Id = grid.EntityId.ToString(),
+                DisplayName = FirstNonEmpty(grid.DisplayName, grid.Name, $"Grid {grid.EntityId}"),
+                GridSize = grid.GridSize,
+                GridSpace = grid.GridSizeEnum.ToString().ToLowerInvariant(),
+                IsStatic = grid.IsStatic,
+                WorldMatrix = ToDto(grid.WorldMatrix),
+                BlockCount = grid.BlocksCount,
+                Bounds = ToDto(grid.PositionComp.WorldAABB),
+            };
+        }
+
+        private static ViewerBlockDefinition ToBlockDefinition(
+            MyCubeBlockDefinition definition,
+            MetadataAssetCatalog catalog,
+            List<string> warnings)
+        {
+            var modelAssetId = catalog.RegisterModel(definition.Model);
+            var dto = new ViewerBlockDefinition
+            {
+                Id = DefinitionId(definition),
+                DisplayName = definition.DisplayNameText ?? string.Empty,
+                GridSpace = definition.CubeSize.ToString().ToLowerInvariant(),
+                Size = ToDto(definition.Size),
+                ModelAssetId = modelAssetId ?? string.Empty,
+                ModelOffset = ToDto(definition.ModelOffset),
+                LocalAabbMin = ToDto(new Vector3(-definition.Size.X, -definition.Size.Y, -definition.Size.Z) * 0.5f),
+                LocalAabbMax = ToDto(new Vector3(definition.Size.X, definition.Size.Y, definition.Size.Z) * 0.5f),
+                VisibilityClass = VisibilityClass(definition),
+                OpaqueFaceMask = OpaqueFaceMask(definition),
+            };
+
+            if (definition.BuildProgressModels != null)
+            {
+                foreach (var buildModel in definition.BuildProgressModels)
+                {
+                    var id = catalog.RegisterModel(buildModel.File);
+                    if (!string.IsNullOrEmpty(id))
+                        dto.BuildProgressModelAssetIds.Add(id);
+                }
+            }
+
+            if (!string.IsNullOrEmpty(definition.Model) && string.IsNullOrEmpty(modelAssetId))
+                warnings.Add("Block definition " + dto.Id + " has no model logical path.");
+
+            return dto;
+        }
+
+        private static ViewerBlockInstance ToBlockInstance(
+            MyCubeGrid grid,
+            MySlimBlock block,
+            string definitionId,
+            string chunkId,
+            MetadataAssetCatalog catalog,
+            List<string> warnings)
+        {
+            block.GetLocalMatrix(out var localMatrix);
+            var currentModelAssetId = string.Empty;
+            try
+            {
+                var currentModel = block.CalculateCurrentModel(out var _);
+                currentModelAssetId = catalog.RegisterModel(currentModel) ?? string.Empty;
+            }
+            catch (Exception exception)
+            {
+                warnings.Add("Failed to resolve current model for block " + block.Position + ": " + exception.Message);
+            }
+
+            var dto = new ViewerBlockInstance
+            {
+                Id = block.FatBlock != null ? block.FatBlock.EntityId.ToString() : grid.EntityId + ":" + block.Min.X + "," + block.Min.Y + "," + block.Min.Z,
+                GridId = grid.EntityId.ToString(),
+                BlockTypeId = definitionId,
+                ChunkId = chunkId,
+                Cell = ToDto(block.Position),
+                Min = ToDto(block.Min),
+                Max = ToDto(block.Max),
+                Translation = ToDto(localMatrix.Translation),
+                Rotation = ToDto(localMatrix),
+                Scale = new ViewerVector3 { X = 1f, Y = 1f, Z = 1f },
+                OrientationForward = block.Orientation.Forward.ToString(),
+                OrientationUp = block.Orientation.Up.ToString(),
+                ColourMaskHsv = ToDto(block.ColorMaskHSV),
+                SkinSubtypeId = block.SkinSubtypeId.String ?? string.Empty,
+                BuildLevel = block.BuildLevelRatio,
+                Integrity = block.Integrity,
+                MaxIntegrity = block.MaxIntegrity,
+                CurrentModelAssetId = currentModelAssetId,
+            };
+
+            AddGeneratedBlockModelParts(grid, block, dto, catalog, warnings);
+            AddRuntimeSubparts(grid, block, dto, catalog, warnings);
+            AddSkinTextureChanges(block, dto, catalog, warnings);
+            return dto;
+        }
+
+        private static void AddGeneratedBlockModelParts(
+            MyCubeGrid grid,
+            MySlimBlock block,
+            ViewerBlockInstance dto,
+            MetadataAssetCatalog catalog,
+            List<string> warnings)
+        {
+            if (block.BlockDefinition.CubeDefinition == null)
+                return;
+
+            var cubePartModels = new List<string>();
+            var cubePartMatrices = new List<MatrixD>();
+            var cubePartNormals = new List<Vector3>();
+            var cubePartPatternOffsets = new List<Vector4UByte>();
+
+            try
+            {
+                block.Orientation.GetMatrix(out Matrix rotation);
+                MyCubeGrid.GetCubeParts(
+                    block.BlockDefinition,
+                    block.Position,
+                    rotation,
+                    grid.GridSize,
+                    cubePartModels,
+                    cubePartMatrices,
+                    cubePartNormals,
+                    cubePartPatternOffsets,
+                    topologyCheck: true);
+
+                for (var i = 0; i < cubePartModels.Count; i++)
+                {
+                    var modelAssetId = catalog.RegisterModel(cubePartModels[i]);
+                    if (string.IsNullOrEmpty(modelAssetId))
+                        continue;
+
+                    dto.ModelParts.Add(new ViewerBlockModelPart
+                    {
+                        ModelAssetId = modelAssetId,
+                        LocalMatrix = ToDto(cubePartMatrices[i]),
+                        LocalNormal = ToDto(cubePartNormals[i]),
+                        PatternOffset = ToDto(cubePartPatternOffsets[i]),
+                    });
+                }
+            }
+            catch (Exception exception)
+            {
+                warnings.Add("Failed to resolve generated model parts for block " + block.Position + ": " + exception.Message);
+            }
+        }
+
+        private static void AddRuntimeSubparts(
+            MyCubeGrid grid,
+            MySlimBlock block,
+            ViewerBlockInstance dto,
+            MetadataAssetCatalog catalog,
+            List<string> warnings)
+        {
+            var fatBlock = block.FatBlock;
+            if (fatBlock?.Subparts == null || fatBlock.Subparts.Count == 0)
+                return;
+
+            try
+            {
+                var gridWorldInverse = MatrixD.Invert(grid.WorldMatrix);
+                AddRuntimeSubparts(block, fatBlock.Subparts, string.Empty, gridWorldInverse, dto, catalog, warnings);
+            }
+            catch (Exception exception)
+            {
+                warnings.Add("Failed to resolve runtime subparts for block " + block.Position + ": " + exception.Message);
+            }
+        }
+
+        private static void AddRuntimeSubparts(
+            MySlimBlock block,
+            Dictionary<string, MyEntitySubpart> subparts,
+            string parentPath,
+            MatrixD gridWorldInverse,
+            ViewerBlockInstance dto,
+            MetadataAssetCatalog catalog,
+            List<string> warnings)
+        {
+            foreach (var pair in subparts.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
+                var subpart = pair.Value;
+                if (subpart == null || subpart.Closed || subpart.MarkedForClose)
+                    continue;
+
+                var subpartName = string.IsNullOrEmpty(pair.Key) ? subpart.EntityId.ToString() : pair.Key;
+                var subpartPath = string.IsNullOrEmpty(parentPath) ? subpartName : parentPath + "/" + subpartName;
+
+                try
+                {
+                    var modelPath = subpart.Model?.AssetName;
+                    if (string.IsNullOrEmpty(modelPath))
+                    {
+                        warnings.Add("Runtime subpart " + subpartPath + " for block " + block.Position + " has no model path.");
+                    }
+                    else if (subpart.PositionComp == null)
+                    {
+                        warnings.Add("Runtime subpart " + subpartPath + " for block " + block.Position + " has no position component.");
+                    }
+                    else
+                    {
+                        var modelAssetId = catalog.RegisterModel(modelPath);
+                        if (string.IsNullOrEmpty(modelAssetId))
+                        {
+                            warnings.Add("Runtime subpart " + subpartPath + " for block " + block.Position + " has no registered model asset.");
+                        }
+                        else
+                        {
+                            dto.Subparts.Add(new ViewerBlockSubpart
+                            {
+                                Name = subpartPath,
+                                ModelAssetId = modelAssetId,
+                                LocalMatrix = ToDto(subpart.PositionComp.WorldMatrixRef * gridWorldInverse),
+                            });
+                        }
+                    }
+                }
+                catch (Exception exception)
+                {
+                    warnings.Add("Failed to resolve runtime subpart " + subpartPath + " for block " + block.Position + ": " + exception.Message);
+                }
+
+                if (subpart.Subparts != null && subpart.Subparts.Count > 0)
+                    AddRuntimeSubparts(block, subpart.Subparts, subpartPath, gridWorldInverse, dto, catalog, warnings);
+            }
+        }
+
+        private static void AddSkinTextureChanges(
+            MySlimBlock block,
+            ViewerBlockInstance dto,
+            MetadataAssetCatalog catalog,
+            List<string> warnings)
+        {
+            if (block.SkinSubtypeId == MyStringHash.NullOrEmpty)
+                return;
+
+            try
+            {
+                var modifiers = MyDefinitionManager.Static.GetAssetModifierDefinitionForRender(block.SkinSubtypeId);
+                if (modifiers?.SkinTextureChanges == null)
+                    return;
+
+                foreach (var pair in modifiers.SkinTextureChanges.OrderBy(pair => pair.Key.String, StringComparer.Ordinal))
+                {
+                    var changeDto = new ViewerMaterialTextureChange { MaterialName = pair.Key.String };
+                    AddSkinTextureChange(changeDto, "ColorMetalTexture", pair.Value.ColorMetalFileName, "base color", catalog);
+                    AddSkinTextureChange(changeDto, "NormalGlossTexture", pair.Value.NormalGlossFileName, "normal", catalog);
+                    AddSkinTextureChange(changeDto, "AddMapsTexture", pair.Value.ExtensionsFileName, "orm/add maps", catalog);
+                    AddSkinTextureChange(changeDto, "AlphamaskTexture", pair.Value.AlphamaskFileName, "alpha", catalog);
+                    if (changeDto.Textures.Count > 0)
+                        dto.SkinTextureChanges.Add(changeDto);
+                }
+            }
+            catch (Exception exception)
+            {
+                warnings.Add("Failed to resolve skin texture changes for block " + block.Position + ": " + exception.Message);
+            }
+        }
+
+        private static void AddSkinTextureChange(
+            ViewerMaterialTextureChange dto,
+            string slot,
+            string texturePath,
+            string usage,
+            MetadataAssetCatalog catalog)
+        {
+            var textureId = catalog.RegisterTexture(texturePath, usage);
+            if (!string.IsNullOrEmpty(textureId))
+                dto.Textures[slot] = textureId;
+        }
+
+        private static string DefinitionId(MyCubeBlockDefinition definition)
+        {
+            return definition.Id.ToString();
+        }
+
+        private static string VisibilityClass(MyCubeBlockDefinition definition)
+        {
+            if (IsTransparentDefinition(definition))
+                return "transparent";
+
+            if (OpaqueFaceMask(definition) == 63)
+                return "opaque-full-cell";
+
+            return "opaque-partial";
+        }
+
+        private static int OpaqueFaceMask(MyCubeBlockDefinition definition)
+        {
+            if (IsTransparentDefinition(definition) ||
+                !definition.BlockTopology.ToString().Equals("Cube", StringComparison.OrdinalIgnoreCase) ||
+                definition.Size != Vector3I.One)
+                return 0;
+
+            if (definition.IsCubePressurized == null || !definition.IsCubePressurized.TryGetValue(Vector3I.Zero, out var faces))
+                return 0;
+
+            var mask = 0;
+            AddOpaqueFaceBit(faces, new Vector3I(1, 0, 0), 0, ref mask);
+            AddOpaqueFaceBit(faces, new Vector3I(-1, 0, 0), 1, ref mask);
+            AddOpaqueFaceBit(faces, new Vector3I(0, 1, 0), 2, ref mask);
+            AddOpaqueFaceBit(faces, new Vector3I(0, -1, 0), 3, ref mask);
+            AddOpaqueFaceBit(faces, new Vector3I(0, 0, 1), 4, ref mask);
+            AddOpaqueFaceBit(faces, new Vector3I(0, 0, -1), 5, ref mask);
+            return mask;
+        }
+
+        private static void AddOpaqueFaceBit(
+            Dictionary<Vector3I, MyCubeBlockDefinition.MyCubePressurizationMark> faces,
+            Vector3I normal,
+            int bit,
+            ref int mask)
+        {
+            if (faces.TryGetValue(normal, out var mark) && mark == MyCubeBlockDefinition.MyCubePressurizationMark.PressurizedAlways)
+                mask |= 1 << bit;
+        }
+
+        private static bool IsTransparentDefinition(MyCubeBlockDefinition definition)
+        {
+            var id = definition.Id.ToString();
+            var model = definition.Model ?? string.Empty;
+            return id.IndexOf("glass", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   model.IndexOf("glass", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static Vector3I ChunkCoordinate(Vector3I cell, int chunkSize)
+        {
+            return new Vector3I(FloorDiv(cell.X, chunkSize), FloorDiv(cell.Y, chunkSize), FloorDiv(cell.Z, chunkSize));
+        }
+
+        private static int FloorDiv(int value, int divisor)
+        {
+            var quotient = value / divisor;
+            var remainder = value % divisor;
+            return remainder != 0 && ((remainder < 0) != (divisor < 0)) ? quotient - 1 : quotient;
+        }
+
+        private static string ChunkId(Vector3I chunk)
+        {
+            return chunk.X + "," + chunk.Y + "," + chunk.Z;
+        }
+
+        private static string FirstNonEmpty(params string[] values)
+        {
+            foreach (var value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value.Trim();
+            }
+
+            return string.Empty;
+        }
+
+        private static ViewerVector3I ToDto(Vector3I value)
+        {
+            return new ViewerVector3I { X = value.X, Y = value.Y, Z = value.Z };
+        }
+
+        private static ViewerVector3 ToDto(Vector3 value)
+        {
+            return new ViewerVector3 { X = value.X, Y = value.Y, Z = value.Z };
+        }
+
+        private static ViewerVector3D ToDto(Vector3D value)
+        {
+            return new ViewerVector3D { X = value.X, Y = value.Y, Z = value.Z };
+        }
+
+        private static ViewerVector4Byte ToDto(Vector4UByte value)
+        {
+            return new ViewerVector4Byte { X = value.X, Y = value.Y, Z = value.Z, W = value.W };
+        }
+
+        private static ViewerMatrix ToDto(Matrix value)
+        {
+            return new ViewerMatrix
+            {
+                M11 = value.M11, M12 = value.M12, M13 = value.M13, M14 = value.M14,
+                M21 = value.M21, M22 = value.M22, M23 = value.M23, M24 = value.M24,
+                M31 = value.M31, M32 = value.M32, M33 = value.M33, M34 = value.M34,
+                M41 = value.M41, M42 = value.M42, M43 = value.M43, M44 = value.M44,
+            };
+        }
+
+        private static ViewerMatrix ToDto(MatrixD value)
+        {
+            return new ViewerMatrix
+            {
+                M11 = value.M11, M12 = value.M12, M13 = value.M13, M14 = value.M14,
+                M21 = value.M21, M22 = value.M22, M23 = value.M23, M24 = value.M24,
+                M31 = value.M31, M32 = value.M32, M33 = value.M33, M34 = value.M34,
+                M41 = value.M41, M42 = value.M42, M43 = value.M43, M44 = value.M44,
+            };
+        }
+
+        private static ViewerBounds ToDto(BoundingBoxD value)
+        {
+            return new ViewerBounds { Min = ToDto(value.Min), Max = ToDto(value.Max) };
+        }
+
+        private sealed class ChunkBuilder
+        {
+            private readonly string _id;
+            private Vector3I _min;
+            private Vector3I _max;
+            private bool _initialized;
+            private int _count;
+
+            public ChunkBuilder(string id)
+            {
+                _id = id;
+            }
+
+            public void Include(Vector3I blockMin, Vector3I blockMax)
+            {
+                if (!_initialized)
+                {
+                    _min = blockMin;
+                    _max = blockMax;
+                    _initialized = true;
+                }
+                else
+                {
+                    _min = Vector3I.Min(_min, blockMin);
+                    _max = Vector3I.Max(_max, blockMax);
+                }
+
+                _count++;
+            }
+
+            public ViewerGridChunk ToDto(float gridSize)
+            {
+                var half = gridSize * 0.5f;
+                return new ViewerGridChunk
+                {
+                    Id = _id,
+                    MinCell = GridRenderSceneInspector.ToDto(_min),
+                    MaxCell = GridRenderSceneInspector.ToDto(_max),
+                    LocalAabbMin = GridRenderSceneInspector.ToDto(new Vector3(_min.X * gridSize - half, _min.Y * gridSize - half, _min.Z * gridSize - half)),
+                    LocalAabbMax = GridRenderSceneInspector.ToDto(new Vector3(_max.X * gridSize + half, _max.Y * gridSize + half, _max.Z * gridSize + half)),
+                    BlockCount = _count,
+                };
+            }
+        }
+
+        private sealed class MetadataAssetCatalog
+        {
+            private readonly Dictionary<string, ViewerModelAsset> _modelsById = new Dictionary<string, ViewerModelAsset>(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, ViewerTextureAsset> _texturesById = new Dictionary<string, ViewerTextureAsset>(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, string> _idsByLogicalPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            public string RegisterModel(string logicalPath)
+            {
+                logicalPath = NormalizeLogicalPath(logicalPath);
+                if (string.IsNullOrEmpty(logicalPath))
+                    return null;
+
+                var assetId = GetOrCreateId("model", logicalPath);
+                if (!_modelsById.ContainsKey(assetId))
+                {
+                    _modelsById[assetId] = new ViewerModelAsset
+                    {
+                        AssetId = assetId,
+                        LogicalPath = logicalPath,
+                        SourceKind = SourceKind(logicalPath),
+                    };
+                }
+
+                return assetId;
+            }
+
+            public string RegisterTexture(string logicalPath, string usage)
+            {
+                logicalPath = NormalizeLogicalPath(logicalPath);
+                if (string.IsNullOrEmpty(logicalPath))
+                    return null;
+
+                var assetId = GetOrCreateId("texture", logicalPath);
+                if (!_texturesById.ContainsKey(assetId))
+                {
+                    _texturesById[assetId] = new ViewerTextureAsset
+                    {
+                        AssetId = assetId,
+                        LogicalPath = logicalPath,
+                        SourceKind = SourceKind(logicalPath),
+                        Usage = usage ?? "unknown",
+                    };
+                }
+
+                return assetId;
+            }
+
+            public List<ViewerModelAsset> ModelAssetsSnapshot()
+            {
+                return _modelsById.Values.OrderBy(asset => asset.AssetId, StringComparer.Ordinal).ToList();
+            }
+
+            public List<ViewerTextureAsset> TextureAssetsSnapshot()
+            {
+                return _texturesById.Values.OrderBy(asset => asset.AssetId, StringComparer.Ordinal).ToList();
+            }
+
+            private string GetOrCreateId(string prefix, string logicalPath)
+            {
+                var key = prefix + ":" + logicalPath.ToLowerInvariant();
+                if (_idsByLogicalPath.TryGetValue(key, out var existing))
+                    return existing;
+
+                using (var sha = SHA256.Create())
+                {
+                    var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(key));
+                    var builder = new StringBuilder(prefix).Append('_');
+                    for (var i = 0; i < 8; i++)
+                        builder.Append(hash[i].ToString("x2"));
+
+                    var id = builder.ToString();
+                    _idsByLogicalPath[key] = id;
+                    return id;
+                }
+            }
+
+            private static string NormalizeLogicalPath(string path)
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                    return null;
+
+                path = path.Trim().Replace('\\', '/');
+                var contentPath = VRage.FileSystem.MyFileSystem.ContentPath;
+                if (!string.IsNullOrEmpty(contentPath) && Path.IsPathRooted(path))
+                {
+                    var fullPath = Path.GetFullPath(path);
+                    var root = Path.GetFullPath(contentPath);
+                    if (fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                        path = fullPath.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/');
+                }
+
+                while (path.StartsWith("./", StringComparison.Ordinal))
+                    path = path.Substring(2);
+
+                return path;
+            }
+
+            private static string SourceKind(string logicalPath)
+            {
+                return logicalPath.IndexOf("Mods/", StringComparison.OrdinalIgnoreCase) >= 0 ? "mod" : "game";
+            }
+        }
+    }
+}

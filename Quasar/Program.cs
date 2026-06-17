@@ -155,6 +155,7 @@ public class Program
             builder.Services.AddSingleton<ProfilerStoreService>();
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<EntityService>();
+            builder.Services.AddSingleton<ViewerSceneService>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
             builder.Services.AddSingleton<QuasarWorldTemplateCatalog>();
@@ -264,6 +265,43 @@ public class Program
             });
             if (authOptions.Enabled)
                 analyticsSeries.RequireAuthorization(QuasarPolicyNames.CanView);
+
+            var viewerScene = app.MapGet("/api/viewer/entities/{agentId}/{entityId:long}/scene", async (
+                string agentId,
+                long entityId,
+                ViewerSceneService viewerSceneService,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    return Results.Json(await viewerSceneService.GetEntitySceneAsync(agentId, entityId, cancellationToken));
+                }
+                catch (TimeoutException exception)
+                {
+                    return Results.Problem(exception.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    return Results.Problem(exception.Message, statusCode: StatusCodes.Status400BadRequest);
+                }
+            });
+
+            var viewerPage = app.MapGet("/viewer/entity", (IWebHostEnvironment environment) =>
+            {
+                var webRootPath = string.IsNullOrWhiteSpace(environment.WebRootPath)
+                    ? Path.Combine(environment.ContentRootPath, "wwwroot")
+                    : environment.WebRootPath;
+                var path = Path.Combine(webRootPath, "viewer", "index.html");
+                return File.Exists(path)
+                    ? Results.File(path, "text/html; charset=utf-8")
+                    : Results.NotFound("Viewer assets are not installed.");
+            });
+
+            if (authOptions.Enabled)
+            {
+                viewerScene.RequireAuthorization(QuasarPolicyNames.CanView);
+                viewerPage.RequireAuthorization(QuasarPolicyNames.CanView);
+            }
 
             var serverLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/server/download", (string uniqueName, DedicatedServerCatalog catalog) =>
                 DownloadLogFile(ResolveLatestDedicatedServerLogPath(uniqueName, catalog)));
