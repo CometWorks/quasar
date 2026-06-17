@@ -13,7 +13,6 @@ MSBuild project file for the Quasar Blazor Server host. Targets `net10.0` using 
 - `AssemblyName` / `RootNamespace` / `PackageId` / `Product`: `Quasar`
 - `Version`, `AssemblyVersion`, `FileVersion`: `0.1.0` defaults; Linux release packaging overrides `Version`/`InformationalVersion` with the release identity
 - `BlazorDisableThrowNavigationException`: `true` — suppresses Blazor navigation exception propagation
-- `DeployDir`: `$(HOME)/Documents/Quasar` — default local deploy target
 
 **ProjectReference:**
 - `../Magnetar.Protocol/Magnetar.Protocol.csproj`
@@ -30,7 +29,6 @@ MSBuild project file for the Quasar Blazor Server host. Targets `net10.0` using 
 | `SharpCompress` | 0.49.1 |
 
 **Custom MSBuild targets:**
-- `CopyToDeployDir` (AfterTargets=Build, conditional on `CopyToDeployDir != false`) — copies output (excluding `.pdb`, `.xml`, and the main executable) to `$(DeployDir)`.
 - `BuildQuasarAgent` (BeforeTargets=Build;Publish) — builds `../Quasar.Agent/Quasar.Agent.csproj` for `netstandard2.0` / `x64` only when the staged DLLs are missing. It invokes `dotnet build` directly with RID and single-file publish properties cleared so parent publish globals do not leak into the agent restore/build.
 - `ResolveHarmonyPackageFiles` — resolves the restored `Lib.Harmony` package root from NuGet-generated properties, explicit NuGet package roots, or the default user package cache, then selects the best available .NET and .NET Framework `0Harmony.dll` assets.
 - `StageQuasarAgent` (AfterTargets=Build) — copies `Quasar.Agent.dll` and `Magnetar.Protocol.dll` from agent output into `$(OutputPath)Agent\`, then stages the resolved `0Harmony.dll` files under `Agent\DotNet10\` and `Agent\NetFramework48\`.

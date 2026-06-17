@@ -59,9 +59,6 @@ The solution file is `Quasar.sln`.
   check or replacement fails while a launcher already exists, Quasar logs the
   failure and continues using the installed launcher. The background Magnetar
   update check runs once per hour after startup warmup.
-- `deploy.sh` keeps `ManagedRuntime/Tools/Magnetar` intact during local source
-  deployments. The managed runtime resolver owns freshness checks, so a local
-  deploy no longer forces the Magnetar archive to be downloaded again.
 - At Quasar startup, the managed runtime warmup immediately checks the managed
   SteamCMD install and the managed Space Engineers Dedicated Server install. If
   either is missing, Quasar downloads it before managed Magnetar servers can be
@@ -78,11 +75,16 @@ The solution file is `Quasar.sln`.
 
 ## Utilities
 
-`deploy.sh` publishes the Bootstrap launcher and packaged web worker to
-`~/Documents/Quasar` for local launcher testing. It stamps the build from
-`VERSION`, an exact git tag, or a short commit-derived prerelease identity so the
-Bootstrap update monitor can compare source deployments against GitHub releases
-without treating every check as an upgrade from `0.1.0`.
+For local web UI development, run the worker directly:
+
+```bash
+dotnet run --project Quasar/Quasar.csproj
+```
+
+This uses the development launch profile and the normal Quasar data directory
+(`~/.config/Quasar` on Linux unless `QUASAR_DATA_DIR` is set). The Bootstrap
+launcher and release/update cutover paths are covered by the packaged installer
+and release workflows rather than a local deploy helper.
 
 Generate synthetic analytics data for local testing:
 

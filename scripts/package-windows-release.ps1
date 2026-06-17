@@ -206,7 +206,6 @@ Write-Host "Building Quasar.Agent ($Configuration)..."
     -p:RuntimeIdentifier= `
     -p:SelfContained= `
     -p:PublishSingleFile= `
-    -p:CopyToDeployDir=false `
     -v minimal
 if ($LASTEXITCODE -ne 0) { throw "dotnet build Quasar.Agent failed with exit code $LASTEXITCODE" }
 
@@ -214,7 +213,6 @@ Write-Host "Publishing Quasar.Bootstrap ($Configuration, $Runtime, version $Nuge
 & dotnet publish (Join-Path $RepoDir 'Quasar.Bootstrap\Quasar.Bootstrap.csproj') `
     -c $Configuration `
     -r $Runtime `
-    -p:CopyToDeployDir=false `
     -p:Version=$NugetVersion `
     -p:AssemblyVersion=$AssemblyFileVersion `
     -p:FileVersion=$AssemblyFileVersion `

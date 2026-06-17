@@ -24,19 +24,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
-    <DeployDir>$(HOME)/Documents/Quasar</DeployDir>
   </PropertyGroup>
-
-  <Target Name="CopyToDeployDir" AfterTargets="Build" Condition="'$(CopyToDeployDir)' != 'false'">
-    <MakeDir Directories="$(DeployDir)" />
-    <ItemGroup>
-      <_DeployFiles Include="$(OutputPath)**\*"
-                    Exclude="$(OutputPath)**\*.pdb;$(OutputPath)**\*.xml;$(OutputPath)Quasar;$(OutputPath)Quasar.exe" />
-    </ItemGroup>
-    <Copy SourceFiles="@(_DeployFiles)"
-          DestinationFolder="$(DeployDir)/%(RecursiveDir)"
-          SkipUnchangedFiles="true" />
-  </Target>
 
   <!-- Build Quasar.Agent and stage its plugin DLLs into an Agent/ subfolder of both
        the Build output and the Publish output. The runtime preparer copies these
@@ -53,7 +41,7 @@
           Condition="!Exists('$(_QuasarAgentOutputDir)Quasar.Agent.dll') Or !Exists('$(_QuasarAgentOutputDir)Magnetar.Protocol.dll')">
     <!-- Invoke dotnet directly so publish-time globals from the parent build do
          not bleed into Quasar.Agent's netstandard2.0 restore/build. -->
-    <Exec Command="dotnet build &quot;$(_QuasarAgentProject)&quot; -c &quot;$(Configuration)&quot; -p:Platform=x64 -p:RuntimeIdentifier= -p:SelfContained= -p:PublishSingleFile= -p:CopyToDeployDir=false -v minimal" />
+    <Exec Command="dotnet build &quot;$(_QuasarAgentProject)&quot; -c &quot;$(Configuration)&quot; -p:Platform=x64 -p:RuntimeIdentifier= -p:SelfContained= -p:PublishSingleFile= -v minimal" />
   </Target>
 
   <Target Name="ResolveHarmonyPackageFiles">
