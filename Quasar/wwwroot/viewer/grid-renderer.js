@@ -5,6 +5,7 @@ import { blockMaterial, wireMaterial } from "./materials.js";
 import { colorFromHash, matrixDtoToThree } from "./math.js";
 import { disposeObjectTree, fitCameraToScene, replaceFloorGrid } from "./scene.js";
 import { resolveModelAsset } from "./mwm-loader.js";
+import { loadTexture } from "./texture-loader.js";
 import { log } from "./logging.js";
 
 export async function renderGridScene(scene) {
@@ -108,7 +109,7 @@ function createModelMesh(assetId, block, matrix) {
 function createModelMaterial(model, group) {
     const technique = String(group.technique || "MESH").toUpperCase();
     const transparent = technique.includes("GLASS") || technique.includes("ALPHA") || technique.includes("HOLO") || technique.includes("SHIELD");
-    return new THREE.MeshStandardMaterial({
+    const material = new THREE.MeshStandardMaterial({
         color: colorFromHash(`${model.logicalPath}|${group.materialName || group.materialIndex}`),
         roughness: 0.72,
         metalness: 0.22,
@@ -116,6 +117,43 @@ function createModelMaterial(model, group) {
         opacity: technique.includes("GLASS") ? 0.38 : transparent ? 0.7 : 1,
         side: technique.includes("SINGLE_SIDED") ? THREE.FrontSide : THREE.DoubleSide,
     });
+    applyModelTextures(material, group, technique);
+    return material;
+}
+
+function applyModelTextures(material, group, technique) {
+    const base = textureSelection(group.textures, technique.includes("GLASS")
+        ? ["GlassTexture", "TransparentTexture", "ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]
+        : ["ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]);
+    if (base) {
+        loadTexture(base.path, base.slot).then(texture => {
+            material.map = texture;
+            material.color.set(0xffffff);
+            material.needsUpdate = true;
+        }).catch(error => log(`Texture fallback retained for ${base.path}: ${error.message}`, true));
+    }
+
+    const normal = textureSelection(group.textures, ["NormalGlossTexture", "NormalTexture", "NormalMapTexture"]);
+    if (normal) {
+        loadTexture(normal.path, normal.slot).then(texture => {
+            material.normalMap = texture;
+            material.normalScale.set(-1, 1);
+            material.needsUpdate = true;
+        }).catch(error => log(`Normal texture fallback retained for ${normal.path}: ${error.message}`, true));
+    }
+}
+
+function textureSelection(textures, preferredSlots) {
+    const entries = Object.entries(textures || {}).filter(([, path]) => !!path);
+    for (const preferred of preferredSlots) {
+        const entry = entries.find(([slot]) => slot.toLowerCase() === preferred.toLowerCase());
+        if (entry) return { slot: entry[0], path: entry[1] };
+    }
+    for (const [slot, path] of entries) {
+        const text = `${slot} ${path}`.toLowerCase();
+        if (preferredSlots.some(preferred => text.includes(preferred.replace(/Texture$/i, "").toLowerCase()))) return { slot, path };
+    }
+    return null;
 }
 
 function createBlockProxy(block, definition, box) {

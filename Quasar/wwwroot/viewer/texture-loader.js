@@ -1,6 +1,227 @@
+import * as THREE from "three";
 import { resolveContentFile } from "./content-folder.js";
+import { log } from "./logging.js";
+import { state } from "./state.js";
 
 export async function resolveTextureAsset(asset) {
     if (!asset || !asset.logicalPath) return null;
-    return await resolveContentFile(asset.logicalPath);
+    return await resolveTextureFile(asset.logicalPath);
+}
+
+export async function loadTexture(logicalPath, slot = "") {
+    if (!logicalPath) return null;
+    const resolved = await resolveTextureFile(logicalPath);
+    if (!resolved) throw new Error(`Missing local texture: ${logicalPath}`);
+
+    const colorSpaceKey = isNonColorTexture(resolved.logicalPath, slot) ? "data" : "color";
+    const cacheKey = `${resolved.logicalPath.toLowerCase()}|${resolved.file.size}|${resolved.file.lastModified || 0}|${colorSpaceKey}`;
+    if (state.textureCache.has(cacheKey)) return await state.textureCache.get(cacheKey);
+
+    const promise = loadResolvedTexture(resolved, slot);
+    state.textureCache.set(cacheKey, promise);
+    try {
+        const texture = await promise;
+        state.textureCache.set(cacheKey, texture);
+        return texture;
+    } catch (error) {
+        state.textureCache.delete(cacheKey);
+        throw error;
+    }
+}
+
+async function resolveTextureFile(logicalPath) {
+    const path = String(logicalPath || "").trim();
+    if (!path) return null;
+    const hasExtension = /\.[a-z0-9]+$/i.test(path);
+    const candidates = hasExtension ? [path] : [`${path}.dds`, `${path}.png`, `${path}.jpg`, `${path}.jpeg`, `${path}.webp`, path];
+    for (const candidate of candidates) {
+        const resolved = await resolveContentFile(candidate);
+        if (resolved) return resolved;
+    }
+    return null;
+}
+
+async function loadResolvedTexture(resolved, slot) {
+    const lower = resolved.logicalPath.toLowerCase();
+    const texture = lower.endsWith(".dds")
+        ? await loadDdsTexture(resolved, slot)
+        : await loadBrowserImageTexture(resolved, slot);
+    configureTexture(texture, resolved.logicalPath, slot);
+    return texture;
+}
+
+async function loadBrowserImageTexture(resolved, slot) {
+    const objectUrl = URL.createObjectURL(resolved.file);
+    try {
+        return await new Promise((resolve, reject) => {
+            new THREE.TextureLoader().load(objectUrl, resolve, undefined, reject);
+        });
+    } finally {
+        URL.revokeObjectURL(objectUrl);
+    }
+}
+
+async function loadDdsTexture(resolved, slot) {
+    const buffer = await resolved.file.arrayBuffer();
+    const info = readDdsInfo(buffer, resolved.logicalPath);
+    const texture = createCompressedDdsTexture(parseDdsMipmaps(buffer, info), resolved.logicalPath, info);
+    configureTexture(texture, resolved.logicalPath, slot);
+    validateCompressedTextureUpload(texture, info);
+    log(`DDS texture loaded locally: ${ddsLogLabel(info)}.`);
+    return texture;
+}
+
+function readDdsInfo(buffer, logicalPath) {
+    if (buffer.byteLength < 128) throw new Error("DDS file is too small for a header.");
+    const header = new Int32Array(buffer, 0, 31);
+    if (header[0] !== 0x20534444 || header[1] !== 124) throw new Error("Invalid DDS header.");
+
+    const fourCC = header[21];
+    const info = {
+        logicalPath,
+        fourCC,
+        fourCCText: fourCCToString(fourCC),
+        dxgiFormat: null,
+        width: header[4],
+        height: header[3],
+        mipmapCount: Math.max(1, header[7]),
+        dataOffset: 128,
+        blockBytes: 0,
+        format: null,
+        formatName: "",
+        extensionName: "",
+    };
+
+    if (fourCC === fourCCCode("DXT1")) applyBlockInfo(info, 8, THREE.RGB_S3TC_DXT1_Format, "DXT1", "WEBGL_compressed_texture_s3tc");
+    else if (fourCC === fourCCCode("DXT3")) applyBlockInfo(info, 16, THREE.RGBA_S3TC_DXT3_Format, "DXT3", "WEBGL_compressed_texture_s3tc");
+    else if (fourCC === fourCCCode("DXT5")) applyBlockInfo(info, 16, THREE.RGBA_S3TC_DXT5_Format, "DXT5", "WEBGL_compressed_texture_s3tc");
+    else if (fourCC === fourCCCode("BC4U") || fourCC === fourCCCode("ATI1")) applyBlockInfo(info, 8, THREE.RED_RGTC1_Format, "BC4_UNORM", "EXT_texture_compression_rgtc", "r");
+    else if (fourCC === fourCCCode("BC4S")) applyBlockInfo(info, 8, THREE.SIGNED_RED_RGTC1_Format, "BC4_SNORM", "EXT_texture_compression_rgtc", "r");
+    else if (fourCC === fourCCCode("BC5U") || fourCC === fourCCCode("ATI2")) applyBlockInfo(info, 16, THREE.RED_GREEN_RGTC2_Format, "BC5_UNORM", "EXT_texture_compression_rgtc");
+    else if (fourCC === fourCCCode("BC5S")) applyBlockInfo(info, 16, THREE.SIGNED_RED_GREEN_RGTC2_Format, "BC5_SNORM", "EXT_texture_compression_rgtc");
+    else if (fourCC === fourCCCode("DX10")) readDx10DdsInfo(buffer, info);
+    else throw new Error(`Unsupported DDS FourCC ${info.fourCCText}.`);
+
+    if (info.width <= 0 || info.height <= 0) throw new Error(`Invalid DDS dimensions ${info.width}x${info.height}.`);
+    if (!info.format) throw new Error(`Three.js does not expose a WebGL format for ${info.formatName}.`);
+    return info;
+}
+
+function readDx10DdsInfo(buffer, info) {
+    if (buffer.byteLength < 148) throw new Error("DX10 DDS file is too small for a DX10 header.");
+    const dx10 = new Int32Array(buffer, 128, 5);
+    info.dxgiFormat = dx10[0];
+    info.dataOffset = 148;
+
+    if (info.dxgiFormat === 71 || info.dxgiFormat === 72) applyBlockInfo(info, 8, THREE.RGB_S3TC_DXT1_Format, info.dxgiFormat === 72 ? "BC1_UNORM_SRGB" : "BC1_UNORM", "WEBGL_compressed_texture_s3tc");
+    else if (info.dxgiFormat === 74 || info.dxgiFormat === 75) applyBlockInfo(info, 16, THREE.RGBA_S3TC_DXT3_Format, info.dxgiFormat === 75 ? "BC2_UNORM_SRGB" : "BC2_UNORM", "WEBGL_compressed_texture_s3tc");
+    else if (info.dxgiFormat === 77 || info.dxgiFormat === 78) applyBlockInfo(info, 16, THREE.RGBA_S3TC_DXT5_Format, info.dxgiFormat === 78 ? "BC3_UNORM_SRGB" : "BC3_UNORM", "WEBGL_compressed_texture_s3tc");
+    else if (info.dxgiFormat === 80) applyBlockInfo(info, 8, THREE.RED_RGTC1_Format, "BC4_UNORM", "EXT_texture_compression_rgtc", "r");
+    else if (info.dxgiFormat === 81) applyBlockInfo(info, 8, THREE.SIGNED_RED_RGTC1_Format, "BC4_SNORM", "EXT_texture_compression_rgtc", "r");
+    else if (info.dxgiFormat === 83) applyBlockInfo(info, 16, THREE.RED_GREEN_RGTC2_Format, "BC5_UNORM", "EXT_texture_compression_rgtc");
+    else if (info.dxgiFormat === 84) applyBlockInfo(info, 16, THREE.SIGNED_RED_GREEN_RGTC2_Format, "BC5_SNORM", "EXT_texture_compression_rgtc");
+    else if (info.dxgiFormat === 98 || info.dxgiFormat === 99) applyBlockInfo(info, 16, THREE.RGBA_BPTC_Format, info.dxgiFormat === 99 ? "BC7_UNORM_SRGB" : "BC7_UNORM", "EXT_texture_compression_bptc");
+    else throw new Error(`Unsupported DX10 DDS format ${info.dxgiFormat}.`);
+}
+
+function applyBlockInfo(info, blockBytes, format, formatName, extensionName, colorMaskChannel = "a") {
+    info.blockBytes = blockBytes;
+    info.format = format;
+    info.formatName = formatName;
+    info.extensionName = extensionName;
+    info.colorMaskChannel = colorMaskChannel;
+}
+
+function parseDdsMipmaps(buffer, info) {
+    const mipmaps = [];
+    let width = info.width;
+    let height = info.height;
+    let dataOffset = info.dataOffset;
+    for (let i = 0; i < info.mipmapCount; i++) {
+        const dataLength = Math.max(1, Math.ceil(width / 4)) * Math.max(1, Math.ceil(height / 4)) * info.blockBytes;
+        if (dataOffset + dataLength > buffer.byteLength) throw new Error(`DDS mip ${i} exceeds file length.`);
+        mipmaps.push({ data: new Uint8Array(buffer, dataOffset, dataLength), width, height });
+        dataOffset += dataLength;
+        width = Math.max(1, width >> 1);
+        height = Math.max(1, height >> 1);
+    }
+    if (!mipmaps.length) throw new Error("DDS has no readable mipmaps.");
+    return mipmaps;
+}
+
+function createCompressedDdsTexture(mipmaps, logicalPath, info) {
+    const texture = new THREE.CompressedTexture(mipmaps, info.width, info.height, info.format);
+    texture.name = logicalPath;
+    texture.userData.seColorMaskChannel = info.colorMaskChannel || "a";
+    texture.generateMipmaps = false;
+    if (mipmaps.length === 1) texture.minFilter = THREE.LinearFilter;
+    texture.needsUpdate = true;
+    return texture;
+}
+
+function configureTexture(texture, logicalPath, slot) {
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.anisotropy = Math.min(8, state.renderer.capabilities.getMaxAnisotropy());
+    texture.colorSpace = isNonColorTexture(logicalPath, slot) ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+}
+
+function validateCompressedTextureUpload(texture, info) {
+    if (!compressedTextureExtension(info.extensionName)) throw new Error(`${info.extensionName} is not available in this browser/GPU.`);
+    if (typeof state.renderer.initTexture !== "function") throw new Error("three.js renderer cannot preflight texture uploads.");
+
+    const gl = state.renderer.getContext();
+    collectGlErrors(gl);
+    state.renderer.initTexture(texture);
+    const errors = collectGlErrors(gl);
+    if (errors.length) throw new Error(`WebGL upload failed with ${errors.join(", ")}.`);
+}
+
+function collectGlErrors(gl) {
+    const errors = [];
+    let error = gl.getError();
+    while (error !== gl.NO_ERROR) {
+        errors.push(glErrorName(gl, error));
+        error = gl.getError();
+    }
+    return errors;
+}
+
+function glErrorName(gl, error) {
+    if (error === gl.INVALID_ENUM) return "INVALID_ENUM";
+    if (error === gl.INVALID_VALUE) return "INVALID_VALUE";
+    if (error === gl.INVALID_OPERATION) return "INVALID_OPERATION";
+    if (error === gl.INVALID_FRAMEBUFFER_OPERATION) return "INVALID_FRAMEBUFFER_OPERATION";
+    if (error === gl.OUT_OF_MEMORY) return "OUT_OF_MEMORY";
+    if (error === gl.CONTEXT_LOST_WEBGL) return "CONTEXT_LOST_WEBGL";
+    return `0x${error.toString(16)}`;
+}
+
+function compressedTextureExtension(extensionName) {
+    const gl = state.renderer.getContext();
+    if (extensionName === "WEBGL_compressed_texture_s3tc") {
+        return gl.getExtension("WEBGL_compressed_texture_s3tc") ||
+            gl.getExtension("MOZ_WEBGL_compressed_texture_s3tc") ||
+            gl.getExtension("WEBKIT_WEBGL_compressed_texture_s3tc");
+    }
+    return gl.getExtension(extensionName);
+}
+
+function isNonColorTexture(logicalPath, slot) {
+    const text = `${slot || ""} ${logicalPath || ""}`.toLowerCase();
+    return text.includes("normal") || text.includes("alpha") || text.includes("orm") || text.includes("addmaps") ||
+        text.includes("extension") || /_(add|ng|alphamask)\./i.test(text);
+}
+
+function ddsLogLabel(info) {
+    const dxgi = info.dxgiFormat == null ? "" : `, DXGI ${info.dxgiFormat}`;
+    return `${info.logicalPath} (${info.formatName || info.fourCCText}, FourCC ${info.fourCCText}${dxgi}, ${info.width}x${info.height}, ${info.mipmapCount} mip(s), ${info.extensionName})`;
+}
+
+function fourCCCode(value) {
+    return value.charCodeAt(0) + (value.charCodeAt(1) << 8) + (value.charCodeAt(2) << 16) + (value.charCodeAt(3) << 24);
+}
+
+function fourCCToString(value) {
+    return String.fromCharCode(value & 255, (value >> 8) & 255, (value >> 16) & 255, (value >> 24) & 255);
 }

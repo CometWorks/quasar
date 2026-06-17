@@ -22,6 +22,7 @@ export const state = {
     contentFolder: null,
     contentFolderName: "",
     modelResolution: new Map(),
+    textureCache: new Map(),
     stats: {},
 };
 

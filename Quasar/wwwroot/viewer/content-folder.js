@@ -12,6 +12,7 @@ export async function restoreContentFolder() {
     if (await ensurePermission(handle, false)) {
         state.contentFolder = handle;
         state.contentFolderName = handle.name || "Content";
+        state.textureCache.clear();
         return handle;
     }
     return null;
@@ -27,6 +28,7 @@ export async function pickContentFolder() {
     }
     state.contentFolder = handle;
     state.contentFolderName = handle.name || "Content";
+    state.textureCache.clear();
     await writeHandle(handle);
     log(`Selected local Content folder: ${state.contentFolderName}`);
     return handle;
@@ -41,7 +43,8 @@ export async function looksLikeContentFolder(handle) {
 export async function resolveContentFile(logicalPath) {
     if (!state.contentFolder || !logicalPath) return null;
     const normalized = normalizeLogicalPath(logicalPath);
-    const candidates = normalized.toLowerCase().endsWith(".mwm") || normalized.toLowerCase().endsWith(".dds")
+    const hasKnownExtension = /\.(mwm|dds|png|jpe?g|webp)$/i.test(normalized);
+    const candidates = hasKnownExtension
         ? [normalized]
         : [`${normalized}.mwm`, normalized];
     for (const candidate of candidates) {
