@@ -320,6 +320,14 @@ h1:focus {
     border-radius: inherit;
 }
 
+.servers-list-table .mud-table-container {
+    overflow-x: auto;
+}
+
+.servers-list-table .mud-table-root {
+    min-width: 72rem;
+}
+
 .players-list-card,
 .players-list-stack,
 .players-table,

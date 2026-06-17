@@ -170,6 +170,7 @@ public class Program
             builder.Services.AddSingleton<DedicatedServerCatalog>();
             builder.Services.AddSingleton<DedicatedServerSupervisor>();
             builder.Services.AddSingleton<DedicatedServerRuntimePreparer>();
+            builder.Services.AddScoped<ServerManagementActions>();
             builder.Services.AddSingleton<FileBrowserService>();
             builder.Services.AddSingleton<WebServiceState>();
             builder.Services.AddSingleton<PluginLogStream>();

@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Side-drawer navigation menu. Renders two `MudNavMenu` groups separated by a `MudDivider` — a primary group with the visible main app routes and a settings group with the appearance and backup links plus a policy-gated security link.
+Side-drawer navigation menu. Renders two `MudNavMenu` groups separated by a `MudDivider` — a primary group with the visible main app routes and a settings group with the appearance and backup links plus a policy-gated security link. Server management now lives inside the Dashboard view switcher, so there is no separate Servers nav item.
 
 ## Structure
 No `@page` route — rendered as a child of `MainLayout`'s `MudDrawer`.
@@ -14,7 +14,6 @@ No `@code` block; purely markup (no group title text, just the two nav menus).
 | Route | Icon | Label |
 |---|---|---|
 | `/` (exact, `NavLinkMatch.All`) | Dashboard | Dashboard |
-| `/servers` | Dns | Servers |
 | `/configs` | Tune | Configs |
 | `/world-templates` | Public | Worlds |
 | `/players` | Groups | Players |

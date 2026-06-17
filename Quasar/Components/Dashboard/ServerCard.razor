@@ -1,3 +1,5 @@
+@inject ServerManagementActions ServerActions
+
 <MudCard Class="server-card">
     <MudCardHeader>
         <CardHeaderContent>
@@ -9,6 +11,38 @@
                     </MudChip>
                 </MudStack>
                 <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                    <MudTooltip Text="Open console output">
+                        <MudIconButton Icon="@Icons.Material.Filled.Terminal"
+                                       Color="Color.Default"
+                                       Size="Size.Small"
+                                       OnClick="OpenConsoleAsync" />
+                    </MudTooltip>
+                    <MudTooltip Text="Clone server">
+                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
+                                       Color="Color.Default"
+                                       Size="Size.Small"
+                                       OnClick="CloneAsync" />
+                    </MudTooltip>
+                    <MudTooltip Text="Create world template">
+                        <MudIconButton Icon="@Icons.Material.Filled.Public"
+                                       Color="Color.Default"
+                                       Size="Size.Small"
+                                       Disabled="@(!CanCreateTemplate)"
+                                       OnClick="CreateTemplateAsync" />
+                    </MudTooltip>
+                    <MudTooltip Text="Edit server">
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                       Color="Color.Default"
+                                       Size="Size.Small"
+                                       OnClick="EditAsync" />
+                    </MudTooltip>
+                    <MudTooltip Text="Delete server">
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                       Color="Color.Error"
+                                       Size="Size.Small"
+                                       Disabled="@IsProcessActive"
+                                       OnClick="DeleteAsync" />
+                    </MudTooltip>
                     @if (CanStart)
                     {
                         <MudButton Variant="Variant.Filled"
@@ -22,12 +56,6 @@
                     }
                     @if (CanRestart)
                     {
-                        <MudTooltip Text="Open server logs">
-                            <MudIconButton Icon="@Icons.Material.Filled.Terminal"
-                                           Color="Color.Default"
-                                           Size="Size.Small"
-                                           OnClick="OpenLogsAsync" />
-                        </MudTooltip>
                         <MudButton Variant="Variant.Outlined"
                                    Color="Color.Primary"
                                    Size="Size.Small"
@@ -104,9 +132,6 @@
     [Parameter]
     public EventCallback<string> RestartRequested { get; set; }
 
-    [Parameter]
-    public EventCallback<string> OpenLogsRequested { get; set; }
-
     private DedicatedServerProcessState ProcessState => Runtime?.State ?? DedicatedServerProcessState.Stopped;
 
     private bool IsProcessActive => ProcessState is DedicatedServerProcessState.Starting
@@ -126,6 +151,8 @@
 
     private bool CanRestart => ProcessState == DedicatedServerProcessState.Running;
 
+    private bool CanCreateTemplate => ServerActions.CanCreateWorldTemplate(Server);
+
     private Task StartAsync() => StartRequested.InvokeAsync(Server.UniqueName);
 
     private Task StopAsync() => StopRequested.InvokeAsync(Server.UniqueName);
@@ -134,7 +161,15 @@
 
     private Task RestartAsync() => RestartRequested.InvokeAsync(Server.UniqueName);
 
-    private Task OpenLogsAsync() => OpenLogsRequested.InvokeAsync(Server.UniqueName);
+    private Task OpenConsoleAsync() => ServerActions.OpenConsoleDialogAsync(Server.UniqueName);
+
+    private Task CloneAsync() => ServerActions.OpenCloneDialogAsync(Server);
+
+    private Task CreateTemplateAsync() => ServerActions.CreateWorldTemplateAsync(Server);
+
+    private Task EditAsync() => ServerActions.OpenEditDialogAsync(Server);
+
+    private Task DeleteAsync() => ServerActions.DeleteAsync(Server.UniqueName);
 
     private string GetDisplayName()
     {

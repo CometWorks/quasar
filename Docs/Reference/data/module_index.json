@@ -326,7 +326,7 @@
       "name": "ServerCard.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Card component for a single managed server shown on the Dashboard. Displays the server display name, status chip (OFF / STARTING / CONNECTING / OPEN / STOPPING / RESTARTING / CRASHED / FAULTED), host/world caption, last message or health summary, lifecycle action buttons, and a terminal icon button for opening the server log dialog beside Restart. The Start button can be disabled by the dashboard while managed runtime prerequisites are still preparing. Embeds `ServerDetailPanel` as its card body content."
+      "summary": "Card component for a single managed server shown on the Dashboard card layout. Displays the server display name, status chip (OFF / STARTING / CONNECTING / OPEN / STOPPING / RESTARTING / CRASHED / FAULTED), host/world caption, last message or health summary, management icon buttons (console, clone, template, edit, delete), lifecycle action buttons, and `ServerDetailPanel` body content. The Start button can be disabled by the dashboard while managed runtime prerequisites are still preparing."
     },
     {
       "path": "Quasar/Components/Dashboard/ServerDetailPanel.razor",
@@ -361,7 +361,7 @@
       "name": "NavMenu.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Side-drawer navigation menu. Renders two `MudNavMenu` groups separated by a `MudDivider` \u2014 a primary group with the visible main app routes and a settings group with the appearance and backup links plus a policy-gated security link."
+      "summary": "Side-drawer navigation menu. Renders two `MudNavMenu` groups separated by a `MudDivider` \u2014 a primary group with the visible main app routes and a settings group with the appearance and backup links plus a policy-gated security link. Server management now lives inside the Dashboard view switcher, so there is no separate Servers nav item."
     },
     {
       "path": "Quasar/Components/Layout/QuasarControlAction.cs",
@@ -529,7 +529,7 @@
       "name": "Home.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable root page (`/`) serving as the main dashboard. Shows a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, a Managed Runtime panel with SteamCMD and Dedicated Server readiness/download progress, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, and a `ServerCard` grid for all configured instances. Servers can be started, stopped, restarted, and opened in the log dialog directly from the dashboard; Stop and Kill actions require confirmation. The wizard opens full-screen page dialogs for config-template, world-template, and server creation."
+      "summary": "Routable dashboard and primary server control surface at `/`. Shows a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, a Managed Runtime panel with SteamCMD and Dedicated Server readiness/download progress, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, and a switchable server section. The default card view renders `ServerCard`s for live operations; `?view=list` embeds the `Servers` table without MudBlazor's responsive card layout. Only the selected server view is generated, so the landing page does not build hidden list/table DOM. Servers can be started, stopped, restarted, and opened in the log dialog directly from the dashboard; Stop and Kill actions require confirmation. The wizard opens full-screen page dialogs for config-template, world-template, and server creation."
     },
     {
       "path": "Quasar/Components/Pages/Home.razor.css",
@@ -627,7 +627,7 @@
       "name": "Servers.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page at `/servers` managing persistent dedicated-server definitions. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status, a single lifecycle-action column beside Status, and create/clone/edit/delete/console/world-template actions; destructive Stop/Kill/Delete actions require confirmation. Clone asks whether to copy world state or leave the clone without a world, always clears path overrides so the clone gets independent DS/config/world paths, and refuses explicit path reuse. Expandable rows embed a `ServerDetailPanel` with live agent data. A separate panel lists \"unmanaged\" agents that report in without a matching server definition."
+      "summary": "Embeddable server-management component used by the dashboard list view and full-screen server dialog. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status, a single lifecycle-action column beside Status, and create/clone/edit/delete/console/world-template actions; destructive Stop/Kill/Delete actions require confirmation. Clone asks whether to copy world state or leave the clone without a world, always clears path overrides so the clone gets independent DS/config/world paths, and refuses explicit path reuse. Expanded rows embed a `ServerDetailPanel` with the server definition, runtime snapshot, and live agent data. A separate panel lists \"unmanaged\" agents that report in without a matching server definition."
     },
     {
       "path": "Quasar/Components/Pages/ServersPageDialog.razor",
@@ -1131,6 +1131,13 @@
       "kind": "class",
       "tier": 1,
       "summary": "Manages the persistent catalog of Quasar world templates \u2014 pre-configured world directories (each containing a `Sandbox.sbc`) used as starting points when seeding new server worlds. Templates live under `<QuasarDir>/WorldTemplates/<id>/` with a `template.json` metadata file and a `World/` subdirectory of game files. Supports import (copy from an arbitrary path), deletion (with history archiving), debounced file-system watching, and a one-time legacy migration from the old `WorldProfiles` layout."
+    },
+    {
+      "path": "Quasar/Services/ServerManagementActions.cs",
+      "name": "ServerManagementActions.cs",
+      "kind": "class",
+      "tier": 1,
+      "summary": "Scoped UI action coordinator for dedicated-server management commands that are launched from reusable UI surfaces such as dashboard `ServerCard`s. It centralizes the existing clone, edit, delete, console, and world-template dialog flows so card actions behave like the full server-management table without forcing the dashboard to render the whole `Servers` component."
     },
     {
       "path": "Quasar/Services/SteamWorkshopCredentialsCatalog.cs",
