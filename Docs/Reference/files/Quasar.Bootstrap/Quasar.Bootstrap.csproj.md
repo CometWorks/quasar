@@ -3,7 +3,7 @@
 **Module:** Quasar.Bootstrap  **Kind:** project file  **Tier:** 3
 
 ## Summary
-MSBuild project file for `Quasar.Bootstrap`, a `net10.0` console executable that targets `linux-x64` and `win-x64`. On non-RID framework builds it copies output to `~/Documents/Quasar` and renames the binary to `Quasar`. On RID-targeted publish it restores and publishes the `Quasar` worker as a single-file sub-app into a `WebService/` subfolder.
+MSBuild project file for `Quasar.Bootstrap`, a `net10.0` console executable that targets `linux-x64` and `win-x64`. RID-targeted publish restores and publishes the `Quasar` worker as a single-file sub-app into a `WebService/` subfolder.
 
 ## Structure
 **Key properties:**
@@ -16,7 +16,6 @@ MSBuild project file for `Quasar.Bootstrap`, a `net10.0` console executable that
 | `Version` | 0.1.0 |
 | `ImplicitUsings` | enable |
 | `Nullable` | enable |
-| `DeployDir` | `$(HOME)/Documents/Quasar` |
 | `SelfContained` (RID builds) | true |
 | `PublishSingleFile` (RID builds) | true |
 | `EnableCompressionInSingleFile` (RID builds) | true |
@@ -29,7 +28,6 @@ MSBuild project file for `Quasar.Bootstrap`, a `net10.0` console executable that
 
 | Target | Trigger | Action |
 |---|---|---|
-| `CopyToDeployDir` | `AfterTargets="Build"` (non-RID) | Copies output to `$(DeployDir)`, renames `Quasar.Bootstrap` → `Quasar` |
 | `PublishQuasarWorker` | `BeforeTargets="Publish"` (RID) | Runs `dotnet restore` for `Quasar/Quasar.csproj`, then a fresh `dotnet publish --no-restore` as single-file into a temp obj dir, passing release metadata through to the worker |
 | `PackPublishedQuasar` | `AfterTargets="Publish"` (RID) | Copies worker output to `WebService/` subfolder; renames `Quasar.Bootstrap[.exe]` → `Quasar[.exe]`; deletes `.pdb`/`.xml` files |
 

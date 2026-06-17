@@ -610,7 +610,6 @@ publish_quasar() {
                 dotnet publish "$publish_project" \
                     -c "$CONFIGURATION" \
                     -r "$RUNTIME" \
-                    -p:CopyToDeployDir=false \
                     -p:Version="$nuget_version" \
                     -p:AssemblyVersion="$assembly_file_version" \
                     -p:FileVersion="$assembly_file_version" \
@@ -625,7 +624,6 @@ publish_quasar() {
             dotnet publish "$publish_project" \
                 -c "$CONFIGURATION" \
                 -r "$RUNTIME" \
-                -p:CopyToDeployDir=false \
                 -p:Version="$nuget_version" \
                 -p:AssemblyVersion="$assembly_file_version" \
                 -p:FileVersion="$assembly_file_version" \
@@ -639,7 +637,6 @@ publish_quasar() {
         dotnet publish "$publish_project" \
             -c "$CONFIGURATION" \
             -r "$RUNTIME" \
-            -p:CopyToDeployDir=false \
             -p:Version="$nuget_version" \
             -p:AssemblyVersion="$assembly_file_version" \
             -p:FileVersion="$assembly_file_version" \

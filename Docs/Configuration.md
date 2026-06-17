@@ -239,8 +239,8 @@ the deployed app does **not** open a browser automatically.
 - The installed **Windows Scheduled Task** and **Linux systemd** services run in
   service mode with `QUASAR_OPEN_BROWSER_ON_START=false` — they never open a
   browser, and they run quietly in the background.
-- A foreground run (e.g. `Quasar ensure-running`, or `./deploy.sh --run`) prints the
-  URL and does not open a browser.
+- A foreground launcher run (e.g. `Quasar ensure-running`) prints the URL and
+  does not open a browser.
 
 The URL is always printed regardless of the auto-open setting. To restrict the web
 UI to the local machine, set `Quasar:Host` to `127.0.0.1` as described above.

@@ -179,7 +179,6 @@ try {
         & dotnet publish $bootstrapProject `
             -c $Configuration `
             -r $Runtime `
-            -p:CopyToDeployDir=false `
             -p:Version=$nugetVersion `
             -p:AssemblyVersion=$assemblyFileVersion `
             -p:FileVersion=$assemblyFileVersion `
