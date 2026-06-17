@@ -39,9 +39,9 @@ The viewer resolves logical model paths case-insensitively where the browser fil
 
 ## Current Rendering Behavior
 
-This first integration renders correctly placed proxy boxes for grid blocks and validates local model availability. Browser-side `.mwm` parsing is not implemented yet, so even locally found models are reported and rendered as proxies until that parser exists.
+The viewer parses locally resolved `.mwm` files in the browser and renders mesh geometry for block models, generated cube-part models, and runtime subpart models. Current parsing covers the render mesh tags needed for static geometry (`Vertices`, `Normals`, `TexCoords0`, `MeshParts`) and follows `GeometryDataAsset` indirection used by stub MWMs.
 
-Missing local models or textures are non-fatal. The viewer logs warnings and keeps the scene visible with fallback geometry/materials.
+Missing or unparseable local models and missing textures are non-fatal. The viewer logs warnings and keeps the scene visible with proxy boxes and generated fallback materials where needed.
 
 ## Mods
 

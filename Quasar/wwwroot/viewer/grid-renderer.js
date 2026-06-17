@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { els, state } from "./state.js";
 import { blockBox } from "./geometry.js";
 import { blockMaterial, wireMaterial } from "./materials.js";
-import { matrixDtoToThree } from "./math.js";
+import { colorFromHash, matrixDtoToThree } from "./math.js";
 import { disposeObjectTree, fitCameraToScene, replaceFloorGrid } from "./scene.js";
 import { resolveModelAsset } from "./mwm-loader.js";
 import { log } from "./logging.js";
@@ -26,14 +26,21 @@ export async function renderGridScene(scene) {
     const resolutionStats = await resolveReferencedModels(scene, modelAssets);
 
     const bounds = new THREE.Box3();
-    let rendered = 0;
+    let modelMeshes = 0;
+    let proxyMeshes = 0;
     for (const block of scene.blockInstances || []) {
         const definition = definitions.get(block.blockTypeId);
         const box = blockBox(block, scene.grid.gridSize || 2.5);
-        const mesh = createBlockProxy(block, definition, box);
-        group.add(mesh);
+        const blockMeshes = createBlockMeshes(block, definition);
+        if (blockMeshes.length) {
+            for (const mesh of blockMeshes) group.add(mesh);
+            modelMeshes += blockMeshes.length;
+        } else {
+            const mesh = createBlockProxy(block, definition, box);
+            group.add(mesh);
+            proxyMeshes++;
+        }
         bounds.union(box);
-        rendered++;
     }
 
     state.currentBounds = bounds;
@@ -42,11 +49,73 @@ export async function renderGridScene(scene) {
     fitCameraToScene();
 
     state.stats.Blocks = (scene.blockInstances || []).length;
-    state.stats["Proxy meshes"] = rendered;
+    state.stats["Model meshes"] = modelMeshes;
+    state.stats["Proxy meshes"] = proxyMeshes;
     state.stats["Models listed"] = (scene.modelAssets || []).length;
     state.stats["Models found locally"] = resolutionStats.found;
+    state.stats["Models parsed"] = resolutionStats.parsed;
     state.stats["Models missing"] = resolutionStats.missing;
     renderSummary(scene, resolutionStats);
+}
+
+function createBlockMeshes(block, definition) {
+    const meshes = [];
+    if (block.modelParts && block.modelParts.length) {
+        for (const part of block.modelParts) {
+            const mesh = createModelMesh(part.modelAssetId, block, matrixDtoToThree(part.localMatrix));
+            if (mesh) meshes.push(mesh);
+        }
+    } else {
+        const assetId = block.currentModelAssetId || (definition && definition.modelAssetId) || "";
+        const matrix = matrixDtoToThree(block.rotation);
+        if (definition && definition.modelOffset) matrix.multiply(new THREE.Matrix4().makeTranslation(
+            Number(definition.modelOffset.x) || 0,
+            Number(definition.modelOffset.y) || 0,
+            Number(definition.modelOffset.z) || 0));
+        const mesh = createModelMesh(assetId, block, matrix);
+        if (mesh) meshes.push(mesh);
+    }
+
+    for (const subpart of block.subparts || []) {
+        const mesh = createModelMesh(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix));
+        if (mesh) meshes.push(mesh);
+    }
+
+    return meshes;
+}
+
+function createModelMesh(assetId, block, matrix) {
+    const resolved = assetId ? state.modelResolution.get(assetId) : null;
+    const model = resolved && resolved.status === "parsed" ? resolved.model : null;
+    if (!model) return null;
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(model.positions, 3));
+    if (model.normals) geometry.setAttribute("normal", new THREE.BufferAttribute(model.normals, 3));
+    if (model.uvs) geometry.setAttribute("uv", new THREE.BufferAttribute(model.uvs, 2));
+    geometry.setIndex(new THREE.BufferAttribute(model.indices, 1));
+    for (const group of model.groups) geometry.addGroup(group.start, group.count, group.materialIndex);
+    if (!model.normals) geometry.computeVertexNormals();
+
+    const materials = model.groups.map(group => createModelMaterial(model, group));
+    const mesh = new THREE.Mesh(geometry, materials);
+    mesh.matrixAutoUpdate = false;
+    mesh.matrix.copy(matrix);
+    mesh.userData.block = block;
+    return mesh;
+}
+
+function createModelMaterial(model, group) {
+    const technique = String(group.technique || "MESH").toUpperCase();
+    const transparent = technique.includes("GLASS") || technique.includes("ALPHA") || technique.includes("HOLO") || technique.includes("SHIELD");
+    return new THREE.MeshStandardMaterial({
+        color: colorFromHash(`${model.logicalPath}|${group.materialName || group.materialIndex}`),
+        roughness: 0.72,
+        metalness: 0.22,
+        transparent,
+        opacity: technique.includes("GLASS") ? 0.38 : transparent ? 0.7 : 1,
+        side: technique.includes("SINGLE_SIDED") ? THREE.FrontSide : THREE.DoubleSide,
+    });
 }
 
 function createBlockProxy(block, definition, box) {
@@ -74,10 +143,11 @@ function proxyOpacity(definition) {
 async function resolveReferencedModels(scene, modelAssets) {
     state.modelResolution.clear();
     let found = 0;
+    let parsed = 0;
     let missing = 0;
     if (!state.contentFolder) {
         log("No local Content folder selected; all models render as proxies.", true);
-        return { found, missing: (scene.modelAssets || []).length };
+        return { found, parsed, missing: (scene.modelAssets || []).length };
     }
 
     for (const asset of modelAssets.values()) {
@@ -88,10 +158,11 @@ async function resolveReferencedModels(scene, modelAssets) {
             log(result.message, true);
         } else {
             found++;
-            if (result.status === "proxy") log(result.message);
+            if (result.status === "parsed") parsed++;
+            if (result.status === "proxy") log(result.message, true);
         }
     }
-    return { found, missing };
+    return { found, parsed, missing };
 }
 
 function renderSummary(scene, resolutionStats) {
@@ -101,6 +172,7 @@ function renderSummary(scene, resolutionStats) {
     addSummary("Blocks", (scene.blockInstances || []).length.toLocaleString());
     addSummary("Models", (scene.modelAssets || []).length.toLocaleString());
     addSummary("Found", resolutionStats.found.toLocaleString());
+    addSummary("Parsed", resolutionStats.parsed.toLocaleString());
     addSummary("Missing", resolutionStats.missing.toLocaleString());
     if (scene.warnings && scene.warnings.length) {
         for (const warning of scene.warnings) log(warning, true);
