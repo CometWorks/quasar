@@ -35,6 +35,7 @@ namespace Quasar.Agent
                 GameVersion = gameVersion ?? string.Empty,
                 PluginVersion = pluginVersion ?? string.Empty,
                 Grid = ToGrid(grid),
+                Environment = ToEnvironment(),
                 CapturedAtUtc = DateTimeOffset.UtcNow,
             };
 
@@ -66,7 +67,28 @@ namespace Quasar.Agent
             scene.Chunks = chunks.Values.Select(chunk => chunk.ToDto(grid.GridSize)).OrderBy(chunk => chunk.Id, StringComparer.Ordinal).ToList();
             scene.ModelAssets = catalog.ModelAssetsSnapshot();
             scene.TextureAssets = catalog.TextureAssetsSnapshot();
+            scene.Voxels = LoadedVoxels();
             return scene;
+        }
+
+        private static ViewerSceneEnvironment ToEnvironment()
+        {
+            var direction = MySector.DirectionToSunNormalized;
+            if (!direction.IsValid() || direction.LengthSquared() < 0.0001f)
+                direction = new Vector3(0.33946735f, 0.70979536f, -0.61721337f);
+            direction.Normalize();
+
+            var intensity = MySector.SunProperties.SunIntensity;
+            if (!float.IsNaN(intensity) && !float.IsInfinity(intensity) && intensity > 0)
+                intensity = Math.Min(3f, intensity);
+            else
+                intensity = 1.9f;
+
+            return new ViewerSceneEnvironment
+            {
+                SunDirection = ToDto(direction),
+                SunIntensity = intensity,
+            };
         }
 
         private static ViewerGrid ToGrid(MyCubeGrid grid)
@@ -82,6 +104,78 @@ namespace Quasar.Agent
                 BlockCount = grid.BlocksCount,
                 Bounds = ToDto(grid.PositionComp.WorldAABB),
             };
+        }
+
+        private static List<ViewerVoxelBody> LoadedVoxels()
+        {
+            var session = MySession.Static;
+            if (session?.VoxelMaps?.Instances == null)
+                return new List<ViewerVoxelBody>();
+
+            var voxels = new List<ViewerVoxelBody>();
+            foreach (var voxel in session.VoxelMaps.Instances)
+            {
+                if (voxel == null || voxel.MarkedForClose || voxel.Closed)
+                    continue;
+
+                var kind = VoxelKind(voxel);
+                if (kind == "voxelPhysics")
+                    continue;
+
+                try
+                {
+                    voxels.Add(ToVoxelBody(voxel, kind));
+                }
+                catch
+                {
+                    // Voxel metadata is optional for the grid viewer; skip bodies that are mid-close.
+                }
+            }
+
+            return voxels.OrderBy(voxel => voxel.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private static ViewerVoxelBody ToVoxelBody(MyVoxelBase voxel, string kind)
+        {
+            var storageSize = voxel.Storage != null ? voxel.Storage.Size : voxel.Size;
+            var dto = new ViewerVoxelBody
+            {
+                Id = voxel.EntityId.ToString(),
+                Kind = kind,
+                DisplayName = FirstNonEmpty(voxel.DisplayName, voxel.Name, kind + " " + voxel.EntityId),
+                WorldMatrix = ToDto(voxel.WorldMatrix),
+                PositionLeftBottomCorner = ToDto(voxel.PositionLeftBottomCorner),
+                StorageMin = ToDto(voxel.StorageMin),
+                StorageMax = ToDto(voxel.StorageMax),
+                StorageSize = ToDto(storageSize),
+                SizeInMetres = ToDto(voxel.SizeInMetres),
+                WorldAabb = ToDto(voxel.PositionComp.WorldAABB),
+                ContentChanged = voxel.ContentChanged,
+            };
+
+            if (voxel is MyPlanet planet)
+            {
+                dto.Planet = new ViewerPlanetInfo
+                {
+                    MinimumRadius = planet.MinimumRadius,
+                    AverageRadius = planet.AverageRadius,
+                    MaximumRadius = planet.MaximumRadius,
+                    AtmosphereRadius = planet.AtmosphereRadius,
+                    HasAtmosphere = planet.HasAtmosphere,
+                    SpherizeWithDistance = planet.SpherizeWithDistance,
+                };
+            }
+
+            return dto;
+        }
+
+        private static string VoxelKind(MyVoxelBase voxel)
+        {
+            var typeName = voxel.GetType().Name;
+            if (typeName == "MyPlanet") return "planet";
+            if (typeName == "MyVoxelMap") return "voxelMap";
+            if (typeName == "MyVoxelPhysics") return "voxelPhysics";
+            return "unknown";
         }
 
         private static ViewerBlockDefinition ToBlockDefinition(

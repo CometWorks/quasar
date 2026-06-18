@@ -1,9 +1,9 @@
 import * as THREE from "three";
 import { els, state } from "./state.js";
-import { blockBox } from "./geometry.js";
+import { blockBox, boundsToBox3 } from "./geometry.js";
 import { wireMaterial } from "./materials.js";
-import { colorFromHash, matrixDtoToThree, num } from "./math.js";
-import { disposeObjectTree, fitCameraToScene, replaceFloorGrid } from "./scene.js";
+import { colorFromHash, matrixDtoToThree, num, vec3 } from "./math.js";
+import { disposeObjectTree, fitCameraToScene, updateLighting, updateSceneBounds, updateSunLightPosition } from "./scene.js";
 import { resolveModelAsset } from "./mwm-loader.js";
 import { loadTexture, resolveTextureAsset } from "./texture-loader.js";
 import { log } from "./logging.js";
@@ -16,11 +16,20 @@ export async function renderGridScene(scene) {
         state.scene.remove(state.gridGroup);
         disposeObjectTree(state.gridGroup);
     }
+    if (state.voxelGroup) {
+        state.scene.remove(state.voxelGroup);
+        disposeObjectTree(state.voxelGroup);
+        state.voxelGroup = null;
+        state.voxelMeshes = [];
+    }
+
+    configureRelativeView(scene);
+    configureEnvironment(scene);
 
     const group = new THREE.Group();
     group.name = "QuasarGrid";
     group.matrixAutoUpdate = false;
-    group.matrix.copy(matrixDtoToThree(scene.grid && scene.grid.worldMatrix));
+    group.matrix.copy(gridViewMatrix(scene));
     state.gridGroup = group;
     state.scene.add(group);
 
@@ -49,9 +58,14 @@ export async function renderGridScene(scene) {
         bounds.union(box);
     }
 
+    state.sceneRenderCounts.modelMeshes = modelMeshes;
+    state.sceneRenderCounts.proxyMeshes = proxyMeshes;
+
     state.currentBounds = bounds;
     state.currentGridSize = scene.grid.gridSize || 2.5;
-    replaceFloorGrid(bounds, state.currentGridSize);
+    renderVoxelBodies(scene.voxels || []);
+    updateSceneBounds(false);
+    updateSunLightPosition();
     fitCameraToScene();
 
     state.stats.Blocks = (scene.blockInstances || []).length;
@@ -66,7 +80,110 @@ export async function renderGridScene(scene) {
     state.stats["Textures loaded"] = textureStats.loaded;
     state.stats["Textures missing"] = textureStats.missing;
     state.stats["Textures failed"] = textureStats.failed;
+    state.stats["Voxel bodies"] = (scene.voxels || []).length;
+    state.stats["Voxel proxies"] = state.sceneRenderCounts.voxelProxies;
     renderSummary(scene, resolutionStats, textureStats);
+}
+
+function configureRelativeView(scene) {
+    const worldMatrix = matrixDtoToThree(scene.grid && scene.grid.worldMatrix);
+    const center = gridCenterWorld(scene, worldMatrix);
+    const inverseRotation = new THREE.Matrix4().extractRotation(worldMatrix).invert();
+    state.viewRotation = inverseRotation;
+    state.viewTransform = inverseRotation.clone().multiply(new THREE.Matrix4().makeTranslation(-center.x, -center.y, -center.z));
+}
+
+function configureEnvironment(scene) {
+    state.sunDirection = vec3(scene.environment && scene.environment.sunDirection).normalize();
+    if (state.sunDirection.lengthSq() === 0) state.sunDirection.set(0.33946735, 0.70979536, -0.61721337).normalize();
+    state.sunIntensity = Math.max(0.15, num(scene.environment && scene.environment.sunIntensity, 1));
+    updateLighting();
+}
+
+function gridViewMatrix(scene) {
+    const worldMatrix = matrixDtoToThree(scene.grid && scene.grid.worldMatrix);
+    return (state.viewTransform || new THREE.Matrix4()).clone().multiply(worldMatrix);
+}
+
+function gridCenterWorld(scene, worldMatrix) {
+    const worldBounds = boundsToBox3(scene.grid && scene.grid.bounds);
+    if (worldBounds && !worldBounds.isEmpty()) return worldBounds.getCenter(new THREE.Vector3());
+
+    const localBounds = gridLocalBounds(scene);
+    if (localBounds && !localBounds.isEmpty()) return localBounds.getCenter(new THREE.Vector3()).applyMatrix4(worldMatrix);
+
+    return new THREE.Vector3().setFromMatrixPosition(worldMatrix);
+}
+
+function gridLocalBounds(scene) {
+    const bounds = new THREE.Box3();
+    let hasBounds = false;
+    for (const chunk of scene.chunks || []) {
+        const min = vec3(chunk.localAabbMin);
+        const max = vec3(chunk.localAabbMax);
+        bounds.union(new THREE.Box3(min, max));
+        hasBounds = true;
+    }
+    if (hasBounds) return bounds;
+
+    const gridSize = scene.grid && scene.grid.gridSize || 2.5;
+    for (const block of scene.blockInstances || []) {
+        bounds.union(blockBox(block, gridSize));
+        hasBounds = true;
+    }
+    return hasBounds ? bounds : null;
+}
+
+function renderVoxelBodies(voxels) {
+    state.sceneRenderCounts.voxelProxies = 0;
+    if (!voxels.length) return;
+
+    const group = new THREE.Group();
+    group.name = "QuasarVoxels";
+    group.matrixAutoUpdate = false;
+    group.matrix.copy(state.viewTransform || new THREE.Matrix4());
+    group.visible = !els.showVoxels || els.showVoxels.checked;
+    state.voxelGroup = group;
+    state.scene.add(group);
+
+    for (const voxel of voxels) {
+        const mesh = createVoxelProxy(voxel);
+        if (!mesh) continue;
+        group.add(mesh);
+        state.voxelMeshes.push(mesh);
+        state.sceneRenderCounts.voxelProxies++;
+    }
+}
+
+function createVoxelProxy(voxel) {
+    const bounds = boundsToBox3(voxel.worldAabb);
+    if (!bounds || bounds.isEmpty()) return null;
+
+    const center = bounds.getCenter(new THREE.Vector3());
+    const size = bounds.getSize(new THREE.Vector3());
+    const color = voxel.kind === "planet" ? 0x22c55e : 0xa3e635;
+    const material = new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.95,
+        metalness: 0,
+        transparent: true,
+        opacity: voxel.kind === "planet" ? 0.08 : 0.18,
+        wireframe: true,
+    });
+
+    let geometry;
+    if (voxel.kind === "planet" && voxel.planet) {
+        const radius = Math.max(num(voxel.planet.averageRadius, 0), num(voxel.planet.maximumRadius, 0), size.x / 2, size.y / 2, size.z / 2);
+        geometry = new THREE.SphereGeometry(Math.max(radius, 1), 48, 24);
+    } else {
+        geometry = new THREE.BoxGeometry(Math.max(size.x, 0.1), Math.max(size.y, 0.1), Math.max(size.z, 0.1));
+    }
+
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `Voxel:${voxel.id || voxel.displayName || "unknown"}`;
+    mesh.position.copy(center);
+    mesh.userData.voxel = voxel;
+    return mesh;
 }
 
 function createBlockMeshes(block, definition, textureToken) {
@@ -572,9 +689,18 @@ function renderSummary(scene, resolutionStats, textureStats) {
     addSummary("Parsed", resolutionStats.parsed.toLocaleString());
     addSummary("Missing", resolutionStats.missing.toLocaleString());
     addSummary("Textures", textureStats.listed.toLocaleString());
+    addSummary("Voxels", (scene.voxels || []).length.toLocaleString());
+    if (scene.environment && scene.environment.sunDirection) {
+        const direction = scene.environment.sunDirection;
+        addSummary("Sun", `${formatNumber(direction.x)}, ${formatNumber(direction.y)}, ${formatNumber(direction.z)}`);
+    }
     if (scene.warnings && scene.warnings.length) {
         for (const warning of scene.warnings) log(warning, true);
     }
+}
+
+function formatNumber(value) {
+    return Number(value || 0).toFixed(2);
 }
 
 function addSummary(label, value) {

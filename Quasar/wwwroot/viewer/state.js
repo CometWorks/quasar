@@ -5,10 +5,16 @@ export const state = {
     controls: null,
     ambientLight: null,
     sunLight: null,
+    sunTarget: null,
     sunMarker: null,
+    sunMarkerLine: null,
+    sunDirection: null,
+    sunIntensity: 1,
     floorGrid: null,
     resizeObserver: null,
     gridGroup: null,
+    voxelGroup: null,
+    voxelMeshes: [],
     raycaster: null,
     pointer: null,
     cameraMode: "orbit",
@@ -18,6 +24,9 @@ export const state = {
     lastFrameTime: 0,
     currentBounds: null,
     currentGridSize: 2.5,
+    viewTransform: null,
+    viewRotation: null,
+    sceneRenderCounts: { modelMeshes: 0, proxyMeshes: 0, voxelProxies: 0 },
     lastScene: null,
     contentFolder: null,
     contentFolderName: "",
@@ -32,7 +41,7 @@ export const els = {};
 
 export function cacheElements() {
     for (const id of [
-        "viewport", "sceneSummary", "reloadScene", "contentStatus", "pickContent", "showGridHelper", "showSun",
+        "viewport", "sceneSummary", "reloadScene", "contentStatus", "pickContent", "showGridHelper", "showVoxels", "showSun",
         "cameraMode", "resetCamera", "stats", "log", "downloadLog", "hoverReadout", "cameraHint"
     ]) {
         els[id] = document.getElementById(id);

@@ -26,6 +26,8 @@ public class EntityRenderScene
 
     public ViewerGrid Grid { get; set; } = new();
 
+    public ViewerSceneEnvironment Environment { get; set; } = new();
+
     public List<ViewerBlockDefinition> BlockDefinitions { get; set; } = new();
 
     public List<ViewerBlockInstance> BlockInstances { get; set; } = new();
@@ -36,9 +38,18 @@ public class EntityRenderScene
 
     public List<ViewerGridChunk> Chunks { get; set; } = new();
 
+    public List<ViewerVoxelBody> Voxels { get; set; } = new();
+
     public List<string> Warnings { get; set; } = new();
 
     public DateTimeOffset CapturedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public class ViewerSceneEnvironment
+{
+    public ViewerVector3 SunDirection { get; set; } = new() { X = 0.33946735f, Y = 0.70979536f, Z = -0.61721337f };
+
+    public float SunIntensity { get; set; } = 1.9f;
 }
 
 public class ViewerGrid
@@ -194,6 +205,48 @@ public class ViewerGridChunk
     public ViewerVector3 LocalAabbMax { get; set; } = new();
 
     public int BlockCount { get; set; }
+}
+
+public class ViewerVoxelBody
+{
+    public string Id { get; set; } = string.Empty;
+
+    public string Kind { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    public ViewerMatrix WorldMatrix { get; set; } = ViewerMatrix.Identity();
+
+    public ViewerVector3D PositionLeftBottomCorner { get; set; } = new();
+
+    public ViewerVector3I StorageMin { get; set; } = new();
+
+    public ViewerVector3I StorageMax { get; set; } = new();
+
+    public ViewerVector3I StorageSize { get; set; } = new();
+
+    public ViewerVector3 SizeInMetres { get; set; } = new();
+
+    public ViewerBounds WorldAabb { get; set; } = new();
+
+    public bool ContentChanged { get; set; }
+
+    public ViewerPlanetInfo? Planet { get; set; }
+}
+
+public class ViewerPlanetInfo
+{
+    public float MinimumRadius { get; set; }
+
+    public float AverageRadius { get; set; }
+
+    public float MaximumRadius { get; set; }
+
+    public float AtmosphereRadius { get; set; }
+
+    public bool HasAtmosphere { get; set; }
+
+    public bool SpherizeWithDistance { get; set; }
 }
 
 public class ViewerBounds

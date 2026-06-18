@@ -18,6 +18,8 @@ Quasar does not serve Space Engineers assets to the browser.
 The viewer endpoint returns metadata only:
 
 - grid identity, transform, size, bounds, and static/dynamic state
+- scene lighting metadata, including the current in-game sun direction
+- loaded voxel body metadata and world bounds for planets, asteroids, moons, and voxel maps
 - block definition IDs and block placement
 - block cell coordinates, orientation, color mask, skin ID, build state, and integrity
 - logical model paths for block definitions, current block models, generated cube parts, and runtime subparts
@@ -39,6 +41,8 @@ The viewer resolves logical model and texture paths case-insensitively where the
 
 ## Current Rendering Behavior
 
+The browser always renders the selected grid in a relative view. The grid's in-game world transform is still used, but the view is re-centered on the grid and rotated into the grid's local frame so large world coordinates do not reduce browser-side precision. Voxel body proxies and the sun direction are transformed through the same relative frame.
+
 The viewer parses locally resolved `.mwm` files in the browser and renders mesh geometry for block models, generated cube-part models, and runtime subpart models. Current parsing covers the render mesh tags needed for static geometry (`Vertices`, `Normals`, `TexCoords0`, `MeshParts`, `PatternScale`) and follows `GeometryDataAsset` indirection used by stub MWMs.
 
 Armor and other generated cube-part models use the game-provided `PatternOffset` metadata from `MyCubeGrid.GetCubeParts(...)`. The browser applies the MWM `PatternScale` to model UVs and then applies the cube-part pattern offset before sampling wrapped material textures, matching Space Engineers' armor texture tiling and adjacent-block atlas variation more closely. Regular block models and runtime subparts do not receive cube-part pattern offsets.
@@ -48,6 +52,12 @@ Model material textures are also resolved from the selected local `Content` fold
 Applied block paint is rendered client-side from the scene `colourMaskHsv` metadata. For textured models, the viewer uses Space Engineers-style color masking: base color comes from `ColorMetalTexture`/diffuse textures, paint strength comes from `AddMapsTexture`/extension-map alpha, and `*_alphamask.dds` is treated only as alpha/cutout data rather than a paint mask. When a local model cannot be parsed, proxy boxes use the same block paint color as a visual fallback.
 
 The viewer statistics panel reports unique model assets listed by the scene, model files found locally, parsed models, missing models, and the equivalent texture counts discovered from scene texture metadata and locally parsed MWM material groups. Texture counts are unique by logical texture path; `loaded` counts textures the browser successfully decoded/uploaded, while `failed` covers locally found textures that could not be used, such as unsupported DDS/WebGL compression combinations.
+
+Loaded voxel bodies are shown as metadata-only proxies: planets use a wire sphere from the in-game radius metadata, and other voxel maps use their world bounds. The `Show voxels` toggle controls these proxies. Quasar still does not transmit voxel storage samples or generated voxel mesh geometry.
+
+The `Show sun` toggle controls the directional sun light and marker. When enabled, the sun direction comes from `MySector.DirectionToSunNormalized` in the running game and is transformed into the grid-relative view. When disabled, the viewer raises hemisphere and environment lighting so the grid remains readable without directional sun.
+
+The stats panel also includes live WebGL and viewport counters such as draw calls, triangles, lines, points, GPU geometries/textures, shader programs, renderables, visible objects, culled objects, meshes, sprites, and lights.
 
 Missing or unparseable local models and missing or unloadable textures are non-fatal. The viewer logs warnings and keeps the scene visible with proxy boxes and generated fallback materials where needed.
 

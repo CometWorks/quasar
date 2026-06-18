@@ -1,5 +1,5 @@
 import { els, state } from "./state.js";
-import { fitCameraToScene, setCameraMode } from "./scene.js";
+import { fitCameraToScene, setCameraMode, updateLighting, updateSceneBounds } from "./scene.js";
 
 export function wireControls(actions) {
     els.reloadScene.addEventListener("click", actions.reloadScene);
@@ -9,8 +9,12 @@ export function wireControls(actions) {
     els.showGridHelper.addEventListener("change", () => {
         if (state.floorGrid) state.floorGrid.visible = els.showGridHelper.checked;
     });
+    els.showVoxels.addEventListener("change", () => {
+        if (state.voxelGroup) state.voxelGroup.visible = els.showVoxels.checked;
+        updateSceneBounds(false);
+    });
     els.showSun.addEventListener("change", () => {
-        if (state.sunMarker) state.sunMarker.visible = els.showSun.checked;
+        updateLighting();
     });
     window.addEventListener("keydown", event => {
         if (state.cameraMode === "fly" && isFlyKey(event.code)) {
