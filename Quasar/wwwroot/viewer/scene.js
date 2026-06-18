@@ -9,6 +9,10 @@ const LARGE_GRID_CUBE_SIZE = 2.5;
 const FLOOR_GRID_DEFAULT_SIZE = 240;
 const FLOOR_GRID_PADDING_SUPERSQUARES = 2;
 const FLOOR_GRID_MAX_MINOR_CELLS_PER_AXIS = 20000;
+const FLY_MOUSE_SENSITIVITY = 0.0022;
+const FLY_BASE_SPEED = 18;
+const FLY_FAST_MULTIPLIER = 3;
+const FLY_PITCH_LIMIT = Math.PI / 2 - 0.01;
 
 export function initScene() {
     state.scene = new THREE.Scene();
@@ -50,6 +54,9 @@ export function initScene() {
     state.raycaster = new THREE.Raycaster();
     state.pointer = new THREE.Vector2();
     state.renderer.domElement.addEventListener("pointermove", onPointerMove);
+    state.renderer.domElement.addEventListener("pointermove", onFlyPointerMove);
+    state.renderer.domElement.addEventListener("click", onViewportClick);
+    document.addEventListener("pointerlockchange", updateCameraHint);
 
     state.resizeObserver = new ResizeObserver(resize);
     state.resizeObserver.observe(els.viewport);
@@ -217,6 +224,7 @@ export function fitCameraToScene() {
     state.camera.updateProjectionMatrix();
     state.controls.target.copy(sphere.center);
     state.controls.update();
+    if (state.cameraMode === "fly") syncFlyAnglesFromCamera();
     updateSunLightPosition();
 }
 
@@ -267,9 +275,39 @@ export function disposeObjectTree(root) {
 }
 
 export function setCameraMode(mode) {
-    state.cameraMode = mode === "fly" ? "fly" : "orbit";
-    state.controls.enabled = state.cameraMode === "orbit";
-    if (els.cameraHint) els.cameraHint.textContent = state.cameraMode === "fly" ? "Free fly: WASD to move" : "Orbit mode";
+    const nextMode = mode === "fly" ? "fly" : "orbit";
+    if (els.cameraMode) els.cameraMode.value = nextMode;
+    if (state.cameraMode === nextMode) {
+        updateCameraHint();
+        return;
+    }
+
+    state.cameraMode = nextMode;
+    state.flyKeys.clear();
+    state.lastFrameTime = 0;
+    state.controls.enabled = nextMode === "orbit";
+    if (nextMode === "fly") {
+        syncFlyAnglesFromCamera();
+        applyFlyCameraRotation();
+    } else {
+        if (document.pointerLockElement === state.renderer.domElement) document.exitPointerLock();
+        syncOrbitTargetFromCamera();
+        state.controls.update();
+    }
+    updateCameraHint();
+}
+
+function updateCameraHint() {
+    if (!els.cameraHint) return;
+    if (state.cameraMode === "fly") {
+        const locked = document.pointerLockElement === state.renderer.domElement;
+        els.cameraHint.textContent = locked ? "Free fly: WASD to move, mouse to look, Esc to release" : "Free fly: click viewport to capture mouse, WASD to move";
+        els.cameraHint.classList.toggle("is-active", locked);
+        return;
+    }
+
+    els.cameraHint.textContent = "Orbit mode";
+    els.cameraHint.classList.remove("is-active");
 }
 
 function resize() {
@@ -341,6 +379,7 @@ function objectWorldBounds(object) {
 }
 
 function onPointerMove(event) {
+    if (state.cameraMode === "fly" && document.pointerLockElement === state.renderer.domElement) return;
     const rect = state.renderer.domElement.getBoundingClientRect();
     state.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     state.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -366,6 +405,41 @@ function describeVoxel(voxel) {
     return `${voxel.kind || "voxel"} | ${voxel.displayName || voxel.id || "no id"}`;
 }
 
+function onViewportClick() {
+    if (state.cameraMode !== "fly" || document.pointerLockElement === state.renderer.domElement) return;
+    const request = state.renderer.domElement.requestPointerLock && state.renderer.domElement.requestPointerLock();
+    if (request && typeof request.catch === "function") request.catch(error => {
+        if (els.cameraHint) els.cameraHint.textContent = `Pointer lock unavailable: ${error.message}`;
+    });
+}
+
+function onFlyPointerMove(event) {
+    if (state.cameraMode !== "fly" || document.pointerLockElement !== state.renderer.domElement) return;
+    state.flyYaw -= event.movementX * FLY_MOUSE_SENSITIVITY;
+    state.flyPitch = clamp(state.flyPitch - event.movementY * FLY_MOUSE_SENSITIVITY, -FLY_PITCH_LIMIT, FLY_PITCH_LIMIT);
+    applyFlyCameraRotation();
+}
+
+function syncFlyAnglesFromCamera() {
+    const forward = new THREE.Vector3();
+    state.camera.getWorldDirection(forward);
+    state.flyPitch = Math.asin(clamp(forward.y, -1, 1));
+    state.flyYaw = Math.atan2(-forward.x, -forward.z);
+}
+
+function applyFlyCameraRotation() {
+    state.camera.rotation.order = "YXZ";
+    state.camera.rotation.set(state.flyPitch, state.flyYaw, 0, "YXZ");
+}
+
+function syncOrbitTargetFromCamera() {
+    const forward = new THREE.Vector3();
+    state.camera.getWorldDirection(forward);
+    const currentDistance = state.camera.position.distanceTo(state.controls.target);
+    const distance = Number.isFinite(currentDistance) && currentDistance > 0.001 ? currentDistance : 25;
+    state.controls.target.copy(state.camera.position).addScaledVector(forward, distance);
+}
+
 function updateFlyMovement(delta) {
     if (!delta || !state.flyKeys.size) return;
     const direction = new THREE.Vector3();
@@ -377,7 +451,14 @@ function updateFlyMovement(delta) {
     if (state.flyKeys.has("KeyS")) direction.sub(forward);
     if (state.flyKeys.has("KeyD")) direction.add(right);
     if (state.flyKeys.has("KeyA")) direction.sub(right);
-    if (direction.lengthSq() > 0) state.camera.position.addScaledVector(direction.normalize(), 18 * delta);
+    if (direction.lengthSq() > 0) {
+        const fast = state.flyKeys.has("ShiftLeft") || state.flyKeys.has("ShiftRight");
+        state.camera.position.addScaledVector(direction.normalize(), FLY_BASE_SPEED * (fast ? FLY_FAST_MULTIPLIER : 1) * delta);
+    }
+}
+
+function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
 }
 
 function updateRenderStats() {

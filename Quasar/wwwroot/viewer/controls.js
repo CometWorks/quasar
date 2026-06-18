@@ -17,15 +17,25 @@ export function wireControls(actions) {
         updateLighting();
     });
     window.addEventListener("keydown", event => {
-        if (state.cameraMode === "fly" && isFlyKey(event.code)) {
+        if (state.cameraMode === "fly" && !isTextEntryTarget(event.target) && isFlyKey(event.code)) {
             state.flyKeys.add(event.code);
             event.preventDefault();
         }
     });
-    window.addEventListener("keyup", event => state.flyKeys.delete(event.code));
+    window.addEventListener("keyup", event => {
+        if (state.cameraMode !== "fly" || !isFlyKey(event.code)) return;
+        state.flyKeys.delete(event.code);
+        event.preventDefault();
+    });
     window.addEventListener("blur", () => state.flyKeys.clear());
 }
 
 function isFlyKey(code) {
-    return code === "KeyW" || code === "KeyA" || code === "KeyS" || code === "KeyD";
+    return code === "KeyW" || code === "KeyA" || code === "KeyS" || code === "KeyD" || code === "ShiftLeft" || code === "ShiftRight";
+}
+
+function isTextEntryTarget(target) {
+    if (!target || document.pointerLockElement === state.renderer.domElement) return false;
+    const tagName = target.tagName && target.tagName.toLowerCase();
+    return tagName === "input" || tagName === "select" || tagName === "textarea" || target.isContentEditable;
 }
