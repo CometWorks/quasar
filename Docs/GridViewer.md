@@ -43,6 +43,8 @@ The viewer resolves logical model and texture paths case-insensitively where the
 
 The browser always renders the selected grid in a relative view. The grid's in-game world transform is still used, but the view is re-centered on the grid and rotated into the grid's local frame so large world coordinates do not reduce browser-side precision. Voxel body proxies and the sun direction are transformed through the same relative frame.
 
+The floor grid is scaled to the displayed grid bounds, padded by two major squares, and uses Space Engineers cube-size semantics: 0.5 m sub-squares are shown when the extent is reasonable, while major lines align to the active grid size (`0.5 m` for small grids and `2.5 m` for large grids). Very large extents fall back to coarser major-line spacing to avoid excessive browser geometry.
+
 The viewer parses locally resolved `.mwm` files in the browser and renders mesh geometry for block models, generated cube-part models, and runtime subpart models. Current parsing covers the render mesh tags needed for static geometry (`Vertices`, `Normals`, `TexCoords0`, `MeshParts`, `PatternScale`) and follows `GeometryDataAsset` indirection used by stub MWMs.
 
 Armor and other generated cube-part models use the game-provided `PatternOffset` metadata from `MyCubeGrid.GetCubeParts(...)`. The browser applies the MWM `PatternScale` to model UVs and then applies the cube-part pattern offset before sampling wrapped material textures, matching Space Engineers' armor texture tiling and adjacent-block atlas variation more closely. Regular block models and runtime subparts do not receive cube-part pattern offsets.
