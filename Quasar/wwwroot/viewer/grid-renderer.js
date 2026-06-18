@@ -5,13 +5,14 @@ import { wireMaterial } from "./materials.js";
 import { colorFromHash, matrixDtoToThree, num, vec3 } from "./math.js";
 import { disposeObjectTree, fitCameraToScene, updateLighting, updateSceneBounds, updateSunLightPosition } from "./scene.js";
 import { resolveModelAsset } from "./mwm-loader.js";
-import { loadTexture, resolveTextureAsset } from "./texture-loader.js";
+import { loadTexture } from "./texture-loader.js";
 import { log } from "./logging.js";
 
 let textureStatsToken = 0;
 
 export async function renderGridScene(scene) {
     state.lastScene = scene;
+    state.stats = {};
     if (state.gridGroup) {
         state.scene.remove(state.gridGroup);
         disposeObjectTree(state.gridGroup);
@@ -35,9 +36,10 @@ export async function renderGridScene(scene) {
 
     const definitions = new Map((scene.blockDefinitions || []).map(definition => [definition.id, definition]));
     const modelAssets = new Map((scene.modelAssets || []).map(asset => [asset.assetId, asset]));
-    const resolutionStats = await resolveReferencedModels(scene, modelAssets);
+    const resolutionStats = await timed("modelResolutionTotal", () => resolveReferencedModels(scene, modelAssets));
     const renderTextureToken = ++textureStatsToken;
-    const textureStats = await resolveReferencedTextures(collectReferencedTextureAssets(scene));
+    const renderContext = createRenderContext(renderTextureToken);
+    const textureStats = initializeTextureStats(collectReferencedTextureAssets(scene));
     updateTextureStats();
 
     const bounds = new THREE.Box3();
@@ -46,9 +48,9 @@ export async function renderGridScene(scene) {
     for (const block of scene.blockInstances || []) {
         const definition = definitions.get(block.blockTypeId);
         const box = blockBox(block, scene.grid.gridSize || 2.5);
-        const blockMeshes = createBlockMeshes(block, definition, renderTextureToken);
+        const blockMeshes = createBlockMeshes(block, definition, renderContext);
         if (blockMeshes.length) {
-            for (const mesh of blockMeshes) group.add(mesh);
+            for (const mesh of blockMeshes) queueModelBatch(mesh, renderContext);
             modelMeshes += blockMeshes.length;
         } else {
             const mesh = createBlockProxy(block, definition, box);
@@ -57,6 +59,7 @@ export async function renderGridScene(scene) {
         }
         bounds.union(box);
     }
+    const modelBatches = flushModelBatches(group, renderContext);
 
     state.sceneRenderCounts.modelMeshes = modelMeshes;
     state.sceneRenderCounts.proxyMeshes = proxyMeshes;
@@ -71,6 +74,9 @@ export async function renderGridScene(scene) {
     state.stats.Blocks = (scene.blockInstances || []).length;
     state.stats["Model meshes"] = modelMeshes;
     state.stats["Proxy meshes"] = proxyMeshes;
+    state.stats["Model batches"] = modelBatches;
+    state.stats["Shared geometries"] = renderContext.geometries.size;
+    state.stats["Shared materials"] = renderContext.materials.size;
     state.stats["Models listed"] = (scene.modelAssets || []).length;
     state.stats["Models found locally"] = resolutionStats.found;
     state.stats["Models parsed"] = resolutionStats.parsed;
@@ -82,7 +88,17 @@ export async function renderGridScene(scene) {
     state.stats["Textures failed"] = textureStats.failed;
     state.stats["Voxel bodies"] = (scene.voxels || []).length;
     state.stats["Voxel proxies"] = state.sceneRenderCounts.voxelProxies;
+    updateTimingStats();
     renderSummary(scene, resolutionStats, textureStats);
+}
+
+function createRenderContext(textureToken) {
+    return {
+        textureToken,
+        geometries: new Map(),
+        materials: new Map(),
+        batches: new Map(),
+    };
 }
 
 function configureRelativeView(scene) {
@@ -186,11 +202,11 @@ function createVoxelProxy(voxel) {
     return mesh;
 }
 
-function createBlockMeshes(block, definition, textureToken) {
+function createBlockMeshes(block, definition, renderContext) {
     const meshes = [];
     if (block.modelParts && block.modelParts.length) {
         for (const part of block.modelParts) {
-            const mesh = createModelMesh(part.modelAssetId, block, matrixDtoToThree(part.localMatrix), part.patternOffset, textureToken);
+            const mesh = createModelMesh(part.modelAssetId, block, matrixDtoToThree(part.localMatrix), part.patternOffset, renderContext);
             if (mesh) meshes.push(mesh);
         }
     } else {
@@ -200,38 +216,100 @@ function createBlockMeshes(block, definition, textureToken) {
             Number(definition.modelOffset.x) || 0,
             Number(definition.modelOffset.y) || 0,
             Number(definition.modelOffset.z) || 0));
-        const mesh = createModelMesh(assetId, block, matrix, null, textureToken);
+        const mesh = createModelMesh(assetId, block, matrix, null, renderContext);
         if (mesh) meshes.push(mesh);
     }
 
     for (const subpart of block.subparts || []) {
-        const mesh = createModelMesh(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix), null, textureToken);
+        const mesh = createModelMesh(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix), null, renderContext);
         if (mesh) meshes.push(mesh);
     }
 
     return meshes;
 }
 
-function createModelMesh(assetId, block, matrix, patternOffset = null, textureToken = textureStatsToken) {
+function createModelMesh(assetId, block, matrix, patternOffset = null, renderContext = createRenderContext(textureStatsToken)) {
     const resolved = assetId ? state.modelResolution.get(assetId) : null;
     const model = resolved && resolved.status === "parsed" ? resolved.model : null;
     if (!model) return null;
+
+    const geometry = sharedModelGeometry(model, patternOffset, renderContext);
+    const materials = model.groups.map(group => sharedModelMaterial(model, group, renderContext));
+    return {
+        geometry,
+        materials,
+        matrix,
+        block,
+        colorMask: colorMaskForBlock(block),
+        batchKey: `${geometry.userData.renderCacheKey}|${materials.map(material => material.userData.renderCacheKey).join("|")}`,
+    };
+}
+
+function queueModelBatch(renderable, renderContext) {
+    let batch = renderContext.batches.get(renderable.batchKey);
+    if (!batch) {
+        batch = {
+            geometry: renderable.geometry,
+            materials: renderable.materials,
+            instances: [],
+        };
+        renderContext.batches.set(renderable.batchKey, batch);
+    }
+    batch.instances.push(renderable);
+}
+
+function flushModelBatches(group, renderContext) {
+    const color = new THREE.Color();
+    for (const [key, batch] of renderContext.batches) {
+        const mesh = new THREE.InstancedMesh(batch.geometry, batch.materials, batch.instances.length);
+        mesh.name = `ModelBatch:${key}`;
+        mesh.matrixAutoUpdate = false;
+        mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+        mesh.userData.blocks = [];
+
+        for (let i = 0; i < batch.instances.length; i++) {
+            const instance = batch.instances[i];
+            mesh.setMatrixAt(i, instance.matrix);
+            color.r = instance.colorMask.x;
+            color.g = instance.colorMask.y;
+            color.b = instance.colorMask.z;
+            mesh.setColorAt(i, color);
+            mesh.userData.blocks.push(instance.block);
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        if (typeof mesh.computeBoundingBox === "function") mesh.computeBoundingBox();
+        if (typeof mesh.computeBoundingSphere === "function") mesh.computeBoundingSphere();
+        mesh.onBeforeRender = applyDefaultBlockColorMaskUniforms;
+        group.add(mesh);
+    }
+    return renderContext.batches.size;
+}
+
+function sharedModelGeometry(model, patternOffset, renderContext) {
+    const key = `${model.geometryLogicalPath || model.logicalPath}|${patternOffsetKey(patternOffset)}`;
+    if (renderContext.geometries.has(key)) return renderContext.geometries.get(key);
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(model.positions, 3));
     if (model.normals) geometry.setAttribute("normal", new THREE.BufferAttribute(model.normals, 3));
     if (model.uvs) geometry.setAttribute("uv", new THREE.BufferAttribute(transformPatternUvs(model.uvs, patternOffset), 2));
-    geometry.setAttribute("color", blockColorMaskAttribute(block, model.positions.length / 3));
     geometry.setIndex(new THREE.BufferAttribute(model.indices, 1));
     for (const group of model.groups) geometry.addGroup(group.start, group.count, group.materialIndex);
     if (!model.normals) geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+    geometry.userData.renderCacheKey = key;
+    renderContext.geometries.set(key, geometry);
+    return geometry;
+}
 
-    const materials = model.groups.map(group => createModelMaterial(model, group, textureToken));
-    const mesh = new THREE.Mesh(geometry, materials);
-    mesh.matrixAutoUpdate = false;
-    mesh.matrix.copy(matrix);
-    mesh.userData.block = block;
-    return mesh;
+function patternOffsetKey(patternOffset) {
+    if (!patternOffset) return "default";
+    const x = Number(patternOffset.x ?? patternOffset.X);
+    const y = Number(patternOffset.y ?? patternOffset.Y);
+    const z = Number(patternOffset.z ?? patternOffset.Z);
+    const w = Number(patternOffset.w ?? patternOffset.W);
+    return [x, y, z, w].map(value => Number.isFinite(value) ? value.toFixed(6) : "n").join(",");
 }
 
 function transformPatternUvs(uvs, patternOffset) {
@@ -252,21 +330,33 @@ function transformPatternUvs(uvs, patternOffset) {
     return transformed;
 }
 
-function createModelMaterial(model, group, textureToken) {
+function sharedModelMaterial(model, group, renderContext) {
+    const key = `${model.logicalPath}|${group.materialIndex}|${group.materialName}|${group.technique}|${stableTextureKey(group.textures)}`;
+    if (renderContext.materials.has(key)) return renderContext.materials.get(key);
+
     const technique = String(group.technique || "MESH").toUpperCase();
     const transparent = technique.includes("GLASS") || technique.includes("ALPHA") || technique.includes("HOLO") || technique.includes("SHIELD");
     const material = new THREE.MeshStandardMaterial({
         color: colorFromHash(`${model.logicalPath}|${group.materialName || group.materialIndex}`),
         roughness: 0.72,
         metalness: 0.22,
-        vertexColors: true,
         transparent,
         opacity: technique.includes("GLASS") ? 0.38 : transparent ? 0.7 : 1,
         side: technique.includes("SINGLE_SIDED") ? THREE.FrontSide : THREE.DoubleSide,
     });
+    material.userData.renderCacheKey = key;
     applySpaceEngineersColorMasking(material, false);
-    applyModelTextures(material, group, technique, textureToken);
+    applyModelTextures(material, group, technique, renderContext.textureToken);
+    renderContext.materials.set(key, material);
     return material;
+}
+
+function stableTextureKey(textures) {
+    return Object.entries(textures || {})
+        .filter(([, path]) => !!path)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([slot, path]) => `${slot}=${path}`)
+        .join(";");
 }
 
 function applyModelTextures(material, group, technique, textureToken) {
@@ -321,7 +411,7 @@ function loadTrackedTexture(selection, textureToken) {
         recordTextureLoadStatus(key, "loaded", textureToken);
         return texture;
     }).catch(error => {
-        recordTextureLoadStatus(key, "failed", textureToken);
+        recordTextureLoadStatus(key, error && error.isMissingLocalTexture ? "missing" : "failed", textureToken);
         throw error;
     });
 }
@@ -349,6 +439,7 @@ function applySpaceEngineersColorMasking(material, metalnessColorable) {
         seColorMaskMap: { value: fallbackWhiteTexture() },
         seUseColorMaskMap: { value: false },
         seColorMaskRedChannel: { value: 0 },
+        seBlockColorMask: { value: new THREE.Vector3(0, -1, 0) },
         seMetalnessColorable: { value: !!metalnessColorable },
         seUseColorMetalAlpha: { value: false },
         seUseNormalGlossAlpha: { value: false },
@@ -359,6 +450,7 @@ function applySpaceEngineersColorMasking(material, metalnessColorable) {
 uniform sampler2D seColorMaskMap;
 uniform bool seUseColorMaskMap;
 uniform float seColorMaskRedChannel;
+uniform vec3 seBlockColorMask;
 uniform bool seMetalnessColorable;
 uniform bool seUseColorMetalAlpha;
 uniform bool seUseNormalGlossAlpha;
@@ -419,20 +511,28 @@ float seRemoveMetalnessFromColoring(float metalness, float coloring) {
 #ifdef USE_MAP
   if (seUseColorMetalAlpha) metalnessFactor = clamp(sampledDiffuseColor.a, 0.0, 1.0);
 #endif`);
-        shader.fragmentShader = shader.fragmentShader.replace("#include <color_fragment>", `#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
-  #ifdef USE_MAP
+        shader.fragmentShader = shader.fragmentShader.replace("#include <color_fragment>", `vec3 sePaintMask = seBlockColorMask;
+#if defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR ) || defined( USE_BATCHING_COLOR )
+    sePaintMask = vColor.rgb;
+#endif
+#ifdef USE_MAP
     vec4 seMaskTexel = texture2D(seColorMaskMap, vMapUv);
     float seMaskFactor = mix(seMaskTexel.a, seMaskTexel.r, seColorMaskRedChannel);
     float seColoringFactor = seUseColorMaskMap ? seMaskFactor : seFallbackColoringFactor(diffuseColor.rgb);
     float seMetalness = seUseColorMetalAlpha ? sampledDiffuseColor.a : 0.0;
     if (!seMetalnessColorable) seColoringFactor = seRemoveMetalnessFromColoring(seMetalness, seColoringFactor);
-    diffuseColor.rgb = seColorizeGray(diffuseColor.rgb, vColor.rgb, seColoringFactor);
-  #else
-    diffuseColor.rgb = seColorizeGray(diffuseColor.rgb, vColor.rgb, 1.0);
-  #endif
+    diffuseColor.rgb = seColorizeGray(diffuseColor.rgb, sePaintMask, seColoringFactor);
+#else
+    diffuseColor.rgb = seColorizeGray(diffuseColor.rgb, sePaintMask, 1.0);
 #endif`);
     };
-    material.customProgramCacheKey = () => "se-grid-viewer-color-mask-v1";
+    material.customProgramCacheKey = () => "se-grid-viewer-color-mask-v2";
+}
+
+function applyDefaultBlockColorMaskUniforms(renderer, scene, camera, geometry, material) {
+    const uniforms = material && material.userData && material.userData.seColorMaskUniforms;
+    if (!uniforms) return;
+    uniforms.seBlockColorMask.value.set(0, -1, 0);
 }
 
 function setSpaceEngineersColorMetalTexture(material, enabled) {
@@ -464,18 +564,6 @@ function fallbackWhiteTexture() {
     texture.needsUpdate = true;
     state.textureCache.set(key, texture);
     return texture;
-}
-
-function blockColorMaskAttribute(block, vertexCount) {
-    const color = colorMaskForBlock(block);
-    const values = new Float32Array(vertexCount * 3);
-    for (let i = 0; i < vertexCount; i++) {
-        const target = i * 3;
-        values[target] = color.x;
-        values[target + 1] = color.y;
-        values[target + 2] = color.z;
-    }
-    return new THREE.BufferAttribute(values, 3);
 }
 
 function colorMaskForBlock(block) {
@@ -618,27 +706,13 @@ function addTextureAsset(assets, logicalPath, usage) {
     });
 }
 
-async function resolveReferencedTextures(textureAssets) {
+function initializeTextureStats(textureAssets) {
     state.textureResolution.clear();
     state.textureStats = { listed: textureAssets.size, found: 0, loaded: 0, missing: 0, failed: 0 };
-    if (!state.contentFolder) {
-        state.textureStats.missing = textureAssets.size;
-        for (const [key, asset] of textureAssets) {
-            state.textureResolution.set(key, { asset, localStatus: "missing", loadStatus: "pending" });
-        }
-        return state.textureStats;
-    }
-
     for (const [key, asset] of textureAssets) {
-        const resolved = await resolveTextureAsset(asset);
-        if (resolved) {
-            state.textureStats.found++;
-            state.textureResolution.set(key, { asset, resolved, localStatus: "found", loadStatus: "pending" });
-        } else {
-            state.textureStats.missing++;
-            state.textureResolution.set(key, { asset, localStatus: "missing", loadStatus: "pending" });
-        }
+        state.textureResolution.set(key, { asset, localStatus: state.contentFolder ? "pending" : "missing", loadStatus: "pending" });
     }
+    if (!state.contentFolder) state.textureStats.missing = textureAssets.size;
     return state.textureStats;
 }
 
@@ -655,10 +729,18 @@ function recordTextureLoadStatus(key, loadStatus, textureToken) {
 
     if (entry.loadStatus === "loaded") return;
     if (entry.loadStatus === "failed") state.textureStats.failed = Math.max(0, state.textureStats.failed - 1);
+    if (entry.localStatus === "missing") state.textureStats.missing = Math.max(0, state.textureStats.missing - 1);
+    if (entry.localStatus !== "found" && loadStatus !== "missing") {
+        entry.localStatus = "found";
+        state.textureStats.found++;
+    }
 
     if (loadStatus === "loaded") {
         state.textureStats.loaded++;
-    } else if (entry.localStatus !== "missing") {
+    } else if (loadStatus === "missing") {
+        entry.localStatus = "missing";
+        state.textureStats.missing++;
+    } else {
         state.textureStats.failed++;
     }
 
@@ -672,6 +754,37 @@ function updateTextureStats() {
     state.stats["Textures loaded"] = state.textureStats.loaded;
     state.stats["Textures missing"] = state.textureStats.missing;
     state.stats["Textures failed"] = state.textureStats.failed;
+    updateTimingStats();
+}
+
+function updateTimingStats() {
+    for (const [key, metric] of Object.entries(state.timings || {})) {
+        const label = timingLabel(key);
+        state.stats[`${label} total ms`] = Math.round(metric.totalMs);
+        state.stats[`${label} max ms`] = Math.round(metric.maxMs);
+        state.stats[`${label} count`] = metric.count;
+    }
+}
+
+function timingLabel(key) {
+    return key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, value => value.toUpperCase());
+}
+
+async function timed(key, operation) {
+    const start = performance.now();
+    try {
+        return await operation();
+    } finally {
+        addTiming(key, performance.now() - start);
+    }
+}
+
+function addTiming(key, durationMs) {
+    const metric = state.timings[key] || { count: 0, totalMs: 0, maxMs: 0 };
+    metric.count++;
+    metric.totalMs += durationMs;
+    metric.maxMs = Math.max(metric.maxMs, durationMs);
+    state.timings[key] = metric;
 }
 
 function textureAssetKey(logicalPath) {

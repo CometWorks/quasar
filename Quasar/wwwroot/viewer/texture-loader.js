@@ -1,7 +1,13 @@
 import * as THREE from "three";
 import { resolveContentFile } from "./content-folder.js";
-import { log } from "./logging.js";
 import { state } from "./state.js";
+
+const MAX_CONCURRENT_TEXTURE_RESOLVES = 24;
+const MAX_CONCURRENT_TEXTURE_READS = 6;
+const MAX_CONCURRENT_TEXTURE_UPLOADS = 4;
+const resolveQueue = createAsyncQueue(MAX_CONCURRENT_TEXTURE_RESOLVES);
+const readQueue = createAsyncQueue(MAX_CONCURRENT_TEXTURE_READS);
+const uploadQueue = createAsyncQueue(MAX_CONCURRENT_TEXTURE_UPLOADS);
 
 export async function resolveTextureAsset(asset) {
     if (!asset || !asset.logicalPath) return null;
@@ -10,10 +16,27 @@ export async function resolveTextureAsset(asset) {
 
 export async function loadTexture(logicalPath, slot = "") {
     if (!logicalPath) return null;
-    const resolved = await resolveTextureFile(logicalPath);
-    if (!resolved) throw new Error(`Missing local texture: ${logicalPath}`);
+    const colorSpaceKey = isNonColorTexture(logicalPath, slot) ? "data" : "color";
+    const logicalKey = `${normalizeTextureKey(logicalPath)}|${colorSpaceKey}`;
+    if (state.textureLoadPromises.has(logicalKey)) return await state.textureLoadPromises.get(logicalKey);
 
-    const colorSpaceKey = isNonColorTexture(resolved.logicalPath, slot) ? "data" : "color";
+    const promise = loadTextureUncoalesced(logicalPath, slot, colorSpaceKey);
+    state.textureLoadPromises.set(logicalKey, promise);
+    try {
+        return await promise;
+    } finally {
+        state.textureLoadPromises.delete(logicalKey);
+    }
+}
+
+async function loadTextureUncoalesced(logicalPath, slot, colorSpaceKey) {
+    const resolved = await timedQueue(resolveQueue, "texturePathResolve", () => resolveTextureFile(logicalPath));
+    if (!resolved) {
+        const error = new Error(`Missing local texture: ${logicalPath}`);
+        error.isMissingLocalTexture = true;
+        throw error;
+    }
+
     const cacheKey = `${resolved.logicalPath.toLowerCase()}|${resolved.file.size}|${resolved.file.lastModified || 0}|${colorSpaceKey}`;
     if (state.textureCache.has(cacheKey)) return await state.textureCache.get(cacheKey);
 
@@ -62,12 +85,14 @@ async function loadBrowserImageTexture(resolved, slot) {
 }
 
 async function loadDdsTexture(resolved, slot) {
-    const buffer = await resolved.file.arrayBuffer();
+    const buffer = await timedQueue(readQueue, "ddsFileRead", () => resolved.file.arrayBuffer());
+    const parseStart = performance.now();
     const info = readDdsInfo(buffer, resolved.logicalPath);
     const texture = createCompressedDdsTexture(parseDdsMipmaps(buffer, info), resolved.logicalPath, info);
+    addTiming("ddsParse", performance.now() - parseStart);
     configureTexture(texture, resolved.logicalPath, slot);
-    validateCompressedTextureUpload(texture, info);
-    log(`DDS texture loaded locally: ${ddsLogLabel(info)}.`);
+    await timedQueue(uploadQueue, "textureUpload", () => validateCompressedTextureUpload(texture, info));
+    console.debug(`DDS texture loaded locally: ${ddsLogLabel(info)}.`);
     return texture;
 }
 
@@ -211,6 +236,51 @@ function isNonColorTexture(logicalPath, slot) {
     const text = `${slot || ""} ${logicalPath || ""}`.toLowerCase();
     return text.includes("normal") || text.includes("alpha") || text.includes("orm") || text.includes("addmaps") ||
         text.includes("extension") || /_(add|ng|alphamask)\./i.test(text);
+}
+
+function normalizeTextureKey(logicalPath) {
+    return String(logicalPath || "").trim().replaceAll("\\", "/").toLowerCase();
+}
+
+function createAsyncQueue(limit) {
+    let active = 0;
+    const queued = [];
+
+    function runNext() {
+        while (active < limit && queued.length) {
+            const item = queued.shift();
+            active++;
+            Promise.resolve()
+                .then(item.operation)
+                .then(item.resolve, item.reject)
+                .finally(() => {
+                    active--;
+                    runNext();
+                });
+        }
+    }
+
+    return operation => new Promise((resolve, reject) => {
+        queued.push({ operation, resolve, reject });
+        runNext();
+    });
+}
+
+async function timedQueue(queue, timingKey, operation) {
+    const start = performance.now();
+    try {
+        return await queue(operation);
+    } finally {
+        addTiming(timingKey, performance.now() - start);
+    }
+}
+
+function addTiming(key, durationMs) {
+    const metric = state.timings[key] || { count: 0, totalMs: 0, maxMs: 0 };
+    metric.count++;
+    metric.totalMs += durationMs;
+    metric.maxMs = Math.max(metric.maxMs, durationMs);
+    state.timings[key] = metric;
 }
 
 function ddsLogLabel(info) {

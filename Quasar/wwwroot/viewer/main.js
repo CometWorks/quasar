@@ -28,8 +28,11 @@ async function start() {
 async function reloadScene() {
     els.reloadScene.disabled = true;
     try {
+        state.timings = {};
         log("Requesting metadata-only scene snapshot from Quasar.");
+        const fetchStart = performance.now();
         const scene = await fetchEntityScene();
+        addTiming("sceneSnapshotFetch", performance.now() - fetchStart);
         await renderGridScene(scene);
         log(`Loaded scene ${scene.grid && scene.grid.id}.`);
     } catch (error) {
@@ -37,6 +40,14 @@ async function reloadScene() {
     } finally {
         els.reloadScene.disabled = false;
     }
+}
+
+function addTiming(key, durationMs) {
+    const metric = state.timings[key] || { count: 0, totalMs: 0, maxMs: 0 };
+    metric.count++;
+    metric.totalMs += durationMs;
+    metric.maxMs = Math.max(metric.maxMs, durationMs);
+    state.timings[key] = metric;
 }
 
 async function selectContentFolder() {

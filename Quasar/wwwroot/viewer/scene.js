@@ -376,13 +376,21 @@ function onPointerMove(event) {
     if (state.gridGroup) targets.push(state.gridGroup);
     if (state.voxelGroup && state.voxelGroup.visible) targets.push(state.voxelGroup);
     const hits = state.raycaster.intersectObjects(targets, true);
-    const hit = hits.find(item => item.object.userData && item.object.userData.block);
+    const hit = hits.find(item => blockFromIntersection(item));
     if (hit) {
-        els.hoverReadout.textContent = describeBlock(hit.object.userData.block);
+        els.hoverReadout.textContent = describeBlock(blockFromIntersection(hit));
         return;
     }
     const voxelHit = hits.find(item => item.object.userData && item.object.userData.voxel);
     els.hoverReadout.textContent = voxelHit ? describeVoxel(voxelHit.object.userData.voxel) : "No block or voxel selected";
+}
+
+function blockFromIntersection(hit) {
+    const userData = hit && hit.object && hit.object.userData;
+    if (!userData) return null;
+    if (userData.block) return userData.block;
+    if (userData.blocks && hit.instanceId != null) return userData.blocks[hit.instanceId] || null;
+    return null;
 }
 
 function describeBlock(block) {
@@ -491,6 +499,10 @@ function traverseVisible(object, parentVisible, visitor) {
 function isObjectCulled(object, frustum) {
     if (!object.frustumCulled) return false;
     if (object.isSprite) return !frustum.containsPoint(object.getWorldPosition(new THREE.Vector3()));
+    if (object.boundingSphere) {
+        const sphere = object.boundingSphere.clone().applyMatrix4(object.matrixWorld);
+        return !frustum.intersectsSphere(sphere);
+    }
     const geometry = object.geometry;
     if (!geometry) return false;
     if (!geometry.boundingSphere) geometry.computeBoundingSphere();

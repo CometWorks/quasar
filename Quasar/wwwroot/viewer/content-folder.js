@@ -5,6 +5,11 @@ const DB_NAME = "quasar-viewer";
 const STORE_NAME = "handles";
 const HANDLE_KEY = "space-engineers-content";
 
+const resolvedPathCache = new Map();
+let childMapCache = new WeakMap();
+const inFlightPathCache = new Map();
+let contentCacheGeneration = 0;
+
 export async function restoreContentFolder() {
     if (!window.indexedDB) return null;
     const handle = await readHandle();
@@ -13,6 +18,8 @@ export async function restoreContentFolder() {
         state.contentFolder = handle;
         state.contentFolderName = handle.name || "Content";
         state.textureCache.clear();
+        state.textureLoadPromises.clear();
+        clearContentFolderCaches();
         return handle;
     }
     return null;
@@ -29,6 +36,8 @@ export async function pickContentFolder() {
     state.contentFolder = handle;
     state.contentFolderName = handle.name || "Content";
     state.textureCache.clear();
+    state.textureLoadPromises.clear();
+    clearContentFolderCaches();
     await writeHandle(handle);
     log(`Selected local Content folder: ${state.contentFolderName}`);
     return handle;
@@ -43,6 +52,30 @@ export async function looksLikeContentFolder(handle) {
 export async function resolveContentFile(logicalPath) {
     if (!state.contentFolder || !logicalPath) return null;
     const normalized = normalizeLogicalPath(logicalPath);
+    const cacheKey = normalized.toLowerCase();
+    if (resolvedPathCache.has(cacheKey)) return resolvedPathCache.get(cacheKey);
+    if (inFlightPathCache.has(cacheKey)) return await inFlightPathCache.get(cacheKey);
+
+    const generation = contentCacheGeneration;
+    const promise = resolveContentFileUncached(normalized);
+    inFlightPathCache.set(cacheKey, promise);
+    try {
+        const resolved = await promise;
+        if (generation === contentCacheGeneration) resolvedPathCache.set(cacheKey, resolved);
+        return resolved;
+    } finally {
+        inFlightPathCache.delete(cacheKey);
+    }
+}
+
+export function clearContentFolderCaches() {
+    resolvedPathCache.clear();
+    childMapCache = new WeakMap();
+    inFlightPathCache.clear();
+    contentCacheGeneration++;
+}
+
+async function resolveContentFileUncached(normalized) {
     const hasKnownExtension = /\.(mwm|dds|png|jpe?g|webp)$/i.test(normalized);
     const candidates = hasKnownExtension
         ? [normalized]
@@ -94,10 +127,28 @@ async function getChild(handle, name) {
     } catch {
     }
     const wanted = name.toLowerCase();
-    for await (const [entryName, entryHandle] of handle.entries()) {
-        if (entryName.toLowerCase() === wanted) return entryHandle;
+    return (await getLowercaseChildMap(handle)).get(wanted) || null;
+}
+
+async function getLowercaseChildMap(handle) {
+    if (childMapCache.has(handle)) return await childMapCache.get(handle);
+
+    const promise = buildLowercaseChildMap(handle);
+    childMapCache.set(handle, promise);
+    try {
+        const map = await promise;
+        childMapCache.set(handle, map);
+        return map;
+    } catch (error) {
+        childMapCache.delete(handle);
+        throw error;
     }
-    return null;
+}
+
+async function buildLowercaseChildMap(handle) {
+    const map = new Map();
+    for await (const [entryName, entryHandle] of handle.entries()) map.set(entryName.toLowerCase(), entryHandle);
+    return map;
 }
 
 async function ensurePermission(handle, request) {
