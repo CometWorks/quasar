@@ -29,7 +29,7 @@ export async function loadTexture(logicalPath, slot = "") {
     }
 }
 
-async function resolveTextureFile(logicalPath) {
+export async function resolveTextureFile(logicalPath) {
     const path = String(logicalPath || "").trim();
     if (!path) return null;
     const hasExtension = /\.[a-z0-9]+$/i.test(path);

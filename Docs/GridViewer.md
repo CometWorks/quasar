@@ -47,7 +47,9 @@ Model material textures are also resolved from the selected local `Content` fold
 
 Applied block paint is rendered client-side from the scene `colourMaskHsv` metadata. For textured models, the viewer uses Space Engineers-style color masking: base color comes from `ColorMetalTexture`/diffuse textures, paint strength comes from `AddMapsTexture`/extension-map alpha, and `*_alphamask.dds` is treated only as alpha/cutout data rather than a paint mask. When a local model cannot be parsed, proxy boxes use the same block paint color as a visual fallback.
 
-Missing or unparseable local models and missing textures are non-fatal. The viewer logs warnings and keeps the scene visible with proxy boxes and generated fallback materials where needed.
+The viewer statistics panel reports unique model assets listed by the scene, model files found locally, parsed models, missing models, and the equivalent texture counts discovered from scene texture metadata and locally parsed MWM material groups. Texture counts are unique by logical texture path; `loaded` counts textures the browser successfully decoded/uploaded, while `failed` covers locally found textures that could not be used, such as unsupported DDS/WebGL compression combinations.
+
+Missing or unparseable local models and missing or unloadable textures are non-fatal. The viewer logs warnings and keeps the scene visible with proxy boxes and generated fallback materials where needed.
 
 ## Mods
 

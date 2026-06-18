@@ -5,8 +5,10 @@ import { wireMaterial } from "./materials.js";
 import { colorFromHash, matrixDtoToThree, num } from "./math.js";
 import { disposeObjectTree, fitCameraToScene, replaceFloorGrid } from "./scene.js";
 import { resolveModelAsset } from "./mwm-loader.js";
-import { loadTexture } from "./texture-loader.js";
+import { loadTexture, resolveTextureAsset } from "./texture-loader.js";
 import { log } from "./logging.js";
+
+let textureStatsToken = 0;
 
 export async function renderGridScene(scene) {
     state.lastScene = scene;
@@ -25,6 +27,9 @@ export async function renderGridScene(scene) {
     const definitions = new Map((scene.blockDefinitions || []).map(definition => [definition.id, definition]));
     const modelAssets = new Map((scene.modelAssets || []).map(asset => [asset.assetId, asset]));
     const resolutionStats = await resolveReferencedModels(scene, modelAssets);
+    const renderTextureToken = ++textureStatsToken;
+    const textureStats = await resolveReferencedTextures(collectReferencedTextureAssets(scene));
+    updateTextureStats();
 
     const bounds = new THREE.Box3();
     let modelMeshes = 0;
@@ -32,7 +37,7 @@ export async function renderGridScene(scene) {
     for (const block of scene.blockInstances || []) {
         const definition = definitions.get(block.blockTypeId);
         const box = blockBox(block, scene.grid.gridSize || 2.5);
-        const blockMeshes = createBlockMeshes(block, definition);
+        const blockMeshes = createBlockMeshes(block, definition, renderTextureToken);
         if (blockMeshes.length) {
             for (const mesh of blockMeshes) group.add(mesh);
             modelMeshes += blockMeshes.length;
@@ -56,14 +61,19 @@ export async function renderGridScene(scene) {
     state.stats["Models found locally"] = resolutionStats.found;
     state.stats["Models parsed"] = resolutionStats.parsed;
     state.stats["Models missing"] = resolutionStats.missing;
-    renderSummary(scene, resolutionStats);
+    state.stats["Textures listed"] = textureStats.listed;
+    state.stats["Textures found locally"] = textureStats.found;
+    state.stats["Textures loaded"] = textureStats.loaded;
+    state.stats["Textures missing"] = textureStats.missing;
+    state.stats["Textures failed"] = textureStats.failed;
+    renderSummary(scene, resolutionStats, textureStats);
 }
 
-function createBlockMeshes(block, definition) {
+function createBlockMeshes(block, definition, textureToken) {
     const meshes = [];
     if (block.modelParts && block.modelParts.length) {
         for (const part of block.modelParts) {
-            const mesh = createModelMesh(part.modelAssetId, block, matrixDtoToThree(part.localMatrix), part.patternOffset);
+            const mesh = createModelMesh(part.modelAssetId, block, matrixDtoToThree(part.localMatrix), part.patternOffset, textureToken);
             if (mesh) meshes.push(mesh);
         }
     } else {
@@ -73,19 +83,19 @@ function createBlockMeshes(block, definition) {
             Number(definition.modelOffset.x) || 0,
             Number(definition.modelOffset.y) || 0,
             Number(definition.modelOffset.z) || 0));
-        const mesh = createModelMesh(assetId, block, matrix);
+        const mesh = createModelMesh(assetId, block, matrix, null, textureToken);
         if (mesh) meshes.push(mesh);
     }
 
     for (const subpart of block.subparts || []) {
-        const mesh = createModelMesh(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix));
+        const mesh = createModelMesh(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix), null, textureToken);
         if (mesh) meshes.push(mesh);
     }
 
     return meshes;
 }
 
-function createModelMesh(assetId, block, matrix, patternOffset = null) {
+function createModelMesh(assetId, block, matrix, patternOffset = null, textureToken = textureStatsToken) {
     const resolved = assetId ? state.modelResolution.get(assetId) : null;
     const model = resolved && resolved.status === "parsed" ? resolved.model : null;
     if (!model) return null;
@@ -99,7 +109,7 @@ function createModelMesh(assetId, block, matrix, patternOffset = null) {
     for (const group of model.groups) geometry.addGroup(group.start, group.count, group.materialIndex);
     if (!model.normals) geometry.computeVertexNormals();
 
-    const materials = model.groups.map(group => createModelMaterial(model, group));
+    const materials = model.groups.map(group => createModelMaterial(model, group, textureToken));
     const mesh = new THREE.Mesh(geometry, materials);
     mesh.matrixAutoUpdate = false;
     mesh.matrix.copy(matrix);
@@ -125,7 +135,7 @@ function transformPatternUvs(uvs, patternOffset) {
     return transformed;
 }
 
-function createModelMaterial(model, group) {
+function createModelMaterial(model, group, textureToken) {
     const technique = String(group.technique || "MESH").toUpperCase();
     const transparent = technique.includes("GLASS") || technique.includes("ALPHA") || technique.includes("HOLO") || technique.includes("SHIELD");
     const material = new THREE.MeshStandardMaterial({
@@ -138,16 +148,16 @@ function createModelMaterial(model, group) {
         side: technique.includes("SINGLE_SIDED") ? THREE.FrontSide : THREE.DoubleSide,
     });
     applySpaceEngineersColorMasking(material, false);
-    applyModelTextures(material, group, technique);
+    applyModelTextures(material, group, technique, textureToken);
     return material;
 }
 
-function applyModelTextures(material, group, technique) {
+function applyModelTextures(material, group, technique, textureToken) {
     const base = textureSelection(group.textures, technique.includes("GLASS")
         ? ["GlassTexture", "TransparentTexture", "ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]
         : ["ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]);
     if (base) {
-        loadTexture(base.path, base.slot).then(texture => {
+        loadTrackedTexture(base, textureToken).then(texture => {
             material.map = texture;
             material.color.set(0xffffff);
             setSpaceEngineersColorMetalTexture(material, colorMetalTextureSelectionHasMetalness(base));
@@ -157,14 +167,14 @@ function applyModelTextures(material, group, technique) {
 
     const colorMask = colorMaskTextureSelection(group.textures);
     if (colorMask) {
-        loadTexture(colorMask.path, colorMask.slot).then(texture => {
+        loadTrackedTexture(colorMask, textureToken).then(texture => {
             setSpaceEngineersColorMaskTexture(material, texture);
         }).catch(error => log(`Paint mask texture fallback retained for ${colorMask.path}: ${error.message}`, true));
     }
 
     const normal = textureSelection(group.textures, ["NormalGlossTexture", "NormalTexture", "NormalMapTexture"]);
     if (normal) {
-        loadTexture(normal.path, normal.slot).then(texture => {
+        loadTrackedTexture(normal, textureToken).then(texture => {
             material.normalMap = texture;
             material.normalScale.set(-1, 1);
             setSpaceEngineersNormalGlossTexture(material, true);
@@ -186,6 +196,17 @@ function colorMaskTextureSelection(textures) {
         if (text.includes("addmaps") || text.includes("extension") || /_(add)\./i.test(text)) return { slot, path };
     }
     return null;
+}
+
+function loadTrackedTexture(selection, textureToken) {
+    const key = textureAssetKey(selection.path);
+    return loadTexture(selection.path, selection.slot).then(texture => {
+        recordTextureLoadStatus(key, "loaded", textureToken);
+        return texture;
+    }).catch(error => {
+        recordTextureLoadStatus(key, "failed", textureToken);
+        throw error;
+    });
 }
 
 function colorMetalTextureSelectionHasMetalness(selection) {
@@ -451,7 +472,97 @@ async function resolveReferencedModels(scene, modelAssets) {
     return { found, parsed, missing };
 }
 
-function renderSummary(scene, resolutionStats) {
+function collectReferencedTextureAssets(scene) {
+    const assets = new Map();
+    for (const asset of scene.textureAssets || []) {
+        addTextureAsset(assets, asset.logicalPath, asset.usage || asset.Usage || "metadata");
+    }
+
+    for (const resolved of state.modelResolution.values()) {
+        const model = resolved && resolved.status === "parsed" ? resolved.model : null;
+        if (!model) continue;
+
+        for (const group of model.groups || []) {
+            for (const [slot, path] of Object.entries(group.textures || {})) {
+                addTextureAsset(assets, path, slot || "material");
+            }
+        }
+    }
+    return assets;
+}
+
+function addTextureAsset(assets, logicalPath, usage) {
+    const key = textureAssetKey(logicalPath);
+    if (!key || assets.has(key)) return;
+    assets.set(key, {
+        assetId: `texture:${key}`,
+        logicalPath: String(logicalPath || "").trim().replaceAll("\\", "/"),
+        usage: usage || "unknown",
+    });
+}
+
+async function resolveReferencedTextures(textureAssets) {
+    state.textureResolution.clear();
+    state.textureStats = { listed: textureAssets.size, found: 0, loaded: 0, missing: 0, failed: 0 };
+    if (!state.contentFolder) {
+        state.textureStats.missing = textureAssets.size;
+        for (const [key, asset] of textureAssets) {
+            state.textureResolution.set(key, { asset, localStatus: "missing", loadStatus: "pending" });
+        }
+        return state.textureStats;
+    }
+
+    for (const [key, asset] of textureAssets) {
+        const resolved = await resolveTextureAsset(asset);
+        if (resolved) {
+            state.textureStats.found++;
+            state.textureResolution.set(key, { asset, resolved, localStatus: "found", loadStatus: "pending" });
+        } else {
+            state.textureStats.missing++;
+            state.textureResolution.set(key, { asset, localStatus: "missing", loadStatus: "pending" });
+        }
+    }
+    return state.textureStats;
+}
+
+function recordTextureLoadStatus(key, loadStatus, textureToken) {
+    if (textureToken !== textureStatsToken) return;
+
+    let entry = state.textureResolution.get(key);
+    if (!entry) {
+        entry = { asset: { logicalPath: key }, localStatus: "found", loadStatus: "pending" };
+        state.textureResolution.set(key, entry);
+        state.textureStats.listed++;
+        state.textureStats.found++;
+    }
+
+    if (entry.loadStatus === "loaded") return;
+    if (entry.loadStatus === "failed") state.textureStats.failed = Math.max(0, state.textureStats.failed - 1);
+
+    if (loadStatus === "loaded") {
+        state.textureStats.loaded++;
+    } else if (entry.localStatus !== "missing") {
+        state.textureStats.failed++;
+    }
+
+    entry.loadStatus = loadStatus;
+    updateTextureStats();
+}
+
+function updateTextureStats() {
+    state.stats["Textures listed"] = state.textureStats.listed;
+    state.stats["Textures found locally"] = state.textureStats.found;
+    state.stats["Textures loaded"] = state.textureStats.loaded;
+    state.stats["Textures missing"] = state.textureStats.missing;
+    state.stats["Textures failed"] = state.textureStats.failed;
+}
+
+function textureAssetKey(logicalPath) {
+    const value = String(logicalPath || "").trim().replaceAll("\\", "/");
+    return value ? value.toLowerCase() : "";
+}
+
+function renderSummary(scene, resolutionStats, textureStats) {
     els.sceneSummary.innerHTML = "";
     addSummary("Grid", scene.grid && scene.grid.displayName);
     addSummary("Entity", scene.grid && scene.grid.id);
@@ -460,6 +571,7 @@ function renderSummary(scene, resolutionStats) {
     addSummary("Found", resolutionStats.found.toLocaleString());
     addSummary("Parsed", resolutionStats.parsed.toLocaleString());
     addSummary("Missing", resolutionStats.missing.toLocaleString());
+    addSummary("Textures", textureStats.listed.toLocaleString());
     if (scene.warnings && scene.warnings.length) {
         for (const warning of scene.warnings) log(warning, true);
     }
