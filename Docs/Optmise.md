@@ -172,6 +172,9 @@ Implemented in the browser viewer:
 - Timing counters now cover scene fetch, model path resolution, MWM reads/parsing, texture path resolution, DDS reads/parsing, and WebGL texture upload/init.
 - Scene construction no longer blocks on pre-resolving every referenced texture path. Models render with fallback materials first, then selected material textures load progressively.
 - `content-folder.js` caches resolved paths, misses, in-flight path lookups, and case-insensitive directory entry maps for the selected Content folder.
+- Model path resolution/parsing now runs with bounded parallelism instead of walking all listed models sequentially.
+- The viewer renders temporary proxy boxes before model file IO completes, then progressively rebuilds the model layer as parsed assets become available instead of waiting for all models to finish.
+- Directory child lookup now coalesces repeated in-flight child handle requests and reuses an existing lowercase entry map before attempting exact-case File System Access calls, avoiding repeated failed probes after a directory has been enumerated.
 - Texture loading coalesces duplicate logical texture requests before file metadata is available, then keeps the existing file-size/last-modified cache key after resolution.
 - Texture work now uses separate concurrency limits for path resolution, file reads/DDS parse work, and WebGL upload/init validation.
 - Successful DDS loads are emitted to `console.debug`; the visible log is batched with `requestAnimationFrame` and remains focused on warnings/fallbacks.

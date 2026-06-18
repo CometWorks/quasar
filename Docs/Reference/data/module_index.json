@@ -918,7 +918,7 @@
       "name": "content-folder.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Browser File System Access helper for the grid viewer's local Space Engineers `Content` folder. It restores or stores the selected folder handle in IndexedDB, validates the expected `Data`, `Models`, and `Textures` directories, resolves logical asset paths case-insensitively, and keeps in-memory path/directory caches for the active folder."
+      "summary": "Browser File System Access helper for the grid viewer's local Space Engineers `Content` folder. It restores or stores the selected folder handle in IndexedDB, validates the expected `Data`, `Models`, and `Textures` directories, resolves logical asset paths case-insensitively, and keeps in-memory path/directory/child-handle caches for the active folder."
     },
     {
       "path": "Quasar/wwwroot/viewer/controls.js",
@@ -939,7 +939,7 @@
       "name": "grid-renderer.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Main renderer for metadata-only grid scenes. It resolves local MWM models, builds instanced batches for shared model/material combinations, renders proxy geometry for missing models, adds voxel proxies and lighting context, and progressively loads selected material textures without blocking scene construction."
+      "summary": "Main renderer for metadata-only grid scenes. It displays temporary proxy boxes while local MWM models resolve with bounded parallelism, progressively rebuilds the model layer as parsed assets become available, builds instanced batches for shared model/material combinations, renders proxy geometry for missing models, adds voxel proxies and lighting context, and progressively loads selected material textures without blocking scene construction."
     },
     {
       "path": "Quasar/wwwroot/viewer/logging.js",

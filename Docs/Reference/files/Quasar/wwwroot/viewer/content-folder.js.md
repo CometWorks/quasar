@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Browser File System Access helper for the grid viewer's local Space Engineers `Content` folder. It restores or stores the selected folder handle in IndexedDB, validates the expected `Data`, `Models`, and `Textures` directories, resolves logical asset paths case-insensitively, and keeps in-memory path/directory caches for the active folder.
+Browser File System Access helper for the grid viewer's local Space Engineers `Content` folder. It restores or stores the selected folder handle in IndexedDB, validates the expected `Data`, `Models`, and `Textures` directories, resolves logical asset paths case-insensitively, and keeps in-memory path/directory/child-handle caches for the active folder.
 
 ## Structure
 
@@ -21,4 +21,4 @@ Browser File System Access helper for the grid viewer's local Space Engineers `C
 - Browser File System Access API and IndexedDB.
 
 ## Notes
-Case-insensitive fallback enumerates directory entries only once per `FileSystemDirectoryHandle` and caches the lowercase map in a `WeakMap`. Caches are intentionally in-memory and are cleared when the active Content folder changes.
+Case-insensitive fallback enumerates directory entries only once per `FileSystemDirectoryHandle` and caches the lowercase map in a `WeakMap`. Child handle lookups are also coalesced per directory/name so concurrent model resolutions share common path segments like `Models` and `Cubes`. Once a lowercase map exists, later child lookups use it before exact-case File System Access calls so repeated model/texture resolutions do not keep paying for failed case-sensitive probes. Caches are intentionally in-memory and are cleared when the active Content folder changes.

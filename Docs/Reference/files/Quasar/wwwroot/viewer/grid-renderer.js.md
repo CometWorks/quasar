@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Main renderer for metadata-only grid scenes. It resolves local MWM models, builds instanced batches for shared model/material combinations, renders proxy geometry for missing models, adds voxel proxies and lighting context, and progressively loads selected material textures without blocking scene construction.
+Main renderer for metadata-only grid scenes. It displays temporary proxy boxes while local MWM models resolve with bounded parallelism, progressively rebuilds the model layer as parsed assets become available, builds instanced batches for shared model/material combinations, renders proxy geometry for missing models, adds voxel proxies and lighting context, and progressively loads selected material textures without blocking scene construction.
 
 ## Structure
 
@@ -11,7 +11,7 @@ Main renderer for metadata-only grid scenes. It resolves local MWM models, build
 |---|---|
 | `renderGridScene(scene)` | Replaces the active grid/voxel scene, resolves models, initializes progressive texture stats, creates batches/proxies, updates bounds/camera, and refreshes summary/stat fields. |
 
-Internal sections cover relative grid-view transforms, voxel proxy rendering, model-part/subpart mesh creation, shared geometry/material caches per render, Space Engineers-style paint/color-mask shader injection, instanced batch flushing, model resolution, texture metadata collection, progressive texture load status tracking, and timing-stat publication.
+Internal sections cover relative grid-view transforms, immediate temporary proxy rendering, animation-frame-coalesced model layer rebuilds, voxel proxy rendering, model-part/subpart mesh creation, shared geometry/material caches per rebuild, Space Engineers-style paint/color-mask shader injection, instanced batch flushing, bounded-concurrency model resolution, texture metadata collection, progressive texture load status tracking, and timing-stat publication.
 
 ## Dependencies
 - `three`.

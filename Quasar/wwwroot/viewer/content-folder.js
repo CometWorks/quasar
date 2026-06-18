@@ -6,6 +6,7 @@ const STORE_NAME = "handles";
 const HANDLE_KEY = "space-engineers-content";
 
 const resolvedPathCache = new Map();
+let childLookupCache = new WeakMap();
 let childMapCache = new WeakMap();
 const inFlightPathCache = new Map();
 let contentCacheGeneration = 0;
@@ -70,6 +71,7 @@ export async function resolveContentFile(logicalPath) {
 
 export function clearContentFolderCaches() {
     resolvedPathCache.clear();
+    childLookupCache = new WeakMap();
     childMapCache = new WeakMap();
     inFlightPathCache.clear();
     contentCacheGeneration++;
@@ -118,6 +120,25 @@ async function getChildFile(handle, name) {
 }
 
 async function getChild(handle, name) {
+    const wanted = name.toLowerCase();
+    const lookupCache = getChildLookupCache(handle);
+    if (lookupCache.has(wanted)) return await lookupCache.get(wanted);
+
+    const promise = getChildUncached(handle, name, wanted);
+    lookupCache.set(wanted, promise);
+    try {
+        const child = await promise;
+        lookupCache.set(wanted, child);
+        return child;
+    } catch (error) {
+        lookupCache.delete(wanted);
+        throw error;
+    }
+}
+
+async function getChildUncached(handle, name, wanted) {
+    if (childMapCache.has(handle)) return (await childMapCache.get(handle)).get(wanted) || null;
+
     try {
         return await handle.getDirectoryHandle(name);
     } catch {
@@ -126,8 +147,16 @@ async function getChild(handle, name) {
         return await handle.getFileHandle(name);
     } catch {
     }
-    const wanted = name.toLowerCase();
     return (await getLowercaseChildMap(handle)).get(wanted) || null;
+}
+
+function getChildLookupCache(handle) {
+    let cache = childLookupCache.get(handle);
+    if (!cache) {
+        cache = new Map();
+        childLookupCache.set(handle, cache);
+    }
+    return cache;
 }
 
 async function getLowercaseChildMap(handle) {
@@ -147,7 +176,12 @@ async function getLowercaseChildMap(handle) {
 
 async function buildLowercaseChildMap(handle) {
     const map = new Map();
-    for await (const [entryName, entryHandle] of handle.entries()) map.set(entryName.toLowerCase(), entryHandle);
+    const lookupCache = getChildLookupCache(handle);
+    for await (const [entryName, entryHandle] of handle.entries()) {
+        const key = entryName.toLowerCase();
+        map.set(key, entryHandle);
+        lookupCache.set(key, entryHandle);
+    }
     return map;
 }
 

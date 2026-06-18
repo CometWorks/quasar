@@ -9,8 +9,11 @@ import { loadTexture } from "./texture-loader.js";
 import { log } from "./logging.js";
 
 let textureStatsToken = 0;
+let modelRenderToken = 0;
+const MAX_CONCURRENT_MODEL_RESOLVES = 6;
 
 export async function renderGridScene(scene) {
+    const renderToken = ++modelRenderToken;
     state.lastScene = scene;
     state.stats = {};
     if (state.gridGroup) {
@@ -36,15 +39,75 @@ export async function renderGridScene(scene) {
 
     const definitions = new Map((scene.blockDefinitions || []).map(definition => [definition.id, definition]));
     const modelAssets = new Map((scene.modelAssets || []).map(asset => [asset.assetId, asset]));
-    const resolutionStats = await timed("modelResolutionTotal", () => resolveReferencedModels(scene, modelAssets));
     const renderTextureToken = ++textureStatsToken;
-    const renderContext = createRenderContext(renderTextureToken);
+    state.modelResolution.clear();
     const textureStats = initializeTextureStats(collectReferencedTextureAssets(scene));
-    updateTextureStats();
+    const resolutionStats = { found: 0, parsed: 0, missing: 0, listed: (scene.modelAssets || []).length };
+    const progress = createProgressiveModelRender(scene, definitions, group, renderTextureToken, renderToken);
 
     const bounds = new THREE.Box3();
+    for (const block of scene.blockInstances || []) bounds.union(blockBox(block, scene.grid.gridSize || 2.5));
+    state.currentBounds = bounds;
+    state.currentGridSize = scene.grid.gridSize || 2.5;
+    renderVoxelBodies(scene.voxels || []);
+    progress.rebuild();
+    updateSceneBounds(false);
+    updateSunLightPosition();
+    fitCameraToScene();
+    updateModelStats(resolutionStats, progress.lastRenderStats, modelAssets.size);
+    updateTextureStats();
+    state.stats["Voxel bodies"] = (scene.voxels || []).length;
+    state.stats["Voxel proxies"] = state.sceneRenderCounts.voxelProxies;
+    renderSummary(scene, resolutionStats, textureStats);
+
+    await timed("modelResolutionTotal", () => resolveReferencedModelsProgressively(scene, modelAssets, resolutionStats, progress, renderToken));
+    if (renderToken !== modelRenderToken) return;
+    progress.rebuild();
+    updateModelStats(resolutionStats, progress.lastRenderStats, modelAssets.size);
+    updateSummaryModelStats(resolutionStats);
+    updateTimingStats();
+}
+
+function createProgressiveModelRender(scene, definitions, group, textureToken, renderToken) {
+    let modelLayer = null;
+    let rebuildQueued = false;
+    const progress = {
+        lastRenderStats: { modelMeshes: 0, proxyMeshes: 0, modelBatches: 0, sharedGeometries: 0, sharedMaterials: 0 },
+        scheduleRebuild() {
+            if (rebuildQueued || renderToken !== modelRenderToken) return;
+            rebuildQueued = true;
+            requestAnimationFrame(() => {
+                rebuildQueued = false;
+                if (renderToken !== modelRenderToken) return;
+                progress.rebuild();
+            });
+        },
+        rebuild() {
+            const renderContext = createRenderContext(textureToken);
+            const nextLayer = buildModelLayer(scene, definitions, renderContext);
+            const previousLayer = modelLayer;
+            modelLayer = nextLayer.layer;
+            group.add(modelLayer);
+            if (previousLayer) {
+                group.remove(previousLayer);
+                disposeObjectTree(previousLayer);
+            }
+            progress.lastRenderStats = nextLayer.stats;
+            state.sceneRenderCounts.modelMeshes = nextLayer.stats.modelMeshes;
+            state.sceneRenderCounts.proxyMeshes = nextLayer.stats.proxyMeshes;
+            updateModelRenderStats(nextLayer.stats);
+            updateTextureStats();
+        },
+    };
+    return progress;
+}
+
+function buildModelLayer(scene, definitions, renderContext) {
+    const layer = new THREE.Group();
+    layer.name = "QuasarGridModels";
     let modelMeshes = 0;
     let proxyMeshes = 0;
+
     for (const block of scene.blockInstances || []) {
         const definition = definitions.get(block.blockTypeId);
         const box = blockBox(block, scene.grid.gridSize || 2.5);
@@ -53,43 +116,22 @@ export async function renderGridScene(scene) {
             for (const mesh of blockMeshes) queueModelBatch(mesh, renderContext);
             modelMeshes += blockMeshes.length;
         } else {
-            const mesh = createBlockProxy(block, definition, box);
-            group.add(mesh);
+            layer.add(createBlockProxy(block, definition, box));
             proxyMeshes++;
         }
-        bounds.union(box);
     }
-    const modelBatches = flushModelBatches(group, renderContext);
 
-    state.sceneRenderCounts.modelMeshes = modelMeshes;
-    state.sceneRenderCounts.proxyMeshes = proxyMeshes;
-
-    state.currentBounds = bounds;
-    state.currentGridSize = scene.grid.gridSize || 2.5;
-    renderVoxelBodies(scene.voxels || []);
-    updateSceneBounds(false);
-    updateSunLightPosition();
-    fitCameraToScene();
-
-    state.stats.Blocks = (scene.blockInstances || []).length;
-    state.stats["Model meshes"] = modelMeshes;
-    state.stats["Proxy meshes"] = proxyMeshes;
-    state.stats["Model batches"] = modelBatches;
-    state.stats["Shared geometries"] = renderContext.geometries.size;
-    state.stats["Shared materials"] = renderContext.materials.size;
-    state.stats["Models listed"] = (scene.modelAssets || []).length;
-    state.stats["Models found locally"] = resolutionStats.found;
-    state.stats["Models parsed"] = resolutionStats.parsed;
-    state.stats["Models missing"] = resolutionStats.missing;
-    state.stats["Textures listed"] = textureStats.listed;
-    state.stats["Textures found locally"] = textureStats.found;
-    state.stats["Textures loaded"] = textureStats.loaded;
-    state.stats["Textures missing"] = textureStats.missing;
-    state.stats["Textures failed"] = textureStats.failed;
-    state.stats["Voxel bodies"] = (scene.voxels || []).length;
-    state.stats["Voxel proxies"] = state.sceneRenderCounts.voxelProxies;
-    updateTimingStats();
-    renderSummary(scene, resolutionStats, textureStats);
+    const modelBatches = flushModelBatches(layer, renderContext);
+    return {
+        layer,
+        stats: {
+            modelMeshes,
+            proxyMeshes,
+            modelBatches,
+            sharedGeometries: renderContext.geometries.size,
+            sharedMaterials: renderContext.materials.size,
+        },
+    };
 }
 
 function createRenderContext(textureToken) {
@@ -652,29 +694,49 @@ function proxyOpacity(definition) {
     return definition && definition.visibilityClass === "transparent" ? 0.36 : 0.72;
 }
 
-async function resolveReferencedModels(scene, modelAssets) {
-    state.modelResolution.clear();
-    let found = 0;
-    let parsed = 0;
-    let missing = 0;
+async function resolveReferencedModelsProgressively(scene, modelAssets, stats, progress, renderToken) {
     if (!state.contentFolder) {
         log("No local Content folder selected; all models render as proxies.", true);
-        return { found, parsed, missing: (scene.modelAssets || []).length };
+        stats.missing = (scene.modelAssets || []).length;
+        updateModelStats(stats, progress.lastRenderStats, modelAssets.size);
+        return stats;
     }
 
-    for (const asset of modelAssets.values()) {
+    await runWithConcurrency([...modelAssets.values()], MAX_CONCURRENT_MODEL_RESOLVES, async asset => {
         const result = await resolveModelAsset(asset);
+        if (renderToken !== modelRenderToken) return;
+
         state.modelResolution.set(asset.assetId, result);
         if (result.status === "missing") {
-            missing++;
+            stats.missing++;
             log(result.message, true);
         } else {
-            found++;
-            if (result.status === "parsed") parsed++;
+            stats.found++;
+            if (result.status === "parsed") stats.parsed++;
             if (result.status === "proxy") log(result.message, true);
         }
+
+        updateModelStats(stats, progress.lastRenderStats, modelAssets.size);
+        progress.scheduleRebuild();
+    });
+    return stats;
+}
+
+async function runWithConcurrency(items, limit, operation) {
+    const results = new Array(items.length);
+    let nextIndex = 0;
+
+    async function worker() {
+        while (nextIndex < items.length) {
+            const index = nextIndex++;
+            results[index] = await operation(items[index], index);
+        }
     }
-    return { found, parsed, missing };
+
+    const workers = [];
+    for (let i = 0; i < Math.min(limit, items.length); i++) workers.push(worker());
+    await Promise.all(workers);
+    return results;
 }
 
 function collectReferencedTextureAssets(scene) {
@@ -755,6 +817,34 @@ function updateTextureStats() {
     state.stats["Textures missing"] = state.textureStats.missing;
     state.stats["Textures failed"] = state.textureStats.failed;
     updateTimingStats();
+}
+
+function updateModelStats(resolutionStats, renderStats, listed) {
+    state.stats.Blocks = (state.lastScene && state.lastScene.blockInstances || []).length;
+    updateModelRenderStats(renderStats);
+    state.stats["Models listed"] = listed;
+    state.stats["Models found locally"] = resolutionStats.found;
+    state.stats["Models parsed"] = resolutionStats.parsed;
+    state.stats["Models missing"] = resolutionStats.missing;
+    updateTimingStats();
+}
+
+function updateModelRenderStats(renderStats) {
+    state.stats["Model meshes"] = renderStats.modelMeshes;
+    state.stats["Proxy meshes"] = renderStats.proxyMeshes;
+    state.stats["Model batches"] = renderStats.modelBatches;
+    state.stats["Shared geometries"] = renderStats.sharedGeometries;
+    state.stats["Shared materials"] = renderStats.sharedMaterials;
+}
+
+function updateSummaryModelStats(resolutionStats) {
+    const entries = els.sceneSummary && Array.from(els.sceneSummary.children) || [];
+    for (let i = 0; i < entries.length - 1; i += 2) {
+        const label = entries[i].textContent;
+        if (label === "Found") entries[i + 1].textContent = resolutionStats.found.toLocaleString();
+        else if (label === "Parsed") entries[i + 1].textContent = resolutionStats.parsed.toLocaleString();
+        else if (label === "Missing") entries[i + 1].textContent = resolutionStats.missing.toLocaleString();
+    }
 }
 
 function updateTimingStats() {
