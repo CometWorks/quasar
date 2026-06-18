@@ -1,5 +1,4 @@
 import { resolveContentFile } from "./content-folder.js";
-import { state } from "./state.js";
 
 const modelCache = new Map();
 const textDecoder = new TextDecoder();
@@ -31,7 +30,7 @@ const TECHNIQUE_ORDER = new Map([
 
 export async function resolveModelAsset(asset) {
     if (!asset || !asset.logicalPath) return { status: "missing", message: "Model asset has no logical path." };
-    const resolved = await timed("modelFileResolution", () => resolveContentFile(asset.logicalPath));
+    const resolved = await resolveContentFile(asset.logicalPath);
     if (!resolved) return { status: "missing", message: `Missing local model: ${asset.logicalPath}` };
 
     let file = null;
@@ -73,8 +72,7 @@ async function parseResolvedModel(resolved, file, stack) {
 async function parseResolvedModelUncached(resolved, file, stack) {
     stack.add(resolved.logicalPath.toLowerCase());
     try {
-        const buffer = await timed("mwmFileRead", () => file.arrayBuffer());
-        const parseStart = performance.now();
+        const buffer = await file.arrayBuffer();
         const reader = new MwmReader(buffer);
         const tags = reader.readTagIndex();
         const geometryAsset = tags.get("GeometryDataAsset") ? reader.readStringTag(tags.get("GeometryDataAsset")) : "";
@@ -128,28 +126,10 @@ async function parseResolvedModelUncached(resolved, file, stack) {
             vertexCount: positions.length / 3,
             triangleCount: Math.floor(indexCount / 3),
         };
-        addTiming("mwmParse", performance.now() - parseStart);
         return model;
     } finally {
         stack.delete(resolved.logicalPath.toLowerCase());
     }
-}
-
-async function timed(key, operation) {
-    const start = performance.now();
-    try {
-        return await operation();
-    } finally {
-        addTiming(key, performance.now() - start);
-    }
-}
-
-function addTiming(key, durationMs) {
-    const metric = state.timings[key] || { count: 0, totalMs: 0, maxMs: 0 };
-    metric.count++;
-    metric.totalMs += durationMs;
-    metric.maxMs = Math.max(metric.maxMs, durationMs);
-    state.timings[key] = metric;
 }
 
 function techniqueOrder(technique) {

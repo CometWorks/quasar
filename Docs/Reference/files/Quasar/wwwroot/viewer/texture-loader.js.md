@@ -13,12 +13,12 @@ Browser-side texture resolver/loader for the grid viewer. It resolves logical te
 | `loadTexture(logicalPath, slot = "")` | Loads one logical texture for a material slot, using logical in-flight coalescing and final file metadata caching. |
 | `resolveTextureFile(logicalPath)` | Tries and caches extension candidates (`.dds`, image extensions, raw path) through the Content folder resolver. |
 
-Internal sections implement DDS header parsing for DXT1/DXT3/DXT5, BC4, BC5, DX10 BC7 variants, mip data slicing, `THREE.CompressedTexture` creation, color-space/wrap/anisotropy setup, WebGL extension checks, upload preflight with `renderer.initTexture`, active-generation texture path candidate caches, async queue throttles, and timing counter updates.
+Internal sections implement DDS header parsing for DXT1/DXT3/DXT5, BC4, BC5, DX10 BC7 variants, mip data slicing, `THREE.CompressedTexture` creation, color-space/wrap/anisotropy setup, WebGL extension checks, upload preflight with `renderer.initTexture`, active-generation texture path candidate caches, and async queue throttles.
 
 ## Dependencies
 - `three`.
 - [`Quasar/wwwroot/viewer/content-folder.js`](content-folder.js.md) for local file resolution.
-- [`Quasar/wwwroot/viewer/state.js`](state.js.md) for renderer access, texture caches, in-flight logical loads, and timing counters.
+- [`Quasar/wwwroot/viewer/state.js`](state.js.md) for renderer access, texture caches, and in-flight logical loads.
 
 ## Notes
-Missing logical textures throw errors marked with `isMissingLocalTexture` so `grid-renderer.js` can distinguish local misses from decode/upload failures in progressive stats. File metadata is requested through the resolved handle only after path resolution succeeds, keeping texture path timing separate from `getFile()` metadata timing and byte-read timing.
+Missing logical textures throw errors marked with `isMissingLocalTexture` so `grid-renderer.js` can distinguish local misses from decode/upload failures in progressive stats. File metadata is requested through the resolved handle only after path resolution succeeds, but texture path, metadata, byte-read, parse, and upload timings are not recorded.

@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Browser-side parser for locally selected Space Engineers `.mwm` render model files. It resolves model paths through the Content folder helper, fetches lazy file metadata only when cache keys or bytes are needed, caches parsed models by path/size/mtime, follows `GeometryDataAsset` indirection, extracts static mesh geometry/material data, and records metadata/read/parse timing counters.
+Browser-side parser for locally selected Space Engineers `.mwm` render model files. It resolves model paths through the Content folder helper, fetches lazy file metadata only when cache keys or bytes are needed, caches parsed models by path/size/mtime, follows `GeometryDataAsset` indirection, and extracts static mesh geometry/material data without recording model timing counters.
 
 ## Structure
 
@@ -18,7 +18,6 @@ Internal structure:
 
 ## Dependencies
 - [`Quasar/wwwroot/viewer/content-folder.js`](content-folder.js.md) for local asset resolution.
-- [`Quasar/wwwroot/viewer/state.js`](state.js.md) for timing counters.
 
 ## Notes
-The parser intentionally extracts render metadata from local user files in the browser; Quasar still does not serve raw MWM bytes or extracted geometry. `GeometryDataAsset` redirects use the same path resolver but are not wrapped in an additional filesystem timing, so path-resolution, metadata, and byte-read timings stay distinct.
+The parser intentionally extracts render metadata from local user files in the browser; Quasar still does not serve raw MWM bytes or extracted geometry. `GeometryDataAsset` redirects use the same path resolver and do not add separate timing stats.

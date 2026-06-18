@@ -33,7 +33,7 @@ export async function loadTexture(logicalPath, slot = "") {
 }
 
 async function loadTextureUncoalesced(logicalPath, slot, colorSpaceKey) {
-    const resolved = await timedQueue(resolveQueue, "texturePathResolve", () => resolveTextureFile(logicalPath));
+    const resolved = await resolveQueue(() => resolveTextureFile(logicalPath));
     if (!resolved) {
         const error = new Error(`Missing local texture: ${logicalPath}`);
         error.isMissingLocalTexture = true;
@@ -114,13 +114,11 @@ async function loadBrowserImageTexture(file) {
 }
 
 async function loadDdsTexture(resolved, file, slot) {
-    const buffer = await timedQueue(readQueue, "ddsFileRead", () => file.arrayBuffer());
-    const parseStart = performance.now();
+    const buffer = await readQueue(() => file.arrayBuffer());
     const info = readDdsInfo(buffer, resolved.logicalPath);
     const texture = createCompressedDdsTexture(parseDdsMipmaps(buffer, info), resolved.logicalPath, info);
-    addTiming("ddsParse", performance.now() - parseStart);
     configureTexture(texture, resolved.logicalPath, slot);
-    await timedQueue(uploadQueue, "textureUpload", () => validateCompressedTextureUpload(texture, info));
+    await uploadQueue(() => validateCompressedTextureUpload(texture, info));
     console.debug(`DDS texture loaded locally: ${ddsLogLabel(info)}.`);
     return texture;
 }
@@ -303,23 +301,6 @@ function createAsyncQueue(limit) {
         queued.push({ operation, resolve, reject });
         runNext();
     });
-}
-
-async function timedQueue(queue, timingKey, operation) {
-    const start = performance.now();
-    try {
-        return await queue(operation);
-    } finally {
-        addTiming(timingKey, performance.now() - start);
-    }
-}
-
-function addTiming(key, durationMs) {
-    const metric = state.timings[key] || { count: 0, totalMs: 0, maxMs: 0 };
-    metric.count++;
-    metric.totalMs += durationMs;
-    metric.maxMs = Math.max(metric.maxMs, durationMs);
-    state.timings[key] = metric;
 }
 
 function ddsLogLabel(info) {

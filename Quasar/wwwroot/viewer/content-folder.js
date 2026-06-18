@@ -294,7 +294,7 @@ async function getFileSnapshot(canonicalPath, fileHandle, generation) {
         return await inFlightMetadataByCanonicalPath.get(cacheKey);
     }
 
-    const promise = timedQueue(metadataQueue, "localFileMetadataRead", () => fileHandle.getFile());
+    const promise = metadataQueue(() => fileHandle.getFile());
     if (generation === contentCacheGeneration) inFlightMetadataByCanonicalPath.set(cacheKey, promise);
     try {
         const file = await promise;
@@ -307,15 +307,6 @@ async function getFileSnapshot(canonicalPath, fileHandle, generation) {
 
 function joinPath(parentPath, name) {
     return parentPath ? `${parentPath}/${name}` : name;
-}
-
-async function timedQueue(queue, timingKey, operation) {
-    const start = performance.now();
-    try {
-        return await queue(operation);
-    } finally {
-        addTiming(timingKey, performance.now() - start);
-    }
 }
 
 function createAsyncQueue(limit) {
@@ -340,14 +331,6 @@ function createAsyncQueue(limit) {
         queued.push({ operation, resolve, reject });
         runNext();
     });
-}
-
-function addTiming(key, durationMs) {
-    const metric = state.timings[key] || { count: 0, totalMs: 0, maxMs: 0 };
-    metric.count++;
-    metric.totalMs += durationMs;
-    metric.maxMs = Math.max(metric.maxMs, durationMs);
-    state.timings[key] = metric;
 }
 
 function addCacheCounter(key) {

@@ -60,7 +60,7 @@ export async function renderGridScene(scene) {
     state.stats["Voxel proxies"] = state.sceneRenderCounts.voxelProxies;
     renderSummary(scene, resolutionStats, textureStats);
 
-    await timed("modelResolutionTotal", () => resolveReferencedModelsProgressively(scene, modelAssets, resolutionStats, progress, renderToken));
+    await resolveReferencedModelsProgressively(scene, modelAssets, resolutionStats, progress, renderToken);
     if (renderToken !== modelRenderToken) return;
     progress.rebuild();
     updateModelStats(resolutionStats, progress.lastRenderStats, modelAssets.size);
@@ -858,23 +858,6 @@ function updateTimingStats() {
 
 function timingLabel(key) {
     return key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, value => value.toUpperCase());
-}
-
-async function timed(key, operation) {
-    const start = performance.now();
-    try {
-        return await operation();
-    } finally {
-        addTiming(key, performance.now() - start);
-    }
-}
-
-function addTiming(key, durationMs) {
-    const metric = state.timings[key] || { count: 0, totalMs: 0, maxMs: 0 };
-    metric.count++;
-    metric.totalMs += durationMs;
-    metric.maxMs = Math.max(metric.maxMs, durationMs);
-    state.timings[key] = metric;
 }
 
 function textureAssetKey(logicalPath) {
