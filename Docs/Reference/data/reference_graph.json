@@ -69,6 +69,7 @@
   "Magnetar.Protocol/Model/ServerMetrics.cs": [
     "Magnetar.Protocol/Model/AgentSnapshot.cs"
   ],
+  "Magnetar.Protocol/Model/ViewerSceneDtos.cs": [],
   "Magnetar.Protocol/Runtime/MagnetarPaths.cs": [
     "Magnetar.Protocol/Discovery/WebServiceDiscoveryManifest.cs",
     "Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs",
@@ -150,6 +151,7 @@
     "Quasar.Agent/AgentProfiler.cs",
     "Quasar.Agent/EntityInspector.cs"
   ],
+  "Quasar.Agent/GridRenderSceneInspector.cs": [],
   "Quasar.Agent/PluginLogOutbox.cs": [
     "Magnetar.Protocol/Model/PluginLogBatch.cs",
     "Quasar.Agent/AgentConnection.cs"
@@ -258,6 +260,7 @@
   "Quasar/Components/Pages/Configs.razor": [
     "Quasar/Components/Pages/Configs.razor.css",
     "Quasar/Components/Pages/PluginManifestPickerDialog.razor",
+    "Quasar/Components/Shared/CopyablePath.razor",
     "Quasar/Services/DedicatedServerCatalog.cs",
     "Quasar/Services/QuasarConfigProfileCatalog.cs",
     "Quasar/Services/QuasarDevFolderCatalog.cs",
@@ -273,9 +276,11 @@
   ],
   "Quasar/Components/Pages/Discord.razor": [
     "Quasar/Components/Pages/DiscordConsoleDialog.razor",
+    "Quasar/Components/Shared/CopyablePath.razor",
     "Quasar/Services/DedicatedServerCatalog.cs"
   ],
   "Quasar/Components/Pages/DiscordConsoleDialog.razor": [
+    "Quasar/Components/Shared/CopyablePath.razor",
     "Quasar/Program.cs",
     "Quasar/Services/QuasarLoggingConfigurator.cs",
     "Quasar/Services/WebServiceOptions.cs"
@@ -294,6 +299,7 @@
   ],
   "Quasar/Components/Pages/Home.razor": [
     "Quasar/Components/Pages/ConfigsPageDialog.razor",
+    "Quasar/Components/Shared/CopyablePath.razor",
     "Quasar/Services/AgentRegistry.cs",
     "Quasar/Services/DedicatedServerCatalog.cs",
     "Quasar/Services/DedicatedServerSupervisor.cs",
@@ -328,13 +334,16 @@
     "Quasar/Services/DedicatedServerCatalog.cs",
     "Quasar/Services/QuasarPluginCatalogService.cs"
   ],
-  "Quasar/Components/Pages/Security.razor": [],
+  "Quasar/Components/Pages/Security.razor": [
+    "Quasar/Services/Auth/QuasarAuthSettingsService.cs"
+  ],
   "Quasar/Components/Pages/ServerConsoleDialog.razor": [
     "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
+    "Quasar/Components/Shared/CopyablePath.razor",
     "Quasar/Services/DedicatedServerCatalog.cs"
   ],
   "Quasar/Components/Pages/ServerDeleteDialog.razor": [
-    "Quasar/wwwroot/quasar-configs.js"
+    "Quasar/Components/Shared/CopyablePath.razor"
   ],
   "Quasar/Components/Pages/ServerEditorDialog.razor": [
     "Quasar/Components/Pages/ConfigProfileQuickCreateDialog.razor",
@@ -365,13 +374,15 @@
   ],
   "Quasar/Components/Pages/SteamWorkshopApiKeyDialog.razor": [],
   "Quasar/Components/Pages/Updates.razor": [
+    "Quasar/Components/Shared/CopyablePath.razor",
     "Quasar/Services/Updates/QuasarUpdateOptions.cs",
     "Quasar/Services/Updates/QuasarUpdateService.cs",
     "Quasar/Services/Updates/QuasarUpdateSnapshot.cs",
     "Quasar/Services/WebServiceOptions.cs"
   ],
   "Quasar/Components/Pages/WorldTemplateFromServerDialog.razor": [
-    "Quasar/Components/Pages/Servers.razor"
+    "Quasar/Components/Pages/Servers.razor",
+    "Quasar/Components/Shared/CopyablePath.razor"
   ],
   "Quasar/Components/Pages/WorldTemplateQuickImportDialog.razor": [
     "Quasar/Components/Pages/ConfigsPageDialog.razor",
@@ -379,11 +390,13 @@
     "Quasar/Models/QuasarWorldTemplate.cs",
     "Quasar/Services/QuasarConfigProfileCatalog.cs",
     "Quasar/Services/QuasarWorldTemplateCatalog.cs",
-    "Quasar/Services/WorldSandboxConfigEditor.cs"
+    "Quasar/Services/WorldSandboxConfigEditor.cs",
+    "Quasar/Services/WorldTemplateImportLocationService.cs"
   ],
   "Quasar/Components/Pages/WorldTemplates.razor": [
     "Quasar/Models/QuasarWorldTemplate.cs",
-    "Quasar/Services/QuasarWorldTemplateCatalog.cs"
+    "Quasar/Services/QuasarWorldTemplateCatalog.cs",
+    "Quasar/Services/WorldTemplateImportLocationService.cs"
   ],
   "Quasar/Components/Pages/WorldTemplatesPageDialog.razor": [
     "Quasar/Components/Pages/WorldTemplates.razor"
@@ -399,6 +412,10 @@
   ],
   "Quasar/Components/Routes.razor": [
     "Quasar/Components/Layout/MainLayout.razor"
+  ],
+  "Quasar/Components/Shared/CopyablePath.razor": [
+    "Quasar/wwwroot/app.css",
+    "Quasar/wwwroot/quasar-configs.js"
   ],
   "Quasar/Components/_Imports.razor": [],
   "Quasar/Models/BrandingSettings.cs": [
@@ -536,6 +553,11 @@
   "Quasar/Services/Auth/QuasarAuthConstants.cs": [],
   "Quasar/Services/Auth/QuasarAuthOptions.cs": [
     "Quasar/Services/Auth/QuasarAuthConstants.cs"
+  ],
+  "Quasar/Services/Auth/QuasarAuthSettingsService.cs": [
+    "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
+    "Quasar/Services/AtomicFileWriter.cs",
+    "Quasar/Services/Auth/QuasarAuthOptions.cs"
   ],
   "Quasar/Services/Auth/QuasarRoleMapper.cs": [
     "Quasar/Services/Auth/QuasarAuthConstants.cs",
@@ -745,6 +767,7 @@
     "Quasar/Components/Pages/Updates.razor",
     "Quasar/Services/Updates/QuasarUpdateService.cs"
   ],
+  "Quasar/Services/ViewerSceneService.cs": [],
   "Quasar/Services/WebServiceManifestHostedService.cs": [
     "Quasar/Services/WebServiceOptions.cs",
     "Quasar/Services/WebServiceState.cs"
@@ -759,6 +782,11 @@
   "Quasar/Services/WorldSandboxConfigEditor.cs": [
     "Quasar/Models/QuasarConfigProfile.cs",
     "Quasar/Services/QuasarConfigMetadata.cs"
+  ],
+  "Quasar/Services/WorldTemplateImportLocationService.cs": [
+    "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
+    "Quasar/Services/FileBrowserService.cs",
+    "Quasar/Services/ManagedRuntimeOptions.cs"
   ],
   "Quasar/appsettings.Development.json": [
     "Quasar/Properties/launchSettings.json",
@@ -782,5 +810,57 @@
   ],
   "Quasar/wwwroot/quasar-configs.js": [
     "Quasar/wwwroot/app.css"
+  ],
+  "Quasar/wwwroot/viewer/content-folder.js": [
+    "Quasar/wwwroot/viewer/logging.js",
+    "Quasar/wwwroot/viewer/state.js"
+  ],
+  "Quasar/wwwroot/viewer/controls.js": [
+    "Quasar/wwwroot/viewer/scene.js",
+    "Quasar/wwwroot/viewer/state.js"
+  ],
+  "Quasar/wwwroot/viewer/geometry.js": [
+    "Quasar/wwwroot/viewer/math.js"
+  ],
+  "Quasar/wwwroot/viewer/grid-renderer.js": [
+    "Quasar/wwwroot/viewer/geometry.js",
+    "Quasar/wwwroot/viewer/logging.js",
+    "Quasar/wwwroot/viewer/materials.js",
+    "Quasar/wwwroot/viewer/math.js",
+    "Quasar/wwwroot/viewer/mwm-loader.js",
+    "Quasar/wwwroot/viewer/scene.js",
+    "Quasar/wwwroot/viewer/state.js",
+    "Quasar/wwwroot/viewer/texture-loader.js"
+  ],
+  "Quasar/wwwroot/viewer/logging.js": [
+    "Quasar/wwwroot/viewer/state.js"
+  ],
+  "Quasar/wwwroot/viewer/main.js": [
+    "Quasar/wwwroot/viewer/content-folder.js",
+    "Quasar/wwwroot/viewer/controls.js",
+    "Quasar/wwwroot/viewer/grid-renderer.js",
+    "Quasar/wwwroot/viewer/logging.js",
+    "Quasar/wwwroot/viewer/quasar-api.js",
+    "Quasar/wwwroot/viewer/scene.js",
+    "Quasar/wwwroot/viewer/state.js"
+  ],
+  "Quasar/wwwroot/viewer/materials.js": [
+    "Quasar/wwwroot/viewer/math.js"
+  ],
+  "Quasar/wwwroot/viewer/math.js": [],
+  "Quasar/wwwroot/viewer/mwm-loader.js": [
+    "Quasar/wwwroot/viewer/content-folder.js",
+    "Quasar/wwwroot/viewer/state.js"
+  ],
+  "Quasar/wwwroot/viewer/quasar-api.js": [],
+  "Quasar/wwwroot/viewer/scene.js": [
+    "Quasar/wwwroot/viewer/geometry.js",
+    "Quasar/wwwroot/viewer/state.js"
+  ],
+  "Quasar/wwwroot/viewer/state.js": [],
+  "Quasar/wwwroot/viewer/styles.css": [],
+  "Quasar/wwwroot/viewer/texture-loader.js": [
+    "Quasar/wwwroot/viewer/content-folder.js",
+    "Quasar/wwwroot/viewer/state.js"
   ]
 }

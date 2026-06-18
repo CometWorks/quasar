@@ -141,6 +141,13 @@
       "summary": "DTO carrying real-time performance and status metrics for a running SE dedicated server. Embedded in every `AgentSnapshot` so the Quasar dashboard can display server health at a glance."
     },
     {
+      "path": "Magnetar.Protocol/Model/ViewerSceneDtos.cs",
+      "name": "ViewerSceneDtos.cs",
+      "kind": "",
+      "tier": 1,
+      "summary": ""
+    },
+    {
       "path": "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
       "name": "MagnetarPaths.cs",
       "kind": "class (static)",
@@ -266,7 +273,14 @@
       "name": "GameBridge.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`GameBridge` is the central game-thread fa\u00e7ade for `AgentConnection`. It collects session telemetry (metrics, current profiler mode/snapshot, players, kicked players, chat, deaths, plugins), builds `AgentHello` / `AgentSnapshot` wire messages, and executes server commands (chat, save, stop, profiler mode change, kick, ban, promote, clear-kick-cooldown, entity list/delete) by marshalling work onto the game thread via `MySandboxGame.Invoke`. Metrics include process CPU derived from `Process.TotalProcessorTime`, simspeed/sim CPU from `Sync`, memory, PCU, active entities/grids, total blocks, and floating objects. It enumerates loaded plugins from `MyPlugins.Plugins` (including Pulsar child plugins) for runtime inventory and exposes their configuration through `IQuasarConfigProvider` or Magnetar PluginSdk `PluginConfig` reflection. Chat history normalizes dedicated-server/Good.bot messages to author `Server` and marks `ChatMessageSnapshot.IsServerMessage`."
+      "summary": "`GameBridge` is the central game-thread fa\u00e7ade for `AgentConnection`. It collects session telemetry (metrics, current profiler mode/snapshot, players, kicked players, chat, deaths, plugins), builds `AgentHello` / `AgentSnapshot` wire messages, and executes server commands (chat, save, stop, profiler mode change, kick, ban, promote, clear-kick-cooldown, entity list/delete) by marshalling work onto the game thread via `MySandboxGame.Invoke`. Metrics include process CPU derived from `Process.TotalProcessorTime`, simspeed/sim CPU from `Sync`, memory, PCU, active entities/grids, total blocks, and floating objects. It enumerates loaded plugins from `MyPlugins.Plugins` (including Pulsar child plugins) for runtime inventory, dedupes configured fallback plugin paths against loaded plugins by path stem, parent dev-folder name, manifest `<Id>`, and manifest `<FriendlyName>`, and exposes plugin configuration through `IQuasarConfigProvider` or Magnetar PluginSdk `PluginConfig` reflection. Chat history normalizes dedicated-server/Good.bot messages to author `Server` and marks `ChatMessageSnapshot.IsServerMessage`."
+    },
+    {
+      "path": "Quasar.Agent/GridRenderSceneInspector.cs",
+      "name": "GridRenderSceneInspector.cs",
+      "kind": "",
+      "tier": 1,
+      "summary": ""
     },
     {
       "path": "Quasar.Agent/PluginLogOutbox.cs",
@@ -333,7 +347,7 @@
       "name": "ServerDetailPanel.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Detail panel embedded inside `ServerCard`. When the agent snapshot is absent it shows a waiting/error message and basic process state chips. When a snapshot is present it renders live metrics chips, Refresh/Save buttons, a chat broadcast field, a players table with per-player action menus (kick/ban/set role), a recent-chat list, a plugins table, and recent command results. Server-authored chat (`IsServerMessage`, SteamId 0, `Good.bot`, or `Server`) is displayed as `Server`. The plugin table merges live agent-reported plugins with plugins configured on the server's assigned config profile, so Magnetar-managed plugin selections still show on the landing-page card even when the DS runtime does not report them through `ConfigDedicated.Plugins`. In both the snapshot-present and snapshot-absent states, an outlined \"Affinity <value>\" chip (Memory icon) is shown in the metrics chip rows when `Server.CpuAffinity` is set, and mod-download failures captured from runtime output are shown as an explicit error alert."
+      "summary": "Detail panel embedded inside `ServerCard`. When the agent snapshot is absent it shows a waiting/error message and basic process state chips. When a snapshot is present it renders live metrics chips, Refresh/Save buttons, a chat broadcast field, a players table with per-player action menus (kick/ban confirm first; set role sends directly), a recent-chat list, a plugins table, and recent command results. Server-authored chat (`IsServerMessage`, SteamId 0, `Good.bot`, or `Server`) is displayed as `Server`. The plugin table merges live agent-reported plugins with plugins configured on the server's assigned config profile, so Magnetar-managed plugin selections still show on the landing-page card even when the DS runtime does not report them through `ConfigDedicated.Plugins`; catalog-hidden/internal entries such as MagnetarInterim, compat helpers, and Quasar.Agent are filtered out. In both the snapshot-present and snapshot-absent states, an outlined \"Affinity <value>\" chip (Memory icon) is shown in the metrics chip rows when `Server.CpuAffinity` is set, and mod-download failures captured from runtime output are shown as an explicit error alert."
     },
     {
       "path": "Quasar/Components/Layout/BrandingHeadContent.razor",
@@ -410,7 +424,7 @@
       "name": "Analytics.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Interactive `/analytics` dashboard that renders rolling Space Engineers server metrics, profiler timing buckets, and deep profiler top grid/entity charts as uPlot time-series charts. It reads scalar samples from `MetricsStoreService`, fetches chart series over `/api/analytics/series`, supports per-server selection, live per-server profiler mode control, a configurable CSS-grid panel layout, persisted view config (localStorage), auto-refresh, custom time ranges, theme-aware chart styling, and a per-panel settings dialog."
+      "summary": "Interactive `/analytics` dashboard that renders rolling Space Engineers server metrics, profiler timing buckets, and deep profiler top grid/entity charts as uPlot time-series charts. It reads scalar samples from `MetricsStoreService`, fetches chart series over `/api/analytics/series`, supports per-server selection, a standalone Analytics Profiles panel for live/startup profiler mode control, a configurable CSS-grid panel layout, persisted view config (localStorage), auto-refresh, custom time ranges, theme-aware chart styling, and a per-panel settings dialog."
     },
     {
       "path": "Quasar/Components/Pages/Analytics.razor.css",
@@ -466,7 +480,7 @@
       "name": "Configs.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "The `/configs` page: a full editor for reusable Magnetar config templates (`QuasarConfigProfile`) that are applied to assigned dedicated servers at startup. A sidebar lists/creates/clones/deletes templates; the main column edits World settings, Plugins, Mods, and Developer dev-folders across tabbed and collapsible panels. QoL features include searchable/jump-to world options, a refreshable plugin catalog, Steam Workshop search, world-template mod merge, dead Workshop mod cleanup, unsaved-change guarding, and integration with the plugin-manifest picker dialog for registering local dev folders. (This page has no charts; the analytics charting work lives in `Analytics.razor`.)"
+      "summary": "The `/configs` page: a full editor for reusable Magnetar config templates (`QuasarConfigProfile`) that are applied to assigned dedicated servers at startup. A sidebar lists/creates/clones/deletes templates; the main column edits World settings, Plugins, Mods, and Developer dev-folders across tabbed and collapsible panels, generating only the active tab and opened panel bodies. QoL features include searchable/jump-to world options, a refreshable plugin catalog, Steam Workshop search, world-template mod merge, dead Workshop mod cleanup, unsaved-change guarding, and integration with the plugin-manifest picker dialog for registering local dev folders. (This page has no charts; the analytics charting work lives in `Analytics.razor`.)"
     },
     {
       "path": "Quasar/Components/Pages/Configs.razor.css",
@@ -487,14 +501,14 @@
       "name": "Discord.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page (`/discord`) for configuring the Quasar Discord bot. Combines global bot settings (token, guild ID, enabled flag), per-server channel bindings (command, chat-relay, log, analytics, death-messages, simspeed-alert channels plus interval and feature toggles), configurable simspeed alert rules, editable death-message template text areas organised by death-type category, and a primary `Console Logs` button that opens the dedicated Discord integration log dialog."
+      "summary": "Routable page (`/discord`) for configuring the Quasar Discord bot. Combines global bot settings (token, guild ID, enabled flag), per-server channel bindings (command, chat-relay, log, analytics, death-messages, simspeed-alert channels plus interval and feature toggles), configurable simspeed alert rules, editable death-message template text areas organised by death-type category with a copyable template-file path, and a primary `Console Logs` button that opens the dedicated Discord integration log dialog."
     },
     {
       "path": "Quasar/Components/Pages/DiscordConsoleDialog.razor",
       "name": "DiscordConsoleDialog.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "MudBlazor dialog that displays the dedicated Discord integration log (`discord.log`). It mirrors the server console log UX with a file path caption, full-log download button, Refresh action, exception-excerpt mode, and a scrollable monospace log pane."
+      "summary": "MudBlazor dialog that displays the dedicated Discord integration log (`discord.log`). It mirrors the server console log UX with a copyable file path, full-log download button, Refresh action, exception-excerpt mode, and a scrollable monospace log pane."
     },
     {
       "path": "Quasar/Components/Pages/Entities.razor",
@@ -515,7 +529,7 @@
       "name": "FolderPickerDialog.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "General-purpose server-side folder browser dialog. Renders a navigable directory tree with breadcrumb navigation, bookmark shortcuts, hidden-folder toggle, and an optional world-folder validation mode. Returns the selected absolute path on confirmation. Used from `Configs.razor` (dev-folder picker) and server instance editors (world-folder picker)."
+      "summary": "General-purpose server-side folder browser dialog. Renders a navigable directory tree with breadcrumb navigation, bookmark shortcut chips, caller-supplied shortcut chips, hidden-folder toggle, and an optional world-folder validation mode. Returns the selected absolute path on confirmation. Used from `Configs.razor` (dev-folder picker), server instance editors (world-folder picker), and world-template import flows."
     },
     {
       "path": "Quasar/Components/Pages/FolderPickerDialog.razor.css",
@@ -529,7 +543,7 @@
       "name": "Home.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable root page (`/`) serving as the main dashboard. Shows a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, a Managed Runtime panel with SteamCMD and Dedicated Server readiness/download progress, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, and a `ServerCard` grid for all configured instances. Servers can be started, stopped, restarted, and opened in the log dialog directly from the dashboard, and the wizard opens full-screen page dialogs for config-template, world-template, and server creation."
+      "summary": "Routable root page (`/`) serving as the main dashboard. Shows a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, a Managed Runtime panel with SteamCMD and Dedicated Server readiness/download progress, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, and a `ServerCard` grid for all configured instances. Servers can be started, stopped, restarted, and opened in the log dialog directly from the dashboard; Stop and Kill actions require confirmation. The wizard opens full-screen page dialogs for config-template, world-template, and server creation."
     },
     {
       "path": "Quasar/Components/Pages/Home.razor.css",
@@ -564,7 +578,7 @@
       "name": "Players.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page at `/players` listing all known players observed across managed servers. Merges the persisted `KnownPlayerCatalog` with live agent snapshots to show online/offline status, role, faction, service and Steam id, and offers per-row moderation actions (set promote level, kick, clear-kick-cooldown, ban/unban) dispatched to the owning agent. While a kicked player's cooldown is active it shows a warning \"kicked (Ns)\" countdown chip; the expiry (`KickCooldownExpiresUtc`) is derived from the agent snapshot's `KickedPlayers` (converting `RemainingCooldownMs` to an absolute time) so the countdown keeps ticking between ~1s snapshot refreshes."
+      "summary": "Routable page at `/players` listing all known players observed across managed servers. Merges the persisted `KnownPlayerCatalog` with live agent snapshots to show online/offline status, role, faction, service and Steam id, and offers per-row moderation actions (set promote level, kick, clear-kick-cooldown, ban/unban) dispatched to the owning agent; Kick and Ban require confirmation first. While a kicked player's cooldown is active it shows a warning \"kicked (Ns)\" countdown chip; the expiry (`KickCooldownExpiresUtc`) is derived from the agent snapshot's `KickedPlayers` (converting `RemainingCooldownMs` to an absolute time) so the countdown keeps ticking between ~1s snapshot refreshes."
     },
     {
       "path": "Quasar/Components/Pages/PluginCatalogDescriptionDialog.razor",
@@ -592,14 +606,14 @@
       "name": "Security.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page at `/settings/security`, protected by the `CanManageSecurity` policy, for managing runtime RBAC subject-role mappings and reviewing authentication provider settings. Allows adding/removing `SubjectRoleMapping` entries (provider + subject + role) that are persisted via `RbacConfigCatalog`."
+      "summary": "Routable page at `/settings/security`, protected by the `CanManageSecurity` policy, for managing trusted-network/reverse-proxy auth settings and runtime RBAC subject-role mappings. It persists trusted-network settings into data-directory `appsettings.json` through `QuasarAuthSettingsService`, provides a public reverse-proxy preset and checklist, and allows adding/removing `SubjectRoleMapping` entries through `RbacConfigCatalog`."
     },
     {
       "path": "Quasar/Components/Pages/ServerConsoleDialog.razor",
       "name": "ServerConsoleDialog.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "MudBlazor dialog (no `@page` route) that shows two file-backed diagnostic logs for a specific server identified by `UniqueName`: the latest Space Engineers Dedicated Server log from the server's app-data directory, and Magnetar's `info.log`. The server-log tab renders a bounded 500-line window and rolls that window by 250 lines when browser-side scroll/key listeners request the next slice, keeping DOM size stable for large logs and avoiding per-scroll Blazor events. Both tabs can show recent content or extract recent exception excerpts. Opened from `Servers.razor` via `IDialogService`. Previously named `ServerConsoleDialog`."
+      "summary": "MudBlazor dialog (no `@page` route) that shows two file-backed diagnostic logs for a specific server identified by `UniqueName`: the latest Space Engineers Dedicated Server log from the server's app-data directory, and Magnetar's `info.log`. The server-log tab renders a bounded 500-line window and rolls that window by 250 lines when browser-side scroll/key listeners request the next slice, keeping DOM size stable for large logs and avoiding per-scroll Blazor events. Both tabs show copyable resolved log paths and can show recent content or extract recent exception excerpts. Opened from `Servers.razor` via `IDialogService`. Previously named `ServerConsoleDialog`."
     },
     {
       "path": "Quasar/Components/Pages/ServerDeleteDialog.razor",
@@ -613,7 +627,7 @@
       "name": "ServerEditorDialog.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "MudBlazor dialog (no `@page` route) for creating or editing a `DedicatedServerDefinition`. It validates server identity/runtime settings, opens inline config/world-template creation dialogs, consumes world-import results that include a config-profile id, and can merge missing world-template mods directly into the selected config profile before save."
+      "summary": "MudBlazor dialog (no `@page` route) for creating or editing a `DedicatedServerDefinition`. It validates server identity/runtime settings, exposes per-server Space Engineers multiplayer-list server/world name overrides, opens inline config/world-template creation dialogs, consumes world-import results that include a config-profile id, and can merge missing world-template mods directly into the selected config profile before save."
     },
     {
       "path": "Quasar/Components/Pages/ServerEditorDialog.razor.css",
@@ -627,7 +641,7 @@
       "name": "Servers.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page at `/servers` managing persistent dedicated-server definitions. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status, a single lifecycle-action column beside Status, and create/clone/edit/delete/console/world-template actions; expandable rows embed a `ServerDetailPanel` with live agent data. A separate panel lists \"unmanaged\" agents that report in without a matching server definition."
+      "summary": "Routable page at `/servers` managing persistent dedicated-server definitions. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status, a single lifecycle-action column beside Status, and create/clone/edit/delete/console/world-template actions; destructive Stop/Kill/Delete actions require confirmation. Expandable rows embed a `ServerDetailPanel` with live agent data. A separate panel lists \"unmanaged\" agents that report in without a matching server definition."
     },
     {
       "path": "Quasar/Components/Pages/ServersPageDialog.razor",
@@ -641,35 +655,35 @@
       "name": "SteamWorkshopApiKeyDialog.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Small MudBlazor dialog for entering or updating the Steam Web API key used server-side for Workshop search. The key is treated as a password field and returned to the caller as a trimmed string via `DialogResult.Ok(key)`; it is never exposed to browser JavaScript."
+      "summary": "Small MudBlazor dialog for entering or updating the Steam Web API key used server-side for Workshop search. The key is treated as a password field and returned to the caller as a trimmed string via `DialogResult.Ok(key)`. The dialog highlights the Steam developer API-key page and explains the platform-specific storage protection Quasar applies after saving."
     },
     {
       "path": "Quasar/Components/Pages/Updates.razor",
       "name": "Updates.razor",
       "kind": "component",
       "tier": 2,
-      "summary": "Routable MudBlazor page at `/settings/updates` for checking, staging, activating, and rolling back Quasar UI worker releases. It shows current update status from `QuasarUpdateService`, separates selectable Quasar UI releases from launcher candidates, exposes manual check/stage/activate actions for the selected UI worker version, shows launcher update availability, displays configured GitHub release source and asset names, provides controls for including prerelease versions plus choosing automatic or manual UI staging, and renders a git-style `appsettings.json` conflict editor when staging cannot auto-merge settings."
+      "summary": "Routable MudBlazor page at `/settings/updates` for checking, staging, activating, and rolling back Quasar UI worker releases. It shows current update status from `QuasarUpdateService`, separates selectable Quasar UI releases from launcher candidates, exposes manual check/stage/activate actions for the selected UI worker version, shows launcher update availability, displays configured GitHub release source and asset names, provides controls for including prerelease versions plus choosing automatic or manual UI staging, and renders a git-style `appsettings.json` conflict editor with a copyable conflict-file path when staging cannot auto-merge settings."
     },
     {
       "path": "Quasar/Components/Pages/WorldTemplateFromServerDialog.razor",
       "name": "WorldTemplateFromServerDialog.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Lightweight MudBlazor confirmation dialog opened by the Servers page when the user requests to create a world template from a stopped server's current world directory. Collects the template name and description, displays the source world path (read-only), and returns a `TemplateRequest` record to the caller."
+      "summary": "Lightweight MudBlazor confirmation dialog opened by the Servers page when the user requests to create a world template from a stopped server's current world directory. Collects the template name and description, displays a copyable source world path (read-only), and returns a `TemplateRequest` record to the caller."
     },
     {
       "path": "Quasar/Components/Pages/WorldTemplateQuickImportDialog.razor",
       "name": "WorldTemplateQuickImportDialog.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "MudBlazor dialog for importing a Space Engineers save folder as a world template without leaving the server editor. Validates a name and absolute source path, opens a `FolderPickerDialog` for path browsing, reads source-world mods from `Sandbox_config.sbc`, lets the user create a config profile, merge into an existing profile, or ignore those mods, and returns the imported template plus an optional config-profile id."
+      "summary": "MudBlazor dialog for importing a Space Engineers save folder as a world template without leaving the server editor. Validates a name and absolute source path, opens a `FolderPickerDialog` for path browsing, shows shortcut chips for managed Dedicated Server content folders (`Content/CustomWorlds`, `Content/QuickStarts`, `Content/Scenarios`), remembers the last selected source folder, reads source-world mods from `Sandbox_config.sbc`, lets the user create a config profile, merge into an existing profile, or ignore those mods, and returns the imported template plus an optional config-profile id."
     },
     {
       "path": "Quasar/Components/Pages/WorldTemplates.razor",
       "name": "WorldTemplates.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page at `/world-templates` for managing reusable Space Engineers world templates. Provides an inline import form (name, description, source path with folder browser), and a sortable table of existing templates showing size and a missing-world indicator with Clone and Delete actions. Template world files are copied into managed Quasar storage via `QuasarWorldTemplateCatalog`."
+      "summary": "Routable page at `/world-templates` for managing reusable Space Engineers world templates. Provides an inline manual import form (name, description, source path with folder browser), a collapsed optional panel for one-click importing installed Dedicated Server world/scenario templates without entering a name or path, and a sortable table of existing templates showing size and a missing-world indicator with Clone and Delete actions. The folder browser is seeded from the last imported source folder or the managed Dedicated Server content folders (`Content/CustomWorlds`, `Content/QuickStarts`, `Content/Scenarios`) and shows those locations as shortcut chips. Template world files are copied into managed Quasar storage via `QuasarWorldTemplateCatalog`."
     },
     {
       "path": "Quasar/Components/Pages/WorldTemplatesPageDialog.razor",
@@ -683,7 +697,7 @@
       "name": "PluginConfigEditor.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Reusable editor that renders a plugin's configuration schema as a fully interactive MudBlazor form. Parses `PluginConfigData.ConfigJson` into a typed layout (tabs, sections, columns, fields) and generates field controls for every supported type. Tracks dirty state and submits changes via `PluginConfigService`."
+      "summary": "Reusable editor that renders a plugin's configuration schema as a fully interactive MudBlazor form. Parses `PluginConfigData.ConfigJson` into a typed layout (tabs, sections, columns, fields) and generates field controls for every supported type. Tracks dirty state, confirms list/dictionary item removals, and submits changes via `PluginConfigService`."
     },
     {
       "path": "Quasar/Components/PluginConfigEditor.razor.css",
@@ -705,6 +719,13 @@
       "kind": "Blazor component",
       "tier": 2,
       "summary": "Router root component. Wraps the Blazor `<Router>` in `<CascadingAuthenticationState>` so that all pages receive the authentication context. Handles not-found, authorizing, and not-authorized states with inline MudBlazor feedback."
+    },
+    {
+      "path": "Quasar/Components/Shared/CopyablePath.razor",
+      "name": "CopyablePath.razor",
+      "kind": "Blazor component",
+      "tier": 2,
+      "summary": "Reusable MudBlazor path display that renders a monospace, wrapping path with a copy-to-clipboard icon. Used for diagnostic paths such as log files, managed runtime install locations, appsettings conflict files, and read-only world/server folders."
     },
     {
       "path": "Quasar/Components/_Imports.razor",
@@ -734,7 +755,7 @@
       "name": "DedicatedServerDefinition.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Persistent configuration record for a single managed Space Engineers dedicated server. Contains all fields needed to launch, supervise, health-monitor, rotate retained DS logs, emit optional launch diagnostics, select profiler mode, and schedule restarts for a server, as well as process-priority, CPU-affinity, and managed-runtime settings. Serialized to disk as part of the server catalog."
+      "summary": "Persistent configuration record for a single managed Space Engineers dedicated server. Contains all fields needed to launch, supervise, health-monitor, rotate retained DS logs, emit optional launch diagnostics, select profiler mode, schedule restarts, and set the DS-advertised server/world names, as well as process-priority, CPU-affinity, and managed-runtime settings. Serialized to disk as part of the server catalog."
     },
     {
       "path": "Quasar/Models/DedicatedServerGoalState.cs",
@@ -891,6 +912,104 @@
       "kind": "JS",
       "tier": 3,
       "summary": "Small JavaScript interop module registered as `window.quasarConfigs`. Provides utility functions called from Blazor components via `IJSRuntime.InvokeAsync`. The object is assigned with `window.quasarConfigs = window.quasarConfigs || { ... }` so re-evaluation is safe (it keeps any existing instance)."
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/content-folder.js",
+      "name": "content-folder.js",
+      "kind": "JS",
+      "tier": 3,
+      "summary": "Browser File System Access helper for the grid viewer's local Space Engineers `Content` folder. It restores or stores the selected folder handle in IndexedDB, validates the expected `Data`, `Models`, and `Textures` directories, resolves logical asset paths case-insensitively, and keeps in-memory path/directory caches for the active folder."
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/controls.js",
+      "name": "controls.js",
+      "kind": "JS",
+      "tier": 3,
+      "summary": "Wires the grid viewer control panel and keyboard input to scene actions. It connects reload/content selection buttons, render toggles, camera mode switching, camera reset, and free-fly movement key tracking."
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/geometry.js",
+      "name": "geometry.js",
+      "kind": "JS",
+      "tier": 3,
+      "summary": "Small Three.js geometry helper module used by the grid viewer. It converts scene DTO bounds to `THREE.Box3`, computes block-space bounding boxes from grid cell coordinates, and builds simple box meshes for proxy rendering."
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/grid-renderer.js",
+      "name": "grid-renderer.js",
+      "kind": "JS",
+      "tier": 3,
+      "summary": "Main renderer for metadata-only grid scenes. It resolves local MWM models, builds instanced batches for shared model/material combinations, renders proxy geometry for missing models, adds voxel proxies and lighting context, and progressively loads selected material textures without blocking scene construction."
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/logging.js",
+      "name": "logging.js",
+      "kind": "JS",
+      "tier": 3,
+      "summary": "Small in-page log buffer for the standalone grid viewer. It retains the latest 500 timestamped entries, batches visible log DOM updates with `requestAnimationFrame`, and can download the retained log as a text file."
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/main.js",
+      "name": "main.js",
+      "kind": "JS",
+      "tier": 3,
+      "summary": "Entry point for the standalone grid viewer page. It initializes DOM references, Three.js scene state, control wiring, persisted Content folder restoration, scene reloads, and high-level fetch timing for the stats panel."
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/materials.js",
+      "name": "materials.js",
+      "kind": "JS",
+      "tier": 3,
+      "summary": "Shared material helper module for simple grid-viewer proxy and wireframe rendering. It creates cached deterministic block materials and line materials, and exposes a cache disposal hook."
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/math.js",
+      "name": "math.js",
+      "kind": "JS",
+      "tier": 3,
+      "summary": "Numeric conversion utilities shared by the grid viewer. It converts Quasar matrix/vector DTOs into Three.js objects, provides deterministic hash colors, and normalizes numeric fallbacks."
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/mwm-loader.js",
+      "name": "mwm-loader.js",
+      "kind": "JS",
+      "tier": 3,
+      "summary": "Browser-side parser for locally selected Space Engineers `.mwm` render model files. It resolves model paths through the Content folder helper, caches parsed models by path/size/mtime, follows `GeometryDataAsset` indirection, extracts static mesh geometry/material data, and records file-read/parse timing counters."
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/quasar-api.js",
+      "name": "quasar-api.js",
+      "kind": "JS",
+      "tier": 3,
+      "summary": "HTTP helper for the standalone grid viewer. It reads the `agentId` and `entityId` query parameters and fetches the metadata-only scene JSON from Quasar's viewer API."
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/scene.js",
+      "name": "scene.js",
+      "kind": "JS",
+      "tier": 3,
+      "summary": "Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid viewer. It owns renderer setup, orbit/free-fly camera behavior, floor grid generation, sun marker/lighting, object disposal, viewport resizing, hover readouts, and per-frame stats rendering."
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/state.js",
+      "name": "state.js",
+      "kind": "JS",
+      "tier": 3,
+      "summary": "Shared mutable runtime state and DOM-element cache for the standalone grid viewer ES modules. It centralizes Three.js objects, camera/fly-mode state, current scene/bounds, local Content folder handles, model/texture caches, progressive texture stats, timing counters, and displayed stats."
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/styles.css",
+      "name": "styles.css",
+      "kind": "CSS",
+      "tier": 3,
+      "summary": "Standalone styling for the grid viewer page. It defines the dark sci-fi layout, sidebar control cards, stats/log presentation, full-window Three.js viewport, hover/camera overlays, and mobile stacking behavior."
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/texture-loader.js",
+      "name": "texture-loader.js",
+      "kind": "JS",
+      "tier": 3,
+      "summary": "Browser-side texture resolver/loader for the grid viewer. It resolves logical texture paths against the selected local Content folder, coalesces duplicate logical texture loads before file metadata is known, caches completed textures by resolved path/size/mtime/color role, loads browser-native images, parses common SE DDS compressed formats, and throttles path resolution, file reads, and WebGL upload/init separately."
     }
   ],
   "Quasar.Services.Core": [
@@ -990,14 +1109,14 @@
       "name": "DedicatedServerRuntimePreparer.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`DedicatedServerRuntimePreparer` transforms a `DedicatedServerDefinition` into a fully staged on-disk runtime immediately before a dedicated server process is launched. It writes the runtime DS config XML, the Magnetar plugin sources/profile XML, the world `Sandbox_config.sbc` session settings and mod list, and the `LastSession.sbl` pointer file; deploys the Quasar.Agent DLLs plus runtime-specific Harmony dependency; seeds the world from a template if needed; and computes the final command-line arguments string. The output is a `PreparedDedicatedServerLaunch` record."
+      "summary": "`DedicatedServerRuntimePreparer` transforms a `DedicatedServerDefinition` into a fully staged on-disk runtime immediately before a dedicated server process is launched. It writes the runtime DS config XML including the per-server advertised `ServerName`/`WorldName`, the Magnetar plugin sources/profile XML, the world `Sandbox_config.sbc` session settings and mod list, and the `LastSession.sbl` pointer file; deploys the Quasar.Agent DLLs plus runtime-specific Harmony dependency; seeds the world from a template if needed; and computes the final command-line arguments string. The output is a `PreparedDedicatedServerLaunch` record."
     },
     {
       "path": "Quasar/Services/DedicatedServerSupervisor.cs",
       "name": "DedicatedServerSupervisor.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`DedicatedServerSupervisor` is the heart of Quasar's process management. It is an `IHostedService` that maintains in-memory `ManagedServerState` for every configured dedicated server, runs a 2-second reconcile loop that starts/stops/restarts processes to match goal state, evaluates server health (agent heartbeat, simulation frame progress, uptime thresholds), rotates and prunes Quasar-captured DS stdout/stderr logs, captures mod-download failure lines for dashboard surfacing, persists runtime state across Quasar worker restarts and **adopts surviving detached processes by PID on startup**, and coordinates graceful stop (save + stop commands to the agent before kill) plus scheduled and maximum-uptime restarts."
+      "summary": "`DedicatedServerSupervisor` is the heart of Quasar's process management. It is an `IHostedService` that maintains in-memory `ManagedServerState` for every configured dedicated server, runs a 2-second reconcile loop that starts/stops/restarts processes to match goal state, evaluates server health (agent heartbeat, simulation frame progress, uptime thresholds), rotates and prunes Quasar-captured DS stdout/stderr logs, captures mod-download failure lines for dashboard surfacing, persists runtime state across Quasar worker restarts and **adopts surviving detached processes by PID on startup**, carries per-server advertised server/world names into launch preparation, and coordinates graceful stop (save + stop commands to the agent before kill) plus scheduled and maximum-uptime restarts."
     },
     {
       "path": "Quasar/Services/EntityService.cs",
@@ -1081,7 +1200,7 @@
       "name": "QuasarDevFolderCatalog.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Manages a persisted list of local developer plugin folders used during plugin development. Each entry (`QuasarDevFolderSelection`) maps a folder path and plugin manifest data file to an optional plugin-id override and debug-build flag. The catalog loads from and saves to a single `dev-folders.json` file in the Quasar data directory, and fires a `Changed` event after every mutation."
+      "summary": "Manages a persisted list of local developer plugin folders used during plugin development. Each entry (`QuasarDevFolderSelection`) maps a folder path and plugin manifest data file to an optional plugin-id override and debug-build flag, which defaults to `true` for new or legacy entries without an explicit value. The catalog loads from and saves to a single `dev-folders.json` file in the Quasar data directory, and fires a `Changed` event after every mutation."
     },
     {
       "path": "Quasar/Services/QuasarLoggingConfigurator.cs",
@@ -1130,7 +1249,7 @@
       "name": "SteamWorkshopCredentialsCatalog.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Stores and retrieves the Steam Workshop Web API key with ASP.NET Core Data Protection encryption. The credential file lives at `<QuasarDir>/workshop-options.json`; new writes store only the DPAPI-protected `ProtectedWebApiKey` field. On load the service transparently migrates legacy plaintext `WebApiKey` fields to protected storage. A file-system watcher with 250 ms debounce reloads credentials when the file is externally modified."
+      "summary": "Stores and retrieves the Steam Workshop Web API key with ASP.NET Core Data Protection encryption. The credential file lives at `<QuasarDir>/steam-workshop.json`; new writes store only the protected `ProtectedWebApiKey` field and, on Unix-style platforms, attempt to restrict the credentials file to owner read/write permissions (`0600`). On load the service transparently migrates legacy plaintext `WebApiKey` fields to protected storage. A file-system watcher with 250 ms debounce reloads credentials when the file is externally modified."
     },
     {
       "path": "Quasar/Services/TextSanitizer.cs",
@@ -1168,6 +1287,13 @@
       "summary": "DTO records and status enum used by the update service and Updates page. `QuasarUpdateSnapshot` describes the current checker state, current UI worker and Bootstrap versions, active prerelease/staging settings, appsettings conflict state, last check/change timestamps, the selected web release, all selectable web releases, and optional web/Bootstrap candidates. `QuasarUpdateCandidate` describes one release asset and whether it is current, newer, prerelease, staged, or requires privileged installation."
     },
     {
+      "path": "Quasar/Services/ViewerSceneService.cs",
+      "name": "ViewerSceneService.cs",
+      "kind": "",
+      "tier": 1,
+      "summary": ""
+    },
+    {
       "path": "Quasar/Services/WebServiceManifestHostedService.cs",
       "name": "WebServiceManifestHostedService.cs",
       "kind": "class",
@@ -1194,6 +1320,13 @@
       "kind": "class",
       "tier": 1,
       "summary": "Static editor for the Space Engineers `Sandbox_config.sbc` XML file. Provides operations for reading the current mod list from the `<Mods>` element and atomically applying a `QuasarConfigProfile` by upserting `<Settings>` values, writing `BlockTypeLimits` in the vanilla dictionary shape, plus rewriting `<Mods>`. XML whitespace is preserved on read; output is normalized to LF line endings and UTF-8 without BOM."
+    },
+    {
+      "path": "Quasar/Services/WorldTemplateImportLocationService.cs",
+      "name": "WorldTemplateImportLocationService.cs",
+      "kind": "class",
+      "tier": 1,
+      "summary": "Scoped helper for the world-template import UI. It builds shortcut chips for the Space Engineers Dedicated Server content folders that ship template/scenario worlds, discovers installed world/scenario template folders for one-click import, picks the initial browse location from the current field, the last selected source folder in browser `localStorage`, or the first existing DS content shortcut, and remembers the last selected folder after a successful picker result."
     }
   ],
   "Quasar.Services.Analytics": [
@@ -1298,6 +1431,13 @@
       "summary": "Configuration POCO hierarchy for Quasar's authentication and Steam Workshop features, read from the `Quasar:Auth` configuration section. Each nested options class exposes a `Normalize()` method that sanitises and clamps values to valid ranges."
     },
     {
+      "path": "Quasar/Services/Auth/QuasarAuthSettingsService.cs",
+      "name": "QuasarAuthSettingsService.cs",
+      "kind": "class + DTO",
+      "tier": 2,
+      "summary": "Persists trusted-network and reverse-proxy authentication settings edited from the Security page. It writes the `Quasar:Auth:TrustedNetworkBypass` block into the data-directory `appsettings.json`, validates trusted proxy entries as IP addresses or CIDR ranges, and updates the in-memory `QuasarAuthOptions` singleton so loopback/same-subnet changes take effect immediately."
+    },
+    {
       "path": "Quasar/Services/Auth/QuasarRoleMapper.cs",
       "name": "QuasarRoleMapper.cs",
       "kind": "class",
@@ -1323,7 +1463,7 @@
       "name": "TrustedNetworkEvaluator.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Determines whether an incoming HTTP request originates from a trusted network address (loopback or same local subnet), enabling the trusted-network authentication bypass. Used during authentication middleware to decide whether to issue a trusted-network principal without requiring a Steam login."
+      "summary": "Determines whether an incoming HTTP request originates from a trusted network address (loopback or same local subnet), enabling the trusted-network authentication bypass. Requests carrying proxy/forwarding headers are rejected for bypass unless ASP.NET's forwarded-header middleware has accepted them from a known proxy first. Used during authentication middleware to decide whether to issue a trusted-network principal without requiring a Steam login."
     }
   ],
   "Quasar.Services.Discord": [

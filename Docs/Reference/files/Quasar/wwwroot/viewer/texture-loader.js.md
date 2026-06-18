@@ -1,0 +1,24 @@
+# Quasar/wwwroot/viewer/texture-loader.js
+
+**Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
+
+## Summary
+Browser-side texture resolver/loader for the grid viewer. It resolves logical texture paths against the selected local Content folder, coalesces duplicate logical texture loads before file metadata is known, caches completed textures by resolved path/size/mtime/color role, loads browser-native images, parses common SE DDS compressed formats, and throttles path resolution, file reads, and WebGL upload/init separately.
+
+## Structure
+
+| Export | Purpose |
+|---|---|
+| `resolveTextureAsset(asset)` | Resolves a texture asset DTO to a local file when possible. |
+| `loadTexture(logicalPath, slot = "")` | Loads one logical texture for a material slot, using logical in-flight coalescing and final file metadata caching. |
+| `resolveTextureFile(logicalPath)` | Tries extension candidates (`.dds`, image extensions, raw path) through the Content folder resolver. |
+
+Internal sections implement DDS header parsing for DXT1/DXT3/DXT5, BC4, BC5, DX10 BC7 variants, mip data slicing, `THREE.CompressedTexture` creation, color-space/wrap/anisotropy setup, WebGL extension checks, upload preflight with `renderer.initTexture`, async queue throttles, and timing counter updates.
+
+## Dependencies
+- `three`.
+- [`Quasar/wwwroot/viewer/content-folder.js`](content-folder.js.md) for local file resolution.
+- [`Quasar/wwwroot/viewer/state.js`](state.js.md) for renderer access, texture caches, in-flight logical loads, and timing counters.
+
+## Notes
+Missing logical textures throw errors marked with `isMissingLocalTexture` so `grid-renderer.js` can distinguish local misses from decode/upload failures in progressive stats.

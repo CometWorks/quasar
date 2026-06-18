@@ -20,6 +20,7 @@
     "Magnetar.Protocol/Model/PluginRuntimeInfo.cs",
     "Magnetar.Protocol/Model/ProfilerSnapshot.cs",
     "Magnetar.Protocol/Model/ServerMetrics.cs",
+    "Magnetar.Protocol/Model/ViewerSceneDtos.cs",
     "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
     "Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs",
     "Magnetar.Protocol/Runtime/QuasarReleaseVersion.cs",
@@ -40,6 +41,7 @@
     "Quasar.Agent/AgentProfilerTranspiler.cs",
     "Quasar.Agent/EntityInspector.cs",
     "Quasar.Agent/GameBridge.cs",
+    "Quasar.Agent/GridRenderSceneInspector.cs",
     "Quasar.Agent/PluginLogOutbox.cs",
     "Quasar.Agent/Quasar.Agent.csproj",
     "Quasar.Agent/WebServiceLocator.cs",
@@ -72,7 +74,21 @@
     "Quasar/wwwroot/lib/uplot/uPlot.iife.min.js",
     "Quasar/wwwroot/lib/uplot/uPlot.min.css",
     "Quasar/wwwroot/quasar-charts.js",
-    "Quasar/wwwroot/quasar-configs.js"
+    "Quasar/wwwroot/quasar-configs.js",
+    "Quasar/wwwroot/viewer/content-folder.js",
+    "Quasar/wwwroot/viewer/controls.js",
+    "Quasar/wwwroot/viewer/geometry.js",
+    "Quasar/wwwroot/viewer/grid-renderer.js",
+    "Quasar/wwwroot/viewer/logging.js",
+    "Quasar/wwwroot/viewer/main.js",
+    "Quasar/wwwroot/viewer/materials.js",
+    "Quasar/wwwroot/viewer/math.js",
+    "Quasar/wwwroot/viewer/mwm-loader.js",
+    "Quasar/wwwroot/viewer/quasar-api.js",
+    "Quasar/wwwroot/viewer/scene.js",
+    "Quasar/wwwroot/viewer/state.js",
+    "Quasar/wwwroot/viewer/styles.css",
+    "Quasar/wwwroot/viewer/texture-loader.js"
   ],
   "g04-services-core-a": [
     "Quasar/Services/AgentRegistry.cs",
@@ -83,6 +99,7 @@
     "Quasar/Services/Backup/BackupFormatMigrations.cs",
     "Quasar/Services/Backup/QuasarBackupService.cs",
     "Quasar/Services/Backup/QuasarBackupSettingsService.cs",
+    "Quasar/Services/Backup/ServerRestoreCoordinator.cs",
     "Quasar/Services/BrandingPresets.cs",
     "Quasar/Services/BrandingService.cs",
     "Quasar/Services/BrowserLauncher.cs",
@@ -95,10 +112,10 @@
     "Quasar/Services/KnownPlayerCatalog.cs",
     "Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs",
     "Quasar/Services/ManagedRuntimeOptions.cs",
-    "Quasar/Services/ManagedRuntimeWarmupService.cs"
+    "Quasar/Services/ManagedRuntimeWarmupService.cs",
+    "Quasar/Services/PluginCatalogRefreshService.cs"
   ],
   "g05-services-core-b": [
-    "Quasar/Services/PluginCatalogRefreshService.cs",
     "Quasar/Services/PluginManifestReader.cs",
     "Quasar/Services/QuasarConfigMetadata.cs",
     "Quasar/Services/QuasarConfigProfileCatalog.cs",
@@ -115,10 +132,12 @@
     "Quasar/Services/Updates/QuasarUpdateOptions.cs",
     "Quasar/Services/Updates/QuasarUpdateService.cs",
     "Quasar/Services/Updates/QuasarUpdateSnapshot.cs",
+    "Quasar/Services/ViewerSceneService.cs",
     "Quasar/Services/WebServiceManifestHostedService.cs",
     "Quasar/Services/WebServiceOptions.cs",
     "Quasar/Services/WebServiceState.cs",
-    "Quasar/Services/WorldSandboxConfigEditor.cs"
+    "Quasar/Services/WorldSandboxConfigEditor.cs",
+    "Quasar/Services/WorldTemplateImportLocationService.cs"
   ],
   "g06-analytics-pluginsdk": [
     "Quasar/Services/Analytics/AnalyticsMetrics.cs",
@@ -141,6 +160,7 @@
   "g07-auth-discord": [
     "Quasar/Services/Auth/QuasarAuthConstants.cs",
     "Quasar/Services/Auth/QuasarAuthOptions.cs",
+    "Quasar/Services/Auth/QuasarAuthSettingsService.cs",
     "Quasar/Services/Auth/QuasarRoleMapper.cs",
     "Quasar/Services/Auth/RbacConfig.cs",
     "Quasar/Services/Auth/RbacConfigCatalog.cs",
@@ -165,22 +185,24 @@
     "Quasar/Components/Pages/AnalyticsPanelDialog.razor",
     "Quasar/Components/Pages/Appearance.razor",
     "Quasar/Components/Pages/Backup.razor",
+    "Quasar/Components/Pages/Chat.razor",
     "Quasar/Components/Pages/ConfigProfilePendingChangesDialog.razor",
     "Quasar/Components/Pages/ConfigProfileQuickCreateDialog.razor",
     "Quasar/Components/Pages/Configs.razor",
     "Quasar/Components/Pages/Configs.razor.css",
     "Quasar/Components/Pages/ConfigsPageDialog.razor",
     "Quasar/Components/Pages/Discord.razor",
+    "Quasar/Components/Pages/DiscordConsoleDialog.razor",
     "Quasar/Components/Pages/Entities.razor",
     "Quasar/Components/Pages/Error.razor",
     "Quasar/Components/Pages/FolderPickerDialog.razor",
     "Quasar/Components/Pages/FolderPickerDialog.razor.css",
     "Quasar/Components/Pages/Home.razor",
     "Quasar/Components/Pages/Home.razor.css",
-    "Quasar/Components/Pages/Hosts.razor",
-    "Quasar/Components/Pages/MergeWorldTemplateModsDialog.razor"
+    "Quasar/Components/Pages/Hosts.razor"
   ],
   "g09-components-pages-b": [
+    "Quasar/Components/Pages/MergeWorldTemplateModsDialog.razor",
     "Quasar/Components/Pages/NotFound.razor",
     "Quasar/Components/Pages/Players.razor",
     "Quasar/Components/Pages/PluginCatalogDescriptionDialog.razor",
@@ -208,6 +230,9 @@
     "Quasar/Components/Layout/MainLayout.razor",
     "Quasar/Components/Layout/MainLayout.razor.css",
     "Quasar/Components/Layout/NavMenu.razor",
+    "Quasar/Components/Layout/QuasarControlAction.cs",
+    "Quasar/Components/Layout/QuasarControlDialog.razor",
+    "Quasar/Components/Layout/QuasarControlDialog.razor.css",
     "Quasar/Components/Layout/ReconnectModal.razor",
     "Quasar/Components/Layout/ReconnectModal.razor.css",
     "Quasar/Components/Layout/ReconnectModal.razor.js",
@@ -215,6 +240,7 @@
     "Quasar/Components/PluginConfigEditor.razor.css",
     "Quasar/Components/PluginLogPanel.razor",
     "Quasar/Components/Routes.razor",
+    "Quasar/Components/Shared/CopyablePath.razor",
     "Quasar/Components/_Imports.razor"
   ]
 }
