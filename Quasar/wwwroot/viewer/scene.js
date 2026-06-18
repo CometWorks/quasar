@@ -13,6 +13,11 @@ const FLY_MOUSE_SENSITIVITY = 0.0022;
 const FLY_BASE_SPEED = 18;
 const FLY_FAST_MULTIPLIER = 3;
 const FLY_PITCH_LIMIT = Math.PI / 2 - 0.01;
+const AMBIENT_WITH_SUN = 0.16;
+const AMBIENT_WITHOUT_SUN = 0.48;
+const ENVIRONMENT_WITH_SUN = 0.08;
+const ENVIRONMENT_WITHOUT_SUN = 0.18;
+const SUN_LIGHT_INTENSITY_SCALE = 1.9;
 
 export function initScene() {
     state.scene = new THREE.Scene();
@@ -29,14 +34,14 @@ export function initScene() {
 
     const pmrem = new THREE.PMREMGenerator(state.renderer);
     state.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    state.scene.environmentIntensity = 0.45;
+    state.scene.environmentIntensity = ENVIRONMENT_WITH_SUN;
     pmrem.dispose();
 
     state.controls = new OrbitControls(state.camera, state.renderer.domElement);
     state.controls.enableDamping = true;
     state.controls.dampingFactor = 0.08;
 
-    state.ambientLight = new THREE.HemisphereLight(0xcfe7ff, 0x172033, 0.9);
+    state.ambientLight = new THREE.AmbientLight(0xffffff, AMBIENT_WITH_SUN);
     state.scene.add(state.ambientLight);
     state.sunLight = new THREE.DirectionalLight(0xffffff, 1.9);
     state.sunLight.position.set(40, 70, 35);
@@ -237,13 +242,11 @@ export function updateSceneBounds(refit = false) {
 
 export function updateLighting() {
     const sunEnabled = !els.showSun || els.showSun.checked;
-    const ambientIntensity = sunEnabled ? 0.9 : 1.55;
-    const environmentIntensity = sunEnabled ? 0.45 : 0.72;
-    if (state.ambientLight) state.ambientLight.intensity = ambientIntensity;
-    if (state.scene) state.scene.environmentIntensity = environmentIntensity;
+    if (state.ambientLight) state.ambientLight.intensity = sunEnabled ? AMBIENT_WITH_SUN : AMBIENT_WITHOUT_SUN;
+    if (state.scene) state.scene.environmentIntensity = sunEnabled ? ENVIRONMENT_WITH_SUN : ENVIRONMENT_WITHOUT_SUN;
     if (state.sunLight) {
         state.sunLight.visible = sunEnabled;
-        state.sunLight.intensity = sunEnabled ? Math.max(0.15, state.sunIntensity || 1) * 1.9 : 0;
+        state.sunLight.intensity = sunEnabled ? Math.max(0.15, state.sunIntensity || 1) * SUN_LIGHT_INTENSITY_SCALE : 0;
     }
     if (state.sunMarker) state.sunMarker.visible = sunEnabled;
     if (state.sunMarkerLine) state.sunMarkerLine.visible = sunEnabled;
@@ -364,8 +367,8 @@ function updateSunMarker(position, target) {
     }
     if (state.sunMarkerLine) {
         const positions = state.sunMarkerLine.geometry.getAttribute("position");
-        positions.setXYZ(0, target.x, target.y, target.z);
-        positions.setXYZ(1, position.x, position.y, position.z);
+        positions.setXYZ(0, position.x, position.y, position.z);
+        positions.setXYZ(1, target.x, target.y, target.z);
         positions.needsUpdate = true;
         state.sunMarkerLine.geometry.computeBoundingSphere();
     }

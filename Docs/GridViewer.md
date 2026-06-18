@@ -57,7 +57,7 @@ The viewer statistics panel reports unique model assets listed by the scene, mod
 
 Loaded voxel bodies are shown as metadata-only proxies: planets use a wire sphere from the in-game radius metadata, and other voxel maps use their world bounds. The `Show voxels` toggle controls these proxies. Quasar still does not transmit voxel storage samples or generated voxel mesh geometry.
 
-The `Show sun` toggle controls the directional sun light and marker. When enabled, the sun direction comes from `MySector.DirectionToSunNormalized` in the running game and is transformed into the grid-relative view. When disabled, the viewer raises hemisphere and environment lighting so the grid remains readable without directional sun.
+The `Show sun` toggle controls the directional sun light and marker. When enabled, the sun position comes from `MySector.DirectionToSunNormalized` in the running game and is transformed into the grid-relative view; the visible sun ray points back toward the grid along the same direction used by the directional light. The sun-on ambient fill is intentionally low and uniform. When disabled, the viewer uses slightly stronger uniform ambient and environment lighting so the grid remains readable without directional sun.
 
 The stats panel also includes live WebGL and viewport counters such as draw calls, triangles, lines, points, GPU geometries/textures, shader programs, renderables, visible objects, culled objects, meshes, sprites, and lights.
 
