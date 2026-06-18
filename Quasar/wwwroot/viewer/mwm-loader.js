@@ -80,11 +80,13 @@ async function parseResolvedModelUncached(resolved, stack) {
             return { ...model, logicalPath: resolved.logicalPath, geometryLogicalPath: geometryResolved.logicalPath };
         }
 
+        const patternScale = tags.has("PatternScale") ? validPatternScale(reader.readFloatTag(tags.get("PatternScale"))) : 1;
         const positions = tags.has("Vertices") ? reader.readPositions(tags.get("Vertices")) : null;
         if (!positions || positions.length === 0) throw new Error("missing Vertices tag");
 
         const normals = tags.has("Normals") ? reader.readNormals(tags.get("Normals"), positions.length / 3) : null;
         const uvs = tags.has("TexCoords0") ? reader.readTexCoords(tags.get("TexCoords0"), positions.length / 3) : null;
+        if (uvs && patternScale !== 1) scaleTexCoords(uvs, patternScale);
         const parts = tags.has("MeshParts") ? reader.readMeshParts(tags.get("MeshParts")) : [];
         if (!parts.length) throw new Error("missing MeshParts tag");
 
@@ -114,6 +116,7 @@ async function parseResolvedModelUncached(resolved, stack) {
             positions,
             normals,
             uvs,
+            patternScale,
             indices,
             groups,
             vertexCount: positions.length / 3,
@@ -126,6 +129,14 @@ async function parseResolvedModelUncached(resolved, stack) {
 
 function techniqueOrder(technique) {
     return TECHNIQUE_ORDER.get(String(technique || "").toUpperCase()) ?? 999;
+}
+
+function validPatternScale(value) {
+    return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function scaleTexCoords(uvs, patternScale) {
+    for (let i = 0; i < uvs.length; i++) uvs[i] /= patternScale;
 }
 
 class MwmReader {
@@ -158,6 +169,11 @@ class MwmReader {
     readStringTag(offset) {
         this.seekTag(offset);
         return this.readString();
+    }
+
+    readFloatTag(offset) {
+        this.seekTag(offset);
+        return this.readFloat32();
     }
 
     readPositions(offset) {

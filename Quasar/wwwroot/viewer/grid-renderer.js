@@ -63,7 +63,7 @@ function createBlockMeshes(block, definition) {
     const meshes = [];
     if (block.modelParts && block.modelParts.length) {
         for (const part of block.modelParts) {
-            const mesh = createModelMesh(part.modelAssetId, block, matrixDtoToThree(part.localMatrix));
+            const mesh = createModelMesh(part.modelAssetId, block, matrixDtoToThree(part.localMatrix), part.patternOffset);
             if (mesh) meshes.push(mesh);
         }
     } else {
@@ -85,7 +85,7 @@ function createBlockMeshes(block, definition) {
     return meshes;
 }
 
-function createModelMesh(assetId, block, matrix) {
+function createModelMesh(assetId, block, matrix, patternOffset = null) {
     const resolved = assetId ? state.modelResolution.get(assetId) : null;
     const model = resolved && resolved.status === "parsed" ? resolved.model : null;
     if (!model) return null;
@@ -93,7 +93,7 @@ function createModelMesh(assetId, block, matrix) {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(model.positions, 3));
     if (model.normals) geometry.setAttribute("normal", new THREE.BufferAttribute(model.normals, 3));
-    if (model.uvs) geometry.setAttribute("uv", new THREE.BufferAttribute(model.uvs, 2));
+    if (model.uvs) geometry.setAttribute("uv", new THREE.BufferAttribute(transformPatternUvs(model.uvs, patternOffset), 2));
     geometry.setAttribute("color", blockColorMaskAttribute(block, model.positions.length / 3));
     geometry.setIndex(new THREE.BufferAttribute(model.indices, 1));
     for (const group of model.groups) geometry.addGroup(group.start, group.count, group.materialIndex);
@@ -105,6 +105,24 @@ function createModelMesh(assetId, block, matrix) {
     mesh.matrix.copy(matrix);
     mesh.userData.block = block;
     return mesh;
+}
+
+function transformPatternUvs(uvs, patternOffset) {
+    if (!uvs || !patternOffset) return uvs;
+    const patternU = Number(patternOffset.z ?? patternOffset.Z);
+    const patternV = Number(patternOffset.w ?? patternOffset.W);
+    if (!Number.isFinite(patternU) || !Number.isFinite(patternV) || patternU === 0 || patternV === 0) return uvs;
+
+    const offsetU = Number(patternOffset.x ?? patternOffset.X) / patternU;
+    const offsetV = Number(patternOffset.y ?? patternOffset.Y) / patternV;
+    if (!Number.isFinite(offsetU) || !Number.isFinite(offsetV)) return uvs;
+
+    const transformed = new Float32Array(uvs.length);
+    for (let i = 0; i < uvs.length; i += 2) {
+        transformed[i] = uvs[i] + offsetU;
+        transformed[i + 1] = uvs[i + 1] + offsetV;
+    }
+    return transformed;
 }
 
 function createModelMaterial(model, group) {
