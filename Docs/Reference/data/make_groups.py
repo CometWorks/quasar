@@ -3,6 +3,7 @@
 
 Also writes the path-mapping (source path -> description file path) to data/.
 """
+import hashlib
 import json
 import os
 
@@ -46,8 +47,25 @@ groups["g10-components-shared"] = other
 with open(GROUPS_OUT, "w") as f:
     json.dump(groups, f, indent=2)
 
-# Path map: source -> description file (mirrored under Docs/Reference/files/)
-pathmap = {p: f"Docs/Reference/files/{p}.md" for r in files for p in [r["path"]]}
+# Path map: source -> description file (mirrored under Docs/Reference/files/).
+# Output paths must be unique on case-insensitive filesystems (Windows/macOS):
+# a Linux source tree may hold siblings differing only in casing, which would
+# collide on checkout. Detect such collisions deterministically and disambiguate
+# by appending a short hash of the source path, recording the result here so the
+# chosen names stay stable across runs.
+pathmap = {}
+seen = {}  # lowercased output path -> source path that claimed it
+for r in sorted(files, key=lambda r: r["path"]):
+    p = r["path"]
+    out = f"Docs/Reference/files/{p}.md"
+    if out.lower() in seen:
+        suffix = hashlib.sha256(p.encode("utf-8")).hexdigest()[:8]
+        disambiguated = f"Docs/Reference/files/{p}.{suffix}.md"
+        print(f"WARNING: case-insensitive path collision for {p!r} "
+              f"(conflicts with {seen[out.lower()]!r}); disambiguated to {disambiguated}")
+        out = disambiguated
+    seen[out.lower()] = p
+    pathmap[p] = out
 with open(PATHMAP_OUT, "w") as f:
     json.dump(pathmap, f, indent=2)
 

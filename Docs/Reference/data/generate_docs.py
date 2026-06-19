@@ -13,9 +13,21 @@ ROOT = os.path.abspath(os.path.join(HERE, ".."))          # Docs/Reference
 REPO = os.path.abspath(os.path.join(ROOT, "..", ".."))
 modidx = json.load(open(os.path.join(HERE, "module_index.json")))
 graph = json.load(open(os.path.join(HERE, "reference_graph.json")))
+pathmap = json.load(open(os.path.join(HERE, "path_map.json")))
 
 # path -> module
 path_mod = {f["path"]: m for m, fs in modidx.items() for f in fs}
+
+
+def doc_link(src_path, prefix):
+    """Relative link to a file's description doc, honoring path_map disambiguation.
+
+    path_map stores repo-relative targets under Docs/Reference/; `prefix` makes
+    them relative to the file being written ("" from Index/TOC, "../" from Modules).
+    """
+    target = pathmap.get(src_path, f"Docs/Reference/files/{src_path}.md")
+    rel = target[len("Docs/Reference/"):]  # -> files/<...>.md
+    return prefix + rel
 
 # Ordered modules: (key, title, overview)
 MODULES = [
@@ -149,7 +161,7 @@ def write_module(modkey, title, overview):
     lines.append("| File | Kind | Summary |")
     lines.append("| --- | --- | --- |")
     for f in files:
-        rel = f"../files/{f['path']}.md"
+        rel = doc_link(f['path'], "../")
         summ = f["summary"].replace("|", "\\|")
         kind = (f["kind"] or "").replace("|", "\\|")
         lines.append(f"| [{f['path']}]({rel}) | {kind} | {summ} |")
@@ -176,7 +188,7 @@ idx = ["# Quasar Handbook — File Index", "",
        "See the [TOC](TOC.md) for the module-oriented view.", "",
        "| File | Module | Kind | Summary |", "| --- | --- | --- | --- |"]
 for f in allfiles:
-    rel = f"files/{f['path']}.md"
+    rel = doc_link(f['path'], "")
     summ = f["summary"].replace("|", "\\|")
     kind = (f["kind"] or "").replace("|", "\\|")
     mod = path_mod[f["path"]]

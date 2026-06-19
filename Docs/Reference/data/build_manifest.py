@@ -97,9 +97,10 @@ def main():
             data = fh.read()
         # Normalize line endings before hashing/sizing so the cache key and size
         # are stable across platforms/checkouts (git stores LF via `* text=auto`,
-        # but a Windows working tree has CRLF). Binary assets are used as-is.
+        # but a Windows working tree has CRLF). Convert CRLF and lone CR to LF;
+        # binary assets are hashed by their exact bytes (no normalization).
         if ext in TEXT_EXTS:
-            data = data.replace(b"\r\n", b"\n")
+            data = data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
         size = len(data)
         digest = hashlib.sha256(data).hexdigest()
         if ext in BINARY_EXTS:
