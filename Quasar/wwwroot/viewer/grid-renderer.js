@@ -310,12 +310,7 @@ function createBlockMeshes(block, definition, renderContext) {
         }
     } else {
         const assetId = block.currentModelAssetId || (definition && definition.modelAssetId) || "";
-        const matrix = matrixDtoToThree(block.rotation);
-        if (definition && definition.modelOffset) matrix.multiply(new THREE.Matrix4().makeTranslation(
-            Number(definition.modelOffset.x) || 0,
-            Number(definition.modelOffset.y) || 0,
-            Number(definition.modelOffset.z) || 0));
-        const mesh = createModelMesh(assetId, block, matrix, null, renderContext);
+        const mesh = createModelMesh(assetId, block, composeModelInstanceMatrix(block, definition), null, renderContext);
         if (mesh) meshes.push(mesh);
     }
 
@@ -325,6 +320,21 @@ function createBlockMeshes(block, definition, renderContext) {
     }
 
     return meshes;
+}
+
+function composeModelInstanceMatrix(block, definition) {
+    if (block.rotation) return matrixDtoToThree(block.rotation);
+
+    const matrix = new THREE.Matrix4().compose(
+        vec3(block.translation),
+        new THREE.Quaternion(),
+        vec3(block.scale || { x: 1, y: 1, z: 1 }));
+    const offset = definition && definition.modelOffset;
+    if (offset) matrix.multiply(new THREE.Matrix4().makeTranslation(
+        Number(offset.x) || 0,
+        Number(offset.y) || 0,
+        Number(offset.z) || 0));
+    return matrix;
 }
 
 function createModelMesh(assetId, block, matrix, patternOffset = null, renderContext = createRenderContext(textureStatsToken)) {
