@@ -235,7 +235,20 @@ class MwmReader {
             if (this.version < 1052001) this.readInt32();
             const indexCount = this.readInt32();
             const indices = new Uint32Array(indexCount);
-            for (let j = 0; j < indexCount; j++) indices[j] = this.readInt32();
+            for (let j = 0; j < indexCount; j += 3) {
+                if (j + 2 >= indexCount) {
+                    for (; j < indexCount; j++) indices[j] = this.readInt32();
+                    break;
+                }
+
+                const first = this.readInt32();
+                const second = this.readInt32();
+                const third = this.readInt32();
+                // Space Engineers MWMs use Direct3D clockwise front faces; WebGL expects counter-clockwise.
+                indices[j] = first;
+                indices[j + 1] = third;
+                indices[j + 2] = second;
+            }
             const material = this.readBoolean() ? this.readMaterial() : null;
             parts.push({
                 indices,
