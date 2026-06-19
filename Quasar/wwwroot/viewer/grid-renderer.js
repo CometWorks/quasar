@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { els, state } from "./state.js";
 import { blockBox, boundsToBox3 } from "./geometry.js";
-import { wireMaterial } from "./materials.js";
 import { colorFromHash, matrixDtoToThree, num, vec3 } from "./math.js";
 import { disposeObjectTree, fitCameraToScene, updateLighting, updateSceneBounds, updateSunLightPosition } from "./scene.js";
 import { resolveModelAsset } from "./mwm-loader.js";
@@ -10,7 +9,8 @@ import { log } from "./logging.js";
 
 let textureStatsToken = 0;
 let modelRenderToken = 0;
-const MAX_CONCURRENT_MODEL_RESOLVES = 6;
+const MAX_CONCURRENT_MODEL_RESOLVES = 48;
+const MODEL_REBUILD_THROTTLE_MS = 100;
 
 export async function renderGridScene(scene) {
     const renderToken = ++modelRenderToken;
@@ -71,18 +71,58 @@ export async function renderGridScene(scene) {
 function createProgressiveModelRender(scene, definitions, group, textureToken, renderToken) {
     let modelLayer = null;
     let rebuildQueued = false;
+    let rebuildTimer = 0;
+    let completedSinceLastRebuild = 0;
+    const totalModels = (scene.modelAssets || []).length;
+    const rebuildModelStep = progressiveRebuildModelStep(scene, totalModels);
+    const rebuildMaxDelayMs = progressiveRebuildMaxDelayMs(scene);
+
+    function queueRebuildFrame() {
+        requestAnimationFrame(() => {
+            rebuildQueued = false;
+            if (renderToken !== modelRenderToken) return;
+            progress.rebuild();
+        });
+    }
+
+    function queueRebuild(delayMs) {
+        rebuildQueued = true;
+        if (delayMs > 0) {
+            rebuildTimer = window.setTimeout(() => {
+                rebuildTimer = 0;
+                queueRebuildFrame();
+            }, delayMs);
+            return;
+        }
+
+        queueRebuildFrame();
+    }
+
     const progress = {
-        lastRenderStats: { modelMeshes: 0, proxyMeshes: 0, modelBatches: 0, sharedGeometries: 0, sharedMaterials: 0 },
+        lastRenderStats: { modelMeshes: 0, proxyMeshes: 0, proxyBatches: 0, modelBatches: 0, sharedGeometries: 0, sharedMaterials: 0 },
         scheduleRebuild() {
-            if (rebuildQueued || renderToken !== modelRenderToken) return;
-            rebuildQueued = true;
-            requestAnimationFrame(() => {
-                rebuildQueued = false;
-                if (renderToken !== modelRenderToken) return;
-                progress.rebuild();
-            });
+            if (renderToken !== modelRenderToken) return;
+            completedSinceLastRebuild++;
+            const allModelsResolved = state.modelResolution.size >= totalModels;
+            const readyForRebuild = allModelsResolved || completedSinceLastRebuild >= rebuildModelStep;
+            if (rebuildQueued) {
+                if (readyForRebuild && rebuildTimer) {
+                    window.clearTimeout(rebuildTimer);
+                    rebuildTimer = 0;
+                    queueRebuildFrame();
+                }
+                return;
+            }
+
+            queueRebuild(readyForRebuild ? MODEL_REBUILD_THROTTLE_MS : rebuildMaxDelayMs);
         },
         rebuild() {
+            if (rebuildTimer) {
+                window.clearTimeout(rebuildTimer);
+                rebuildTimer = 0;
+            }
+            rebuildQueued = false;
+            completedSinceLastRebuild = 0;
             const renderContext = createRenderContext(textureToken);
             const nextLayer = buildModelLayer(scene, definitions, renderContext);
             const previousLayer = modelLayer;
@@ -102,11 +142,26 @@ function createProgressiveModelRender(scene, definitions, group, textureToken, r
     return progress;
 }
 
+function progressiveRebuildModelStep(scene, totalModels) {
+    const blocks = (scene.blockInstances || []).length;
+    if (blocks > 2000) return Math.max(24, Math.ceil(totalModels / 8));
+    if (blocks > 1000) return Math.max(16, Math.ceil(totalModels / 10));
+    return Math.max(8, Math.ceil(totalModels / 12));
+}
+
+function progressiveRebuildMaxDelayMs(scene) {
+    const blocks = (scene.blockInstances || []).length;
+    if (blocks > 2000) return 900;
+    if (blocks > 1000) return 650;
+    return 250;
+}
+
 function buildModelLayer(scene, definitions, renderContext) {
     const layer = new THREE.Group();
     layer.name = "QuasarGridModels";
     let modelMeshes = 0;
     let proxyMeshes = 0;
+    const proxyBatches = new Map();
 
     for (const block of scene.blockInstances || []) {
         const definition = definitions.get(block.blockTypeId);
@@ -116,17 +171,19 @@ function buildModelLayer(scene, definitions, renderContext) {
             for (const mesh of blockMeshes) queueModelBatch(mesh, renderContext);
             modelMeshes += blockMeshes.length;
         } else {
-            layer.add(createBlockProxy(block, definition, box));
+            queueBlockProxy(proxyBatches, block, definition, box);
             proxyMeshes++;
         }
     }
 
+    flushProxyBatches(layer, proxyBatches);
     const modelBatches = flushModelBatches(layer, renderContext);
     return {
         layer,
         stats: {
             modelMeshes,
             proxyMeshes,
+            proxyBatches: proxyBatches.size,
             modelBatches,
             sharedGeometries: renderContext.geometries.size,
             sharedMaterials: renderContext.materials.size,
@@ -665,28 +722,74 @@ function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
 }
 
-function createBlockProxy(block, definition, box) {
+function queueBlockProxy(proxyBatches, block, definition, box) {
     const opacity = proxyOpacity(definition);
-    const material = new THREE.MeshStandardMaterial({
-        color: displayColorForBlock(block),
-        roughness: 0.78,
-        metalness: 0.12,
-        transparent: opacity < 1,
-        opacity,
-    });
+    const key = String(opacity);
+    let batch = proxyBatches.get(key);
+    if (!batch) {
+        batch = { opacity, instances: [] };
+        proxyBatches.set(key, batch);
+    }
+
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
     box.getSize(size);
     box.getCenter(center);
+    batch.instances.push({
+        block,
+        center,
+        size: new THREE.Vector3(Math.max(size.x, 0.05), Math.max(size.y, 0.05), Math.max(size.z, 0.05)),
+        color: displayColorForBlock(block),
+    });
+}
 
-    const geometry = new THREE.BoxGeometry(Math.max(size.x, 0.05), Math.max(size.y, 0.05), Math.max(size.z, 0.05));
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.copy(center);
-    mesh.userData.block = block;
+function flushProxyBatches(layer, proxyBatches) {
+    if (!proxyBatches.size) return;
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const matrix = new THREE.Matrix4();
+    const rotation = new THREE.Quaternion();
 
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), wireMaterial(0x93c5fd));
-    edges.userData.block = block;
-    mesh.add(edges);
+    for (const batch of proxyBatches.values()) {
+        const solid = createProxyBatchMesh(geometry, batch, false);
+        const wire = createProxyBatchMesh(geometry, batch, true);
+        layer.add(solid, wire);
+
+        for (let i = 0; i < batch.instances.length; i++) {
+            const instance = batch.instances[i];
+            matrix.compose(instance.center, rotation, instance.size);
+            solid.setMatrixAt(i, matrix);
+            wire.setMatrixAt(i, matrix);
+            solid.setColorAt(i, instance.color);
+            solid.userData.blocks.push(instance.block);
+            wire.userData.blocks.push(instance.block);
+        }
+
+        solid.instanceMatrix.needsUpdate = true;
+        wire.instanceMatrix.needsUpdate = true;
+        if (solid.instanceColor) solid.instanceColor.needsUpdate = true;
+        if (typeof solid.computeBoundingBox === "function") solid.computeBoundingBox();
+        if (typeof solid.computeBoundingSphere === "function") solid.computeBoundingSphere();
+        if (typeof wire.computeBoundingBox === "function") wire.computeBoundingBox();
+        if (typeof wire.computeBoundingSphere === "function") wire.computeBoundingSphere();
+    }
+}
+
+function createProxyBatchMesh(geometry, batch, wireframe) {
+    const material = wireframe
+        ? new THREE.MeshBasicMaterial({ color: 0x93c5fd, wireframe: true, transparent: true, opacity: 0.68, depthWrite: false })
+        : new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            roughness: 0.78,
+            metalness: 0.12,
+            vertexColors: true,
+            transparent: batch.opacity < 1,
+            opacity: batch.opacity,
+        });
+    const mesh = new THREE.InstancedMesh(geometry, material, batch.instances.length);
+    mesh.name = wireframe ? `ProxyWireBatch:${batch.opacity}` : `ProxyBatch:${batch.opacity}`;
+    mesh.matrixAutoUpdate = false;
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    mesh.userData.blocks = [];
     return mesh;
 }
 
@@ -832,6 +935,7 @@ function updateModelStats(resolutionStats, renderStats, listed) {
 function updateModelRenderStats(renderStats) {
     state.stats["Model meshes"] = renderStats.modelMeshes;
     state.stats["Proxy meshes"] = renderStats.proxyMeshes;
+    state.stats["Proxy batches"] = renderStats.proxyBatches;
     state.stats["Model batches"] = renderStats.modelBatches;
     state.stats["Shared geometries"] = renderStats.sharedGeometries;
     state.stats["Shared materials"] = renderStats.sharedMaterials;

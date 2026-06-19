@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Main renderer for metadata-only grid scenes. It displays temporary proxy boxes while local MWM models resolve with bounded parallelism, progressively rebuilds the model layer as parsed assets become available, builds instanced batches for shared model/material combinations, renders proxy geometry for missing models, adds voxel proxies and lighting context, and progressively loads selected material textures without blocking scene construction.
+Main renderer for metadata-only grid scenes. It displays instanced proxy batches while local MWM models resolve with bounded parallelism, progressively rebuilds the model layer with adaptive throttling, builds instanced batches for shared model/material combinations, adds voxel proxies and lighting context, and progressively loads selected material textures without blocking scene construction.
 
 ## Structure
 
@@ -11,7 +11,7 @@ Main renderer for metadata-only grid scenes. It displays temporary proxy boxes w
 |---|---|
 | `renderGridScene(scene)` | Replaces the active grid/voxel scene, resolves models, initializes progressive texture stats, creates batches/proxies, updates bounds/camera, and refreshes summary/stat fields. |
 
-Internal sections cover relative grid-view transforms, immediate temporary proxy rendering, animation-frame-coalesced model layer rebuilds, voxel proxy rendering, model-part/subpart mesh creation, shared geometry/material caches per rebuild, Space Engineers-style paint/color-mask shader injection, instanced batch flushing, bounded-concurrency model resolution, texture metadata collection, and progressive texture load status tracking.
+Internal sections cover relative grid-view transforms, immediate proxy-first rendering, adaptively delayed model layer rebuilds for larger scenes, instanced proxy batching, voxel proxy rendering, model-part/subpart mesh creation, shared geometry/material caches per rebuild, Space Engineers-style paint/color-mask shader injection, instanced batch flushing, bounded-concurrency model resolution, texture metadata collection, and progressive texture load status tracking.
 
 ## Dependencies
 - `three`.
@@ -23,4 +23,4 @@ Internal sections cover relative grid-view transforms, immediate temporary proxy
 - [`Quasar/wwwroot/viewer/logging.js`](logging.js.md) for non-fatal warning/fallback messages.
 
 ## Notes
-Texture counts start from scene/model metadata, then found/missing/loaded/failed counters update as visible/shared materials request textures. The renderer does not publish model or texture timing stats, preserving the metadata-only server contract without adding load-time logging noise.
+Texture counts start from scene/model metadata, then found/missing/loaded/failed counters update as visible/shared materials request textures. Unresolved block proxies are emitted as a small number of instanced batches grouped by opacity rather than one proxy mesh per block, which reduces the temporary draw-call cost on large grids while preserving per-block hover metadata through `InstancedMesh.userData.blocks`. Model resolution runs with a wider worker cap, and progressive rebuilds wait for a threshold of completed models or a scene-size-dependent timeout before rebuilding.

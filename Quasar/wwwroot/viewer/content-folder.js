@@ -4,8 +4,8 @@ import { log } from "./logging.js";
 const DB_NAME = "quasar-viewer";
 const STORE_NAME = "handles";
 const HANDLE_KEY = "space-engineers-content";
-const LOOKUP_CONCURRENCY = 6;
-const METADATA_CONCURRENCY = 4;
+const LOOKUP_CONCURRENCY = 32;
+const METADATA_CONCURRENCY = 16;
 const KNOWN_FILE_EXTENSION = /\.(mwm|dds|png|jpe?g|webp)$/i;
 
 const resolvedPathCache = new Map();
@@ -294,7 +294,7 @@ async function getFileSnapshot(canonicalPath, fileHandle, generation) {
         return await inFlightMetadataByCanonicalPath.get(cacheKey);
     }
 
-    const promise = metadataQueue(() => fileHandle.getFile());
+    const promise = timedQueue(metadataQueue, "localFileMetadataRead", () => fileHandle.getFile());
     if (generation === contentCacheGeneration) inFlightMetadataByCanonicalPath.set(cacheKey, promise);
     try {
         const file = await promise;
@@ -307,6 +307,15 @@ async function getFileSnapshot(canonicalPath, fileHandle, generation) {
 
 function joinPath(parentPath, name) {
     return parentPath ? `${parentPath}/${name}` : name;
+}
+
+async function timedQueue(queue, timingKey, operation) {
+    const start = performance.now();
+    try {
+        return await queue(operation);
+    } finally {
+        addTiming(timingKey, performance.now() - start);
+    }
 }
 
 function createAsyncQueue(limit) {
@@ -331,6 +340,14 @@ function createAsyncQueue(limit) {
         queued.push({ operation, resolve, reject });
         runNext();
     });
+}
+
+function addTiming(key, durationMs) {
+    const metric = state.timings[key] || { count: 0, totalMs: 0, maxMs: 0 };
+    metric.count++;
+    metric.totalMs += durationMs;
+    metric.maxMs = Math.max(metric.maxMs, durationMs);
+    state.timings[key] = metric;
 }
 
 function addCacheCounter(key) {
