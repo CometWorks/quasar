@@ -3,9 +3,9 @@
     <!-- Single source of truth for the assembly version across all projects.
          Release packaging overrides these via -p:Version=/-p:AssemblyVersion=/etc.
          on the dotnet publish command line; this is the local/dev default. -->
-    <Version>0.1.2</Version>
-    <AssemblyVersion>0.1.2</AssemblyVersion>
-    <FileVersion>0.1.2</FileVersion>
+    <Version>0.1.3</Version>
+    <AssemblyVersion>$(Version)</AssemblyVersion>
+    <FileVersion>$(Version)</FileVersion>
 
     <!-- Shared application-data root used by Magnetar and Quasar -->
     <Magnetar Condition="'$(Magnetar)' == '' AND $([MSBuild]::IsOSPlatform('Windows'))">$(APPDATA)\Magnetar</Magnetar>

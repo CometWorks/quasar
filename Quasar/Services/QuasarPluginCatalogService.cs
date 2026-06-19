@@ -13,7 +13,7 @@ public sealed class QuasarPluginCatalogService
     public const string DotNetCompatPluginId = "se-dotnet-compat";
     public const string LinuxCompatPluginId = "se-linux-compat";
     public const string DefaultHubName = "MagnetarHub";
-    public const string DefaultHubRepo = "viktor-ferenczi/MagnetarHub";
+    public const string DefaultHubRepo = "CometWorks/magnetar-hub";
     public const string DefaultHubBranch = "main";
     public const string DotNetCompatManifestFile = "Plugins/DotNetCompat.xml";
     public const string LinuxCompatManifestFile = "Plugins/LinuxCompat.xml";
