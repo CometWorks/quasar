@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Main renderer for metadata-only grid scenes. It displays instanced proxy batches while local MWM models resolve with bounded parallelism, progressively rebuilds the model layer with adaptive throttling, builds instanced batches for shared model/material combinations, adds voxel proxies and lighting context, and progressively loads selected material textures without blocking scene construction.
+Main renderer for metadata-only grid scenes. It displays instanced proxy batches while local MWM models resolve with bounded parallelism, progressively rebuilds the model layer with adaptive throttling, builds instanced batches for shared model/material combinations, applies Space Engineers-style material paint, cutout, and blended transparency handling, adds voxel proxies and lighting context, and progressively loads selected material textures without blocking scene construction.
 
 ## Structure
 
@@ -11,7 +11,7 @@ Main renderer for metadata-only grid scenes. It displays instanced proxy batches
 |---|---|
 | `renderGridScene(scene)` | Replaces the active grid/voxel scene, resolves models, initializes progressive texture stats, creates batches/proxies, updates bounds/camera, and refreshes summary/stat fields. |
 
-Internal sections cover relative grid-view transforms, immediate proxy-first rendering, adaptively delayed model layer rebuilds for larger scenes, painted instanced proxy solids with batched cuboid edge outlines, voxel proxy rendering, model-part/subpart mesh creation, shared geometry/material caches per rebuild, Space Engineers-style paint/color-mask shader injection, instanced batch flushing, bounded-concurrency model resolution, texture metadata collection, and progressive texture load status tracking.
+Internal sections cover relative grid-view transforms, immediate proxy-first rendering, adaptively delayed model layer rebuilds for larger scenes, painted instanced proxy solids with batched cuboid edge outlines, voxel proxy rendering, model-part/subpart mesh creation, shared geometry/material caches per rebuild, Space Engineers-style paint/color-mask shader injection, alpha-mask cutout discard for `ALPHA_MASKED`/`DECAL_CUTOUT` materials, depth-write-disabled blended rendering for glass/holo/shield materials, instanced batch flushing, bounded-concurrency model resolution, texture metadata collection, and progressive texture load status tracking.
 
 ## Dependencies
 - `three`.

@@ -364,6 +364,7 @@ function flushModelBatches(group, renderContext) {
         mesh.name = `ModelBatch:${key}`;
         mesh.matrixAutoUpdate = false;
         mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+        mesh.renderOrder = batch.materials.some(material => material.userData.seRenderMode === "blended") ? 2 : 0;
         mesh.userData.blocks = [];
 
         for (let i = 0; i < batch.instances.length; i++) {
@@ -434,20 +435,35 @@ function sharedModelMaterial(model, group, renderContext) {
     if (renderContext.materials.has(key)) return renderContext.materials.get(key);
 
     const technique = String(group.technique || "MESH").toUpperCase();
-    const transparent = technique.includes("GLASS") || technique.includes("ALPHA") || technique.includes("HOLO") || technique.includes("SHIELD");
+    const renderMode = modelMaterialRenderMode(technique);
     const material = new THREE.MeshStandardMaterial({
         color: colorFromHash(`${model.logicalPath}|${group.materialName || group.materialIndex}`),
         roughness: 0.72,
         metalness: 0.22,
-        transparent,
-        opacity: technique.includes("GLASS") ? 0.38 : transparent ? 0.7 : 1,
-        side: technique.includes("SINGLE_SIDED") ? THREE.FrontSide : THREE.DoubleSide,
+        transparent: renderMode.blended,
+        opacity: technique.includes("GLASS") ? 0.38 : renderMode.blended ? 0.7 : 1,
+        depthWrite: !renderMode.blended,
+        side: modelMaterialSide(technique, renderMode),
     });
+    if (renderMode.blended) material.forceSinglePass = true;
     material.userData.renderCacheKey = key;
+    material.userData.seRenderMode = renderMode.blended ? "blended" : renderMode.cutout ? "cutout" : "opaque";
     applySpaceEngineersColorMasking(material, false);
-    applyModelTextures(material, group, technique, renderContext.textureToken);
+    applyModelTextures(material, group, technique, renderMode, renderContext.textureToken);
     renderContext.materials.set(key, material);
     return material;
+}
+
+function modelMaterialRenderMode(technique) {
+    const cutout = technique.includes("ALPHA_MASKED") || technique.includes("DECAL_CUTOUT");
+    const blended = !cutout && (technique.includes("GLASS") || technique.includes("HOLO") || technique.includes("SHIELD"));
+    return { cutout, blended };
+}
+
+function modelMaterialSide(technique, renderMode) {
+    if (technique.includes("SINGLE_SIDED")) return THREE.FrontSide;
+    if (renderMode.blended) return THREE.FrontSide;
+    return THREE.DoubleSide;
 }
 
 function stableTextureKey(textures) {
@@ -458,7 +474,7 @@ function stableTextureKey(textures) {
         .join(";");
 }
 
-function applyModelTextures(material, group, technique, textureToken) {
+function applyModelTextures(material, group, technique, renderMode, textureToken) {
     const base = textureSelection(group.textures, technique.includes("GLASS")
         ? ["GlassTexture", "TransparentTexture", "ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]
         : ["ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]);
@@ -469,6 +485,15 @@ function applyModelTextures(material, group, technique, textureToken) {
             setSpaceEngineersColorMetalTexture(material, colorMetalTextureSelectionHasMetalness(base));
             material.needsUpdate = true;
         }).catch(error => log(`Texture fallback retained for ${base.path}: ${error.message}`, true));
+    }
+
+    const alphaMask = renderMode.cutout ? alphaMaskTextureSelection(group.textures) : null;
+    if (alphaMask) {
+        loadTrackedTexture(alphaMask, textureToken).then(texture => {
+            material.alphaMap = texture;
+            setSpaceEngineersAlphaMaskTexture(material, texture);
+            material.needsUpdate = true;
+        }).catch(error => log(`Alpha-mask texture fallback retained for ${alphaMask.path}: ${error.message}`, true));
     }
 
     const colorMask = colorMaskTextureSelection(group.textures);
@@ -487,6 +512,20 @@ function applyModelTextures(material, group, technique, textureToken) {
             material.needsUpdate = true;
         }).catch(error => log(`Normal texture fallback retained for ${normal.path}: ${error.message}`, true));
     }
+}
+
+function alphaMaskTextureSelection(textures) {
+    const entries = Object.entries(textures || {}).filter(([, path]) => !!path);
+    for (const preferred of ["AlphaMaskTexture", "AlphamaskTexture", "AlphaTexture"]) {
+        const entry = entries.find(([slot]) => slot.toLowerCase() === preferred.toLowerCase());
+        if (entry) return { slot: entry[0], path: entry[1] };
+    }
+
+    for (const [slot, path] of entries) {
+        const text = `${slot || ""} ${path || ""}`.toLowerCase();
+        if (text.includes("alphamask") || text.includes("alpha_mask") || text.includes("alpha-mask")) return { slot, path };
+    }
+    return null;
 }
 
 function colorMaskTextureSelection(textures) {
@@ -542,6 +581,10 @@ function applySpaceEngineersColorMasking(material, metalnessColorable) {
         seMetalnessColorable: { value: !!metalnessColorable },
         seUseColorMetalAlpha: { value: false },
         seUseNormalGlossAlpha: { value: false },
+        seAlphaMaskMap: { value: fallbackWhiteTexture() },
+        seUseAlphaMaskMap: { value: false },
+        seAlphaMaskRedChannel: { value: 0 },
+        seAlphaMaskCutoff: { value: 0.5 },
     };
     material.onBeforeCompile = shader => {
         Object.assign(shader.uniforms, material.userData.seColorMaskUniforms);
@@ -553,6 +596,10 @@ uniform vec3 seBlockColorMask;
 uniform bool seMetalnessColorable;
 uniform bool seUseColorMetalAlpha;
 uniform bool seUseNormalGlossAlpha;
+uniform sampler2D seAlphaMaskMap;
+uniform bool seUseAlphaMaskMap;
+uniform float seAlphaMaskRedChannel;
+uniform float seAlphaMaskCutoff;
 
 vec3 seHsvToRgb(vec3 hsv) {
   vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
@@ -599,6 +646,18 @@ float seRemoveMetalnessFromColoring(float metalness, float coloring) {
   float thresholdMultiply = 0.5;
   return coloring * clamp(1.0 - clamp(metalness - threshold, 0.0, 1.0) / ((1.0 - threshold) * thresholdMultiply), 0.0, 1.0);
 }`);
+        shader.fragmentShader = shader.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>
+#ifdef USE_MAP
+  if (seUseColorMetalAlpha) diffuseColor.a = opacity;
+#endif`);
+        shader.fragmentShader = shader.fragmentShader.replace("#include <alphatest_fragment>", `#ifdef USE_ALPHAMAP
+  if (seUseAlphaMaskMap) {
+    vec4 seAlphaMaskTexel = texture2D(seAlphaMaskMap, vAlphaMapUv);
+    float seAlphaMask = mix(seAlphaMaskTexel.a, seAlphaMaskTexel.r, seAlphaMaskRedChannel);
+    if (seAlphaMask < seAlphaMaskCutoff) discard;
+  }
+#endif
+#include <alphatest_fragment>`);
         shader.fragmentShader = shader.fragmentShader.replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
 #ifdef USE_NORMALMAP
   if (seUseNormalGlossAlpha) {
@@ -625,7 +684,7 @@ float seRemoveMetalnessFromColoring(float metalness, float coloring) {
     diffuseColor.rgb = seColorizeGray(diffuseColor.rgb, sePaintMask, 1.0);
 #endif`);
     };
-    material.customProgramCacheKey = () => "se-grid-viewer-color-mask-v2";
+    material.customProgramCacheKey = () => "se-grid-viewer-color-mask-v3";
 }
 
 function applyDefaultBlockColorMaskUniforms(renderer, scene, camera, geometry, material) {
@@ -649,11 +708,26 @@ function setSpaceEngineersColorMaskTexture(material, texture) {
     if (!uniforms) return;
     uniforms.seColorMaskMap.value = texture;
     uniforms.seUseColorMaskMap.value = true;
-    uniforms.seColorMaskRedChannel.value = colorMaskTextureUsesRedChannel(texture) ? 1 : 0;
+    uniforms.seColorMaskRedChannel.value = textureUsesRedChannel(texture) ? 1 : 0;
 }
 
-function colorMaskTextureUsesRedChannel(texture) {
+function setSpaceEngineersAlphaMaskTexture(material, texture) {
+    const uniforms = material.userData.seColorMaskUniforms;
+    if (!uniforms) return;
+    uniforms.seAlphaMaskMap.value = texture;
+    uniforms.seUseAlphaMaskMap.value = true;
+    uniforms.seAlphaMaskRedChannel.value = alphaMaskTextureUsesRedChannel(texture) ? 1 : 0;
+}
+
+function textureUsesRedChannel(texture) {
     return texture && (texture.format === THREE.RED_RGTC1_Format || texture.format === THREE.SIGNED_RED_RGTC1_Format || texture.userData && texture.userData.seColorMaskChannel === "r");
+}
+
+function alphaMaskTextureUsesRedChannel(texture) {
+    if (!texture) return false;
+    if (texture.userData && texture.userData.seColorMaskChannel) return texture.userData.seColorMaskChannel === "r";
+    if (texture.format === THREE.RED_RGTC1_Format || texture.format === THREE.SIGNED_RED_RGTC1_Format) return true;
+    return !texture.isCompressedTexture;
 }
 
 function fallbackWhiteTexture() {
