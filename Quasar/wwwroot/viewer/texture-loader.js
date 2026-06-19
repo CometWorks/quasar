@@ -260,9 +260,37 @@ function compressedTextureExtension(extensionName) {
 }
 
 function isNonColorTexture(logicalPath, slot) {
-    const text = `${slot || ""} ${logicalPath || ""}`.toLowerCase();
-    return text.includes("normal") || text.includes("alpha") || text.includes("orm") || text.includes("addmaps") ||
-        text.includes("extension") || /_(add|ng|alphamask)\./i.test(text);
+    const slotText = String(slot || "").toLowerCase();
+    if (slotText) {
+        if (slotText.includes("normal") || slotText.includes("alpha") || slotText.includes("orm") ||
+            slotText.includes("addmaps") || slotText.includes("extension")) return true;
+        if (slotText.includes("color") || slotText.includes("diffuse") || slotText.includes("glass") ||
+            slotText.includes("transparent")) return false;
+    }
+
+    return hasTextureMapToken(textureFileStem(logicalPath), [
+        "add",
+        "addmaps",
+        "alpha",
+        "alphamask",
+        "extension",
+        "extensions",
+        "ext",
+        "ng",
+        "normal",
+        "normalgloss",
+        "orm",
+    ]);
+}
+
+function textureFileStem(logicalPath) {
+    const path = normalizeTextureKey(logicalPath);
+    const name = path.split("/").pop() || path;
+    return name.replace(/\.[a-z0-9]+$/i, "");
+}
+
+function hasTextureMapToken(text, tokens) {
+    return tokens.some(token => new RegExp(`(^|[^a-z0-9])${token}([^a-z0-9]|$)`, "i").test(text));
 }
 
 function normalizeTextureKey(logicalPath) {
