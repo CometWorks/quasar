@@ -97,7 +97,30 @@ jobs:
             draft="true"
             prerelease="true"
           elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
-            version="${base}.${GITHUB_RUN_NUMBER}"
+            # The build number (4th component) must reset to zero whenever the
+            # base version (the first three components in Directory.Build.props)
+            # changes. GITHUB_RUN_NUMBER cannot do this: it increments for the
+            # lifetime of the workflow regardless of version bumps. Instead derive
+            # the build number from git history by counting the commits since
+            # <Version> was last set to its current value. The commit that bumped
+            # the version yields build 0; each later commit increments by one.
+            bump_commit=""
+            while read -r sha; do
+              v="$(git show "$sha:Directory.Build.props" 2>/dev/null \
+                     | sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' | head -n1)"
+              if [[ "$v" != "$base" ]]; then
+                break
+              fi
+              bump_commit="$sha"
+            done < <(git log --format=%H -- Directory.Build.props)
+
+            if [[ -n "$bump_commit" ]]; then
+              build="$(git rev-list --count "${bump_commit}..HEAD")"
+            else
+              build="$(git rev-list --count HEAD)"
+            fi
+
+            version="${base}.${build}"
             tag="v${version}"
             draft="false"
             prerelease="false"
