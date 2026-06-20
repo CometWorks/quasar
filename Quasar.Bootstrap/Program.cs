@@ -925,11 +925,21 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             try
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(250), debounce.Token);
-                if (!TryConsumeBootstrapUpdateRequest())
+                if (!TryConsumeBootstrapUpdateRequest(out var request))
                     return;
 
-                _logger.LogInformation("Bootstrap update activation requested by Quasar worker.");
-                await TryUpgradeBootstrapAsync(CancellationToken.None).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(request.Version))
+                {
+                    _logger.LogInformation("Bootstrap update activation requested by Quasar worker.");
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Bootstrap update activation requested by Quasar worker for {Version}.",
+                        request.Version);
+                }
+
+                await TryUpgradeBootstrapAsync(CancellationToken.None, request).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (debounce.IsCancellationRequested)
             {
@@ -973,7 +983,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
     }
 
-    private async Task TryUpgradeBootstrapAsync(CancellationToken cancellationToken)
+    private async Task TryUpgradeBootstrapAsync(CancellationToken cancellationToken, BootstrapUpdateRequest? request = null)
     {
         if (_isStopping || _isRestartingForBootstrapUpdate)
             return;
@@ -984,16 +994,46 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             if (_isStopping || _isRestartingForBootstrapUpdate)
                 return;
 
-            var release = await GetLatestReleaseWithAssetAsync(_options.BootstrapAssetName, cancellationToken).ConfigureAwait(false);
+            var requestedVersion = QuasarReleaseVersion.Normalize(request?.Version ?? string.Empty);
+            var assetName = string.IsNullOrWhiteSpace(request?.AssetName)
+                ? _options.BootstrapAssetName
+                : request.AssetName.Trim();
+            var release = string.IsNullOrWhiteSpace(requestedVersion)
+                ? await GetLatestReleaseWithAssetAsync(assetName, cancellationToken).ConfigureAwait(false)
+                : await GetReleaseWithAssetAsync(
+                    assetName,
+                    requestedVersion,
+                    includePrerelease: true,
+                    cancellationToken).ConfigureAwait(false);
             if (release is null)
+            {
+                if (!string.IsNullOrWhiteSpace(requestedVersion))
+                {
+                    _logger.LogWarning(
+                        "Requested Bootstrap release {Version} with asset {AssetName} was not found.",
+                        requestedVersion,
+                        assetName);
+                }
+
                 return;
+            }
 
             var version = QuasarReleaseVersion.Normalize(release.TagName);
             if (!IsNewerVersion(version, _options.Version))
+            {
+                if (!string.IsNullOrWhiteSpace(requestedVersion))
+                {
+                    _logger.LogInformation(
+                        "Requested Bootstrap release {Version} is not newer than running Bootstrap {CurrentVersion}.",
+                        version,
+                        _options.Version);
+                }
+
                 return;
+            }
 
             var asset = release.Assets.FirstOrDefault(asset =>
-                string.Equals(asset.Name, _options.BootstrapAssetName, StringComparison.OrdinalIgnoreCase));
+                string.Equals(asset.Name, assetName, StringComparison.OrdinalIgnoreCase));
             if (asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
                 return;
 
@@ -1234,7 +1274,18 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
     }
 
-    private async Task<GitHubRelease?> GetLatestReleaseWithAssetAsync(string assetName, CancellationToken cancellationToken)
+    private Task<GitHubRelease?> GetLatestReleaseWithAssetAsync(string assetName, CancellationToken cancellationToken) =>
+        GetReleaseWithAssetAsync(
+            assetName,
+            requestedVersion: string.Empty,
+            includePrerelease: _options.UpdatesIncludePrerelease,
+            cancellationToken);
+
+    private async Task<GitHubRelease?> GetReleaseWithAssetAsync(
+        string assetName,
+        string requestedVersion,
+        bool includePrerelease,
+        CancellationToken cancellationToken)
     {
         var url = $"https://api.github.com/repos/{_options.UpdatesOwner}/{_options.UpdatesRepository}/releases?per_page=100";
         using var response = await _downloadClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
@@ -1242,11 +1293,24 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
         var releases = await JsonSerializer.DeserializeAsync<List<GitHubRelease>>(stream, JsonOptions, cancellationToken).ConfigureAwait(false);
-        return releases?
+        var matchingReleases = releases?
             .Where(release => !release.Draft)
-            .Where(release => _options.UpdatesIncludePrerelease || !release.Prerelease)
-            .FirstOrDefault(release => release.Assets.Any(asset =>
+            .Where(release => includePrerelease || !release.Prerelease)
+            .Where(release => release.Assets.Any(asset =>
                 string.Equals(asset.Name, assetName, StringComparison.OrdinalIgnoreCase)));
+
+        if (matchingReleases is null)
+            return null;
+
+        if (string.IsNullOrWhiteSpace(requestedVersion))
+            return matchingReleases.FirstOrDefault();
+
+        requestedVersion = QuasarReleaseVersion.Normalize(requestedVersion);
+        return matchingReleases.FirstOrDefault(release =>
+            string.Equals(
+                QuasarReleaseVersion.Normalize(release.TagName),
+                requestedVersion,
+                StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task<IReadOnlyDictionary<string, string>> GetChecksumsAsync(GitHubRelease release, CancellationToken cancellationToken)
@@ -1737,11 +1801,23 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         return true;
     }
 
-    private static bool TryConsumeBootstrapUpdateRequest()
+    private static bool TryConsumeBootstrapUpdateRequest(out BootstrapUpdateRequest request)
     {
+        request = new BootstrapUpdateRequest();
         var path = MagnetarPaths.GetQuasarBootstrapUpdateRequestPath();
         if (!File.Exists(path))
             return false;
+
+        try
+        {
+            var text = File.ReadAllText(path);
+            request = JsonSerializer.Deserialize<BootstrapUpdateRequest>(text, JsonOptions)
+                      ?? new BootstrapUpdateRequest();
+        }
+        catch
+        {
+            request = new BootstrapUpdateRequest();
+        }
 
         try
         {
@@ -2172,6 +2248,17 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
         [JsonPropertyName("browser_download_url")]
         public string BrowserDownloadUrl { get; set; } = string.Empty;
+    }
+
+    private sealed class BootstrapUpdateRequest
+    {
+        public string Version { get; set; } = string.Empty;
+
+        public string AssetName { get; set; } = string.Empty;
+
+        public string WorkerVersion { get; set; } = string.Empty;
+
+        public DateTimeOffset? RequestedAtUtc { get; set; }
     }
 
     private sealed record WorkerProcessHandle(Process Process, Uri BaseUri, QuasarActiveReleasePointer Release);

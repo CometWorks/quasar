@@ -51,12 +51,12 @@
                     {
                         <MudTable T="InstalledWorldTemplateSource" Dense="true" Hover="true" Items="FilteredInstalledTemplates" Breakpoint="Breakpoint.Sm" Class="installed-world-template-table">
                             <HeaderContent>
-                                <MudTh Class="installed-world-template-action-cell">Actions</MudTh>
+                                <MudTh Class="installed-world-template-action-cell"></MudTh>
                                 <MudTh Class="installed-world-template-name-cell">Name</MudTh>
                                 <MudTh Class="installed-world-template-source-cell">Source</MudTh>
                             </HeaderContent>
                             <RowTemplate>
-                                <MudTd DataLabel="Actions" Class="installed-world-template-action-cell">
+                                <MudTd DataLabel="" Class="installed-world-template-action-cell">
                                     <MudTooltip Text="Add template">
                                         <MudIconButton Icon="@Icons.Material.Filled.Add"
                                                        Color="Color.Primary"
@@ -71,7 +71,7 @@
                                 <MudTd DataLabel="Source" Class="installed-world-template-source-cell">
                                     <MudStack Spacing="0" Class="installed-world-template-source-stack">
                                         <MudText Typo="Typo.caption" Class="installed-world-template-source-text">@context.Category</MudText>
-                                        <MudText Typo="Typo.caption" Class="mono installed-world-template-source-text">@context.SourcePath</MudText>
+                                        <MudText Typo="Typo.caption" Class="mono installed-world-template-source-text">@context.SourceDisplayPath</MudText>
                                     </MudStack>
                                 </MudTd>
                             </RowTemplate>
@@ -358,6 +358,7 @@
 
         return Contains(template.DisplayName, search) ||
                Contains(template.Category, search) ||
+               Contains(template.SourceDisplayPath, search) ||
                Contains(template.SourcePath, search);
     }
 

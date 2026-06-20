@@ -117,8 +117,9 @@ stale version metadata.
 
 If `/settings/updates` has already detected a Bootstrap update and Quasar is
 running under Bootstrap, the **Force activate** button writes a
-`Updates\bootstrap-update-request.json` request. Bootstrap watches for that file,
-consumes it, and runs the same verified self-update path immediately instead of
+`Updates\bootstrap-update-request.json` request containing the detected version
+and platform asset. Bootstrap watches for that file, consumes it, and runs the
+same verified self-update path for that requested release immediately instead of
 waiting for the next 15-minute monitor tick. Managed Magnetar servers stay
 running; the web UI reconnects after the launcher restarts.
 

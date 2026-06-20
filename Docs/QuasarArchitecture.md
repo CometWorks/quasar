@@ -485,8 +485,8 @@ Linux-first cutover ownership:
 - Bootstrap self-update drains only when the primary release asset is actually
   newer than the running launcher's normalized release identity
 - `/settings/updates` can also write `Updates/bootstrap-update-request.json`
-  to ask Bootstrap to run the self-update path immediately when a launcher
-  update is already detected
+  with the detected version and asset to ask Bootstrap to run the self-update
+  path for that requested launcher release immediately
 
 This implies a two-layer deployment:
 
@@ -536,8 +536,9 @@ Practical guarantee:
 Bootstrap updates normally activate from Bootstrap's own update monitor. When
 the Updates page has detected a newer launcher asset and the worker is running
 under Bootstrap, an admin can force activation from the UI. The worker writes a
-request file under `Updates/`; Bootstrap consumes it with a watcher and runs the
-same checksum-verified self-update path immediately.
+request file under `Updates/` containing the detected version and asset;
+Bootstrap consumes it with a watcher and runs the same checksum-verified
+self-update path for that requested release immediately.
 
 ### Future proxy update flow
 

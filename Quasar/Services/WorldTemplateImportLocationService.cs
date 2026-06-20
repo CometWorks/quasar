@@ -8,6 +8,7 @@ public sealed record InstalledWorldTemplateSource(
     string Category,
     string DisplayName,
     string SourcePath,
+    string SourceDisplayPath,
     string Description);
 
 public sealed class WorldTemplateImportLocationService
@@ -80,11 +81,13 @@ public sealed class WorldTemplateImportLocationService
                         continue;
 
                     var displayName = BuildInstalledTemplateName(label, relative, sandboxPath);
+                    var sourceDisplayPath = BuildInstalledTemplateSourceDisplayPath(relative);
                     templates.Add(new InstalledWorldTemplateSource(
                         Category: label,
                         DisplayName: displayName,
                         SourcePath: fullPath,
-                        Description: $"Installed Space Engineers {label} template from {relative}."));
+                        SourceDisplayPath: sourceDisplayPath,
+                        Description: $"Installed Space Engineers {label} template from {sourceDisplayPath}."));
                 }
             }
         }
@@ -186,11 +189,11 @@ public sealed class WorldTemplateImportLocationService
 
     private static string BuildInstalledTemplateName(string category, string relativePath, string sandboxPath)
     {
-        var segments = relativePath.Split(
-            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
-            StringSplitOptions.RemoveEmptyEntries);
-        var folderName = segments.LastOrDefault() ?? Path.GetFileName(Path.GetDirectoryName(sandboxPath)) ?? "World";
+        var segments = SplitRelativePath(relativePath);
+        var folderName = GetInstalledTemplateFolderName(segments, sandboxPath);
         var sessionName = ReadSessionName(sandboxPath);
+        if (IsGenericInstalledTemplateSegment(sessionName))
+            sessionName = string.Empty;
 
         if (string.Equals(category, "DS Scenarios", StringComparison.OrdinalIgnoreCase) && segments.Length > 0)
         {
@@ -206,6 +209,40 @@ public sealed class WorldTemplateImportLocationService
 
         return string.IsNullOrWhiteSpace(sessionName) ? folderName : sessionName;
     }
+
+    private static string BuildInstalledTemplateSourceDisplayPath(string relativePath)
+    {
+        var segments = SplitRelativePath(relativePath)
+            .Where(segment => !IsGenericInstalledTemplateSegment(segment) &&
+                              !string.Equals(segment, "Worlds", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        return segments.Length == 0
+            ? relativePath.Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/')
+            : string.Join("/", segments);
+    }
+
+    private static string GetInstalledTemplateFolderName(IReadOnlyList<string> segments, string sandboxPath)
+    {
+        var meaningfulFolderName = segments
+            .Where(segment => !IsGenericInstalledTemplateSegment(segment) &&
+                              !string.Equals(segment, "Worlds", StringComparison.OrdinalIgnoreCase))
+            .LastOrDefault();
+        if (!string.IsNullOrWhiteSpace(meaningfulFolderName))
+            return meaningfulFolderName;
+
+        return segments.LastOrDefault() ?? Path.GetFileName(Path.GetDirectoryName(sandboxPath)) ?? "World";
+    }
+
+    private static string[] SplitRelativePath(string relativePath) =>
+        relativePath.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+
+    private static bool IsGenericInstalledTemplateSegment(string value) =>
+        string.Equals(value, "PC", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(value, "XBox", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(value, "Xbox", StringComparison.OrdinalIgnoreCase);
 
     private static string ReadSessionName(string sandboxPath)
     {

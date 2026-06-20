@@ -11,12 +11,12 @@ Namespace: `Quasar.Services`
 
 **`WorldTemplateImportLocationService`** — sealed scoped service.
 
-**`InstalledWorldTemplateSource`** — record returned for optional preset imports: `Category`, `DisplayName`, `SourcePath`, `Description`.
+**`InstalledWorldTemplateSource`** — record returned for optional preset imports: `Category`, `DisplayName`, `SourcePath`, `SourceDisplayPath`, `Description`.
 
 | Member | Description |
 |---|---|
 | `GetContentShortcuts()` | Returns existing DS content shortcut chips, ordered as `Content/CustomWorlds`, `Content/QuickStarts`, `Content/Scenarios`. Roots are resolved from `ManagedRuntimeOptions.DedicatedServerInstallDirectory`, an optional `DedicatedServer64OverridePath` parent, and the managed default `MagnetarPaths.GetQuasarManagedDedicatedServerInstallDirectory()`. |
-| `GetInstalledWorldTemplates()` | Scans the same DS content roots for folders containing `Sandbox.sbc`, including recursive scenario worlds. Xbox scenario variants are skipped, names are derived from `SessionName` when useful, and results are deduped by full source path. |
+| `GetInstalledWorldTemplates()` | Scans the same DS content roots for folders containing `Sandbox.sbc`, including recursive scenario worlds. Xbox scenario variants are skipped, names are derived from `SessionName` when useful, generic platform folders such as `PC` are ignored when falling back to folder names, short relative source paths are computed for display, and results are deduped by full source path. |
 | `GetInitialPathAsync(currentPath)` | Uses the current source path when present; otherwise uses the stored last source folder if it still exists; otherwise falls back to the first existing DS content shortcut or an empty string so `FolderPickerDialog` falls back to the user profile. |
 | `RememberAsync(path)` | Resolves and stores the selected folder in `localStorage` key `quasar.worldTemplates.lastSourceFolder` when it exists. JS interop disconnect/prerender errors are ignored. |
 

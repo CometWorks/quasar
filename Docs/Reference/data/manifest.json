@@ -424,8 +424,8 @@
       "path": "Quasar.Bootstrap/Program.cs",
       "name": "Program.cs",
       "ext": ".cs",
-      "size": 83171,
-      "sha256": "9ee4a08e03e5d1e05be1b80d34122d198a83ea4de9d4f8834bdcdad2e4ba8afc",
+      "size": 86406,
+      "sha256": "e489e9690e86fd4dc2fb06b2bfb6acf77281f8b499d54d50e6137b2dbea27d87",
       "module": "Quasar.Bootstrap",
       "tier": 1,
       "status": "pending"
@@ -944,8 +944,8 @@
       "path": "Quasar/Components/Pages/WorldTemplateQuickImportDialog.razor",
       "name": "WorldTemplateQuickImportDialog.razor",
       "ext": ".razor",
-      "size": 22441,
-      "sha256": "b64cbfc5295ae8afe92a398c97ff7633295ea4e42419ee19f1c11b2fb7903aa8",
+      "size": 22497,
+      "sha256": "0a136a75e52ad78fbbd607c04ba6c8838f9fac17a1d489bbfadeb066492e49d1",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -954,8 +954,8 @@
       "path": "Quasar/Components/Pages/WorldTemplates.razor",
       "name": "WorldTemplates.razor",
       "ext": ".razor",
-      "size": 16948,
-      "sha256": "3ff78df70ba81029e4ac0c0cdaa06567921c26a3632d6113b7ebbf4e47c4096d",
+      "size": 17004,
+      "sha256": "4308323d98f7cbffd85c1d3c1b586f9d0a29ad09a6cc8e6b7dc716a598eb14c6",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -2014,8 +2014,8 @@
       "path": "Quasar/Services/WorldTemplateImportLocationService.cs",
       "name": "WorldTemplateImportLocationService.cs",
       "ext": ".cs",
-      "size": 8228,
-      "sha256": "d64db611f8d7b2bc464dd223163bff39405aa84fb61a02a16d119e16447d5e96",
+      "size": 10034,
+      "sha256": "1a89ae1b139e4f18e772f3559dec8191469447c91a3d8d5a4a04d63857acd013",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "pending"

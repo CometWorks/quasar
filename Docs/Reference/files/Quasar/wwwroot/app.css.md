@@ -40,7 +40,7 @@ Global stylesheet for the Quasar Blazor Server UI. Overrides MudBlazor's elevati
 - `.chat-console-card`, `.chat-server-select`, `.admin-chat-list`, `.admin-chat-row` — full-page chat console sizing, server-select minimum width, and bounded scrollable chat rows for `Chat.razor`
 - `.players-list-card`, `.players-list-stack`, `.players-table`, and descendant table selectors — force the known-player table stack and MudBlazor table/container to consume full available width
 - `.world-template-browse-button` — 1rem top margin
-- `.installed-world-template-table`, `.installed-world-template-name-cell`, `.installed-world-template-source-cell`, `.installed-world-template-action-cell`, `.installed-world-template-name-text`, `.installed-world-template-source-stack`, `.installed-world-template-source-text` — fixed-layout predefined-world tables where the left Add action stays in a fixed action column and long source/category text ellipsizes instead of forcing horizontal overflow
+- `.installed-world-template-table`, `.installed-world-template-name-cell`, `.installed-world-template-source-cell`, `.installed-world-template-action-cell`, `.installed-world-template-name-text`, `.installed-world-template-source-stack`, `.installed-world-template-source-text` — fixed-layout predefined-world tables where the untitled left Add action stays in a fixed action column and long source/category text ellipsizes instead of forcing horizontal overflow
 - `.branding-logo-preview` (+ `-dark`, `-light`) and `.branding-favicon-preview` — bordered preview containers for logo/favicon images
 
 **Responsive adjustments:**
