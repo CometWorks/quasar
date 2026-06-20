@@ -221,7 +221,7 @@ class MwmReader {
         for (let i = 0; i < count; i++) {
             const target = i * 2;
             uvs[target] = this.readHalf();
-            uvs[target + 1] = 1 - this.readHalf();
+            uvs[target + 1] = this.readHalf();
         }
         return uvs;
     }

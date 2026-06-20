@@ -14,7 +14,7 @@ Browser-side parser for locally selected Space Engineers `.mwm` render model fil
 Internal structure:
 - `parseResolvedModel()` and `parseResolvedModelUncached()` implement cache lookup, recursion protection, lazy metadata reads, file reads, tag parsing, geometry-asset redirects, and render group construction.
 - `MwmReader` is a binary reader for the subset of MWM tags needed by the viewer: header/index, strings, vertices, normals, texcoords, mesh parts, materials, and selected scalar values.
-- Helpers unpack half-floats/normals, reverse MWM/Direct3D triangle winding for Three.js/WebGL front faces, scale UVs by `PatternScale`, and order mesh techniques so material groups are stable.
+- Helpers unpack half-floats/normals, reverse MWM/Direct3D triangle winding for Three.js/WebGL front faces, scale raw UVs by `PatternScale` before renderer-side V flipping and cube-part pattern offsets, and order mesh techniques so material groups are stable.
 
 ## Dependencies
 - [`Quasar/wwwroot/viewer/content-folder.js`](content-folder.js.md) for local asset resolution.

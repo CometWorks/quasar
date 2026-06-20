@@ -403,7 +403,7 @@ function sharedModelGeometry(model, patternOffset, renderContext) {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(model.positions, 3));
     if (model.normals) geometry.setAttribute("normal", new THREE.BufferAttribute(model.normals, 3));
-    if (model.uvs) geometry.setAttribute("uv", new THREE.BufferAttribute(transformPatternUvs(model.uvs, patternOffset), 2));
+    if (model.uvs) geometry.setAttribute("uv", new THREE.BufferAttribute(transformModelUvs(model.uvs, patternOffset), 2));
     geometry.setIndex(new THREE.BufferAttribute(model.indices, 1));
     for (const group of model.groups) geometry.addGroup(group.start, group.count, group.materialIndex);
     if (!model.normals) geometry.computeVertexNormals();
@@ -422,22 +422,30 @@ function patternOffsetKey(patternOffset) {
     return [x, y, z, w].map(value => Number.isFinite(value) ? value.toFixed(6) : "n").join(",");
 }
 
-function transformPatternUvs(uvs, patternOffset) {
-    if (!uvs || !patternOffset) return uvs;
+function transformModelUvs(uvs, patternOffset) {
+    const transformed = new Float32Array(uvs.length);
+    const offset = patternUvOffset(patternOffset);
+    const isCubePart = !!patternOffset;
+    for (let i = 0; i < uvs.length; i += 2) {
+        transformed[i] = uvs[i] + offset.x;
+        // Generated cube parts use SE's direct shader UVs; regular models keep the browser V flip.
+        transformed[i + 1] = isCubePart ? uvs[i + 1] + offset.y : 1 - uvs[i + 1];
+    }
+    return transformed;
+}
+
+function patternUvOffset(patternOffset) {
+    if (!patternOffset) return { x: 0, y: 0 };
     const patternU = Number(patternOffset.z ?? patternOffset.Z);
     const patternV = Number(patternOffset.w ?? patternOffset.W);
-    if (!Number.isFinite(patternU) || !Number.isFinite(patternV) || patternU === 0 || patternV === 0) return uvs;
+    if (!Number.isFinite(patternU) || !Number.isFinite(patternV) || patternU === 0 || patternV === 0) return { x: 0, y: 0 };
 
     const offsetU = Number(patternOffset.x ?? patternOffset.X) / patternU;
     const offsetV = Number(patternOffset.y ?? patternOffset.Y) / patternV;
-    if (!Number.isFinite(offsetU) || !Number.isFinite(offsetV)) return uvs;
-
-    const transformed = new Float32Array(uvs.length);
-    for (let i = 0; i < uvs.length; i += 2) {
-        transformed[i] = uvs[i] + offsetU;
-        transformed[i + 1] = uvs[i + 1] + offsetV;
-    }
-    return transformed;
+    return {
+        x: Number.isFinite(offsetU) ? offsetU : 0,
+        y: Number.isFinite(offsetV) ? offsetV : 0,
+    };
 }
 
 function sharedModelMaterial(model, group, renderContext) {
