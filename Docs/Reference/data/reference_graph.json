@@ -230,6 +230,7 @@
     "Quasar/Services/BrandingService.cs"
   ],
   "Quasar/Components/Pages/Backup.razor": [
+    "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
     "Quasar/Models/QuasarBackupSettings.cs",
     "Quasar/Models/QuasarRestoreReport.cs",
     "Quasar/Services/Auth/QuasarAuthConstants.cs",
@@ -237,6 +238,7 @@
     "Quasar/Services/Backup/QuasarBackupService.cs",
     "Quasar/Services/Backup/QuasarBackupSettingsService.cs",
     "Quasar/Services/DedicatedServerCatalog.cs",
+    "Quasar/Services/DedicatedServerSupervisor.cs",
     "Quasar/Services/WebServiceOptions.cs"
   ],
   "Quasar/Components/Pages/Chat.razor": [
@@ -600,7 +602,8 @@
   "Quasar/Services/Backup/QuasarBackupSettingsService.cs": [
     "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
     "Quasar/Models/QuasarBackupSettings.cs",
-    "Quasar/Services/AtomicFileWriter.cs"
+    "Quasar/Services/AtomicFileWriter.cs",
+    "Quasar/Services/WebServiceOptions.cs"
   ],
   "Quasar/Services/Backup/ServerRestoreCoordinator.cs": [],
   "Quasar/Services/BrandingPresets.cs": [],

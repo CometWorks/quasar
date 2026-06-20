@@ -58,6 +58,31 @@ includes the executable path, arguments, working directory, and environment
 variables such as `LD_LIBRARY_PATH`. Use it only while troubleshooting because
 environment variables can contain secrets.
 
+## Backup storage folder
+
+Stored Quasar, server, and world backups are written to `Quasar:BackupDirectory`.
+Change it from **Backup → Stored backups**, or edit `appsettings.json` directly.
+Leave it empty to use the default `Backups` folder under the Quasar data
+directory. Set it to an absolute path to place backups on another disk or a
+mounted network share:
+
+```json
+{
+  "Quasar": {
+    "BackupDirectory": "/mnt/quasar-backups"
+  }
+}
+```
+
+Relative paths are resolved under the Quasar data directory. If the folder is on
+a network share, make sure it is mounted before Quasar starts and that the
+Quasar service account can create, list, read, and delete files in it. Changes
+from the Backup page apply to new stored-backup operations immediately; direct
+file edits need a Quasar restart. Existing backup ZIPs are not moved
+automatically; move them manually if they should appear in the new folder. When
+`QUASAR_BACKUP_DIR` is set, it takes precedence and the Backup page shows the
+active folder as read-only.
+
 ## Agent profiler mode
 
 Managed Space Engineers servers receive the profiler mode through

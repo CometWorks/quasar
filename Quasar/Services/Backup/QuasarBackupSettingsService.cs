@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Magnetar.Protocol.Runtime;
 using Quasar.Models;
@@ -20,21 +21,30 @@ public sealed class QuasarBackupSettingsService : IDisposable
     };
 
     private readonly object _sync = new();
+    private readonly SemaphoreSlim _appSettingsGate = new(1, 1);
     private readonly ILogger<QuasarBackupSettingsService> _logger;
+    private readonly WebServiceOptions _options;
     private QuasarBackupSettings _settings;
     private string _snapshot;
     private FileSystemWatcher? _watcher;
     private CancellationTokenSource? _reloadDebounce;
 
-    public QuasarBackupSettingsService(ILogger<QuasarBackupSettingsService> logger)
+    public QuasarBackupSettingsService(
+        ILogger<QuasarBackupSettingsService> logger,
+        WebServiceOptions options)
     {
         _logger = logger;
+        _options = options;
         _settings = LoadSettings();
         _snapshot = CreateSnapshot(_settings);
         StartWatching();
     }
 
     public event Action? Changed;
+
+    public event Action? BackupDirectoryChanged;
+
+    public string AppSettingsPath => Path.Combine(MagnetarPaths.GetQuasarDirectory(), "appsettings.json");
 
     /// <summary>Returns a deep copy safe for UI draft editing.</summary>
     public QuasarBackupSettings GetSettings()
@@ -72,6 +82,57 @@ public sealed class QuasarBackupSettingsService : IDisposable
         }
 
         await PersistAsync(QuasarBackupSettings.Normalize(updated), cancellationToken);
+    }
+
+    public QuasarBackupDirectorySettings GetBackupDirectorySettings()
+    {
+        var configuredDirectory = ReadConfiguredBackupDirectory();
+        var environmentDirectory = Environment.GetEnvironmentVariable("QUASAR_BACKUP_DIR") ?? string.Empty;
+        return new QuasarBackupDirectorySettings
+        {
+            ConfiguredDirectory = configuredDirectory,
+            ResolvedDirectory = _options.BackupDirectory,
+            AppSettingsPath = AppSettingsPath,
+            EnvironmentOverride = !string.IsNullOrWhiteSpace(environmentDirectory),
+            EnvironmentDirectory = environmentDirectory,
+        };
+    }
+
+    public async Task<QuasarBackupDirectorySettings> SaveBackupDirectoryAsync(
+        string? configuredDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        var environmentDirectory = Environment.GetEnvironmentVariable("QUASAR_BACKUP_DIR");
+        if (!string.IsNullOrWhiteSpace(environmentDirectory))
+            throw new InvalidOperationException("QUASAR_BACKUP_DIR is set; remove it before editing the backup folder from the web UI.");
+
+        var normalizedDirectory = configuredDirectory?.Trim() ?? string.Empty;
+        var resolvedDirectory = WebServiceOptions.ResolveBackupDirectory(normalizedDirectory);
+        Directory.CreateDirectory(resolvedDirectory);
+
+        await _appSettingsGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var root = await ReadAppSettingsAsync(cancellationToken).ConfigureAwait(false);
+            var quasar = GetOrCreateObject(root, "Quasar");
+            quasar["BackupDirectory"] = normalizedDirectory;
+
+            await AtomicFileWriter.WriteTextAsync(
+                    AppSettingsPath,
+                    root.ToJsonString(JsonOptions),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            _options.BackupDirectory = resolvedDirectory;
+        }
+        finally
+        {
+            _appSettingsGate.Release();
+        }
+
+        _logger.LogInformation("Saved backup directory setting to {Path}", AppSettingsPath);
+        BackupDirectoryChanged?.Invoke();
+        return GetBackupDirectorySettings();
     }
 
     private async Task PersistAsync(QuasarBackupSettings normalized, CancellationToken cancellationToken)
@@ -200,4 +261,60 @@ public sealed class QuasarBackupSettingsService : IDisposable
 
     private static string CreateSnapshot(QuasarBackupSettings settings) =>
         JsonSerializer.Serialize(QuasarBackupSettings.Normalize(settings), JsonOptions);
+
+    private string ReadConfiguredBackupDirectory()
+    {
+        try
+        {
+            if (!File.Exists(AppSettingsPath))
+                return string.Empty;
+
+            var text = File.ReadAllText(AppSettingsPath);
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            var root = JsonNode.Parse(text)?.AsObject();
+            return root?["Quasar"]?["BackupDirectory"]?.GetValue<string>()?.Trim() ?? string.Empty;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed reading backup directory setting from {Path}", AppSettingsPath);
+            return string.Empty;
+        }
+    }
+
+    private async Task<JsonObject> ReadAppSettingsAsync(CancellationToken cancellationToken)
+    {
+        if (!File.Exists(AppSettingsPath))
+            return new JsonObject();
+
+        var text = await File.ReadAllTextAsync(AppSettingsPath, cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(text))
+            return new JsonObject();
+
+        return JsonNode.Parse(text)?.AsObject() ?? new JsonObject();
+    }
+
+    private static JsonObject GetOrCreateObject(JsonObject parent, string name)
+    {
+        if (parent[name] is JsonObject existing)
+            return existing;
+
+        var created = new JsonObject();
+        parent[name] = created;
+        return created;
+    }
+}
+
+public sealed class QuasarBackupDirectorySettings
+{
+    public string ConfiguredDirectory { get; set; } = string.Empty;
+
+    public string ResolvedDirectory { get; set; } = string.Empty;
+
+    public string AppSettingsPath { get; set; } = string.Empty;
+
+    public bool EnvironmentOverride { get; set; }
+
+    public string EnvironmentDirectory { get; set; } = string.Empty;
 }
