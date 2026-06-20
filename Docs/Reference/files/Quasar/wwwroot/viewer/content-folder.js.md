@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Browser local-content helper for the grid viewer's Space Engineers `Content` folder. It preserves the Chromium File System Access path with persisted directory handles, falls back to a Firefox-compatible folder file input, validates the expected `Data`, `Models`, and `Textures` directories, resolves logical asset paths through a lazy case-insensitive path cache, and separates path lookup from deferred `getFile()` snapshots.
+Browser local-content helper for the grid viewer's Space Engineers `Content` folder. It preserves the Chromium File System Access path with persisted directory handles, falls back to a Firefox-compatible folder file input, validates the expected `Data`, `Models`, and `Textures` directories, resolves logical asset and SBC data paths through a lazy case-insensitive path cache, and separates path lookup from deferred `getFile()` snapshots.
 
 ## Structure
 

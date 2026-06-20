@@ -6,9 +6,13 @@ import { disposeObjectTree, fitCameraToScene, updateLighting, updateSceneBounds,
 import { resolveModelAsset } from "./mwm-loader.js";
 import { loadTexture } from "./texture-loader.js";
 import { log } from "./logging.js";
+import { getContentFolderCacheGeneration, resolveContentFile } from "./content-folder.js";
 
 let textureStatsToken = 0;
 let modelRenderToken = 0;
+let armorSkinDefinitionsGeneration = -1;
+let armorSkinDefinitionsPromise = null;
+let armorSkinDefinitions = new Map();
 const MAX_CONCURRENT_MODEL_RESOLVES = 48;
 const MODEL_REBUILD_THROTTLE_MS = 100;
 
@@ -59,6 +63,9 @@ export async function renderGridScene(scene) {
     state.stats["Voxel bodies"] = (scene.voxels || []).length;
     state.stats["Voxel proxies"] = state.sceneRenderCounts.voxelProxies;
     renderSummary(scene, resolutionStats, textureStats);
+
+    await ensureArmorSkinDefinitionsLoaded();
+    if (renderToken !== modelRenderToken) return;
 
     await resolveReferencedModelsProgressively(scene, modelAssets, resolutionStats, progress, renderToken);
     if (renderToken !== modelRenderToken) return;
@@ -343,7 +350,7 @@ function createModelMesh(assetId, block, matrix, patternOffset = null, renderCon
     if (!model) return null;
 
     const geometry = sharedModelGeometry(model, patternOffset, renderContext);
-    const materials = model.groups.map(group => sharedModelMaterial(model, group, renderContext));
+    const materials = model.groups.map(group => sharedModelMaterial(model, group, block, renderContext));
     return {
         geometry,
         materials,
@@ -448,8 +455,10 @@ function patternUvOffset(patternOffset) {
     };
 }
 
-function sharedModelMaterial(model, group, renderContext) {
-    const key = `${model.logicalPath}|${group.materialIndex}|${group.materialName}|${group.technique}|${stableTextureKey(group.textures)}`;
+function sharedModelMaterial(model, group, block, renderContext) {
+    const skin = materialSkinOverride(block, group.materialName);
+    const textures = skin ? { ...(group.textures || {}), ...skin.textures } : group.textures;
+    const key = `${model.logicalPath}|${group.materialIndex}|${group.materialName}|${group.technique}|${stableTextureKey(textures)}|metalnessColorable=${skin && skin.metalnessColorable ? 1 : 0}`;
     if (renderContext.materials.has(key)) return renderContext.materials.get(key);
 
     const technique = String(group.technique || "MESH").toUpperCase();
@@ -466,10 +475,125 @@ function sharedModelMaterial(model, group, renderContext) {
     if (renderMode.blended) material.forceSinglePass = true;
     material.userData.renderCacheKey = key;
     material.userData.seRenderMode = renderMode.blended ? "blended" : renderMode.cutout ? "cutout" : "opaque";
-    applySpaceEngineersColorMasking(material, false);
-    applyModelTextures(material, group, technique, renderMode, renderContext.textureToken);
+    applySpaceEngineersColorMasking(material, skin && skin.metalnessColorable);
+    applyModelTextures(material, { ...group, textures }, technique, renderMode, renderContext.textureToken);
     renderContext.materials.set(key, material);
     return material;
+}
+
+async function ensureArmorSkinDefinitionsLoaded() {
+    if (!state.contentFolder) {
+        armorSkinDefinitionsGeneration = -1;
+        armorSkinDefinitionsPromise = null;
+        armorSkinDefinitions = new Map();
+        return armorSkinDefinitions;
+    }
+
+    const generation = getContentFolderCacheGeneration();
+    if (armorSkinDefinitionsGeneration === generation && armorSkinDefinitionsPromise) {
+        armorSkinDefinitions = await armorSkinDefinitionsPromise;
+        return armorSkinDefinitions;
+    }
+
+    armorSkinDefinitionsGeneration = generation;
+    armorSkinDefinitionsPromise = loadArmorSkinDefinitions();
+    armorSkinDefinitions = await armorSkinDefinitionsPromise;
+    state.stats["Armor skins loaded"] = armorSkinDefinitions.size;
+    updateTimingStats();
+    return armorSkinDefinitions;
+}
+
+async function loadArmorSkinDefinitions() {
+    const start = performance.now();
+    try {
+        const resolved = await resolveContentFile("Data/AssetModifiers/ArmorModifiers.sbc");
+        if (!resolved) return new Map();
+
+        const file = await resolved.getFile();
+        return parseArmorSkinDefinitions(await file.text());
+    } catch (error) {
+        log(`Armor skin definitions unavailable: ${error.message}`, true);
+        return new Map();
+    } finally {
+        addTiming("armorSkinDefinitionRead", performance.now() - start);
+    }
+}
+
+function parseArmorSkinDefinitions(text) {
+    const document = new DOMParser().parseFromString(text, "application/xml");
+    const parseError = document.querySelector("parsererror");
+    if (parseError) throw new Error(parseError.textContent || "invalid ArmorModifiers.sbc XML");
+
+    const definitions = new Map();
+    for (const node of document.querySelectorAll("AssetModifier")) {
+        const subtype = assetModifierSubtype(node);
+        if (!subtype) continue;
+
+        const definition = {
+            metalnessColorable: directChildText(node, "MetalnessColorable").toLowerCase() === "true",
+            texturesByLocation: new Map(),
+        };
+        const textures = directChild(node, "Textures");
+        if (!textures) continue;
+
+        for (const texture of directChildren(textures, "Texture")) {
+            const location = (texture.getAttribute("Location") || "").trim();
+            const slot = skinTextureSlot(texture.getAttribute("Type") || "");
+            const filepath = (texture.getAttribute("Filepath") || "").trim().replaceAll("\\", "/");
+            if (!location || !slot || !filepath) continue;
+
+            const key = location.toLowerCase();
+            const change = definition.texturesByLocation.get(key) || {};
+            change[slot] = filepath;
+            definition.texturesByLocation.set(key, change);
+        }
+
+        definitions.set(subtype.toLowerCase(), definition);
+    }
+    return definitions;
+}
+
+function assetModifierSubtype(node) {
+    const id = directChild(node, "Id");
+    if (!id) return "";
+    return (id.getAttribute("Subtype") || directChildText(id, "SubtypeId") || "").trim();
+}
+
+function directChild(parent, name) {
+    return directChildren(parent, name)[0] || null;
+}
+
+function directChildText(parent, name) {
+    const child = directChild(parent, name);
+    return child ? (child.textContent || "").trim() : "";
+}
+
+function directChildren(parent, name) {
+    return Array.from(parent.children || []).filter(child => child.localName === name);
+}
+
+function skinTextureSlot(type) {
+    const key = String(type || "").toLowerCase();
+    if (key === "colormetal") return "ColorMetalTexture";
+    if (key === "normalgloss") return "NormalGlossTexture";
+    if (key === "extensions") return "AddMapsTexture";
+    if (key === "alphamask") return "AlphaMaskTexture";
+    return "";
+}
+
+function materialSkinOverride(block, materialName) {
+    const skinSubtypeId = blockSkinSubtypeId(block);
+    if (!skinSubtypeId || !materialName) return null;
+
+    const definition = armorSkinDefinitions.get(skinSubtypeId.toLowerCase());
+    if (!definition) return null;
+
+    const textures = definition.texturesByLocation.get(String(materialName).toLowerCase());
+    return textures ? { textures, metalnessColorable: definition.metalnessColorable } : null;
+}
+
+function blockSkinSubtypeId(block) {
+    return String(block && (block.skinSubtypeId || block.SkinSubtypeId) || "").trim();
 }
 
 function modelMaterialRenderMode(technique) {
@@ -1097,6 +1221,14 @@ function updateTimingStats() {
         state.stats[`${label} max ms`] = Math.round(metric.maxMs);
         state.stats[`${label} count`] = metric.count;
     }
+}
+
+function addTiming(key, durationMs) {
+    const metric = state.timings[key] || { count: 0, totalMs: 0, maxMs: 0 };
+    metric.count++;
+    metric.totalMs += durationMs;
+    metric.maxMs = Math.max(metric.maxMs, durationMs);
+    state.timings[key] = metric;
 }
 
 function timingLabel(key) {
