@@ -6,7 +6,7 @@
          Quasar.Agent and Magnetar.Protocol disable generated version attributes
          because SHA-256, not release metadata, is the deploy drift signal for
          the in-server DLLs. -->
-    <Version>0.1.4</Version>
+    <Version>1.0.0</Version>
     <AssemblyVersion>$(Version)</AssemblyVersion>
     <FileVersion>$(Version)</FileVersion>
 

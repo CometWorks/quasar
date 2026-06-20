@@ -36,7 +36,7 @@ manual extract does not spill files into the current folder.
 Version normalization is identical to `scripts/package-linux-release.sh`: the same
 input yields the same `AssemblyVersion`/`FileVersion` (`major.minor.build`) and
 the same `AssemblyInformationalVersion` (which keeps prerelease labels such as
-`0.1.3-main.7` and drives update comparisons). The bundled `Quasar.Agent.dll`
+`1.0.0-main.7` and drives update comparisons). The bundled `Quasar.Agent.dll`
 is not release-version stamped, because SHA-256 drift detection should only warn
 when the deployable agent bytes actually differ. After a worker update, the
 supervisor compares bundled-vs-deployed agent DLL hashes during reconnect

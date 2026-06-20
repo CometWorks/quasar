@@ -11,7 +11,7 @@ MSBuild project file for the Quasar Blazor Server host. Targets `net10.0` using 
 - `TargetFramework`: `net10.0`
 - `Nullable`, `ImplicitUsings`: enabled
 - `AssemblyName` / `RootNamespace` / `PackageId` / `Product`: `Quasar`
-- `Version`, `AssemblyVersion`, `FileVersion`: inherited repo defaults (currently `0.1.3`); release packaging overrides these plus `InformationalVersion` with the release identity
+- `Version`, `AssemblyVersion`, `FileVersion`: inherited repo defaults (currently `1.0.0`); release packaging overrides these plus `InformationalVersion` with the release identity
 - `BlazorDisableThrowNavigationException`: `true` — suppresses Blazor navigation exception propagation
 
 **ProjectReference:**

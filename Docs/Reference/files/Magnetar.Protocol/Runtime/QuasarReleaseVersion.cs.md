@@ -9,7 +9,7 @@ Shared release-version helper used by the Quasar worker and Bootstrap launcher. 
 Namespace `Magnetar.Protocol.Runtime`; `public static class QuasarReleaseVersion`.
 
 - `GetEntryAssemblyVersion()` returns normalized `AssemblyInformationalVersion` when present, falling back to assembly version only when no informational metadata exists.
-- `Normalize(value)` extracts a version from tags or metadata, strips a leading `v`, treats `0.1.0.0` as `0.1.0`, keeps four-part build-number identities such as `0.1.2.37` canonical, and maps numeric prerelease aliases such as `0.1.2-37` to `0.1.2.37`.
+- `Normalize(value)` extracts a version from tags or metadata, strips a leading `v`, treats `1.0.0.0` as `1.0.0`, keeps four-part build-number identities such as `1.0.0.37` canonical, and maps numeric prerelease aliases such as `1.0.0-37` to `1.0.0.37`.
 - `IsNewer(candidate, current)` normalizes both inputs and compares numeric core components plus semver-style prerelease labels.
 - Private parsing/comparison helpers handle two-, three-, and four-part numeric cores and dot-separated prerelease identifiers.
 

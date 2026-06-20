@@ -21,7 +21,7 @@ $ArtifactDir = Join-Path $RepoDir 'artifacts\windows'
 $Configuration = if ($env:CONFIGURATION) { $env:CONFIGURATION } else { 'Release' }
 $Runtime = if ($env:RUNTIME) { $env:RUNTIME } else { 'win-x64' }
 $Version = if ($env:VERSION) { $env:VERSION } else { '' }
-$DefaultAssemblyFileVersion = '0.1.3'
+$DefaultAssemblyFileVersion = '1.0.0'
 $WebArchiveName = 'quasar-web-win-x64.zip'
 $InstallerArchiveName = 'quasar-installer-windows.zip'
 $InstallerRootName = 'quasar-installer-windows'
@@ -41,7 +41,7 @@ function Normalize-NugetVersion {
     $plus = $v.IndexOf('+')
     if ($plus -ge 0) { $v = $v.Substring(0, $plus) }
 
-    if ([string]::IsNullOrEmpty($v)) { return '0.1.3' }
+    if ([string]::IsNullOrEmpty($v)) { return '1.0.0' }
 
     if ($v -match '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$') { return $v }
 
@@ -54,7 +54,7 @@ function Normalize-NugetVersion {
     $suffix = $suffix -replace '^\.', ''
     $suffix = $suffix -replace '^-', ''
     if ([string]::IsNullOrEmpty($suffix)) { $suffix = 'local' }
-    return "0.1.3-$suffix"
+    return "1.0.0-$suffix"
 }
 
 function Build-AssemblyFileVersion {

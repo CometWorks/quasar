@@ -95,14 +95,14 @@ function Normalize-NugetVersion {
     $version = $Raw -replace '^v', ''
     $plus = $version.IndexOf('+')
     if ($plus -ge 0) { $version = $version.Substring(0, $plus) }
-    if ([string]::IsNullOrWhiteSpace($version)) { return '0.1.3' }
+    if ([string]::IsNullOrWhiteSpace($version)) { return '1.0.0' }
     if ($version -match '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$') { return $version }
 
     $suffix = $version -replace '[^0-9A-Za-z.-]', '-'
     $suffix = $suffix -replace '^\.', ''
     $suffix = $suffix -replace '^-', ''
     if ([string]::IsNullOrWhiteSpace($suffix)) { $suffix = 'local' }
-    return "0.1.3-$suffix"
+    return "1.0.0-$suffix"
 }
 
 function Build-AssemblyFileVersion {
@@ -112,7 +112,7 @@ function Build-AssemblyFileVersion {
     if ($dash -ge 0) { $rawVersion = $rawVersion.Substring(0, $dash) }
     $plus = $rawVersion.IndexOf('+')
     if ($plus -ge 0) { $rawVersion = $rawVersion.Substring(0, $plus) }
-    if ($rawVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$') { return '0.1.3' }
+    if ($rawVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$') { return '1.0.0' }
 
     $parts = $rawVersion.Split('.')
     return "$(Normalize-VersionComponent $parts[0]).$(Normalize-VersionComponent $parts[1]).$(Normalize-VersionComponent $parts[2])"
@@ -148,7 +148,7 @@ function Resolve-BuildVersion {
         return $short.Output
     }
 
-    return '0.1.3-local'
+    return '1.0.0-local'
 }
 
 # Stage everything into a temp directory first so an in-place install (InstallDir

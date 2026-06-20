@@ -7,7 +7,7 @@ ARTIFACT_DIR="$REPO_DIR/artifacts/linux"
 CONFIGURATION="${CONFIGURATION:-Release}"
 RUNTIME="${RUNTIME:-linux-x64}"
 VERSION="${VERSION:-}"
-ASSEMBLY_FILE_VERSION="0.1.3"
+ASSEMBLY_FILE_VERSION="1.0.0"
 NUGET_VERSION="$VERSION"
 WEB_ARCHIVE_NAME="quasar-web-linux-x64.tar.gz"
 INSTALLER_ARCHIVE_NAME="quasar-installer-linux.tar.gz"
@@ -30,7 +30,7 @@ normalize_nuget_version() {
     version="${version%%+*}"
 
     if [[ -z "$version" ]]; then
-        echo "0.1.3"
+        echo "1.0.0"
         return
     fi
 
@@ -51,7 +51,7 @@ normalize_nuget_version() {
     if [[ -z "$suffix" ]]; then
         suffix="local"
     fi
-    echo "0.1.3-${suffix}"
+    echo "1.0.0-${suffix}"
 }
 
 # Builds the launcher archive's README from the repo README plus the Linux

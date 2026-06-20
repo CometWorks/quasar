@@ -116,7 +116,7 @@ normalize_nuget_version() {
     version="${version%%+*}"
 
     if [[ -z "$version" ]]; then
-        echo "0.1.3"
+        echo "1.0.0"
         return
     fi
 
@@ -131,7 +131,7 @@ normalize_nuget_version() {
     if [[ -z "$suffix" ]]; then
         suffix="local"
     fi
-    echo "0.1.3-${suffix}"
+    echo "1.0.0-${suffix}"
 }
 
 build_assembly_file_version() {
@@ -140,7 +140,7 @@ build_assembly_file_version() {
     raw_version="${raw_version%%+*}"
 
     if [[ ! "$raw_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-        echo "0.1.3"
+        echo "1.0.0"
         return
     fi
 
@@ -156,7 +156,7 @@ resolve_build_version() {
 
     git -C "$SCRIPT_DIR" describe --tags --exact-match 2>/dev/null \
         || git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null \
-        || echo "0.1.3-local"
+        || echo "1.0.0-local"
 }
 
 dotnet_has_sdk() {
