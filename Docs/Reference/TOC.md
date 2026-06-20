@@ -4,7 +4,7 @@ Generated reference handbook for the **Quasar** stack — a supervisor and manag
 
 For the hand-written architecture narrative and design rationale, see [QuasarArchitecture.md](../QuasarArchitecture.md).
 
-This handbook covers **208 source files** across **11 modules**. Browse by module below, or jump to the flat [file Index](Index.md).
+This handbook covers **209 source files** across **11 modules**. Browse by module below, or jump to the flat [file Index](Index.md).
 
 ## Runtime topology
 
@@ -30,7 +30,7 @@ This handbook covers **208 source files** across **11 modules**. Browse by modul
 | [Quasar.Services.Discord](Modules/Quasar.Services.Discord.md) | 13 | Discord bot: chat/death/simspeed/log relay, commands, analytics export. |
 | [Quasar.Services.PluginSdk](Modules/Quasar.Services.PluginSdk.md) | 4 | Plugin config snapshot/update bridge and log streaming. |
 | [Quasar.Components](Modules/Quasar.Components.md) | 58 | Blazor/MudBlazor UI: pages, dialogs, shell, shared components. |
-| [Quasar.Agent](Modules/Quasar.Agent.md) | 12 | In-DS plugin: telemetry, command execution, supervisor attach. |
+| [Quasar.Agent](Modules/Quasar.Agent.md) | 13 | In-DS plugin: telemetry, command execution, supervisor attach. |
 | [Quasar.Bootstrap](Modules/Quasar.Bootstrap.md) | 3 | Ensure-running helper and worker-process lifecycle manager. |
 
 ## Module interactions

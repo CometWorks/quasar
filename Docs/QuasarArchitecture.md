@@ -328,7 +328,7 @@ Quasar should behave like infrastructure/configuration management:
 - if goal state is `On` and the server crashes, Quasar restarts it according to policy
 - if goal state is `On` and the server is unhealthy, Quasar evaluates the health policy and recovers it automatically where configured
 - if goal state is `Off` and the server is running, Quasar stops it
-- if an admin stops the server from in-game (the Magnetar `!quit`/`!stop` command), the agent reports the shutdown intent and Quasar sets goal state to `Off`, so the server stays stopped instead of being treated as a crash and restarted
+- if an admin stops the server from in-game (Magnetar `!quit` or Quasar Agent `!stop`), the agent reports the shutdown intent and Quasar sets goal state to `Off`, so the server stays stopped instead of being treated as a crash and restarted
 - operator actions should usually mutate goal state first, then let reconciliation perform the transition
 
 This should be treated more like Terraform or other IaC reconciliation than like a passive dashboard.

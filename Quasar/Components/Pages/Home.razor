@@ -380,7 +380,7 @@
     </MudAlert>
 }
 
-@if (RuntimeWarmupSnapshot.State != ManagedRuntimeWarmupState.Complete)
+@if (ShouldShowRuntimeWarmup())
 {
     <MudPaper Class="pa-4 summary-card runtime-status mb-4">
         <MudStack Spacing="2">
@@ -986,21 +986,47 @@ else
         return runtime.AgentAttached ? Color.Success : Color.Warning;
     }
 
-    private Color GetRuntimeWarmupColor() => RuntimeWarmupSnapshot.State switch
+    private Color GetRuntimeWarmupColor()
     {
-        ManagedRuntimeWarmupState.Complete => Color.Success,
-        ManagedRuntimeWarmupState.Failed => Color.Error,
-        ManagedRuntimeWarmupState.Running => Color.Info,
-        _ => Color.Default,
-    };
+        var snapshot = RuntimeWarmupSnapshot;
+        if (snapshot.Components.Any(IsRuntimeComponentActive))
+            return Color.Info;
 
-    private string GetRuntimeWarmupLabel() => RuntimeWarmupSnapshot.State switch
+        return snapshot.State switch
+        {
+            ManagedRuntimeWarmupState.Complete => Color.Success,
+            ManagedRuntimeWarmupState.Failed => Color.Error,
+            ManagedRuntimeWarmupState.Running => Color.Info,
+            _ => Color.Default,
+        };
+    }
+
+    private string GetRuntimeWarmupLabel()
     {
-        ManagedRuntimeWarmupState.Complete => "Ready",
-        ManagedRuntimeWarmupState.Failed => "Failed",
-        ManagedRuntimeWarmupState.Running => "Preparing",
-        _ => "Pending",
-    };
+        var snapshot = RuntimeWarmupSnapshot;
+        if (snapshot.Components.Any(IsRuntimeComponentActive))
+            return "Updating";
+
+        return snapshot.State switch
+        {
+            ManagedRuntimeWarmupState.Complete => "Ready",
+            ManagedRuntimeWarmupState.Failed => "Failed",
+            ManagedRuntimeWarmupState.Running => "Preparing",
+            _ => "Pending",
+        };
+    }
+
+    private bool ShouldShowRuntimeWarmup()
+    {
+        var snapshot = RuntimeWarmupSnapshot;
+        return snapshot.State != ManagedRuntimeWarmupState.Complete ||
+               snapshot.Components.Any(IsRuntimeComponentActive);
+    }
+
+    private static bool IsRuntimeComponentActive(ManagedRuntimeComponentSnapshot component) =>
+        component.State is ManagedRuntimeComponentState.Checking
+            or ManagedRuntimeComponentState.Downloading
+            or ManagedRuntimeComponentState.Installing;
 
     private static Color GetRuntimeComponentColor(ManagedRuntimeComponentSnapshot component) => component.State switch
     {
@@ -1029,7 +1055,8 @@ else
     };
 
     private static bool CanRetryRuntimeComponent(ManagedRuntimeComponentSnapshot component) =>
-        component.Component == ManagedRuntimeInstallComponent.DedicatedServer &&
+        component.Component is (ManagedRuntimeInstallComponent.DedicatedServer
+            or ManagedRuntimeInstallComponent.Magnetar) &&
         component.State == ManagedRuntimeComponentState.Failed;
 
 }

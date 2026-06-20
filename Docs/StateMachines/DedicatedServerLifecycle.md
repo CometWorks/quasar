@@ -21,16 +21,17 @@ observed state.
 ## Goal state
 
 The desired state. Operator actions usually mutate goal state first, then let
-reconciliation perform the transition. An in-game admin `!quit`/`!stop` is
-reported by the agent as an `AdminStop` signal so Quasar flips the goal to `Off`
-(and therefore does **not** treat the shutdown as a crash to restart).
+reconciliation perform the transition. An in-game admin `!quit` or Quasar Agent
+`!stop` is reported by the agent as an `AdminStop` signal so Quasar flips the
+goal to `Off` (and therefore does **not** treat the shutdown as a crash to
+restart).
 
 ```mermaid
 stateDiagram-v2
     [*] --> Off
     Off --> On: operator Start / SetGoalStateAsync(On)
     On --> Off: operator Stop / SetGoalStateAsync(Off)
-    On --> Off: in-game admin !quit / !stop (AdminStop signal)
+    On --> Off: in-game admin !quit / Quasar !stop (AdminStop signal)
     On --> Off: Discord !stop command
 ```
 
@@ -40,7 +41,7 @@ stateDiagram-v2
 | --- | --- | --- |
 | `Off → On` | Operator/API `SetGoalStateAsync(On)` | `DedicatedServerSupervisor.SetGoalStateAsync` |
 | `On → Off` | Operator/API `SetGoalStateAsync(Off)` | `DedicatedServerSupervisor.SetGoalStateAsync` |
-| `On → Off` | In-game admin `!quit`/`!stop` → agent `AdminStop` | `AgentSocketHandler.ProcessMessageAsync` (`AdminStop` case) |
+| `On → Off` | In-game admin `!quit` / Quasar Agent `!stop` → agent `AdminStop` | `AgentSocketHandler.ProcessMessageAsync` (`AdminStop` case) |
 | `On → Off` | Discord `!stop` command | `DiscordCommandDispatcher.DispatchAsync` |
 
 ---

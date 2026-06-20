@@ -3,7 +3,7 @@
 **Module:** Quasar.Agent  **Kind:** class  **Tier:** 1
 
 ## Summary
-`AdminPlugin` is the Magnetar `IPlugin` entry point for the Quasar agent that runs inside the Space Engineers dedicated server. On `Init` it reads `AgentOptions`, configures and applies profiler Harmony patches, builds the `GameBridge`, starts a `PluginLogOutbox` (begun before the connection so startup log lines are buffered), and starts an `AgentConnection`. It drives the game-thread snapshot/profiler refresh on each `Update`, refreshes per-character death subscriptions so respawned players are re-hooked, and handles server termination by sending an `AdminStop` signal to Quasar when shutdown was admin-initiated.
+`AdminPlugin` is the Magnetar `IPlugin` entry point for the Quasar agent that runs inside the Space Engineers dedicated server. On `Init` it reads `AgentOptions`, configures and applies profiler Harmony patches, registers Quasar's admin chat commands (including the root `!stop` override), builds the `GameBridge`, starts a `PluginLogOutbox` (begun before the connection so startup log lines are buffered), and starts an `AgentConnection`. It drives the game-thread snapshot/profiler refresh on each `Update`, refreshes per-character death subscriptions so respawned players are re-hooked, and handles server termination by sending an `AdminStop` signal to Quasar when shutdown was admin-initiated.
 
 ## Structure
 **Namespace:** `Quasar.Agent`  **Base:** `IPlugin` (VRage.Plugins)  **Modifiers:** public, concrete
@@ -12,7 +12,7 @@ Fields: `_bridge` (`GameBridge`), `_connection` (`AgentConnection`), `_outbox` (
 
 | Member | Description |
 |---|---|
-| `Init(object gameServer)` | Reads `AgentOptions.FromEnvironment()`, calls `AgentProfiler.Configure(options)` and `AgentProfilerPatches.Apply(options)`, builds `GameBridge`; creates and `Start()`s `PluginLogOutbox` (before the connection loop); constructs `AgentConnection(bridge, WebServiceLocator, options, outbox)` and starts it; subscribes `MyVisualScriptLogicProvider.PlayerDied` as a fallback and `ServerControl.Terminating`. |
+| `Init(object gameServer)` | Reads `AgentOptions.FromEnvironment()`, calls `AgentProfiler.Configure(options)` and `AgentProfilerPatches.Apply(options)`, registers `StopCommand` through PluginSdk `ServerCommands`, builds `GameBridge`; creates and `Start()`s `PluginLogOutbox` (before the connection loop); constructs `AgentConnection(bridge, WebServiceLocator, options, outbox)` and starts it; subscribes `MyVisualScriptLogicProvider.PlayerDied` as a fallback and `ServerControl.Terminating`. |
 | `Update()` | Delegates to `GameBridge.Update()` each game tick, then periodically scans online human players to hook their current `IMyCharacter.CharacterDied` event. |
 | `Dispose()` | Unsubscribes process/session events and character death handlers, stops the connection, disposes the outbox, unpatches profiler hooks, nulls references. |
 | `OnServerTerminating(ServerTerminationKind kind)` | If `kind == Shutdown` and `!_bridge.QuasarRequestedStop`, calls `AgentConnection.TrySendAdminStop()`. |
@@ -22,6 +22,7 @@ Fields: `_bridge` (`GameBridge`), `_connection` (`AgentConnection`), `_outbox` (
 
 ## Dependencies
 - `Quasar.Agent/GameBridge.cs`
+- [`Quasar.Agent/StopCommand.cs`](StopCommand.cs.md)
 - [`Quasar.Agent/AgentProfilerPatches.cs`](AgentProfilerPatches.cs.md)
 - [`Quasar.Agent/AgentProfiler.cs`](AgentProfiler.cs.md)
 - [`Quasar.Agent/AgentConnection.cs`](AgentConnection.cs.md)
@@ -29,7 +30,7 @@ Fields: `_bridge` (`GameBridge`), `_connection` (`AgentConnection`), `_outbox` (
 - `Quasar.Agent/WebServiceLocator.cs`
 - `Quasar.Agent/AgentOptions.cs`
 - `Magnetar.Protocol/Model/DeathEventSnapshot.cs`
-- `PluginSdk` — `IPlugin`, `ServerControl.Terminating`, `ServerTerminationKind`
+- `PluginSdk` — `IPlugin`, `ServerControl.Terminating`, `ServerTerminationKind`; `PluginSdk.Commands` — `ServerCommands`
 - `Sandbox.Game` — `MyVisualScriptLogicProvider.PlayerDied`; `Sandbox.Game.World` — `MySession`; `VRage.Game.ModAPI` — `IMyCharacter.CharacterDied`
 - `VRage.Plugins` — `IPlugin`
 

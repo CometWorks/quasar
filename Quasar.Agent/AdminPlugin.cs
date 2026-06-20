@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Magnetar.Protocol.Model;
 using PluginSdk;
+using PluginSdk.Commands;
 using Sandbox.Game;
 using Sandbox.Game.World;
 using VRage.Game.ModAPI;
@@ -26,6 +27,7 @@ namespace Quasar.Agent
             var options = AgentOptions.FromEnvironment();
             AgentProfiler.Configure(options);
             AgentProfilerPatches.Apply(options);
+            ServerCommands.Register(typeof(AdminPlugin).Assembly, typeof(StopCommand));
             _bridge = new GameBridge(gameServer);
 
             // Start capturing plugin log lines before the connection loop so any

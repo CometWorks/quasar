@@ -294,8 +294,8 @@
       "path": "Quasar.Agent/AdminPlugin.cs",
       "name": "AdminPlugin.cs",
       "ext": ".cs",
-      "size": 8697,
-      "sha256": "f4c8e5d383fb3df950af57f56fc228214bacc945f1652c745dd94a070e21fd0b",
+      "size": 8811,
+      "sha256": "2697be3dc59cfe4bfcafa96b46c861ee8462a8a77aa24e33666683a01c25d460",
       "module": "Quasar.Agent",
       "tier": 1,
       "status": "pending"
@@ -398,6 +398,16 @@
       "sha256": "f95812fd340676a5eea0bb4ae2dc860ffc4cafc0b060db844ac528b40ab42904",
       "module": "Quasar.Agent",
       "tier": 3,
+      "status": "pending"
+    },
+    {
+      "path": "Quasar.Agent/StopCommand.cs",
+      "name": "StopCommand.cs",
+      "ext": ".cs",
+      "size": 484,
+      "sha256": "44315819966c875d60337f1e5a2e074c646aa7bd498767c475edfa5be2afa132",
+      "module": "Quasar.Agent",
+      "tier": 1,
       "status": "pending"
     },
     {
@@ -744,8 +754,8 @@
       "path": "Quasar/Components/Pages/Home.razor",
       "name": "Home.razor",
       "ext": ".razor",
-      "size": 47503,
-      "sha256": "4d3e982072a88b6a758f498b48bdf5066825457c320e9968c417b5bba85bb59c",
+      "size": 48384,
+      "sha256": "6967a7c017b49d8adfcab95d990bc38d8fea44f903850e600b35e00cb82d7d0a",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -1714,8 +1724,8 @@
       "path": "Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs",
       "name": "ManagedDedicatedServerRuntimeResolver.cs",
       "ext": ".cs",
-      "size": 65814,
-      "sha256": "a0b8d6ff06dd4cff7b272a2f781bd07a5039ce97e75c9a282452984f0df0f02f",
+      "size": 69981,
+      "sha256": "8e37141513322c684972f096ada9bd0dc5de977e2a58aefbe57c899831a6c59d",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "pending"
@@ -1734,8 +1744,8 @@
       "path": "Quasar/Services/ManagedRuntimeWarmupService.cs",
       "name": "ManagedRuntimeWarmupService.cs",
       "ext": ".cs",
-      "size": 8498,
-      "sha256": "2b0f99ba159b4809404b0817d028afaf490fecaf0b8490110d098f09a25d9e19",
+      "size": 9459,
+      "sha256": "1d7ac7af0aeeca0aabafe4f5237b46d1de63f9b9b83e259b621545b58e16f41d",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "pending"
