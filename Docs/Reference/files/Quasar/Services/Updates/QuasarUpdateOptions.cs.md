@@ -15,8 +15,8 @@ Namespace: `Quasar.Services.Updates`
 | Property | Default / env var override |
 |---|---|
 | `Enabled` | `true`; `QUASAR_UPDATES_ENABLED` |
-| `Owner` | `viktor-ferenczi`; `QUASAR_UPDATES_OWNER` |
-| `Repository` | `Quasar`; `QUASAR_UPDATES_REPOSITORY` |
+| `Owner` | `CometWorks`; `QUASAR_UPDATES_OWNER` |
+| `Repository` | `quasar`; `QUASAR_UPDATES_REPOSITORY` |
 | `IncludePrerelease` | `false`; `QUASAR_UPDATES_INCLUDE_PRERELEASE` |
 | `AutoStageWebUpdates` | `true`; `QUASAR_UPDATES_AUTO_STAGE_WEB` |
 | `CheckInterval` | 900 seconds minimum 60; `QUASAR_UPDATES_CHECK_INTERVAL_SECONDS` |

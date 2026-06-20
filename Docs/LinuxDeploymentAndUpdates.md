@@ -224,8 +224,8 @@ both read that data-directory file on startup.
 ```json
 {
   "Enabled": true,
-  "Owner": "viktor-ferenczi",
-  "Repository": "Quasar",
+  "Owner": "CometWorks",
+  "Repository": "quasar",
   "IncludePrerelease": false,
   "AutoStageWebUpdates": true,
   "CheckIntervalSeconds": 900,

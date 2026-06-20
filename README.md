@@ -9,12 +9,12 @@ auto-updating them through goal-state reconciliation — while an in-process plu
 It runs on **Linux** (systemd service) and **Windows** (Scheduled Task), in
 foreground console or unattended background mode.
 
-Each server uses the **[Magnetar](https://github.com/viktor-ferenczi/Magnetar)** plugin loader and launcher.
+Each server uses the **[Magnetar](https://github.com/CometWorks/magnetar)** plugin loader and launcher.
 Quasar deploys an agent plugin which connects back to Quasar.
 
 Quasar downloads Magnetar and the Dedicated Server builds automatically and caches it locally until there is an update.
 
-You can register new plugins by making PRs to the [MagnetarHub](https://github.com/viktor-ferenczi/MagnetarHub).
+You can register new plugins by making PRs to the [MagnetarHub](https://github.com/CometWorks/magnetar-hub).
 
 <!-- BEGIN packaged install instructions -->
 ## Getting started

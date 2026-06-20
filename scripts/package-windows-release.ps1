@@ -137,8 +137,8 @@ function Copy-Tree {
 #      relative links would dangle when opened from the unpacked archive.
 function Build-PackagedReadme {
     param([string]$Source, [string]$Snippet, [string]$Destination)
-    $owner = if ($env:GITHUB_REPOSITORY) { ($env:GITHUB_REPOSITORY -split '/')[0] } else { 'viktor-ferenczi' }
-    $repo = if ($env:GITHUB_REPOSITORY) { ($env:GITHUB_REPOSITORY -split '/')[1] } else { 'Quasar' }
+    $owner = if ($env:GITHUB_REPOSITORY) { ($env:GITHUB_REPOSITORY -split '/')[0] } else { 'CometWorks' }
+    $repo = if ($env:GITHUB_REPOSITORY) { ($env:GITHUB_REPOSITORY -split '/')[1] } else { 'quasar' }
     # Pin doc links to main: docs on main are always current and always resolve,
     # unlike a tag/PR-merge ref that may predate a doc or not be a valid blob path.
     $baseUrl = "https://github.com/$owner/$repo/blob/main/Docs/"

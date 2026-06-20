@@ -13,7 +13,7 @@ Namespace: `Quasar.Services`
 | Property | Default / env var override |
 |----------|---------------------------|
 | `MagnetarArchiveUrl` | Empty by default; direct URL override via `QUASAR_MAGNETAR_ARCHIVE_URL` |
-| `MagnetarReleaseApiUrl` | `https://api.github.com/repos/viktor-ferenczi/Magnetar/releases/latest`; `QUASAR_MAGNETAR_RELEASE_API_URL` |
+| `MagnetarReleaseApiUrl` | `https://api.github.com/repos/CometWorks/magnetar/releases/latest`; `QUASAR_MAGNETAR_RELEASE_API_URL` |
 | `MagnetarArchiveAssetPattern` | Windows: `MagnetarForWindows-*.7z`; Linux/other: `MagnetarForLinux-*.7z`; `QUASAR_MAGNETAR_ARCHIVE_ASSET_PATTERN` |
 | `MagnetarInstallDirectory` | `MagnetarPaths.GetQuasarManagedMagnetarInstallDirectory()`; `QUASAR_MAGNETAR_INSTALL_DIR` |
 | `SteamCmdArchiveUrl` | Windows: ZIP from Valve; Linux: `.tar.gz` from Valve; `QUASAR_STEAMCMD_ARCHIVE_URL` |

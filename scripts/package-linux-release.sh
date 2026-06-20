@@ -68,7 +68,7 @@ normalize_nuget_version() {
 #      beside the README, so relative links would dangle when opened from it.
 build_packaged_readme() {
     local source="$1" snippet="$2" dest="$3"
-    local repo_slug="${GITHUB_REPOSITORY:-viktor-ferenczi/Quasar}"
+    local repo_slug="${GITHUB_REPOSITORY:-CometWorks/quasar}"
     local owner="${repo_slug%%/*}"
     local repo="${repo_slug##*/}"
     local base_url="https://github.com/$owner/$repo/blob/main/Docs/"
