@@ -36,7 +36,13 @@ manual extract does not spill files into the current folder.
 Version normalization is identical to `scripts/package-linux-release.sh`: the same
 input yields the same `AssemblyVersion`/`FileVersion` (`major.minor.build`) and
 the same `AssemblyInformationalVersion` (which keeps prerelease labels such as
-`0.1.0-main.7` and drives update comparisons).
+`0.1.3-main.7` and drives update comparisons). The bundled `Quasar.Agent.dll`
+is not release-version stamped, because SHA-256 drift detection should only warn
+when the deployable agent bytes actually differ. After a worker update, the
+supervisor compares bundled-vs-deployed agent DLL hashes during reconnect
+reconciliation. Hash drift only warns; Quasar does not auto-schedule a Magnetar
+restart. A manual full stop/start loads the new plugin because launch preparation
+injects the bundled deployable DLL before relaunch.
 
 The `build-windows` job in the unified `.github/workflows/release.yml` builds these
 assets on `windows-latest`, caching only `DedicatedServer64/` keyed by the Space

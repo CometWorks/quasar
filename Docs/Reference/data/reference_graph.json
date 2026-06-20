@@ -333,7 +333,7 @@
   "Quasar/Components/Pages/Plugins.razor": [
     "Quasar/Services/AgentRegistry.cs",
     "Quasar/Services/DedicatedServerCatalog.cs",
-    "Quasar/Services/QuasarPluginCatalogService.cs"
+    "Quasar/Services/PluginSdk/PluginConfigService.cs"
   ],
   "Quasar/Components/Pages/Security.razor": [
     "Quasar/Services/Auth/QuasarAuthSettingsService.cs"

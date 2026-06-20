@@ -118,9 +118,9 @@
                 {
                     <MudTable Items="_servers" Hover="true" Dense="true">
                         <HeaderContent>
-                            <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.DisplayName)">Server</MudTableSortLabel></MudTh>
+                            <MudTh>Actions</MudTh>
                             <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.UniqueName)">Unique name</MudTableSortLabel></MudTh>
-                            <MudTh Style="text-align:right">Actions</MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.DisplayName)">Server</MudTableSortLabel></MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             @{
@@ -129,48 +129,40 @@
                                 var serverRunning = IsServerRunning(context.UniqueName);
                                 var restoreBlockedReason = serverRunning ? "Stop the server before restoring." : null;
                             }
-                            <MudTd DataLabel="Server">@context.DisplayName</MudTd>
-                            <MudTd DataLabel="Unique name"><code>@context.UniqueName</code></MudTd>
-                            <MudTd Style="text-align:right">
-                                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Justify="Justify.FlexEnd">
-                                    <MudButton Variant="Variant.Filled"
-                                               Color="Color.Primary"
-                                               Size="Size.Small"
-                                               StartIcon="@Icons.Material.Filled.Inventory2"
-                                               OnClick="@(() => MakeServerBackupNowAsync(context.UniqueName))"
-                                               Disabled="_busy">
-                                        Back up server
-                                    </MudButton>
-                                    <MudTooltip Text="@restoreBlockedReason" Disabled="@(!serverRunning)">
-                                        <MudButton Variant="Variant.Outlined"
-                                                   Color="Color.Primary"
-                                                   Size="Size.Small"
-                                                   StartIcon="@Icons.Material.Filled.Restore"
-                                                   OnClick="@(() => RestoreLatestServerBackupAsync(context.UniqueName))"
-                                                   Disabled="@(_busy || serverRunning || latestServerBackup is null)">
-                                            Restore server
-                                        </MudButton>
+                            <MudTd DataLabel="Actions">
+                                <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
+                                    <MudTooltip Text="Back up server">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Inventory2"
+                                                       Color="Color.Primary"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => MakeServerBackupNowAsync(context.UniqueName))"
+                                                       Disabled="_busy" />
                                     </MudTooltip>
-                                    <MudButton Variant="Variant.Filled"
-                                               Color="Color.Secondary"
-                                               Size="Size.Small"
-                                               StartIcon="@Icons.Material.Filled.Public"
-                                               OnClick="@(() => MakeWorldBackupNowAsync(context.UniqueName))"
-                                               Disabled="_busy">
-                                        Back up world
-                                    </MudButton>
-                                    <MudTooltip Text="@restoreBlockedReason" Disabled="@(!serverRunning)">
-                                        <MudButton Variant="Variant.Outlined"
-                                                   Color="Color.Secondary"
-                                                   Size="Size.Small"
-                                                   StartIcon="@Icons.Material.Filled.RestorePage"
-                                                   OnClick="@(() => RestoreLatestWorldBackupAsync(context.UniqueName))"
-                                                   Disabled="@(_busy || serverRunning || latestWorldBackup is null)">
-                                            Restore world
-                                        </MudButton>
+                                    <MudTooltip Text="@(serverRunning ? restoreBlockedReason : latestServerBackup is null ? "No server backup available." : "Restore latest server backup")">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Restore"
+                                                       Color="Color.Primary"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => RestoreLatestServerBackupAsync(context.UniqueName))"
+                                                       Disabled="@(_busy || serverRunning || latestServerBackup is null)" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="Back up world">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Public"
+                                                       Color="Color.Secondary"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => MakeWorldBackupNowAsync(context.UniqueName))"
+                                                       Disabled="_busy" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="@(serverRunning ? restoreBlockedReason : latestWorldBackup is null ? "No world backup available." : "Restore latest world backup")">
+                                        <MudIconButton Icon="@Icons.Material.Filled.RestorePage"
+                                                       Color="Color.Secondary"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => RestoreLatestWorldBackupAsync(context.UniqueName))"
+                                                       Disabled="@(_busy || serverRunning || latestWorldBackup is null)" />
                                     </MudTooltip>
                                 </MudStack>
                             </MudTd>
+                            <MudTd DataLabel="Unique name"><code>@context.UniqueName</code></MudTd>
+                            <MudTd DataLabel="Server">@context.DisplayName</MudTd>
                         </RowTemplate>
                     </MudTable>
                 }
@@ -378,15 +370,15 @@
                 {
                     <MudTable Items="_backups" Hover="true" Dense="true">
                         <HeaderContent>
-                            <MudTh Style="width:1px; white-space:nowrap">Actions</MudTh>
-                            <MudTh Style="width:1px; white-space:nowrap"><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="new Func<QuasarBackupFileInfo, object>(x => x.CreatedAtUtc)">Created</MudTableSortLabel></MudTh>
-                            <MudTh Style="width:1px; white-space:nowrap"><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => FormatBackupType(x))">Type</MudTableSortLabel></MudTh>
-                            <MudTh Style="width:1px; white-space:nowrap"><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.ServerDisplayName ?? x.ServerUniqueName ?? string.Empty)">Server</MudTableSortLabel></MudTh>
-                            <MudTh Style="width:1px; white-space:nowrap"><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.SizeBytes)">Size</MudTableSortLabel></MudTh>
-                            <MudTh Style="width:100%"><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.Name)">Name</MudTableSortLabel></MudTh>
+                            <MudTh>Actions</MudTh>
+                            <MudTh><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="new Func<QuasarBackupFileInfo, object>(x => x.CreatedAtUtc)">Created</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => FormatBackupType(x))">Type</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.ServerDisplayName ?? x.ServerUniqueName ?? string.Empty)">Server</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.SizeBytes)">Size</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.Name)">Name</MudTableSortLabel></MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd DataLabel="Actions" Style="width:1px; white-space:nowrap">
+                            <MudTd DataLabel="Actions">
                                 <MudTooltip Text="Download">
                                     <MudIconButton Icon="@Icons.Material.Filled.Download"
                                                    Href="@($"/api/backup/download/{context.Name}")"
@@ -403,11 +395,11 @@
                                                    Disabled="_busy" Size="Size.Small" Color="Color.Error" />
                                 </MudTooltip>
                             </MudTd>
-                            <MudTd DataLabel="Created" Style="width:1px; white-space:nowrap">@context.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
-                            <MudTd DataLabel="Type" Style="width:1px; white-space:nowrap">@FormatBackupType(context)</MudTd>
-                            <MudTd DataLabel="Server" Style="width:1px; white-space:nowrap">@(context.ServerDisplayName ?? context.ServerUniqueName ?? "-")</MudTd>
-                            <MudTd DataLabel="Size" Style="width:1px; white-space:nowrap">@FormatSize(context.SizeBytes)</MudTd>
-                            <MudTd DataLabel="Name" Style="width:100%">@context.Name</MudTd>
+                            <MudTd DataLabel="Created">@context.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
+                            <MudTd DataLabel="Type">@FormatBackupType(context)</MudTd>
+                            <MudTd DataLabel="Server">@(context.ServerDisplayName ?? context.ServerUniqueName ?? "-")</MudTd>
+                            <MudTd DataLabel="Size">@FormatSize(context.SizeBytes)</MudTd>
+                            <MudTd DataLabel="Name">@context.Name</MudTd>
                         </RowTemplate>
                     </MudTable>
                 }

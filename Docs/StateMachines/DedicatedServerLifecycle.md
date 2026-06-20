@@ -54,6 +54,13 @@ agent attaches; `Restarting` shows `Kill` to cancel the pending relaunch.
 `Running` shows `Stop`/`Restart`; `Stopped`, `Crashed`, and `Faulted` show
 `Start`.
 
+Restart is a supervisor-owned stop/start sequence. Reconciliation does not
+auto-schedule an agent-refresh restart. If a connected running server's deployed
+Magnetar local `Quasar.Agent.dll` hash differs from the bundled deployable
+agent, Quasar warns that a manual restart is required; the subsequent launch prep
+copies the bundled plugin into Magnetar's local plugin folder before starting
+the DS process.
+
 ```mermaid
 stateDiagram-v2
     direction LR

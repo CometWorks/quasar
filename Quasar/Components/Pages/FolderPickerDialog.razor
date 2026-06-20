@@ -25,6 +25,13 @@
 
             <MudCheckBox T="bool" Value="_showHidden" ValueChanged="HandleShowHiddenChanged" Label="Show hidden folders" Dense="true" />
 
+            <MudTextField @bind-Value="_entrySearch"
+                          Label="Filter current folder"
+                          Variant="Variant.Outlined"
+                          Immediate="true"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Search" />
+
             @if (_shortcuts.Count > 0)
             {
                 <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
@@ -63,7 +70,7 @@
             }
 
             <MudList T="FileBrowserEntry" Dense="true" Style="max-height: 320px; overflow-y: auto;">
-                @foreach (var entry in _entries)
+                @foreach (var entry in FilteredEntries)
                 {
                     <MudListItem T="FileBrowserEntry" OnClick="@(() => NavigateTo(entry.FullPath))">
                         <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
@@ -111,6 +118,7 @@
 
     private string _currentPath = string.Empty;
     private string _error = string.Empty;
+    private string _entrySearch = string.Empty;
     private IReadOnlyList<FileBrowserEntry> _entries = Array.Empty<FileBrowserEntry>();
     private IReadOnlyList<FileBrowserBreadcrumb> _breadcrumbs = Array.Empty<FileBrowserBreadcrumb>();
     private IReadOnlyList<FileBrowserShortcut> _shortcuts = Array.Empty<FileBrowserShortcut>();
@@ -119,6 +127,18 @@
         string.IsNullOrWhiteSpace(_error) &&
         Directory.Exists(_currentPath) &&
         (!RequireWorldFolder || FileBrowserService.IsWorldFolder(_currentPath));
+
+    private List<FileBrowserEntry> FilteredEntries
+    {
+        get
+        {
+            var search = _entrySearch.Trim();
+            return _entries
+                .Where(entry => string.IsNullOrEmpty(search) ||
+                    entry.Name.Contains(search, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+    }
 
     protected override void OnInitialized()
     {
@@ -150,6 +170,9 @@
         try
         {
             var resolved = FileBrowserService.ResolvePath(path);
+            if (!string.Equals(resolved, _currentPath, StringComparison.OrdinalIgnoreCase))
+                _entrySearch = string.Empty;
+
             _entries = Browser.ListDirectories(resolved, _showHidden);
             _breadcrumbs = FileBrowserService.GetBreadcrumbs(resolved);
             _currentPath = resolved;

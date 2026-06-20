@@ -471,9 +471,15 @@ else
                                     <MudText Typo="Typo.subtitle2">@GetListItemCaption(field, array[index], index)</MudText>
                                 </MudStack>
                                 <MudStack Row="true" Spacing="0">
-                                    <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp" Size="Size.Small" Disabled="@(index == 0)" OnClick="@(() => MoveListItem(array, index, -1))" />
-                                    <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown" Size="Size.Small" Disabled="@(index >= array.Count - 1)" OnClick="@(() => MoveListItem(array, index, 1))" />
-                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error" OnClick="@(() => RemoveListItemAsync(array, index))" />
+                                    <MudTooltip Text="Move item up">
+                                        <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp" Size="Size.Small" Disabled="@(index == 0)" OnClick="@(() => MoveListItem(array, index, -1))" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="Move item down">
+                                        <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown" Size="Size.Small" Disabled="@(index >= array.Count - 1)" OnClick="@(() => MoveListItem(array, index, 1))" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="Remove item">
+                                        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error" OnClick="@(() => RemoveListItemAsync(array, index))" />
+                                    </MudTooltip>
                                 </MudStack>
                             </MudStack>
                         </TitleContent>
@@ -498,9 +504,15 @@ else
                                 @RenderField(listField.WithName($"Item {index + 1}"), () => array[index], value => SetArrayValue(array, index, value), itemPath, null)
                             </div>
                             <MudStack Row="true" Spacing="0">
-                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp" Size="Size.Small" Disabled="@(index == 0)" OnClick="@(() => MoveListItem(array, index, -1))" />
-                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown" Size="Size.Small" Disabled="@(index >= array.Count - 1)" OnClick="@(() => MoveListItem(array, index, 1))" />
-                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error" OnClick="@(() => RemoveListItemAsync(array, index))" />
+                                <MudTooltip Text="Move item up">
+                                    <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp" Size="Size.Small" Disabled="@(index == 0)" OnClick="@(() => MoveListItem(array, index, -1))" />
+                                </MudTooltip>
+                                <MudTooltip Text="Move item down">
+                                    <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown" Size="Size.Small" Disabled="@(index >= array.Count - 1)" OnClick="@(() => MoveListItem(array, index, 1))" />
+                                </MudTooltip>
+                                <MudTooltip Text="Remove item">
+                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error" OnClick="@(() => RemoveListItemAsync(array, index))" />
+                                </MudTooltip>
                             </MudStack>
                         </MudStack>
                     </MudPaper>
@@ -566,7 +578,9 @@ else
                             <div class="plugin-config-row-editor">
                                 @RenderField(valueField.WithName(key), () => dict[key], value => SetObjectValue(dict, key, value), itemPath, null)
                             </div>
-                            <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveDictEntryAsync(dict, key))" />
+                            <MudTooltip Text="Remove entry">
+                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveDictEntryAsync(dict, key))" />
+                            </MudTooltip>
                         </MudStack>
                     </MudPaper>
                 }

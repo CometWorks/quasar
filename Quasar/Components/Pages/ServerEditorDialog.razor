@@ -23,6 +23,7 @@
                             Variant="Variant.Outlined"
                             Immediate="true"
                             AutoFocus="@(!_isEditing)"
+                            OnBlur="HandleDisplayNameBlur"
                             Required="true"
                             RequiredError="Display name required."
                             HelperText="Friendly name shown in lists and dashboards." />
@@ -541,6 +542,19 @@
             return;
 
         _editor.UniqueName = ServerCatalog.GenerateUniqueServerName(_editor.DisplayName);
+    }
+
+    private void HandleDisplayNameBlur(FocusEventArgs _)
+    {
+        var displayName = NormalizeWhitespace(_editor.DisplayName);
+        if (string.IsNullOrEmpty(displayName))
+            return;
+
+        if (string.IsNullOrWhiteSpace(_editor.InGameServerName))
+            _editor.InGameServerName = displayName;
+
+        if (string.IsNullOrWhiteSpace(_editor.InGameWorldName))
+            _editor.InGameWorldName = displayName;
     }
 
     private void HandleIdentifierChanged(string value)

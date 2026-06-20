@@ -17,7 +17,7 @@ MudBlazor dialog for adding a Space Engineers world template without leaving the
 - **`[Parameter]` `InitialConfigProfileId`** — preselects the currently selected server-editor config profile for the "existing profile" mod path.
 - **Key UI**
   - Step 1 `MudTabs` card with separate Predefined Worlds and Custom Import panels; hidden panels are not kept alive.
-  - Predefined Worlds tab lists discovered installed DS templates with search, Refresh, source/category display, and per-row Add buttons. The table uses `installed-world-template-*` classes so the Add column remains visible while long source paths truncate within the dialog width.
+  - Predefined Worlds tab lists discovered installed DS templates with search, Refresh, source/category display, and per-row Add buttons. The table uses `installed-world-template-*` classes so the left Add column remains visible while long source paths truncate within the dialog width.
   - Custom Import tab contains the original `MudForm` and `@bind-IsValid` details form: required Name, optional multi-line Description, and source world path text field + "Browse" button that opens `FolderPickerDialog`.
   - Step 2 mod handling view when source mods are found, with radio options for creating a profile, importing into an existing profile, or doing nothing. The info alert explains that Quasar writes the selected profile's session settings and mods into the active world's `Sandbox_config.sbc` on server start.
   - Mod preview table listing display name and Workshop ID.

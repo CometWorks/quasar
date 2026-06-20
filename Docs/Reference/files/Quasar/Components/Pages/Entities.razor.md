@@ -13,7 +13,7 @@ Routable page (`/entities`) providing a live entity browser for connected Space 
   - Toolbar: server selector `MudSelect` (connected agents only, labelled via `ResolveServerName`), type filter `MudSelect` (All/Grid/Character/Float/Voxel), search `MudTextField`, Refresh button (disabled while loading or no agent selected).
   - Status row: chips for matching count, shown count, total entity count; last-updated timestamp; loading spinner.
   - Conditional alerts for no connected servers, stale agent selection, errors, no results.
-  - `MudTable<EntitySummary>` — columns: Type (color-coded chip), Name + EntityId (caption), Sub-type, Blocks, PCU, Size (m), Owner, Position, Delete action; sortable by Name, Blocks, PCU, Size; pager (25/50/100/250 options); fixed header at 60 vh.
+  - `MudTable<EntitySummary>` — columns show Delete action, Type, Entity ID, Sub-type, Blocks, PCU, Size (m), Owner, Position, and Name; sortable by Name, Blocks, PCU, Size; pager (25/50/100/250 options); fixed header at 60 vh.
 - **Key state:** `_selectedAgentId`, `_typeFilter`, `_searchText`, `_entities`, `_lastResult`, `_lastUpdated`, `_loading`, `_error`.
 - **Key methods:**
   - `LoadAsync()` — calls `EntityService.GetEntitiesAsync(agent, filter)` with `Limit=500`; client-side `FilteredEntities` then applies the search text.

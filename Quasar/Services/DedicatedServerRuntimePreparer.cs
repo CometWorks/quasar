@@ -86,6 +86,23 @@ public sealed class DedicatedServerRuntimePreparer
             arguments);
     }
 
+    public AgentDeploymentComparison GetAgentDeploymentComparison(DedicatedServerDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+
+        var sourceDirectory = LocateAgentSourceDirectory();
+        var bundledPath = sourceDirectory is null ? string.Empty : Path.Combine(sourceDirectory, AgentPluginFileName);
+        var deployedPath = string.IsNullOrWhiteSpace(definition.MagnetarAppDataPath)
+            ? string.Empty
+            : Path.Combine(definition.MagnetarAppDataPath, "Local", AgentPluginFileName);
+
+        return new AgentDeploymentComparison(
+            bundledPath,
+            TryComputeSha256Hex(bundledPath),
+            deployedPath,
+            TryComputeSha256Hex(deployedPath));
+    }
+
     private async Task PrepareRuntimeConfigAsync(
         DedicatedServerDefinition definition,
         QuasarConfigProfile configProfile,
@@ -472,6 +489,22 @@ public sealed class DedicatedServerRuntimePreparer
         await using var stream = File.OpenRead(path);
         var hash = await SHA256.HashDataAsync(stream, cancellationToken);
         return Convert.ToHexString(hash);
+    }
+
+    private static string TryComputeSha256Hex(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return string.Empty;
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            return Convert.ToHexString(SHA256.HashData(stream));
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private static string? LocateAgentSourceDirectory()
@@ -887,3 +920,18 @@ public sealed record PreparedDedicatedServerLaunch(
     string RuntimeConfigPath,
     string LastSessionPath,
     string Arguments);
+
+public sealed record AgentDeploymentComparison(
+    string BundledPath,
+    string BundledSha256,
+    string DeployedPath,
+    string DeployedSha256)
+{
+    public bool CanCompare =>
+        !string.IsNullOrWhiteSpace(BundledSha256) &&
+        !string.IsNullOrWhiteSpace(DeployedSha256);
+
+    public bool HasMismatch =>
+        !string.IsNullOrWhiteSpace(BundledSha256) &&
+        !string.Equals(BundledSha256, DeployedSha256, StringComparison.OrdinalIgnoreCase);
+}

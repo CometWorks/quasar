@@ -115,37 +115,60 @@
         {
             <MudTable T="KnownPlayerView" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredPlayers" Class="players-table">
                 <HeaderContent>
+                    <MudTh>Actions</MudTh>
                     <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.ServerDisplayName)">Server</MudTableSortLabel></MudTh>
-                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetPlayerName(x.Record))">Player</MudTableSortLabel></MudTh>
-                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetServiceLabel(x.Record.ServiceName))">Service</MudTableSortLabel></MudTh>
                     <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.SteamId)">Steam ID</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetServiceLabel(x.Record.ServiceName))">Service</MudTableSortLabel></MudTh>
                     <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.FactionTag)">Faction</MudTableSortLabel></MudTh>
                     <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetRoleLabel(x.Record))">Role</MudTableSortLabel></MudTh>
-                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.LastSeenUtc)">Last Seen</MudTableSortLabel></MudTh>
                     <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.IsOnline)">Status</MudTableSortLabel></MudTh>
-                    <MudTh></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.LastSeenUtc)">Last Seen</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetPlayerName(x.Record))">Player</MudTableSortLabel></MudTh>
                 </HeaderContent>
                 <RowTemplate>
+                    <MudTd DataLabel="Actions">
+                        <MudTooltip Text="Player actions">
+                            <MudMenu Dense="true"
+                                     Icon="@Icons.Material.Filled.MoreVert"
+                                     Disabled="@(!context.CanModerate)"
+                                     OpenChanged="@(open => _menuOpen = open)"
+                                     AnchorOrigin="Origin.BottomRight"
+                                     TransformOrigin="Origin.TopRight">
+                                <MudMenuItem Disabled="true">Set role</MudMenuItem>
+                                @foreach (var promoteLevel in PromoteLevels)
+                                {
+                                    <MudMenuItem Disabled="@IsCurrentPromoteLevel(context.Record, promoteLevel)"
+                                                 OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.SetPlayerPromoteLevel, promoteLevel))">
+                                        @promoteLevel
+                                    </MudMenuItem>
+                                }
+                                <MudDivider />
+                                <MudMenuItem Disabled="@(!context.IsOnline)"
+                                             OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.KickPlayer))">
+                                    Kick
+                                </MudMenuItem>
+                                <MudMenuItem Disabled="@(!context.IsKickCooldownActive)"
+                                             OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.ClearKickCooldown))">
+                                    Clear kick cooldown
+                                </MudMenuItem>
+                                <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(context, context.Record.IsBanned ? ServerCommandType.UnbanPlayer : ServerCommandType.BanPlayer))">
+                                    @(context.Record.IsBanned ? "Unban" : "Ban")
+                                </MudMenuItem>
+                            </MudMenu>
+                        </MudTooltip>
+                    </MudTd>
                     <MudTd DataLabel="Server">
                         <MudText Typo="Typo.body2">@context.ServerDisplayName</MudText>
                         <MudText Typo="Typo.caption">@context.Record.UniqueName</MudText>
                     </MudTd>
-                    <MudTd DataLabel="Player">
-                        <MudText Typo="Typo.body2">@GetPlayerName(context.Record)</MudText>
-                        @if (GetPlatformName(context.Record) is { Length: > 0 } platformName)
-                        {
-                            <MudText Typo="Typo.caption">Platform: @platformName</MudText>
-                        }
+                    <MudTd DataLabel="Steam ID">
+                        <MudText Typo="Typo.body2" Class="mono">@context.Record.SteamId</MudText>
                     </MudTd>
                     <MudTd DataLabel="Service">
                         <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.Record.ServiceName)</MudChip>
                     </MudTd>
-                    <MudTd DataLabel="Steam ID">
-                        <MudText Typo="Typo.body2" Class="mono">@context.Record.SteamId</MudText>
-                    </MudTd>
                     <MudTd DataLabel="Faction">@context.Record.FactionTag</MudTd>
                     <MudTd DataLabel="Role">@GetRoleLabel(context.Record)</MudTd>
-                    <MudTd DataLabel="Last Seen">@FormatLastSeen(context.Record.LastSeenUtc)</MudTd>
                     <MudTd DataLabel="Status">
                         <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
                             <MudChip T="string" Size="Size.Small" Color="@(context.IsOnline ? Color.Success : Color.Default)">
@@ -165,34 +188,13 @@
                             }
                         </MudStack>
                     </MudTd>
-                    <MudTd Style="text-align: right;">
-                        <MudMenu Dense="true"
-                                 Icon="@Icons.Material.Filled.MoreVert"
-                                 Disabled="@(!context.CanModerate)"
-                                 OpenChanged="@(open => _menuOpen = open)"
-                                 AnchorOrigin="Origin.BottomRight"
-                                 TransformOrigin="Origin.TopRight">
-                            <MudMenuItem Disabled="true">Set role</MudMenuItem>
-                            @foreach (var promoteLevel in PromoteLevels)
-                            {
-                                <MudMenuItem Disabled="@IsCurrentPromoteLevel(context.Record, promoteLevel)"
-                                             OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.SetPlayerPromoteLevel, promoteLevel))">
-                                    @promoteLevel
-                                </MudMenuItem>
-                            }
-                            <MudDivider />
-                            <MudMenuItem Disabled="@(!context.IsOnline)"
-                                         OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.KickPlayer))">
-                                Kick
-                            </MudMenuItem>
-                            <MudMenuItem Disabled="@(!context.IsKickCooldownActive)"
-                                         OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.ClearKickCooldown))">
-                                Clear kick cooldown
-                            </MudMenuItem>
-                            <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(context, context.Record.IsBanned ? ServerCommandType.UnbanPlayer : ServerCommandType.BanPlayer))">
-                                @(context.Record.IsBanned ? "Unban" : "Ban")
-                            </MudMenuItem>
-                        </MudMenu>
+                    <MudTd DataLabel="Last Seen">@FormatLastSeen(context.Record.LastSeenUtc)</MudTd>
+                    <MudTd DataLabel="Player">
+                        <MudText Typo="Typo.body2">@GetPlayerName(context.Record)</MudText>
+                        @if (GetPlatformName(context.Record) is { Length: > 0 } platformName)
+                        {
+                            <MudText Typo="Typo.caption">Platform: @platformName</MudText>
+                        }
                     </MudTd>
                 </RowTemplate>
             </MudTable>

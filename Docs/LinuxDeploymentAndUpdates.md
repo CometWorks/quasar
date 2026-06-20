@@ -30,15 +30,19 @@ by name, so all platforms share the same release.
 For assembly/file metadata, the script always emits a valid `major.minor.build`
 version even when the base version is build-number style. The public update
 identity is `AssemblyInformationalVersion`, which keeps prerelease labels such
-as `0.1.0-main.7`; Quasar uses that value, plus the active-release pointer, for
+as `0.1.3-main.7`; Quasar uses that value, plus the active-release pointer, for
 update comparisons instead of `AssemblyVersion`.
 For NuGet/package metadata, non-tag/short-hash values are mapped to a safe
-`0.1.0-<hash>` semver pre-release form so restore/publish do not fail. The
+`0.1.3-<hash>` semver pre-release form so restore/publish do not fail. The
 packaging script copies the published web worker, overlays the complete source
 `Quasar/wwwroot/` tree, and fails if the web payload is missing the worker,
 generated Blazor runtime, or generated MudBlazor assets. The full `wwwroot`
 overlay keeps manually managed scripts, CSS, and library files in the release
 archive even when publish output shape changes.
+The bundled `Quasar.Agent.dll` is not release-version stamped. Agent deploy
+drift is detected by comparing the bundled DLL SHA-256 hash with the deployed
+Magnetar local-agent DLL hash, so version-only release changes do not force an
+agent restart warning.
 The workflow caches only the `DedicatedServer64/` reference library set by the
 Space Engineers Dedicated Server public build id, so unchanged DS builds restore
 without re-downloading the multi-GB depot content.
@@ -49,9 +53,9 @@ The release workflow is `.github/workflows/release.yml`. Each build publishes a
 single release/tag carrying both the Linux and Windows archives:
 
 - tag push `v<version>` → full release tagged `v<version>`
-- push to `main` → full release tagged `v0.1.0-main.<run-number>`
-- pull request → draft prerelease tagged `pr-<number>/v0.1.0-pr.<number>.<run-number>`
-- manual run (`workflow_dispatch`) → draft prerelease tagged `v0.1.0-manual.<run-number>`
+- push to `main` → full release tagged `v0.1.3-main.<run-number>`
+- pull request → draft prerelease tagged `pr-<number>/v0.1.3-pr.<number>.<run-number>`
+- manual run (`workflow_dispatch`) → draft prerelease tagged `v0.1.3-manual.<run-number>`
 
 The updater extracts the version from the tag with
 `QuasarReleaseVersion.Normalize`, so the tag prefix does not matter. Assembly/file
@@ -113,7 +117,13 @@ cutover, Bootstrap prunes inactive managed web-release directories.
 
 This intentionally accepts a short web/agent disconnect. `Quasar.Agent`
 reconnects, and managed Magnetar processes stay alive because Quasar launches
-them detached with `-daemon`.
+them detached with `-daemon`. Running DS processes keep the agent assembly they
+already loaded until that server process is stopped. On worker startup and each
+reconcile after reconnect, the supervisor compares the bundled
+`Agent/Quasar.Agent.dll` hash with the deployed Magnetar local DLL hash. When
+they differ, Quasar warns that a manual server restart is required. It does not
+auto-schedule that restart; the operator-triggered stop/start path runs launch
+preparation and injects the bundled deployable DLL before relaunch.
 
 ## Bootstrap Updates
 
@@ -162,7 +172,7 @@ the service but does not start or restart it unless `--start` is passed; start i
 later with `systemctl --user restart quasar.service`. When installing from
 source instead of an extracted release archive, the installer stamps the launcher
 with `VERSION`, an exact git tag, or a short commit-derived prerelease identity
-so Bootstrap update comparisons do not fall back to plain `0.1.0`.
+so Bootstrap update comparisons do not fall back to plain `0.1.3`.
 
 If a previous `/opt/quasar` system install exists, the new user-mode installer
 installs the new Bootstrap and user service first, then calls the old

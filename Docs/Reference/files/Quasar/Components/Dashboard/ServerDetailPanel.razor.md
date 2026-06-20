@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Detail panel embedded inside `ServerCard`. When the agent snapshot is absent it shows a waiting/error message and basic process state chips. When a snapshot is present it renders live metrics chips, Refresh/Save buttons, a chat broadcast field, a players table with per-player action menus (kick/ban confirm first; set role sends directly), a recent-chat list, and recent command results. Server-authored chat (`IsServerMessage`, SteamId 0, `Good.bot`, or `Server`) is displayed as `Server`. In both the snapshot-present and snapshot-absent states, an outlined "Affinity <value>" chip (Memory icon) is shown in the metrics chip rows when `Server.CpuAffinity` is set, and mod-download failures captured from runtime output are shown as an explicit error alert.
+Detail panel embedded inside `ServerCard`. When the agent snapshot is absent it shows a waiting/error message and basic process state chips. When a snapshot is present it renders live metrics chips, Refresh/Save buttons, a chat broadcast field, a players table with action menus and player identity/status columns, a recent-chat list, and recent command results. Server-authored chat (`IsServerMessage`, SteamId 0, `Good.bot`, or `Server`) is displayed as `Server`. In both the snapshot-present and snapshot-absent states, an outlined "Affinity <value>" chip (Memory icon) is shown in the metrics chip rows when `Server.CpuAffinity` is set, and mod-download failures captured from runtime output are shown as an explicit error alert.
 
 ## Structure
 No `@page` route — used as a child component.

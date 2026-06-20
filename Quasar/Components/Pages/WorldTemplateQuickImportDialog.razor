@@ -45,11 +45,20 @@
                         {
                             <MudTable T="InstalledWorldTemplateSource" Dense="true" Hover="true" Items="FilteredInstalledTemplates" Breakpoint="Breakpoint.Sm" Class="installed-world-template-table">
                                 <HeaderContent>
+                                    <MudTh Class="installed-world-template-action-cell">Actions</MudTh>
                                     <MudTh Class="installed-world-template-name-cell">Name</MudTh>
                                     <MudTh Class="installed-world-template-source-cell">Source</MudTh>
-                                    <MudTh Class="installed-world-template-action-cell"></MudTh>
                                 </HeaderContent>
                                 <RowTemplate>
+                                    <MudTd DataLabel="Actions" Class="installed-world-template-action-cell">
+                                        <MudTooltip Text="Add template">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                                           Color="Color.Primary"
+                                                           Size="Size.Small"
+                                                           Disabled="_importing"
+                                                           OnClick="@(() => ImportPredefinedTemplateAsync(context))" />
+                                        </MudTooltip>
+                                    </MudTd>
                                     <MudTd DataLabel="Name" Class="installed-world-template-name-cell">
                                         <MudText Typo="Typo.body2" Class="installed-world-template-name-text">@context.DisplayName</MudText>
                                     </MudTd>
@@ -58,15 +67,6 @@
                                             <MudText Typo="Typo.caption" Class="installed-world-template-source-text">@context.Category</MudText>
                                             <MudText Typo="Typo.caption" Class="mono installed-world-template-source-text">@context.SourcePath</MudText>
                                         </MudStack>
-                                    </MudTd>
-                                    <MudTd Class="installed-world-template-action-cell">
-                                        <MudButton Variant="Variant.Outlined"
-                                                   Color="Color.Primary"
-                                                   Size="Size.Small"
-                                                   Disabled="_importing"
-                                                   OnClick="@(() => ImportPredefinedTemplateAsync(context))">
-                                            Add
-                                        </MudButton>
                                     </MudTd>
                                 </RowTemplate>
                                 <NoRecordsContent>

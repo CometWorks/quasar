@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-General-purpose server-side folder browser dialog. Renders a navigable directory tree with breadcrumb navigation, bookmark shortcut chips, caller-supplied shortcut chips, hidden-folder toggle, and an optional world-folder validation mode. Returns the selected absolute path on confirmation. Used from `Configs.razor` (dev-folder picker), server instance editors (world-folder picker), and world-template import flows.
+General-purpose server-side folder browser dialog. Renders a navigable directory tree with breadcrumb navigation, bookmark shortcut chips, caller-supplied shortcut chips, hidden-folder toggle, quick filtering for the current folder list, and an optional world-folder validation mode. Returns the selected absolute path on confirmation. Used from `Configs.razor` (dev-folder picker), server instance editors (world-folder picker), and world-template import flows.
 
 ## Structure
 - **No route** (dialog component only)
@@ -17,6 +17,7 @@ General-purpose server-side folder browser dialog. Renders a navigable directory
 - **UI:**
   - Path text field with Enter-to-navigate and a refresh adornment button; "Go" button; "Up" icon button.
   - "Show hidden folders" checkbox.
+  - "Filter current folder" search field that narrows the visible child-directory list without changing the current path; it clears when navigation moves to a different folder.
   - Shortcut chips row (from `Browser.GetShortcuts()` plus `AdditionalShortcuts`).
   - Breadcrumb buttons row — each crumb navigates to that directory level.
   - Error/success alert (error on navigation failure; success when a valid world folder is detected with `RequireWorldFolder=true`).
@@ -27,6 +28,7 @@ General-purpose server-side folder browser dialog. Renders a navigable directory
   - `GoUp()` — navigates to `Directory.GetParent(_currentPath)`.
   - `HandleShowHiddenChanged(bool)` — toggles hidden-folder visibility and re-navigates.
   - `HandlePathKeyDownAsync` — navigates on Enter key.
+  - `FilteredEntries` — filters `_entries` by case-insensitive folder-name substring from `_entrySearch`.
   - `UseCurrent()` — closes with `DialogResult.Ok(_currentPath)`.
   - `BuildShortcuts()` — combines built-in and caller-supplied shortcuts, de-duplicates by full path, and drops missing folders.
 - **`CanUseCurrentFolder`:** `_error` empty AND `Directory.Exists(_currentPath)` AND (not `RequireWorldFolder` OR `FileBrowserService.IsWorldFolder(_currentPath)`).

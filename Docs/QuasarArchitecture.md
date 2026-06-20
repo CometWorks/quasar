@@ -504,6 +504,12 @@ Practical guarantee:
 - `Quasar.Agent` sockets may briefly reconnect
 - the supervisor must preserve enough state that reconnect is operationally seamless
 - managed DS processes continue running independently during the rollover
+- already-running DS processes keep their loaded `Quasar.Agent` assembly until
+  that server process exits; after reconnect, the supervisor compares the
+  bundled `Agent/Quasar.Agent.dll` hash with the deployed Magnetar local DLL
+  hash and warns on drift, but leaves the restart/manual stop-start decision to
+  the operator. The normal launch-preparation path copies and loads the current
+  deployable agent on the next manual restart.
 
 ### Linux update flow
 

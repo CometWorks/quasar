@@ -37,10 +37,10 @@
   </PropertyGroup>
 
   <Target Name="BuildQuasarAgent"
-          BeforeTargets="Build;Publish"
-          Condition="!Exists('$(_QuasarAgentOutputDir)Quasar.Agent.dll') Or !Exists('$(_QuasarAgentOutputDir)Magnetar.Protocol.dll')">
+          BeforeTargets="Build;Publish">
     <!-- Invoke dotnet directly so publish-time globals from the parent build do
-         not bleed into Quasar.Agent's netstandard2.0 restore/build. -->
+         not bleed into Quasar.Agent's netstandard2.0 restore/build. Release
+         version props are intentionally not passed; SHA-256 detects agent drift. -->
     <Exec Command="dotnet build &quot;$(_QuasarAgentProject)&quot; -c &quot;$(Configuration)&quot; -p:Platform=x64 -p:RuntimeIdentifier= -p:SelfContained= -p:PublishSingleFile= -v minimal" />
   </Target>
 

@@ -9,7 +9,10 @@ MSBuild project file for the `Magnetar.Protocol` shared contract library. Target
 - `TargetFramework`: `netstandard2.0`
 - `Nullable`: `enable`
 - `LangVersion`: `latest`
-- `Version`, `AssemblyVersion`, `FileVersion`: `0.1.0` defaults, overridden by release packaging when needed
+- `GenerateAssemblyVersionAttribute`, `GenerateAssemblyFileVersionAttribute`,
+  and `GenerateAssemblyInformationalVersionAttribute`: false, so release version
+  changes do not alter the protocol assembly identity recorded by
+  `Quasar.Agent.dll`.
 - No NuGet package references — the library is deliberately dependency-free.
 - No project references — standalone contract assembly.
 

@@ -14,6 +14,7 @@ using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Transport;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
+using PluginSdk;
 using PluginSdk.Config;
 using Sandbox;
 using Sandbox.Engine.Multiplayer;
@@ -81,7 +82,14 @@ namespace Quasar.Agent
             _uniqueName = (Environment.GetEnvironmentVariable("QUASAR_UNIQUE_NAME")
                     ?? $"unmanaged-{_hostId}-{_processId}")
                 .Trim();
-            _pluginVersion = typeof(AdminPlugin).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+            _pluginVersion = GetAgentVersion();
+        }
+
+        private static string GetAgentVersion()
+        {
+            var assembly = typeof(AdminPlugin).Assembly;
+            return assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                ?? string.Empty;
         }
 
         public void Update()
@@ -126,7 +134,7 @@ namespace Quasar.Agent
                 if (command.CommandType == ServerCommandType.StopServer)
                 {
                     _quasarRequestedStop = true;
-                    MySandboxGame.ExitThreadSafe();
+                    ServerControl.SaveAndQuit();
                     return Task.FromResult(CreateResult(command, true, "Server shutdown requested."));
                 }
 
@@ -1042,13 +1050,13 @@ namespace Quasar.Agent
                     return SendChat(command);
 
                 case ServerCommandType.SaveWorld:
-                    SaveWorldIfReady();
-                    return CreateResult(command, true, "World save requested.");
+                    return SaveWorldIfReady()
+                        ? CreateResult(command, true, "World saved.")
+                        : CreateResult(command, false, "Session not ready.");
 
                 case ServerCommandType.StopServer:
                     _quasarRequestedStop = true;
-                    SaveWorldIfReady();
-                    MySandboxGame.ExitThreadSafe();
+                    ServerControl.SaveAndQuit();
                     return CreateResult(command, true, "World save and server shutdown requested.");
 
                 case ServerCommandType.SetProfilerMode:
@@ -1111,13 +1119,13 @@ namespace Quasar.Agent
             return CreateResult(command, true, $"Profiler mode set to {mode}.", mode.ToString());
         }
 
-        private static void SaveWorldIfReady()
+        private static bool SaveWorldIfReady()
         {
             var session = MySession.Static;
             if (session == null || !session.Ready)
-                return;
+                return false;
 
-            session.Save(null);
+            return ServerControl.SaveWorld();
         }
 
         private ServerCommandResult SendChat(ServerCommandEnvelope command)

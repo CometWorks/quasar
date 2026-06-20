@@ -161,20 +161,22 @@
                 {
                     <MudTable T="SubjectRoleMapping" Items="_config.SubjectRoleMappings" Dense="true" Hover="true">
                         <HeaderContent>
+                            <MudTh>Actions</MudTh>
                             <MudTh>Provider</MudTh>
-                            <MudTh>Subject</MudTh>
                             <MudTh>Roles</MudTh>
-                            <MudTh></MudTh>
+                            <MudTh>Subject</MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd>@context.Provider</MudTd>
-                            <MudTd Class="mono">@context.Subject</MudTd>
-                            <MudTd>@string.Join(", ", context.Roles)</MudTd>
-                            <MudTd>
-                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                               Color="Color.Error"
-                                               OnClick="@(() => RemoveMappingAsync(context))" />
+                            <MudTd DataLabel="Actions">
+                                <MudTooltip Text="Remove role mapping">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                   Color="Color.Error"
+                                                   OnClick="@(() => RemoveMappingAsync(context))" />
+                                </MudTooltip>
                             </MudTd>
+                            <MudTd DataLabel="Provider">@context.Provider</MudTd>
+                            <MudTd DataLabel="Roles">@string.Join(", ", context.Roles)</MudTd>
+                            <MudTd DataLabel="Subject" Class="mono">@context.Subject</MudTd>
                         </RowTemplate>
                     </MudTable>
                 }

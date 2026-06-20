@@ -51,11 +51,20 @@
                     {
                         <MudTable T="InstalledWorldTemplateSource" Dense="true" Hover="true" Items="FilteredInstalledTemplates" Breakpoint="Breakpoint.Sm" Class="installed-world-template-table">
                             <HeaderContent>
+                                <MudTh Class="installed-world-template-action-cell">Actions</MudTh>
                                 <MudTh Class="installed-world-template-name-cell">Name</MudTh>
                                 <MudTh Class="installed-world-template-source-cell">Source</MudTh>
-                                <MudTh Class="installed-world-template-action-cell"></MudTh>
                             </HeaderContent>
                             <RowTemplate>
+                                <MudTd DataLabel="Actions" Class="installed-world-template-action-cell">
+                                    <MudTooltip Text="Add template">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                                       Color="Color.Primary"
+                                                       Size="Size.Small"
+                                                       Disabled="_importing"
+                                                       OnClick="@(() => ImportInstalledTemplateAsync(context))" />
+                                    </MudTooltip>
+                                </MudTd>
                                 <MudTd DataLabel="Name" Class="installed-world-template-name-cell">
                                     <MudText Typo="Typo.body2" Class="installed-world-template-name-text">@context.DisplayName</MudText>
                                 </MudTd>
@@ -64,15 +73,6 @@
                                         <MudText Typo="Typo.caption" Class="installed-world-template-source-text">@context.Category</MudText>
                                         <MudText Typo="Typo.caption" Class="mono installed-world-template-source-text">@context.SourcePath</MudText>
                                     </MudStack>
-                                </MudTd>
-                                <MudTd Class="installed-world-template-action-cell">
-                                    <MudButton Variant="Variant.Outlined"
-                                               Color="Color.Primary"
-                                               Size="Size.Small"
-                                               Disabled="_importing"
-                                               OnClick="@(() => ImportInstalledTemplateAsync(context))">
-                                        Add
-                                    </MudButton>
                                 </MudTd>
                             </RowTemplate>
                             <NoRecordsContent>
@@ -145,15 +145,30 @@
             {
                 <MudTable T="WorldTemplateRow" Dense="true" Hover="true" Items="Templates">
                     <HeaderContent>
-                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.Name)">Name</MudTableSortLabel></MudTh>
-                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.Description)">Description</MudTableSortLabel></MudTh>
+                        <MudTh>Actions</MudTh>
                         <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.FileSizeMb)">Size</MudTableSortLabel></MudTh>
                         <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.UpdatedAtUtc)">Updated</MudTableSortLabel></MudTh>
-                        <MudTh></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.Name)">Name</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.Description)">Description</MudTableSortLabel></MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd DataLabel="Name">@context.Template.Name</MudTd>
-                        <MudTd DataLabel="Description">@context.Template.Description</MudTd>
+                        <MudTd DataLabel="Actions">
+                            <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
+                                <MudTooltip Text="Clone template">
+                                    <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
+                                                   Color="Color.Default"
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => CloneAsync(context))"
+                                                   Disabled="@(!context.WorldExists || _importing)" />
+                                </MudTooltip>
+                                <MudTooltip Text="Delete template">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                   Color="Color.Error"
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => DeleteAsync(context.Template))" />
+                                </MudTooltip>
+                            </MudStack>
+                        </MudTd>
                         <MudTd DataLabel="Size">
                             @if (context.WorldExists)
                             {
@@ -165,10 +180,8 @@
                             }
                         </MudTd>
                         <MudTd DataLabel="Updated">@context.Template.UpdatedAtUtc.LocalDateTime.ToString("g")</MudTd>
-                        <MudTd Style="text-align: right;">
-                            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => CloneAsync(context))" Disabled="@(!context.WorldExists || _importing)">Clone</MudButton>
-                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context.Template))">Delete</MudButton>
-                        </MudTd>
+                        <MudTd DataLabel="Name">@context.Template.Name</MudTd>
+                        <MudTd DataLabel="Description">@context.Template.Description</MudTd>
                     </RowTemplate>
                 </MudTable>
             }

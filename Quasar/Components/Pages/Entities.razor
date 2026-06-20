@@ -106,37 +106,37 @@ else
 {
     <MudTable T="EntitySummary" Items="FilteredEntities" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" FixedHeader="true" Height="60vh">
         <HeaderContent>
+            <MudTh>Actions</MudTh>
             <MudTh>Type</MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.DisplayName)">Name</MudTableSortLabel></MudTh>
+            <MudTh>Entity ID</MudTh>
             <MudTh>Sub-type</MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.BlockCount ?? -1)">Blocks</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.Pcu ?? -1)">PCU</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.SizeMeters)">Size (m)</MudTableSortLabel></MudTh>
             <MudTh>Owner</MudTh>
             <MudTh>Position</MudTh>
-            <MudTh Style="text-align: right;">Actions</MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.DisplayName)">Name</MudTableSortLabel></MudTh>
         </HeaderContent>
         <RowTemplate>
+            <MudTd DataLabel="Actions">
+                <MudTooltip Text="Delete entity">
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                   Color="Color.Error"
+                                   Size="Size.Small"
+                                   OnClick="@(() => DeleteEntityAsync(context))" />
+                </MudTooltip>
+            </MudTd>
             <MudTd DataLabel="Type">
                 <MudChip T="string" Size="Size.Small" Color="@GetTypeColor(context.TypeTag)" Variant="Variant.Outlined">@context.TypeTag</MudChip>
             </MudTd>
-            <MudTd DataLabel="Name">
-                <MudText Typo="Typo.body2">@context.DisplayName</MudText>
-                <MudText Typo="Typo.caption" Class="mono">#@context.EntityId</MudText>
-            </MudTd>
+            <MudTd DataLabel="Entity ID" Class="mono">@context.EntityId</MudTd>
             <MudTd DataLabel="Sub-type">@context.SubType</MudTd>
             <MudTd DataLabel="Blocks">@(context.BlockCount?.ToString() ?? "-")</MudTd>
             <MudTd DataLabel="PCU">@(context.Pcu?.ToString() ?? "-")</MudTd>
             <MudTd DataLabel="Size (m)">@context.SizeMeters.ToString("0")</MudTd>
             <MudTd DataLabel="Owner">@FormatOwner(context)</MudTd>
             <MudTd DataLabel="Position" Class="mono">@FormatPosition(context)</MudTd>
-            <MudTd Style="text-align: right;">
-                <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                               Color="Color.Error"
-                               Size="Size.Small"
-                               OnClick="@(() => DeleteEntityAsync(context))"
-                               title="Delete entity" />
-            </MudTd>
+            <MudTd DataLabel="Name">@context.DisplayName</MudTd>
         </RowTemplate>
         <PagerContent>
             <MudTablePager PageSizeOptions="new[] { 25, 50, 100, 250 }" />

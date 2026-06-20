@@ -8,7 +8,7 @@
       "sha256": "4ce0e56755d67443303471d6651912f9cceec7384b74fc8898004a5e6a9ee5e7",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Discovery/WebServiceDiscoveryManifest.cs",
@@ -18,17 +18,17 @@
       "sha256": "eec12e30cab5fd53767f31ed4c3ed7a5c515a35e4a19430f3ff8bf1c10418a7c",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Magnetar.Protocol.csproj",
       "name": "Magnetar.Protocol.csproj",
       "ext": ".csproj",
-      "size": 211,
-      "sha256": "4a011b3cad1b652e3a69fe3235f088d5f2fdce9d761347dbe9d1d928ca447591",
+      "size": 714,
+      "sha256": "08e38b978d95fe69e1e8f554acffc38e7fff8dc54e40bab93647b2aa6d600ac7",
       "module": "Magnetar.Protocol",
       "tier": 3,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Model/AgentHello.cs",
@@ -38,7 +38,7 @@
       "sha256": "99017938392a5e4614345feb2e1f72367f7e098298cc2e0f5339ddf052aa810f",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Model/AgentSnapshot.cs",
@@ -68,7 +68,7 @@
       "sha256": "2829616ef742315d19b6ca1a93bd03ac320be52e97c80e34fb2054b64ad5b594",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Model/EntityDeleteRequest.cs",
@@ -78,7 +78,7 @@
       "sha256": "f07e08bc2de6f1489f8b32536845b11f9ee55428ab6ffc1889284c47fc428ab2",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Model/EntityListFilter.cs",
@@ -88,7 +88,7 @@
       "sha256": "3670eef951c79e334113a5cfaad9057ca6b6b7eb45258e848ba9de632908af96",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Model/EntityListResult.cs",
@@ -98,7 +98,7 @@
       "sha256": "58bf9fc033bdd3151c251ac534367f1f5f251e74f9d6141c7f77d19c43bd76a9",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Model/EntitySummary.cs",
@@ -108,7 +108,7 @@
       "sha256": "04a6b43047ed4d432607864364c23d03c4d1e56c76121bcfd3d838434a89c197",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Model/KickedPlayerSnapshot.cs",
@@ -128,7 +128,7 @@
       "sha256": "123d6839eba07ffbabf7db5957dd5b0d53879bcf48a4aafd9d9dbaa058fe3ef1",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Model/PluginConfigData.cs",
@@ -138,7 +138,7 @@
       "sha256": "7c925174c4d90409385383261e46887f2135f41f71541ef3b4fb70ba196d9a88",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Model/PluginConfigSnapshot.cs",
@@ -148,7 +148,7 @@
       "sha256": "7755344efe1bfcfa5b929f43a02e0b960a614b1db08dce696949b76d425c4d5c",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Model/PluginConfigUpdateRequest.cs",
@@ -158,7 +158,7 @@
       "sha256": "d753a34dea2c6c0ee2eb6c7ee393f2b51e5833ec2e61c56563111e6b95a81f91",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Model/PluginLogBatch.cs",
@@ -178,7 +178,7 @@
       "sha256": "1245a3d0197b2f9b5d83c1f6b22cbab43302057d2b9f97e999407dc23857a3c2",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Model/ProfilerSnapshot.cs",
@@ -218,7 +218,7 @@
       "sha256": "1c0be353edaa82a53143bd01c551fbd8c5638fa44fe5f5ccd38f42e7aeae7e97",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Runtime/QuasarReleaseVersion.cs",
@@ -258,7 +258,7 @@
       "sha256": "8af01c9d133e80dc7605883979c84b2088d37b9b9895a96dc07f19f6207302ee",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Transport/ServerCommandResult.cs",
@@ -268,7 +268,7 @@
       "sha256": "948a2300a72ab7afff461304dd92b7295ebd02440bac6341baf572287ed083c1",
       "module": "Magnetar.Protocol",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Magnetar.Protocol/Transport/ServerCommandType.cs",
@@ -294,8 +294,8 @@
       "path": "Quasar.Agent/AdminPlugin.cs",
       "name": "AdminPlugin.cs",
       "ext": ".cs",
-      "size": 2814,
-      "sha256": "1da4ddbf99cff1a0024b1d85c22bb670ac16beda357fd3196ecef5373b8df4bd",
+      "size": 8697,
+      "sha256": "f4c8e5d383fb3df950af57f56fc228214bacc945f1652c745dd94a070e21fd0b",
       "module": "Quasar.Agent",
       "tier": 1,
       "status": "pending"
@@ -368,14 +368,14 @@
       "sha256": "14806374ad3f9106063c6e21e9fb1045d62bba8b9adf043a8ab515e595ca9e52",
       "module": "Quasar.Agent",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar.Agent/GameBridge.cs",
       "name": "GameBridge.cs",
       "ext": ".cs",
-      "size": 48557,
-      "sha256": "1f61cae14c66ead7badd21afa599faa18f52d04dd55ffe7b7b7252bde41dc2e4",
+      "size": 48838,
+      "sha256": "d9c50539d19f417aab67fe5fc36e31a39f92919b349e50ddf1e2420f6941e97e",
       "module": "Quasar.Agent",
       "tier": 1,
       "status": "pending"
@@ -394,8 +394,8 @@
       "path": "Quasar.Agent/Quasar.Agent.csproj",
       "name": "Quasar.Agent.csproj",
       "ext": ".csproj",
-      "size": 2879,
-      "sha256": "1b097c0693267972093c7dcb97ffec74faf6613d7a3f07c3d9053527c43970a9",
+      "size": 3318,
+      "sha256": "f95812fd340676a5eea0bb4ae2dc860ffc4cafc0b060db844ac528b40ab42904",
       "module": "Quasar.Agent",
       "tier": 3,
       "status": "pending"
@@ -408,7 +408,7 @@
       "sha256": "b9d96079cad21d915f8fc4919f43406d86fdf6e3f377a793e915f580c5deff9f",
       "module": "Quasar.Agent",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar.Bootstrap/Program.cs",
@@ -428,7 +428,7 @@
       "sha256": "b47cc9ea10c9559d96077d6ae2e0ad28684f5ee6d593dac418a4838d30f1369e",
       "module": "Quasar.Bootstrap",
       "tier": 3,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar.Bootstrap/Quasar.Bootstrap.csproj",
@@ -464,8 +464,8 @@
       "path": "Quasar/Components/Dashboard/ServerDetailPanel.razor",
       "name": "ServerDetailPanel.razor",
       "ext": ".razor",
-      "size": 15408,
-      "sha256": "1bb34fbf36e35dcc98059743f350094898cd914fcca26c6de5d83abf4f4f02db",
+      "size": 15557,
+      "sha256": "85fca1a77990316561dd718c5efcb31bac042560f0e5c780dee1d6db046dd998",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -478,7 +478,7 @@
       "sha256": "08256f8675758a96c64fb69ad9922955090ff07d755fedfa32047b0792875c49",
       "module": "Quasar.Components",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/Layout/MainLayout.razor",
@@ -498,7 +498,7 @@
       "sha256": "bc7b3c5dba6227bc0155b6f2f513b39c31537ab531a746cdb372e04fe9b286a7",
       "module": "Quasar.Components",
       "tier": 3,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/Layout/NavMenu.razor",
@@ -548,7 +548,7 @@
       "sha256": "06987994d4625c5c48cdd15373c05e3a2d81a3f92af790fcaabc7bbf80dbca5a",
       "module": "Quasar.Components",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/Layout/ReconnectModal.razor.css",
@@ -558,7 +558,7 @@
       "sha256": "2bbe2669cfb876afcc4128d59537c1557bd9d6976b1e0a59c135a05ce2633e23",
       "module": "Quasar.Components",
       "tier": 3,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/Layout/ReconnectModal.razor.js",
@@ -568,7 +568,7 @@
       "sha256": "bc924313acad6186b22e5331a52fe18a4e3186a5082185e40f2e89620932814e",
       "module": "Quasar.Components",
       "tier": 3,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/Pages/Analytics.razor",
@@ -598,7 +598,7 @@
       "sha256": "c044d06dd556168058b064ef07582fc8fa93dca257461602c6cbea5334cfd8f0",
       "module": "Quasar.Components",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/Pages/Appearance.razor",
@@ -614,8 +614,8 @@
       "path": "Quasar/Components/Pages/Backup.razor",
       "name": "Backup.razor",
       "ext": ".razor",
-      "size": 43225,
-      "sha256": "7727d3f47551ffdab8d7b9028f8c3a371ba8ca3b996187adf230e72faf8e9bd4",
+      "size": 42547,
+      "sha256": "97d3833cc935d92b0fde9a2cb2744ffd84420b585dff11c270301a65928843e5",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -654,8 +654,8 @@
       "path": "Quasar/Components/Pages/Configs.razor",
       "name": "Configs.razor",
       "ext": ".razor",
-      "size": 121605,
-      "sha256": "1e3afae8ce924780a79f8f21a8f0d3a3a7ed875d7e3d03bb0d5abc895d9b703d",
+      "size": 122879,
+      "sha256": "538b49f8d42a42f942041eb0db0bda0410268be283c7d5e344adfc2750664ff0",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -664,8 +664,8 @@
       "path": "Quasar/Components/Pages/Configs.razor.css",
       "name": "Configs.razor.css",
       "ext": ".css",
-      "size": 4290,
-      "sha256": "c7db7c5ac124cfcb27e5a7de4cb31d51c13e1e4b3a4719864037576a982a99a7",
+      "size": 4292,
+      "sha256": "4d350cea205a2ee89f2c7d5f51a3dcae7751c360d4b437dd309e11a011128b00",
       "module": "Quasar.Components",
       "tier": 3,
       "status": "pending"
@@ -704,8 +704,8 @@
       "path": "Quasar/Components/Pages/Entities.razor",
       "name": "Entities.razor",
       "ext": ".razor",
-      "size": 12774,
-      "sha256": "3cc92c0f2d84c5f4cde09f472eaffd477f6bab26e75e616cfd68661635248880",
+      "size": 12746,
+      "sha256": "8a3219c814f564b1f92fed0778febdb5ff5ed24ec83f05ae983f1fbf74b736d6",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -718,14 +718,14 @@
       "sha256": "5fc97b404692b11255d0c2b53e61304f2a7670dc9ff5fdcc2edae513b3ea283d",
       "module": "Quasar.Components",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/Pages/FolderPickerDialog.razor",
       "name": "FolderPickerDialog.razor",
       "ext": ".razor",
-      "size": 7744,
-      "sha256": "1b0636d2876589cc97b28c824fab0e75674f8e1008d82114fba098eb3cc70297",
+      "size": 8618,
+      "sha256": "7daa5ca02404cdc881b4a17fae62224d20bda171b0f247ae86a4dc910b6e0638",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -738,7 +738,7 @@
       "sha256": "ae94353b2a935faf69928e41485c04462ce835900a698651e38d3b84780b31d2",
       "module": "Quasar.Components",
       "tier": 3,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/Pages/Home.razor",
@@ -778,7 +778,7 @@
       "sha256": "1de076fb4391b547b38b89954e586a63afa778fea224d341e94246d01efdd52e",
       "module": "Quasar.Components",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/Pages/NotFound.razor",
@@ -788,14 +788,14 @@
       "sha256": "9190005a944ca590bb17f58563d0e524ae419b448ee81a555f376195e4856071",
       "module": "Quasar.Components",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/Pages/Players.razor",
       "name": "Players.razor",
       "ext": ".razor",
-      "size": 31685,
-      "sha256": "3d85335e0124fcf3f7119f8130405bb1317154dfdfabab62a5206d54102f5d5c",
+      "size": 31890,
+      "sha256": "4a28ab2131956150e61f25972c41dfe384c89d5600c0eba9c0d9a217c45a2715",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -818,14 +818,14 @@
       "sha256": "806aef3828d0e06f400baa22f801ec95a9413bd1060d80aaa981715cdc1fb91c",
       "module": "Quasar.Components",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/Pages/Plugins.razor",
       "name": "Plugins.razor",
       "ext": ".razor",
-      "size": 9782,
-      "sha256": "ea46c41d39fc0d0bcf6c3e48b3e333523e2a53e38f6bdc8300c7ef906ad2976e",
+      "size": 5311,
+      "sha256": "25a29f264dc326e09706caed7a7a2d97b71fa2e707073fa4fe62be005a23d380",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -834,8 +834,8 @@
       "path": "Quasar/Components/Pages/Security.razor",
       "name": "Security.razor",
       "ext": ".razor",
-      "size": 14210,
-      "sha256": "4babbfce485f1e651e446ef80a15713bee812ed681aa1824a10269bdce99f394",
+      "size": 14426,
+      "sha256": "e76b9e97baf0b7b5c12127df2a654e77b8fbd844b990a21a43936cd71ed0b7d7",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -864,8 +864,8 @@
       "path": "Quasar/Components/Pages/ServerEditorDialog.razor",
       "name": "ServerEditorDialog.razor",
       "ext": ".razor",
-      "size": 49421,
-      "sha256": "6b93048e0a46c08d4c84db87d1b64216124ac24921ba81bcaeee72305f324994",
+      "size": 49919,
+      "sha256": "a3fb1b559f2eb9e062de25241192da1e556bfd4b80c16d7708c6d95ea6e71921",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -878,14 +878,14 @@
       "sha256": "8d5fa47c85f34c7899474982caa6757cf86b3c821f60c04cb867c4eda7075c7e",
       "module": "Quasar.Components",
       "tier": 3,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/Pages/Servers.razor",
       "name": "Servers.razor",
       "ext": ".razor",
-      "size": 38758,
-      "sha256": "6e59afb78f4a7b8a0dfb7395ecfde767d1fac0c13e7609485a27a5a8889b5459",
+      "size": 39504,
+      "sha256": "840d6a4c77c9fe75d52a669ceb128f36a28edbe25c5ec8a38878d3d436ccd423",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -934,8 +934,8 @@
       "path": "Quasar/Components/Pages/WorldTemplateQuickImportDialog.razor",
       "name": "WorldTemplateQuickImportDialog.razor",
       "ext": ".razor",
-      "size": 22339,
-      "sha256": "41c268978ae40b9af9c7c5dcadc748c68ed94ef9bc129a281bda2b723100a838",
+      "size": 22441,
+      "sha256": "b64cbfc5295ae8afe92a398c97ff7633295ea4e42419ee19f1c11b2fb7903aa8",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -944,8 +944,8 @@
       "path": "Quasar/Components/Pages/WorldTemplates.razor",
       "name": "WorldTemplates.razor",
       "ext": ".razor",
-      "size": 16081,
-      "sha256": "df0008d6f59263995403a918cfec449e81df70162f6dca2df6ed14a9c98225e9",
+      "size": 16948,
+      "sha256": "3ff78df70ba81029e4ac0c0cdaa06567921c26a3632d6113b7ebbf4e47c4096d",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -958,14 +958,14 @@
       "sha256": "28c6743a9d13a0286db8e09d5170c7c803273ab170470745bbd76111a7804fa5",
       "module": "Quasar.Components",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/PluginConfigEditor.razor",
       "name": "PluginConfigEditor.razor",
       "ext": ".razor",
-      "size": 50527,
-      "sha256": "27e7dbe761ed14d478cb6e59866cf0c72ed2f120a5260c67600216e4cc40c3cb",
+      "size": 51350,
+      "sha256": "b3c252348f6dc9713c6cefebe0c0bbdb7d5e91a7f9e3bc8739e04b5f14a2bb70",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -978,7 +978,7 @@
       "sha256": "62cde630692ce12cb958ab5c08c12807cb64a230d4b9f23a8c0805457e49b26a",
       "module": "Quasar.Components",
       "tier": 3,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/PluginLogPanel.razor",
@@ -998,7 +998,7 @@
       "sha256": "b01da626d1f1f947b9303a680275515f7addeab070315b3a6e8090ec903074ec",
       "module": "Quasar.Components",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Components/Shared/CopyablePath.razor",
@@ -1028,7 +1028,7 @@
       "sha256": "c88b9d62c1f2e47e0ca4ed1da1d77e785bf572bf4e3f72761b4a9a188fa322e2",
       "module": "Quasar.Models",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Models/CpuAffinitySpec.cs",
@@ -1058,7 +1058,7 @@
       "sha256": "22efd90a870ee667cbbc6f5e80f09bd94b0d34217b5c2a69e73c5e2bf08197b8",
       "module": "Quasar.Models",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Models/DedicatedServerHealthState.cs",
@@ -1068,7 +1068,7 @@
       "sha256": "6294bbc8d8049a0a5fe902832d6677731a69a4bd227e917c6655e4466158dd94",
       "module": "Quasar.Models",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Models/DedicatedServerProcessPriority.cs",
@@ -1078,7 +1078,7 @@
       "sha256": "2f0da26bc05ff239929da0e4f63ed7bbce6ebf995d027a3221ddb84cfb28ce78",
       "module": "Quasar.Models",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Models/DedicatedServerProcessState.cs",
@@ -1088,7 +1088,7 @@
       "sha256": "7fe27b0030454f18bba1d0e3b86a2d35952e6bc90ca14f7769f82d4e49f63021",
       "module": "Quasar.Models",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Models/DedicatedServerRuntimeSnapshot.cs",
@@ -1108,7 +1108,7 @@
       "sha256": "6eaf4d314b859765fda2007bfdbad1f589b5ee20f60793185b9672b153acce88",
       "module": "Quasar.Models",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Models/ManagedServerRuntime.cs",
@@ -1168,7 +1168,7 @@
       "sha256": "3650ab077caec8c28619c6dcbb3ce7b2365d33d3f5d1b1aa17914e17b75ba172",
       "module": "Quasar.Models",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Program.cs",
@@ -1194,8 +1194,8 @@
       "path": "Quasar/Quasar.csproj",
       "name": "Quasar.csproj",
       "ext": ".csproj",
-      "size": 7550,
-      "sha256": "15f3669d92aab95b8819185c510415fedb7adba12c3b936fd02335cc11bdd089",
+      "size": 7506,
+      "sha256": "878e0352cea65c6542e1d3dd87ee2574213cd3427dff4420c4464fa21fd253b9",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"
@@ -1268,7 +1268,7 @@
       "sha256": "2901f4b2e7eb1eec2d4e930bf7cf13a916fd4646f15e517735b40829d68dab8b",
       "module": "Quasar.Services.Analytics",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Analytics/MetricSampleFactory.cs",
@@ -1278,7 +1278,7 @@
       "sha256": "48297223554f3b7533fa2dde8951f5b9b8ed731cce5bd25ab3201c8f148882be",
       "module": "Quasar.Services.Analytics",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Analytics/MetricsStoreService.cs",
@@ -1318,7 +1318,7 @@
       "sha256": "98f291c7061eb2fa48509e53ce9a7a376781151c13cdc4f2d4e9b9e68869594e",
       "module": "Quasar.Services.Analytics",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Analytics/RrdRollupBuffer.cs",
@@ -1328,7 +1328,7 @@
       "sha256": "c19b973671d6340c467885e8fc8030cba485c9ab7d6fc9fb71c85851dae3b350",
       "module": "Quasar.Services.Analytics",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Analytics/ServerMetricsStore.cs",
@@ -1348,7 +1348,7 @@
       "sha256": "8e51041c2fe8002215ee9ae7901ae6298612b1c6014426577efe8589a59724db",
       "module": "Quasar.Services.Core",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Auth/QuasarAuthConstants.cs",
@@ -1358,7 +1358,7 @@
       "sha256": "c3a8040d7d18a335425f8f2bdf2aff95544e92e4a8cf8d3257102bd0ce202c79",
       "module": "Quasar.Services.Auth",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Auth/QuasarAuthOptions.cs",
@@ -1368,7 +1368,7 @@
       "sha256": "b07f9012cbb0e9e17ca02f5b302aaee16f98f4f1498c3704edc7e4c166d38b91",
       "module": "Quasar.Services.Auth",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Auth/QuasarAuthSettingsService.cs",
@@ -1388,7 +1388,7 @@
       "sha256": "06f6b62925f0eeb0c191723b9f2eeb36e0c9ced1fb639284c8d3069ef77b86ee",
       "module": "Quasar.Services.Auth",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Auth/RbacConfig.cs",
@@ -1398,7 +1398,7 @@
       "sha256": "f30d7e28ba0727119eb6356155cdeac76a597a1c27dbb63341784794b3671d4b",
       "module": "Quasar.Services.Auth",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Auth/RbacConfigCatalog.cs",
@@ -1408,7 +1408,7 @@
       "sha256": "68a4ec55ee9a40cb8eb5e1da5e531896f9197dadd26b530c793abe185d89b4c0",
       "module": "Quasar.Services.Auth",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Auth/TrustedNetworkEvaluator.cs",
@@ -1488,7 +1488,7 @@
       "sha256": "bb209954f01cb62ff9a59034c5c40da882f5cc0cd06623e453b28af2a408130d",
       "module": "Quasar.Services.Core",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/BrandingService.cs",
@@ -1498,7 +1498,7 @@
       "sha256": "6e5f3638166dada2bde1036e458ae75cf5a17652f76da02e8a53f1d0f3f17973",
       "module": "Quasar.Services.Core",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/BrowserLauncher.cs",
@@ -1508,7 +1508,7 @@
       "sha256": "2f3504d194a3c8a053d49a6f00d169de0e31692850677a6846054fc962a58a1c",
       "module": "Quasar.Services.Core",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/DedicatedServerCatalog.cs",
@@ -1524,8 +1524,8 @@
       "path": "Quasar/Services/DedicatedServerRuntimePreparer.cs",
       "name": "DedicatedServerRuntimePreparer.cs",
       "ext": ".cs",
-      "size": 40001,
-      "sha256": "446ff5d7ddf627ca2f86b0f7d77815eb00e7e7d8541a8a3da515ccb5b208463d",
+      "size": 41602,
+      "sha256": "824a25ca732cfe5529dd8f438a49f230f85b0ecda1badb52b3b4a0ae95f48203",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "pending"
@@ -1534,8 +1534,8 @@
       "path": "Quasar/Services/DedicatedServerSupervisor.cs",
       "name": "DedicatedServerSupervisor.cs",
       "ext": ".cs",
-      "size": 103518,
-      "sha256": "dca57957aa629164efd75db9eeadaa01c0a218dfb873d9dba2ad13b88511d57b",
+      "size": 106745,
+      "sha256": "e40a94d44312c33ed8097b893f663d5f2b5bef485f0a6e21d7c551742b30bb0f",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "pending"
@@ -1548,7 +1548,7 @@
       "sha256": "f507f2d03d57b4d7130073a923dede37b796380ae98bc73b99809cc8fa8886a6",
       "module": "Quasar.Services.Discord",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Discord/DeathMessagesConfig.cs",
@@ -1558,7 +1558,7 @@
       "sha256": "c785f7db36b9b1364d501273978dcb745f5a5606590838b17870b2ec8678588a",
       "module": "Quasar.Services.Discord",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Discord/DiscordAnalyticsExportService.cs",
@@ -1568,7 +1568,7 @@
       "sha256": "bb9a10fa370277a6e8ba6e3ed7c85eca11f4efbf3454f722db02353abec16a92",
       "module": "Quasar.Services.Discord",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Discord/DiscordBotService.cs",
@@ -1618,7 +1618,7 @@
       "sha256": "f9291bd64331a656fec18be8fae184f850830876eccc0fb0afcbbd5de6af27be",
       "module": "Quasar.Services.Discord",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Discord/DiscordLogRelayService.cs",
@@ -1628,7 +1628,7 @@
       "sha256": "17b1694c475ebbf1148b311d2dff8e231a1e682f63021acf33974437df826822",
       "module": "Quasar.Services.Discord",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Discord/DiscordOptions.cs",
@@ -1648,7 +1648,7 @@
       "sha256": "7382fa21889c9ddcfb74f96395a5fa84e9e245ee2a0dcb0be5f89f3fb9756ca7",
       "module": "Quasar.Services.Discord",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Discord/DiscordRateLimiter.cs",
@@ -1658,7 +1658,7 @@
       "sha256": "ea8fe51808b642539f1f0c94eb450ca6d0607b88253015bacf1ad046451edf1f",
       "module": "Quasar.Services.Discord",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/Discord/DiscordSimSpeedAlertService.cs",
@@ -1678,7 +1678,7 @@
       "sha256": "0a108ec41c5c780c4559e980d8ef38c847cd17e98279f80e3e863e5e6519cba2",
       "module": "Quasar.Services.Core",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/FileBrowserService.cs",
@@ -1688,7 +1688,7 @@
       "sha256": "0553985419812d3b980e9a5ef80a57655b590fd37475fad0ff4c1146835aa609",
       "module": "Quasar.Services.Core",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/IdentifierSlug.cs",
@@ -1758,7 +1758,7 @@
       "sha256": "1f6a5eaba8990c9bd375b9d993827f333411ac46d705a1e82771f377676ff4b1",
       "module": "Quasar.Services.Core",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/PluginSdk/PluginConfigDtos.cs",
@@ -1778,7 +1778,7 @@
       "sha256": "f645bbad6f2beb95f7f2a02402f51e013f613e19977e2900c5ae5207c85dc1ac",
       "module": "Quasar.Services.PluginSdk",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/PluginSdk/PluginLogEntry.cs",
@@ -1788,7 +1788,7 @@
       "sha256": "519f1b13c322a768b9cd865d2135b95dcb5eebaa98613a7696c2e9690bcce005",
       "module": "Quasar.Services.PluginSdk",
       "tier": 2,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/PluginSdk/PluginLogStream.cs",
@@ -1844,8 +1844,8 @@
       "path": "Quasar/Services/QuasarPluginCatalogService.cs",
       "name": "QuasarPluginCatalogService.cs",
       "ext": ".cs",
-      "size": 11336,
-      "sha256": "cf3b889ca9271725189970567b64e13335cbba3bbbeca90bb62421554b0ebbbd",
+      "size": 11332,
+      "sha256": "5969a5b4bdf5dcea815fb9a2f2c90785a7eeca689ecd4d9ad1be4649e3381755",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "pending"
@@ -1868,7 +1868,7 @@
       "sha256": "a5776c1fbe287779a60fd466fdade2f20a257a5e9dcde239d94e8b4760adffdf",
       "module": "Quasar.Services.Core",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/QuasarWorkshopModResolver.cs",
@@ -1988,7 +1988,7 @@
       "sha256": "0d6021fe72fcabf0e0dad9d9b49d9601406bf5a33caf5838765fc26d95aee585",
       "module": "Quasar.Services.Core",
       "tier": 1,
-      "status": "documented"
+      "status": "pending"
     },
     {
       "path": "Quasar/Services/WorldSandboxConfigEditor.cs",
@@ -2074,8 +2074,8 @@
       "path": "Quasar/wwwroot/app.css",
       "name": "app.css",
       "ext": ".css",
-      "size": 14036,
-      "sha256": "70fb5194158a6cfffd96d06b79ab62f4e10a8e78954f892b071521a7803a8b5d",
+      "size": 20786,
+      "sha256": "5dfb8f7ac4fa997d2f3b32c09588bb91a3a6bc2c31a654afd9429375f955a0b0",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"

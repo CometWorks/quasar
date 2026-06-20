@@ -210,7 +210,7 @@
       "name": "AdminPlugin.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`AdminPlugin` is the Magnetar `IPlugin` entry point for the Quasar agent that runs inside the Space Engineers dedicated server. On `Init` it reads `AgentOptions`, configures and applies profiler Harmony patches, builds the `GameBridge`, starts a `PluginLogOutbox` (begun before the connection so startup log lines are buffered), and starts an `AgentConnection`. It drives the game-thread snapshot/profiler refresh on each `Update`, and handles two lifetime events: player death (forwarded as a `DeathEventSnapshot`) and server termination (sends an `AdminStop` signal to Quasar when the shutdown was admin-initiated, not Quasar-requested)."
+      "summary": "`AdminPlugin` is the Magnetar `IPlugin` entry point for the Quasar agent that runs inside the Space Engineers dedicated server. On `Init` it reads `AgentOptions`, configures and applies profiler Harmony patches, builds the `GameBridge`, starts a `PluginLogOutbox` (begun before the connection so startup log lines are buffered), and starts an `AgentConnection`. It drives the game-thread snapshot/profiler refresh on each `Update`, refreshes per-character death subscriptions so respawned players are re-hooked, and handles server termination by sending an `AdminStop` signal to Quasar when shutdown was admin-initiated."
     },
     {
       "path": "Quasar.Agent/AgentConnection.cs",
@@ -266,7 +266,7 @@
       "name": "GameBridge.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`GameBridge` is the central game-thread fa\u00e7ade for `AgentConnection`. It collects session telemetry (metrics, current profiler mode/snapshot, human players, hidden NPC/bot player ids, kicked players, chat, deaths, plugins), builds `AgentHello` / `AgentSnapshot` wire messages, and executes server commands (chat, save, stop, profiler mode change, kick, ban, promote, clear-kick-cooldown, entity list/delete) by marshalling work onto the game thread via `MySandboxGame.Invoke`. Metrics include process CPU derived from `Process.TotalProcessorTime`, simspeed/sim CPU from `Sync`, memory, human player count, PCU, active entities/grids, total blocks, and floating objects. It enumerates loaded plugins from `MyPlugins.Plugins` (including Pulsar child plugins) for runtime inventory, dedupes configured fallback plugin paths against loaded plugins by path stem, parent dev-folder name, manifest `<Id>`, and manifest `<FriendlyName>`, and exposes plugin configuration through `IQuasarConfigProvider` or Magnetar PluginSdk `PluginConfig` reflection. Chat history normalizes dedicated-server/Good.bot messages to author `Server` and marks `ChatMessageSnapshot.IsServerMessage`."
+      "summary": "`GameBridge` is the central game-thread fa\u00e7ade for `AgentConnection`. It collects session telemetry (metrics, current profiler mode/snapshot, human players, hidden NPC/bot player ids, kicked players, chat, deaths, plugins), builds `AgentHello` / `AgentSnapshot` wire messages, and executes server commands (chat, blocking save, save-and-stop, profiler mode change, kick, ban, promote, clear-kick-cooldown, entity list/delete) by marshalling work onto the game thread via `MySandboxGame.Invoke`. Save/stop commands route through Magnetar PluginSdk `ServerControl` so Quasar observes completed disk saves before treating the command as successful. Metrics include process CPU derived from `Process.TotalProcessorTime`, simspeed/sim CPU from `Sync`, memory, human player count, PCU, active entities/grids, total blocks, and floating objects. It enumerates loaded plugins from `MyPlugins.Plugins` (including Pulsar child plugins) for runtime inventory, dedupes configured fallback plugin paths against loaded plugins by path stem, parent dev-folder name, manifest `<Id>`, and manifest `<FriendlyName>`, and exposes plugin configuration through `IQuasarConfigProvider` or Magnetar PluginSdk `PluginConfig` reflection. Chat history normalizes dedicated-server/Good.bot messages to author `Server` and marks `ChatMessageSnapshot.IsServerMessage`."
     },
     {
       "path": "Quasar.Agent/PluginLogOutbox.cs",
@@ -333,7 +333,7 @@
       "name": "ServerDetailPanel.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Detail panel embedded inside `ServerCard`. When the agent snapshot is absent it shows a waiting/error message and basic process state chips. When a snapshot is present it renders live metrics chips, Refresh/Save buttons, a chat broadcast field, a players table with per-player action menus (kick/ban confirm first; set role sends directly), a recent-chat list, and recent command results. Server-authored chat (`IsServerMessage`, SteamId 0, `Good.bot`, or `Server`) is displayed as `Server`. In both the snapshot-present and snapshot-absent states, an outlined \"Affinity <value>\" chip (Memory icon) is shown in the metrics chip rows when `Server.CpuAffinity` is set, and mod-download failures captured from runtime output are shown as an explicit error alert."
+      "summary": "Detail panel embedded inside `ServerCard`. When the agent snapshot is absent it shows a waiting/error message and basic process state chips. When a snapshot is present it renders live metrics chips, Refresh/Save buttons, a chat broadcast field, a players table with action menus and player identity/status columns, a recent-chat list, and recent command results. Server-authored chat (`IsServerMessage`, SteamId 0, `Good.bot`, or `Server`) is displayed as `Server`. In both the snapshot-present and snapshot-absent states, an outlined \"Affinity <value>\" chip (Memory icon) is shown in the metrics chip rows when `Server.CpuAffinity` is set, and mod-download failures captured from runtime output are shown as an explicit error alert."
     },
     {
       "path": "Quasar/Components/Layout/BrandingHeadContent.razor",
@@ -515,7 +515,7 @@
       "name": "FolderPickerDialog.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "General-purpose server-side folder browser dialog. Renders a navigable directory tree with breadcrumb navigation, bookmark shortcut chips, caller-supplied shortcut chips, hidden-folder toggle, and an optional world-folder validation mode. Returns the selected absolute path on confirmation. Used from `Configs.razor` (dev-folder picker), server instance editors (world-folder picker), and world-template import flows."
+      "summary": "General-purpose server-side folder browser dialog. Renders a navigable directory tree with breadcrumb navigation, bookmark shortcut chips, caller-supplied shortcut chips, hidden-folder toggle, quick filtering for the current folder list, and an optional world-folder validation mode. Returns the selected absolute path on confirmation. Used from `Configs.razor` (dev-folder picker), server instance editors (world-folder picker), and world-template import flows."
     },
     {
       "path": "Quasar/Components/Pages/FolderPickerDialog.razor.css",
@@ -585,7 +585,7 @@
       "name": "Plugins.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page at `/plugins` with three sections: a plugin-inventory table aggregated across all connected servers, a live plugin-configuration section that uses a server-selector dropdown to render `PluginConfigEditor`s for one chosen server's plugins, and a `PluginLogPanel` of structured plugin logs. On first render it triggers a background refresh of `QuasarPluginCatalogService` to resolve GitHub source URLs for inventory rows."
+      "summary": "Routable page at `/plugins` with live plugin configuration and structured plugin logs. The configuration section uses a server-selector dropdown to render `PluginConfigEditor`s for one chosen server's plugins, and `PluginLogPanel` shows PluginSdk log output captured from managed dedicated servers."
     },
     {
       "path": "Quasar/Components/Pages/Security.razor",
@@ -997,14 +997,14 @@
       "name": "DedicatedServerRuntimePreparer.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`DedicatedServerRuntimePreparer` transforms a `DedicatedServerDefinition` into a fully staged on-disk runtime immediately before a dedicated server process is launched. It writes the runtime DS config XML including the per-server advertised `ServerName`/`WorldName`, the Magnetar plugin sources/profile XML, the world `Sandbox_config.sbc` session settings and mod list, and the `LastSession.sbl` pointer file; deploys the Quasar.Agent DLLs plus runtime-specific Harmony dependency; seeds the world from a template if needed; and computes the final command-line arguments string. The output is a `PreparedDedicatedServerLaunch` record."
+      "summary": "`DedicatedServerRuntimePreparer` transforms a `DedicatedServerDefinition` into a fully staged on-disk runtime immediately before a dedicated server process is launched. It writes the runtime DS config XML including the per-server advertised `ServerName`/`WorldName`, the Magnetar plugin sources/profile XML, the world `Sandbox_config.sbc` session settings and mod list, and the `LastSession.sbl` pointer file; deploys the bundled Quasar.Agent DLLs plus runtime-specific Harmony dependency; exposes bundled-vs-deployed agent hash comparison for manual refresh warnings; seeds the world from a template if needed; and computes the final command-line arguments string. The output is a `PreparedDedicatedServerLaunch` record."
     },
     {
       "path": "Quasar/Services/DedicatedServerSupervisor.cs",
       "name": "DedicatedServerSupervisor.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`DedicatedServerSupervisor` is the heart of Quasar's process management. It is an `IHostedService` that maintains in-memory `ManagedServerState` for every configured dedicated server, runs a 2-second reconcile loop that starts/stops/restarts processes to match goal state, evaluates server health (agent heartbeat, simulation frame progress, uptime thresholds), rotates and prunes Quasar-captured DS stdout/stderr logs, captures mod-download failure lines for dashboard surfacing, persists runtime state across Quasar worker restarts and **adopts surviving detached processes by PID on startup**, carries per-server advertised server/world names into launch preparation, and coordinates graceful stop (save + stop commands to the agent before kill) plus scheduled and maximum-uptime restarts."
+      "summary": "`DedicatedServerSupervisor` is the heart of Quasar's process management. It is an `IHostedService` that maintains in-memory `ManagedServerState` for every configured dedicated server, runs a 2-second reconcile loop that starts/stops/restarts processes to match goal state, evaluates server health (agent heartbeat, simulation frame progress, uptime thresholds), rotates and prunes Quasar-captured DS stdout/stderr logs, captures mod-download failure lines for dashboard surfacing, persists runtime state across Quasar worker restarts and **adopts surviving detached processes by PID on startup**, carries per-server advertised server/world names into launch preparation, warns when the bundled Quasar.Agent DLL hash differs from a running server's deployed Magnetar local DLL, and coordinates graceful stop (save + stop commands to the agent before kill) plus scheduled and maximum-uptime restarts."
     },
     {
       "path": "Quasar/Services/EntityService.cs",

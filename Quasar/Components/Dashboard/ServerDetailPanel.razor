@@ -93,49 +93,51 @@ else
     <MudText Typo="Typo.subtitle2" Class="mb-2">Players</MudText>
     <MudTable T="PlayerSnapshot" Dense="true" Hover="true" Items="Agent.Snapshot.Players">
         <HeaderContent>
-            <MudTh>Service</MudTh>
-            <MudTh>Name</MudTh>
+            <MudTh>Actions</MudTh>
             <MudTh>Steam ID</MudTh>
+            <MudTh>Service</MudTh>
             <MudTh>Faction</MudTh>
             <MudTh>Role</MudTh>
             <MudTh>Ping</MudTh>
-            <MudTh></MudTh>
+            <MudTh>Name</MudTh>
         </HeaderContent>
         <RowTemplate>
+            <MudTd DataLabel="Actions">
+                <MudTooltip Text="Player actions">
+                    <MudMenu Dense="true"
+                             Icon="@Icons.Material.Filled.MoreVert"
+                             OpenChanged="@(open => _menuOpen = open)"
+                             AnchorOrigin="Origin.BottomRight"
+                             TransformOrigin="Origin.TopRight">
+                        <MudMenuItem Disabled="true">Set role</MudMenuItem>
+                        @foreach (var promoteLevel in PromoteLevels)
+                        {
+                            <MudMenuItem Disabled="@IsCurrentPromoteLevel(context, promoteLevel)"
+                                         OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.SetPlayerPromoteLevel, context.SteamId, promoteLevel))">
+                                @promoteLevel
+                            </MudMenuItem>
+                        }
+                        <MudDivider />
+                        <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.KickPlayer, context.SteamId))">Kick</MudMenuItem>
+                        <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.BanPlayer, context.SteamId))">Ban</MudMenuItem>
+                    </MudMenu>
+                </MudTooltip>
+            </MudTd>
+            <MudTd DataLabel="Steam ID">
+                <MudText Typo="Typo.body2" Class="mono">@context.SteamId</MudText>
+            </MudTd>
             <MudTd DataLabel="Service">
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.ServiceName)</MudChip>
             </MudTd>
+            <MudTd DataLabel="Faction">@context.FactionTag</MudTd>
+            <MudTd DataLabel="Role">@GetRoleLabel(context)</MudTd>
+            <MudTd DataLabel="Ping">@context.PingMs</MudTd>
             <MudTd DataLabel="Name">
                 <MudText Typo="Typo.body2">@TextSanitizer.CleanGameText(context.DisplayName)</MudText>
                 @if (GetPlatformName(context) is { Length: > 0 } platformName)
                 {
                     <MudText Typo="Typo.caption">Platform: @platformName</MudText>
                 }
-            </MudTd>
-            <MudTd DataLabel="Steam ID">
-                <MudText Typo="Typo.body2" Class="mono">@context.SteamId</MudText>
-            </MudTd>
-            <MudTd DataLabel="Faction">@context.FactionTag</MudTd>
-            <MudTd DataLabel="Role">@GetRoleLabel(context)</MudTd>
-            <MudTd DataLabel="Ping">@context.PingMs</MudTd>
-            <MudTd Style="text-align: right;">
-                <MudMenu Dense="true"
-                         Icon="@Icons.Material.Filled.MoreVert"
-                         OpenChanged="@(open => _menuOpen = open)"
-                         AnchorOrigin="Origin.BottomRight"
-                         TransformOrigin="Origin.TopRight">
-                    <MudMenuItem Disabled="true">Set role</MudMenuItem>
-                    @foreach (var promoteLevel in PromoteLevels)
-                    {
-                        <MudMenuItem Disabled="@IsCurrentPromoteLevel(context, promoteLevel)"
-                                     OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.SetPlayerPromoteLevel, context.SteamId, promoteLevel))">
-                            @promoteLevel
-                        </MudMenuItem>
-                    }
-                    <MudDivider />
-                    <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.KickPlayer, context.SteamId))">Kick</MudMenuItem>
-                    <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.BanPlayer, context.SteamId))">Ban</MudMenuItem>
-                </MudMenu>
             </MudTd>
         </RowTemplate>
     </MudTable>
