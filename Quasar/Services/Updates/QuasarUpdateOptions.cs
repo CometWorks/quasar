@@ -4,9 +4,9 @@ public sealed class QuasarUpdateOptions
 {
     public bool Enabled { get; init; } = true;
 
-    public string Owner { get; init; } = "viktor-ferenczi";
+    public string Owner { get; init; } = "CometWorks";
 
-    public string Repository { get; init; } = "Quasar";
+    public string Repository { get; init; } = "quasar";
 
     public bool IncludePrerelease { get; set; }
 
@@ -60,10 +60,10 @@ public sealed class QuasarUpdateOptions
             Enabled = enabled,
             Owner = Environment.GetEnvironmentVariable("QUASAR_UPDATES_OWNER")
                     ?? section["Owner"]
-                    ?? "viktor-ferenczi",
+                    ?? "CometWorks",
             Repository = Environment.GetEnvironmentVariable("QUASAR_UPDATES_REPOSITORY")
                          ?? section["Repository"]
-                         ?? "Quasar",
+                         ?? "quasar",
             IncludePrerelease = includePrerelease,
             AutoStageWebUpdates = autoStageWebUpdates,
             CheckInterval = TimeSpan.FromSeconds(intervalSeconds),

@@ -301,5 +301,5 @@ Manage the task:
   Stop-ScheduledTask  -TaskName '$TaskName'
 
 Documentation:
-  https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md
+  https://github.com/CometWorks/quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md
 "@

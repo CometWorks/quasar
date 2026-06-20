@@ -577,9 +577,9 @@ internal sealed class BootstrapOptions
 
     public bool UpdatesEnabled { get; init; } = true;
 
-    public string UpdatesOwner { get; init; } = "viktor-ferenczi";
+    public string UpdatesOwner { get; init; } = "CometWorks";
 
-    public string UpdatesRepository { get; init; } = "Quasar";
+    public string UpdatesRepository { get; init; } = "quasar";
 
     public bool UpdatesIncludePrerelease { get; init; }
 
@@ -660,10 +660,10 @@ internal sealed class BootstrapOptions
             UpdatesEnabled = updatesEnabled,
             UpdatesOwner = Environment.GetEnvironmentVariable("QUASAR_UPDATES_OWNER")
                            ?? updatesSection["Owner"]
-                           ?? "viktor-ferenczi",
+                           ?? "CometWorks",
             UpdatesRepository = Environment.GetEnvironmentVariable("QUASAR_UPDATES_REPOSITORY")
                                 ?? updatesSection["Repository"]
-                                ?? "Quasar",
+                                ?? "quasar",
             UpdatesIncludePrerelease = includePrerelease,
             UpdatesCheckInterval = TimeSpan.FromSeconds(intervalSeconds),
             LinuxWebAssetName = Environment.GetEnvironmentVariable("QUASAR_UPDATES_LINUX_WEB_ASSET")

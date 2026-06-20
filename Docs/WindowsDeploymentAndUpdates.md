@@ -163,8 +163,8 @@ Update defaults live in `Quasar:Updates`:
 ```json
 {
   "Enabled": true,
-  "Owner": "viktor-ferenczi",
-  "Repository": "Quasar",
+  "Owner": "CometWorks",
+  "Repository": "quasar",
   "IncludePrerelease": false,
   "AutoStageWebUpdates": true,
   "CheckIntervalSeconds": 900,

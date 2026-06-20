@@ -4,7 +4,7 @@ namespace Quasar.Services;
 
 public sealed class ManagedRuntimeOptions
 {
-    private const string DefaultMagnetarReleaseApiUrl = "https://api.github.com/repos/viktor-ferenczi/Magnetar/releases/latest";
+    private const string DefaultMagnetarReleaseApiUrl = "https://api.github.com/repos/CometWorks/magnetar/releases/latest";
     private const string DefaultLinuxMagnetarArchiveAssetPattern = "MagnetarForLinux-*.7z";
     private const string DefaultWindowsMagnetarArchiveAssetPattern = "MagnetarForWindows-*.7z";
     private const string DefaultLinuxSteamCmdArchiveUrl = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz";

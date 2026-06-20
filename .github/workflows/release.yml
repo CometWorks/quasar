@@ -260,7 +260,7 @@ jobs:
           if token:
               headers["Authorization"] = f"Bearer {token}"
           req = urllib.request.Request(
-              "https://api.github.com/repos/viktor-ferenczi/Magnetar/releases/latest",
+              "https://api.github.com/repos/CometWorks/magnetar/releases/latest",
               headers=headers,
           )
           with urllib.request.urlopen(req) as response:
@@ -404,7 +404,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
-          $release = gh api repos/viktor-ferenczi/Magnetar/releases/latest | ConvertFrom-Json
+          $release = gh api repos/CometWorks/magnetar/releases/latest | ConvertFrom-Json
           if ($release.draft -or $release.prerelease) {
             throw "latest Magnetar release is not a full release"
           }
@@ -494,7 +494,7 @@ jobs:
             | **Linux** (x64) | **`quasar-installer-linux.tar.gz`** |
             | **Windows** (x64) | **`quasar-installer-windows.zip`** |
 
-            Download the archive with **installer** in its name. It contains one top-level folder with the Quasar **Bootstrap launcher**, the install/uninstall scripts, and a default `appsettings.json`. Follow the [Linux](https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md) or [Windows](https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md) deployment guide to install it. The web UI is available on http://127.0.0.1:8080 by default (the web server listens on all interfaces at 0.0.0.0:8080).
+            Download the archive with **installer** in its name. It contains one top-level folder with the Quasar **Bootstrap launcher**, the install/uninstall scripts, and a default `appsettings.json`. Follow the [Linux](https://github.com/CometWorks/quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md) or [Windows](https://github.com/CometWorks/quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md) deployment guide to install it. The web UI is available on http://127.0.0.1:8080 by default (the web server listens on all interfaces at 0.0.0.0:8080).
 
             The other two archives (`quasar-web-linux-x64.tar.gz` and `quasar-web-win-x64.zip`) are updates that Quasar downloads and applies automatically — you never download them by hand.
 
