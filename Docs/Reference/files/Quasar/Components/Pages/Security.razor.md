@@ -19,7 +19,7 @@ Routable page at `/settings/security`, protected by the `CanManageSecurity` poli
   - Left summary card — displays provider and trusted-network state, including a copyable data-directory `appsettings.json` path and a trusted-proxy summary that shows `Loopback only` when no explicit proxy IP/CIDR entries are configured.
   - Trusted Network and Reverse Proxy panel — editable loopback/same-subnet checkboxes, multiline proxy IP/CIDR text field, save button, public reverse-proxy preset button, restart-needed hint for proxy-list edits, and a step-by-step internet-exposure checklist.
   - RBAC section — add-mapping form: Provider `MudSelect` (Steam / Oidc), Subject `MudTextField` (label changes to "SteamID" when Steam is selected), Role `MudSelect` (all `QuasarRoles.All` entries).
-  - `MudTable<SubjectRoleMapping>` — Delete action, Provider, and Roles pack on the left; Subject (monospaced) grows at the end.
+  - `MudTable<SubjectRoleMapping>` — Delete action, Provider, Roles, and monospaced Subject.
 - **Key methods**
   - `ReloadTrustedNetworkSettings` — clones trusted-network settings from `QuasarAuthSettingsService` and formats the proxy list.
   - `ApplyPublicReverseProxyPreset` — sets loopback on and same-subnet off in the editor, pending save.

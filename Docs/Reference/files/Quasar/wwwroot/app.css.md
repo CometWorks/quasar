@@ -26,7 +26,6 @@ Global stylesheet for the Quasar Blazor Server UI. Overrides MudBlazor's elevati
 - `.summary-card` — flat bordered surface card (no shadow), with `.summary-card-warning` / `.summary-card-error` rgba-tint + border variants
 - `.server-card` — flat surface card for server panels; `.mud-table-container` inherits border radius
 - `.servers-list-table` — forces the embedded server table to keep a minimum table width inside a horizontally scrollable MudBlazor table container, used when the dashboard list view disables MudBlazor's responsive row/card layout
-- `.table-pack`, `.table-actions`, `.table-grow` — shared table-column helpers for wide admin lists: actions and metadata pack to content on the left, while one long text column absorbs remaining horizontal space.
 
 **MudBlazor overrides:**
 - `.mud-expansion-panels > .mud-expand-panel` — flat bordered panels with `0.5rem` gap, hover/focus header highlight, expanded-header bottom border

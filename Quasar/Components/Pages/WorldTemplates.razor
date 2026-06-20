@@ -145,14 +145,14 @@
             {
                 <MudTable T="WorldTemplateRow" Dense="true" Hover="true" Items="Templates">
                     <HeaderContent>
-                        <MudTh Class="table-actions">Actions</MudTh>
-                        <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.FileSizeMb)">Size</MudTableSortLabel></MudTh>
-                        <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.UpdatedAtUtc)">Updated</MudTableSortLabel></MudTh>
-                        <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.Name)">Name</MudTableSortLabel></MudTh>
-                        <MudTh Class="table-grow"><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.Description)">Description</MudTableSortLabel></MudTh>
+                        <MudTh>Actions</MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.FileSizeMb)">Size</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.UpdatedAtUtc)">Updated</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.Name)">Name</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.Description)">Description</MudTableSortLabel></MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd DataLabel="Actions" Class="table-actions">
+                        <MudTd DataLabel="Actions">
                             <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
                                 <MudTooltip Text="Clone template">
                                     <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
@@ -169,7 +169,7 @@
                                 </MudTooltip>
                             </MudStack>
                         </MudTd>
-                        <MudTd DataLabel="Size" Class="table-pack">
+                        <MudTd DataLabel="Size">
                             @if (context.WorldExists)
                             {
                                 <MudText Typo="Typo.caption">@context.FileSizeMb MB</MudText>
@@ -179,9 +179,9 @@
                                 <MudChip T="string" Color="Color.Warning" Variant="Variant.Outlined" Size="Size.Small">missing</MudChip>
                             }
                         </MudTd>
-                        <MudTd DataLabel="Updated" Class="table-pack">@context.Template.UpdatedAtUtc.LocalDateTime.ToString("g")</MudTd>
-                        <MudTd DataLabel="Name" Class="table-pack">@context.Template.Name</MudTd>
-                        <MudTd DataLabel="Description" Class="table-grow">@context.Template.Description</MudTd>
+                        <MudTd DataLabel="Updated">@context.Template.UpdatedAtUtc.LocalDateTime.ToString("g")</MudTd>
+                        <MudTd DataLabel="Name">@context.Template.Name</MudTd>
+                        <MudTd DataLabel="Description">@context.Template.Description</MudTd>
                     </RowTemplate>
                 </MudTable>
             }

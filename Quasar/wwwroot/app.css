@@ -328,21 +328,6 @@ h1:focus {
     min-width: 72rem;
 }
 
-.table-pack,
-.table-actions {
-    width: 1px;
-    white-space: nowrap;
-}
-
-.table-actions {
-    text-align: left;
-}
-
-.table-grow {
-    width: 100%;
-    min-width: 14rem;
-}
-
 .players-list-card,
 .players-list-stack,
 .players-table,

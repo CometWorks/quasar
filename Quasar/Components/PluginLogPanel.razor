@@ -64,20 +64,20 @@
         <MudTable T="PluginLogEntry" Dense="true" Hover="true" FixedHeader="true" Height="420px"
                   Items="_entries" Breakpoint="Breakpoint.Sm" RowsPerPage="100">
             <HeaderContent>
-                <MudTh Class="table-pack"><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="new Func<PluginLogEntry, object>(x => x.TimestampUtc)">Time (UTC)</MudTableSortLabel></MudTh>
-                <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<PluginLogEntry, object>(x => x.Level)">Level</MudTableSortLabel></MudTh>
-                <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<PluginLogEntry, object>(x => ServerName(x.UniqueName))">Server</MudTableSortLabel></MudTh>
-                <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<PluginLogEntry, object>(x => x.Plugin)">Plugin</MudTableSortLabel></MudTh>
-                <MudTh Class="table-grow">Message</MudTh>
+                <MudTh><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="new Func<PluginLogEntry, object>(x => x.TimestampUtc)">Time (UTC)</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<PluginLogEntry, object>(x => x.Level)">Level</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<PluginLogEntry, object>(x => ServerName(x.UniqueName))">Server</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<PluginLogEntry, object>(x => x.Plugin)">Plugin</MudTableSortLabel></MudTh>
+                <MudTh>Message</MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd DataLabel="Time (UTC)" Class="table-pack">@context.TimestampUtc.ToString("yyyy-MM-dd HH:mm:ss.fff")</MudTd>
-                <MudTd DataLabel="Level" Class="table-pack">
+                <MudTd DataLabel="Time (UTC)">@context.TimestampUtc.ToString("yyyy-MM-dd HH:mm:ss.fff")</MudTd>
+                <MudTd DataLabel="Level">
                     <MudText Typo="Typo.body2" Color="@LevelColor(context.Level)">@context.Level</MudText>
                 </MudTd>
-                <MudTd DataLabel="Server" Class="table-pack">@ServerName(context.UniqueName)</MudTd>
-                <MudTd DataLabel="Plugin" Class="table-pack">@context.Plugin</MudTd>
-                <MudTd DataLabel="Message" Class="table-grow">
+                <MudTd DataLabel="Server">@ServerName(context.UniqueName)</MudTd>
+                <MudTd DataLabel="Plugin">@context.Plugin</MudTd>
+                <MudTd DataLabel="Message">
                     <div>@context.Message</div>
                     @if (!string.IsNullOrEmpty(context.Exception))
                     {

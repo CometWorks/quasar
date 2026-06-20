@@ -118,9 +118,9 @@
                 {
                     <MudTable Items="_servers" Hover="true" Dense="true">
                         <HeaderContent>
-                            <MudTh Class="table-actions">Actions</MudTh>
-                            <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.UniqueName)">Unique name</MudTableSortLabel></MudTh>
-                            <MudTh Class="table-grow"><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.DisplayName)">Server</MudTableSortLabel></MudTh>
+                            <MudTh>Actions</MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.UniqueName)">Unique name</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.DisplayName)">Server</MudTableSortLabel></MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             @{
@@ -129,7 +129,7 @@
                                 var serverRunning = IsServerRunning(context.UniqueName);
                                 var restoreBlockedReason = serverRunning ? "Stop the server before restoring." : null;
                             }
-                            <MudTd DataLabel="Actions" Class="table-actions">
+                            <MudTd DataLabel="Actions">
                                 <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
                                     <MudTooltip Text="Back up server">
                                         <MudIconButton Icon="@Icons.Material.Filled.Inventory2"
@@ -161,8 +161,8 @@
                                     </MudTooltip>
                                 </MudStack>
                             </MudTd>
-                            <MudTd DataLabel="Unique name" Class="table-pack"><code>@context.UniqueName</code></MudTd>
-                            <MudTd DataLabel="Server" Class="table-grow">@context.DisplayName</MudTd>
+                            <MudTd DataLabel="Unique name"><code>@context.UniqueName</code></MudTd>
+                            <MudTd DataLabel="Server">@context.DisplayName</MudTd>
                         </RowTemplate>
                     </MudTable>
                 }
@@ -370,15 +370,15 @@
                 {
                     <MudTable Items="_backups" Hover="true" Dense="true">
                         <HeaderContent>
-                            <MudTh Class="table-actions">Actions</MudTh>
-                            <MudTh Class="table-pack"><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="new Func<QuasarBackupFileInfo, object>(x => x.CreatedAtUtc)">Created</MudTableSortLabel></MudTh>
-                            <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => FormatBackupType(x))">Type</MudTableSortLabel></MudTh>
-                            <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.ServerDisplayName ?? x.ServerUniqueName ?? string.Empty)">Server</MudTableSortLabel></MudTh>
-                            <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.SizeBytes)">Size</MudTableSortLabel></MudTh>
-                            <MudTh Class="table-grow"><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.Name)">Name</MudTableSortLabel></MudTh>
+                            <MudTh>Actions</MudTh>
+                            <MudTh><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="new Func<QuasarBackupFileInfo, object>(x => x.CreatedAtUtc)">Created</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => FormatBackupType(x))">Type</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.ServerDisplayName ?? x.ServerUniqueName ?? string.Empty)">Server</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.SizeBytes)">Size</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.Name)">Name</MudTableSortLabel></MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd DataLabel="Actions" Class="table-actions">
+                            <MudTd DataLabel="Actions">
                                 <MudTooltip Text="Download">
                                     <MudIconButton Icon="@Icons.Material.Filled.Download"
                                                    Href="@($"/api/backup/download/{context.Name}")"
@@ -395,11 +395,11 @@
                                                    Disabled="_busy" Size="Size.Small" Color="Color.Error" />
                                 </MudTooltip>
                             </MudTd>
-                            <MudTd DataLabel="Created" Class="table-pack">@context.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
-                            <MudTd DataLabel="Type" Class="table-pack">@FormatBackupType(context)</MudTd>
-                            <MudTd DataLabel="Server" Class="table-pack">@(context.ServerDisplayName ?? context.ServerUniqueName ?? "-")</MudTd>
-                            <MudTd DataLabel="Size" Class="table-pack">@FormatSize(context.SizeBytes)</MudTd>
-                            <MudTd DataLabel="Name" Class="table-grow">@context.Name</MudTd>
+                            <MudTd DataLabel="Created">@context.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
+                            <MudTd DataLabel="Type">@FormatBackupType(context)</MudTd>
+                            <MudTd DataLabel="Server">@(context.ServerDisplayName ?? context.ServerUniqueName ?? "-")</MudTd>
+                            <MudTd DataLabel="Size">@FormatSize(context.SizeBytes)</MudTd>
+                            <MudTd DataLabel="Name">@context.Name</MudTd>
                         </RowTemplate>
                     </MudTable>
                 }

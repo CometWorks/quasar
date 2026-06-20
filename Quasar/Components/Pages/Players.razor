@@ -115,18 +115,18 @@
         {
             <MudTable T="KnownPlayerView" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredPlayers" Class="players-table">
                 <HeaderContent>
-                    <MudTh Class="table-actions">Actions</MudTh>
-                    <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.ServerDisplayName)">Server</MudTableSortLabel></MudTh>
-                    <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.SteamId)">Steam ID</MudTableSortLabel></MudTh>
-                    <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetServiceLabel(x.Record.ServiceName))">Service</MudTableSortLabel></MudTh>
-                    <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.FactionTag)">Faction</MudTableSortLabel></MudTh>
-                    <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetRoleLabel(x.Record))">Role</MudTableSortLabel></MudTh>
-                    <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.IsOnline)">Status</MudTableSortLabel></MudTh>
-                    <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.LastSeenUtc)">Last Seen</MudTableSortLabel></MudTh>
-                    <MudTh Class="table-grow"><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetPlayerName(x.Record))">Player</MudTableSortLabel></MudTh>
+                    <MudTh>Actions</MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.ServerDisplayName)">Server</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.SteamId)">Steam ID</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetServiceLabel(x.Record.ServiceName))">Service</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.FactionTag)">Faction</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetRoleLabel(x.Record))">Role</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.IsOnline)">Status</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.LastSeenUtc)">Last Seen</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetPlayerName(x.Record))">Player</MudTableSortLabel></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd DataLabel="Actions" Class="table-actions">
+                    <MudTd DataLabel="Actions">
                         <MudTooltip Text="Player actions">
                             <MudMenu Dense="true"
                                      Icon="@Icons.Material.Filled.MoreVert"
@@ -157,19 +157,19 @@
                             </MudMenu>
                         </MudTooltip>
                     </MudTd>
-                    <MudTd DataLabel="Server" Class="table-pack">
+                    <MudTd DataLabel="Server">
                         <MudText Typo="Typo.body2">@context.ServerDisplayName</MudText>
                         <MudText Typo="Typo.caption">@context.Record.UniqueName</MudText>
                     </MudTd>
-                    <MudTd DataLabel="Steam ID" Class="table-pack">
+                    <MudTd DataLabel="Steam ID">
                         <MudText Typo="Typo.body2" Class="mono">@context.Record.SteamId</MudText>
                     </MudTd>
-                    <MudTd DataLabel="Service" Class="table-pack">
+                    <MudTd DataLabel="Service">
                         <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.Record.ServiceName)</MudChip>
                     </MudTd>
-                    <MudTd DataLabel="Faction" Class="table-pack">@context.Record.FactionTag</MudTd>
-                    <MudTd DataLabel="Role" Class="table-pack">@GetRoleLabel(context.Record)</MudTd>
-                    <MudTd DataLabel="Status" Class="table-pack">
+                    <MudTd DataLabel="Faction">@context.Record.FactionTag</MudTd>
+                    <MudTd DataLabel="Role">@GetRoleLabel(context.Record)</MudTd>
+                    <MudTd DataLabel="Status">
                         <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
                             <MudChip T="string" Size="Size.Small" Color="@(context.IsOnline ? Color.Success : Color.Default)">
                                 @(context.IsOnline ? "online" : "offline")
@@ -188,8 +188,8 @@
                             }
                         </MudStack>
                     </MudTd>
-                    <MudTd DataLabel="Last Seen" Class="table-pack">@FormatLastSeen(context.Record.LastSeenUtc)</MudTd>
-                    <MudTd DataLabel="Player" Class="table-grow">
+                    <MudTd DataLabel="Last Seen">@FormatLastSeen(context.Record.LastSeenUtc)</MudTd>
+                    <MudTd DataLabel="Player">
                         <MudText Typo="Typo.body2">@GetPlayerName(context.Record)</MudText>
                         @if (GetPlatformName(context.Record) is { Length: > 0 } platformName)
                         {

@@ -12,7 +12,7 @@ Routable page at `/world-templates` for managing reusable Space Engineers world 
   - Left panel (xl:5) — `MudTabs` import card with separate Predefined Worlds and Custom Import panels; panels are not kept alive when hidden.
   - Predefined Worlds tab — shows discovered installed Space Engineers templates from DS `Content/CustomWorlds`, `Content/QuickStarts`, and `Content/Scenarios`, with search, Refresh, source/category display, and per-row Add buttons. The table uses `installed-world-template-*` classes so the left action column stays fixed and the source path truncates inside narrow docked containers.
   - Custom Import tab — `MudTextField` controls for name, description, and source path with a "Browse" folder-picker button, plus Import (shows "Importing…" while `_importing`) and Clear buttons.
-  - Right panel (xl:7) — `MudTable<WorldTemplateRow>` with Clone/Delete actions packed left, then Size and Updated metadata, Name, and a growing Description column.
+  - Right panel (xl:7) — `MudTable<WorldTemplateRow>` with Clone/Delete actions, Size and Updated metadata, Name, and Description.
 - **`WorldTemplateRow` (private sealed record)** — `(QuasarWorldTemplate Template, bool WorldExists, long FileSizeMb)`.
 - **`Templates` computed property** — maps catalog entries to rows, computing the on-disk world directory size in MB by summing all file lengths (`DirectoryInfo.GetFiles("*", AllDirectories)`).
 - **Installed sources:** `_installedTemplates`, `_installedTemplateSearch`, `FilteredInstalledTemplates`, `MatchesInstalledTemplateSearch`.

@@ -399,15 +399,15 @@
 
                                     <MudTable T="QuasarPluginSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="FilteredPlugins">
                                         <HeaderContent>
-                                            <MudTh Class="table-actions">Actions</MudTh>
-                                            <MudTh Class="table-pack">Debug build</MudTh>
-                                            <MudTh Class="table-grow">Name</MudTh>
+                                            <MudTh>Actions</MudTh>
+                                            <MudTh>Debug build</MudTh>
+                                            <MudTh>Name</MudTh>
                                         </HeaderContent>
                                         <RowTemplate>
                                             @{
                                                 var devFolder = GetDevFolderForPlugin(context.PluginId);
                                             }
-                                            <MudTd DataLabel="Actions" Class="table-actions">
+                                            <MudTd DataLabel="Actions">
                                                 <div class="plugin-actions">
                                                     @if (!string.IsNullOrWhiteSpace(GetPluginSourceUrl(context)))
                                                     {
@@ -420,7 +420,7 @@
                                                     </MudTooltip>
                                                 </div>
                                             </MudTd>
-                                            <MudTd DataLabel="Debug build" Class="table-pack">
+                                            <MudTd DataLabel="Debug build">
                                                 @if (devFolder is not null)
                                                 {
                                                     <MudCheckBox T="bool"
@@ -430,7 +430,7 @@
                                                                  Label="Debug" />
                                                 }
                                             </MudTd>
-                                            <MudTd DataLabel="Name" Class="table-grow">
+                                            <MudTd DataLabel="Name">
                                                 <MudStack Spacing="0">
                                                     <MudText Typo="Typo.subtitle2">@context.DisplayName</MudText>
                                                     <MudText Typo="Typo.caption" Class="config-secondary mono">@context.PluginId</MudText>
@@ -493,17 +493,17 @@
                                     {
                                         <MudTable T="QuasarPluginCatalogEntry" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredCatalogEntries">
                                             <HeaderContent>
-                                                <MudTh Class="table-pack">Use</MudTh>
-                                                <MudTh Class="table-actions">Actions</MudTh>
-                                                <MudTh Class="table-pack">Author</MudTh>
-                                                <MudTh Class="table-pack">Name</MudTh>
-                                                <MudTh Class="table-grow">Description</MudTh>
+                                                <MudTh>Use</MudTh>
+                                                <MudTh>Actions</MudTh>
+                                                <MudTh>Author</MudTh>
+                                                <MudTh>Name</MudTh>
+                                                <MudTh>Description</MudTh>
                                             </HeaderContent>
                                             <RowTemplate>
-                                                <MudTd DataLabel="Use" Class="table-pack">
+                                                <MudTd DataLabel="Use">
                                                     <MudCheckBox @key="context.PluginId" T="bool" Value="IsPluginSelected(context.PluginId)" ValueChanged="@(value => SetPluginSelection(context, value))" />
                                                 </MudTd>
-                                                <MudTd DataLabel="Actions" Class="table-actions">
+                                                <MudTd DataLabel="Actions">
                                                     <div class="plugin-actions">
                                                         @if (ShouldShowPluginDescriptionDialog(context))
                                                         {
@@ -524,8 +524,8 @@
                                                         }
                                                     </div>
                                                 </MudTd>
-                                                <MudTd DataLabel="Author" Class="table-pack">@context.Author</MudTd>
-                                                <MudTd DataLabel="Name" Class="table-pack">
+                                                <MudTd DataLabel="Author">@context.Author</MudTd>
+                                                <MudTd DataLabel="Name">
                                                     <MudStack Spacing="0">
                                                         <MudText Typo="Typo.subtitle2">@context.FriendlyName</MudText>
                                                         <MudText Typo="Typo.caption" Class="config-secondary mono">@context.PluginId</MudText>
@@ -539,7 +539,7 @@
                                                         }
                                                     </MudStack>
                                                 </MudTd>
-                                                <MudTd DataLabel="Description" Class="table-grow">
+                                                <MudTd DataLabel="Description">
                                                     <MudText Typo="Typo.body2" Class="plugin-description-line">@GetPluginTooltipText(context)</MudText>
                                                 </MudTd>
                                             </RowTemplate>
@@ -623,18 +623,18 @@
 
                                 <MudTable T="QuasarModSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="FilteredMods">
                                     <HeaderContent>
-                                        <MudTh Class="table-actions">Actions</MudTh>
-                                        <MudTh Class="table-pack">Workshop ID</MudTh>
-                                        <MudTh Class="table-grow">Name</MudTh>
+                                        <MudTh>Actions</MudTh>
+                                        <MudTh>Workshop ID</MudTh>
+                                        <MudTh>Name</MudTh>
                                     </HeaderContent>
                                     <RowTemplate>
-                                        <MudTd DataLabel="Actions" Class="table-actions">
+                                        <MudTd DataLabel="Actions">
                                             <MudTooltip Text="Remove mod">
                                                 <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveModAsync(context.WorkshopId))" />
                                             </MudTooltip>
                                         </MudTd>
-                                        <MudTd DataLabel="Workshop ID" Class="mono table-pack">@context.WorkshopId</MudTd>
-                                        <MudTd DataLabel="Name" Class="table-grow">@context.DisplayName</MudTd>
+                                        <MudTd DataLabel="Workshop ID" Class="mono">@context.WorkshopId</MudTd>
+                                        <MudTd DataLabel="Name">@context.DisplayName</MudTd>
                                     </RowTemplate>
                                     <NoRecordsContent>
                                         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
@@ -698,25 +698,25 @@
                                 {
                                     <MudTable T="QuasarWorkshopSearchResult" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_workshopResults" Class="mb-4">
                                         <HeaderContent>
-                                            <MudTh Class="table-pack">Use</MudTh>
-                                            <MudTh Class="table-actions">Actions</MudTh>
-                                            <MudTh Class="table-pack">Preview</MudTh>
-                                            <MudTh Class="table-pack">Tags</MudTh>
-                                            <MudTh Class="table-grow">Workshop mod</MudTh>
+                                            <MudTh>Use</MudTh>
+                                            <MudTh>Actions</MudTh>
+                                            <MudTh>Preview</MudTh>
+                                            <MudTh>Tags</MudTh>
+                                            <MudTh>Workshop mod</MudTh>
                                         </HeaderContent>
                                         <RowTemplate>
-                                            <MudTd DataLabel="Use" Class="table-pack">
+                                            <MudTd DataLabel="Use">
                                                 <MudCheckBox T="bool"
                                                              Dense="true"
                                                              Value="@IsModSelected(context.WorkshopId)"
                                                              ValueChanged="@(selected => SetWorkshopResultSelection(context, selected))" />
                                             </MudTd>
-                                            <MudTd DataLabel="Actions" Class="table-actions">
+                                            <MudTd DataLabel="Actions">
                                                 <MudTooltip Text="Open Steam Workshop page">
                                                     <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetWorkshopUrl(context.WorkshopId)" Target="_blank" />
                                                 </MudTooltip>
                                             </MudTd>
-                                            <MudTd DataLabel="Preview" Class="table-pack">
+                                            <MudTd DataLabel="Preview">
                                                 @if (!string.IsNullOrWhiteSpace(context.PreviewUrl))
                                                 {
                                                     <MudLink Href="@GetWorkshopUrl(context.WorkshopId)" Target="_blank" Underline="Underline.None">
@@ -724,8 +724,8 @@
                                                     </MudLink>
                                                 }
                                             </MudTd>
-                                            <MudTd DataLabel="Tags" Class="table-pack">@GetWorkshopTagText(context)</MudTd>
-                                            <MudTd DataLabel="Workshop mod" Class="table-grow">
+                                            <MudTd DataLabel="Tags">@GetWorkshopTagText(context)</MudTd>
+                                            <MudTd DataLabel="Workshop mod">
                                                 <MudStack Spacing="0">
                                                     <MudText Typo="Typo.subtitle2">@context.Title</MudText>
                                                     <MudText Typo="Typo.caption" Class="mono">@context.WorkshopId</MudText>
@@ -790,25 +790,25 @@
 
                         <MudTable T="QuasarDevFolderSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="GlobalDevFolders">
                             <HeaderContent>
-                                <MudTh Class="table-actions">Actions</MudTh>
-                                <MudTh Class="table-pack">Manifest</MudTh>
-                                <MudTh Class="table-pack">Name</MudTh>
-                                <MudTh Class="table-grow">Folder</MudTh>
+                                <MudTh>Actions</MudTh>
+                                <MudTh>Manifest</MudTh>
+                                <MudTh>Name</MudTh>
+                                <MudTh>Folder</MudTh>
                             </HeaderContent>
                             <RowTemplate>
-                                <MudTd DataLabel="Actions" Class="table-actions">
+                                <MudTd DataLabel="Actions">
                                     <MudTooltip Text="Remove dev folder">
                                         <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveDevFolder(context))" />
                                     </MudTooltip>
                                 </MudTd>
-                                <MudTd DataLabel="Manifest" Class="mono table-pack">@context.DataFile</MudTd>
-                                <MudTd DataLabel="Name" Class="table-pack">
+                                <MudTd DataLabel="Manifest" Class="mono">@context.DataFile</MudTd>
+                                <MudTd DataLabel="Name">
                                     <MudStack AlignItems="AlignItems.Start" Spacing="0">
                                         <MudText Typo="Typo.subtitle2">@context.Name</MudText>
                                         <MudText Typo="Typo.caption" Class="config-secondary">@context.PluginId</MudText>
                                     </MudStack>
                                 </MudTd>
-                                <MudTd DataLabel="Folder" Class="table-grow">
+                                <MudTd DataLabel="Folder">
                                     <CopyablePath Value="@context.FolderPath" TextClass="" />
                                 </MudTd>
                             </RowTemplate>

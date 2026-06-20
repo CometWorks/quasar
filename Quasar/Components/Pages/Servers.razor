@@ -40,26 +40,26 @@
     {
         <MudTable T="DedicatedServerDefinition" Dense="true" Hover="true" Breakpoint="@ServerTableBreakpoint" Items="ServerDefinitions" Class="servers-list-table">
             <HeaderContent>
-                <MudTh Class="table-pack"></MudTh>
-                <MudTh Class="table-actions">Actions</MudTh>
-                <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetStateText(x.UniqueName))">Status</MudTableSortLabel></MudTh>
-                <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.UniqueName)">Unique name</MudTableSortLabel></MudTh>
-                <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.ServerPort)">Port</MudTableSortLabel></MudTh>
-                <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetConfigProfileName(x.ConfigProfileId))">Config</MudTableSortLabel></MudTh>
-                <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetPlayerSortValue(x.UniqueName))">Players</MudTableSortLabel></MudTh>
-                <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetProcessSortValue(x.UniqueName))">Process</MudTableSortLabel></MudTh>
-                <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetAttachmentStatus(x.UniqueName))">Agent</MudTableSortLabel></MudTh>
-                <MudTh Class="table-grow"><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetDisplayName(x))">Name</MudTableSortLabel></MudTh>
+                <MudTh></MudTh>
+                <MudTh>Actions</MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetStateText(x.UniqueName))">Status</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.UniqueName)">Unique name</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.ServerPort)">Port</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetConfigProfileName(x.ConfigProfileId))">Config</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetPlayerSortValue(x.UniqueName))">Players</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetProcessSortValue(x.UniqueName))">Process</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetAttachmentStatus(x.UniqueName))">Agent</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetDisplayName(x))">Name</MudTableSortLabel></MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd Class="table-pack">
+                <MudTd>
                     <MudTooltip Text="Show live data">
                         <MudIconButton Size="Size.Small"
                                        Icon="@(IsExpanded(context.UniqueName) ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
                                        OnClick="@(() => ToggleExpanded(context.UniqueName))" />
                     </MudTooltip>
                 </MudTd>
-                <MudTd DataLabel="Actions" Class="table-actions">
+                <MudTd DataLabel="Actions">
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0">
                         @if (CanStartServer(context.UniqueName))
                         {
@@ -102,14 +102,14 @@
                         </MudTooltip>
                     </MudStack>
                 </MudTd>
-                <MudTd DataLabel="Status" Class="table-pack">
+                <MudTd DataLabel="Status">
                     <MudChip T="string" Color="@GetStateColor(context.UniqueName)" Variant="Variant.Outlined">
                         @GetStateText(context.UniqueName)
                     </MudChip>
                 </MudTd>
-                <MudTd DataLabel="Unique name" Class="mono table-pack">@context.UniqueName</MudTd>
-                <MudTd DataLabel="Port" Class="mono table-pack">@context.ServerPort</MudTd>
-                <MudTd DataLabel="Config" Class="table-pack">
+                <MudTd DataLabel="Unique name" Class="mono">@context.UniqueName</MudTd>
+                <MudTd DataLabel="Port" Class="mono">@context.ServerPort</MudTd>
+                <MudTd DataLabel="Config">
                     @if (CanOpenConfigProfile(context.ConfigProfileId))
                     {
                         <MudLink Typo="Typo.body2"
@@ -124,10 +124,10 @@
                         <MudText Typo="Typo.body2">@GetConfigProfileName(context.ConfigProfileId)</MudText>
                     }
                 </MudTd>
-                <MudTd DataLabel="Players" Class="table-pack">@GetPlayerCount(context.UniqueName)</MudTd>
-                <MudTd DataLabel="Process" Class="mono table-pack">@GetProcessDisplay(context.UniqueName)</MudTd>
-                <MudTd DataLabel="Agent" Class="table-pack">@GetAttachmentStatus(context.UniqueName)</MudTd>
-                <MudTd DataLabel="Name" Class="table-grow">
+                <MudTd DataLabel="Players">@GetPlayerCount(context.UniqueName)</MudTd>
+                <MudTd DataLabel="Process" Class="mono">@GetProcessDisplay(context.UniqueName)</MudTd>
+                <MudTd DataLabel="Agent">@GetAttachmentStatus(context.UniqueName)</MudTd>
+                <MudTd DataLabel="Name">
                     <MudText Typo="Typo.body2">@GetDisplayName(context)</MudText>
                 </MudTd>
             </RowTemplate>

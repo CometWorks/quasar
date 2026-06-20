@@ -106,19 +106,19 @@ else
 {
     <MudTable T="EntitySummary" Items="FilteredEntities" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" FixedHeader="true" Height="60vh">
         <HeaderContent>
-            <MudTh Class="table-actions">Actions</MudTh>
-            <MudTh Class="table-pack">Type</MudTh>
-            <MudTh Class="table-pack">Entity ID</MudTh>
-            <MudTh Class="table-pack">Sub-type</MudTh>
-            <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.BlockCount ?? -1)">Blocks</MudTableSortLabel></MudTh>
-            <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.Pcu ?? -1)">PCU</MudTableSortLabel></MudTh>
-            <MudTh Class="table-pack"><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.SizeMeters)">Size (m)</MudTableSortLabel></MudTh>
-            <MudTh Class="table-pack">Owner</MudTh>
-            <MudTh Class="table-pack">Position</MudTh>
-            <MudTh Class="table-grow"><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.DisplayName)">Name</MudTableSortLabel></MudTh>
+            <MudTh>Actions</MudTh>
+            <MudTh>Type</MudTh>
+            <MudTh>Entity ID</MudTh>
+            <MudTh>Sub-type</MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.BlockCount ?? -1)">Blocks</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.Pcu ?? -1)">PCU</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.SizeMeters)">Size (m)</MudTableSortLabel></MudTh>
+            <MudTh>Owner</MudTh>
+            <MudTh>Position</MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.DisplayName)">Name</MudTableSortLabel></MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd DataLabel="Actions" Class="table-actions">
+            <MudTd DataLabel="Actions">
                 <MudTooltip Text="Delete entity">
                     <MudIconButton Icon="@Icons.Material.Filled.Delete"
                                    Color="Color.Error"
@@ -126,17 +126,17 @@ else
                                    OnClick="@(() => DeleteEntityAsync(context))" />
                 </MudTooltip>
             </MudTd>
-            <MudTd DataLabel="Type" Class="table-pack">
+            <MudTd DataLabel="Type">
                 <MudChip T="string" Size="Size.Small" Color="@GetTypeColor(context.TypeTag)" Variant="Variant.Outlined">@context.TypeTag</MudChip>
             </MudTd>
-            <MudTd DataLabel="Entity ID" Class="mono table-pack">@context.EntityId</MudTd>
-            <MudTd DataLabel="Sub-type" Class="table-pack">@context.SubType</MudTd>
-            <MudTd DataLabel="Blocks" Class="table-pack">@(context.BlockCount?.ToString() ?? "-")</MudTd>
-            <MudTd DataLabel="PCU" Class="table-pack">@(context.Pcu?.ToString() ?? "-")</MudTd>
-            <MudTd DataLabel="Size (m)" Class="table-pack">@context.SizeMeters.ToString("0")</MudTd>
-            <MudTd DataLabel="Owner" Class="table-pack">@FormatOwner(context)</MudTd>
-            <MudTd DataLabel="Position" Class="mono table-pack">@FormatPosition(context)</MudTd>
-            <MudTd DataLabel="Name" Class="table-grow">@context.DisplayName</MudTd>
+            <MudTd DataLabel="Entity ID" Class="mono">@context.EntityId</MudTd>
+            <MudTd DataLabel="Sub-type">@context.SubType</MudTd>
+            <MudTd DataLabel="Blocks">@(context.BlockCount?.ToString() ?? "-")</MudTd>
+            <MudTd DataLabel="PCU">@(context.Pcu?.ToString() ?? "-")</MudTd>
+            <MudTd DataLabel="Size (m)">@context.SizeMeters.ToString("0")</MudTd>
+            <MudTd DataLabel="Owner">@FormatOwner(context)</MudTd>
+            <MudTd DataLabel="Position" Class="mono">@FormatPosition(context)</MudTd>
+            <MudTd DataLabel="Name">@context.DisplayName</MudTd>
         </RowTemplate>
         <PagerContent>
             <MudTablePager PageSizeOptions="new[] { 25, 50, 100, 250 }" />

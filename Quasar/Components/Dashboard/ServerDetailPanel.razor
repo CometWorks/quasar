@@ -93,16 +93,16 @@ else
     <MudText Typo="Typo.subtitle2" Class="mb-2">Players</MudText>
     <MudTable T="PlayerSnapshot" Dense="true" Hover="true" Items="Agent.Snapshot.Players">
         <HeaderContent>
-            <MudTh Class="table-actions">Actions</MudTh>
-            <MudTh Class="table-pack">Steam ID</MudTh>
-            <MudTh Class="table-pack">Service</MudTh>
-            <MudTh Class="table-pack">Faction</MudTh>
-            <MudTh Class="table-pack">Role</MudTh>
-            <MudTh Class="table-pack">Ping</MudTh>
-            <MudTh Class="table-grow">Name</MudTh>
+            <MudTh>Actions</MudTh>
+            <MudTh>Steam ID</MudTh>
+            <MudTh>Service</MudTh>
+            <MudTh>Faction</MudTh>
+            <MudTh>Role</MudTh>
+            <MudTh>Ping</MudTh>
+            <MudTh>Name</MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd DataLabel="Actions" Class="table-actions">
+            <MudTd DataLabel="Actions">
                 <MudTooltip Text="Player actions">
                     <MudMenu Dense="true"
                              Icon="@Icons.Material.Filled.MoreVert"
@@ -123,16 +123,16 @@ else
                     </MudMenu>
                 </MudTooltip>
             </MudTd>
-            <MudTd DataLabel="Steam ID" Class="table-pack">
+            <MudTd DataLabel="Steam ID">
                 <MudText Typo="Typo.body2" Class="mono">@context.SteamId</MudText>
             </MudTd>
-            <MudTd DataLabel="Service" Class="table-pack">
+            <MudTd DataLabel="Service">
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.ServiceName)</MudChip>
             </MudTd>
-            <MudTd DataLabel="Faction" Class="table-pack">@context.FactionTag</MudTd>
-            <MudTd DataLabel="Role" Class="table-pack">@GetRoleLabel(context)</MudTd>
-            <MudTd DataLabel="Ping" Class="table-pack">@context.PingMs</MudTd>
-            <MudTd DataLabel="Name" Class="table-grow">
+            <MudTd DataLabel="Faction">@context.FactionTag</MudTd>
+            <MudTd DataLabel="Role">@GetRoleLabel(context)</MudTd>
+            <MudTd DataLabel="Ping">@context.PingMs</MudTd>
+            <MudTd DataLabel="Name">
                 <MudText Typo="Typo.body2">@TextSanitizer.CleanGameText(context.DisplayName)</MudText>
                 @if (GetPlatformName(context) is { Length: > 0 } platformName)
                 {
