@@ -20,6 +20,25 @@ SteamCMD's `linux64` native runtime directory so Quasar can pass it through
 before it is marked failed; the Dashboard then shows a retry button on the
 Dedicated Server row.
 
+## Magnetar data handling consent
+
+Magnetar's anonymous plugin-usage statistics are opt-in. Quasar stores the
+operator's decision in `data-handling-consent.json` under the Quasar data
+directory and passes that decision to every managed Magnetar start:
+
+- `YES` -> Quasar appends `-consent`
+- `NO` -> Quasar appends `-noconsent`
+- no stored decision -> Quasar appends `-noconsent`
+
+The Dashboard shows a top-of-page YES/NO consent prompt until a decision is
+stored. The same decision can be changed later from **Settings -> Security**.
+Changes apply to the next server start or restart; running servers keep their
+current Magnetar consent state.
+
+Magnetar sends only the enabled plugin IDs plus a random local instance ID when
+consent is granted. It does not send a Steam ID, account, world, or server
+content.
+
 ## Where configuration is read from
 
 Both the **Bootstrap launcher** (`Quasar`/`Quasar.exe`) and the replaceable **web

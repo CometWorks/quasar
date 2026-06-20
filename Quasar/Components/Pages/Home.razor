@@ -6,11 +6,43 @@
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarWorldTemplateCatalog WorldTemplates
 @inject ManagedRuntimeWarmupService RuntimeWarmup
+@inject DataHandlingConsentCatalog DataHandlingConsent
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
 
 <PageTitle>@(IsListView ? "Servers" : "Dashboard")</PageTitle>
+
+@if (ShowDataHandlingConsentPrompt)
+{
+    <MudPaper Class="pa-4 summary-card mb-4">
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+            <MudStack Spacing="1" Class="setup-wizard-copy">
+                <MudText Typo="Typo.subtitle1">Data Handling Consent</MudText>
+                <MudText Typo="Typo.body2">
+                    Allow Magnetar to send anonymous plugin usage statistics? It sends enabled plugin IDs with a random local instance ID, not Steam ID, account, world, or server content.
+                </MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    If no decision is stored, Quasar starts Magnetar with no consent.
+                </MudText>
+            </MudStack>
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Success"
+                           StartIcon="@Icons.Material.Filled.Check"
+                           OnClick="@(() => SaveDataHandlingConsentAsync(true))">
+                    YES
+                </MudButton>
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Warning"
+                           StartIcon="@Icons.Material.Filled.Close"
+                           OnClick="@(() => SaveDataHandlingConsentAsync(false))">
+                    NO
+                </MudButton>
+            </MudStack>
+        </MudStack>
+    </MudPaper>
+}
 
 @if (!ShowSetupWizard)
 {
@@ -507,6 +539,7 @@ else
     private IReadOnlyList<DedicatedServerDefinition> StartableServers => Servers.Where(server => !IsRunning(server.UniqueName)).ToList();
     private IReadOnlyList<DedicatedServerDefinition> LaunchedServers => Servers.Where(server => IsRunning(server.UniqueName)).ToList();
     private bool IsLaunchBlocked => RuntimeWarmupSnapshot.State != ManagedRuntimeWarmupState.Complete;
+    private bool ShowDataHandlingConsentPrompt => DataHandlingConsent.GetSettings().ConsentGranted is null;
     private DashboardServerView ServerView => string.Equals(ServerViewQuery, "list", StringComparison.OrdinalIgnoreCase)
         ? DashboardServerView.List
         : DashboardServerView.Cards;
@@ -650,6 +683,7 @@ else
         ConfigProfiles.Changed += HandleRegistryChanged;
         WorldTemplates.Changed += HandleRegistryChanged;
         RuntimeWarmup.Changed += HandleRegistryChanged;
+        DataHandlingConsent.Changed += HandleRegistryChanged;
 
         // Auto-open the first-setup wizard until the first server has been created.
         _setupWizardActive = ConfiguredServerCount == 0;
@@ -663,6 +697,7 @@ else
         ConfigProfiles.Changed -= HandleRegistryChanged;
         WorldTemplates.Changed -= HandleRegistryChanged;
         RuntimeWarmup.Changed -= HandleRegistryChanged;
+        DataHandlingConsent.Changed -= HandleRegistryChanged;
     }
 
     private void HandleRegistryChanged()
@@ -697,6 +732,19 @@ else
             return "Last step: wait here for Quasar.Agent attach. Dashboard updates live when server reports in.";
 
         return "Setup complete. Dashboard now stays focused on live running servers.";
+    }
+
+    private async Task SaveDataHandlingConsentAsync(bool consentGranted)
+    {
+        try
+        {
+            await DataHandlingConsent.SaveAsync(consentGranted);
+            Snackbar.Add(consentGranted ? "Data handling consent saved: YES." : "Data handling consent saved: NO.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed saving data handling consent: {exception.Message}", Severity.Error);
+        }
     }
 
     private Task OpenCreateConfigProfileDialogAsync() =>

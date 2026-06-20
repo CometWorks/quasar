@@ -18,11 +18,13 @@ public sealed class DedicatedServerRuntimePreparer
     private static readonly Regex Ds64OptionPattern = new(@"(?<!\S)-ds64(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex NoSplashPattern = new(@"(?<!\S)-nosplash(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex DaemonPattern = new(@"(?<!\S)-daemon(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex ConsentOptionPattern = new(@"(?<!\S)-(?:no)?consent(?!\S)|(?<!\S)-withdraw-consent(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly XNamespace XsiNamespace = "http://www.w3.org/2001/XMLSchema-instance";
     private static readonly XNamespace XsdNamespace = "http://www.w3.org/2001/XMLSchema";
 
     private readonly ILogger<DedicatedServerRuntimePreparer> _logger;
     private readonly WebServiceOptions _options;
+    private readonly DataHandlingConsentCatalog _dataHandlingConsent;
     private readonly QuasarConfigProfileCatalog _configProfiles;
     private readonly QuasarWorldTemplateCatalog _worldTemplates;
     private readonly QuasarPluginCatalogService _pluginCatalog;
@@ -31,6 +33,7 @@ public sealed class DedicatedServerRuntimePreparer
     public DedicatedServerRuntimePreparer(
         ILogger<DedicatedServerRuntimePreparer> logger,
         WebServiceOptions options,
+        DataHandlingConsentCatalog dataHandlingConsent,
         QuasarConfigProfileCatalog configProfiles,
         QuasarWorldTemplateCatalog worldTemplates,
         QuasarPluginCatalogService pluginCatalog,
@@ -38,6 +41,7 @@ public sealed class DedicatedServerRuntimePreparer
     {
         _logger = logger;
         _options = options;
+        _dataHandlingConsent = dataHandlingConsent;
         _configProfiles = configProfiles;
         _worldTemplates = worldTemplates;
         _pluginCatalog = pluginCatalog;
@@ -74,7 +78,8 @@ public sealed class DedicatedServerRuntimePreparer
             dedicatedServer64Path,
             worldPath,
             runtimeConfigPath,
-            _options);
+            _options,
+            _dataHandlingConsent.GetSettings().ConsentGranted);
 
         return new PreparedDedicatedServerLaunch(
             dedicatedServerAppDataPath,
@@ -670,7 +675,8 @@ public sealed class DedicatedServerRuntimePreparer
         string dedicatedServer64Path,
         string worldPath,
         string runtimeConfigPath,
-        WebServiceOptions options)
+        WebServiceOptions options,
+        bool? dataHandlingConsent)
     {
         var baseArguments = ExpandLaunchArguments(
             definition,
@@ -694,6 +700,7 @@ public sealed class DedicatedServerRuntimePreparer
             $"-path {QuoteArgument(dedicatedServerAppDataPath)}",
             $"-config {QuoteArgument(magnetarAppDataPath)}",
             $"-ds64 {QuoteArgument(dedicatedServer64Path)}",
+            dataHandlingConsent == true ? "-consent" : "-noconsent",
         };
 
         if (string.IsNullOrWhiteSpace(sanitizedArguments))
@@ -736,6 +743,7 @@ public sealed class DedicatedServerRuntimePreparer
         sanitized = Ds64OptionPattern.Replace(sanitized, string.Empty);
         sanitized = NoSplashPattern.Replace(sanitized, string.Empty);
         sanitized = DaemonPattern.Replace(sanitized, string.Empty);
+        sanitized = ConsentOptionPattern.Replace(sanitized, string.Empty);
         sanitized = Regex.Replace(sanitized, @"\s{2,}", " ");
         return sanitized.Trim();
     }

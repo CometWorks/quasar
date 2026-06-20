@@ -3,6 +3,7 @@
 @implements IDisposable
 @inject QuasarAuthOptions AuthOptions
 @inject QuasarAuthSettingsService AuthSettingsService
+@inject DataHandlingConsentCatalog DataHandlingConsent
 @inject RbacConfigCatalog RbacConfigCatalog
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -118,6 +119,45 @@
     <MudItem xs="12">
         <MudPaper Class="pa-4">
             <MudStack Spacing="3">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                    <MudText Typo="Typo.h6">Data Handling Consent</MudText>
+                    <MudChip T="string" Color="@DataHandlingConsentStatusColor" Variant="Variant.Outlined">
+                        @DataHandlingConsentStatusText
+                    </MudChip>
+                </MudStack>
+
+                <MudText Typo="Typo.body2">
+                    Controls the consent flag Quasar passes to Magnetar on the next server start. YES starts Magnetar with <code>-consent</code>; NO and undecided start it with <code>-noconsent</code>.
+                </MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    Stored at <CopyablePath Value="@DataHandlingConsent.SettingsPath" Inline="true" TextClass="" />.
+                </MudText>
+
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+                    <MudButton StartIcon="@Icons.Material.Filled.Check"
+                               Variant="@(DataHandlingConsentChoice == true ? Variant.Filled : Variant.Outlined)"
+                               Color="Color.Primary"
+                               OnClick="@(() => SaveDataHandlingConsentAsync(true))">
+                        YES
+                    </MudButton>
+                    <MudButton StartIcon="@Icons.Material.Filled.Close"
+                               Variant="@(DataHandlingConsentChoice == false ? Variant.Filled : Variant.Outlined)"
+                               Color="@(DataHandlingConsentChoice == false ? Color.Warning : Color.Default)"
+                               OnClick="@(() => SaveDataHandlingConsentAsync(false))">
+                        NO
+                    </MudButton>
+                </MudStack>
+
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                    Running servers keep their current Magnetar consent state until they are restarted.
+                </MudAlert>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12">
+        <MudPaper Class="pa-4">
+            <MudStack Spacing="3">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                     <MudText Typo="Typo.h6">Runtime Subject Role Mappings</MudText>
                     <MudChip T="string" Variant="Variant.Outlined">@_config.SubjectRoleMappings.Count mapping(s)</MudChip>
@@ -197,6 +237,23 @@
     private string _newSubject = string.Empty;
     private string _newRole = QuasarRoles.Viewer;
 
+    private bool? DataHandlingConsentChoice =>
+        DataHandlingConsent.GetSettings().ConsentGranted;
+
+    private string DataHandlingConsentStatusText => DataHandlingConsentChoice switch
+    {
+        true => "YES",
+        false => "NO",
+        _ => "No choice stored",
+    };
+
+    private Color DataHandlingConsentStatusColor => DataHandlingConsentChoice switch
+    {
+        true => Color.Success,
+        false => Color.Warning,
+        _ => Color.Default,
+    };
+
     private string TrustedProxySummary =>
         _trustedNetworkSettings.TrustedProxies.Count == 0
             ? "Loopback only"
@@ -214,11 +271,13 @@
         Reload();
         ReloadTrustedNetworkSettings();
         RbacConfigCatalog.Changed += HandleRbacChanged;
+        DataHandlingConsent.Changed += HandleDataHandlingConsentChanged;
     }
 
     public void Dispose()
     {
         RbacConfigCatalog.Changed -= HandleRbacChanged;
+        DataHandlingConsent.Changed -= HandleDataHandlingConsentChanged;
     }
 
     private void HandleRbacChanged()
@@ -228,6 +287,11 @@
             Reload();
             StateHasChanged();
         });
+    }
+
+    private void HandleDataHandlingConsentChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private void Reload()
@@ -266,6 +330,19 @@
         finally
         {
             _savingAuthSettings = false;
+        }
+    }
+
+    private async Task SaveDataHandlingConsentAsync(bool consentGranted)
+    {
+        try
+        {
+            await DataHandlingConsent.SaveAsync(consentGranted);
+            Snackbar.Add(consentGranted ? "Data handling consent saved: YES." : "Data handling consent saved: NO.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed saving data handling consent: {exception.Message}", Severity.Error);
         }
     }
 

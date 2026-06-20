@@ -1,5 +1,6 @@
 using Magnetar.Protocol.Runtime;
-using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Quasar.Services;
 
@@ -225,4 +226,232 @@ public sealed class WebServiceOptions
 
         return Path.GetFullPath(directory);
     }
+}
+
+public sealed class DataHandlingConsentSettings
+{
+    public bool? ConsentGranted { get; set; }
+
+    public string? DecisionDateUtc { get; set; }
+
+    public DataHandlingConsentSettings Clone() =>
+        new()
+        {
+            ConsentGranted = ConsentGranted,
+            DecisionDateUtc = DecisionDateUtc,
+        };
+
+    public static DataHandlingConsentSettings Normalize(DataHandlingConsentSettings? settings)
+    {
+        settings ??= new DataHandlingConsentSettings();
+
+        return new DataHandlingConsentSettings
+        {
+            ConsentGranted = settings.ConsentGranted,
+            DecisionDateUtc = string.IsNullOrWhiteSpace(settings.DecisionDateUtc)
+                ? null
+                : settings.DecisionDateUtc.Trim(),
+        };
+    }
+}
+
+public sealed class DataHandlingConsentCatalog : IDisposable
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        WriteIndented = true,
+    };
+
+    private readonly object _sync = new();
+    private readonly SemaphoreSlim _saveGate = new(1, 1);
+    private readonly ILogger<DataHandlingConsentCatalog> _logger;
+    private DataHandlingConsentSettings _settings;
+    private string _snapshot;
+    private FileSystemWatcher? _watcher;
+    private CancellationTokenSource? _reloadDebounce;
+
+    public DataHandlingConsentCatalog(ILogger<DataHandlingConsentCatalog> logger)
+    {
+        _logger = logger;
+        _settings = LoadSettings();
+        _snapshot = CreateSnapshot(_settings);
+        StartWatching();
+    }
+
+    public event Action? Changed;
+
+    public string SettingsPath => MagnetarPaths.GetQuasarDataHandlingConsentPath();
+
+    public void Dispose()
+    {
+        _watcher?.Dispose();
+        _reloadDebounce?.Cancel();
+        _reloadDebounce?.Dispose();
+        _saveGate.Dispose();
+    }
+
+    public DataHandlingConsentSettings GetSettings()
+    {
+        lock (_sync)
+        {
+            return _settings.Clone();
+        }
+    }
+
+    public async Task SaveAsync(bool consentGranted, CancellationToken cancellationToken = default)
+    {
+        await _saveGate.WaitAsync(cancellationToken);
+        try
+        {
+            var normalized = DataHandlingConsentSettings.Normalize(new DataHandlingConsentSettings
+            {
+                ConsentGranted = consentGranted,
+                DecisionDateUtc = DateTimeOffset.UtcNow.ToString("O"),
+            });
+            var json = JsonSerializer.Serialize(normalized, JsonOptions);
+            var path = SettingsPath;
+
+            await AtomicFileWriter.WriteTextAsync(path, json, cancellationToken);
+
+            lock (_sync)
+            {
+                _settings = normalized.Clone();
+                _snapshot = json;
+            }
+
+            _logger.LogInformation(
+                "Saved data handling consent decision {ConsentGranted} to {Path}.",
+                consentGranted,
+                path);
+            Changed?.Invoke();
+        }
+        finally
+        {
+            _saveGate.Release();
+        }
+    }
+
+    private DataHandlingConsentSettings LoadSettings()
+    {
+        var path = SettingsPath;
+
+        try
+        {
+            if (!File.Exists(path))
+                return DataHandlingConsentSettings.Normalize(null);
+
+            var json = File.ReadAllText(path);
+            var settings = JsonSerializer.Deserialize<DataHandlingConsentSettings>(json, JsonOptions);
+            return DataHandlingConsentSettings.Normalize(settings);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed loading data handling consent settings from {Path}", path);
+            return DataHandlingConsentSettings.Normalize(null);
+        }
+    }
+
+    private void StartWatching()
+    {
+        var path = SettingsPath;
+        var directory = Path.GetDirectoryName(path);
+        if (string.IsNullOrWhiteSpace(directory))
+            return;
+
+        Directory.CreateDirectory(directory);
+
+        _watcher = new FileSystemWatcher(directory)
+        {
+            IncludeSubdirectories = false,
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
+            Filter = Path.GetFileName(path),
+        };
+
+        _watcher.Changed += HandleWatchedFileChanged;
+        _watcher.Created += HandleWatchedFileChanged;
+        _watcher.Deleted += HandleWatchedFileChanged;
+        _watcher.Renamed += HandleWatchedFileChanged;
+        _watcher.EnableRaisingEvents = true;
+    }
+
+    private void HandleWatchedFileChanged(object sender, FileSystemEventArgs args)
+    {
+        if (!IsTrackedPath(args.FullPath))
+            return;
+
+        ScheduleReload();
+    }
+
+    private bool IsTrackedPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        return string.Equals(
+            Path.GetFullPath(path),
+            Path.GetFullPath(SettingsPath),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ScheduleReload()
+    {
+        CancellationTokenSource debounce;
+        lock (_sync)
+        {
+            _reloadDebounce?.Cancel();
+            _reloadDebounce?.Dispose();
+            _reloadDebounce = new CancellationTokenSource();
+            debounce = _reloadDebounce;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250), debounce.Token);
+                ReloadFromDisk();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, CancellationToken.None);
+    }
+
+    private void ReloadFromDisk()
+    {
+        DataHandlingConsentSettings reloaded;
+        string snapshot;
+
+        try
+        {
+            reloaded = LoadSettings();
+            snapshot = CreateSnapshot(reloaded);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed reloading data handling consent settings from disk.");
+            return;
+        }
+
+        var changed = false;
+        lock (_sync)
+        {
+            if (!string.Equals(_snapshot, snapshot, StringComparison.Ordinal))
+            {
+                _settings = reloaded;
+                _snapshot = snapshot;
+                changed = true;
+            }
+        }
+
+        if (!changed)
+            return;
+
+        _logger.LogInformation("Reloaded data handling consent settings from disk after external edit.");
+        Changed?.Invoke();
+    }
+
+    private static string CreateSnapshot(DataHandlingConsentSettings settings) =>
+        JsonSerializer.Serialize(DataHandlingConsentSettings.Normalize(settings), JsonOptions);
 }

@@ -529,7 +529,7 @@
       "name": "Home.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable dashboard and primary server control surface at `/`. Shows a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, a Managed Runtime panel with SteamCMD and Dedicated Server readiness/download progress, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, and a switchable server section. The default card view renders `ServerCard`s for live operations; `?view=list` embeds the `Servers` table without MudBlazor's responsive card layout. Only the selected server view is generated, so the landing page does not build hidden list/table DOM. Servers can be started, stopped, restarted, and opened in the log dialog directly from the dashboard; Stop and Kill actions require confirmation. The wizard opens full-screen page dialogs for config-template, world-template, and server creation."
+      "summary": "Routable dashboard and primary server control surface at `/`. Shows a top-of-dashboard data handling consent prompt until YES/NO is stored, a five-step first-run setup wizard that auto-opens only while no dedicated server has been created yet, a Managed Runtime panel with SteamCMD and Dedicated Server readiness/download progress, summary KPI cards (online servers, players online, health warnings, errors), an optional problem banner, and a switchable server section. The default card view renders `ServerCard`s for live operations; `?view=list` embeds the `Servers` table without MudBlazor's responsive card layout. Only the selected server view is generated, so the landing page does not build hidden list/table DOM. Servers can be started, stopped, restarted, and opened in the log dialog directly from the dashboard; Stop and Kill actions require confirmation. The wizard opens full-screen page dialogs for config-template, world-template, and server creation."
     },
     {
       "path": "Quasar/Components/Pages/Home.razor.css",
@@ -592,7 +592,7 @@
       "name": "Security.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page at `/settings/security`, protected by the `CanManageSecurity` policy, for managing trusted-network/reverse-proxy auth settings and runtime RBAC subject-role mappings. It persists trusted-network settings into data-directory `appsettings.json` through `QuasarAuthSettingsService`, provides a public reverse-proxy preset and checklist, and allows adding/removing `SubjectRoleMapping` entries through `RbacConfigCatalog`."
+      "summary": "Routable page at `/settings/security`, protected by the `CanManageSecurity` policy, for managing trusted-network/reverse-proxy auth settings, Magnetar data-handling consent, and runtime RBAC subject-role mappings. It persists trusted-network settings into data-directory `appsettings.json` through `QuasarAuthSettingsService`, stores the consent YES/NO decision through `DataHandlingConsentCatalog`, provides a public reverse-proxy preset and checklist, and allows adding/removing `SubjectRoleMapping` entries through `RbacConfigCatalog`."
     },
     {
       "path": "Quasar/Components/Pages/ServerConsoleDialog.razor",
@@ -948,7 +948,7 @@
       "name": "QuasarBackupService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Builds and restores ZIP backups for three scopes: Quasar configuration, server runtime state, and world-only data. Configuration backups still capture Quasar's own singleton/config/catalog files, including known-player rows and known-player retention settings; server backups include the server definition plus non-cache Dedicated Server and Magnetar app data; world backups restore world files while excluding `Sandbox_config.sbc*`. Stored backup writes use the configured `WebServiceOptions.BackupDirectory` and publish atomically by writing `final.zip.tmp` in that same directory first, then renaming it to `final.zip` only after the archive is complete."
+      "summary": "Builds and restores ZIP backups for three scopes: Quasar configuration, server runtime state, and world-only data. Configuration backups still capture Quasar's own singleton/config/catalog files, including known-player rows, known-player retention settings, and data-handling consent; server backups include the server definition plus non-cache Dedicated Server and Magnetar app data; world backups restore world files while excluding `Sandbox_config.sbc*`. Stored backup writes use the configured `WebServiceOptions.BackupDirectory` and publish atomically by writing `final.zip.tmp` in that same directory first, then renaming it to `final.zip` only after the archive is complete."
     },
     {
       "path": "Quasar/Services/Backup/QuasarBackupSettingsService.cs",
@@ -1193,7 +1193,7 @@
       "name": "WebServiceOptions.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Configuration record for the Quasar web service host. Most properties are `init`-only and populated by the static factory method `Create(IConfiguration)`, which reads from the `Quasar` (or legacy `MagnetarWeb`) config section and a defined set of environment variables, with environment variables taking priority. `BackupDirectory` is mutable so the Backup page can apply a folder change to the live process after saving `Quasar:BackupDirectory`. The type also carries log paths and agent launch settings that the supervisor forwards to each managed dedicated server process."
+      "summary": "Configuration record for the Quasar web service host plus the file-backed data-handling consent catalog used by managed Magnetar launches. Most `WebServiceOptions` properties are `init`-only and populated by the static factory method `Create(IConfiguration)`, which reads from the `Quasar` (or legacy `MagnetarWeb`) config section and a defined set of environment variables, with environment variables taking priority. `BackupDirectory` is mutable so the Backup page can apply a folder change to the live process after saving `Quasar:BackupDirectory`. The file also defines `DataHandlingConsentSettings` / `DataHandlingConsentCatalog`, which persist the global YES/NO consent choice in `data-handling-consent.json`."
     },
     {
       "path": "Quasar/Services/WebServiceState.cs",

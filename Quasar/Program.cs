@@ -143,6 +143,7 @@ public class Program
             builder.Services.AddSingleton(managedRuntimeOptions);
             builder.Services.AddSingleton(updateOptions);
             builder.Services.AddSingleton(authOptions);
+            builder.Services.AddSingleton<DataHandlingConsentCatalog>();
             builder.Services.AddSingleton<RbacConfigCatalog>();
             builder.Services.AddSingleton(analyticsStoreOptions);
             builder.Services.AddSingleton<QuasarRoleMapper>();
