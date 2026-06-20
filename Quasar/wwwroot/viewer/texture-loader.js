@@ -142,6 +142,7 @@ function readDdsInfo(buffer, logicalPath) {
         format: null,
         formatName: "",
         extensionName: "",
+        isSrgb: false,
     };
 
     if (fourCC === fourCCCode("DXT1")) applyBlockInfo(info, 8, THREE.RGB_S3TC_DXT1_Format, "DXT1", "WEBGL_compressed_texture_s3tc");
@@ -182,6 +183,7 @@ function applyBlockInfo(info, blockBytes, format, formatName, extensionName, col
     info.formatName = formatName;
     info.extensionName = extensionName;
     info.colorMaskChannel = colorMaskChannel;
+    info.isSrgb = /_SRGB$/i.test(formatName);
 }
 
 function parseDdsMipmaps(buffer, info) {
@@ -205,6 +207,7 @@ function createCompressedDdsTexture(mipmaps, logicalPath, info) {
     const texture = new THREE.CompressedTexture(mipmaps, info.width, info.height, info.format);
     texture.name = logicalPath;
     texture.userData.seColorMaskChannel = info.colorMaskChannel || "a";
+    texture.userData.seDdsIsSrgb = !!info.isSrgb;
     texture.generateMipmaps = false;
     if (mipmaps.length === 1) texture.minFilter = THREE.LinearFilter;
     texture.needsUpdate = true;
@@ -215,7 +218,9 @@ function configureTexture(texture, logicalPath, slot) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.anisotropy = Math.min(8, state.renderer.capabilities.getMaxAnisotropy());
-    texture.colorSpace = isNonColorTexture(logicalPath, slot) ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+    texture.colorSpace = (!isNonColorTexture(logicalPath, slot) || texture.userData.seDdsIsSrgb)
+        ? THREE.SRGBColorSpace
+        : THREE.NoColorSpace;
 }
 
 function validateCompressedTextureUpload(texture, info) {
