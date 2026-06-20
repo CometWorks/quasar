@@ -110,6 +110,9 @@ async function parseResolvedModelUncached(resolved, file, stack) {
                 materialName: part.materialName || `part-${i + 1}`,
                 technique: part.technique || "MESH",
                 textures: part.textures,
+                glassCW: part.glassCW || "",
+                glassCCW: part.glassCCW || "",
+                glassSmooth: !!part.glassSmooth,
             });
             offset += part.indices.length;
         }
@@ -255,6 +258,9 @@ class MwmReader {
                 materialName: material?.materialName || "",
                 technique: material?.technique || "MESH",
                 textures: material?.textures || {},
+                glassCW: material?.glassCW || "",
+                glassCCW: material?.glassCCW || "",
+                glassSmooth: !!material?.glassSmooth,
             });
         }
         return parts;
@@ -286,17 +292,23 @@ class MwmReader {
         }
 
         const technique = this.version < 1052001 ? `OLD_${this.readInt32()}` : this.readString();
+        let glassCW = "";
+        let glassCCW = "";
+        let glassSmooth = true;
         if (technique === "GLASS") {
             if (this.version >= 1043001) {
-                this.readString();
-                this.readString();
-                this.readBoolean();
+                glassCW = this.readString();
+                glassCCW = this.readString();
+                glassSmooth = this.readBoolean();
             } else {
                 for (let i = 0; i < 4; i++) this.readFloat32();
+                glassCW = "GlassCW";
+                glassCCW = "GlassCCW";
+                glassSmooth = false;
             }
         }
 
-        return { materialName, technique, textures };
+        return { materialName, technique, textures, glassCW, glassCCW, glassSmooth };
     }
 
     readStringArray() {

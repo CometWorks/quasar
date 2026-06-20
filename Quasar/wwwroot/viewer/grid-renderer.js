@@ -13,6 +13,9 @@ let modelRenderToken = 0;
 let armorSkinDefinitionsGeneration = -1;
 let armorSkinDefinitionsPromise = null;
 let armorSkinDefinitions = new Map();
+let transparentMaterialDefinitionsGeneration = -1;
+let transparentMaterialDefinitionsPromise = null;
+let transparentMaterialDefinitions = new Map();
 const MAX_CONCURRENT_MODEL_RESOLVES = 48;
 const MODEL_REBUILD_THROTTLE_MS = 100;
 
@@ -65,6 +68,7 @@ export async function renderGridScene(scene) {
     renderSummary(scene, resolutionStats, textureStats);
 
     await ensureArmorSkinDefinitionsLoaded();
+    await ensureTransparentMaterialDefinitionsLoaded();
     if (renderToken !== modelRenderToken) return;
 
     await resolveReferencedModelsProgressively(scene, modelAssets, resolutionStats, progress, renderToken);
@@ -456,27 +460,31 @@ function patternUvOffset(patternOffset) {
 }
 
 function sharedModelMaterial(model, group, block, renderContext) {
-    const skin = materialSkinOverride(block, group.materialName);
-    const textures = skin ? { ...(group.textures || {}), ...skin.textures } : group.textures;
-    const key = `${model.logicalPath}|${group.materialIndex}|${group.materialName}|${group.technique}|${stableTextureKey(textures)}|metalnessColorable=${skin && skin.metalnessColorable ? 1 : 0}`;
-    if (renderContext.materials.has(key)) return renderContext.materials.get(key);
-
     const technique = String(group.technique || "MESH").toUpperCase();
     const renderMode = modelMaterialRenderMode(technique);
+    const colorMaskable = !technique.includes("GLASS");
+    const skin = materialSkinOverride(block, group.materialName);
+    const transparentMaterial = transparentMaterialForGroup(group, technique);
+    const textures = materialTexturesForGroup(group, skin, transparentMaterial);
+    const key = `${model.logicalPath}|${group.materialIndex}|${group.materialName}|${group.technique}|${stableTextureKey(textures)}|glass=${transparentMaterialKey(transparentMaterial)}|metalnessColorable=${skin && skin.metalnessColorable ? 1 : 0}`;
+    if (renderContext.materials.has(key)) return renderContext.materials.get(key);
+
+    const color = transparentMaterial && transparentMaterial.color ? new THREE.Color(transparentMaterial.color.r, transparentMaterial.color.g, transparentMaterial.color.b) : colorFromHash(`${model.logicalPath}|${group.materialName || group.materialIndex}`);
     const material = new THREE.MeshStandardMaterial({
-        color: colorFromHash(`${model.logicalPath}|${group.materialName || group.materialIndex}`),
-        roughness: 0.72,
+        color,
+        roughness: transparentMaterial && Number.isFinite(transparentMaterial.gloss) ? clamp(1 - transparentMaterial.gloss, 0, 1) : 0.72,
         metalness: 0.22,
         transparent: renderMode.blended,
-        opacity: technique.includes("GLASS") ? 0.38 : renderMode.blended ? 0.7 : 1,
+        opacity: transparentMaterial && transparentMaterial.color ? clamp(transparentMaterial.color.a, 0, 1) : technique.includes("GLASS") ? 0.38 : renderMode.blended ? 0.7 : 1,
         depthWrite: !renderMode.blended,
         side: modelMaterialSide(technique, renderMode),
     });
+    if (transparentMaterial && transparentMaterial.color) material.userData.seTransparentMaterialColor = color.clone();
     if (renderMode.blended) material.forceSinglePass = true;
     material.userData.renderCacheKey = key;
     material.userData.seRenderMode = renderMode.blended ? "blended" : renderMode.cutout ? "cutout" : "opaque";
-    applySpaceEngineersColorMasking(material, skin && skin.metalnessColorable);
-    applyModelTextures(material, { ...group, textures }, technique, renderMode, renderContext.textureToken);
+    applySpaceEngineersColorMasking(material, skin && skin.metalnessColorable, colorMaskable);
+    applyModelTextures(material, { ...group, textures }, technique, renderMode, renderContext.textureToken, colorMaskable);
     renderContext.materials.set(key, material);
     return material;
 }
@@ -553,6 +561,108 @@ function parseArmorSkinDefinitions(text) {
     return definitions;
 }
 
+async function ensureTransparentMaterialDefinitionsLoaded() {
+    if (!state.contentFolder) {
+        transparentMaterialDefinitionsGeneration = -1;
+        transparentMaterialDefinitionsPromise = null;
+        transparentMaterialDefinitions = new Map();
+        return transparentMaterialDefinitions;
+    }
+
+    const generation = getContentFolderCacheGeneration();
+    if (transparentMaterialDefinitionsGeneration === generation && transparentMaterialDefinitionsPromise) {
+        transparentMaterialDefinitions = await transparentMaterialDefinitionsPromise;
+        return transparentMaterialDefinitions;
+    }
+
+    transparentMaterialDefinitionsGeneration = generation;
+    transparentMaterialDefinitionsPromise = loadTransparentMaterialDefinitions();
+    transparentMaterialDefinitions = await transparentMaterialDefinitionsPromise;
+    state.stats["Transparent materials loaded"] = transparentMaterialDefinitions.size;
+    updateTimingStats();
+    return transparentMaterialDefinitions;
+}
+
+async function loadTransparentMaterialDefinitions() {
+    const start = performance.now();
+    try {
+        const resolved = await resolveContentFile("Data/TransparentMaterials.sbc");
+        if (!resolved) return new Map();
+
+        const file = await resolved.getFile();
+        return parseTransparentMaterialDefinitions(await file.text());
+    } catch (error) {
+        log(`Transparent material definitions unavailable: ${error.message}`, true);
+        return new Map();
+    } finally {
+        addTiming("transparentMaterialDefinitionRead", performance.now() - start);
+    }
+}
+
+function parseTransparentMaterialDefinitions(text) {
+    const document = new DOMParser().parseFromString(text, "application/xml");
+    const parseError = document.querySelector("parsererror");
+    if (parseError) throw new Error(parseError.textContent || "invalid TransparentMaterials.sbc XML");
+
+    const definitions = new Map();
+    for (const node of document.querySelectorAll("TransparentMaterial")) {
+        const subtype = assetModifierSubtype(node);
+        if (!subtype) continue;
+
+        const texture = normalizeLogicalTexturePath(directChildText(node, "Texture"));
+        const glossTexture = normalizeLogicalTexturePath(directChildText(node, "GlossTexture"));
+        definitions.set(subtype.toLowerCase(), {
+            subtype,
+            texture,
+            glossTexture,
+            color: parseVector4(directChild(node, "Color"), { r: 1, g: 1, b: 1, a: 0.38 }),
+            gloss: num(directChildText(node, "Gloss"), 0.4),
+        });
+    }
+    return definitions;
+}
+
+function parseVector4(node, fallback) {
+    if (!node) return fallback;
+    return {
+        r: num(directChildText(node, "X"), fallback.r),
+        g: num(directChildText(node, "Y"), fallback.g),
+        b: num(directChildText(node, "Z"), fallback.b),
+        a: num(directChildText(node, "W"), fallback.a),
+    };
+}
+
+function normalizeLogicalTexturePath(path) {
+    return String(path || "").trim().replaceAll("\\", "/");
+}
+
+function transparentMaterialForGroup(group, technique) {
+    if (!technique.includes("GLASS")) return null;
+
+    for (const name of [group.glassCCW, group.glassCW, group.materialName]) {
+        const definition = transparentMaterialDefinitions.get(String(name || "").trim().toLowerCase());
+        if (definition) return definition;
+    }
+
+    return transparentMaterialDefinitions.get("glass") || null;
+}
+
+function transparentMaterialKey(definition) {
+    if (!definition) return "none";
+    const color = definition.color || {};
+    return [definition.subtype, definition.texture, definition.glossTexture, color.r, color.g, color.b, color.a, definition.gloss].join("|");
+}
+
+function materialTexturesForGroup(group, skin, transparentMaterial) {
+    const textures = { ...(group.textures || {}) };
+    if (skin) Object.assign(textures, skin.textures);
+    if (transparentMaterial) {
+        if (transparentMaterial.texture) textures.GlassTexture = transparentMaterial.texture;
+        if (transparentMaterial.glossTexture) textures.GlassGlossTexture = transparentMaterial.glossTexture;
+    }
+    return textures;
+}
+
 function assetModifierSubtype(node) {
     const id = directChild(node, "Id");
     if (!id) return "";
@@ -616,14 +726,14 @@ function stableTextureKey(textures) {
         .join(";");
 }
 
-function applyModelTextures(material, group, technique, renderMode, textureToken) {
+function applyModelTextures(material, group, technique, renderMode, textureToken, colorMaskable = true) {
     const base = textureSelection(group.textures, technique.includes("GLASS")
         ? ["GlassTexture", "TransparentTexture", "ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]
         : ["ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]);
     if (base) {
         loadTrackedTexture(base, textureToken).then(texture => {
             material.map = texture;
-            material.color.set(0xffffff);
+            material.color.copy(material.userData.seTransparentMaterialColor || new THREE.Color(0xffffff));
             setSpaceEngineersColorMetalTexture(material, colorMetalTextureSelectionHasMetalness(base));
             material.needsUpdate = true;
         }).catch(error => log(`Texture fallback retained for ${base.path}: ${error.message}`, true));
@@ -638,14 +748,17 @@ function applyModelTextures(material, group, technique, renderMode, textureToken
         }).catch(error => log(`Alpha-mask texture fallback retained for ${alphaMask.path}: ${error.message}`, true));
     }
 
-    const colorMask = colorMaskTextureSelection(group.textures);
+    const colorMask = colorMaskable ? colorMaskTextureSelection(group.textures) : null;
     if (colorMask) {
         loadTrackedTexture(colorMask, textureToken).then(texture => {
             setSpaceEngineersColorMaskTexture(material, texture);
         }).catch(error => log(`Paint mask texture fallback retained for ${colorMask.path}: ${error.message}`, true));
     }
 
-    const normal = textureSelection(group.textures, ["NormalGlossTexture", "NormalTexture", "NormalMapTexture"]);
+    const normalSlots = technique.includes("GLASS")
+        ? ["GlassGlossTexture", "NormalGlossTexture", "NormalTexture", "NormalMapTexture"]
+        : ["NormalGlossTexture", "NormalTexture", "NormalMapTexture"];
+    const normal = textureSelection(group.textures, normalSlots);
     if (normal) {
         loadTrackedTexture(normal, textureToken).then(texture => {
             material.normalMap = texture;
@@ -714,12 +827,13 @@ function textureSelection(textures, preferredSlots) {
     return null;
 }
 
-function applySpaceEngineersColorMasking(material, metalnessColorable) {
+function applySpaceEngineersColorMasking(material, metalnessColorable, colorMaskable = true) {
     material.userData.seColorMaskUniforms = {
         seColorMaskMap: { value: fallbackWhiteTexture() },
         seUseColorMaskMap: { value: false },
         seColorMaskRedChannel: { value: 0 },
         seBlockColorMask: { value: new THREE.Vector3(0, -1, 0) },
+        seApplyColorMask: { value: !!colorMaskable },
         seMetalnessColorable: { value: !!metalnessColorable },
         seUseColorMetalAlpha: { value: false },
         seUseNormalGlossAlpha: { value: false },
@@ -735,6 +849,7 @@ uniform sampler2D seColorMaskMap;
 uniform bool seUseColorMaskMap;
 uniform float seColorMaskRedChannel;
 uniform vec3 seBlockColorMask;
+uniform bool seApplyColorMask;
 uniform bool seMetalnessColorable;
 uniform bool seUseColorMetalAlpha;
 uniform bool seUseNormalGlossAlpha;
@@ -811,7 +926,8 @@ float seRemoveMetalnessFromColoring(float metalness, float coloring) {
 #ifdef USE_MAP
   if (seUseColorMetalAlpha) metalnessFactor = clamp(sampledDiffuseColor.a, 0.0, 1.0);
 #endif`);
-        shader.fragmentShader = shader.fragmentShader.replace("#include <color_fragment>", `vec3 sePaintMask = seBlockColorMask;
+        shader.fragmentShader = shader.fragmentShader.replace("#include <color_fragment>", `if (seApplyColorMask) {
+    vec3 sePaintMask = seBlockColorMask;
 #if defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR ) || defined( USE_BATCHING_COLOR )
     sePaintMask = vColor.rgb;
 #endif
@@ -824,9 +940,10 @@ float seRemoveMetalnessFromColoring(float metalness, float coloring) {
     diffuseColor.rgb = seColorizeGray(diffuseColor.rgb, sePaintMask, seColoringFactor);
 #else
     diffuseColor.rgb = seColorizeGray(diffuseColor.rgb, sePaintMask, 1.0);
-#endif`);
+#endif
+}`);
     };
-    material.customProgramCacheKey = () => "se-grid-viewer-color-mask-v3";
+    material.customProgramCacheKey = () => "se-grid-viewer-color-mask-v4";
 }
 
 function applyDefaultBlockColorMaskUniforms(renderer, scene, camera, geometry, material) {
