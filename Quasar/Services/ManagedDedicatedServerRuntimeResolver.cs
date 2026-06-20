@@ -97,7 +97,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         string launcherExecutablePath;
         if (LooksLikeDedicatedServerExecutable(configuredExecutablePath) || string.IsNullOrWhiteSpace(configuredExecutablePath))
         {
-            launcherExecutablePath = await EnsureManagedMagnetarInstallAsync(runtimeFlavor, cancellationToken);
+            launcherExecutablePath = await EnsureManagedMagnetarInstallAsync(runtimeFlavor, progress: null, cancellationToken);
         }
         else
         {
@@ -213,7 +213,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             "Space Engineers Dedicated Server ready.",
             Path: dedicatedServer64Path));
 
-        await EnsureManagedMagnetarInstallAsync(ManagedServerRuntime.DotNet10, cancellationToken);
+        await EnsureManagedMagnetarInstallAsync(ManagedServerRuntime.DotNet10, progress, cancellationToken);
 
         return new ManagedRuntimeReadiness(
             true,
@@ -223,27 +223,40 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             string.Empty);
     }
 
-    public Task EnsureManagedMagnetarCurrentAsync(CancellationToken cancellationToken = default) =>
-        EnsureManagedMagnetarInstallAsync(ManagedServerRuntime.DotNet10, cancellationToken);
+    public Task EnsureManagedMagnetarCurrentAsync(
+        IProgress<ManagedRuntimeInstallProgress>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        EnsureManagedMagnetarInstallAsync(ManagedServerRuntime.DotNet10, progress, cancellationToken);
 
-    private Task<string> EnsureManagedMagnetarInstallAsync(ManagedServerRuntime runtime, CancellationToken cancellationToken)
+    private Task<string> EnsureManagedMagnetarInstallAsync(
+        ManagedServerRuntime runtime,
+        IProgress<ManagedRuntimeInstallProgress>? progress,
+        CancellationToken cancellationToken)
     {
         // Windows ships both Magnetar builds side-by-side (exes + per-runtime Libraries
         // subfolders, no Bin/ wrapper); Linux ships a single Interim build behind a
         // top-level wrapper with the apphost under Bin/. The two layouts need different
         // install logic, but both paths compare the installed marker against latest first.
         return OperatingSystem.IsWindows()
-            ? EnsureWindowsManagedMagnetarInstallAsync(runtime, cancellationToken)
-            : EnsureLinuxManagedMagnetarInstallAsync(cancellationToken);
+            ? EnsureWindowsManagedMagnetarInstallAsync(runtime, progress, cancellationToken)
+            : EnsureLinuxManagedMagnetarInstallAsync(progress, cancellationToken);
     }
 
-    private async Task<string> EnsureLinuxManagedMagnetarInstallAsync(CancellationToken cancellationToken)
+    private async Task<string> EnsureLinuxManagedMagnetarInstallAsync(
+        IProgress<ManagedRuntimeInstallProgress>? progress,
+        CancellationToken cancellationToken)
     {
         var installDirectory = _options.MagnetarInstallDirectory;
 
         await _magnetarInstallLock.WaitAsync(cancellationToken);
         try
         {
+            progress?.Report(new ManagedRuntimeInstallProgress(
+                ManagedRuntimeInstallComponent.Magnetar,
+                ManagedRuntimeInstallPhase.Checking,
+                "Checking Magnetar runtime install.",
+                Path: installDirectory));
+
             // Resolve to the actual apphost binary under Bin/, never the top-level
             // MagnetarInterim wrapper script. The wrapper only `cd`s into Bin/ and execs
             // this binary; Quasar runs the binary directly with Bin/ as the working
@@ -254,7 +267,14 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 binaryLauncherPath ?? string.Empty,
                 cancellationToken);
             if (!string.IsNullOrWhiteSpace(binaryLauncherPath) && IsCurrentMagnetarInstall(installDirectory, archive))
+            {
+                progress?.Report(new ManagedRuntimeInstallProgress(
+                    ManagedRuntimeInstallComponent.Magnetar,
+                    ManagedRuntimeInstallPhase.Ready,
+                    BuildMagnetarReadyMessage(archive),
+                    Path: binaryLauncherPath));
                 return binaryLauncherPath;
+            }
 
             if (!string.IsNullOrWhiteSpace(binaryLauncherPath))
             {
@@ -270,7 +290,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
             try
             {
-                await DownloadAndExtractMagnetarArchiveAsync(archive, extractRoot, cancellationToken);
+                await DownloadAndExtractMagnetarArchiveAsync(archive, extractRoot, progress, cancellationToken);
 
                 var source = FindMagnetarSource(extractRoot)
                              ?? throw new InvalidOperationException("Downloaded Magnetar archive did not contain MagnetarInterim with a Bin payload.");
@@ -283,6 +303,11 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 if (Directory.Exists(installDirectory))
                     Directory.Delete(installDirectory, recursive: true);
 
+                progress?.Report(new ManagedRuntimeInstallProgress(
+                    ManagedRuntimeInstallComponent.Magnetar,
+                    ManagedRuntimeInstallPhase.Installing,
+                    $"Installing Magnetar runtime {archive.DisplayName}.",
+                    Path: installDirectory));
                 Directory.CreateDirectory(installDirectory);
                 CopyDirectory(source.BinDirectory, Path.Combine(installDirectory, "Bin"));
                 binaryLauncherPath = FindImmediateFile(Path.Combine(installDirectory, "Bin"), MagnetarLauncherFileNames)
@@ -292,6 +317,11 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 await WriteInstalledMagnetarReleaseAsync(installDirectory, archive, cancellationToken);
 
                 _logger.LogInformation("Installed managed Magnetar runtime {Release} into {Path}.", archive.DisplayName, installDirectory);
+                progress?.Report(new ManagedRuntimeInstallProgress(
+                    ManagedRuntimeInstallComponent.Magnetar,
+                    ManagedRuntimeInstallPhase.Ready,
+                    BuildMagnetarReadyMessage(archive),
+                    Path: binaryLauncherPath));
                 return binaryLauncherPath;
             }
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested &&
@@ -303,6 +333,11 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                     "Failed updating managed Magnetar runtime to {Release}. Continuing with existing runtime at {Path}.",
                     archive.DisplayName,
                     binaryLauncherPath);
+                progress?.Report(new ManagedRuntimeInstallProgress(
+                    ManagedRuntimeInstallComponent.Magnetar,
+                    ManagedRuntimeInstallPhase.Ready,
+                    "Using existing Magnetar runtime after update failure.",
+                    Path: binaryLauncherPath));
                 return binaryLauncherPath;
             }
             finally
@@ -316,7 +351,10 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         }
     }
 
-    private async Task<string> EnsureWindowsManagedMagnetarInstallAsync(ManagedServerRuntime runtime, CancellationToken cancellationToken)
+    private async Task<string> EnsureWindowsManagedMagnetarInstallAsync(
+        ManagedServerRuntime runtime,
+        IProgress<ManagedRuntimeInstallProgress>? progress,
+        CancellationToken cancellationToken)
     {
         var installDirectory = _options.MagnetarInstallDirectory;
         var launcherFileName = GetWindowsMagnetarLauncherFileName(runtime);
@@ -324,6 +362,12 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         await _magnetarInstallLock.WaitAsync(cancellationToken);
         try
         {
+            progress?.Report(new ManagedRuntimeInstallProgress(
+                ManagedRuntimeInstallComponent.Magnetar,
+                ManagedRuntimeInstallPhase.Checking,
+                "Checking Magnetar runtime install.",
+                Path: installDirectory));
+
             // Both builds (Interim + Legacy) install together into a single folder. Resolve
             // to the requested exe; its containing folder is the working directory (where
             // the Libraries payload lives).
@@ -332,7 +376,14 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 File.Exists(launcherPath) ? launcherPath : string.Empty,
                 cancellationToken);
             if (File.Exists(launcherPath) && IsCurrentMagnetarInstall(installDirectory, archive))
+            {
+                progress?.Report(new ManagedRuntimeInstallProgress(
+                    ManagedRuntimeInstallComponent.Magnetar,
+                    ManagedRuntimeInstallPhase.Ready,
+                    BuildMagnetarReadyMessage(archive),
+                    Path: launcherPath));
                 return launcherPath;
+            }
 
             if (File.Exists(launcherPath))
             {
@@ -348,7 +399,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
             try
             {
-                await DownloadAndExtractMagnetarArchiveAsync(archive, extractRoot, cancellationToken);
+                await DownloadAndExtractMagnetarArchiveAsync(archive, extractRoot, progress, cancellationToken);
 
                 var source = FindWindowsMagnetarSource(extractRoot)
                              ?? throw new InvalidOperationException(
@@ -357,6 +408,11 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 if (Directory.Exists(installDirectory))
                     Directory.Delete(installDirectory, recursive: true);
 
+                progress?.Report(new ManagedRuntimeInstallProgress(
+                    ManagedRuntimeInstallComponent.Magnetar,
+                    ManagedRuntimeInstallPhase.Installing,
+                    $"Installing Magnetar runtime {archive.DisplayName}.",
+                    Path: installDirectory));
                 Directory.CreateDirectory(installDirectory);
                 CopyDirectory(source, installDirectory);
 
@@ -368,6 +424,11 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 await WriteInstalledMagnetarReleaseAsync(installDirectory, archive, cancellationToken);
 
                 _logger.LogInformation("Installed managed Magnetar runtime {Release} into {Path}.", archive.DisplayName, installDirectory);
+                progress?.Report(new ManagedRuntimeInstallProgress(
+                    ManagedRuntimeInstallComponent.Magnetar,
+                    ManagedRuntimeInstallPhase.Ready,
+                    BuildMagnetarReadyMessage(archive),
+                    Path: launcherPath));
                 return launcherPath;
             }
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested && File.Exists(launcherPath))
@@ -377,6 +438,11 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                     "Failed updating managed Magnetar runtime to {Release}. Continuing with existing runtime at {Path}.",
                     archive.DisplayName,
                     launcherPath);
+                progress?.Report(new ManagedRuntimeInstallProgress(
+                    ManagedRuntimeInstallComponent.Magnetar,
+                    ManagedRuntimeInstallPhase.Ready,
+                    "Using existing Magnetar runtime after update failure.",
+                    Path: launcherPath));
                 return launcherPath;
             }
             finally
@@ -393,6 +459,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     private async Task DownloadAndExtractMagnetarArchiveAsync(
         MagnetarArchiveReference archive,
         string extractRoot,
+        IProgress<ManagedRuntimeInstallProgress>? progress,
         CancellationToken cancellationToken)
     {
         using var client = _httpClientFactory.CreateClient();
@@ -408,11 +475,20 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 $"Failed downloading Magnetar archive from {archive.ArchiveUrl}. Status={(int)response.StatusCode} {response.ReasonPhrase}.");
         }
 
-        await using (var archiveFile = File.Create(archivePath))
-        {
-            await response.Content.CopyToAsync(archiveFile, cancellationToken);
-        }
+        await CopyToFileWithProgressAsync(
+            response.Content,
+            archivePath,
+            percent => progress?.Report(new ManagedRuntimeInstallProgress(
+                ManagedRuntimeInstallComponent.Magnetar,
+                ManagedRuntimeInstallPhase.Downloading,
+                $"Downloading Magnetar runtime {archive.DisplayName}.",
+                percent)),
+            cancellationToken);
 
+        progress?.Report(new ManagedRuntimeInstallProgress(
+            ManagedRuntimeInstallComponent.Magnetar,
+            ManagedRuntimeInstallPhase.Installing,
+            $"Extracting Magnetar runtime {archive.DisplayName}."));
         ExtractArchive(archivePath, extractRoot);
     }
 
@@ -556,6 +632,11 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
     private static string DescribeInstalledMagnetarRelease(string installDirectory) =>
         ReadInstalledMagnetarRelease(installDirectory)?.DisplayName ?? "unknown";
+
+    private static string BuildMagnetarReadyMessage(MagnetarArchiveReference archive) =>
+        archive.SourceKind == MagnetarArchiveSourceKinds.ExistingUnknown
+            ? "Magnetar runtime ready."
+            : $"Magnetar runtime {archive.DisplayName} ready.";
 
     private static InstalledMagnetarRelease? ReadInstalledMagnetarRelease(string installDirectory)
     {
@@ -1605,6 +1686,7 @@ public enum ManagedRuntimeInstallComponent
 {
     SteamCmd = 0,
     DedicatedServer = 1,
+    Magnetar = 2,
 }
 
 public enum ManagedRuntimeInstallPhase

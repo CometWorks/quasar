@@ -67,7 +67,7 @@ MODULES = [
      "health (agent heartbeat, simulation-frame progress, uptime thresholds), and persists/adopts process state "
      "across Quasar restarts. `AgentRegistry` and `AgentSocketHandler` own the WebSocket agents and route "
      "fire-and-forget and request/response commands. `DedicatedServerRuntimePreparer`, "
-     "`ManagedDedicatedServerRuntimeResolver` and the warmup service check/download managed SteamCMD and "
+     "`ManagedDedicatedServerRuntimeResolver` and the warmup service check/download managed SteamCMD, Magnetar and "
      "Dedicated Server prerequisites, gate managed launches until ready, stage the managed runtime, and write every "
      "config artifact before launch. A family of file-backed, live-reloading catalogs persist instance "
      "definitions, config profiles, world templates, known players, plugins, dev folders and Steam credentials, "

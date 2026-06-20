@@ -48,7 +48,7 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
             {
                 return _snapshot.State == ManagedRuntimeWarmupState.Failed
                     ? _snapshot.Message
-                    : "Managed SteamCMD and Dedicated Server runtime are still preparing.";
+                    : "Managed SteamCMD, Magnetar, and Dedicated Server runtime are still preparing.";
             }
         }
     }
@@ -80,7 +80,7 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
 
         try
         {
-            SetState(ManagedRuntimeWarmupState.Running, "Preparing managed SteamCMD and Dedicated Server runtime.");
+            SetState(ManagedRuntimeWarmupState.Running, "Preparing managed SteamCMD, Magnetar, and Dedicated Server runtime.");
 
             var progress = new Progress<ManagedRuntimeInstallProgress>(ApplyProgress);
             var readiness = await _runtimeResolver.EnsureManagedRuntimeReadyAsync(progress, stoppingToken);
@@ -90,7 +90,7 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
                 return;
             }
 
-            SetState(ManagedRuntimeWarmupState.Complete, "Managed SteamCMD and Dedicated Server runtime ready.");
+            SetState(ManagedRuntimeWarmupState.Complete, "Managed SteamCMD, Magnetar, and Dedicated Server runtime ready.");
         }
         catch (OperationCanceledException)
         {
@@ -113,7 +113,8 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
 
         try
         {
-            await _runtimeResolver.EnsureManagedMagnetarCurrentAsync(stoppingToken);
+            var progress = new Progress<ManagedRuntimeInstallProgress>(ApplyProgress);
+            await _runtimeResolver.EnsureManagedMagnetarCurrentAsync(progress, stoppingToken);
         }
         catch (OperationCanceledException)
         {
@@ -121,6 +122,10 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Managed Magnetar update check failed.");
+            ApplyProgress(new ManagedRuntimeInstallProgress(
+                ManagedRuntimeInstallComponent.Magnetar,
+                ManagedRuntimeInstallPhase.Failed,
+                exception.Message));
         }
         finally
         {
@@ -163,14 +168,20 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
     {
         lock (_sync)
         {
+            var state = MapState(progress.Phase);
             _snapshot = _snapshot.WithComponent(progress.Component, component => component with
             {
-                State = MapState(progress.Phase),
+                State = state,
                 Message = progress.Message,
                 Percent = progress.Percent,
                 Path = progress.Path,
             }) with
             {
+                Message = state is ManagedRuntimeComponentState.Checking
+                    or ManagedRuntimeComponentState.Downloading
+                    or ManagedRuntimeComponentState.Installing
+                    ? progress.Message
+                    : _snapshot.Message,
                 UpdatedAtUtc = DateTimeOffset.UtcNow,
             };
         }
@@ -219,6 +230,13 @@ public sealed record ManagedRuntimeWarmupSnapshot
                 DisplayName = "SteamCMD",
                 State = ManagedRuntimeComponentState.Pending,
                 Message = "Waiting to check SteamCMD.",
+            },
+            new ManagedRuntimeComponentSnapshot
+            {
+                Component = ManagedRuntimeInstallComponent.Magnetar,
+                DisplayName = "Magnetar",
+                State = ManagedRuntimeComponentState.Pending,
+                Message = "Waiting to check Magnetar runtime.",
             },
             new ManagedRuntimeComponentSnapshot
             {

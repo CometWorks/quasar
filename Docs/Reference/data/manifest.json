@@ -744,8 +744,8 @@
       "path": "Quasar/Components/Pages/Home.razor",
       "name": "Home.razor",
       "ext": ".razor",
-      "size": 47503,
-      "sha256": "4d3e982072a88b6a758f498b48bdf5066825457c320e9968c417b5bba85bb59c",
+      "size": 48384,
+      "sha256": "6967a7c017b49d8adfcab95d990bc38d8fea44f903850e600b35e00cb82d7d0a",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -1714,8 +1714,8 @@
       "path": "Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs",
       "name": "ManagedDedicatedServerRuntimeResolver.cs",
       "ext": ".cs",
-      "size": 65814,
-      "sha256": "a0b8d6ff06dd4cff7b272a2f781bd07a5039ce97e75c9a282452984f0df0f02f",
+      "size": 69981,
+      "sha256": "8e37141513322c684972f096ada9bd0dc5de977e2a58aefbe57c899831a6c59d",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "pending"
@@ -1734,8 +1734,8 @@
       "path": "Quasar/Services/ManagedRuntimeWarmupService.cs",
       "name": "ManagedRuntimeWarmupService.cs",
       "ext": ".cs",
-      "size": 8498,
-      "sha256": "2b0f99ba159b4809404b0817d028afaf490fecaf0b8490110d098f09a25d9e19",
+      "size": 9459,
+      "sha256": "1d7ac7af0aeeca0aabafe4f5237b46d1de63f9b9b83e259b621545b58e16f41d",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "pending"
