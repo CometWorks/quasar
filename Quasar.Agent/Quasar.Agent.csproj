@@ -12,6 +12,13 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <PropertyGroup>
+    <!-- Agent deploy drift is detected by SHA-256. Release version attributes
+         would change the DLL bytes even when the agent code did not change. -->
+    <GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
+    <GenerateAssemblyFileVersionAttribute>false</GenerateAssemblyFileVersionAttribute>
+    <GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>
+  </PropertyGroup>
+  <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFramework>netstandard2.0</TargetFramework>
     <Nullable>disable</Nullable>

@@ -20,7 +20,7 @@ Class `AgentHello` (concrete, no base type):
 | `ServerName` | `string` | Display name of the SE dedicated server. |
 | `WorldName` | `string` | Active world name. |
 | `PluginId` | `string` | Plugin identifier of `Quasar.Agent` (version-independent). |
-| `PluginVersion` | `string` | Semver string of the loaded agent plugin. |
+| `PluginVersion` | `string` | Optional version string reported by the loaded agent plugin; Quasar's bundled agent normally leaves this blank because deploy drift is hash-based. |
 | `ProcessId` | `int` | PID of the DS process. |
 | `ProcessName` | `string` | Process image name. |
 | `GameVersion` | `string` | Space Engineers game version string. |

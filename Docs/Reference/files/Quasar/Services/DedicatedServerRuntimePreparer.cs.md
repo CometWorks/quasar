@@ -4,7 +4,7 @@
 
 ## Summary
 
-`DedicatedServerRuntimePreparer` transforms a `DedicatedServerDefinition` into a fully staged on-disk runtime immediately before a dedicated server process is launched. It writes the runtime DS config XML including the per-server advertised `ServerName`/`WorldName`, the Magnetar plugin sources/profile XML, the world `Sandbox_config.sbc` session settings and mod list, and the `LastSession.sbl` pointer file; deploys the Quasar.Agent DLLs plus runtime-specific Harmony dependency; seeds the world from a template if needed; and computes the final command-line arguments string. The output is a `PreparedDedicatedServerLaunch` record.
+`DedicatedServerRuntimePreparer` transforms a `DedicatedServerDefinition` into a fully staged on-disk runtime immediately before a dedicated server process is launched. It writes the runtime DS config XML including the per-server advertised `ServerName`/`WorldName`, the Magnetar plugin sources/profile XML, the world `Sandbox_config.sbc` session settings and mod list, and the `LastSession.sbl` pointer file; deploys the bundled Quasar.Agent DLLs plus runtime-specific Harmony dependency; exposes bundled-vs-deployed agent hash comparison for manual refresh warnings; seeds the world from a template if needed; and computes the final command-line arguments string. The output is a `PreparedDedicatedServerLaunch` record.
 
 ## Structure
 
@@ -15,7 +15,7 @@ Namespace: `Quasar.Services`
 | Member | Description |
 |---|---|
 | `PrepareAsync(DedicatedServerDefinition, dedicatedServer64Path, ct)` | Orchestrates all sub-steps; returns `PreparedDedicatedServerLaunch`. |
-| `GetDeployableAgentVersion()` | Locates the bundled/dev `Quasar.Agent.dll` with the same search path used for deployment and reads its assembly version for restart-time stale-agent checks. |
+| `GetAgentDeploymentComparison(definition)` | Computes SHA-256 hashes for the bundled deployable `Quasar.Agent.dll` and that server's deployed Magnetar `Local/Quasar.Agent.dll`; missing deployed file is treated as drift when a bundled hash exists. |
 | `PrepareRuntimeConfigAsync(...)` | Loads or creates `SpaceEngineers-Dedicated.cfg` as `XDocument`; upserts `IgnoreLastSession=false`, the game `ServerPort` and its derived `SteamPort` (`ServerPort + 1000`) / `RemoteApiPort` (`ServerPort + 2000`), IP, per-server `ServerName`/`WorldName`, all config-profile settings including block type limits, and DS-compatible password hash/salt; writes atomically. |
 | `WriteLastSessionAsync(...)` | Writes `Saves/LastSession.sbl` XML pointing at the world path (absolute + relative) and uses the effective per-server world name for `GameName`. |
 | `PrepareMagnetarConfigAsync(...)` | Writes `Sources/sources.xml` and `Profiles/Current.xml`; deploys the agent via `DeployQuasarAgentAsync`. |
@@ -27,6 +27,8 @@ Namespace: `Quasar.Services`
 | `BuildLaunchArguments(...)` | Expands tokens, rejects `-ignorelastsession`, strips managed flags, then appends `-noconsole -daemon -path … -config … -ds64 …`. |
 
 **`PreparedDedicatedServerLaunch`** — sealed record: `DedicatedServerAppDataPath`, `MagnetarAppDataPath`, `DedicatedServer64Path`, `WorldPath`, `RuntimeConfigPath`, `LastSessionPath`, `Arguments`.
+
+**`AgentDeploymentComparison`** — sealed record: bundled path/hash, deployed path/hash, `CanCompare`, and `HasMismatch`.
 
 Private `RemotePluginSourceSet` record (`UseDefaultHub`, `Entries`). Compiled regexes strip/reject CLI flags: `-ignorelastsession`, `-console`, `-noconsole`, `-path`, `-config`, `-ds64`, `-nosplash`, `-daemon`.
 

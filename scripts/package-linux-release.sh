@@ -7,7 +7,7 @@ ARTIFACT_DIR="$REPO_DIR/artifacts/linux"
 CONFIGURATION="${CONFIGURATION:-Release}"
 RUNTIME="${RUNTIME:-linux-x64}"
 VERSION="${VERSION:-}"
-ASSEMBLY_FILE_VERSION="0.1.1"
+ASSEMBLY_FILE_VERSION="0.1.3"
 NUGET_VERSION="$VERSION"
 WEB_ARCHIVE_NAME="quasar-web-linux-x64.tar.gz"
 INSTALLER_ARCHIVE_NAME="quasar-installer-linux.tar.gz"
@@ -30,7 +30,7 @@ normalize_nuget_version() {
     version="${version%%+*}"
 
     if [[ -z "$version" ]]; then
-        echo "0.1.1"
+        echo "0.1.3"
         return
     fi
 
@@ -51,7 +51,7 @@ normalize_nuget_version() {
     if [[ -z "$suffix" ]]; then
         suffix="local"
     fi
-    echo "0.1.1-${suffix}"
+    echo "0.1.3-${suffix}"
 }
 
 # Builds the launcher archive's README from the repo README plus the Linux
@@ -135,10 +135,6 @@ dotnet build "$REPO_DIR/Quasar.Agent/Quasar.Agent.csproj" \
     -p:RuntimeIdentifier= \
     -p:SelfContained= \
     -p:PublishSingleFile= \
-    -p:Version="$NUGET_VERSION" \
-    -p:AssemblyVersion="$ASSEMBLY_FILE_VERSION" \
-    -p:FileVersion="$ASSEMBLY_FILE_VERSION" \
-    -p:InformationalVersion="$NUGET_VERSION" \
     -v minimal
 
 dotnet publish "$REPO_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj" \

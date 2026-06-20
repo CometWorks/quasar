@@ -436,15 +436,15 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         if (definition is null)
             throw new InvalidOperationException($"Unknown Quasar server '{uniqueName}'.");
 
-        if (TryGetAgentVersionMismatch(uniqueName, out var runningAgentVersion, out var deployableAgentVersion))
+        var agentDeployment = _runtimePreparer.GetAgentDeploymentComparison(definition);
+        if (agentDeployment.HasMismatch)
         {
             _logger.LogInformation(
-                "Restarting server {UniqueName} with a full stop/start because running Quasar.Agent version {RunningVersion} differs from bundled version {BundledVersion}.",
+                "Restarting server {UniqueName} with a full stop/start because deployed Quasar.Agent hash differs from the bundled deployable DLL. BundledHash={BundledHash}; DeployedHash={DeployedHash}.",
                 uniqueName,
-                runningAgentVersion,
-                deployableAgentVersion);
+                agentDeployment.BundledSha256,
+                string.IsNullOrWhiteSpace(agentDeployment.DeployedSha256) ? "missing" : agentDeployment.DeployedSha256);
         }
-
         definition.GoalState = DedicatedServerGoalState.On;
         definition.AutoStart = true;
         await _catalog.UpsertAsync(definition, cancellationToken);
@@ -506,6 +506,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         List<(string UniqueName, ReconcileAction Action, string Reason)> actions = new();
         List<(string UniqueName, DedicatedServerProcessPriority Priority, string Phase)> priorityActions = new();
         List<(string UniqueName, string Affinity, string Phase)> affinityActions = new();
+        List<(string UniqueName, DedicatedServerDefinition Definition)> agentDeploymentChecks = new();
         var agents = BuildAgentLookup();
         var now = DateTimeOffset.UtcNow;
         var healthChanged = false;
@@ -544,6 +545,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     state.LastMessage = "Server online.";
                     state.AgentAttachRetryAttempts = 0;
                     healthChanged = true;
+                }
+
+                if (processActive &&
+                    state.State == DedicatedServerProcessState.Running &&
+                    agent?.IsConnected == true)
+                {
+                    agentDeploymentChecks.Add((state.UniqueName, Clone(state.Definition)));
                 }
 
                 if (processActive &&
@@ -631,6 +639,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         foreach (var (uniqueName, affinity, phase) in affinityActions)
             TryApplyCpuAffinity(uniqueName, affinity, phase);
+
+        foreach (var (uniqueName, definition) in agentDeploymentChecks)
+            WarnIfAgentDeploymentMismatch(uniqueName, definition);
 
         foreach (var (uniqueName, action, reason) in actions)
         {
@@ -1963,30 +1974,54 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 StringComparer.OrdinalIgnoreCase);
     }
 
-    private bool TryGetAgentVersionMismatch(
-        string uniqueName,
-        out string runningAgentVersion,
-        out string deployableAgentVersion)
+    private void WarnIfAgentDeploymentMismatch(string uniqueName, DedicatedServerDefinition definition)
     {
-        runningAgentVersion = string.Empty;
-        deployableAgentVersion = string.Empty;
+        var comparison = _runtimePreparer.GetAgentDeploymentComparison(definition);
+        var mismatchKey = comparison.HasMismatch
+            ? $"{comparison.BundledSha256}:{comparison.DeployedSha256}"
+            : string.Empty;
+        var statusMessage = "Bundled Quasar.Agent differs from the deployed Magnetar local DLL; restart this server manually to load the bundled agent.";
+        var shouldLog = false;
+        var changed = false;
 
-        var agent = _registry.GetAgents()
-            .Where(current => current.IsConnected)
-            .Where(current => string.Equals(current.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(current => current.LastSeenUtc)
-            .FirstOrDefault();
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out var state))
+                return;
 
-        runningAgentVersion = NormalizeAgentVersion(agent?.Hello?.PluginVersion);
-        deployableAgentVersion = NormalizeAgentVersion(_runtimePreparer.GetDeployableAgentVersion());
+            if (string.IsNullOrWhiteSpace(mismatchKey))
+            {
+                state.LastAgentDeploymentMismatchKey = string.Empty;
+                return;
+            }
 
-        return !string.IsNullOrWhiteSpace(runningAgentVersion) &&
-            !string.IsNullOrWhiteSpace(deployableAgentVersion) &&
-            !string.Equals(runningAgentVersion, deployableAgentVersion, StringComparison.OrdinalIgnoreCase);
+            if (!string.Equals(state.LastAgentDeploymentMismatchKey, mismatchKey, StringComparison.Ordinal))
+            {
+                state.LastAgentDeploymentMismatchKey = mismatchKey;
+                shouldLog = true;
+            }
+
+            if (!string.Equals(state.LastMessage, statusMessage, StringComparison.Ordinal))
+            {
+                state.LastMessage = statusMessage;
+                changed = true;
+            }
+        }
+
+        if (shouldLog)
+        {
+            _logger.LogWarning(
+                "Bundled Quasar.Agent differs from deployed Magnetar local DLL for server {UniqueName}. Manual server restart required to load the bundled agent. Bundled={BundledPath} ({BundledHash}); Deployed={DeployedPath} ({DeployedHash}).",
+                uniqueName,
+                comparison.BundledPath,
+                comparison.BundledSha256,
+                string.IsNullOrWhiteSpace(comparison.DeployedPath) ? "(not configured)" : comparison.DeployedPath,
+                string.IsNullOrWhiteSpace(comparison.DeployedSha256) ? "missing" : comparison.DeployedSha256);
+        }
+
+        if (changed)
+            NotifyChanged();
     }
-
-    private static string NormalizeAgentVersion(string? version) =>
-        QuasarReleaseVersion.Normalize(version ?? string.Empty);
 
     private static ServerHealthAssessment EvaluateHealth(
         ManagedServerState state,
@@ -2616,6 +2651,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public DateTimeOffset? LastSimulationProgressEvaluatedAtUtc { get; set; }
 
         public string LastHealthySummary { get; set; } = string.Empty;
+
+        public string LastAgentDeploymentMismatchKey { get; set; } = string.Empty;
 
         public List<string> ModDownloadFailures { get; } = [];
     }

@@ -11,9 +11,10 @@ Key settings:
 - `TargetFramework`: netstandard2.0
 - `Platforms` / `PlatformTarget`: x64
 - `Nullable`: disable; `LangVersion`: latest
-- Version metadata is inherited from shared repo/package MSBuild props (or
-  release command-line overrides), so the running agent can report a version
-  comparable to the bundled Quasar release agent.
+- `GenerateAssemblyVersionAttribute`, `GenerateAssemblyFileVersionAttribute`,
+  and `GenerateAssemblyInformationalVersionAttribute`: false, so release version
+  changes do not alter `Quasar.Agent.dll` bytes. Agent drift is detected by
+  SHA-256 instead.
 
 **Reference groups:**
 
@@ -27,7 +28,9 @@ Key settings:
 
 **Package references:** `Newtonsoft.Json 13.0.3`, `Lib.Harmony 2.4.2`
 
-**Project references:** `Magnetar.Protocol/Magnetar.Protocol.csproj`
+**Project references:** `Magnetar.Protocol/Magnetar.Protocol.csproj`, which is
+also version-neutral so release version props cannot alter the agent DLL's
+referenced assembly identity.
 
 ## Dependencies
 - `Magnetar.Protocol` project

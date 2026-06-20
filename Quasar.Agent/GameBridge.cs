@@ -82,7 +82,14 @@ namespace Quasar.Agent
             _uniqueName = (Environment.GetEnvironmentVariable("QUASAR_UNIQUE_NAME")
                     ?? $"unmanaged-{_hostId}-{_processId}")
                 .Trim();
-            _pluginVersion = typeof(AdminPlugin).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+            _pluginVersion = GetAgentVersion();
+        }
+
+        private static string GetAgentVersion()
+        {
+            var assembly = typeof(AdminPlugin).Assembly;
+            return assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                ?? string.Empty;
         }
 
         public void Update()

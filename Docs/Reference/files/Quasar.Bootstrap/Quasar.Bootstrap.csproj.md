@@ -13,7 +13,7 @@ MSBuild project file for `Quasar.Bootstrap`, a `net10.0` console executable that
 | `OutputType` | Exe |
 | `TargetFramework` | net10.0 |
 | `RuntimeIdentifiers` | linux-x64;win-x64 |
-| `Version` | 0.1.0 |
+| `Version` | inherited repo default, currently 0.1.3 |
 | `ImplicitUsings` | enable |
 | `Nullable` | enable |
 | `SelfContained` (RID builds) | true |

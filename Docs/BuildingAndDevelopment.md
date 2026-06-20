@@ -23,11 +23,16 @@ The solution file is `Quasar.sln`.
 
 - `Quasar.Agent` depends on a local `DS64` path for Space Engineers Dedicated
   Server assemblies.
-- `Quasar.Agent` inherits the repo/package version. Release and publish builds
-  pass the same `Version`, `AssemblyVersion`, `FileVersion`, and
-  `InformationalVersion` props into the nested agent build so Quasar can compare
-  the bundled agent DLL with agents already loaded in running DS processes after
-  a supervisor update.
+- `Quasar.Agent` must not use Magnetar or Quasar release version stamping.
+  Release-specific assembly/file/informational version attributes are disabled
+  for the agent because they would change `Quasar.Agent.dll` bytes even when the
+  agent code did not change. `Magnetar.Protocol` is also version-neutral because
+  its assembly identity is recorded in the agent DLL reference metadata. Agent
+  deploy drift is detected by comparing the bundled deployable
+  `Agent/Quasar.Agent.dll` SHA-256 hash with the deployed Magnetar local-agent
+  DLL hash. Running servers are not restarted
+  automatically; reconciliation warns when a manual restart is needed to load a
+  newly bundled agent.
 - On Windows the solution builds out-of-the-box: `Directory.Build.props`
   auto-resolves `DS64` from the Steam registry `InstallLocation` (falling back to
   the default `C:\Program Files (x86)\Steam\...\DedicatedServer64` library) and
