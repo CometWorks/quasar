@@ -289,7 +289,7 @@ public class Program
                 return Results.File(archive.Content, "application/zip", archive.FileName);
             });
 
-            // Downloads an existing backup ZIP from the Backups directory by file name.
+            // Downloads an existing backup ZIP from the configured backup directory by file name.
             var backupDownloadByName = app.MapGet("/api/backup/download/{name}", (string name, QuasarBackupService backup) =>
             {
                 var path = backup.ResolveBackupPath(name);

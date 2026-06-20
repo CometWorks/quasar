@@ -12,6 +12,7 @@ Default application configuration for the Quasar host. Provides baseline values 
 **`Quasar`** root section (maps to `WebServiceOptions` and related):
 - `Host`: `"0.0.0.0"`, `Port`: `8080`, `Mode`: `"Console"`
 - `OpenBrowserOnStart`: `true`
+- `BackupDirectory`: empty (defaults to the Quasar data-directory `Backups` folder; editable from the Backup page; set an absolute path for another disk/share)
 - `AvoidSimultaneousScheduledRestarts`: `true`
 - `PreserveManagedServersOnShutdown`: `true`
 - `Analytics.RetentionDays`: `30` — retention window for analytics data (only the `Analytics` subsection is present; there is no `AnalyticsStore` section in this file)

@@ -3,7 +3,7 @@
 **Module:** Quasar.Services.Backup  **Kind:** class  **Tier:** 2
 
 ## Summary
-Background scheduler and manual backup queue that writes Quasar config, server, and world backups into the Backups directory. Scheduled runs follow separate `QuasarBackupSettings` rules and prune to each rule's retention count; manual UI starts are queued so Blazor page navigation is not blocked by ZIP creation.
+Background scheduler and manual backup queue that writes Quasar config, server, and world backups into the configured backup directory. Scheduled runs follow separate `QuasarBackupSettings` rules and prune to each rule's retention count; manual UI starts are queued so Blazor page navigation is not blocked by ZIP creation.
 
 ## Structure
 Namespace: `Quasar.Services.Backup`
@@ -31,4 +31,4 @@ Private `RunDueBackupAsync` checks `Configuration`, `Server`, and `World` rules 
 - [`Quasar/Models/QuasarBackupSettings.cs`](../../Models/QuasarBackupSettings.cs.md)
 
 ## Notes
-`OperationCanceledException` on shutdown is swallowed. Scheduled and queued failures are logged as warnings and the loops continue. Startup calls `QuasarBackupService.CleanupIncompleteBackupFiles()` before processing queued or scheduled work, which creates the Backups directory when missing and preserves existing directories/symlinks.
+`OperationCanceledException` on shutdown is swallowed. Scheduled and queued failures are logged as warnings and the loops continue. Startup calls `QuasarBackupService.CleanupIncompleteBackupFiles()` before processing queued or scheduled work, which creates the configured backup directory when missing and preserves existing directories/symlinks.

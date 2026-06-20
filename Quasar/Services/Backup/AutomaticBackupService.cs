@@ -265,10 +265,10 @@ public sealed class AutomaticBackupService : BackgroundService
     private static string CreateSuccessMessage(QueuedBackupJob job, int created) =>
         job.Kind switch
         {
-            QueuedBackupJobKind.Server => "Server backup created in the Backups folder.",
-            QueuedBackupJobKind.World => "World backup created in the Backups folder.",
+            QueuedBackupJobKind.Server => "Server backup created in the configured backup folder.",
+            QueuedBackupJobKind.World => "World backup created in the configured backup folder.",
             _ when created == 0 => "No enabled automatic backup rules created a backup.",
-            _ => $"Created {created} backup(s) in the Backups folder.",
+            _ => $"Created {created} backup(s) in the configured backup folder.",
         };
 
     private static string CreateFailureMessage(QueuedBackupJob job, Exception exception) =>

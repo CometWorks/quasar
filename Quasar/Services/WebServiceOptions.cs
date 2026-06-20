@@ -29,6 +29,8 @@ public sealed class WebServiceOptions
 
     public bool OpenBrowserOnStart { get; init; } = true;
 
+    public string BackupDirectory { get; set; } = MagnetarPaths.GetQuasarBackupsDirectory();
+
     public string LoggingDirectory { get; init; } = MagnetarPaths.GetQuasarLogDirectory();
 
     public string LoggingFormat { get; init; } = "text";
@@ -95,6 +97,9 @@ public sealed class WebServiceOptions
 
         if (!bool.TryParse(openBrowserValue, out var openBrowserOnStart))
             openBrowserOnStart = true;
+
+        var backupDirectory = ResolveBackupDirectory(
+            Environment.GetEnvironmentVariable("QUASAR_BACKUP_DIR") ?? section["BackupDirectory"]);
 
         var loggingDirectory = Environment.GetEnvironmentVariable("QUASAR_LOG_DIR")
                                ?? loggingSection["Directory"];
@@ -186,6 +191,7 @@ public sealed class WebServiceOptions
             HostName = hostName,
             Mode = mode,
             OpenBrowserOnStart = openBrowserOnStart,
+            BackupDirectory = backupDirectory,
             LoggingDirectory = loggingDirectory,
             LoggingFormat = loggingFormat,
             LoggingMinimumLevel = loggingMinimumLevel,
@@ -203,5 +209,20 @@ public sealed class WebServiceOptions
             LauncherToken = launcherToken,
             BootstrapVersion = bootstrapVersion,
         };
+    }
+
+    public static string ResolveBackupDirectory(string? value) =>
+        ResolveDirectoryOption(value, MagnetarPaths.GetQuasarBackupsDirectory());
+
+    private static string ResolveDirectoryOption(string? value, string defaultPath)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return Path.GetFullPath(defaultPath);
+
+        var directory = value.Trim();
+        if (!Path.IsPathRooted(directory))
+            directory = Path.Combine(MagnetarPaths.GetQuasarDirectory(), directory);
+
+        return Path.GetFullPath(directory);
     }
 }
