@@ -36,7 +36,10 @@ manual extract does not spill files into the current folder.
 Version normalization is identical to `scripts/package-linux-release.sh`: the same
 input yields the same `AssemblyVersion`/`FileVersion` (`major.minor.build`) and
 the same `AssemblyInformationalVersion` (which keeps prerelease labels such as
-`0.1.0-main.7` and drives update comparisons).
+`0.1.0-main.7` and drives update comparisons). The bundled `Quasar.Agent.dll`
+is stamped with the same assembly version; after a worker update, the next
+server Restart compares the attached agent version with that bundled DLL and
+uses a full stop/start when they differ so the new plugin is loaded.
 
 The `build-windows` job in the unified `.github/workflows/release.yml` builds these
 assets on `windows-latest`, caching only `DedicatedServer64/` keyed by the Space

@@ -54,6 +54,12 @@ agent attaches; `Restarting` shows `Kill` to cancel the pending relaunch.
 `Running` shows `Stop`/`Restart`; `Stopped`, `Crashed`, and `Faulted` show
 `Start`.
 
+Restart is a supervisor-owned stop/start sequence. If the attached
+`Quasar.Agent` reports a different version than the bundled deployable agent,
+the restart is logged as an agent-refresh restart; the subsequent launch prep
+copies the bundled plugin into Magnetar's local plugin folder before starting
+the DS process.
+
 ```mermaid
 stateDiagram-v2
     direction LR

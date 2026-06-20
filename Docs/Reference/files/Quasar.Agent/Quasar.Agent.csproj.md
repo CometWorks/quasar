@@ -11,6 +11,9 @@ Key settings:
 - `TargetFramework`: netstandard2.0
 - `Platforms` / `PlatformTarget`: x64
 - `Nullable`: disable; `LangVersion`: latest
+- Version metadata is inherited from shared repo/package MSBuild props (or
+  release command-line overrides), so the running agent can report a version
+  comparable to the bundled Quasar release agent.
 
 **Reference groups:**
 

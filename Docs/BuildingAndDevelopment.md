@@ -23,6 +23,11 @@ The solution file is `Quasar.sln`.
 
 - `Quasar.Agent` depends on a local `DS64` path for Space Engineers Dedicated
   Server assemblies.
+- `Quasar.Agent` inherits the repo/package version. Release and publish builds
+  pass the same `Version`, `AssemblyVersion`, `FileVersion`, and
+  `InformationalVersion` props into the nested agent build so Quasar can compare
+  the bundled agent DLL with agents already loaded in running DS processes after
+  a supervisor update.
 - On Windows the solution builds out-of-the-box: `Directory.Build.props`
   auto-resolves `DS64` from the Steam registry `InstallLocation` (falling back to
   the default `C:\Program Files (x86)\Steam\...\DedicatedServer64` library) and

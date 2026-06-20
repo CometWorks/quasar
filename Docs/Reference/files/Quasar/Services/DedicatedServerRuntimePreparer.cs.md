@@ -15,6 +15,7 @@ Namespace: `Quasar.Services`
 | Member | Description |
 |---|---|
 | `PrepareAsync(DedicatedServerDefinition, dedicatedServer64Path, ct)` | Orchestrates all sub-steps; returns `PreparedDedicatedServerLaunch`. |
+| `GetDeployableAgentVersion()` | Locates the bundled/dev `Quasar.Agent.dll` with the same search path used for deployment and reads its assembly version for restart-time stale-agent checks. |
 | `PrepareRuntimeConfigAsync(...)` | Loads or creates `SpaceEngineers-Dedicated.cfg` as `XDocument`; upserts `IgnoreLastSession=false`, the game `ServerPort` and its derived `SteamPort` (`ServerPort + 1000`) / `RemoteApiPort` (`ServerPort + 2000`), IP, per-server `ServerName`/`WorldName`, all config-profile settings including block type limits, and DS-compatible password hash/salt; writes atomically. |
 | `WriteLastSessionAsync(...)` | Writes `Saves/LastSession.sbl` XML pointing at the world path (absolute + relative) and uses the effective per-server world name for `GameName`. |
 | `PrepareMagnetarConfigAsync(...)` | Writes `Sources/sources.xml` and `Profiles/Current.xml`; deploys the agent via `DeployQuasarAgentAsync`. |
@@ -43,7 +44,7 @@ Private `RemotePluginSourceSet` record (`UseDefaultHub`, `Entries`). Compiled re
 - `Quasar/Services/QuasarDevFolderCatalog.cs` — dev-folder selections
 - `Quasar/Models/DedicatedServerDefinition.cs`, `Quasar/Models/QuasarConfigMetadata.cs`, `Quasar/Models/WorldSandboxConfigEditor.cs`
 - `Magnetar.Protocol.Runtime` — `MagnetarPaths` (indirectly via catalogs)
-- BCL `System.Xml.Linq`, `System.Security.Cryptography.SHA256`
+- BCL `System.Xml.Linq`, `System.Security.Cryptography.SHA256`, `System.Reflection.AssemblyName`
 
 ## Notes
 

@@ -92,6 +92,14 @@ The pointer is `Updates/active-release.json`
 written by the worker's `Activating` step and observed via a `FileSystemWatcher`
 (debounced ~250ms).
 
+Managed DS processes are not stopped during worker cutover, so their loaded
+`Quasar.Agent` assembly can remain older than the newly active web release. On a
+later server Restart action, `DedicatedServerSupervisor.RestartServerAsync`
+compares the attached agent's hello version with the bundled
+`Agent/Quasar.Agent.dll`; a mismatch is handled by the normal full stop/start
+path, which runs launch preparation and injects the current agent before the
+process starts again.
+
 ---
 
 ## Related

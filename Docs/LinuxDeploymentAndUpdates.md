@@ -113,7 +113,10 @@ cutover, Bootstrap prunes inactive managed web-release directories.
 
 This intentionally accepts a short web/agent disconnect. `Quasar.Agent`
 reconnects, and managed Magnetar processes stay alive because Quasar launches
-them detached with `-daemon`.
+them detached with `-daemon`. Running DS processes keep the agent assembly they
+already loaded; the next server Restart compares that attached agent version
+with the bundled `Agent/Quasar.Agent.dll` and relaunches through Quasar's full
+stop/start path when they differ.
 
 ## Bootstrap Updates
 

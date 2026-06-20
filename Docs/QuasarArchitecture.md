@@ -504,6 +504,11 @@ Practical guarantee:
 - `Quasar.Agent` sockets may briefly reconnect
 - the supervisor must preserve enough state that reconnect is operationally seamless
 - managed DS processes continue running independently during the rollover
+- already-running DS processes keep their loaded `Quasar.Agent` assembly until
+  that server process exits; when an operator restarts a server after a Quasar
+  update, the supervisor compares the attached agent version with the bundled
+  `Agent/Quasar.Agent.dll` and uses the normal full stop/start path so launch
+  preparation copies and loads the current agent
 
 ### Linux update flow
 

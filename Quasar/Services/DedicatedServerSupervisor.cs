@@ -436,6 +436,15 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         if (definition is null)
             throw new InvalidOperationException($"Unknown Quasar server '{uniqueName}'.");
 
+        if (TryGetAgentVersionMismatch(uniqueName, out var runningAgentVersion, out var deployableAgentVersion))
+        {
+            _logger.LogInformation(
+                "Restarting server {UniqueName} with a full stop/start because running Quasar.Agent version {RunningVersion} differs from bundled version {BundledVersion}.",
+                uniqueName,
+                runningAgentVersion,
+                deployableAgentVersion);
+        }
+
         definition.GoalState = DedicatedServerGoalState.On;
         definition.AutoStart = true;
         await _catalog.UpsertAsync(definition, cancellationToken);
@@ -1953,6 +1962,31 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 group => group.OrderByDescending(agent => agent.LastSeenUtc).First(),
                 StringComparer.OrdinalIgnoreCase);
     }
+
+    private bool TryGetAgentVersionMismatch(
+        string uniqueName,
+        out string runningAgentVersion,
+        out string deployableAgentVersion)
+    {
+        runningAgentVersion = string.Empty;
+        deployableAgentVersion = string.Empty;
+
+        var agent = _registry.GetAgents()
+            .Where(current => current.IsConnected)
+            .Where(current => string.Equals(current.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(current => current.LastSeenUtc)
+            .FirstOrDefault();
+
+        runningAgentVersion = NormalizeAgentVersion(agent?.Hello?.PluginVersion);
+        deployableAgentVersion = NormalizeAgentVersion(_runtimePreparer.GetDeployableAgentVersion());
+
+        return !string.IsNullOrWhiteSpace(runningAgentVersion) &&
+            !string.IsNullOrWhiteSpace(deployableAgentVersion) &&
+            !string.Equals(runningAgentVersion, deployableAgentVersion, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeAgentVersion(string? version) =>
+        QuasarReleaseVersion.Normalize(version ?? string.Empty);
 
     private static ServerHealthAssessment EvaluateHealth(
         ManagedServerState state,

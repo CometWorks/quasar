@@ -206,6 +206,10 @@ Write-Host "Building Quasar.Agent ($Configuration)..."
     -p:RuntimeIdentifier= `
     -p:SelfContained= `
     -p:PublishSingleFile= `
+    -p:Version=$NugetVersion `
+    -p:AssemblyVersion=$AssemblyFileVersion `
+    -p:FileVersion=$AssemblyFileVersion `
+    -p:InformationalVersion=$NugetVersion `
     -v minimal
 if ($LASTEXITCODE -ne 0) { throw "dotnet build Quasar.Agent failed with exit code $LASTEXITCODE" }
 

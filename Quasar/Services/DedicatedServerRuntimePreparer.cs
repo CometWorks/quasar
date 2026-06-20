@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -84,6 +85,27 @@ public sealed class DedicatedServerRuntimePreparer
             runtimeConfigPath,
             lastSessionPath,
             arguments);
+    }
+
+    public string GetDeployableAgentVersion()
+    {
+        var sourceDirectory = LocateAgentSourceDirectory();
+        if (sourceDirectory is null)
+            return string.Empty;
+
+        var agentPath = Path.Combine(sourceDirectory, AgentPluginFileName);
+        if (!File.Exists(agentPath))
+            return string.Empty;
+
+        try
+        {
+            return AssemblyName.GetAssemblyName(agentPath).Version?.ToString() ?? string.Empty;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogDebug(exception, "Failed reading Quasar.Agent assembly version from {Path}.", agentPath);
+            return string.Empty;
+        }
     }
 
     private async Task PrepareRuntimeConfigAsync(

@@ -32,16 +32,19 @@
   <PropertyGroup>
     <_QuasarAgentProject>$(MSBuildThisFileDirectory)..\Quasar.Agent\Quasar.Agent.csproj</_QuasarAgentProject>
     <_QuasarAgentOutputDir>$(MSBuildThisFileDirectory)..\Quasar.Agent\bin\$(Configuration)\netstandard2.0\</_QuasarAgentOutputDir>
+    <_QuasarAgentInformationalVersion Condition="'$(InformationalVersion)' == ''">$(Version)</_QuasarAgentInformationalVersion>
+    <_QuasarAgentInformationalVersion Condition="'$(InformationalVersion)' != ''">$(InformationalVersion)</_QuasarAgentInformationalVersion>
     <_HarmonyPackageId>lib.harmony</_HarmonyPackageId>
     <_HarmonyPackageVersion>2.4.2</_HarmonyPackageVersion>
   </PropertyGroup>
 
   <Target Name="BuildQuasarAgent"
-          BeforeTargets="Build;Publish"
-          Condition="!Exists('$(_QuasarAgentOutputDir)Quasar.Agent.dll') Or !Exists('$(_QuasarAgentOutputDir)Magnetar.Protocol.dll')">
+          BeforeTargets="Build;Publish">
     <!-- Invoke dotnet directly so publish-time globals from the parent build do
-         not bleed into Quasar.Agent's netstandard2.0 restore/build. -->
-    <Exec Command="dotnet build &quot;$(_QuasarAgentProject)&quot; -c &quot;$(Configuration)&quot; -p:Platform=x64 -p:RuntimeIdentifier= -p:SelfContained= -p:PublishSingleFile= -v minimal" />
+         not bleed into Quasar.Agent's netstandard2.0 restore/build. Version
+         props are passed deliberately so the bundled agent can be compared with
+         already-running agents after a Quasar update. -->
+    <Exec Command="dotnet build &quot;$(_QuasarAgentProject)&quot; -c &quot;$(Configuration)&quot; -p:Platform=x64 -p:RuntimeIdentifier= -p:SelfContained= -p:PublishSingleFile= -p:Version=&quot;$(Version)&quot; -p:AssemblyVersion=&quot;$(AssemblyVersion)&quot; -p:FileVersion=&quot;$(FileVersion)&quot; -p:InformationalVersion=&quot;$(_QuasarAgentInformationalVersion)&quot; -v minimal" />
   </Target>
 
   <Target Name="ResolveHarmonyPackageFiles">

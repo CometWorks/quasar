@@ -135,6 +135,10 @@ dotnet build "$REPO_DIR/Quasar.Agent/Quasar.Agent.csproj" \
     -p:RuntimeIdentifier= \
     -p:SelfContained= \
     -p:PublishSingleFile= \
+    -p:Version="$NUGET_VERSION" \
+    -p:AssemblyVersion="$ASSEMBLY_FILE_VERSION" \
+    -p:FileVersion="$ASSEMBLY_FILE_VERSION" \
+    -p:InformationalVersion="$NUGET_VERSION" \
     -v minimal
 
 dotnet publish "$REPO_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj" \
