@@ -115,6 +115,13 @@ If the downloaded launcher is byte-identical to the installed launcher, Bootstra
 skips the worker drain and launcher restart even if the running process reports
 stale version metadata.
 
+If `/settings/updates` has already detected a Bootstrap update and Quasar is
+running under Bootstrap, the **Force activate** button writes a
+`Updates\bootstrap-update-request.json` request. Bootstrap watches for that file,
+consumes it, and runs the same verified self-update path immediately instead of
+waiting for the next 15-minute monitor tick. Managed Magnetar servers stay
+running; the web UI reconnects after the launcher restarts.
+
 Because there is no systemd on Windows, the launcher restarts itself: after
 applying the update it spawns a detached `Quasar.exe serve --quiet` and exits `0`.
 The Scheduled Task keep-alive (restart-on-failure) is the safety net if the

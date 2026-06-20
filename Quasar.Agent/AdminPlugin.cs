@@ -20,6 +20,8 @@ namespace Quasar.Agent
         private GameBridge _bridge;
         private AgentConnection _connection;
         private PluginLogOutbox _outbox;
+        private readonly object _adminStopSync = new object();
+        private bool _adminStopReported;
         private DateTime _lastDeathSubscriptionRefreshUtc = DateTime.MinValue;
 
         public void Init(object gameServer)
@@ -36,6 +38,7 @@ namespace Quasar.Agent
             _outbox.Start();
 
             _connection = new AgentConnection(_bridge, new WebServiceLocator(), options, _outbox);
+            StopCommand.AdminStopRequested = ReportAdminStop;
             _connection.Start();
             MyVisualScriptLogicProvider.PlayerDied += OnPlayerDied;
             ServerControl.Terminating += OnServerTerminating;
@@ -50,6 +53,7 @@ namespace Quasar.Agent
         public void Dispose()
         {
             ServerControl.Terminating -= OnServerTerminating;
+            StopCommand.AdminStopRequested = null;
             MyVisualScriptLogicProvider.PlayerDied -= OnPlayerDied;
             UnsubscribeDeathHandlers();
             _connection?.Stop();
@@ -71,7 +75,18 @@ namespace Quasar.Agent
                 _bridge != null &&
                 !_bridge.QuasarRequestedStop)
             {
-                _connection?.TrySendAdminStop();
+                ReportAdminStop();
+            }
+        }
+
+        private void ReportAdminStop()
+        {
+            lock (_adminStopSync)
+            {
+                if (_adminStopReported)
+                    return;
+
+                _adminStopReported = _connection?.TrySendAdminStop() == true;
             }
         }
 

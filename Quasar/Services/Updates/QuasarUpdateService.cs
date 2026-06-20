@@ -418,6 +418,35 @@ public sealed class QuasarUpdateService : BackgroundService
         return Task.CompletedTask;
     }
 
+    public async Task RequestBootstrapUpdateActivationAsync(CancellationToken cancellationToken = default)
+    {
+        var bootstrap = GetSnapshot().Bootstrap;
+        if (bootstrap is null || !bootstrap.IsNewer)
+            throw new InvalidOperationException("No Bootstrap update is available to activate.");
+
+        if (string.IsNullOrWhiteSpace(_webOptions.LauncherToken))
+            throw new InvalidOperationException("Quasar is not running under Bootstrap, so the launcher cannot be updated from the UI.");
+
+        var path = MagnetarPaths.GetQuasarBootstrapUpdateRequestPath();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        var request = new JsonObject
+        {
+            ["requestedAtUtc"] = DateTimeOffset.UtcNow.ToString("O"),
+            ["version"] = bootstrap.Version,
+            ["assetName"] = bootstrap.AssetName,
+            ["workerVersion"] = _webOptions.Version,
+        };
+
+        await AtomicFileWriter.WriteTextAsync(path, request.ToJsonString(JsonOptions), cancellationToken).ConfigureAwait(false);
+
+        SetSnapshot(_snapshot with
+        {
+            Status = QuasarUpdateStatus.Activating,
+            Message = $"Bootstrap {bootstrap.Version} activation requested. Quasar will restart shortly.",
+        });
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!_options.Enabled)

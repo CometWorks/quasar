@@ -734,6 +734,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private CancellationTokenSource? _reloadDebounce;
     private CancellationTokenSource? _bootstrapUpdateMonitor;
     private Task? _bootstrapUpdateMonitorTask;
+    private FileSystemWatcher? _bootstrapUpdateRequestWatcher;
+    private CancellationTokenSource? _bootstrapUpdateRequestDebounce;
+    private readonly SemaphoreSlim _bootstrapUpdateLock = new(1, 1);
     private WorkerProcessHandle? _currentWorker;
     private bool _isStopping;
     private bool _isRestartingForBootstrapUpdate;
@@ -814,6 +817,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         await ActivateCurrentReleaseAsync(force: false, cancellationToken).ConfigureAwait(false);
         StartWatchingReleasePointer();
         StartBootstrapUpdateMonitor();
+        StartWatchingBootstrapUpdateRequests();
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -823,6 +827,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         _reloadDebounce?.Cancel();
         _reloadDebounce?.Dispose();
         _bootstrapUpdateMonitor?.Cancel();
+        _bootstrapUpdateRequestWatcher?.Dispose();
+        _bootstrapUpdateRequestDebounce?.Cancel();
+        _bootstrapUpdateRequestDebounce?.Dispose();
 
         WorkerProcessHandle? worker;
         lock (_sync)
@@ -853,7 +860,11 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         _reloadDebounce?.Dispose();
         _bootstrapUpdateMonitor?.Cancel();
         _bootstrapUpdateMonitor?.Dispose();
+        _bootstrapUpdateRequestWatcher?.Dispose();
+        _bootstrapUpdateRequestDebounce?.Cancel();
+        _bootstrapUpdateRequestDebounce?.Dispose();
         _activationLock.Dispose();
+        _bootstrapUpdateLock.Dispose();
         _healthClient.Dispose();
         _downloadClient.Dispose();
     }
@@ -867,6 +878,67 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         _bootstrapUpdateMonitorTask = Task.Run(
             () => RunBootstrapUpdateMonitorAsync(_bootstrapUpdateMonitor.Token),
             CancellationToken.None);
+    }
+
+    private void StartWatchingBootstrapUpdateRequests()
+    {
+        if (!_options.UpdatesEnabled || (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows()))
+            return;
+
+        var path = MagnetarPaths.GetQuasarBootstrapUpdateRequestPath();
+        var directory = Path.GetDirectoryName(path)!;
+        Directory.CreateDirectory(directory);
+
+        _bootstrapUpdateRequestWatcher = new FileSystemWatcher(directory)
+        {
+            Filter = Path.GetFileName(path),
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
+        };
+
+        _bootstrapUpdateRequestWatcher.Changed += HandleBootstrapUpdateRequestChanged;
+        _bootstrapUpdateRequestWatcher.Created += HandleBootstrapUpdateRequestChanged;
+        _bootstrapUpdateRequestWatcher.Renamed += HandleBootstrapUpdateRequestChanged;
+        _bootstrapUpdateRequestWatcher.EnableRaisingEvents = true;
+
+        if (File.Exists(path))
+            QueueBootstrapUpdateRequest();
+    }
+
+    private void HandleBootstrapUpdateRequestChanged(object sender, FileSystemEventArgs args)
+    {
+        QueueBootstrapUpdateRequest();
+    }
+
+    private void QueueBootstrapUpdateRequest()
+    {
+        CancellationTokenSource debounce;
+        lock (_sync)
+        {
+            _bootstrapUpdateRequestDebounce?.Cancel();
+            _bootstrapUpdateRequestDebounce?.Dispose();
+            _bootstrapUpdateRequestDebounce = new CancellationTokenSource();
+            debounce = _bootstrapUpdateRequestDebounce;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250), debounce.Token);
+                if (!TryConsumeBootstrapUpdateRequest())
+                    return;
+
+                _logger.LogInformation("Bootstrap update activation requested by Quasar worker.");
+                await TryUpgradeBootstrapAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (debounce.IsCancellationRequested)
+            {
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Requested Bootstrap update activation failed.");
+            }
+        }, CancellationToken.None);
     }
 
     private async Task RunBootstrapUpdateMonitorAsync(CancellationToken cancellationToken)
@@ -906,70 +978,81 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (_isStopping || _isRestartingForBootstrapUpdate)
             return;
 
-        var release = await GetLatestReleaseWithAssetAsync(_options.BootstrapAssetName, cancellationToken).ConfigureAwait(false);
-        if (release is null)
-            return;
-
-        var version = QuasarReleaseVersion.Normalize(release.TagName);
-        if (!IsNewerVersion(version, _options.Version))
-            return;
-
-        var asset = release.Assets.FirstOrDefault(asset =>
-            string.Equals(asset.Name, _options.BootstrapAssetName, StringComparison.OrdinalIgnoreCase));
-        if (asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
-            return;
-
-        var checksums = await GetChecksumsAsync(release, cancellationToken).ConfigureAwait(false);
-        var cacheDirectory = MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory();
-        Directory.CreateDirectory(cacheDirectory);
-        var archivePath = Path.Combine(cacheDirectory, asset.Name);
-        var extractDirectory = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), $"Bootstrap-{version}");
-
-        if (Directory.Exists(extractDirectory))
-            Directory.Delete(extractDirectory, recursive: true);
-        Directory.CreateDirectory(extractDirectory);
-
-        using (var response = await _downloadClient.GetAsync(asset.BrowserDownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+        await _bootstrapUpdateLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            response.EnsureSuccessStatusCode();
-            await using var archiveFile = File.Create(archivePath);
-            await response.Content.CopyToAsync(archiveFile, cancellationToken).ConfigureAwait(false);
+            if (_isStopping || _isRestartingForBootstrapUpdate)
+                return;
+
+            var release = await GetLatestReleaseWithAssetAsync(_options.BootstrapAssetName, cancellationToken).ConfigureAwait(false);
+            if (release is null)
+                return;
+
+            var version = QuasarReleaseVersion.Normalize(release.TagName);
+            if (!IsNewerVersion(version, _options.Version))
+                return;
+
+            var asset = release.Assets.FirstOrDefault(asset =>
+                string.Equals(asset.Name, _options.BootstrapAssetName, StringComparison.OrdinalIgnoreCase));
+            if (asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
+                return;
+
+            var checksums = await GetChecksumsAsync(release, cancellationToken).ConfigureAwait(false);
+            var cacheDirectory = MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory();
+            Directory.CreateDirectory(cacheDirectory);
+            var archivePath = Path.Combine(cacheDirectory, asset.Name);
+            var extractDirectory = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), $"Bootstrap-{version}");
+
+            if (Directory.Exists(extractDirectory))
+                Directory.Delete(extractDirectory, recursive: true);
+            Directory.CreateDirectory(extractDirectory);
+
+            using (var response = await _downloadClient.GetAsync(asset.BrowserDownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+            {
+                response.EnsureSuccessStatusCode();
+                await using var archiveFile = File.Create(archivePath);
+                await response.Content.CopyToAsync(archiveFile, cancellationToken).ConfigureAwait(false);
+            }
+
+            await VerifySha256Async(archivePath, GetChecksum(checksums, asset.Name), cancellationToken).ConfigureAwait(false);
+            ExtractArchive(archivePath, extractDirectory);
+            TryDeleteFile(archivePath);
+
+            var payloadDirectory = ResolveBootstrapPayloadDirectory(extractDirectory);
+            var replacement = Path.Combine(payloadDirectory, LauncherExecutableFileName);
+            if (!File.Exists(replacement))
+                throw new InvalidOperationException($"Bootstrap update archive did not contain executable '{replacement}'.");
+
+            var installedLauncher = Path.Combine(AppContext.BaseDirectory, LauncherExecutableFileName);
+            if (await FilesHaveSameSha256Async(replacement, installedLauncher, cancellationToken).ConfigureAwait(false))
+            {
+                _logger.LogInformation(
+                    "Bootstrap release {Version} is already installed at {Path}; skipping worker drain and launcher restart.",
+                    version,
+                    installedLauncher);
+                return;
+            }
+
+            ApplyBootstrapUpdate(payloadDirectory, AppContext.BaseDirectory);
+            _logger.LogInformation("Installed Bootstrap update {Version}; restarting Bootstrap.", version);
+            _isRestartingForBootstrapUpdate = true;
+
+            WorkerProcessHandle? worker;
+            lock (_sync)
+            {
+                worker = _currentWorker;
+                _currentWorker = null;
+            }
+
+            if (worker is not null)
+                await DrainAndRetireWorkerAsync(worker, TimeSpan.FromSeconds(20), stopManagedServers: false, cancellationToken).ConfigureAwait(false);
+
+            RestartBootstrap();
         }
-
-        await VerifySha256Async(archivePath, GetChecksum(checksums, asset.Name), cancellationToken).ConfigureAwait(false);
-        ExtractArchive(archivePath, extractDirectory);
-        TryDeleteFile(archivePath);
-
-        var payloadDirectory = ResolveBootstrapPayloadDirectory(extractDirectory);
-        var replacement = Path.Combine(payloadDirectory, LauncherExecutableFileName);
-        if (!File.Exists(replacement))
-            throw new InvalidOperationException($"Bootstrap update archive did not contain executable '{replacement}'.");
-
-        var installedLauncher = Path.Combine(AppContext.BaseDirectory, LauncherExecutableFileName);
-        if (await FilesHaveSameSha256Async(replacement, installedLauncher, cancellationToken).ConfigureAwait(false))
+        finally
         {
-            _logger.LogInformation(
-                "Bootstrap release {Version} is already installed at {Path}; skipping worker drain and launcher restart.",
-                version,
-                installedLauncher);
-            return;
+            _bootstrapUpdateLock.Release();
         }
-
-        ApplyBootstrapUpdate(payloadDirectory, AppContext.BaseDirectory);
-        _logger.LogInformation("Installed Bootstrap update {Version}; restarting Bootstrap.", version);
-        _isRestartingForBootstrapUpdate = true;
-
-        WorkerProcessHandle? worker;
-        lock (_sync)
-        {
-            worker = _currentWorker;
-            _currentWorker = null;
-        }
-
-        if (worker is not null)
-            await DrainAndRetireWorkerAsync(worker, TimeSpan.FromSeconds(20), stopManagedServers: false, cancellationToken).ConfigureAwait(false);
-
-        RestartBootstrap();
     }
 
     // Worker and launcher are both named Quasar (Linux/macOS) or Quasar.exe (Windows).
@@ -1640,6 +1723,23 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private static bool TryConsumeLauncherShutdownRequest()
     {
         var path = GetLauncherShutdownRequestPath();
+        if (!File.Exists(path))
+            return false;
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+        }
+
+        return true;
+    }
+
+    private static bool TryConsumeBootstrapUpdateRequest()
+    {
+        var path = MagnetarPaths.GetQuasarBootstrapUpdateRequestPath();
         if (!File.Exists(path))
             return false;
 

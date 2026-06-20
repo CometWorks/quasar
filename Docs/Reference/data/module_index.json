@@ -210,7 +210,7 @@
       "name": "AdminPlugin.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`AdminPlugin` is the Magnetar `IPlugin` entry point for the Quasar agent that runs inside the Space Engineers dedicated server. On `Init` it reads `AgentOptions`, configures and applies profiler Harmony patches, registers Quasar's admin chat commands (including the root `!stop` override), builds the `GameBridge`, starts a `PluginLogOutbox` (begun before the connection so startup log lines are buffered), and starts an `AgentConnection`. It drives the game-thread snapshot/profiler refresh on each `Update`, refreshes per-character death subscriptions so respawned players are re-hooked, and handles server termination by sending an `AdminStop` signal to Quasar when shutdown was admin-initiated."
+      "summary": "`AdminPlugin` is the Magnetar `IPlugin` entry point for the Quasar agent that runs inside the Space Engineers dedicated server. On `Init` it reads `AgentOptions`, configures and applies profiler Harmony patches, registers Quasar's admin chat commands (including the root `!stop` override), builds the `GameBridge`, starts a `PluginLogOutbox` (begun before the connection so startup log lines are buffered), wires `StopCommand` to report an admin stop before `!stop` quits the server, and starts an `AgentConnection`. It drives the game-thread snapshot/profiler refresh on each `Update`, refreshes per-character death subscriptions so respawned players are re-hooked, and handles server termination by sending an `AdminStop` signal to Quasar when shutdown was admin-initiated."
     },
     {
       "path": "Quasar.Agent/AgentConnection.cs",
@@ -287,7 +287,7 @@
       "name": "StopCommand.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "`StopCommand` is a Quasar-owned PluginSdk command module for the root `!stop` in-game admin command. It overrides Magnetar's earlier `stop` root by being registered later from `AdminPlugin`, acknowledges the caller, then calls `ServerControl.SaveAndQuit()` on a worker task so the world is saved and the dedicated server process exits."
+      "summary": "`StopCommand` is a Quasar-owned PluginSdk command module for the root `!stop` in-game admin command. It overrides Magnetar's earlier `stop` root by being registered later from `AdminPlugin`, acknowledges the caller, reports an admin stop to Quasar through a static hook wired by `AdminPlugin`, then calls `ServerControl.SaveAndQuit()` on a worker task so the world is saved and the dedicated server process exits."
     },
     {
       "path": "Quasar.Agent/WebServiceLocator.cs",
@@ -303,7 +303,7 @@
       "name": "Program.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Entry point and core logic for the Quasar launcher. It implements three CLI commands (`ensure-running`, `serve`, `activate-release`) and the supporting types `BootstrapOptions` (host/port + update + preserve-servers policy from `appsettings.json`) and `LauncherCoordinator` (an `IHostedService` that supervises the Quasar worker process, watches the active-release pointer file, downloads an initial UI worker from the UI release stream when needed, hot-reloads activated UI releases, and self-upgrades the launcher from the primary Quasar release stream)."
+      "summary": "Entry point and core logic for the Quasar launcher. It implements three CLI commands (`ensure-running`, `serve`, `activate-release`) and the supporting types `BootstrapOptions` (host/port + update + preserve-servers policy from `appsettings.json`) and `LauncherCoordinator` (an `IHostedService` that supervises the Quasar worker process, watches the active-release pointer and Bootstrap update request files, downloads an initial UI worker from the UI release stream when needed, hot-reloads activated UI releases, and self-upgrades the launcher from the primary Quasar release stream)."
     },
     {
       "path": "Quasar.Bootstrap/Properties/launchSettings.json",
@@ -655,7 +655,7 @@
       "name": "Updates.razor",
       "kind": "component",
       "tier": 2,
-      "summary": "Routable MudBlazor page at `/settings/updates` for checking, staging, activating, and rolling back Quasar UI worker releases. It shows current update status from `QuasarUpdateService`, separates selectable Quasar UI releases from launcher candidates, exposes manual check/stage/activate actions for the selected UI worker version, shows launcher update availability, displays configured GitHub release source and asset names, provides controls for including prerelease versions plus choosing automatic or manual UI staging, and renders a git-style `appsettings.json` conflict editor with a copyable conflict-file path when staging cannot auto-merge settings."
+      "summary": "Routable MudBlazor page at `/settings/updates` for checking, staging, activating, and rolling back Quasar UI worker releases. It shows current update status from `QuasarUpdateService`, separates selectable Quasar UI releases from launcher candidates, exposes manual check/stage/activate actions for the selected UI worker version, can force a detected Bootstrap launcher update to activate immediately when running under Bootstrap, displays configured GitHub release source and asset names, provides controls for including prerelease versions plus choosing automatic or manual UI staging, and renders a git-style `appsettings.json` conflict editor with a copyable conflict-file path when staging cannot auto-merge settings."
     },
     {
       "path": "Quasar/Components/Pages/WorldTemplateFromServerDialog.razor",
@@ -1179,7 +1179,7 @@
       "name": "QuasarUpdateService.cs",
       "kind": "class",
       "tier": 2,
-      "summary": "Hosted service that checks Quasar GitHub releases on Linux and Windows, discovers selectable UI-worker releases plus newer launcher assets from a unified combined release, verifies `SHA256SUMS`, stages the selected UI worker under the Quasar updates directory, resolves staged `appsettings.json` through a three-way merge, and activates a staged worker by promoting it into `ManagedRuntime/WebService/<version>` before writing `active-release.json` for Bootstrap. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI, raises `Changed` whenever status moves, and persists the operator-controlled prerelease stream and UI auto-stage flags."
+      "summary": "Hosted service that checks Quasar GitHub releases on Linux and Windows, discovers selectable UI-worker releases plus newer launcher assets from a unified combined release, verifies `SHA256SUMS`, stages the selected UI worker under the Quasar updates directory, resolves staged `appsettings.json` through a three-way merge, and activates a staged worker by promoting it into `ManagedRuntime/WebService/<version>` before writing `active-release.json` for Bootstrap. It can also write a Bootstrap update request file when an admin forces launcher activation from the Updates page. It keeps a thread-safe `QuasarUpdateSnapshot` for the UI, raises `Changed` whenever status moves, and persists the operator-controlled prerelease stream and UI auto-stage flags."
     },
     {
       "path": "Quasar/Services/Updates/QuasarUpdateSnapshot.cs",

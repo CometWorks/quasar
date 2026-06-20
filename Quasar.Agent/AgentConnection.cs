@@ -224,15 +224,15 @@ namespace Quasar.Agent
         /// on the game thread during session unload, while the socket is still
         /// open and before the process exits. Never hangs shutdown.
         /// </summary>
-        public void TrySendAdminStop()
+        public bool TrySendAdminStop()
         {
             var socket = _socket;
             if (socket == null || socket.State != WebSocketState.Open)
-                return;
+                return false;
 
             try
             {
-                SendAsync(socket, new AgentWireMessage
+                return SendAsync(socket, new AgentWireMessage
                 {
                     Kind = WireMessageKind.AdminStop,
                 }, CancellationToken.None).Wait(TimeSpan.FromSeconds(2));
@@ -240,6 +240,7 @@ namespace Quasar.Agent
             catch (Exception exception)
             {
                 Log($"Failed sending admin-stop signal: {exception.Message}");
+                return false;
             }
         }
 

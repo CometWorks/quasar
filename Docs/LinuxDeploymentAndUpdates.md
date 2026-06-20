@@ -139,6 +139,13 @@ the same as the running launcher; it also skips drain/restart if the downloaded
 launcher is byte-identical to the installed launcher, which prevents a repeated
 self-update loop when a source-built launcher reports stale version metadata.
 
+If `/settings/updates` has already detected a Bootstrap update and Quasar is
+running under Bootstrap, the **Force activate** button writes a
+`Updates/bootstrap-update-request.json` request. Bootstrap watches for that file,
+consumes it, and runs the same verified self-update path immediately instead of
+waiting for the next 15-minute monitor tick. Managed Magnetar servers stay
+running; the web UI reconnects after the launcher restarts.
+
 ## Install
 
 The first install uses the Linux installer flow from an extracted

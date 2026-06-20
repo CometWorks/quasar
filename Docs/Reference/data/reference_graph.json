@@ -117,6 +117,7 @@
     "Quasar.Agent/AgentProfilerPatches.cs",
     "Quasar.Agent/GameBridge.cs",
     "Quasar.Agent/PluginLogOutbox.cs",
+    "Quasar.Agent/StopCommand.cs",
     "Quasar.Agent/WebServiceLocator.cs"
   ],
   "Quasar.Agent/AgentConnection.cs": [
@@ -155,6 +156,7 @@
     "Quasar.Agent/AgentConnection.cs"
   ],
   "Quasar.Agent/Quasar.Agent.csproj": [],
+  "Quasar.Agent/StopCommand.cs": [],
   "Quasar.Agent/WebServiceLocator.cs": [],
   "Quasar.Bootstrap/Program.cs": [
     "Magnetar.Protocol/Discovery/WebServiceDiscoveryManifest.cs",

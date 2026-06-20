@@ -6,6 +6,7 @@
 @inject WebServiceOptions WebOptions
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject IJSRuntime JS
 
 <PageTitle>Updates</PageTitle>
 
@@ -150,7 +151,7 @@
                 <MudStack Spacing="3">
                     <MudText Typo="Typo.h6">Bootstrap</MudText>
                     <MudText Typo="Typo.body2">
-                        Bootstrap updates are installed automatically by the launcher when a newer primary Quasar release is available.
+                        Bootstrap updates are installed automatically by the launcher when a newer primary Quasar release is available. Force activation asks the launcher to run that update now.
                     </MudText>
                     <MudText Typo="Typo.body2">
                         Current version: <strong>@FormatBootstrapVersion()</strong>
@@ -171,9 +172,20 @@
                             <RowTemplate>
                                 <MudTd DataLabel="Version">@context.Version</MudTd>
                                 <MudTd DataLabel="Asset">@context.AssetName</MudTd>
-                                <MudTd DataLabel="Action">Automatic launcher restart</MudTd>
+                                <MudTd DataLabel="Action">Ready for launcher restart</MudTd>
                             </RowTemplate>
                         </MudTable>
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Warning"
+                                   StartIcon="@Icons.Material.Filled.RestartAlt"
+                                   Disabled="@(!CanForceActivateBootstrap)"
+                                   OnClick="ForceActivateBootstrapAsync">
+                            Force activate
+                        </MudButton>
+                        @if (!IsUnderBootstrap)
+                        {
+                            <MudText Typo="Typo.caption">Quasar is not running under Bootstrap, so this update cannot be activated from the UI.</MudText>
+                        }
                     }
                 </MudStack>
             </MudPaper>
@@ -229,6 +241,7 @@
     private bool _busy;
     private bool _includePrerelease;
     private bool _autoStageWebUpdates = true;
+    private bool _bootstrapActivationRequested;
     private string _selectedWebVersion = string.Empty;
     private string _appSettingsConflictText = string.Empty;
 
@@ -256,6 +269,8 @@
         _selectedWebVersion = _snapshot.SelectedWebVersion;
         if (!_snapshot.AppSettingsConflict)
             _appSettingsConflictText = string.Empty;
+        if (_snapshot.Bootstrap is null)
+            _bootstrapActivationRequested = false;
         StateHasChanged();
         if (_snapshot.AppSettingsConflict)
             _ = LoadAppSettingsConflictAsync();
@@ -302,6 +317,41 @@
             () => UpdateService.ActivateStagedWebUpdateAsync(),
             "Quasar UI update activation requested. The page will reconnect shortly.",
             "Failed activating update");
+    }
+
+    private async Task ForceActivateBootstrapAsync()
+    {
+        var bootstrap = _snapshot.Bootstrap;
+        if (bootstrap is null)
+            return;
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Force Bootstrap update?",
+            $"Bootstrap {bootstrap.Version} will be downloaded, verified, installed, and the Quasar launcher will restart. Running Space Engineers servers stay running.",
+            yesText: "Force activate",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        _busy = true;
+        _bootstrapActivationRequested = true;
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/settings/updates");
+            await UpdateService.RequestBootstrapUpdateActivationAsync();
+            _snapshot = UpdateService.GetSnapshot();
+            Snackbar.Add("Bootstrap update activation requested. Quasar will restart shortly.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            _bootstrapActivationRequested = false;
+            Snackbar.Add($"Failed requesting Bootstrap update: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task HandleSelectedWebVersionChanged(string? version)
@@ -466,6 +516,14 @@
         string.IsNullOrWhiteSpace(_snapshot.CurrentBootstrapVersion)
             ? "not managed by Bootstrap"
             : _snapshot.CurrentBootstrapVersion;
+
+    private bool IsUnderBootstrap => !string.IsNullOrWhiteSpace(WebOptions.LauncherToken);
+
+    private bool CanForceActivateBootstrap =>
+        !_busy &&
+        !_bootstrapActivationRequested &&
+        IsUnderBootstrap &&
+        _snapshot.Bootstrap is { IsNewer: true };
 
     private static string FormatWebReleaseOption(QuasarUpdateCandidate release)
     {

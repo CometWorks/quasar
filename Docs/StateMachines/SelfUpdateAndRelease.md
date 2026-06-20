@@ -85,7 +85,7 @@ stateDiagram-v2
 | `Draining` | Pointer change detected; the launcher posts `/api/internal/drain` (authenticated with the per-session launcher token) and waits for graceful exit. |
 | `Retired` / `ForceKilled` | Old worker exited within the grace window, or was killed after timeout. |
 | `Restarting` | Worker exited unexpectedly (not a launcher request); relaunched with `force`. |
-| `SelfUpgrade` | A newer Bootstrap asset was applied: Linux exits **75** so systemd restarts it; Windows spawns a detached `Quasar.exe serve --quiet` replacement and exits **0**. |
+| `SelfUpgrade` | A newer Bootstrap asset was applied by the periodic monitor or by a consumed `Updates/bootstrap-update-request.json` request from the Updates page: Linux exits **75** so systemd restarts it; Windows spawns a detached `Quasar.exe serve --quiet` replacement and exits **0**. |
 
 The pointer is `Updates/active-release.json`
 ([`QuasarActiveReleasePointer`](../../Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs)),
