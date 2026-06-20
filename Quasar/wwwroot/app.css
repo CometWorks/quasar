@@ -154,6 +154,112 @@ h1:focus {
     background: var(--mud-palette-action-default-hover);
 }
 
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover > .mud-table-cell,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover > td {
+    --quasar-table-hover-success: color-mix(in srgb, var(--mud-palette-success) 72%, var(--mud-palette-primary-text));
+    --quasar-table-hover-warning: color-mix(in srgb, var(--mud-palette-warning) 72%, var(--mud-palette-primary-text));
+    --quasar-table-hover-error: color-mix(in srgb, var(--mud-palette-error) 72%, var(--mud-palette-primary-text));
+    background-color: var(--mud-palette-primary) !important;
+    color: var(--mud-palette-primary-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover *:not(.mud-button-root *) {
+    color: var(--mud-palette-primary-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-outlined,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-outlined {
+    border-color: var(--mud-palette-primary-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-button-text-success,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-button-outlined-success,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-success-text {
+    color: var(--quasar-table-hover-success) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-button-filled-success {
+    color: var(--mud-palette-success-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-button-text-warning,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-button-outlined-warning,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-warning-text {
+    color: var(--quasar-table-hover-warning) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-button-filled-warning {
+    color: var(--mud-palette-warning-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-button-text-error,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-button-outlined-error,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-error-text {
+    color: var(--quasar-table-hover-error) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-button-filled-error {
+    color: var(--mud-palette-error-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-button-outlined-success {
+    border-color: var(--quasar-table-hover-success) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-button-outlined-warning {
+    border-color: var(--quasar-table-hover-warning) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-button-outlined-error {
+    border-color: var(--quasar-table-hover-error) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-outlined.mud-chip-color-success,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-text.mud-chip-color-success,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-outlined.mud-chip-color-success *,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-text.mud-chip-color-success * {
+    color: var(--quasar-table-hover-success) !important;
+    border-color: var(--quasar-table-hover-success) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-outlined.mud-chip-color-warning,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-text.mud-chip-color-warning,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-outlined.mud-chip-color-warning *,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-text.mud-chip-color-warning * {
+    color: var(--quasar-table-hover-warning) !important;
+    border-color: var(--quasar-table-hover-warning) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-outlined.mud-chip-color-error,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-text.mud-chip-color-error,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-outlined.mud-chip-color-error *,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-text.mud-chip-color-error * {
+    color: var(--quasar-table-hover-error) !important;
+    border-color: var(--quasar-table-hover-error) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-filled.mud-chip-color-success,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-filled.mud-chip-color-success * {
+    color: var(--mud-palette-success-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-filled.mud-chip-color-warning,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-filled.mud-chip-color-warning * {
+    color: var(--mud-palette-warning-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-filled.mud-chip-color-error,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-filled.mud-chip-color-error * {
+    color: var(--mud-palette-error-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover svg:not(.mud-button-root svg),
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover svg:not(.mud-button-root svg) path {
+    fill: currentColor !important;
+    stroke: currentColor !important;
+}
+
 .world-template-browse-button {
     margin-top: 1rem;
 }

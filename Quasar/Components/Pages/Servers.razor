@@ -134,7 +134,7 @@
             <ChildRowContent>
                 @if (IsExpanded(context.UniqueName))
                 {
-                    <MudTr>
+                    <MudTr Class="servers-list-detail-row">
                         <td colspan="10" style="padding: 0.75rem 1rem; background: var(--mud-palette-background);">
                             <ServerDetailPanel Server="@context" Runtime="@GetRuntime(context.UniqueName)" Agent="@GetAgent(context.UniqueName)" />
                         </td>

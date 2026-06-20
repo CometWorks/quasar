@@ -16,7 +16,7 @@ Embeddable server-management component used by the dashboard list view and full-
 - **Key UI**
   - Server count chip + "Create Server" button.
   - `MudTable<DedicatedServerDefinition>` with `Class="servers-list-table"`, expand toggle, and sortable columns: Status (state chip), Actions (Start / Stop / Kill / Restart according to process state), Name (display + unique name), Port, Config (clickable `MudLink` when the profile resolves), Players (`online/max`), Process (PID or "stopped"), Agent (attached state). Row actions at the far right are non-lifecycle controls: Console, Clone, Template, Edit, Delete.
-  - `ChildRowContent` renders `<ServerDetailPanel Server=... Runtime=... Agent=... />` for expanded rows.
+  - `ChildRowContent` renders `<ServerDetailPanel Server=... Runtime=... Agent=... />` for expanded rows inside a `servers-list-detail-row`, which opts the detail area out of the global table-row hover inversion while allowing nested tables to keep their own row hover behavior.
   - Unmanaged Agents `MudPaper` (when any): one `MudExpansionPanel` per connected agent lacking a definition, each containing a `ServerDetailPanel`.
 - **State/data:** `_expanded` HashSet drives row expansion; `ServerDefinitions`, `RuntimeSnapshots` (by unique name), `AgentsByUniqueName` (connected, newest by `LastSeenUtc`), `UnmanagedAgents`.
 - **Dialog flows**

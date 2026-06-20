@@ -30,6 +30,7 @@ Global stylesheet for the Quasar Blazor Server UI. Overrides MudBlazor's elevati
 **MudBlazor overrides:**
 - `.mud-expansion-panels > .mud-expand-panel` — flat bordered panels with `0.5rem` gap, hover/focus header highlight, expanded-header bottom border
 - `.mud-checkbox` — rounded hit area with hover/focus background highlight
+- `.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover` — paints hovered table rows with theme primary colour, forces row descendants and button roots to primary contrast text, switches standalone SVG icons and outlined borders to the same contrast colour, keeps success/warning/error buttons and chips on semantic mixed hover colours, lets button-owned icons inherit from MudBlazor's button root colour, and skips expanded server detail rows
 - `.mud-main-content`, `.mud-drawer` / `.magnetar-drawer` — background and right-border styling
 
 **Utility / feature classes:**
