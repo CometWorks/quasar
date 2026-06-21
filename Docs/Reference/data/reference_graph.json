@@ -823,6 +823,7 @@
     "Quasar/wwwroot/viewer/math.js"
   ],
   "Quasar/wwwroot/viewer/grid-renderer.js": [
+    "Quasar/wwwroot/viewer/content-folder.js",
     "Quasar/wwwroot/viewer/geometry.js",
     "Quasar/wwwroot/viewer/logging.js",
     "Quasar/wwwroot/viewer/materials.js",
@@ -849,8 +850,7 @@
   ],
   "Quasar/wwwroot/viewer/math.js": [],
   "Quasar/wwwroot/viewer/mwm-loader.js": [
-    "Quasar/wwwroot/viewer/content-folder.js",
-    "Quasar/wwwroot/viewer/state.js"
+    "Quasar/wwwroot/viewer/content-folder.js"
   ],
   "Quasar/wwwroot/viewer/quasar-api.js": [],
   "Quasar/wwwroot/viewer/scene.js": [

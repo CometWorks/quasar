@@ -217,6 +217,7 @@ function createCompressedDdsTexture(mipmaps, logicalPath, info) {
 function configureTexture(texture, logicalPath, slot) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
+    texture.flipY = false;
     texture.anisotropy = Math.min(8, state.renderer.capabilities.getMaxAnisotropy());
     texture.colorSpace = (!isNonColorTexture(logicalPath, slot) || texture.userData.seDdsIsSrgb)
         ? THREE.SRGBColorSpace

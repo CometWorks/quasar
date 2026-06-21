@@ -435,14 +435,13 @@ function modelBatchRenderOrder(materials) {
 }
 
 function sharedModelGeometry(model, patternOffset, renderContext, groups = model.groups, layer = "all") {
-    const isDecalLayer = layer === "decal";
     const key = `${model.geometryLogicalPath || model.logicalPath}|${patternOffsetKey(patternOffset)}|${layer}|${modelGeometryGroupsKey(groups)}`;
     if (renderContext.geometries.has(key)) return renderContext.geometries.get(key);
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(model.positions, 3));
     if (model.normals) geometry.setAttribute("normal", new THREE.BufferAttribute(model.normals, 3));
-    if (model.uvs) geometry.setAttribute("uv", new THREE.BufferAttribute(transformModelUvs(model.uvs, patternOffset, isDecalLayer), 2));
+    if (model.uvs) geometry.setAttribute("uv", new THREE.BufferAttribute(transformModelUvs(model.uvs, patternOffset), 2));
     geometry.setIndex(new THREE.BufferAttribute(model.indices, 1));
     for (let i = 0; i < groups.length; i++) geometry.addGroup(groups[i].start, groups[i].count, i);
     if (!model.normals) geometry.computeVertexNormals();
@@ -466,15 +465,13 @@ function patternOffsetKey(patternOffset) {
     return [x, y, z, w].map(value => Number.isFinite(value) ? value.toFixed(6) : "n").join(",");
 }
 
-function transformModelUvs(uvs, patternOffset, skipVFlip = false) {
+function transformModelUvs(uvs, patternOffset) {
     const transformed = new Float32Array(uvs.length);
     const offset = patternUvOffset(patternOffset);
-    const isCubePart = !!patternOffset || skipVFlip;
+    // MWM UVs are already in Space Engineers shader orientation; generated cube parts only add atlas offsets.
     for (let i = 0; i < uvs.length; i += 2) {
         transformed[i] = uvs[i] + offset.x;
-        // Generated cube parts use SE's direct shader UVs; regular models keep the browser V flip.
-        // Decal material groups also use SE's direct shader UVs (no V flip).
-        transformed[i + 1] = isCubePart ? uvs[i + 1] + offset.y : 1 - uvs[i + 1];
+        transformed[i + 1] = uvs[i + 1] + offset.y;
     }
     return transformed;
 }
