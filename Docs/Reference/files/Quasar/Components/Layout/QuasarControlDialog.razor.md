@@ -18,7 +18,7 @@ No route; rendered through `IDialogService.ShowAsync<QuasarControlDialog>()`.
 **Actions:**
 - Restart Quasar — confirms that servers continue to run, the UI briefly disconnects, and the worker is re-adopted after restart.
 - Shutdown Quasar — confirms that the web UI/supervisor stops while servers remain detached, and explains the agent offline grace period.
-- Shutdown all servers normally — confirms that Quasar stays online and each running server receives a normal graceful stop request.
+- Save and stop all servers — confirms that Quasar stays online and each running server receives a normal save-and-stop request.
 
 ## Dependencies
 - [`Quasar/Components/Layout/QuasarControlAction.cs`](QuasarControlAction.cs.md)

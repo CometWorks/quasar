@@ -3,7 +3,7 @@
 **Module:** Quasar.Agent  **Kind:** class  **Tier:** 1
 
 ## Summary
-`GameBridge` is the central game-thread façade for `AgentConnection`. It collects session telemetry (metrics, current profiler mode/snapshot, human players, hidden NPC/bot player ids, kicked players, chat, deaths, plugins), builds `AgentHello` / `AgentSnapshot` wire messages, and executes server commands (chat, blocking save, save-and-stop, profiler mode change, kick, ban, promote, clear-kick-cooldown, entity list/delete) by marshalling work onto the game thread via `MySandboxGame.Invoke`. Save/stop commands route through Magnetar PluginSdk `ServerControl` so Quasar observes completed disk saves before treating the command as successful. Metrics include process CPU derived from `Process.TotalProcessorTime`, simspeed/sim CPU from `Sync`, memory, human player count, PCU, active entities/grids, total blocks, and floating objects. It enumerates loaded plugins from `MyPlugins.Plugins` (including Pulsar child plugins) for runtime inventory, dedupes configured fallback plugin paths against loaded plugins by path stem, parent dev-folder name, manifest `<Id>`, and manifest `<FriendlyName>`, and exposes plugin configuration through `IQuasarConfigProvider` or Magnetar PluginSdk `PluginConfig` reflection. Chat history normalizes dedicated-server/Good.bot messages to author `Server` and marks `ChatMessageSnapshot.IsServerMessage`.
+`GameBridge` is the central game-thread façade for `AgentConnection`. It collects session telemetry (metrics, current profiler mode/snapshot, human players, hidden NPC/bot player ids, kicked players, chat, deaths, plugins), builds `AgentHello` / `AgentSnapshot` wire messages, and executes server commands (chat, blocking save, save-and-stop, profiler mode change, kick, ban, promote, clear-kick-cooldown, entity list/delete) by marshalling work onto the game thread via `MySandboxGame.Invoke`. Save/stop commands route through Magnetar PluginSdk `ServerControl` so Quasar observes completed disk saves before treating the command as successful. Metrics include process CPU derived from `Process.TotalProcessorTime`, simspeed/sim CPU from `Sync`, memory, human player count, PCU, active entities/grids, total blocks, floating objects, latest world-save time, and unsaved game-time progress since the last checkpoint. It enumerates loaded plugins from `MyPlugins.Plugins` (including Pulsar child plugins) for runtime inventory, dedupes configured fallback plugin paths against loaded plugins by path stem, parent dev-folder name, manifest `<Id>`, and manifest `<FriendlyName>`, and exposes plugin configuration through `IQuasarConfigProvider` or Magnetar PluginSdk `PluginConfig` reflection. Chat history normalizes dedicated-server/Good.bot messages to author `Server` and marks `ChatMessageSnapshot.IsServerMessage`.
 
 ## Structure
 **Namespace:** `Quasar.Agent`  
@@ -15,6 +15,7 @@
 |---|---|
 | `QuasarRequestedStop` (property) | True once a `StopServer` command was received from Quasar |
 | `GameBridge(object gameServer)` | Reads `MAGNETAR_HOST_ID` and `QUASAR_UNIQUE_NAME` env vars; captures plugin version only when explicit `AssemblyInformationalVersion` metadata is present |
+| `Dispose()` | Unsubscribes the `MySession.OnSaved` handler used to update world-save telemetry. |
 | `Update()` | Called each game tick; marks the game thread for profiler attribution, advances continuous profiler publishing, and throttles snapshot refresh to ≤1 Hz via `_lastSnapshotUtc` |
 | `GetHello()` | Returns a cached `AgentHello`; thread-safe via `_sync` lock |
 | `GetSnapshot()` | Returns a cached `AgentSnapshot`; thread-safe via `_sync` lock |
@@ -50,6 +51,7 @@
 - `Sandbox.Game.Gui` — chat channel types
 - `Sandbox.Game.Multiplayer` — `Sync`
 - `Sandbox.Game.World` — `MySession`, `MyAsyncSaving`
+- `Sandbox.Engine.Networking` — `MyLocalCache` checkpoint loading for initial save timestamp/progress baseline
 - `VRage.Game.ModAPI` — `MyPromoteLevel`
 - `Newtonsoft.Json` — payload serialization
 
@@ -63,5 +65,6 @@
 - `ApplyConfigJson` for SDK configs copies only properties decorated with `[ConfigOption]` to preserve non-option fields.
 - Runtime plugin inventory uses `EnumeratePlugins()` so Magnetar/Pulsar-loaded plugins appear even when `MySandboxGame.ConfigDedicated.Plugins` is empty; configured plugin paths are still added as `declared` fallback rows only when not already represented by a loaded plugin. XML manifest fallback rows are matched against loaded plugins by full path, path stem, parent dev-folder/source name, `<Id>`, and `<FriendlyName>`, preventing duplicate local dev-folder rows.
 - `SaveWorld` returns success only after `ServerControl.SaveWorld()` reports completion; `StopServer` marks `_quasarRequestedStop` and calls `ServerControl.SaveAndQuit()` so Magnetar owns the save, plugin disposal, and process exit path.
+- World-save telemetry is initialized once per `MySession.CurrentPath` by loading `Sandbox.sbc` through `MyLocalCache.LoadCheckpoint`, updated optimistically from `MySession.OnSaved`, then refreshed from the checkpoint once async save progress ends; `UnsavedGameTimeSeconds` is based on `MySession.ElapsedGameTime`, so offline wall-clock time is not counted as unsaved progress.
 - Private `GetServerName(MySession)` reports `MySandboxGame.ConfigDedicated?.ServerName` (the configured server name shown in the server browser), falling back only to `Space Engineers {processId}`. It deliberately does **not** fall back to `session?.Name`, which is the loaded world/save name (matching the world template) rather than the server — this keeps the per-server name used by the UI's server filters distinct from the world name.
 - Private `GetPlayers(MySession)` and `GetOnlinePlayerCount(MySession)` filter online `MyPlayer` entries to human players only before filling `AgentSnapshot.Players` or `ServerMetrics.PlayersOnline`: SteamId must be non-zero, `IsBot` must be false, and `MySession.Players.IdentityIsNpc(identityId)` must be false. Filtered ids are reported through `AgentSnapshot.HiddenPlayerSteamIds` / `HiddenPlayerIdentityIds` so Quasar can remove stale known-player rows. Wolves, spiders, and NPC identities remain available through entity inspection, but do not appear in Quasar player rows or player counts.

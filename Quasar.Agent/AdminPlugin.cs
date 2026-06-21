@@ -60,6 +60,7 @@ namespace Quasar.Agent
             _connection = null;
             _outbox?.Dispose();
             _outbox = null;
+            _bridge?.Dispose();
             _bridge = null;
             AgentProfilerPatches.Dispose();
         }

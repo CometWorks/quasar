@@ -419,7 +419,16 @@ public sealed class QuasarBackupService
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            entry.ExtractToFile(target, overwrite: true);
+            if (IsConfigurationServerDefinitionEntry(entry.FullName))
+            {
+                if (!TryRestoreServerDefinitionEntry(entry, target, cancellationToken))
+                    continue;
+            }
+            else
+            {
+                entry.ExtractToFile(target, overwrite: true);
+            }
+
             restored++;
         }
 
@@ -714,8 +723,12 @@ public sealed class QuasarBackupService
             }
 
             string? destination = null;
+            var restoreServerDefinition = false;
             if (string.Equals(entry.FullName, ServerDefinitionEntryName, StringComparison.Ordinal))
+            {
                 destination = MagnetarPaths.GetQuasarServerDefinitionPath(target.UniqueName);
+                restoreServerDefinition = true;
+            }
             else if (entry.FullName.StartsWith(DedicatedServerPrefix, StringComparison.Ordinal))
                 destination = ResolvePrefixedExtractionTarget(entry.FullName, DedicatedServerPrefix, target.DedicatedServerAppDataPath);
             else if (entry.FullName.StartsWith(DedicatedConfigPrefix, StringComparison.Ordinal))
@@ -737,11 +750,48 @@ public sealed class QuasarBackupService
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-            entry.ExtractToFile(destination, overwrite: true);
+            if (restoreServerDefinition)
+            {
+                if (!TryRestoreServerDefinitionEntry(entry, destination, cancellationToken))
+                    continue;
+            }
+            else
+            {
+                entry.ExtractToFile(destination, overwrite: true);
+            }
+
             restored++;
         }
 
         return restored;
+    }
+
+    private bool TryRestoreServerDefinitionEntry(
+        ZipArchiveEntry entry,
+        string destination,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var stream = entry.Open();
+            var definition = JsonSerializer.Deserialize<DedicatedServerDefinition>(stream, JsonOptions);
+            if (definition is null)
+            {
+                _logger.LogWarning("Skipping empty server definition backup entry {Entry}.", entry.FullName);
+                return false;
+            }
+
+            definition.GoalState = DedicatedServerGoalState.Off;
+            definition.AutoStart = false;
+            File.WriteAllBytes(destination, JsonSerializer.SerializeToUtf8Bytes(definition, JsonOptions));
+            return true;
+        }
+        catch (JsonException exception)
+        {
+            _logger.LogWarning(exception, "Skipping invalid server definition backup entry {Entry}.", entry.FullName);
+            return false;
+        }
     }
 
     private int RestoreWorldEntries(
@@ -798,11 +848,18 @@ public sealed class QuasarBackupService
 
         var fullTarget = Path.GetFullPath(Path.Combine(baseDirectory, relative));
 
-        // Zip-slip guard: the resolved path must stay inside its base directory.
-        if (!fullTarget.StartsWith(EnsureTrailingSeparator(baseDirectory), StringComparison.Ordinal))
-            return null;
+        return IsPathWithinRoot(fullTarget, Path.GetFullPath(baseDirectory)) ? fullTarget : null;
+    }
 
-        return fullTarget;
+    private static bool IsConfigurationServerDefinitionEntry(string entryName)
+    {
+        if (!entryName.StartsWith(DataPrefix, StringComparison.Ordinal))
+            return false;
+
+        var relative = entryName[DataPrefix.Length..];
+        var normalized = ToEntryPath(relative);
+        return StartsWithEntrySegment(normalized, "Magnetars") &&
+            string.Equals(Path.GetFileName(normalized), "server.json", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? ResolvePrefixedExtractionTarget(string entryName, string prefix, string baseDirectory)

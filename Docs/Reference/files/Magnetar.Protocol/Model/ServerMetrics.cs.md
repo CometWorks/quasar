@@ -19,6 +19,8 @@ Class `ServerMetrics` (concrete, no base type):
 | `SimCpuLoadPercent` | `float` | CPU load attributed to the simulation thread. |
 | `ServerCpuLoadPercent` | `float` | Total server process CPU load. |
 | `IsSaveInProgress` | `bool` | True while a world save is running. |
+| `LastWorldSaveUtc` | `DateTimeOffset?` | Latest known world-save timestamp in UTC; `null` until the agent can read or observe one. |
+| `UnsavedGameTimeSeconds` | `long?` | In-game elapsed seconds since the saved checkpoint's `ElapsedGameTime`; used by the dashboard as unsaved progress duration. |
 | `UsedPcu` | `int` | PCU currently consumed. |
 | `TotalPcu` | `int` | PCU limit configured on the server. |
 | `MemoryWorkingSetMb` | `long?` | Process working set in MB; `null` if unavailable. |

@@ -178,6 +178,11 @@
                 <MudExpansionPanels MultiExpansion="true">
                     <MudExpansionPanel Text="Quasar config" Expanded="@_settings.Configuration.Enabled">
                         <MudStack Spacing="3">
+                            <MudText Typo="Typo.body2">
+                                Backs up Quasar configuration only: server definitions, config profiles, world templates,
+                                Discord, branding, players, security/RBAC and other Quasar catalogs. It does not include
+                                Dedicated Server app data, Magnetar app data or world save files.
+                            </MudText>
                             <MudSwitch @bind-Value="_settings.Configuration.Enabled" Color="Color.Primary" Label="Enable Quasar config backups" />
                             <MudGrid>
                                 <MudItem xs="12" sm="6" md="3">
@@ -219,6 +224,10 @@
 
                     <MudExpansionPanel Text="Servers" Expanded="@_settings.Server.Enabled">
                         <MudStack Spacing="3">
+                            <MudText Typo="Typo.body2">
+                                Backs up each server's Quasar server definition plus non-cache Dedicated Server and
+                                Magnetar app data. It does not include world save files; use world backups for saves.
+                            </MudText>
                             <MudSwitch @bind-Value="_settings.Server.Enabled" Color="Color.Primary" Label="Enable server backups" />
                             <MudGrid>
                                 <MudItem xs="12" sm="6" md="3">
@@ -260,6 +269,11 @@
 
                     <MudExpansionPanel Text="Worlds" Expanded="@_settings.World.Enabled">
                         <MudStack Spacing="3">
+                            <MudText Typo="Typo.body2">
+                                Backs up each server's world save files only. When a Space Engineers <code>Backup</code>
+                                snapshot exists, Quasar uses the latest valid snapshot so running servers can be backed up
+                                without copying the live save folder.
+                            </MudText>
                             <MudSwitch @bind-Value="_settings.World.Enabled" Color="Color.Primary" Label="Enable world backups" />
                             <MudGrid>
                                 <MudItem xs="12" sm="6" md="3">
@@ -753,7 +767,7 @@
     {
         var confirmed = await DialogService.ShowMessageBoxAsync(
             "Restore backup?",
-            "This restores the selected ZIP according to its backup type. Configuration backups merge by ID; server and world backups overwrite files for their target server. Continue?",
+            "This restores the selected ZIP according to its backup type. Configuration backups merge by ID; server backups restore server definition plus non-cache app data; world backups restore save files. Restored server definitions come back stopped. Continue?",
             yesText: "Restore",
             cancelText: "Cancel");
         return confirmed == true;
@@ -764,11 +778,11 @@
         var message = backup.Kind switch
         {
             QuasarBackupKind.Server =>
-                $"This overwrites server files, world files and config for '{backup.ServerDisplayName ?? backup.ServerUniqueName ?? backup.Name}'. Continue?",
+                $"This restores the server definition plus non-cache Dedicated Server and Magnetar app data for '{backup.ServerDisplayName ?? backup.ServerUniqueName ?? backup.Name}'. The server will be restored stopped. Continue?",
             QuasarBackupKind.World =>
-                $"This overwrites world files for '{backup.ServerDisplayName ?? backup.ServerUniqueName ?? backup.Name}' but keeps existing config. Continue?",
+                $"This overwrites world save files for '{backup.ServerDisplayName ?? backup.ServerUniqueName ?? backup.Name}' but keeps existing server and world config. Continue?",
             _ =>
-                "This overwrites Quasar settings that share an ID with the backup. Items with different IDs are kept (merge). Continue?",
+                "This overwrites Quasar settings that share an ID with the backup. Items with different IDs are kept (merge). Restored server definitions come back stopped. Continue?",
         };
 
         var confirmed = await DialogService.ShowMessageBoxAsync(

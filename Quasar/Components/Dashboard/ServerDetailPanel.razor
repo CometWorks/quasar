@@ -59,6 +59,17 @@ else
         <MudChip T="string" Variant="Variant.Outlined">Mods @Agent.Snapshot.Metrics.ModsLoaded</MudChip>
         <MudChip T="string" Variant="Variant.Outlined" Color="@GetPluginLoadColor(pluginLoadSummary)">Plugins @GetPluginLoadText(pluginLoadSummary)</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">Uptime @FormatDuration(Agent.Snapshot.Metrics.UptimeSeconds)</MudChip>
+        @if (GetSaveChipText() is { Length: > 0 } saveChipText)
+        {
+            <MudTooltip Text="@GetSaveTooltipText()">
+                <MudChip T="string"
+                         Variant="Variant.Outlined"
+                         Color="@GetSaveChipColor()"
+                         Icon="@Icons.Material.Filled.Save">
+                    @saveChipText
+                </MudChip>
+            </MudTooltip>
+        }
         @if (!string.IsNullOrWhiteSpace(Server?.CpuAffinity))
         {
             <MudChip T="string" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Memory">Affinity @Server.CpuAffinity</MudChip>
@@ -284,6 +295,62 @@ else
             return $"{duration.Minutes}m {duration.Seconds}s";
 
         return $"{duration.Seconds}s";
+    }
+
+    private string? GetSaveChipText()
+    {
+        var metrics = Agent?.Snapshot?.Metrics;
+        if (metrics is null)
+            return null;
+
+        if (metrics.IsSaveInProgress)
+            return "Save in progress";
+
+        if (metrics.LastWorldSaveUtc is not { } lastSaveUtc)
+            return null;
+
+        var localTime = lastSaveUtc.ToLocalTime().ToString("HH:mm:ss");
+        if (metrics.UnsavedGameTimeSeconds is long unsavedSeconds && unsavedSeconds > 0)
+            return $"Saved {localTime} · Unsaved {FormatMinuteSecondDuration(unsavedSeconds)}";
+
+        return $"Saved {localTime}";
+    }
+
+    private string GetSaveTooltipText()
+    {
+        var metrics = Agent?.Snapshot?.Metrics;
+        if (metrics is null)
+            return string.Empty;
+
+        if (metrics.IsSaveInProgress)
+            return "World save in progress.";
+
+        if (metrics.LastWorldSaveUtc is not { } lastSaveUtc)
+            return string.Empty;
+
+        var savedAt = lastSaveUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+        if (metrics.UnsavedGameTimeSeconds is long unsavedSeconds)
+        {
+            return $"Latest world save: {savedAt}. Unsaved game progress: {FormatMinuteSecondDuration(unsavedSeconds)}.";
+        }
+
+        return $"Latest world save: {savedAt}.";
+    }
+
+    private Color GetSaveChipColor()
+    {
+        var metrics = Agent?.Snapshot?.Metrics;
+        return metrics?.IsSaveInProgress == true ? Color.Info : Color.Default;
+    }
+
+    private static string FormatMinuteSecondDuration(long totalSeconds)
+    {
+        if (totalSeconds <= 0)
+            return "00:00";
+
+        var minutes = totalSeconds / 60;
+        var seconds = totalSeconds % 60;
+        return $"{minutes:00}:{seconds:00}";
     }
 
     private int GetMaxPlayers()

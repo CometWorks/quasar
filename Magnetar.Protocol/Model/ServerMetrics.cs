@@ -1,3 +1,5 @@
+using System;
+
 namespace Magnetar.Protocol.Model;
 
 public class ServerMetrics
@@ -15,6 +17,10 @@ public class ServerMetrics
     public float ServerCpuLoadPercent { get; set; }
 
     public bool IsSaveInProgress { get; set; }
+
+    public DateTimeOffset? LastWorldSaveUtc { get; set; }
+
+    public long? UnsavedGameTimeSeconds { get; set; }
 
     public int UsedPcu { get; set; }
 

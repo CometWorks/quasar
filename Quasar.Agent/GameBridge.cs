@@ -17,6 +17,7 @@ using Newtonsoft.Json.Serialization;
 using PluginSdk;
 using PluginSdk.Config;
 using Sandbox;
+using Sandbox.Engine.Networking;
 using Sandbox.Engine.Multiplayer;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Gui;
@@ -29,7 +30,7 @@ using VRage.Plugins;
 
 namespace Quasar.Agent
 {
-    public class GameBridge
+    public class GameBridge : IDisposable
     {
         private static readonly TimeSpan SnapshotInterval = TimeSpan.FromSeconds(1);
         private const string ServerChatAuthorName = "Server";
@@ -57,6 +58,12 @@ namespace Quasar.Agent
         private readonly string _uniqueName;
         private readonly string _pluginVersion;
         private readonly ConcurrentQueue<DeathEventSnapshot> _deathQueue = new ConcurrentQueue<DeathEventSnapshot>();
+        private readonly object _saveSync = new object();
+        private string _worldSavePath = string.Empty;
+        private bool _worldSaveStateLoaded;
+        private bool _lastSaveInProgress;
+        private DateTimeOffset? _lastWorldSaveUtc;
+        private long? _lastWorldSaveElapsedGameTicks;
         private long _lastWorkingSetBytes;
         private TimeSpan _lastProcessCpuTime;
         private DateTime _lastProcessCpuSampleUtc = DateTime.MinValue;
@@ -83,6 +90,12 @@ namespace Quasar.Agent
                     ?? $"unmanaged-{_hostId}-{_processId}")
                 .Trim();
             _pluginVersion = GetAgentVersion();
+            MySession.OnSaved += OnWorldSaved;
+        }
+
+        public void Dispose()
+        {
+            MySession.OnSaved -= OnWorldSaved;
         }
 
         private static string GetAgentVersion()
@@ -575,6 +588,8 @@ namespace Quasar.Agent
             else
                 usedPcu = session.GlobalBlockLimits?.PCUBuilt ?? 0;
 
+            var isSaveInProgress = session.IsSaveInProgress || MyAsyncSaving.InProgress;
+            var worldSaveTelemetry = GetWorldSaveTelemetry(session, isSaveInProgress);
             int? activeGridCount = null;
             int? activeEntityCount = null;
             int? totalBlockCount = null;
@@ -619,7 +634,9 @@ namespace Quasar.Agent
                 SimSpeed = Sync.ServerSimulationRatio,
                 SimCpuLoadPercent = (float)Math.Round(Sync.ServerCPULoad, 1),
                 ServerCpuLoadPercent = processCpuLoadPercent,
-                IsSaveInProgress = session.IsSaveInProgress || MyAsyncSaving.InProgress,
+                IsSaveInProgress = isSaveInProgress,
+                LastWorldSaveUtc = worldSaveTelemetry.LastWorldSaveUtc,
+                UnsavedGameTimeSeconds = worldSaveTelemetry.UnsavedGameTimeSeconds,
                 UsedPcu = usedPcu > 0 ? usedPcu : gridPcu,
                 TotalPcu = session.Settings.TotalPCU,
                 MemoryWorkingSetMb = _lastWorkingSetBytes >> 20,
@@ -631,6 +648,154 @@ namespace Quasar.Agent
                 ModsLoaded = session.Mods?.Count ?? 0,
                 PluginsLoaded = GetPlugins().Count,
             };
+        }
+
+        private void OnWorldSaved(bool success, string sessionPath)
+        {
+            if (!success)
+                return;
+
+            var session = MySession.Static;
+            var normalizedPath = NormalizeSessionPath(!string.IsNullOrWhiteSpace(sessionPath)
+                ? sessionPath
+                : session?.CurrentPath);
+            long? elapsedGameTicks = session == null ? (long?)null : session.ElapsedGameTime.Ticks;
+
+            lock (_saveSync)
+            {
+                _worldSavePath = normalizedPath;
+                _worldSaveStateLoaded = true;
+                _lastWorldSaveUtc = DateTimeOffset.UtcNow;
+                _lastWorldSaveElapsedGameTicks = elapsedGameTicks;
+            }
+        }
+
+        private WorldSaveTelemetry GetWorldSaveTelemetry(MySession session, bool isSaveInProgress)
+        {
+            var sessionPath = NormalizeSessionPath(session?.CurrentPath);
+            ObserveSaveProgress(sessionPath, isSaveInProgress);
+            EnsureWorldSaveStateLoaded(sessionPath);
+
+            DateTimeOffset? lastWorldSaveUtc;
+            long? lastWorldSaveElapsedGameTicks;
+            lock (_saveSync)
+            {
+                lastWorldSaveUtc = _lastWorldSaveUtc;
+                lastWorldSaveElapsedGameTicks = _lastWorldSaveElapsedGameTicks;
+            }
+
+            long? unsavedGameTimeSeconds = null;
+            if (session != null && lastWorldSaveElapsedGameTicks.HasValue)
+            {
+                var unsavedTicks = session.ElapsedGameTime.Ticks - lastWorldSaveElapsedGameTicks.Value;
+                unsavedGameTimeSeconds = Math.Max(0, unsavedTicks / TimeSpan.TicksPerSecond);
+            }
+
+            return new WorldSaveTelemetry
+            {
+                LastWorldSaveUtc = lastWorldSaveUtc,
+                UnsavedGameTimeSeconds = unsavedGameTimeSeconds,
+            };
+        }
+
+        private void ObserveSaveProgress(string sessionPath, bool isSaveInProgress)
+        {
+            lock (_saveSync)
+            {
+                if (_lastSaveInProgress && !isSaveInProgress && !string.IsNullOrWhiteSpace(sessionPath))
+                {
+                    _worldSaveStateLoaded = false;
+                    _lastWorldSaveUtc = null;
+                    _lastWorldSaveElapsedGameTicks = null;
+                }
+
+                _lastSaveInProgress = isSaveInProgress;
+            }
+        }
+
+        private void EnsureWorldSaveStateLoaded(string sessionPath)
+        {
+            var shouldLoad = false;
+            lock (_saveSync)
+            {
+                if (!string.Equals(_worldSavePath, sessionPath, StringComparison.Ordinal))
+                {
+                    _worldSavePath = sessionPath;
+                    _worldSaveStateLoaded = false;
+                    _lastWorldSaveUtc = null;
+                    _lastWorldSaveElapsedGameTicks = null;
+                }
+
+                shouldLoad = !_worldSaveStateLoaded && !string.IsNullOrWhiteSpace(sessionPath);
+            }
+
+            if (!shouldLoad)
+                return;
+
+            var checkpoint = TryLoadWorldSaveCheckpoint(sessionPath);
+            lock (_saveSync)
+            {
+                if (!string.Equals(_worldSavePath, sessionPath, StringComparison.Ordinal))
+                    return;
+
+                _worldSaveStateLoaded = true;
+                _lastWorldSaveUtc = checkpoint?.LastWorldSaveUtc;
+                _lastWorldSaveElapsedGameTicks = checkpoint?.LastWorldSaveElapsedGameTicks;
+            }
+        }
+
+        private static WorldSaveCheckpoint TryLoadWorldSaveCheckpoint(string sessionPath)
+        {
+            try
+            {
+                var checkpoint = MyLocalCache.LoadCheckpoint(sessionPath, out _);
+                var lastWorldSaveUtc = NormalizeSaveTime(checkpoint?.LastSaveTime ?? default);
+
+                return new WorldSaveCheckpoint
+                {
+                    LastWorldSaveUtc = lastWorldSaveUtc,
+                    LastWorldSaveElapsedGameTicks = lastWorldSaveUtc.HasValue
+                        ? checkpoint?.ElapsedGameTime
+                        : null,
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static DateTimeOffset? NormalizeSaveTime(DateTime saveTime)
+        {
+            if (saveTime == default)
+                return null;
+
+            if (saveTime.Kind == DateTimeKind.Unspecified)
+                saveTime = DateTime.SpecifyKind(saveTime, DateTimeKind.Local);
+
+            return new DateTimeOffset(saveTime).ToUniversalTime();
+        }
+
+        private static string NormalizeSessionPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return string.Empty;
+
+            var trimmed = path.Trim();
+            if (trimmed.EndsWith(".sbc", StringComparison.OrdinalIgnoreCase))
+                trimmed = Path.GetDirectoryName(trimmed) ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(trimmed))
+                return string.Empty;
+
+            try
+            {
+                return Path.GetFullPath(trimmed);
+            }
+            catch
+            {
+                return trimmed;
+            }
         }
 
         private float GetProcessCpuLoadPercent(Process process)
@@ -1252,6 +1417,20 @@ namespace Quasar.Agent
             return session?.Name
                    ?? MySandboxGame.ConfigDedicated?.WorldName
                    ?? "Unknown World";
+        }
+
+        private sealed class WorldSaveCheckpoint
+        {
+            public DateTimeOffset? LastWorldSaveUtc { get; set; }
+
+            public long? LastWorldSaveElapsedGameTicks { get; set; }
+        }
+
+        private sealed class WorldSaveTelemetry
+        {
+            public DateTimeOffset? LastWorldSaveUtc { get; set; }
+
+            public long? UnsavedGameTimeSeconds { get; set; }
         }
 
         private static ServerCommandResult CreateResult(ServerCommandEnvelope command, bool success, string message, string payload = null)
