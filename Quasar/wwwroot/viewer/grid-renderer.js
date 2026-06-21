@@ -316,18 +316,15 @@ function createBlockMeshes(block, definition, renderContext) {
     const meshes = [];
     if (block.modelParts && block.modelParts.length) {
         for (const part of block.modelParts) {
-            const mesh = createModelMesh(part.modelAssetId, block, matrixDtoToThree(part.localMatrix), part.patternOffset, renderContext);
-            if (mesh) meshes.push(mesh);
+            meshes.push(...createModelMeshes(part.modelAssetId, block, matrixDtoToThree(part.localMatrix), part.patternOffset, renderContext));
         }
     } else {
         const assetId = block.currentModelAssetId || (definition && definition.modelAssetId) || "";
-        const mesh = createModelMesh(assetId, block, composeModelInstanceMatrix(block, definition), null, renderContext);
-        if (mesh) meshes.push(mesh);
+        meshes.push(...createModelMeshes(assetId, block, composeModelInstanceMatrix(block, definition), null, renderContext));
     }
 
     for (const subpart of block.subparts || []) {
-        const mesh = createModelMesh(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix), null, renderContext);
-        if (mesh) meshes.push(mesh);
+        meshes.push(...createModelMeshes(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix), null, renderContext));
     }
 
     return meshes;
@@ -348,21 +345,45 @@ function composeModelInstanceMatrix(block, definition) {
     return matrix;
 }
 
-function createModelMesh(assetId, block, matrix, patternOffset = null, renderContext = createRenderContext(textureStatsToken)) {
+function createModelMeshes(assetId, block, matrix, patternOffset = null, renderContext = createRenderContext(textureStatsToken)) {
     const resolved = assetId ? state.modelResolution.get(assetId) : null;
     const model = resolved && resolved.status === "parsed" ? resolved.model : null;
-    if (!model) return null;
+    if (!model) return [];
 
-    const geometry = sharedModelGeometry(model, patternOffset, renderContext);
-    const materials = model.groups.map(group => sharedModelMaterial(model, group, block, renderContext));
-    return {
-        geometry,
-        materials,
-        matrix,
-        block,
-        colorMask: colorMaskForBlock(block),
-        batchKey: `${geometry.userData.renderCacheKey}|${materials.map(material => material.userData.renderCacheKey).join("|")}`,
-    };
+    const renderables = [];
+    const groupsByLayer = new Map();
+    for (const group of model.groups) {
+        const material = sharedModelMaterial(model, group, block, renderContext);
+        const layer = modelMaterialRenderLayer(material);
+        let entries = groupsByLayer.get(layer);
+        if (!entries) {
+            entries = [];
+            groupsByLayer.set(layer, entries);
+        }
+        entries.push({ group, material });
+    }
+
+    for (const [layer, entries] of groupsByLayer) {
+        const groups = entries.map(entry => entry.group);
+        const materials = entries.map(entry => entry.material);
+        const geometry = sharedModelGeometry(model, patternOffset, renderContext, groups, layer);
+        renderables.push({
+            geometry,
+            materials,
+            matrix,
+            block,
+            colorMask: colorMaskForBlock(block),
+            batchKey: `${geometry.userData.renderCacheKey}|${materials.map(material => material.userData.renderCacheKey).join("|")}`,
+        });
+    }
+    return renderables;
+}
+
+function modelMaterialRenderLayer(material) {
+    const mode = material.userData.seRenderMode;
+    if (mode === "blended") return "blended";
+    if (mode === "decal" || mode === "decal-cutout") return "decal";
+    return "base";
 }
 
 function queueModelBatch(renderable, renderContext) {
@@ -385,7 +406,7 @@ function flushModelBatches(group, renderContext) {
         mesh.name = `ModelBatch:${key}`;
         mesh.matrixAutoUpdate = false;
         mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-        mesh.renderOrder = batch.materials.some(material => material.userData.seRenderMode === "blended") ? 2 : 0;
+        mesh.renderOrder = modelBatchRenderOrder(batch.materials);
         mesh.userData.blocks = [];
 
         for (let i = 0; i < batch.instances.length; i++) {
@@ -407,21 +428,33 @@ function flushModelBatches(group, renderContext) {
     return renderContext.batches.size;
 }
 
-function sharedModelGeometry(model, patternOffset, renderContext) {
-    const key = `${model.geometryLogicalPath || model.logicalPath}|${patternOffsetKey(patternOffset)}`;
+function modelBatchRenderOrder(materials) {
+    if (materials.some(material => material.userData.seRenderMode === "blended")) return 2;
+    if (materials.some(material => material.userData.seRenderMode === "decal" || material.userData.seRenderMode === "decal-cutout")) return 1;
+    return 0;
+}
+
+function sharedModelGeometry(model, patternOffset, renderContext, groups = model.groups, layer = "all") {
+    const isDecalLayer = layer === "decal";
+    const key = `${model.geometryLogicalPath || model.logicalPath}|${patternOffsetKey(patternOffset)}|${layer}|${modelGeometryGroupsKey(groups)}`;
     if (renderContext.geometries.has(key)) return renderContext.geometries.get(key);
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(model.positions, 3));
     if (model.normals) geometry.setAttribute("normal", new THREE.BufferAttribute(model.normals, 3));
-    if (model.uvs) geometry.setAttribute("uv", new THREE.BufferAttribute(transformModelUvs(model.uvs, patternOffset), 2));
+    if (model.uvs) geometry.setAttribute("uv", new THREE.BufferAttribute(transformModelUvs(model.uvs, patternOffset, isDecalLayer), 2));
     geometry.setIndex(new THREE.BufferAttribute(model.indices, 1));
-    for (const group of model.groups) geometry.addGroup(group.start, group.count, group.materialIndex);
+    for (let i = 0; i < groups.length; i++) geometry.addGroup(groups[i].start, groups[i].count, i);
     if (!model.normals) geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
     geometry.userData.renderCacheKey = key;
     renderContext.geometries.set(key, geometry);
     return geometry;
+}
+
+function modelGeometryGroupsKey(groups) {
+    if (!groups || !groups.length) return "none";
+    return groups.map(group => `${group.materialIndex}:${group.start}:${group.count}`).join(",");
 }
 
 function patternOffsetKey(patternOffset) {
@@ -433,13 +466,14 @@ function patternOffsetKey(patternOffset) {
     return [x, y, z, w].map(value => Number.isFinite(value) ? value.toFixed(6) : "n").join(",");
 }
 
-function transformModelUvs(uvs, patternOffset) {
+function transformModelUvs(uvs, patternOffset, skipVFlip = false) {
     const transformed = new Float32Array(uvs.length);
     const offset = patternUvOffset(patternOffset);
-    const isCubePart = !!patternOffset;
+    const isCubePart = !!patternOffset || skipVFlip;
     for (let i = 0; i < uvs.length; i += 2) {
         transformed[i] = uvs[i] + offset.x;
         // Generated cube parts use SE's direct shader UVs; regular models keep the browser V flip.
+        // Decal material groups also use SE's direct shader UVs (no V flip).
         transformed[i + 1] = isCubePart ? uvs[i + 1] + offset.y : 1 - uvs[i + 1];
     }
     return transformed;
@@ -470,19 +504,20 @@ function sharedModelMaterial(model, group, block, renderContext) {
     if (renderContext.materials.has(key)) return renderContext.materials.get(key);
 
     const color = transparentMaterial && transparentMaterial.color ? new THREE.Color(transparentMaterial.color.r, transparentMaterial.color.g, transparentMaterial.color.b) : colorFromHash(`${model.logicalPath}|${group.materialName || group.materialIndex}`);
+    const transparent = renderMode.blended || (renderMode.decal && !renderMode.cutout);
     const material = new THREE.MeshStandardMaterial({
         color,
         roughness: transparentMaterial && Number.isFinite(transparentMaterial.gloss) ? clamp(1 - transparentMaterial.gloss, 0, 1) : 0.72,
         metalness: 0.22,
-        transparent: renderMode.blended,
+        transparent,
         opacity: transparentMaterial && transparentMaterial.color ? clamp(transparentMaterial.color.a, 0, 1) : technique.includes("GLASS") ? 0.38 : renderMode.blended ? 0.7 : 1,
-        depthWrite: !renderMode.blended,
+        depthWrite: !renderMode.blended && !renderMode.decal,
         side: modelMaterialSide(technique, renderMode),
     });
     if (transparentMaterial && transparentMaterial.color) material.userData.seTransparentMaterialColor = color.clone();
-    if (renderMode.blended) material.forceSinglePass = true;
+    if (transparent) material.forceSinglePass = true;
     material.userData.renderCacheKey = key;
-    material.userData.seRenderMode = renderMode.blended ? "blended" : renderMode.cutout ? "cutout" : "opaque";
+    material.userData.seRenderMode = modelMaterialRenderModeName(renderMode);
     applySpaceEngineersColorMasking(material, skin && skin.metalnessColorable, colorMaskable);
     applyModelTextures(material, { ...group, textures }, technique, renderMode, renderContext.textureToken, colorMaskable);
     renderContext.materials.set(key, material);
@@ -707,9 +742,16 @@ function blockSkinSubtypeId(block) {
 }
 
 function modelMaterialRenderMode(technique) {
+    const decal = technique.includes("DECAL");
     const cutout = technique.includes("ALPHA_MASKED") || technique.includes("DECAL_CUTOUT");
     const blended = !cutout && (technique.includes("GLASS") || technique.includes("HOLO") || technique.includes("SHIELD"));
-    return { cutout, blended };
+    return { cutout, blended, decal };
+}
+
+function modelMaterialRenderModeName(renderMode) {
+    if (renderMode.blended) return "blended";
+    if (renderMode.decal) return renderMode.cutout ? "decal-cutout" : "decal";
+    return renderMode.cutout ? "cutout" : "opaque";
 }
 
 function modelMaterialSide(technique, renderMode) {
@@ -739,7 +781,7 @@ function applyModelTextures(material, group, technique, renderMode, textureToken
         }).catch(error => log(`Texture fallback retained for ${base.path}: ${error.message}`, true));
     }
 
-    const alphaMask = renderMode.cutout ? alphaMaskTextureSelection(group.textures) : null;
+    const alphaMask = (renderMode.cutout || renderMode.decal) ? alphaMaskTextureSelection(group.textures) : null;
     if (alphaMask) {
         loadTrackedTexture(alphaMask, textureToken).then(texture => {
             material.alphaMap = texture;
