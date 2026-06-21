@@ -81,6 +81,11 @@ environment variables can contain secrets.
 
 Stored Quasar, server, and world backups are written to `Quasar:BackupDirectory`.
 Change it from **Backup → Stored backups**, or edit `appsettings.json` directly.
+Quasar config backups contain Quasar-managed configuration/catalog files only;
+server backups contain one server definition plus non-cache Dedicated Server and
+Magnetar app data; world backups contain world save files. Restored server
+definitions are written with `Off` goal state so they do not auto-start before
+matching world files are restored.
 Leave it empty to use the default `Backups` folder under the Quasar data
 directory. Set it to an absolute path to place backups on another disk or a
 mounted network share:

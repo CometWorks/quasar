@@ -41,7 +41,7 @@
                            OnClick="@(() => Select(QuasarControlAction.ShutdownAllServers))"
                            Class="quasar-control-action">
                     <span>
-                        <span class="quasar-control-action-title">Shutdown all servers normally</span>
+                        <span class="quasar-control-action-title">Save and stop all servers</span>
                         <span class="quasar-control-action-body">Quasar keeps running and tracks the shutdown progress.</span>
                     </span>
                 </MudButton>
@@ -109,14 +109,14 @@
     private string ConfirmationButtonText => _pendingAction switch
     {
         QuasarControlAction.RestartQuasar => "Restart Quasar",
-        QuasarControlAction.ShutdownAllServers => "Shutdown Servers",
+        QuasarControlAction.ShutdownAllServers => "Save and Stop Servers",
         _ => "Shutdown Quasar",
     };
 
     private string ConfirmationLead => _pendingAction switch
     {
         QuasarControlAction.RestartQuasar => "Running servers continue to run.",
-        QuasarControlAction.ShutdownAllServers => "Every running server will be shut down normally.",
+        QuasarControlAction.ShutdownAllServers => "Every running server will save and stop.",
         _ => "Quasar will stop, but running servers continue.",
     };
 
@@ -125,7 +125,7 @@
         QuasarControlAction.RestartQuasar =>
             "The Quasar web worker exits and the launcher starts it again. The web UI briefly disconnects, then reloads and re-adopts running servers by process id. Use this after restoring Quasar configuration from backup.",
         QuasarControlAction.ShutdownAllServers =>
-            "Quasar stays online. Each running server receives a normal graceful stop request, and its goal state is set to Off so Quasar does not restart it.",
+            "Quasar stays online. Each running server receives a normal save-and-stop request, and its goal state is set to Off so Quasar does not restart it.",
         _ =>
             $"The Quasar web UI and supervisor stop. Running servers are left detached and can continue for {FormatOfflineGrace()} without Quasar before their agent offline policy takes over. Start Quasar again to re-adopt them.",
     };
