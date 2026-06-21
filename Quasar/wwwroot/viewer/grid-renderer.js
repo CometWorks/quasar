@@ -65,6 +65,7 @@ export async function renderGridScene(scene) {
     updateTextureStats();
     state.stats["Voxel bodies"] = (scene.voxels || []).length;
     state.stats["Voxel proxies"] = state.sceneRenderCounts.voxelProxies;
+    state.stats["LCD surfaces"] = countLcdSurfaces(scene);
     renderSummary(scene, resolutionStats, textureStats);
 
     await ensureArmorSkinDefinitionsLoaded();
@@ -492,6 +493,9 @@ function patternUvOffset(patternOffset) {
 
 function sharedModelMaterial(model, group, block, renderContext) {
     const technique = String(group.technique || "MESH").toUpperCase();
+    const lcdSurface = lcdSurfaceForMaterial(block, group.materialName);
+    if (lcdSurface) return sharedLcdMaterial(model, group, block, lcdSurface, renderContext, technique);
+
     const renderMode = modelMaterialRenderMode(technique);
     const colorMaskable = !technique.includes("GLASS");
     const skin = materialSkinOverride(block, group.materialName);
@@ -519,6 +523,285 @@ function sharedModelMaterial(model, group, block, renderContext) {
     applyModelTextures(material, { ...group, textures }, technique, renderMode, renderContext.textureToken, colorMaskable);
     renderContext.materials.set(key, material);
     return material;
+}
+
+function sharedLcdMaterial(model, group, block, lcdSurface, renderContext, technique) {
+    const key = `${model.logicalPath}|${group.materialIndex}|${group.materialName}|lcd=${block.id || ""}:${lcdSurface.index || 0}:${lcdSurfaceKey(lcdSurface)}`;
+    if (renderContext.materials.has(key)) return renderContext.materials.get(key);
+
+    const material = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.36,
+        metalness: 0,
+        emissive: 0xffffff,
+        emissiveIntensity: 0.65,
+        side: modelMaterialSide(technique, { blended: false, decal: false, cutout: false }),
+    });
+    material.userData.renderCacheKey = key;
+    material.userData.seRenderMode = "opaque";
+    applyLcdSurfaceTexture(material, lcdSurface, renderContext.textureToken);
+    renderContext.materials.set(key, material);
+    return material;
+}
+
+function lcdSurfaceForMaterial(block, materialName) {
+    const key = String(materialName || "").trim().toLowerCase();
+    if (!key) return null;
+    for (const surface of block.lcdSurfaces || []) {
+        if (String(surface.materialName || "").trim().toLowerCase() === key) return surface;
+    }
+    return null;
+}
+
+function lcdSurfaceKey(surface) {
+    const images = (surface.selectedImages || []).map(image => `${image.id || ""}:${image.texturePath || image.spritePath || ""}`).join(",");
+    const sprites = (surface.sprites || []).map(sprite => `${sprite.index}:${sprite.type}:${sprite.data}:${sprite.texturePath || sprite.spritePath || ""}:${vectorKey(sprite.position)}:${vectorKey(sprite.size)}:${colorKey(sprite.color)}:${sprite.rotationOrScale}`).join(",");
+    return [
+        surface.contentType,
+        surface.currentImageIndex,
+        surface.currentlyShownImageId,
+        surface.text,
+        surface.font,
+        surface.fontSize,
+        surface.alignment,
+        surface.textPadding,
+        surface.preserveAspectRatio ? 1 : 0,
+        colorKey(surface.backgroundColor),
+        surface.backgroundAlpha,
+        colorKey(surface.fontColor),
+        colorKey(surface.scriptBackgroundColor),
+        colorKey(surface.scriptForegroundColor),
+        images,
+        sprites,
+    ].join("|");
+}
+
+function vectorKey(vector) {
+    if (!vector) return "";
+    return `${vector.x ?? vector.X ?? 0},${vector.y ?? vector.Y ?? 0}`;
+}
+
+function colorKey(color) {
+    if (!color) return "";
+    return `${color.r ?? color.R ?? 0},${color.g ?? color.G ?? 0},${color.b ?? color.B ?? 0},${color.a ?? color.A ?? 255}`;
+}
+
+function applyLcdSurfaceTexture(material, surface, textureToken) {
+    const directPath = lcdDirectTexturePath(surface);
+    if (directPath) {
+        loadTrackedTexture({ slot: "LcdTexture", path: directPath }, textureToken).then(texture => {
+            material.map = texture;
+            material.emissiveMap = texture;
+            material.needsUpdate = true;
+        }).catch(error => log(`LCD texture fallback retained for ${directPath}: ${error.message}`, true));
+        return;
+    }
+
+    const canvasTexture = createLcdCanvasTexture(surface, textureToken, material);
+    material.map = canvasTexture;
+    material.emissiveMap = canvasTexture;
+    material.needsUpdate = true;
+}
+
+function lcdDirectTexturePath(surface) {
+    const contentType = String(surface.contentType || "").toUpperCase();
+    const hasText = !!String(surface.text || "");
+    const hasSprites = (surface.sprites || []).length > 0;
+    if (contentType !== "TEXT_AND_IMAGE" || hasText || hasSprites || surface.preserveAspectRatio) return "";
+
+    const image = currentLcdImage(surface);
+    return image && (image.spritePath || image.texturePath) || "";
+}
+
+function currentLcdImage(surface) {
+    const images = surface.selectedImages || [];
+    if (!images.length) return null;
+    const shown = String(surface.currentlyShownImageId || "").toLowerCase();
+    if (shown) {
+        const byId = images.find(image => String(image.id || "").toLowerCase() === shown);
+        if (byId) return byId;
+    }
+
+    const index = Math.max(0, Math.min(images.length - 1, Number(surface.currentImageIndex) || 0));
+    return images[index];
+}
+
+function createLcdCanvasTexture(surface, textureToken, material) {
+    const canvas = document.createElement("canvas");
+    canvas.width = clamp(Math.round(Number(surface.textureWidth) || 512), 16, 2048);
+    canvas.height = clamp(Math.round(Number(surface.textureHeight) || 512), 16, 2048);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.name = `lcd:${surface.materialName || surface.name || "surface"}`;
+    texture.flipY = false;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+
+    const context = { canvas, ctx: canvas.getContext("2d"), texture, material, surface, images: new Map() };
+    renderLcdCanvas(context);
+    loadLcdCanvasImages(context, textureToken);
+    return texture;
+}
+
+function loadLcdCanvasImages(context, textureToken) {
+    for (const path of lcdCanvasTexturePaths(context.surface)) {
+        loadTrackedTexture({ slot: "LcdTexture", path }, textureToken).then(texture => {
+            context.images.set(path, texture);
+            renderLcdCanvas(context);
+            context.texture.needsUpdate = true;
+            context.material.needsUpdate = true;
+        }).catch(error => log(`LCD canvas texture skipped for ${path}: ${error.message}`, true));
+    }
+}
+
+function lcdCanvasTexturePaths(surface) {
+    const paths = [];
+    const image = currentLcdImage(surface);
+    if (image && (image.spritePath || image.texturePath)) paths.push(image.spritePath || image.texturePath);
+    for (const sprite of surface.sprites || []) {
+        const path = sprite.spritePath || sprite.texturePath;
+        if (path) paths.push(path);
+    }
+    return [...new Set(paths)];
+}
+
+function renderLcdCanvas(context) {
+    const { canvas, ctx, surface } = context;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = cssColor(surface.backgroundColor, surface.backgroundAlpha ?? surface.backgroundColor?.a ?? 255);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const image = currentLcdImage(surface);
+    if (image && (image.spritePath || image.texturePath)) drawLcdTexture(context, image.spritePath || image.texturePath, { x: canvas.width / 2, y: canvas.height / 2 }, { x: canvas.width, y: canvas.height }, "CENTER", 0, surface.preserveAspectRatio);
+
+    for (const sprite of sortedLcdSprites(surface.sprites || [])) drawLcdSprite(context, sprite);
+    if (String(surface.text || "")) drawLcdText(context, surface.text, surface.font, surface.fontColor, surface.fontSize, surface.alignment, surface.textPadding);
+    ctx.restore();
+    context.texture.needsUpdate = true;
+}
+
+function sortedLcdSprites(sprites) {
+    return [...sprites].sort((left, right) => (Number(left.index) || 0) - (Number(right.index) || 0));
+}
+
+function drawLcdSprite(context, sprite) {
+    const type = String(sprite.type || "").toUpperCase();
+    if (type === "TEXTURE") {
+        const path = sprite.spritePath || sprite.texturePath;
+        if (!path) return;
+        drawLcdTexture(context, path, sprite.position, sprite.size, sprite.alignment, Number(sprite.rotationOrScale) || 0, false, sprite.color);
+    } else if (type === "TEXT") {
+        drawLcdText(context, sprite.data || "", sprite.fontId, sprite.color, sprite.rotationOrScale, sprite.alignment, 0, sprite.position, sprite.size);
+    }
+}
+
+function drawLcdTexture(context, path, position, size, alignment = "CENTER", rotation = 0, preserveAspect = false, color = null) {
+    const image = context.images.get(path);
+    if (!image || !image.image) return;
+
+    const ctx = context.ctx;
+    const targetSize = normalizeCanvasVector(size, { x: context.canvas.width, y: context.canvas.height });
+    const targetPosition = normalizeCanvasVector(position, { x: context.canvas.width / 2, y: context.canvas.height / 2 });
+    const aligned = alignCanvasPosition(targetPosition, targetSize, alignment);
+    let width = targetSize.x;
+    let height = targetSize.y;
+    let x = aligned.x;
+    let y = aligned.y;
+    if (preserveAspect && image.image.width && image.image.height) {
+        const scale = Math.min(width / image.image.width, height / image.image.height);
+        width = image.image.width * scale;
+        height = image.image.height * scale;
+        x = targetPosition.x - width / 2;
+        y = targetPosition.y - height / 2;
+    }
+
+    ctx.save();
+    ctx.translate(x + width / 2, y + height / 2);
+    if (rotation) ctx.rotate(rotation);
+    ctx.globalAlpha = normalizedColor(color).a;
+    ctx.drawImage(image.image, -width / 2, -height / 2, width, height);
+    ctx.restore();
+}
+
+function drawLcdText(context, text, font, color, scale, alignment = "LEFT", paddingPercent = 0, position = null, size = null) {
+    const ctx = context.ctx;
+    const canvas = context.canvas;
+    const normalized = normalizedColor(color || { r: 255, g: 255, b: 255, a: 255 });
+    const fontSize = Math.max(8, Math.min(180, (Number(scale) || 1) * Math.min(canvas.width, canvas.height) / 16));
+    const padding = Math.max(0, Number(paddingPercent) || 0) * 0.01 * Math.min(canvas.width, canvas.height);
+    const boxSize = normalizeCanvasVector(size, { x: canvas.width - padding * 2, y: canvas.height - padding * 2 });
+    const boxPosition = normalizeCanvasVector(position, { x: canvas.width / 2, y: padding });
+    const align = String(alignment || "LEFT").toUpperCase();
+    ctx.save();
+    ctx.font = `${fontSize}px ${lcdCanvasFont(font)}`;
+    const lines = wrapLcdText(ctx, String(text || ""), boxSize.x, fontSize);
+
+    ctx.fillStyle = `rgba(${normalized.r}, ${normalized.g}, ${normalized.b}, ${normalized.a})`;
+    ctx.textBaseline = "top";
+    ctx.textAlign = align === "RIGHT" ? "right" : align === "CENTER" ? "center" : "left";
+    const x = align === "RIGHT" ? boxPosition.x + boxSize.x / 2 : align === "CENTER" ? boxPosition.x : boxPosition.x - boxSize.x / 2;
+    let y = position ? boxPosition.y : padding;
+    for (const line of lines) {
+        ctx.fillText(line, x, y);
+        y += fontSize * 1.22;
+        if (y > canvas.height) break;
+    }
+    ctx.restore();
+}
+
+function wrapLcdText(ctx, text, maxWidth, fontSize) {
+    const lines = [];
+    for (const sourceLine of text.replace(/\r\n/g, "\n").split("\n")) {
+        let line = "";
+        for (const word of sourceLine.split(/(\s+)/)) {
+            const next = line + word;
+            if (line && ctx.measureText(next).width > maxWidth) {
+                lines.push(line.trimEnd());
+                line = word.trimStart();
+            } else {
+                line = next;
+            }
+        }
+        lines.push(line);
+    }
+    return lines.length ? lines : [""];
+}
+
+function lcdCanvasFont(font) {
+    const key = String(font || "").toLowerCase();
+    if (key.includes("monospace") || key.includes("debug")) return "monospace";
+    return "Arial, sans-serif";
+}
+
+function normalizeCanvasVector(value, fallback) {
+    if (!value) return { ...fallback };
+    return { x: Number(value.x ?? value.X) || fallback.x, y: Number(value.y ?? value.Y) || fallback.y };
+}
+
+function alignCanvasPosition(position, size, alignment) {
+    const align = String(alignment || "CENTER").toUpperCase();
+    if (align === "LEFT") return { x: position.x, y: position.y - size.y / 2 };
+    if (align === "RIGHT") return { x: position.x - size.x, y: position.y - size.y / 2 };
+    return { x: position.x - size.x / 2, y: position.y - size.y / 2 };
+}
+
+function cssColor(color, alphaOverride = null) {
+    const normalized = normalizedColor(color, alphaOverride);
+    return `rgba(${normalized.r}, ${normalized.g}, ${normalized.b}, ${normalized.a})`;
+}
+
+function normalizedColor(color, alphaOverride = null) {
+    color = color || {};
+    const a = alphaOverride == null ? color.a ?? color.A ?? 255 : alphaOverride;
+    return {
+        r: clamp(Number(color.r ?? color.R ?? 0), 0, 255),
+        g: clamp(Number(color.g ?? color.G ?? 0), 0, 255),
+        b: clamp(Number(color.b ?? color.B ?? 0), 0, 255),
+        a: clamp(Number(a), 0, 255) / 255,
+    };
 }
 
 async function ensureArmorSkinDefinitionsLoaded() {
@@ -1280,6 +1563,12 @@ function collectReferencedTextureAssets(scene) {
     return assets;
 }
 
+function countLcdSurfaces(scene) {
+    let count = 0;
+    for (const block of scene.blockInstances || []) count += (block.lcdSurfaces || []).length;
+    return count;
+}
+
 function addTextureAsset(assets, logicalPath, usage) {
     const key = textureAssetKey(logicalPath);
     if (!key || assets.has(key)) return;
@@ -1406,6 +1695,7 @@ function renderSummary(scene, resolutionStats, textureStats) {
     addSummary("Parsed", resolutionStats.parsed.toLocaleString());
     addSummary("Missing", resolutionStats.missing.toLocaleString());
     addSummary("Textures", textureStats.listed.toLocaleString());
+    addSummary("LCDs", countLcdSurfaces(scene).toLocaleString());
     addSummary("Voxels", (scene.voxels || []).length.toLocaleString());
     if (scene.environment && scene.environment.sunDirection) {
         const direction = scene.environment.sunDirection;

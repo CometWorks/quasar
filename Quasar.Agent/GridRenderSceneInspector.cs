@@ -5,12 +5,15 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using Magnetar.Protocol.Model;
+using Sandbox.Common.ObjectBuilders.Definitions;
 using Sandbox.Definitions;
+using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.World;
 using VRage.Game;
 using VRage.Game.Entity;
+using VRage.Game.GUI.TextPanel;
 using VRage.Utils;
 using VRageMath;
 
@@ -259,7 +262,234 @@ namespace Quasar.Agent
             AddGeneratedBlockModelParts(grid, block, dto, catalog, warnings);
             AddRuntimeSubparts(grid, block, dto, catalog, warnings);
             AddSkinTextureChanges(block, dto);
+            AddLcdSurfaces(block, dto, catalog, warnings);
             return dto;
+        }
+
+        private static void AddLcdSurfaces(
+            MySlimBlock block,
+            ViewerBlockInstance dto,
+            MetadataAssetCatalog catalog,
+            List<string> warnings)
+        {
+            var surfaces = TextSurfacesForBlock(block.FatBlock);
+            if (surfaces.Count == 0)
+                return;
+
+            var screenAreas = ScreenAreasForBlock(block.BlockDefinition);
+            for (var i = 0; i < surfaces.Count; i++)
+            {
+                try
+                {
+                    var surface = surfaces[i];
+                    if (surface == null)
+                        continue;
+
+                    var surfaceDto = ToLcdSurface(i, surface, screenAreas, catalog);
+                    if (!string.IsNullOrEmpty(surfaceDto.MaterialName))
+                        dto.LcdSurfaces.Add(surfaceDto);
+                }
+                catch (Exception exception)
+                {
+                    warnings.Add("Failed to inspect LCD surface " + i + " for block " + block.Position + ": " + exception.Message);
+                }
+            }
+        }
+
+        private static List<MyTextPanelComponent> TextSurfacesForBlock(MyCubeBlock fatBlock)
+        {
+            var result = new List<MyTextPanelComponent>();
+            var textPanel = fatBlock as MyTextPanel;
+            if (textPanel?.PanelComponent != null)
+            {
+                result.Add(textPanel.PanelComponent);
+                return result;
+            }
+
+            var functionalBlock = fatBlock as MyFunctionalBlock;
+            if (functionalBlock?.MultiTextPanel?.Panels == null)
+                return result;
+
+            foreach (var panel in functionalBlock.MultiTextPanel.Panels)
+            {
+                if (panel != null)
+                    result.Add(panel);
+            }
+
+            return result;
+        }
+
+        private static List<ScreenAreaInfo> ScreenAreasForBlock(MyCubeBlockDefinition definition)
+        {
+            var result = new List<ScreenAreaInfo>();
+            var textPanelDefinition = definition as MyTextPanelDefinition;
+            if (textPanelDefinition != null && textPanelDefinition.ScreenAreas != null && textPanelDefinition.ScreenAreas.Count > 0)
+            {
+                AddScreenAreas(result, textPanelDefinition.ScreenAreas);
+                return result;
+            }
+
+            if (textPanelDefinition != null && !string.IsNullOrWhiteSpace(textPanelDefinition.PanelMaterialName))
+            {
+                result.Add(new ScreenAreaInfo
+                {
+                    MaterialName = textPanelDefinition.PanelMaterialName,
+                    TextureResolution = textPanelDefinition.TextureResolution,
+                    ScreenWidth = textPanelDefinition.ScreenWidth,
+                    ScreenHeight = textPanelDefinition.ScreenHeight,
+                });
+                return result;
+            }
+
+            var functionalDefinition = definition as MyFunctionalBlockDefinition;
+            if (functionalDefinition != null && functionalDefinition.ScreenAreas != null)
+                AddScreenAreas(result, functionalDefinition.ScreenAreas);
+
+            return result;
+        }
+
+        private static void AddScreenAreas(List<ScreenAreaInfo> result, List<ScreenArea> screenAreas)
+        {
+            foreach (var area in screenAreas)
+            {
+                if (area == null)
+                    continue;
+
+                result.Add(new ScreenAreaInfo
+                {
+                    MaterialName = area.Name ?? string.Empty,
+                    DisplayName = area.DisplayName ?? string.Empty,
+                    TextureResolution = area.TextureResolution,
+                    ScreenWidth = area.ScreenWidth,
+                    ScreenHeight = area.ScreenHeight,
+                    Script = area.Script ?? string.Empty,
+                });
+            }
+        }
+
+        private static ViewerLcdSurface ToLcdSurface(
+            int index,
+            MyTextPanelComponent surface,
+            List<ScreenAreaInfo> screenAreas,
+            MetadataAssetCatalog catalog)
+        {
+            var area = index < screenAreas.Count ? screenAreas[index] : null;
+            var textureSize = surface.TextureSize;
+            var surfaceSize = surface.SurfaceSize;
+            var dto = new ViewerLcdSurface
+            {
+                Index = index,
+                MaterialName = FirstNonEmpty(area?.MaterialName, surface.Name),
+                Name = surface.Name ?? string.Empty,
+                DisplayName = FirstNonEmpty(surface.DisplayName, area?.DisplayName),
+                ContentType = surface.ContentType.ToString(),
+                TextureWidth = SafeDimension(textureSize.X, area?.TextureResolution ?? 512),
+                TextureHeight = SafeDimension(textureSize.Y, area?.TextureResolution ?? 512),
+                SurfaceWidth = SafePositive(surfaceSize.X, area?.ScreenWidth ?? 1),
+                SurfaceHeight = SafePositive(surfaceSize.Y, area?.ScreenHeight ?? 1),
+                PreserveAspectRatio = surface.PreserveAspectRatio,
+                TextPadding = surface.TextPadding,
+                Font = surface.Font.SubtypeName ?? string.Empty,
+                FontSize = surface.FontSize,
+                Alignment = surface.Alignment.ToString(),
+                Text = surface.Text ?? string.Empty,
+                BackgroundColor = ToDto(surface.BackgroundColor),
+                BackgroundAlpha = surface.BackgroundAlpha,
+                FontColor = ToDto(surface.FontColor),
+                ScriptBackgroundColor = ToDto(surface.ScriptBackgroundColor),
+                ScriptForegroundColor = ToDto(surface.ScriptForegroundColor),
+                CurrentlyShownImageId = CurrentlyShownImage(surface),
+            };
+
+            for (var i = 0; i < surface.SelectedTexturesToDraw.Count; i++)
+            {
+                var image = ToLcdImage(surface.SelectedTexturesToDraw[i].Id.SubtypeName, catalog);
+                dto.SelectedImages.Add(image);
+                if (!string.IsNullOrEmpty(dto.CurrentlyShownImageId) && string.Equals(dto.CurrentlyShownImageId, image.Id, StringComparison.OrdinalIgnoreCase))
+                    dto.CurrentImageIndex = i;
+            }
+
+            var component = surface as MyTextPanelComponent;
+            if (component != null && component.ExternalSprites.Sprites != null)
+            {
+                foreach (var sprite in component.ExternalSprites.Sprites)
+                {
+                    if (sprite.Index >= component.ExternalSprites.Length)
+                        continue;
+
+                    dto.Sprites.Add(ToLcdSprite(sprite, catalog));
+                }
+            }
+
+            return dto;
+        }
+
+        private static string CurrentlyShownImage(MyTextPanelComponent surface)
+        {
+            if (surface.SelectedTexturesToDraw.Count == 0)
+                return string.Empty;
+
+            if (surface.CurrentSelectedTexture >= surface.SelectedTexturesToDraw.Count)
+                return surface.SelectedTexturesToDraw[0].Id.SubtypeName;
+
+            return surface.SelectedTexturesToDraw[surface.CurrentSelectedTexture].Id.SubtypeName;
+        }
+
+        private static ViewerLcdImage ToLcdImage(string id, MetadataAssetCatalog catalog)
+        {
+            var definition = MyDefinitionManager.Static.GetDefinition<MyLCDTextureDefinition>(id);
+            var image = new ViewerLcdImage
+            {
+                Id = id ?? string.Empty,
+                TexturePath = NormalizeAssetPath(definition?.TexturePath),
+                SpritePath = NormalizeAssetPath(definition?.SpritePath),
+            };
+            catalog.RegisterTexture(FirstNonEmpty(image.SpritePath, image.TexturePath), "lcd");
+            return image;
+        }
+
+        private static ViewerLcdSprite ToLcdSprite(MySerializableSprite sprite, MetadataAssetCatalog catalog)
+        {
+            var dto = new ViewerLcdSprite
+            {
+                Type = sprite.Type.ToString(),
+                Data = sprite.Data ?? string.Empty,
+                Position = sprite.Position.HasValue ? ToDto((Vector2)sprite.Position.Value) : null,
+                Size = sprite.Size.HasValue ? ToDto((Vector2)sprite.Size.Value) : null,
+                Color = sprite.Color.HasValue ? ToDto(new Color(sprite.Color.Value)) : null,
+                FontId = sprite.FontId ?? string.Empty,
+                Alignment = sprite.Alignment.ToString(),
+                RotationOrScale = sprite.RotationOrScale,
+                Index = sprite.Index,
+            };
+
+            if (sprite.Type == SpriteType.TEXTURE && !string.IsNullOrEmpty(sprite.Data))
+            {
+                var image = ToLcdImage(sprite.Data, catalog);
+                dto.TexturePath = image.TexturePath;
+                dto.SpritePath = image.SpritePath;
+            }
+
+            return dto;
+        }
+
+        private static int SafeDimension(float value, int fallback)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value) || value <= 0)
+                return Math.Max(1, fallback);
+            return Math.Max(1, Math.Min(4096, (int)Math.Round(value)));
+        }
+
+        private static float SafePositive(float value, float fallback)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value) || value <= 0)
+                return Math.Max(1f, fallback);
+            return value;
+        }
+
+        private static string NormalizeAssetPath(string path)
+        {
+            return string.IsNullOrWhiteSpace(path) ? string.Empty : path.Trim().Replace('\\', '/');
         }
 
         private static void AddGeneratedBlockModelParts(
@@ -494,6 +724,16 @@ namespace Quasar.Agent
             return new ViewerVector3 { X = value.X, Y = value.Y, Z = value.Z };
         }
 
+        private static ViewerVector2 ToDto(Vector2 value)
+        {
+            return new ViewerVector2 { X = value.X, Y = value.Y };
+        }
+
+        private static ViewerColor ToDto(Color value)
+        {
+            return new ViewerColor { R = value.R, G = value.G, B = value.B, A = value.A };
+        }
+
         private static ViewerVector3D ToDto(Vector3D value)
         {
             return new ViewerVector3D { X = value.X, Y = value.Y, Z = value.Z };
@@ -574,6 +814,21 @@ namespace Quasar.Agent
                     BlockCount = _count,
                 };
             }
+        }
+
+        private sealed class ScreenAreaInfo
+        {
+            public string MaterialName { get; set; } = string.Empty;
+
+            public string DisplayName { get; set; } = string.Empty;
+
+            public int TextureResolution { get; set; } = 512;
+
+            public int ScreenWidth { get; set; } = 1;
+
+            public int ScreenHeight { get; set; } = 1;
+
+            public string Script { get; set; } = string.Empty;
         }
 
         private sealed class MetadataAssetCatalog

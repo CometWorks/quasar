@@ -143,6 +143,93 @@ public class ViewerBlockInstance
     public List<ViewerBlockSubpart> Subparts { get; set; } = new();
 
     public List<ViewerMaterialTextureChange> SkinTextureChanges { get; set; } = new();
+
+    public List<ViewerLcdSurface> LcdSurfaces { get; set; } = new();
+}
+
+public class ViewerLcdSurface
+{
+    public int Index { get; set; }
+
+    public string MaterialName { get; set; } = string.Empty;
+
+    public string Name { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    public string ContentType { get; set; } = string.Empty;
+
+    public int TextureWidth { get; set; }
+
+    public int TextureHeight { get; set; }
+
+    public float SurfaceWidth { get; set; }
+
+    public float SurfaceHeight { get; set; }
+
+    public bool PreserveAspectRatio { get; set; }
+
+    public float TextPadding { get; set; }
+
+    public string Font { get; set; } = string.Empty;
+
+    public float FontSize { get; set; }
+
+    public string Alignment { get; set; } = string.Empty;
+
+    public string Text { get; set; } = string.Empty;
+
+    public ViewerColor BackgroundColor { get; set; } = new();
+
+    public byte BackgroundAlpha { get; set; }
+
+    public ViewerColor FontColor { get; set; } = new() { R = 255, G = 255, B = 255, A = 255 };
+
+    public ViewerColor ScriptBackgroundColor { get; set; } = new();
+
+    public ViewerColor ScriptForegroundColor { get; set; } = new() { R = 255, G = 255, B = 255, A = 255 };
+
+    public List<ViewerLcdImage> SelectedImages { get; set; } = new();
+
+    public int CurrentImageIndex { get; set; }
+
+    public string CurrentlyShownImageId { get; set; } = string.Empty;
+
+    public List<ViewerLcdSprite> Sprites { get; set; } = new();
+}
+
+public class ViewerLcdImage
+{
+    public string Id { get; set; } = string.Empty;
+
+    public string TexturePath { get; set; } = string.Empty;
+
+    public string SpritePath { get; set; } = string.Empty;
+}
+
+public class ViewerLcdSprite
+{
+    public string Type { get; set; } = string.Empty;
+
+    public string Data { get; set; } = string.Empty;
+
+    public string TexturePath { get; set; } = string.Empty;
+
+    public string SpritePath { get; set; } = string.Empty;
+
+    public ViewerVector2? Position { get; set; }
+
+    public ViewerVector2? Size { get; set; }
+
+    public ViewerColor? Color { get; set; }
+
+    public string FontId { get; set; } = string.Empty;
+
+    public string Alignment { get; set; } = string.Empty;
+
+    public float RotationOrScale { get; set; }
+
+    public int Index { get; set; }
 }
 
 public class ViewerBlockModelPart
@@ -272,6 +359,24 @@ public class ViewerVector3
     public float Y { get; set; }
 
     public float Z { get; set; }
+}
+
+public class ViewerVector2
+{
+    public float X { get; set; }
+
+    public float Y { get; set; }
+}
+
+public class ViewerColor
+{
+    public byte R { get; set; }
+
+    public byte G { get; set; }
+
+    public byte B { get; set; }
+
+    public byte A { get; set; }
 }
 
 public class ViewerVector3D
