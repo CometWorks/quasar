@@ -519,6 +519,8 @@ Environment=QUASAR_MODE=Service
 Environment=QUASAR_OPEN_BROWSER_ON_START=false
 Environment=HOME=$RUN_HOME
 Environment=QUASAR_DATA_DIR=$DATA_DIR
+Environment=QUASAR_SYSTEMD_SERVICE=$SERVICE_NAME.service
+Environment=QUASAR_SYSTEMD_SCOPE=system
 
 [Install]
 WantedBy=multi-user.target
@@ -551,6 +553,8 @@ Environment=QUASAR_MODE=Service
 Environment=QUASAR_OPEN_BROWSER_ON_START=false
 Environment=HOME=$RUN_HOME
 Environment=QUASAR_DATA_DIR=$DATA_DIR
+Environment=QUASAR_SYSTEMD_SERVICE=$SERVICE_NAME.service
+Environment=QUASAR_SYSTEMD_SCOPE=user
 
 [Install]
 WantedBy=default.target

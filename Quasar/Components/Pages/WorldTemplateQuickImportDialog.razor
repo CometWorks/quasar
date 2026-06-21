@@ -44,21 +44,17 @@
                         else
                         {
                             <MudTable T="InstalledWorldTemplateSource" Dense="true" Hover="true" Items="FilteredInstalledTemplates" Breakpoint="Breakpoint.Sm" Class="installed-world-template-table">
+                                <ColGroup>
+                                    <col class="installed-world-template-name-column" />
+                                    <col class="installed-world-template-source-column" />
+                                    <col class="installed-world-template-action-column" />
+                                </ColGroup>
                                 <HeaderContent>
-                                    <MudTh Class="installed-world-template-action-cell"></MudTh>
                                     <MudTh Class="installed-world-template-name-cell">Name</MudTh>
                                     <MudTh Class="installed-world-template-source-cell">Source</MudTh>
+                                    <MudTh Class="installed-world-template-action-cell quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
                                 </HeaderContent>
                                 <RowTemplate>
-                                    <MudTd DataLabel="" Class="installed-world-template-action-cell">
-                                        <MudTooltip Text="Add template">
-                                            <MudIconButton Icon="@Icons.Material.Filled.Add"
-                                                           Color="Color.Primary"
-                                                           Size="Size.Small"
-                                                           Disabled="_importing"
-                                                           OnClick="@(() => ImportPredefinedTemplateAsync(context))" />
-                                        </MudTooltip>
-                                    </MudTd>
                                     <MudTd DataLabel="Name" Class="installed-world-template-name-cell">
                                         <MudText Typo="Typo.body2" Class="installed-world-template-name-text">@context.DisplayName</MudText>
                                     </MudTd>
@@ -67,6 +63,15 @@
                                             <MudText Typo="Typo.caption" Class="installed-world-template-source-text">@context.Category</MudText>
                                             <MudText Typo="Typo.caption" Class="mono installed-world-template-source-text">@context.SourceDisplayPath</MudText>
                                         </MudStack>
+                                    </MudTd>
+                                    <MudTd DataLabel="" Class="installed-world-template-action-cell quasar-actions-column">
+                                        <MudTooltip Text="Add template">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                                           Color="Color.Primary"
+                                                           Size="Size.Small"
+                                                           Disabled="_importing"
+                                                           OnClick="@(() => ImportPredefinedTemplateAsync(context))" />
+                                        </MudTooltip>
                                     </MudTd>
                                 </RowTemplate>
                                 <NoRecordsContent>

@@ -11,7 +11,7 @@ Routable page at `/players` listing all known players observed across managed se
 - **Key UI**
   - Header text plus a two-sided controls `MudStack`: left side has server `MudSelect` (`_serverFilter`), type `MudSelect` (`_typeFilter`: All/Online/Offline/Banned/Kick cooldown), immediate clearable search field (`_searchText`), and destructive `Clean Server` / `Clean All` buttons; right side has `Auto clear after` days (`_retentionDays`) plus `Save`.
   - Stats chip row for Known / Online / Shown (`Shown` appears when any filter/search is active).
-  - Main `MudPaper` (`players-list-card`) shows an info `MudAlert` when there are no known players or no filter/search match, otherwise a sortable full-width `MudTable<KnownPlayerView>` with actions, identity/status/timestamp columns (Server, Steam ID, Service, Faction, Role, Status, Last Seen), and Player name.
+  - Main `MudPaper` (`players-list-card`) shows an info `MudAlert` when there are no known players or no filter/search match, otherwise a sortable full-width `MudTable<KnownPlayerView>` with Player name first, identity/status/timestamp columns (Server, Steam ID, Service, Faction, Role, Status, Last Seen), and a rightmost unlabeled moderation action column.
   - Status cell chips: online/offline, `banned` (when `Record.IsBanned`), and `agent offline` (when `!CanModerate`).
   - Actions `MudMenu` (disabled when `!CanModerate`): disabled "Set role" header, one item per promote level, a divider, then Kick (online only) and Ban/Unban.
 - **`PromoteLevels`** static array: None, Scripter, Moderator, SpaceMaster, Admin.

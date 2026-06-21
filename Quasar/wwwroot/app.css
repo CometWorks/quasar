@@ -157,20 +157,22 @@ h1:focus {
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover,
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover > .mud-table-cell,
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover > td {
-    --quasar-table-hover-success: color-mix(in srgb, var(--mud-palette-success) 72%, var(--mud-palette-primary-text));
-    --quasar-table-hover-warning: color-mix(in srgb, var(--mud-palette-warning) 72%, var(--mud-palette-primary-text));
-    --quasar-table-hover-error: color-mix(in srgb, var(--mud-palette-error) 72%, var(--mud-palette-primary-text));
-    background-color: var(--mud-palette-primary) !important;
-    color: var(--mud-palette-primary-text) !important;
+    --quasar-table-hover-background: var(--quasar-hover-list-background, var(--mud-palette-secondary));
+    --quasar-table-hover-text: var(--quasar-hover-list-text, var(--mud-palette-secondary-text));
+    --quasar-table-hover-success: color-mix(in srgb, var(--mud-palette-success) 72%, var(--quasar-table-hover-text));
+    --quasar-table-hover-warning: color-mix(in srgb, var(--mud-palette-warning) 72%, var(--quasar-table-hover-text));
+    --quasar-table-hover-error: color-mix(in srgb, var(--mud-palette-error) 72%, var(--quasar-table-hover-text));
+    background-color: var(--quasar-table-hover-background) !important;
+    color: var(--quasar-table-hover-text) !important;
 }
 
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover *:not(.mud-button-root *) {
-    color: var(--mud-palette-primary-text) !important;
+    color: var(--quasar-table-hover-text) !important;
 }
 
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-outlined,
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-chip-outlined {
-    border-color: var(--mud-palette-primary-text) !important;
+    border-color: var(--quasar-table-hover-text) !important;
 }
 
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover .mud-button-root.mud-button-text-success,
@@ -264,28 +266,43 @@ h1:focus {
     margin-top: 1rem;
 }
 
-.installed-world-template-table,
-.installed-world-template-table .mud-table-root {
+.installed-world-template-table {
+    min-width: 0;
+}
+
+.installed-world-template-table .mud-table-root,
+.installed-world-template-table table {
     width: 100%;
     table-layout: fixed;
+}
+
+.installed-world-template-name-column {
+    width: 32%;
+}
+
+.installed-world-template-action-column {
+    width: 3.25rem;
 }
 
 .installed-world-template-name-cell {
     width: 32%;
     min-width: 0;
+    overflow: hidden;
 }
 
 .installed-world-template-source-cell {
     min-width: 0;
     max-width: 0;
+    overflow: hidden;
 }
 
 .installed-world-template-action-cell {
-    width: 3rem;
-    min-width: 3rem;
-    max-width: 3rem;
-    text-align: left;
-    white-space: nowrap;
+    width: 3.25rem !important;
+    min-width: 3.25rem;
+    max-width: 3.25rem;
+    overflow: visible;
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
 }
 
 .installed-world-template-name-text,
@@ -348,6 +365,33 @@ h1:focus {
     opacity: 0.5;
 }
 
+.quasar-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.quasar-actions-column {
+    width: 1%;
+    text-align: right;
+    white-space: nowrap;
+}
+
+td.quasar-actions-column > * {
+    margin-left: auto;
+}
+
+td.quasar-actions-column > .mud-stack,
+td.quasar-actions-column > .plugin-actions {
+    justify-content: flex-end;
+}
+
 .copyable-path {
     min-width: 0;
 }
@@ -368,6 +412,33 @@ h1:focus {
 .copyable-path-button {
     margin-left: 2px;
     vertical-align: middle;
+}
+
+.appearance-color-field {
+    --appearance-color-field-color: transparent;
+    --appearance-color-field-text: #111827;
+    padding: 0.5rem;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: var(--mud-default-borderradius);
+    color: var(--appearance-color-field-text);
+    background-image:
+        linear-gradient(var(--appearance-color-field-color), var(--appearance-color-field-color)),
+        repeating-conic-gradient(rgba(0, 0, 0, 0.12) 0% 25%, rgba(255, 255, 255, 0.36) 0% 50%);
+    background-position: 0 0, 0 0;
+    background-size: auto, 1rem 1rem;
+}
+
+.appearance-color-field .mud-input-control {
+    margin-top: 0;
+}
+
+.appearance-color-field .mud-input-control,
+.appearance-color-field .mud-input,
+.appearance-color-field .mud-input-label,
+.appearance-color-field .mud-input-adornment,
+.appearance-color-field .mud-icon-root,
+.appearance-color-field input {
+    color: var(--appearance-color-field-text) !important;
 }
 
 .branding-logo-preview {

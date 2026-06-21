@@ -65,8 +65,10 @@ metadata is normalized to `major.minor.build`.
 
 The default systemd user service runs Bootstrap from
 `~/.local/share/Quasar/Quasar serve --quiet` and sets `QUASAR_DATA_DIR` to the
-user's Quasar data directory. A machine-wide service is still available with
-`install.sh --system`.
+user's Quasar data directory. It also sets `QUASAR_SYSTEMD_SERVICE` and
+`QUASAR_SYSTEMD_SCOPE` so the web UI's **Shutdown Quasar** action can request
+`systemctl --user stop quasar.service` instead of only exiting the launcher.
+A machine-wide service is still available with `install.sh --system`.
 
 If Bootstrap has no usable `Updates/active-release.json` and no packaged
 `WebService/Quasar`, it downloads the latest Linux web asset from GitHub,
@@ -175,12 +177,15 @@ data directory at `~/.config/Quasar` by default, and installs a user
 `quasar.service`. Use `--system` with `sudo` for a machine-wide service, or
 `--data-dir <dir>` to place Quasar state elsewhere. The generated service sets
 `HOME` and `QUASAR_DATA_DIR` explicitly so Bootstrap and the worker never fall
-back to the install directory for update/runtime state. The installer enables
-the service but does not start or restart it unless `--start` is passed; start it
-later with `systemctl --user restart quasar.service`. When installing from
-source instead of an extracted release archive, the installer stamps the launcher
-with `VERSION`, an exact git tag, or a short commit-derived prerelease identity
-so Bootstrap update comparisons do not fall back to plain `1.0.0`.
+back to the install directory for update/runtime state. It also records the unit
+name/scope in `QUASAR_SYSTEMD_SERVICE` and `QUASAR_SYSTEMD_SCOPE`; with those
+set, the UI shutdown button asks systemd to stop the installed unit. The
+installer enables the service but does not start or restart it unless `--start`
+is passed; start it later with `systemctl --user restart quasar.service`. When
+installing from source instead of an extracted release archive, the installer
+stamps the launcher with `VERSION`, an exact git tag, or a short commit-derived
+prerelease identity so Bootstrap update comparisons do not fall back to plain
+`1.0.0`.
 
 If a previous `/opt/quasar` system install exists, the new user-mode installer
 installs the new Bootstrap and user service first, then calls the old

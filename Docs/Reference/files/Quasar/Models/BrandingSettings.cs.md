@@ -3,7 +3,7 @@
 **Module:** Quasar.Models  **Kind:** class  **Tier:** 1
 
 ## Summary
-Defines the persistent branding and theme configuration serialized to `branding.json`. Contains two sealed classes: `BrandingSettings` (app identity + palette references) and `ThemePalette` (a flat string-valued mirror of MudBlazor's `PaletteLight`/`PaletteDark`). Both classes support cloning and normalization with fallback to the built-in Quasar defaults.
+Defines the persistent branding and theme configuration serialized to `branding.json`. Contains two sealed classes: `BrandingSettings` (app identity + palette references) and `ThemePalette` (a flat string-valued mirror of MudBlazor's `PaletteLight`/`PaletteDark` plus Quasar hover-list colors). Both classes support cloning and normalization with fallback to the built-in Quasar defaults.
 
 ## Structure
 Namespace: `Quasar.Models`
@@ -23,10 +23,10 @@ Namespace: `Quasar.Models`
 | `Clone()` | Deep copy |
 | `static Normalize(BrandingSettings?)` | Returns a fully populated instance; null input yields the out-of-the-box defaults |
 
-**`ThemePalette`** — sealed class; 26 hex-colour string properties (Primary, Secondary, Background, Surface, Drawer*, Appbar*, Text*, Lines*, Divider*, Info, Success, Warning, Error, plus corresponding ContrastText variants).
+**`ThemePalette`** — sealed class; 28 hex-colour string properties (Primary, Secondary, Hover*, Background, Surface, Drawer*, Appbar*, Text*, Lines*, Divider*, Info, Success, Warning, Error, plus corresponding ContrastText variants). `HoverBackground` / `HoverContrastText` drive Quasar's table/list row hover colours; the Quasar dark default hover background is `#bfbfbfff`.
 
 Key methods:
-- `static QuasarLight()` / `static QuasarDark()` — extract hex values from `QuasarTheme.Default`
+- `static QuasarLight()` / `static QuasarDark()` — extract hex values from `QuasarTheme.Default` and attach Quasar-specific hover-list defaults
 - `Clone()` — deep copy
 - `static Normalize(ThemePalette?, ThemePalette fallback)` — fills blank fields from fallback
 - `ToMudPaletteLight()` / `ToMudPaletteDark()` — convert back to MudBlazor palette objects

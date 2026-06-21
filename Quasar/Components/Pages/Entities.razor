@@ -106,7 +106,6 @@ else
 {
     <MudTable T="EntitySummary" Items="FilteredEntities" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" FixedHeader="true" Height="60vh">
         <HeaderContent>
-            <MudTh>Actions</MudTh>
             <MudTh>Type</MudTh>
             <MudTh>Entity ID</MudTh>
             <MudTh>Sub-type</MudTh>
@@ -116,16 +115,9 @@ else
             <MudTh>Owner</MudTh>
             <MudTh>Position</MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.DisplayName)">Name</MudTableSortLabel></MudTh>
+            <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd DataLabel="Actions">
-                <MudTooltip Text="Delete entity">
-                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                   Color="Color.Error"
-                                   Size="Size.Small"
-                                   OnClick="@(() => DeleteEntityAsync(context))" />
-                </MudTooltip>
-            </MudTd>
             <MudTd DataLabel="Type">
                 <MudChip T="string" Size="Size.Small" Color="@GetTypeColor(context.TypeTag)" Variant="Variant.Outlined">@context.TypeTag</MudChip>
             </MudTd>
@@ -137,6 +129,14 @@ else
             <MudTd DataLabel="Owner">@FormatOwner(context)</MudTd>
             <MudTd DataLabel="Position" Class="mono">@FormatPosition(context)</MudTd>
             <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+            <MudTd DataLabel="" Class="quasar-actions-column">
+                <MudTooltip Text="Delete entity">
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                   Color="Color.Error"
+                                   Size="Size.Small"
+                                   OnClick="@(() => DeleteEntityAsync(context))" />
+                </MudTooltip>
+            </MudTd>
         </RowTemplate>
         <PagerContent>
             <MudTablePager PageSizeOptions="new[] { 25, 50, 100, 250 }" />

@@ -241,7 +241,8 @@ else
                                      Value="@GetNumber(get())"
                                      ValueChanged="@((double? value) => { set(CreateNumberValue(field.Type, value)); MarkDirty(); })"
                                      Min="@field.Min" Max="@field.Max"
-                                     HelperText="@field.Description" Immediate="true" />
+                                     HelperText="@field.Description" Immediate="true"
+                                     Class="plugin-config-number-field" />
                 }
                 break;
 
@@ -348,7 +349,8 @@ else
                     <MudNumericField T="double?" Label="@component.ToUpperInvariant()"
                                      Value="@GetObjectNumber(get(), component)"
                                      ValueChanged="@((double? value) => { SetVectorComponent(get, set, component, value, integer); })"
-                                     Immediate="true" />
+                                     Immediate="true"
+                                     Class="plugin-config-number-field" />
                 </MudItem>
             }
         </MudGrid>
@@ -379,7 +381,8 @@ else
                     <MudNumericField T="double?" Label="@component.ToUpperInvariant()"
                                      Value="@GetObjectNumber(GetNestedObject(get, key), component)"
                                      ValueChanged="@((double? value) => { SetNestedVectorComponent(get, set, key, component, value, integer); })"
-                                     Immediate="true" />
+                                     Immediate="true"
+                                     Class="plugin-config-number-field" />
                 </MudItem>
             }
         </MudGrid>

@@ -30,7 +30,9 @@ This installs Quasar to `~/.local/share/Quasar`, creates the user's
 `~/.config/Quasar` data directory, and starts the user `quasar.service`. Pass
 `--system` with `sudo` for a machine-wide service, or `--data-dir <dir>` to
 store Quasar state elsewhere. The web UI is then served at
-`http://localhost:8080`. Manage the service with:
+`http://localhost:8080`. In the installed user service, the UI **Shutdown
+Quasar** action requests `systemctl --user stop quasar.service`. Manage the
+service with:
 
 ```bash
 systemctl --user status  quasar.service

@@ -28,3 +28,8 @@
     flex: 0 1 16rem;
     min-width: min(12rem, 100%);
 }
+
+::deep .plugin-config-number-field {
+    max-width: 400px;
+    width: 100%;
+}

@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Top-level application shell layout. Provides the MudBlazor theme/provider setup, a responsive app bar with branding, update notification bell, theme-mode switcher, auth (login/logout) controls, and a Quasar power dialog trigger. It hosts a collapsible side drawer with `NavMenu`, the main content area that renders `@Body`, and a full-screen overlay while Quasar is restarting or shutting down.
+Top-level application shell layout. Provides the MudBlazor theme/provider setup, theme-configured hover-list CSS variables, a responsive app bar with branding, update notification bell, theme-mode switcher, auth (login/logout) controls, and a Quasar power dialog trigger. It hosts a collapsible side drawer with `NavMenu`, the main content area that renders `@Body`, and a full-screen overlay while Quasar is restarting or shutting down.
 
 ## Structure
 Inherits: `LayoutComponentBase`  
@@ -28,6 +28,7 @@ Implements: `IDisposable`
 - `_updateSnapshot` (`QuasarUpdateSnapshot`) — latest update state used by the bell badge/tooltip.
 - `IsUnderBootstrap` (computed) — true when `WebServiceOptions.LauncherToken` is set (worker was spawned by the Quasar launcher).
 - `LogoSrc` (computed) — picks dark vs light branding logo by `_isDarkMode`.
+- `HoverPaletteStyle` (computed) — emits `--quasar-hover-list-background` and `--quasar-hover-list-text` from the active theme palette's `HoverBackground` / `HoverContrastText` fields, using sanitized alpha-capable hex output and Quasar fallback colours.
 
 **MudBlazor providers (top of markup):** `MudThemeProvider` (with `ObserveSystemDarkModeChange` when in System mode), `MudPopoverProvider`, `MudDialogProvider`, `MudSnackbarProvider`. `<BrandingHeadContent />` injects favicon/title head markup.
 
@@ -43,7 +44,7 @@ Implements: `IDisposable`
 
 **Restart Quasar flow:** `RestartQuasarAsync` sets `_isShuttingDown`, invokes JS `quasarConfigs.reloadWhenHealthy("/")` so the browser reloads to the Dashboard once the new worker is healthy, then calls `ShutdownService.RestartWorker()` (the circuit drops as the worker stops). Only available under Bootstrap.
 
-**Shutdown Quasar flow:** `ShutdownQuasarAsync` sets the blocking overlay and calls `ShutdownService.ShutdownQuasarPreservingServers()`, leaving running servers detached.
+**Shutdown Quasar flow:** `ShutdownQuasarAsync` sets the blocking overlay and calls `ShutdownService.ShutdownQuasarPreservingServers()`, leaving running servers detached. On Linux service installs the shutdown service tries to stop the systemd unit first; otherwise it falls back to the Bootstrap shutdown request.
 
 **Shutdown-all-servers flow:** `ShutdownAllServers` starts `ShutdownService.StopAllServersAsync(setGoalStateOff: true)` without awaiting it. This matches pressing Stop on every server card: servers wind down in the background, goal state is set to Off, Quasar itself stays up, and Dashboard / Servers reflect progress.
 
@@ -51,7 +52,7 @@ Implements: `IDisposable`
 
 **Drawer:** `MudDrawer` (responsive, breakpoint Md, 180 px, `ClipMode.Always`) containing `<NavMenu />`.
 
-**Content:** `MudMainContent > MudContainer (MaxWidth.False) > @Body`.
+**Content:** `MudLayout` carries the hover-list CSS variables used by global table hover styling, then `MudMainContent > MudContainer (MaxWidth.False) > @Body`.
 
 **Error UI:** `#blazor-error-ui` div (styled in `MainLayout.razor.css`).
 
@@ -75,4 +76,5 @@ Implements: `IDisposable`
 
 ## Notes
 - Theme initialization happens in `OnAfterRenderAsync` (first render only) to avoid SSR/prerender mismatch — the browser-storage read requires JS interop, unavailable during prerender.
+- Hover list colours come from Appearance-managed palette fields. The Quasar default dark theme hover background is `#bfbfbfff`.
 - Restart Quasar is disabled in the dialog when not launched by the Quasar launcher (`LauncherToken` absent): without a launcher to respawn it, `RestartWorker()` would only stop the worker. The JS `reloadWhenHealthy` poller is invoked *before* `RestartWorker()` so the call reaches the client before the circuit drops.

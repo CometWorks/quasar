@@ -178,6 +178,7 @@
     "Quasar/Services/ServerManagementActions.cs"
   ],
   "Quasar/Components/Dashboard/ServerDetailPanel.razor": [
+    "Quasar/Models/QuasarConfigProfile.cs",
     "Quasar/Services/AgentRegistry.cs",
     "Quasar/Services/QuasarConfigProfileCatalog.cs"
   ],

@@ -50,6 +50,9 @@ The Linux installer defaults to a user systemd service, stores Bootstrap under
 `~/.local/share/Quasar`, creates `~/.config/Quasar`, and writes that data path to
 the unit as `QUASAR_DATA_DIR`. Pass `--system` with `sudo` for a machine-wide
 service, or `--data-dir <dir>` to store Quasar state elsewhere.
+When Quasar is running from the installed user service, the UI **Shutdown
+Quasar** action requests `systemctl --user stop quasar.service` and leaves
+managed servers detached by default.
 
 Manage the service with the usual systemd commands:
 
