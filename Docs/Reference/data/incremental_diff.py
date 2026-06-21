@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Incremental change detection against the previous manifest.
 
-Uses the SHA-256 hash as the cache key:
+Uses the SHA-256 hash as the cache key. The hash is platform-independent (text files
+are newline-normalized before hashing in build_manifest.py), so a line-ending-only
+difference between a Windows and a Linux checkout is treated as UNCHANGED:
   - path present before & after with same hash -> UNCHANGED (reuse description)
   - path present before & after with different hash -> CHANGED (re-describe)
   - path only after -> NEW (describe; usually a rename target)

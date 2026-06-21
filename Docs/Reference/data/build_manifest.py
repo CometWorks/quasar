@@ -5,6 +5,11 @@ Records name, location, file type, size, sha256, tier and module for every track
 source file. The sha256 is the cache key: on re-runs, unchanged files keep their
 existing description and only differences are re-processed.
 
+The hash is platform-independent: text files are newline-normalized (CRLF/CR -> LF)
+before hashing and sizing, so a Windows checkout (CRLF) and a Linux checkout (LF) of
+this repo yield identical hashes. This keeps the committed cache valid no matter which
+OS the repo is cloned on; binary assets are hashed by their exact bytes.
+
 Run from the repository root.
 """
 import hashlib

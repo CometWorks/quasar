@@ -22,12 +22,15 @@ The generated code handbook lives under `Docs/Reference/`:
 - `Docs/Reference/Index.md` — flat index of every documented source file
 - `Docs/Reference/Modules/*.md` — per-module overviews
 - `Docs/Reference/files/**/*.md` — one description per source file (mirrors the source tree)
-- `Docs/Reference/data/` — git-ignored cache and regeneration scripts (SHA-256 manifest, reference graph)
+- `Docs/Reference/data/` — committed cache and regeneration scripts (platform-independent SHA-256 manifest, reference graph)
 
 It was produced by the `structured-documentation` skill. To refresh after code changes, re-run the
 `data/` scripts in order: `build_manifest.py` → `make_groups.py` (only if files were added/removed) →
 re-describe changed files → `build_graph.py` → `generate_docs.py` → `linkify_deps.py` → `verify_links.py`.
 The SHA-256 hashes in `data/manifest.json` are the cache key, so only changed files need re-describing.
-Invoke the `structured-documentation` skill if you want it to drive that refresh.
+The hashes are computed on newline-normalized content (CRLF/CR → LF), so they are platform-independent:
+a Windows checkout (CRLF) and a Linux checkout (LF) of this repo produce identical hashes, keeping the
+committed cache valid no matter which OS the repo is cloned on. Invoke the `structured-documentation`
+skill if you want it to drive that refresh.
 
 Also read the project's `README.md` to understand its purpose and context.
