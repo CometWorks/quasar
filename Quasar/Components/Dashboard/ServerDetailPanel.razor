@@ -49,13 +49,15 @@
 }
 else
 {
+    var pluginLoadSummary = GetPluginLoadSummary();
+
     <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-3">
         <MudChip T="string" Variant="Variant.Outlined">Players @Agent.Snapshot.Metrics.PlayersOnline/@GetMaxPlayers()</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">Sim @Agent.Snapshot.Metrics.SimSpeed.ToString("0.00")</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">CPU @Agent.Snapshot.Metrics.ServerCpuLoadPercent.ToString("0.0")%</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">PCU @Agent.Snapshot.Metrics.UsedPcu/@Agent.Snapshot.Metrics.TotalPcu</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">Mods @Agent.Snapshot.Metrics.ModsLoaded</MudChip>
-        <MudChip T="string" Variant="Variant.Outlined">Plugins @Agent.Snapshot.Metrics.PluginsLoaded</MudChip>
+        <MudChip T="string" Variant="Variant.Outlined" Color="@GetPluginLoadColor(pluginLoadSummary)">Plugins @GetPluginLoadText(pluginLoadSummary)</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">Uptime @FormatDuration(Agent.Snapshot.Metrics.UptimeSeconds)</MudChip>
         @if (!string.IsNullOrWhiteSpace(Server?.CpuAffinity))
         {
@@ -93,16 +95,32 @@ else
     <MudText Typo="Typo.subtitle2" Class="mb-2">Players</MudText>
     <MudTable T="PlayerSnapshot" Dense="true" Hover="true" Items="Agent.Snapshot.Players">
         <HeaderContent>
-            <MudTh>Actions</MudTh>
             <MudTh>Steam ID</MudTh>
             <MudTh>Service</MudTh>
             <MudTh>Faction</MudTh>
             <MudTh>Role</MudTh>
             <MudTh>Ping</MudTh>
             <MudTh>Name</MudTh>
+            <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd DataLabel="Actions">
+            <MudTd DataLabel="Steam ID">
+                <MudText Typo="Typo.body2" Class="mono">@context.SteamId</MudText>
+            </MudTd>
+            <MudTd DataLabel="Service">
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.ServiceName)</MudChip>
+            </MudTd>
+            <MudTd DataLabel="Faction">@context.FactionTag</MudTd>
+            <MudTd DataLabel="Role">@GetRoleLabel(context)</MudTd>
+            <MudTd DataLabel="Ping">@context.PingMs</MudTd>
+            <MudTd DataLabel="Name">
+                <MudText Typo="Typo.body2">@TextSanitizer.CleanGameText(context.DisplayName)</MudText>
+                @if (GetPlatformName(context) is { Length: > 0 } platformName)
+                {
+                    <MudText Typo="Typo.caption">Platform: @platformName</MudText>
+                }
+            </MudTd>
+            <MudTd DataLabel="" Class="quasar-actions-column">
                 <MudTooltip Text="Player actions">
                     <MudMenu Dense="true"
                              Icon="@Icons.Material.Filled.MoreVert"
@@ -122,22 +140,6 @@ else
                         <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.BanPlayer, context.SteamId))">Ban</MudMenuItem>
                     </MudMenu>
                 </MudTooltip>
-            </MudTd>
-            <MudTd DataLabel="Steam ID">
-                <MudText Typo="Typo.body2" Class="mono">@context.SteamId</MudText>
-            </MudTd>
-            <MudTd DataLabel="Service">
-                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.ServiceName)</MudChip>
-            </MudTd>
-            <MudTd DataLabel="Faction">@context.FactionTag</MudTd>
-            <MudTd DataLabel="Role">@GetRoleLabel(context)</MudTd>
-            <MudTd DataLabel="Ping">@context.PingMs</MudTd>
-            <MudTd DataLabel="Name">
-                <MudText Typo="Typo.body2">@TextSanitizer.CleanGameText(context.DisplayName)</MudText>
-                @if (GetPlatformName(context) is { Length: > 0 } platformName)
-                {
-                    <MudText Typo="Typo.caption">Platform: @platformName</MudText>
-                }
             </MudTd>
         </RowTemplate>
     </MudTable>
@@ -286,19 +288,113 @@ else
 
     private int GetMaxPlayers()
     {
-        if (!string.IsNullOrWhiteSpace(Server?.ConfigProfileId))
-        {
-            var configuredMaxPlayers = ConfigProfiles
-                .GetProfile(Server.ConfigProfileId)
-                ?.SessionSettings
-                .MaxPlayers;
+        var configuredMaxPlayers = GetServerConfigProfile()?.SessionSettings.MaxPlayers;
 
-            if (configuredMaxPlayers is > 0)
-                return configuredMaxPlayers.GetValueOrDefault();
-        }
+        if (configuredMaxPlayers is > 0)
+            return configuredMaxPlayers.GetValueOrDefault();
 
         return Agent?.Snapshot?.Metrics.MaxPlayers ?? 0;
     }
+
+    private QuasarConfigProfile? GetServerConfigProfile()
+    {
+        if (string.IsNullOrWhiteSpace(Server?.ConfigProfileId))
+            return null;
+
+        return ConfigProfiles.GetProfile(Server.ConfigProfileId);
+    }
+
+    private (int Loaded, int? Total) GetPluginLoadSummary()
+    {
+        var snapshot = Agent?.Snapshot;
+        var profile = GetServerConfigProfile();
+        if (profile is null)
+            return (snapshot?.Metrics.PluginsLoaded ?? 0, null);
+
+        var configuredPlugins = profile.Plugins
+            .Where(plugin => !string.IsNullOrWhiteSpace(plugin.PluginId))
+            .ToList();
+        var total = configuredPlugins.Count;
+        if (total == 0)
+            return (0, 0);
+
+        var runtimePlugins = snapshot?.Plugins;
+        if (runtimePlugins is null || runtimePlugins.Count == 0)
+            return (Math.Min(snapshot?.Metrics.PluginsLoaded ?? 0, total), total);
+
+        var loadedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var plugin in runtimePlugins.Where(plugin => plugin.IsLoaded))
+        {
+            AddPluginMatchKeys(loadedKeys, plugin.PluginId);
+            AddPluginMatchKeys(loadedKeys, plugin.DisplayName);
+        }
+
+        var loaded = configuredPlugins.Count(plugin => IsConfiguredPluginLoaded(plugin, loadedKeys));
+        return (loaded, total);
+    }
+
+    private static bool IsConfiguredPluginLoaded(QuasarPluginSelection plugin, HashSet<string> loadedKeys)
+    {
+        if (ContainsPluginMatchKey(loadedKeys, plugin.PluginId))
+            return true;
+
+        return ContainsPluginMatchKey(loadedKeys, plugin.DisplayName);
+    }
+
+    private static bool ContainsPluginMatchKey(HashSet<string> keys, string value)
+    {
+        foreach (var key in GetPluginMatchKeys(value))
+        {
+            if (keys.Contains(key))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static void AddPluginMatchKeys(HashSet<string> keys, string value)
+    {
+        foreach (var key in GetPluginMatchKeys(value))
+            keys.Add(key);
+    }
+
+    private static IEnumerable<string> GetPluginMatchKeys(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            yield break;
+
+        var trimmed = value.Trim();
+        yield return trimmed;
+
+        var normalized = trimmed.Replace('\\', '/').TrimEnd('/');
+        var slash = normalized.LastIndexOf('/');
+        var fileName = slash >= 0 ? normalized[(slash + 1)..] : normalized;
+        if (!string.IsNullOrWhiteSpace(fileName))
+        {
+            yield return fileName;
+
+            var extension = Path.GetExtension(fileName);
+            if (!string.IsNullOrEmpty(extension))
+                yield return fileName[..^extension.Length];
+        }
+
+        if (slash > 0)
+        {
+            var parent = normalized[..slash].TrimEnd('/');
+            var parentSlash = parent.LastIndexOf('/');
+            var parentName = parentSlash >= 0 ? parent[(parentSlash + 1)..] : parent;
+            if (!string.IsNullOrWhiteSpace(parentName))
+                yield return parentName;
+        }
+    }
+
+    private static string GetPluginLoadText((int Loaded, int? Total) summary) =>
+        summary.Total is int total ? $"{summary.Loaded}/{total}" : summary.Loaded.ToString();
+
+    private static Color GetPluginLoadColor((int Loaded, int? Total) summary) =>
+        summary.Total is int total && summary.Loaded != total
+            ? Color.Warning
+            : Color.Default;
 
     private static string FormatTimestamp(long ticksUtc)
     {

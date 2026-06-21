@@ -30,17 +30,20 @@ Global stylesheet for the Quasar Blazor Server UI. Overrides MudBlazor's elevati
 **MudBlazor overrides:**
 - `.mud-expansion-panels > .mud-expand-panel` — flat bordered panels with `0.5rem` gap, hover/focus header highlight, expanded-header bottom border
 - `.mud-checkbox` — rounded hit area with hover/focus background highlight
-- `.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover` — paints hovered table rows with theme primary colour, forces row descendants and button roots to primary contrast text, switches standalone SVG icons and outlined borders to the same contrast colour, keeps success/warning/error buttons and chips on semantic mixed hover colours, lets button-owned icons inherit from MudBlazor's button root colour, and skips expanded server detail rows
+- `.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover` — paints hovered table rows with Quasar's `--quasar-hover-list-background` / `--quasar-hover-list-text` variables (falling back to active theme secondary colours), forces row descendants and button roots to the hover text colour, switches standalone SVG icons and outlined borders to the same contrast colour, keeps success/warning/error buttons and chips on semantic mixed hover colours, lets button-owned icons inherit from MudBlazor's button root colour, and skips expanded server detail rows
 - `.mud-main-content`, `.mud-drawer` / `.magnetar-drawer` — background and right-border styling
 
 **Utility / feature classes:**
 - `.mono` — JetBrains Mono / Cascadia Code monospace font; `.mud-typography-caption.mono` renders monospace ID captions at 50% opacity (`opacity: 0.5`)
+- `.quasar-visually-hidden` — accessible visually-hidden text helper used by unlabeled table action headers
+- `.quasar-actions-column` — shared MudTable action-column rule that shrinks the column to action width, right-aligns its contents, and lets data columns consume the remaining table width
 - `.copyable-path`, `.copyable-path-inline`, `.copyable-path-text`, `.copyable-path-button` — shared layout and monospace wrapping for `CopyablePath` path labels and clipboard icon buttons
+- `.appearance-color-field` — colour-backed wrapper behind each Appearance page `MudColorPicker`, using sanitized background/foreground CSS custom properties over a checkerboard layer so opaque and alpha colours are previewable while picker text/icons switch to readable dark or light contrast
 - `.chat-list` / `.chat-row` — scrollable chat log column with row separators
 - `.chat-console-card`, `.chat-server-select`, `.admin-chat-list`, `.admin-chat-row` — full-page chat console sizing, server-select minimum width, and bounded scrollable chat rows for `Chat.razor`
 - `.players-list-card`, `.players-list-stack`, `.players-table`, and descendant table selectors — force the known-player table stack and MudBlazor table/container to consume full available width
 - `.world-template-browse-button` — 1rem top margin
-- `.installed-world-template-table`, `.installed-world-template-name-cell`, `.installed-world-template-source-cell`, `.installed-world-template-action-cell`, `.installed-world-template-name-text`, `.installed-world-template-source-stack`, `.installed-world-template-source-text` — fixed-layout predefined-world tables where the untitled left Add action stays in a fixed action column and long source/category text ellipsizes instead of forcing horizontal overflow
+- `.installed-world-template-table`, `.installed-world-template-name-column`, `.installed-world-template-action-column`, `.installed-world-template-name-cell`, `.installed-world-template-source-cell`, `.installed-world-template-action-cell`, `.installed-world-template-name-text`, `.installed-world-template-source-stack`, `.installed-world-template-source-text` — fixed-layout predefined-world tables where the Add action stays in a fixed rightmost action column (using shared action-column alignment with a stronger predefined-table width rule) and long source/category text ellipsizes instead of forcing horizontal overflow
 - `.branding-logo-preview` (+ `-dark`, `-light`) and `.branding-favicon-preview` — bordered preview containers for logo/favicon images
 
 **Responsive adjustments:**

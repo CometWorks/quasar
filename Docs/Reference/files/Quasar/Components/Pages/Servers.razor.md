@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Embeddable server-management component used by the dashboard list view and full-screen server dialog. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status, a single lifecycle-action column beside Status, and create/clone/edit/delete/console/world-template actions; destructive Stop/Kill/Delete actions require confirmation. Clone asks whether to copy world state or leave the clone without a world, always clears path overrides so the clone gets independent DS/config/world paths, and refuses explicit path reuse. Expanded rows embed a `ServerDetailPanel` with the server definition, runtime snapshot, and live agent data. A separate panel lists "unmanaged" agents that report in without a matching server definition.
+Embeddable server-management component used by the dashboard list view and full-screen server dialog. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status and a rightmost action column for lifecycle, console, clone, template, edit, and delete commands; destructive Stop/Kill/Delete actions require confirmation. Clone asks whether to copy world state or leave the clone without a world, always clears path overrides so the clone gets independent DS/config/world paths, and refuses explicit path reuse. Expanded rows embed a `ServerDetailPanel` with the server definition, runtime snapshot, and live agent data. A separate panel lists "unmanaged" agents that report in without a matching server definition.
 
 ## Structure
 - **No `@page` route**; **`@implements IDisposable`**. `Home.razor` embeds this component for the dashboard list view selected by `?view=list`.
@@ -15,7 +15,7 @@ Embeddable server-management component used by the dashboard list view and full-
 - **`[Parameter]`:** `LaunchBlocked`, `LaunchBlockedMessage` — disables/guards Start buttons while the managed runtime is still preparing and shows the supplied warning message.
 - **Key UI**
   - Server count chip + "Create Server" button.
-  - `MudTable<DedicatedServerDefinition>` with `Class="servers-list-table"`, expand toggle, and sortable columns: Status (state chip), Actions (Start / Stop / Kill / Restart according to process state), Name (display + unique name), Port, Config (clickable `MudLink` when the profile resolves), Players (`online/max`), Process (PID or "stopped"), Agent (attached state). Row actions at the far right are non-lifecycle controls: Console, Clone, Template, Edit, Delete.
+  - `MudTable<DedicatedServerDefinition>` with `Class="servers-list-table"`, leading expand toggle, sortable Status / Unique name / Port / Config / Players / Process / Agent / Name columns, and a rightmost unlabeled action column containing Start / Stop / Kill / Restart according to process state plus Console, Clone, Template, Edit, and Delete.
   - `ChildRowContent` renders `<ServerDetailPanel Server=... Runtime=... Agent=... />` for expanded rows inside a `servers-list-detail-row`, which opts the detail area out of the global table-row hover inversion while allowing nested tables to keep their own row hover behavior.
   - Unmanaged Agents `MudPaper` (when any): one `MudExpansionPanel` per connected agent lacking a definition, each containing a `ServerDetailPanel`.
 - **State/data:** `_expanded` HashSet drives row expansion; `ServerDefinitions`, `RuntimeSnapshots` (by unique name), `AgentsByUniqueName` (connected, newest by `LastSeenUtc`), `UnmanagedAgents`.

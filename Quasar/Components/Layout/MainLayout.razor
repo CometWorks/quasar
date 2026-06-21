@@ -1,4 +1,5 @@
-﻿@inherits LayoutComponentBase
+﻿@using MudBlazor.Utilities
+@inherits LayoutComponentBase
 @implements IDisposable
 @inject ThemePreferenceService ThemePreference
 @inject QuasarShutdownService ShutdownService
@@ -16,7 +17,7 @@
 
 <BrandingHeadContent />
 
-<MudLayout>
+<MudLayout Style="@HoverPaletteStyle">
     <MudAppBar Elevation="0" Class="magnetar-appbar">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="ToggleDrawer" />
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="quasar-brand">
@@ -122,6 +123,30 @@
     private string LogoSrc => _isDarkMode
         ? (BrandingService.Settings.LogoDarkPath ?? "/Quasar.png")
         : (BrandingService.Settings.LogoLightPath ?? "/Quasar-inverted-transparent.png");
+
+    private string HoverPaletteStyle
+    {
+        get
+        {
+            var settings = BrandingService.Settings;
+            var hoverPalette = _isDarkMode ? settings.DarkPalette : settings.LightPalette;
+            var fallbackPalette = _isDarkMode ? ThemePalette.QuasarDark() : ThemePalette.QuasarLight();
+            var background = NormalizeCssColor(hoverPalette.HoverBackground, fallbackPalette.HoverBackground);
+            var text = NormalizeCssColor(hoverPalette.HoverContrastText, fallbackPalette.HoverContrastText);
+
+            return $"--quasar-hover-list-background:{background};--quasar-hover-list-text:{text};";
+        }
+    }
+
+    private static string NormalizeCssColor(string value, string fallback)
+    {
+        if (MudColor.TryParse(value, out var color))
+            return color.ToString(MudColorOutputFormats.HexA);
+
+        return MudColor.TryParse(fallback, out var fallbackColor)
+            ? fallbackColor.ToString(MudColorOutputFormats.HexA)
+            : fallback;
+    }
 
     protected override void OnInitialized()
     {

@@ -86,6 +86,8 @@ public sealed class ThemePalette
     public string PrimaryContrastText { get; set; } = "#f5f5f5";
     public string Secondary { get; set; } = "#6b7280";
     public string SecondaryContrastText { get; set; } = "#ffffff";
+    public string HoverBackground { get; set; } = string.Empty;
+    public string HoverContrastText { get; set; } = string.Empty;
     public string Background { get; set; } = "#f5f5f5";
     public string BackgroundGray { get; set; } = "#ebebeb";
     public string Surface { get; set; } = "#ffffff";
@@ -119,6 +121,8 @@ public sealed class ThemePalette
             PrimaryContrastText = palette.PrimaryContrastText.Value,
             Secondary = palette.Secondary.Value,
             SecondaryContrastText = palette.SecondaryContrastText.Value,
+            HoverBackground = QuasarTheme.Default.PaletteDark.Secondary.Value,
+            HoverContrastText = QuasarTheme.Default.PaletteDark.SecondaryContrastText.Value,
             Background = palette.Background.Value,
             BackgroundGray = palette.BackgroundGray.Value,
             Surface = palette.Surface.Value,
@@ -154,6 +158,8 @@ public sealed class ThemePalette
             PrimaryContrastText = palette.PrimaryContrastText.Value,
             Secondary = palette.Secondary.Value,
             SecondaryContrastText = palette.SecondaryContrastText.Value,
+            HoverBackground = "#bfbfbfff",
+            HoverContrastText = palette.SecondaryContrastText.Value,
             Background = palette.Background.Value,
             BackgroundGray = palette.BackgroundGray.Value,
             Surface = palette.Surface.Value,
@@ -188,6 +194,8 @@ public sealed class ThemePalette
             PrimaryContrastText = PrimaryContrastText,
             Secondary = Secondary,
             SecondaryContrastText = SecondaryContrastText,
+            HoverBackground = HoverBackground,
+            HoverContrastText = HoverContrastText,
             Background = Background,
             BackgroundGray = BackgroundGray,
             Surface = Surface,
@@ -226,6 +234,8 @@ public sealed class ThemePalette
             PrimaryContrastText = Pick(palette.PrimaryContrastText, fallback.PrimaryContrastText),
             Secondary = Pick(palette.Secondary, fallback.Secondary),
             SecondaryContrastText = Pick(palette.SecondaryContrastText, fallback.SecondaryContrastText),
+            HoverBackground = Pick(palette.HoverBackground, fallback.HoverBackground),
+            HoverContrastText = Pick(palette.HoverContrastText, fallback.HoverContrastText),
             Background = Pick(palette.Background, fallback.Background),
             BackgroundGray = Pick(palette.BackgroundGray, fallback.BackgroundGray),
             Surface = Pick(palette.Surface, fallback.Surface),

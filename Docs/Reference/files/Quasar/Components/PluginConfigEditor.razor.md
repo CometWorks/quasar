@@ -35,7 +35,7 @@ No `@page` route — used as a child component on plugin management pages.
 - `TreeOption` — a single parent-selector option (record).
 - `ListEntry` — index + depth for tree-ordered rendering (record).
 
-**Supported field types rendered:** `bool` (`MudCheckBox`), `int`/`long`/`float`/`double` (`MudNumericField`), `string` (`MudTextField`), `enum`/`Direction` (`MudSelect`), `Color` (`MudColorPicker`), `Vector2D`/`Vector3D`/`Vector2I`/`Vector3I` (component grids), `MyPositionAndOrientation` (position+forward+up sub-grids), `struct` (nested member rendering), `list` (expandable array with add/remove/reorder; tree-ordered for structs with tree parent fields), `dict` (key-value pairs with add/rename/remove), raw fallback (`MudTextField` multi-line JSON).
+**Supported field types rendered:** `bool` (`MudCheckBox`), `int`/`long`/`float`/`double` (`MudNumericField`, capped to 400 px wide), `string` (`MudTextField`), `enum`/`Direction` (`MudSelect`), `Color` (`MudColorPicker`), `Vector2D`/`Vector3D`/`Vector2I`/`Vector3I` (component grids), `MyPositionAndOrientation` (position+forward+up sub-grids), `struct` (nested member rendering), `list` (expandable array with add/remove/reorder; tree-ordered for structs with tree parent fields), `dict` (key-value pairs with add/rename/remove), raw fallback (`MudTextField` multi-line JSON).
 
 **Key render fragments:**
 - `RenderContainerBody` — renders columns as `MudGrid`, sections as `MudExpansionPanel`, then fields.

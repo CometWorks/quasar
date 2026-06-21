@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** CSS  **Tier:** 3
 
 ## Summary
-Scoped CSS for `PluginConfigEditor.razor`. Provides layout constraints and visual distinction for config containers, composite value editors (vectors, structs, poses), list/dict rows, and key fields.
+Scoped CSS for `PluginConfigEditor.razor`. Provides layout constraints and visual distinction for config containers, composite value editors (vectors, structs, poses), list/dict rows, key fields, and generated numeric-field width limits.
 
 ## Structure
 - `.plugin-config-container` — `min-width: 0` (prevents overflow in flex contexts).
@@ -12,6 +12,7 @@ Scoped CSS for `PluginConfigEditor.razor`. Provides layout constraints and visua
 - `.plugin-config-row-index` — fixed 2 rem width, right-aligned; the item number in a list row.
 - `.plugin-config-row-editor` — `flex: 1 1 auto`, `min-width: min(18rem, 100%)`; the field editor in a list/dict row.
 - `.plugin-config-key-field` — `flex: 0 1 16rem`, `min-width: min(12rem, 100%)`; the key input in a dict row.
+- `::deep .plugin-config-number-field` — `width: 100%`, `max-width: 400px`; caps generated numeric fields while allowing them to shrink on narrow layouts.
 
 ## Dependencies
 - MudBlazor CSS custom properties (`--mud-palette-background-gray`, `--mud-palette-lines-default`, `--mud-default-borderradius`).

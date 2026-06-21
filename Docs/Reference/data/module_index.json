@@ -340,7 +340,7 @@
       "name": "ServerDetailPanel.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Detail panel embedded inside `ServerCard`. When the agent snapshot is absent it shows a waiting/error message and basic process state chips. When a snapshot is present it renders live metrics chips, Refresh/Save buttons, a chat broadcast field, a players table with action menus and player identity/status columns, a recent-chat list, and recent command results. Server-authored chat (`IsServerMessage`, SteamId 0, `Good.bot`, or `Server`) is displayed as `Server`. In both the snapshot-present and snapshot-absent states, an outlined \"Affinity <value>\" chip (Memory icon) is shown in the metrics chip rows when `Server.CpuAffinity` is set, and mod-download failures captured from runtime output are shown as an explicit error alert."
+      "summary": "Detail panel embedded inside `ServerCard`. When the agent snapshot is absent it shows a waiting/error message and basic process state chips. When a snapshot is present it renders live metrics chips, Refresh/Save buttons, a chat broadcast field, a players table with player identity/status columns and a rightmost unlabeled action menu column, a recent-chat list, and recent command results. The Plugins chip compares loaded runtime plugins against the assigned config profile's selected plugins, displays `loaded/total`, and turns warning-colored when the loaded count differs from the configured total; if no profile is available it falls back to the aggregate agent plugin metric. Server-authored chat (`IsServerMessage`, SteamId 0, `Good.bot`, or `Server`) is displayed as `Server`. In both the snapshot-present and snapshot-absent states, an outlined \"Affinity <value>\" chip (Memory icon) is shown in the metrics chip rows when `Server.CpuAffinity` is set, and mod-download failures captured from runtime output are shown as an explicit error alert."
     },
     {
       "path": "Quasar/Components/Layout/BrandingHeadContent.razor",
@@ -354,7 +354,7 @@
       "name": "MainLayout.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Top-level application shell layout. Provides the MudBlazor theme/provider setup, a responsive app bar with branding, update notification bell, theme-mode switcher, auth (login/logout) controls, and a Quasar power dialog trigger. It hosts a collapsible side drawer with `NavMenu`, the main content area that renders `@Body`, and a full-screen overlay while Quasar is restarting or shutting down."
+      "summary": "Top-level application shell layout. Provides the MudBlazor theme/provider setup, theme-configured hover-list CSS variables, a responsive app bar with branding, update notification bell, theme-mode switcher, auth (login/logout) controls, and a Quasar power dialog trigger. It hosts a collapsible side drawer with `NavMenu`, the main content area that renders `@Body`, and a full-screen overlay while Quasar is restarting or shutting down."
     },
     {
       "path": "Quasar/Components/Layout/MainLayout.razor.css",
@@ -438,7 +438,7 @@
       "name": "Appearance.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page (`/settings/appearance`) for live branding customisation. Allows editing the app name, subtitle, theme preset, individual palette colors (light and dark), logos (light-mode and dark-mode), and favicon. Changes to logos and favicon take effect immediately on save to disk; palette and name changes apply across all open sessions after the top-level Save is clicked."
+      "summary": "Routable page (`/settings/appearance`) for live branding customisation. Allows editing the app name, subtitle, theme preset, individual palette colors (light and dark), Quasar hover-list colors, logos (light-mode and dark-mode), and favicon. Changes to logos and favicon take effect immediately on save to disk; palette and name changes apply across all open sessions after the top-level Save is clicked."
     },
     {
       "path": "Quasar/Components/Pages/Backup.razor",
@@ -634,7 +634,7 @@
       "name": "Servers.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Embeddable server-management component used by the dashboard list view and full-screen server dialog. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status, a single lifecycle-action column beside Status, and create/clone/edit/delete/console/world-template actions; destructive Stop/Kill/Delete actions require confirmation. Clone asks whether to copy world state or leave the clone without a world, always clears path overrides so the clone gets independent DS/config/world paths, and refuses explicit path reuse. Expanded rows embed a `ServerDetailPanel` with the server definition, runtime snapshot, and live agent data. A separate panel lists \"unmanaged\" agents that report in without a matching server definition."
+      "summary": "Embeddable server-management component used by the dashboard list view and full-screen server dialog. Renders a sortable table of `DedicatedServerDefinition`s with live process/agent status and a rightmost action column for lifecycle, console, clone, template, edit, and delete commands; destructive Stop/Kill/Delete actions require confirmation. Clone asks whether to copy world state or leave the clone without a world, always clears path overrides so the clone gets independent DS/config/world paths, and refuses explicit path reuse. Expanded rows embed a `ServerDetailPanel` with the server definition, runtime snapshot, and live agent data. A separate panel lists \"unmanaged\" agents that report in without a matching server definition."
     },
     {
       "path": "Quasar/Components/Pages/ServersPageDialog.razor",
@@ -697,7 +697,7 @@
       "name": "PluginConfigEditor.razor.css",
       "kind": "CSS",
       "tier": 3,
-      "summary": "Scoped CSS for `PluginConfigEditor.razor`. Provides layout constraints and visual distinction for config containers, composite value editors (vectors, structs, poses), list/dict rows, and key fields."
+      "summary": "Scoped CSS for `PluginConfigEditor.razor`. Provides layout constraints and visual distinction for config containers, composite value editors (vectors, structs, poses), list/dict rows, key fields, and generated numeric-field width limits."
     },
     {
       "path": "Quasar/Components/PluginLogPanel.razor",
@@ -734,7 +734,7 @@
       "name": "BrandingSettings.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Defines the persistent branding and theme configuration serialized to `branding.json`. Contains two sealed classes: `BrandingSettings` (app identity + palette references) and `ThemePalette` (a flat string-valued mirror of MudBlazor's `PaletteLight`/`PaletteDark`). Both classes support cloning and normalization with fallback to the built-in Quasar defaults."
+      "summary": "Defines the persistent branding and theme configuration serialized to `branding.json`. Contains two sealed classes: `BrandingSettings` (app identity + palette references) and `ThemePalette` (a flat string-valued mirror of MudBlazor's `PaletteLight`/`PaletteDark` plus Quasar hover-list colors). Both classes support cloning and normalization with fallback to the built-in Quasar defaults."
     },
     {
       "path": "Quasar/Models/CpuAffinitySpec.cs",

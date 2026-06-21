@@ -175,6 +175,11 @@
             new("Background gray", p => p.BackgroundGray, (p, v) => p.BackgroundGray = v),
             new("Surface", p => p.Surface, (p, v) => p.Surface = v),
         ]),
+        new("Hover",
+        [
+            new("Hover background", p => p.HoverBackground, (p, v) => p.HoverBackground = v, MudColorOutputFormats.HexA),
+            new("Hover text", p => p.HoverContrastText, (p, v) => p.HoverContrastText = v, MudColorOutputFormats.HexA),
+        ]),
         new("Navigation",
         [
             new("Drawer background", p => p.DrawerBackground, (p, v) => p.DrawerBackground = v),
@@ -229,16 +234,66 @@
                 @foreach (var field in group.Fields)
                 {
                     <MudItem xs="6" sm="4" md="3" @key="@($"{group.Title}-{field.Label}")">
-                        <MudColorPicker Label="@field.Label"
-                                        Value="@(new MudColor(field.Get(palette)))"
-                                        ValueChanged="@(color => HandleColorChanged(palette, field, color))"
-                                        Variant="Variant.Outlined"
-                                        ColorPickerView="ColorPickerView.Spectrum" />
+                        <div class="appearance-color-field" style="@GetColorPreviewStyle(field.Get(palette))">
+                            <MudColorPicker Label="@field.Label"
+                                            Value="@(new MudColor(field.Get(palette)))"
+                                            ValueChanged="@(color => HandleColorChanged(palette, field, color))"
+                                            Variant="Variant.Outlined"
+                                            ColorPickerView="ColorPickerView.Spectrum" />
+                        </div>
                     </MudItem>
                 }
             </MudGrid>
         }
     };
+
+    private static string GetColorPreviewStyle(string value)
+    {
+        if (!MudColor.TryParse(value, out var color))
+            return "--appearance-color-field-color:transparent;--appearance-color-field-text:#111827;";
+
+        var previewColor = color.ToString(MudColorOutputFormats.HexA);
+        var previewTextColor = GetPreviewTextColor(color);
+
+        return $"--appearance-color-field-color:{previewColor};--appearance-color-field-text:{previewTextColor};";
+    }
+
+    private static string GetPreviewTextColor(MudColor color)
+    {
+        var alpha = color.A / 255d;
+        var red = CompositeOverWhite(color.R, alpha);
+        var green = CompositeOverWhite(color.G, alpha);
+        var blue = CompositeOverWhite(color.B, alpha);
+        var luminance = GetRelativeLuminance(red, green, blue);
+        var darkTextLuminance = GetRelativeLuminance(17d, 24d, 39d);
+        var darkTextContrast = GetContrastRatio(luminance, darkTextLuminance);
+        var lightTextContrast = GetContrastRatio(luminance, 1d);
+
+        return darkTextContrast >= lightTextContrast ? "#111827" : "#ffffffff";
+    }
+
+    private static double CompositeOverWhite(double channel, double alpha) =>
+        (channel * alpha) + (255d * (1d - alpha));
+
+    private static double GetRelativeLuminance(double red, double green, double blue) =>
+        (0.2126d * ToLinearColorChannel(red)) +
+        (0.7152d * ToLinearColorChannel(green)) +
+        (0.0722d * ToLinearColorChannel(blue));
+
+    private static double GetContrastRatio(double firstLuminance, double secondLuminance)
+    {
+        var lighter = Math.Max(firstLuminance, secondLuminance);
+        var darker = Math.Min(firstLuminance, secondLuminance);
+        return (lighter + 0.05d) / (darker + 0.05d);
+    }
+
+    private static double ToLinearColorChannel(double channel)
+    {
+        var normalized = channel / 255d;
+        return normalized <= 0.04045d
+            ? normalized / 12.92d
+            : Math.Pow((normalized + 0.055d) / 1.055d, 2.4d);
+    }
 
     private void ApplyPreset(string presetId)
     {
@@ -256,7 +311,7 @@
 
     private void HandleColorChanged(ThemePalette palette, ColorField field, MudColor color)
     {
-        field.Set(palette, color.ToString(MudColorOutputFormats.Hex));
+        field.Set(palette, color.ToString(field.OutputFormat));
 
         // A manual color edit means the palette no longer matches any preset.
         _draft.PresetId = null;
@@ -341,7 +396,11 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private sealed record ColorField(string Label, Func<ThemePalette, string> Get, Action<ThemePalette, string> Set);
+    private sealed record ColorField(
+        string Label,
+        Func<ThemePalette, string> Get,
+        Action<ThemePalette, string> Set,
+        MudColorOutputFormats OutputFormat = MudColorOutputFormats.Hex);
 
     private sealed record ColorGroup(string Title, IReadOnlyList<ColorField> Fields);
 }

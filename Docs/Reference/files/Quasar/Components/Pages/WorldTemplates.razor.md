@@ -10,9 +10,9 @@ Routable page at `/world-templates` for managing reusable Space Engineers world 
 - **`[Inject]`:** `QuasarWorldTemplateCatalog WorldTemplateCatalog`, `ISnackbar Snackbar`, `IDialogService DialogService`, `WorldTemplateImportLocationService ImportLocations`
 - **Key UI**
   - Left panel (xl:5) — `MudTabs` import card with separate Predefined Worlds and Custom Import panels; panels are not kept alive when hidden.
-  - Predefined Worlds tab — shows discovered installed Space Engineers templates from DS `Content/CustomWorlds`, `Content/QuickStarts`, and `Content/Scenarios`, with search, Refresh, short relative source/category display, and per-row Add buttons. The table uses `installed-world-template-*` classes so the untitled left action column stays fixed and the source path truncates inside narrow docked containers.
+  - Predefined Worlds tab — shows discovered installed Space Engineers templates from DS `Content/CustomWorlds`, `Content/QuickStarts`, and `Content/Scenarios`, with search, Refresh, short relative source/category display, and per-row Add buttons. The table declares an explicit name/source/action `ColGroup` and uses `installed-world-template-*` plus shared action-column classes so the unlabeled rightmost action column stays fixed and the source path truncates inside narrow docked containers.
   - Custom Import tab — `MudTextField` controls for name, description, and source path with a "Browse" folder-picker button, plus Import (shows "Importing…" while `_importing`) and Clear buttons.
-  - Right panel (xl:7) — `MudTable<WorldTemplateRow>` with Clone/Delete actions, Size and Updated metadata, Name, and Description.
+  - Right panel (xl:7) — `MudTable<WorldTemplateRow>` with Size and Updated metadata, Name, Description, and a rightmost unlabeled Clone/Delete action column.
 - **`WorldTemplateRow` (private sealed record)** — `(QuasarWorldTemplate Template, bool WorldExists, long FileSizeMb)`.
 - **`Templates` computed property** — maps catalog entries to rows, computing the on-disk world directory size in MB by summing all file lengths (`DirectoryInfo.GetFiles("*", AllDirectories)`).
 - **Installed sources:** `_installedTemplates`, `_installedTemplateSearch`, `FilteredInstalledTemplates`, `MatchesInstalledTemplateSearch`.
@@ -35,4 +35,4 @@ Routable page at `/world-templates` for managing reusable Space Engineers world 
 ## Notes
 - Directory size is recomputed inline on every render by walking all files, which can be slow for large templates.
 - A missing world directory surfaces as a warning chip and disables Clone, but does not auto-remove the catalog entry.
-- The predefined-world source column displays `SourceDisplayPath` instead of the absolute source path and still ellipsizes so long nested scenario paths cannot push the Add button outside the docked import panel.
+- The predefined-world source column displays `SourceDisplayPath` instead of the absolute source path and still ellipsizes so long nested scenario paths cannot push the rightmost Add button outside the docked import panel.
