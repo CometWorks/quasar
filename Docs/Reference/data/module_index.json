@@ -143,9 +143,9 @@
     {
       "path": "Magnetar.Protocol/Model/ViewerSceneDtos.cs",
       "name": "ViewerSceneDtos.cs",
-      "kind": "",
+      "kind": "class",
       "tier": 1,
-      "summary": ""
+      "summary": "Shared metadata-only DTOs for the Quasar grid viewer scene contract. `EntityRenderSceneRequest` carries the target entity ID for `ServerCommandType.GetEntityRenderScene`; `EntityRenderScene` and related `Viewer*` classes describe grid identity, block placement, transforms, logical model/texture references, generated model parts, runtime subparts, LCD surface text/image metadata, bounds, chunks, and warnings without including raw assets, server-rendered LCD texture bytes, or extracted mesh geometry."
     },
     {
       "path": "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
@@ -278,9 +278,9 @@
     {
       "path": "Quasar.Agent/GridRenderSceneInspector.cs",
       "name": "GridRenderSceneInspector.cs",
-      "kind": "",
+      "kind": "class",
       "tier": 1,
-      "summary": ""
+      "summary": "Game-thread helper that builds metadata-only grid viewer scene snapshots from live `MyCubeGrid` instances. It maps grid/block definitions and instances into `Magnetar.Protocol` viewer DTOs, registers logical model and texture names, includes generated cube-part and runtime subpart metadata, captures active LCD text-surface material names, selected image paths, text settings, background colors, and sprite metadata from standalone `MyTextPanel` blocks and `IMyMultiTextPanelComponentOwner` blocks such as cockpits/control seats, and intentionally avoids client-render-only dependencies such as `VRage.Render` texture-change payloads or offscreen LCD texture bytes."
     },
     {
       "path": "Quasar.Agent/PluginLogOutbox.cs",
@@ -294,7 +294,7 @@
       "name": "Quasar.Agent.csproj",
       "kind": "project file",
       "tier": 3,
-      "summary": "MSBuild project file for `Quasar.Agent`, a `netstandard2.0` class library (x64-only) that produces `Quasar.Agent.dll` \u2014 the Magnetar/Space Engineers plugin assembly. All game and PluginSdk references are `Private=\"False\"` (provided by the host at runtime). Harmony is a package dependency because the agent applies profiler patches in-process."
+      "summary": "MSBuild project file for `Quasar.Agent`, a `netstandard2.0` class library (x64-only) that produces `Quasar.Agent.dll` \u2014 the Magnetar/Space Engineers plugin assembly. All game and PluginSdk references are `Private=\"False\"` (provided by the host at runtime), including `Sandbox.Common` for game interfaces used by the grid viewer LCD surface inspection path. Harmony is a package dependency because the agent applies profiler patches in-process."
     },
     {
       "path": "Quasar.Agent/WebServiceLocator.cs",
@@ -939,7 +939,7 @@
       "name": "grid-renderer.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Main renderer for metadata-only grid scenes. It displays instanced proxy batches while local MWM models resolve with bounded parallelism, resolves local armor skin texture overrides from `ArmorModifiers.sbc`, resolves `GLASS` material names through `TransparentMaterials.sbc`, progressively rebuilds the model layer with adaptive throttling, builds instanced batches for shared model/material combinations, applies Space Engineers-style material paint, skips paint on glass mesh parts, handles cutout and blended transparency, adds voxel proxies and lighting context, and progressively loads selected material textures without blocking scene construction."
+      "summary": "Main renderer for metadata-only grid scenes. It displays instanced proxy batches while local MWM models resolve with bounded parallelism, resolves local armor skin texture overrides from `ArmorModifiers.sbc`, resolves glass and transparent LCD screen-area material names through `TransparentMaterials.sbc`, applies active LCD screen material overrides from text-surface metadata and local LCD texture paths using a depth-tested screen geometry layer with a tiny normal-space z-fighting offset, renders transparent LCD replacements single-sided and in the late transparent render layer to match the game material path and keep the floor grid consistently tinted, composes LCD background colors with regular/transparent-screen semantics, progressively rebuilds the model layer with adaptive throttling, builds instanced batches for shared model/material combinations, applies Space Engineers-style material paint while skipping transparent glass/screen planes, handles cutout and blended transparency, adds voxel proxies and lighting context, and progressively loads selected material textures without blocking scene construction."
     },
     {
       "path": "Quasar/wwwroot/viewer/logging.js",
@@ -1289,9 +1289,9 @@
     {
       "path": "Quasar/Services/ViewerSceneService.cs",
       "name": "ViewerSceneService.cs",
-      "kind": "",
+      "kind": "class",
       "tier": 1,
-      "summary": ""
+      "summary": "Quasar service that requests viewer scene snapshots from a connected agent using the existing command/result WebSocket pipeline. It sends `GetEntityRenderScene`, waits for the correlated result, deserializes the metadata-only `EntityRenderScene`, and never exposes raw Space Engineers assets or mesh data."
     },
     {
       "path": "Quasar/Services/WebServiceManifestHostedService.cs",
