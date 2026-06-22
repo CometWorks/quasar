@@ -410,14 +410,17 @@ function flushModelBatches(group, renderContext) {
         mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
         mesh.renderOrder = modelBatchRenderOrder(batch.materials);
         mesh.userData.blocks = [];
+        const useInstanceColor = modelBatchUsesInstanceColor(batch.materials);
 
         for (let i = 0; i < batch.instances.length; i++) {
             const instance = batch.instances[i];
             mesh.setMatrixAt(i, instance.matrix);
-            color.r = instance.colorMask.x;
-            color.g = instance.colorMask.y;
-            color.b = instance.colorMask.z;
-            mesh.setColorAt(i, color);
+            if (useInstanceColor) {
+                color.r = instance.colorMask.x;
+                color.g = instance.colorMask.y;
+                color.b = instance.colorMask.z;
+                mesh.setColorAt(i, color);
+            }
             mesh.userData.blocks.push(instance.block);
         }
         mesh.instanceMatrix.needsUpdate = true;
@@ -428,6 +431,10 @@ function flushModelBatches(group, renderContext) {
         group.add(mesh);
     }
     return renderContext.batches.size;
+}
+
+function modelBatchUsesInstanceColor(materials) {
+    return materials.some(material => material.userData.seRenderMode !== "lcd");
 }
 
 function modelBatchRenderOrder(materials) {
@@ -498,10 +505,10 @@ function sharedModelMaterial(model, group, block, renderContext) {
     const lcdSurface = lcdSurfaceForMaterial(block, group.materialName);
     if (lcdSurface) return sharedLcdMaterial(model, group, block, lcdSurface, renderContext, technique);
 
-    const renderMode = modelMaterialRenderMode(technique);
-    const colorMaskable = !technique.includes("GLASS");
     const skin = materialSkinOverride(block, group.materialName);
     const transparentMaterial = transparentMaterialForGroup(group, technique);
+    const renderMode = modelMaterialRenderMode(technique);
+    const colorMaskable = !technique.includes("GLASS") && !isTransparentScreenAreaGroup(group);
     const textures = materialTexturesForGroup(group, skin, transparentMaterial);
     const key = `${model.logicalPath}|${group.materialIndex}|${group.materialName}|${group.technique}|${stableTextureKey(textures)}|glass=${transparentMaterialKey(transparentMaterial)}|metalnessColorable=${skin && skin.metalnessColorable ? 1 : 0}`;
     if (renderContext.materials.has(key)) return renderContext.materials.get(key);
@@ -531,12 +538,16 @@ function sharedLcdMaterial(model, group, block, lcdSurface, renderContext, techn
     const key = `${model.logicalPath}|${group.materialIndex}|${group.materialName}|lcd=${block.id || ""}:${lcdSurface.index || 0}:${lcdSurfaceKey(lcdSurface)}`;
     if (renderContext.materials.has(key)) return renderContext.materials.get(key);
 
+    const transparentSurface = isTransparentLcdSurface(lcdSurface);
+
     const material = new THREE.MeshStandardMaterial({
         color: 0xffffff,
         roughness: 0.36,
-        metalness: 0,
+        metalness: transparentSurface ? 0 : normalizedBackgroundAlpha(lcdSurface),
         emissive: 0xffffff,
         emissiveIntensity: 0.65,
+        transparent: transparentSurface,
+        opacity: transparentSurface ? transparentLcdSurfaceOpacity(lcdSurface) : 1,
         depthWrite: false,
         polygonOffset: true,
         polygonOffsetFactor: -4,
@@ -613,7 +624,7 @@ function lcdDirectTexturePath(surface) {
     const contentType = String(surface.contentType || "").toUpperCase();
     const hasText = !!String(surface.text || "");
     const hasSprites = (surface.sprites || []).length > 0;
-    if (contentType !== "TEXT_AND_IMAGE" || hasText || hasSprites || surface.preserveAspectRatio) return "";
+    if (contentType !== "TEXT_AND_IMAGE" || hasText || hasSprites || surface.preserveAspectRatio || !isLcdBackgroundBlack(surface)) return "";
 
     const image = currentLcdImage(surface);
     return image && (image.spritePath || image.texturePath) || "";
@@ -677,7 +688,7 @@ function renderLcdCanvas(context) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = "source-over";
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = cssColor(surface.backgroundColor, surface.backgroundAlpha ?? surface.backgroundColor?.a ?? 255);
+    ctx.fillStyle = cssColor(surface.backgroundColor, lcdCanvasBackgroundAlpha(surface));
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const image = currentLcdImage(surface);
@@ -808,6 +819,36 @@ function normalizedColor(color, alphaOverride = null) {
         b: clamp(Number(color.b ?? color.B ?? 0), 0, 255),
         a: clamp(Number(a), 0, 255) / 255,
     };
+}
+
+function isLcdBackgroundBlack(surface) {
+    const color = normalizedColor(surface?.backgroundColor);
+    return color.r === 0 && color.g === 0 && color.b === 0;
+}
+
+function lcdCanvasBackgroundAlpha(surface) {
+    if (isTransparentLcdSurface(surface)) {
+        const alpha = surface.backgroundAlpha;
+        if (alpha || isLcdBackgroundBlack(surface)) return alpha ?? surface.backgroundColor?.a ?? surface.backgroundColor?.A ?? 255;
+        return surface.backgroundColor?.a ?? surface.backgroundColor?.A ?? 255;
+    }
+    return surface.backgroundColor?.a ?? surface.backgroundColor?.A ?? 255;
+}
+
+function isTransparentLcdSurface(surface) {
+    return isTransparentScreenAreaMaterialName(`${surface?.materialName || ""} ${surface?.name || ""}`);
+}
+
+function normalizedBackgroundAlpha(surface) {
+    return clamp(Number(surface?.backgroundAlpha ?? 0), 0, 255) / 255;
+}
+
+function transparentLcdSurfaceOpacity(surface) {
+    for (const name of [surface?.materialName, surface?.name]) {
+        const definition = transparentMaterialDefinitions.get(String(name || "").trim().toLowerCase());
+        if (definition && definition.color && Number.isFinite(definition.color.a)) return clamp(definition.color.a, 0, 1);
+    }
+    return 0.8;
 }
 
 async function ensureArmorSkinDefinitionsLoaded() {
@@ -958,14 +999,20 @@ function normalizeLogicalTexturePath(path) {
 }
 
 function transparentMaterialForGroup(group, technique) {
-    if (!technique.includes("GLASS")) return null;
-
     for (const name of [group.glassCCW, group.glassCW, group.materialName]) {
         const definition = transparentMaterialDefinitions.get(String(name || "").trim().toLowerCase());
         if (definition) return definition;
     }
 
-    return transparentMaterialDefinitions.get("glass") || null;
+    return technique.includes("GLASS") ? transparentMaterialDefinitions.get("glass") || null : null;
+}
+
+function isTransparentScreenAreaGroup(group) {
+    return [group?.materialName, group?.glassCW, group?.glassCCW].some(isTransparentScreenAreaMaterialName);
+}
+
+function isTransparentScreenAreaMaterialName(name) {
+    return String(name || "").toLowerCase().includes("transparentscreenarea");
 }
 
 function transparentMaterialKey(definition) {
@@ -1055,7 +1102,8 @@ function stableTextureKey(textures) {
 }
 
 function applyModelTextures(material, group, technique, renderMode, textureToken, colorMaskable = true) {
-    const base = textureSelection(group.textures, technique.includes("GLASS")
+    const usesTransparentMaterialTexture = technique.includes("GLASS") || !!group.textures?.GlassTexture || !!group.textures?.TransparentTexture;
+    const base = textureSelection(group.textures, usesTransparentMaterialTexture
         ? ["GlassTexture", "TransparentTexture", "ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]
         : ["ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]);
     if (base) {
@@ -1083,7 +1131,7 @@ function applyModelTextures(material, group, technique, renderMode, textureToken
         }).catch(error => log(`Paint mask texture fallback retained for ${colorMask.path}: ${error.message}`, true));
     }
 
-    const normalSlots = technique.includes("GLASS")
+    const normalSlots = usesTransparentMaterialTexture
         ? ["GlassGlossTexture", "NormalGlossTexture", "NormalTexture", "NormalMapTexture"]
         : ["NormalGlossTexture", "NormalTexture", "NormalMapTexture"];
     const normal = textureSelection(group.textures, normalSlots);

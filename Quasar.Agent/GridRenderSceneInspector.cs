@@ -380,7 +380,7 @@ namespace Quasar.Agent
             var dto = new ViewerLcdSurface
             {
                 Index = index,
-                MaterialName = FirstNonEmpty(area?.MaterialName, surface.Name),
+                MaterialName = FirstNonEmpty(surface.Name, area?.MaterialName),
                 Name = surface.Name ?? string.Empty,
                 DisplayName = FirstNonEmpty(surface.DisplayName, area?.DisplayName),
                 ContentType = surface.ContentType.ToString(),
