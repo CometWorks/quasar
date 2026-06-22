@@ -6,7 +6,7 @@ const STORE_NAME = "handles";
 const HANDLE_KEY = "space-engineers-content";
 const LOOKUP_CONCURRENCY = 32;
 const METADATA_CONCURRENCY = 16;
-const KNOWN_FILE_EXTENSION = /\.(mwm|dds|png|jpe?g|webp|sbc)$/i;
+const KNOWN_FILE_EXTENSION = /\.(mwm|dds|png|jpe?g|webp|sbc|xml)$/i;
 
 const resolvedPathCache = new Map();
 const inFlightPathCache = new Map();

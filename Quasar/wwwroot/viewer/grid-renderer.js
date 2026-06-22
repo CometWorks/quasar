@@ -7,6 +7,7 @@ import { resolveModelAsset } from "./mwm-loader.js";
 import { loadTexture } from "./texture-loader.js";
 import { log } from "./logging.js";
 import { getContentFolderCacheGeneration, resolveContentFile } from "./content-folder.js";
+import { drawLcdBitmapText, getLoadedLcdBitmapFont, lcdBitmapTextScale, loadLcdBitmapFont, supportedLcdFontId } from "./lcd-font-loader.js";
 
 let textureStatsToken = 0;
 let modelRenderToken = 0;
@@ -671,6 +672,7 @@ function createLcdCanvasTexture(surface, textureToken, material) {
     const context = { canvas, ctx: canvas.getContext("2d"), texture, material, surface, images: new Map() };
     renderLcdCanvas(context);
     loadLcdCanvasImages(context, textureToken);
+    loadLcdCanvasFonts(context);
     return texture;
 }
 
@@ -683,6 +685,25 @@ function loadLcdCanvasImages(context, textureToken) {
             context.material.needsUpdate = true;
         }).catch(error => log(`LCD canvas texture skipped for ${path}: ${error.message}`, true));
     }
+}
+
+function loadLcdCanvasFonts(context) {
+    for (const font of lcdCanvasFontIds(context.surface)) {
+        loadLcdBitmapFont(font).then(() => {
+            renderLcdCanvas(context);
+            context.texture.needsUpdate = true;
+            context.material.needsUpdate = true;
+        }).catch(error => log(`LCD font fallback retained for ${font}: ${error.message}`, true));
+    }
+}
+
+function lcdCanvasFontIds(surface) {
+    const fonts = [];
+    if (String(surface.text || "")) fonts.push(supportedLcdFontId(surface.font));
+    for (const sprite of surface.sprites || []) {
+        if (String(sprite.type || "").toUpperCase() === "TEXT" && String(sprite.data || "")) fonts.push(supportedLcdFontId(sprite.fontId));
+    }
+    return [...new Set(fonts)];
 }
 
 function lcdCanvasTexturePaths(surface) {
@@ -709,7 +730,7 @@ function renderLcdCanvas(context) {
     if (image && (image.spritePath || image.texturePath)) drawLcdTexture(context, image.spritePath || image.texturePath, { x: canvas.width / 2, y: canvas.height / 2 }, { x: canvas.width, y: canvas.height }, "CENTER", 0, surface.preserveAspectRatio);
 
     for (const sprite of sortedLcdSprites(surface.sprites || [])) drawLcdSprite(context, sprite);
-    if (String(surface.text || "")) drawLcdText(context, surface.text, surface.font, surface.fontColor, surface.fontSize, surface.alignment, surface.textPadding);
+    if (String(surface.text || "")) drawLcdText(context, surface.text, surface.font, surface.fontColor, surface.fontSize, surface.alignment, surface.textPadding, null, null, true);
     ctx.restore();
     context.texture.needsUpdate = true;
 }
@@ -725,7 +746,7 @@ function drawLcdSprite(context, sprite) {
         if (!path) return;
         drawLcdTexture(context, path, sprite.position, sprite.size, sprite.alignment, Number(sprite.rotationOrScale) || 0, false, sprite.color);
     } else if (type === "TEXT") {
-        drawLcdText(context, sprite.data || "", sprite.fontId, sprite.color, sprite.rotationOrScale, sprite.alignment, 0, sprite.position, sprite.size);
+        drawLcdText(context, sprite.data || "", sprite.fontId, sprite.color, sprite.rotationOrScale, sprite.alignment, 0, sprite.position, sprite.size, false);
     }
 }
 
@@ -757,15 +778,32 @@ function drawLcdTexture(context, path, position, size, alignment = "CENTER", rot
     ctx.restore();
 }
 
-function drawLcdText(context, text, font, color, scale, alignment = "LEFT", paddingPercent = 0, position = null, size = null) {
+function drawLcdText(context, text, font, color, scale, alignment = "LEFT", paddingPercent = 0, position = null, size = null, useSurfaceFontScale = false) {
     const ctx = context.ctx;
     const canvas = context.canvas;
     const normalized = normalizedColor(color || { r: 255, g: 255, b: 255, a: 255 });
-    const fontSize = Math.max(8, Math.min(180, (Number(scale) || 1) * Math.min(canvas.width, canvas.height) / 16));
-    const padding = Math.max(0, Number(paddingPercent) || 0) * 0.01 * Math.min(canvas.width, canvas.height);
-    const boxSize = normalizeCanvasVector(size, { x: canvas.width - padding * 2, y: canvas.height - padding * 2 });
-    const boxPosition = normalizeCanvasVector(position, { x: canvas.width / 2, y: padding });
+    const padding = lcdTextPadding(canvas, paddingPercent, useSurfaceFontScale);
+    const boxSize = normalizeCanvasVector(size, { x: canvas.width - padding.x * 2, y: canvas.height - padding.y * 2 });
+    const boxPosition = normalizeCanvasVector(position, { x: canvas.width / 2, y: padding.y });
     const align = String(alignment || "LEFT").toUpperCase();
+
+    const bitmapFont = getLoadedLcdBitmapFont(font);
+    if (bitmapFont) {
+        const topLeft = lcdTextTopLeft(boxPosition, boxSize, align, position, useSurfaceFontScale, padding);
+        drawLcdBitmapText(
+            ctx,
+            bitmapFont,
+            text,
+            color,
+            lcdBitmapTextScale(scale || 1, canvas, useSurfaceFontScale),
+            topLeft.x,
+            topLeft.y,
+            boxSize.x,
+            align);
+        return;
+    }
+
+    const fontSize = Math.max(8, Math.min(180, (Number(scale) || 1) * Math.min(canvas.width, canvas.height) / 16));
     ctx.save();
     ctx.font = `${fontSize}px ${lcdCanvasFont(font)}`;
     const lines = wrapLcdText(ctx, String(text || ""), boxSize.x, fontSize);
@@ -774,13 +812,28 @@ function drawLcdText(context, text, font, color, scale, alignment = "LEFT", padd
     ctx.textBaseline = "top";
     ctx.textAlign = align === "RIGHT" ? "right" : align === "CENTER" ? "center" : "left";
     const x = align === "RIGHT" ? boxPosition.x + boxSize.x / 2 : align === "CENTER" ? boxPosition.x : boxPosition.x - boxSize.x / 2;
-    let y = position ? boxPosition.y : padding;
+    let y = position ? boxPosition.y : padding.y;
     for (const line of lines) {
         ctx.fillText(line, x, y);
         y += fontSize * 1.22;
         if (y > canvas.height) break;
     }
     ctx.restore();
+}
+
+function lcdTextPadding(canvas, paddingPercent, useSurfaceFontScale) {
+    if (!useSurfaceFontScale) return { x: 0, y: 0 };
+    const padding = Math.max(0, Number(paddingPercent) || 0) * 0.01;
+    return { x: canvas.width * padding, y: canvas.height * padding };
+}
+
+function lcdTextTopLeft(position, size, alignment, hasExplicitPosition, useSurfaceFontScale, padding) {
+    if (useSurfaceFontScale) return { x: padding.x, y: padding.y };
+    const align = String(alignment || "LEFT").toUpperCase();
+    if (!hasExplicitPosition) return { x: position.x - size.x / 2, y: position.y - size.y / 2 };
+    if (align === "RIGHT") return { x: position.x - size.x, y: position.y };
+    if (align === "CENTER") return { x: position.x - size.x / 2, y: position.y };
+    return { x: position.x, y: position.y };
 }
 
 function wrapLcdText(ctx, text, maxWidth, fontSize) {
@@ -804,7 +857,7 @@ function wrapLcdText(ctx, text, maxWidth, fontSize) {
 function lcdCanvasFont(font) {
     const key = String(font || "").toLowerCase();
     if (key.includes("monospace") || key.includes("debug")) return "monospace";
-    return "Arial, sans-serif";
+    return "monospace";
 }
 
 function normalizeCanvasVector(value, fallback) {

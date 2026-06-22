@@ -22,7 +22,7 @@ This handbook covers **224 source files** across **11 modules**. Browse by modul
 | Module | Files | Summary |
 | --- | --- | --- |
 | [Magnetar.Protocol](Modules/Magnetar.Protocol.md) | 30 | Shared wire/discovery contracts and release/runtime helpers between agent and supervisor. |
-| [Quasar.Host](Modules/Quasar.Host.md) | 24 | Blazor Server host: DI graph, auth, endpoints, static assets. |
+| [Quasar.Host](Modules/Quasar.Host.md) | 25 | Blazor Server host: DI graph, auth, endpoints, static assets. |
 | [Quasar.Models](Modules/Quasar.Models.md) | 15 | Domain models for instances, config profiles, templates, branding. |
 | [Quasar.Services.Core](Modules/Quasar.Services.Core.md) | 45 | Supervisor engine, agent registry, runtime preparation, catalogs. |
 | [Quasar.Services.Analytics](Modules/Quasar.Services.Analytics.md) | 12 | RRD-style per-instance metrics storage and persistence. |
