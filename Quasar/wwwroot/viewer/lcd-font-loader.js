@@ -4,9 +4,28 @@ import { getContentFolderCacheGeneration, resolveContentFile } from "./content-f
 import { loadTexture } from "./texture-loader.js";
 
 const GAME_GUI_TEXT_SCALE = 144 / 185;
-const FONT_PATHS = new Map([
-    ["debug", "Fonts/white_shadow/FontDataPA.xml"],
-    ["monospace", "Fonts/monospace/FontDataPA.xml"],
+const WHITE_PATH = "Fonts/white/FontDataPA.xml";
+const WHITE_SHADOW_PATH = "Fonts/white_shadow/FontDataPA.xml";
+const MONOSPACE_PATH = "Fonts/monospace/FontDataPA.xml";
+const FONT_DEFINITIONS = new Map([
+    ["debug", fontDefinition(WHITE_SHADOW_PATH)],
+    ["red", fontDefinition(WHITE_SHADOW_PATH, 227, 65, 65)],
+    ["green", fontDefinition(WHITE_PATH, 101, 182, 93)],
+    ["blue", fontDefinition(WHITE_PATH, 220, 244, 252)],
+    ["white", fontDefinition(WHITE_PATH)],
+    ["darkblue", fontDefinition(WHITE_PATH, 94, 115, 127)],
+    ["urlnormal", fontDefinition(WHITE_PATH, 220, 244, 252)],
+    ["urlhighlight", fontDefinition(WHITE_PATH)],
+    ["errormessageboxcaption", fontDefinition(WHITE_PATH)],
+    ["errormessageboxtext", fontDefinition(WHITE_PATH, 227, 65, 65)],
+    ["infomessageboxcaption", fontDefinition(WHITE_PATH)],
+    ["infomessageboxtext", fontDefinition(WHITE_PATH, 220, 244, 252)],
+    ["screencaption", fontDefinition(WHITE_PATH)],
+    ["gamecredits", fontDefinition(WHITE_PATH, 220, 244, 252)],
+    ["loadingscreen", fontDefinition(WHITE_SHADOW_PATH, 220, 244, 252)],
+    ["buildinfo", fontDefinition(WHITE_PATH, 220, 244, 252)],
+    ["buildinfohighlight", fontDefinition(WHITE_PATH, 227, 65, 65)],
+    ["monospace", fontDefinition(MONOSPACE_PATH)],
 ]);
 
 let fontCacheGeneration = -1;
@@ -15,7 +34,8 @@ const fontPromises = new Map();
 
 export function supportedLcdFontId(font) {
     const key = String(font || "").trim().toLowerCase();
-    return key.includes("monospace") ? "monospace" : "debug";
+    if (FONT_DEFINITIONS.has(key)) return key;
+    return "debug";
 }
 
 export function getLoadedLcdBitmapFont(font) {
@@ -64,7 +84,7 @@ export function measureLcdBitmapLine(font, text, renderScale) {
 
 export function drawLcdBitmapText(ctx, font, text, color, renderScale, x, y, width, alignment = "LEFT") {
     if (!font || renderScale <= 0) return false;
-    const rgba = normalizeColor(color || { r: 255, g: 255, b: 255, a: 255 });
+    const rgba = multiplyColors(normalizeColor(color || { r: 255, g: 255, b: 255, a: 255 }), font.colorMask);
     const align = String(alignment || "LEFT").toUpperCase();
     const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
 
@@ -112,12 +132,14 @@ export function drawLcdBitmapText(ctx, font, text, color, renderScale, x, y, wid
 }
 
 async function loadLcdBitmapFontUncached(id) {
-    const xmlPath = FONT_PATHS.get(id);
+    const descriptor = FONT_DEFINITIONS.get(id) || FONT_DEFINITIONS.get("debug");
+    const xmlPath = descriptor.path;
     const resolved = await resolveContentFile(xmlPath);
     if (!resolved) throw new Error(`Missing local LCD font: ${xmlPath}`);
 
     const file = await resolved.getFile();
     const definition = parseBitmapFontXml(await file.text(), xmlPath, id);
+    definition.colorMask = descriptor.colorMask;
     await Promise.all(Array.from(definition.bitmaps.values()).map(bitmap => loadBitmapCanvas(definition, bitmap)));
     state.stats["LCD fonts loaded"] = loadedFonts.size + 1;
     return definition;
@@ -151,6 +173,7 @@ function parseBitmapFontXml(text, xmlPath, id) {
             name: node.getAttribute("name") || "",
             width: size.width,
             height: size.height,
+            premultipliedAlpha: String(node.getAttribute("name") || "").includes("FontDataPA"),
             canvas: null,
             imageData: null,
             tintedCanvases: new Map(),
@@ -256,10 +279,12 @@ function tintedBitmapCanvas(bitmap, color) {
     const source = bitmap.imageData;
     const target = imageData.data;
     for (let i = 0; i < source.length; i += 4) {
-        target[i] = source[i] * color.r / 255;
-        target[i + 1] = source[i + 1] * color.g / 255;
-        target[i + 2] = source[i + 2] * color.b / 255;
-        target[i + 3] = source[i + 3] * color.a / 255;
+        const alpha = source[i + 3];
+        const sourceScale = bitmap.premultipliedAlpha && alpha > 0 ? 255 / alpha : 1;
+        target[i] = Math.min(255, source[i] * sourceScale) * color.r / 255;
+        target[i + 1] = Math.min(255, source[i + 1] * sourceScale) * color.g / 255;
+        target[i + 2] = Math.min(255, source[i + 2] * sourceScale) * color.b / 255;
+        target[i + 3] = alpha * color.a / 255;
     }
     ctx.putImageData(imageData, 0, 0);
     bitmap.tintedCanvases.set(key, canvas);
@@ -279,6 +304,20 @@ function canUseReplacementGlyph(char) {
 
 function kern(font, left, right) {
     return font.kernPairs.get(`${left}|${right}`) || 0;
+}
+
+function fontDefinition(path, r = 255, g = 255, b = 255, a = 255) {
+    return { path, colorMask: { r, g, b, a } };
+}
+
+function multiplyColors(color, mask) {
+    mask = mask || { r: 255, g: 255, b: 255, a: 255 };
+    return {
+        r: color.r * mask.r / 255,
+        g: color.g * mask.g / 255,
+        b: color.b * mask.b / 255,
+        a: color.a * mask.a / 255,
+    };
 }
 
 function normalizeColor(color) {
