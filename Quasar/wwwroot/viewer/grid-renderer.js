@@ -439,6 +439,9 @@ function modelBatchUsesInstanceColor(materials) {
 }
 
 function modelBatchRenderOrder(materials) {
+    // Transparent LCDs need to render after the floor grid. Otherwise Three.js
+    // depth-sorts them against the grid by object center, which flips with view angle.
+    if (materials.some(material => material.userData.seRenderMode === "lcd" && material.transparent)) return 2;
     if (materials.some(material => material.userData.seRenderMode === "blended")) return 2;
     if (materials.some(material => material.userData.seRenderMode === "decal" || material.userData.seRenderMode === "decal-cutout")) return 1;
     return 0;
