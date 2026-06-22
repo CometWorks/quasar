@@ -3,7 +3,7 @@
 **Module:** Quasar.Agent  **Kind:** project file  **Tier:** 3
 
 ## Summary
-MSBuild project file for `Quasar.Agent`, a `netstandard2.0` class library (x64-only) that produces `Quasar.Agent.dll` — the Magnetar/Space Engineers plugin assembly. All game and PluginSdk references are `Private="False"` (provided by the host at runtime). Harmony is a package dependency because the agent applies profiler patches in-process.
+MSBuild project file for `Quasar.Agent`, a `netstandard2.0` class library (x64-only) that produces `Quasar.Agent.dll` — the Magnetar/Space Engineers plugin assembly. All game and PluginSdk references are `Private="False"` (provided by the host at runtime), including `Sandbox.Common` for game interfaces used by the grid viewer LCD surface inspection path. Harmony is a package dependency because the agent applies profiler patches in-process.
 
 ## Structure
 Key settings:
@@ -17,6 +17,7 @@ Key settings:
 | Reference | Source | Private |
 |---|---|---|
 | `Sandbox.Game` | `$(DS64)\Sandbox.Game.dll` | False |
+| `Sandbox.Common` | `$(DS64)\Sandbox.Common.dll` | False |
 | `SpaceEngineersDedicated` | `$(DS64)\SpaceEngineersDedicated.exe` | False |
 | `SpaceEngineers.Game` | `$(DS64)\SpaceEngineers.Game.dll` | False |
 | `VRage` / `VRage.Dedicated` / `VRage.Game` / `VRage.Library` / `VRage.Math` | `$(DS64)\*.dll` | False |

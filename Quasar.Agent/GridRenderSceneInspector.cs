@@ -10,6 +10,7 @@ using Sandbox.Definitions;
 using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Cube;
+using Sandbox.Game.EntityComponents;
 using Sandbox.Game.World;
 using VRage.Game;
 using VRage.Game.Entity;
@@ -306,11 +307,11 @@ namespace Quasar.Agent
                 return result;
             }
 
-            var functionalBlock = fatBlock as MyFunctionalBlock;
-            if (functionalBlock?.MultiTextPanel?.Panels == null)
+            var multiPanelOwner = fatBlock as IMyMultiTextPanelComponentOwner;
+            if (multiPanelOwner?.MultiTextPanel?.Panels == null)
                 return result;
 
-            foreach (var panel in functionalBlock.MultiTextPanel.Panels)
+            foreach (var panel in multiPanelOwner.MultiTextPanel.Panels)
             {
                 if (panel != null)
                     result.Add(panel);
