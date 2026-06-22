@@ -561,7 +561,9 @@ function sharedLcdMaterial(model, group, block, lcdSurface, renderContext, techn
         transparent: transparentSurface,
         opacity: transparentSurface ? transparentLcdSurfaceOpacity(lcdSurface) : 1,
         depthWrite: !transparentSurface,
-        side: modelMaterialSide(technique, { blended: false, decal: false, cutout: false }),
+        // Transparent LCD screen planes are transparent material parts in-game;
+        // keep them single-sided so the front/back planes do not overlay.
+        side: transparentSurface ? THREE.FrontSide : modelMaterialSide(technique, { blended: false, decal: false, cutout: false }),
     });
     material.userData.renderCacheKey = key;
     material.userData.seRenderMode = "lcd";
