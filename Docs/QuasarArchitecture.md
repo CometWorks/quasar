@@ -543,12 +543,14 @@ self-update path for that requested release immediately.
 
 The Updates page also shows installed managed-runtime versions independently of
 Quasar self-update state: Quasar UI/Bootstrap, Magnetar, and the Space Engineers
-Dedicated Server can all be inspected there. Quasar release checks run on the
-configured update interval (15 minutes by default) and can be triggered by the
-Quasar check button. Managed Magnetar is checked on startup and every hour after
-startup, with a separate manual Magnetar check button. The managed Dedicated
-Server is checked during startup readiness and can be forced through its own
-manual check button; the action runs SteamCMD `app_update 298740 validate`.
+Dedicated Server can all be inspected there. The DS version is resolved from the
+server's `SpaceEngineers.Game.dll` `SE_VERSION` metadata first, with
+non-placeholder file versions only as fallbacks. Quasar release checks run on
+the configured update interval (15 minutes by default) and can be triggered by
+the Quasar check button. Managed Magnetar is checked on startup and every hour
+after startup, with a separate manual Magnetar check button. The managed
+Dedicated Server is checked during startup readiness and can be forced through
+its own manual check button; the action runs SteamCMD `app_update 298740 validate`.
 
 ### Future proxy update flow
 
