@@ -108,8 +108,9 @@ launch with the same base settings.
 
 The Updates page always shows the currently installed Quasar, Bootstrap,
 Magnetar, and Space Engineers Dedicated Server versions when Quasar can resolve
-them from release metadata or executable file versions. It also shows the
-managed runtime install paths and the most recent managed-runtime check time.
+them from release metadata, Dedicated Server `SE_VERSION` assembly metadata, or
+non-placeholder executable file versions. It also shows the managed runtime
+install paths and the most recent managed-runtime check time.
 
 Quasar UI worker and Bootstrap checks use the Quasar release checker interval
 (15 minutes by default) and the page's **Check Quasar** button. Managed Magnetar

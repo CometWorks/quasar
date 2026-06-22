@@ -1,6 +1,9 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.Compression;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -756,10 +759,120 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             return string.Empty;
 
         return FirstNonEmpty(
-            GetFileVersion(Path.Combine(dedicatedServer64Path, DedicatedServerExecutableName + ".exe")),
-            GetFileVersion(Path.Combine(dedicatedServer64Path, DedicatedServerExecutableName)),
-            GetFileVersion(Path.Combine(dedicatedServer64Path, "SpaceEngineers.Game.dll")),
-            GetFileVersion(Path.Combine(dedicatedServer64Path, "Sandbox.Game.dll")));
+            GetSpaceEngineersGameVersion(dedicatedServer64Path),
+            GetNonPlaceholderFileVersion(Path.Combine(dedicatedServer64Path, DedicatedServerExecutableName + ".exe")),
+            GetNonPlaceholderFileVersion(Path.Combine(dedicatedServer64Path, DedicatedServerExecutableName)),
+            GetNonPlaceholderFileVersion(Path.Combine(dedicatedServer64Path, "SpaceEngineers.Game.dll")),
+            GetNonPlaceholderFileVersion(Path.Combine(dedicatedServer64Path, "Sandbox.Game.dll")));
+    }
+
+    private static string GetSpaceEngineersGameVersion(string dedicatedServer64Path)
+    {
+        var gameAssemblyPath = Path.Combine(dedicatedServer64Path, "SpaceEngineers.Game.dll");
+        if (!TryReadInt32Constant(
+                gameAssemblyPath,
+                "SpaceEngineers.Game",
+                "SpaceEngineersGame",
+                "SE_VERSION",
+                out var gameVersion))
+        {
+            return string.Empty;
+        }
+
+        var version = FormatSpaceEngineersVersion(gameVersion);
+        if (string.IsNullOrWhiteSpace(version))
+            return string.Empty;
+
+        return TryReadInt32Constant(
+                   gameAssemblyPath,
+                   "SpaceEngineers.Game",
+                   "SpaceEngineersGame",
+                   "SERVER_BUILD_NUMBER",
+                   out var serverBuildNumber) &&
+               serverBuildNumber > 0
+            ? $"{version} b{serverBuildNumber}"
+            : version;
+    }
+
+    private static bool TryReadInt32Constant(
+        string assemblyPath,
+        string typeNamespace,
+        string typeName,
+        string fieldName,
+        out int value)
+    {
+        value = 0;
+        if (string.IsNullOrWhiteSpace(assemblyPath) || !File.Exists(assemblyPath))
+            return false;
+
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new PEReader(stream);
+            if (!peReader.HasMetadata)
+                return false;
+
+            var metadata = peReader.GetMetadataReader();
+            foreach (var typeHandle in metadata.TypeDefinitions)
+            {
+                var type = metadata.GetTypeDefinition(typeHandle);
+                if (!string.Equals(metadata.GetString(type.Namespace), typeNamespace, StringComparison.Ordinal) ||
+                    !string.Equals(metadata.GetString(type.Name), typeName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                foreach (var fieldHandle in type.GetFields())
+                {
+                    var field = metadata.GetFieldDefinition(fieldHandle);
+                    if (!string.Equals(metadata.GetString(field.Name), fieldName, StringComparison.Ordinal) ||
+                        (field.Attributes & FieldAttributes.Literal) == 0)
+                    {
+                        continue;
+                    }
+
+                    var constantHandle = field.GetDefaultValue();
+                    if (constantHandle.IsNil)
+                        return false;
+
+                    var constant = metadata.GetConstant(constantHandle);
+                    if (constant.TypeCode != ConstantTypeCode.Int32)
+                        return false;
+
+                    value = metadata.GetBlobReader(constant.Value).ReadInt32();
+                    return true;
+                }
+
+                return false;
+            }
+        }
+        catch
+        {
+        }
+
+        return false;
+    }
+
+    private static string FormatSpaceEngineersVersion(int version)
+    {
+        if (version <= 0)
+            return string.Empty;
+
+        var text = version.ToString(CultureInfo.InvariantCulture).PadLeft(7, '0');
+        return $"{text[..1]}.{text.Substring(1, 3)}.{text.Substring(4, 3)}";
+    }
+
+    private static string GetNonPlaceholderFileVersion(string path)
+    {
+        var version = GetFileVersion(path);
+        return IsPlaceholderAssemblyVersion(version) ? string.Empty : version;
+    }
+
+    private static bool IsPlaceholderAssemblyVersion(string version)
+    {
+        var normalized = version.Trim();
+        return string.Equals(normalized, "1.0.0", StringComparison.Ordinal) ||
+               string.Equals(normalized, "1.0.0.0", StringComparison.Ordinal);
     }
 
     private static string GetFileVersion(string path)

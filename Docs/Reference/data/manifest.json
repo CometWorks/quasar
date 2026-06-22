@@ -1734,8 +1734,8 @@
       "path": "Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs",
       "name": "ManagedDedicatedServerRuntimeResolver.cs",
       "ext": ".cs",
-      "size": 77042,
-      "sha256": "92beddebc90450f953395900c227a50d7d0fdcceeddba141329b03d1f96e70c6",
+      "size": 81027,
+      "sha256": "72d495fc130099179afc801d59264176bcb1c9dd92d0ab432d555695e189c472",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "pending"
