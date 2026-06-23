@@ -9,7 +9,7 @@ Quasar currently has a static theme (`QuasarTheme.cs`) with hardcoded light/dark
 
 ```
 BrandingService (singleton)
-  └── loads/saves  ~/.config/Quasar/branding.json
+  └── loads/saves  <quasar-data-root>/branding.json
   └── exposes      BuildMudTheme() → MudTheme
   └── fires        Changed event → MainLayout calls StateHasChanged
 

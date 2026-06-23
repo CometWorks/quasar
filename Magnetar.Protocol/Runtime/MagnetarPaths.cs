@@ -6,8 +6,10 @@ namespace Magnetar.Protocol.Runtime;
 public static class MagnetarPaths
 {
     // -------------------------------------------------------------------------
-    // Root — everything lives under ~/.config/Quasar (Linux / macOS) or
-    //        %APPDATA%\Quasar (Windows).  Override with QUASAR_DATA_DIR.
+    // Root — everything lives under QUASAR_DATA_DIR when set. Bootstrap sets it
+    // to the launcher install root for packaged installs after migrating legacy
+    // ~/.config/Quasar (Linux/macOS) or %APPDATA%\Quasar (Windows) data.
+    // Without Bootstrap, fall back to the OS application-data directory.
     // -------------------------------------------------------------------------
 
     public static string GetQuasarDirectory()
@@ -87,7 +89,7 @@ public static class MagnetarPaths
         Path.Combine(GetQuasarDirectory(), "Backups");
 
     // -------------------------------------------------------------------------
-    // Magnetar server data  (~/.config/Quasar/Magnetars/<unique-name>/)
+    // Magnetar server data  (<quasar-root>/Magnetars/<unique-name>/)
     // -------------------------------------------------------------------------
 
     /// <summary>Directory that contains one sub-folder per Magnetar server.</summary>
@@ -121,7 +123,7 @@ public static class MagnetarPaths
         Path.Combine(GetQuasarServerDirectory(uniqueName), "analytics.jsonl");
 
     // -------------------------------------------------------------------------
-    // World templates  (~/.config/Quasar/WorldTemplates/<id>/)
+    // World templates  (<quasar-root>/WorldTemplates/<id>/)
     // -------------------------------------------------------------------------
 
     public static string GetQuasarWorldTemplatesDirectory() =>

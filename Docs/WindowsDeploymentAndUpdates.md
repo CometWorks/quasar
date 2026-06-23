@@ -65,21 +65,24 @@ Windows archives in that combined release.
 ## First Start
 
 The Scheduled Task runs Bootstrap as `Quasar.exe serve --quiet --service` from
-the install directory (default `%ProgramFiles%\Quasar`). Bootstrap is the direct
-task action — no `cmd.exe` wrapper — so Task Scheduler's job object covers the
-Bootstrap process itself, and stopping the task terminates it cleanly.
+the install directory (the extracted installer root by default). Bootstrap is
+the direct task action — no `cmd.exe` wrapper — so Task Scheduler's job object
+covers the Bootstrap process itself, and stopping the task terminates it cleanly.
 
 If Bootstrap has no usable `Updates/active-release.json` and no packaged
 `WebService/Quasar.exe`, it downloads the latest Windows web asset from GitHub and
 extracts it under:
 
 ```text
-%APPDATA%\Quasar\ManagedRuntime\WebService\<version>
+<install-root>\ManagedRuntime\WebService\<version>
 ```
 
 Then it writes `Updates/active-release.json` pointing at the managed active
 worker. `Updates\Staged\` is reserved for not-yet-activated update payloads. The
 downloaded archive must match the release's `SHA256SUMS` entry before extraction.
+On startup, Bootstrap also migrates a legacy default data root at
+`%APPDATA%\Quasar` into the install root unless `QUASAR_DATA_DIR` points to a
+custom directory.
 
 ## UI Worker Updates
 
@@ -90,12 +93,12 @@ default and lists selectable `quasar-web-win-x64.zip` releases on
 automatically after its `SHA256SUMS` entry is verified; with it disabled, releases
 remain queued until the operator stages the selected version. Activation is
 explicit; the UI copies the staged payload into
-`%APPDATA%\Quasar\ManagedRuntime\WebService\<version>`, clears stale staged
+`<install-root>\ManagedRuntime\WebService\<version>`, clears stale staged
 payloads, and Bootstrap drains the old worker, starts the managed `Quasar.exe` on
 the same port, and leaves managed Magnetar servers running.
 
 Staging also resolves `appsettings.json`. Quasar uses the stored release base in
-the data directory (`%APPDATA%\Quasar\Updates\appsettings.base.json`) as the
+the data directory (`<install-root>\Updates\appsettings.base.json` by default) as the
 merge base, applies local values from the install directory, and writes the
 resolved file into the staged worker. If the merge conflicts, auto-staging stops
 with a warning and `/settings/updates` shows a git-style conflict editor. Resolve
@@ -153,7 +156,7 @@ the Scheduled Task, and exits with install instructions if it is missing.
 
 ```powershell
 # From an extracted quasar-installer-windows.zip, in an elevated PowerShell:
-.\install.ps1            # install to %ProgramFiles%\Quasar and register the task
+.\install.ps1            # install in place and register the task
 .\install.ps1 -Start     # also start the task immediately
 ```
 
@@ -162,7 +165,8 @@ and restarts the launcher on failure. Bootstrap is the direct task executable
 (`Quasar.exe serve --quiet --service`); service mode is signalled via the
 `--service` flag rather than environment variables, which also ensures Task
 Scheduler's job object covers Bootstrap so stopping the task terminates it. It
-runs as `SYSTEM` by default; pass `-User <name>` for a specific service account.
+runs as the installing user by default; pass `-InstallDir <dir>` to copy Quasar
+elsewhere or `-User <name>` for a specific service account.
 
 ```powershell
 .\uninstall.ps1          # stop and remove the task

@@ -2,13 +2,13 @@
 # Windows analogue of uninstall.sh.
 #
 # Stops and removes the Quasar Scheduled Task registered by install.ps1. Runtime
-# and config data under %APPDATA%\Quasar is left untouched. Pass -Purge to also
-# delete the install directory.
+# and config data under the install directory is left untouched. Pass -Purge to
+# also delete the install directory.
 
 [CmdletBinding()]
 param(
     [string]$TaskName = 'Quasar',
-    [string]$InstallDir = "$env:ProgramFiles\Quasar",
+    [string]$InstallDir = $PSScriptRoot,
     [switch]$Purge
 )
 

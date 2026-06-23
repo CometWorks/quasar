@@ -63,19 +63,19 @@ metadata is normalized to `major.minor.build`.
 
 ## First Start
 
-The default systemd user service runs Bootstrap from
-`~/.local/share/Quasar/Quasar serve --quiet` and sets `QUASAR_DATA_DIR` to the
-user's Quasar data directory. It also sets `QUASAR_SYSTEMD_SERVICE` and
-`QUASAR_SYSTEMD_SCOPE` so the web UI's **Shutdown Quasar** action can request
-`systemctl --user stop quasar.service` instead of only exiting the launcher.
-A machine-wide service is still available with `install.sh --system`.
+The default systemd user service runs Bootstrap from the extracted install root
+and sets `QUASAR_DATA_DIR` to that same directory. It also sets
+`QUASAR_SYSTEMD_SERVICE` and `QUASAR_SYSTEMD_SCOPE` so the web UI's **Shutdown
+Quasar** action can request `systemctl --user stop quasar.service` instead of
+only exiting the launcher. A machine-wide service is still available with
+`install.sh --system`.
 
 If Bootstrap has no usable `Updates/active-release.json` and no packaged
 `WebService/Quasar`, it downloads the latest Linux web asset from GitHub,
 extracts it under:
 
 ```text
-~/.config/Quasar/ManagedRuntime/WebService/<version>
+<install-root>/ManagedRuntime/WebService/<version>
 ```
 
 Then it writes `Updates/active-release.json` pointing at the managed active
@@ -88,6 +88,9 @@ pointer that targets a random external build directory. Only packaged
 configured `QUASAR_WEB_EXE` / `QUASAR_WEB_DLL` workers are trusted. If Bootstrap
 finds an older active pointer that still targets `Updates/Staged/<version>`, it
 migrates that release into `ManagedRuntime/WebService/<version>` before launch.
+On startup, Bootstrap also migrates a legacy default data root at
+`~/.config/Quasar` into the install root unless `QUASAR_DATA_DIR` points to a
+custom directory.
 
 ## UI Worker Updates
 
@@ -103,7 +106,7 @@ a matching `SHA256SUMS` entry for the downloaded asset.
 Staging also resolves `appsettings.json`. Quasar uses the stored release base in
 the data directory (`$QUASAR_DATA_DIR/Updates/appsettings.base.json`) as the
 merge base, applies local values from the install directory
-(`~/.local/share/Quasar` by default), and writes the resolved file into the staged worker. If the merge
+(`<install-root>` by default), and writes the resolved file into the staged worker. If the merge
 conflicts, auto-staging stops with a warning and `/settings/updates` shows a
 git-style conflict editor. Resolve and save the JSON there, or choose **Force
 release defaults** to stage the release file without local appsettings values.
@@ -183,19 +186,22 @@ first adds Microsoft's Debian 13 package feed with
 selected .NET package.
 
 ```bash
-tar -xzf quasar-installer-linux.tar.gz -C /tmp
-/tmp/quasar-installer-linux/install.sh          # publish to ~/.local/share/Quasar and install user quasar.service
-/tmp/quasar-installer-linux/install.sh --start  # also start the user service immediately
+mkdir -p ~/.local/share/Quasar
+tar -xzf quasar-installer-linux.tar.gz -C ~/.local/share/Quasar --strip-components=1
+~/.local/share/Quasar/install.sh          # install user quasar.service
+~/.local/share/Quasar/install.sh --start  # also start the user service immediately
 ```
 
-`install.sh` publishes Quasar to `~/.local/share/Quasar`, creates the Quasar
-data directory at `~/.config/Quasar` by default, and installs a user
-`quasar.service`. Use `--system` with `sudo` for a machine-wide service, or
-`--data-dir <dir>` to place Quasar state elsewhere. The generated service sets
-`HOME` and `QUASAR_DATA_DIR` explicitly so Bootstrap and the worker never fall
-back to the install directory for update/runtime state. It also records the unit
-name/scope in `QUASAR_SYSTEMD_SERVICE` and `QUASAR_SYSTEMD_SCOPE`; with those
-set, the UI shutdown button asks systemd to stop the installed unit. The
+For extracted release installers, `install.sh` uses the script directory as the
+default install directory and the default Quasar data directory. Source installs
+keep using `~/.local/share/Quasar` as the default install root, with state stored
+there as well. Use `--system` with `sudo` for a machine-wide service,
+`--install-dir <dir>` to copy Quasar elsewhere, or `--data-dir <dir>` to place
+Quasar state elsewhere. The generated service sets `HOME` and `QUASAR_DATA_DIR`
+explicitly so Bootstrap and the worker agree on the update/runtime state root.
+It also records the unit name/scope in `QUASAR_SYSTEMD_SERVICE` and
+`QUASAR_SYSTEMD_SCOPE`; with those set, the UI shutdown button asks systemd to
+stop the installed unit. The
 installer enables the service but does not start or restart it unless `--start`
 is passed; start it later with `systemctl --user restart quasar.service`. When
 installing from source instead of an extracted release archive, the installer
@@ -223,7 +229,7 @@ names before calling `setpriority`.
 
 ```bash
 ~/.local/share/Quasar/uninstall.sh           # remove the user systemd service
-~/.local/share/Quasar/uninstall.sh --purge   # also remove ~/.local/share/Quasar
+~/.local/share/Quasar/uninstall.sh --purge   # also remove the install/data root
 ```
 
 `uninstall.sh` runs `systemctl stop quasar.service` before disabling and removing
@@ -238,7 +244,7 @@ For the web UI host/port (including how to change the listening port, default
 
 Update defaults live in `Quasar:Updates`. Packaged defaults come from the install
 directory, and operator overrides can live in the Quasar data directory
-(`~/.config/Quasar/appsettings.json` by default for Linux systemd installs, or
+(`<install-root>/appsettings.json` by default for Linux systemd installs, or
 `QUASAR_DATA_DIR/appsettings.json` when overridden). The worker and Bootstrap
 both read that data-directory file on startup.
 

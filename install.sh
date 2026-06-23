@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_NAME="quasar"
 INSTALL_DIR=""
 DATA_DIR=""
+PACKAGED_INSTALL=false
 CONFIGURATION="Release"
 RUNTIME="linux-x64"
 ENABLE_SERVICE=true
@@ -22,8 +23,9 @@ usage() {
     cat <<EOF
 Usage: ./install.sh [options]
 
-Publishes Quasar and installs a systemd user service by default. The default
-install is user-only and writes Bootstrap to ~/.local/share/Quasar.
+Publishes Quasar and installs a systemd user service by default. Extracted
+release installers install in place by default and keep Quasar state beside the
+launcher.
 
 For machine-wide service installation, pass --system and run with sudo.
 
@@ -33,8 +35,8 @@ running them. On Debian 13, apt installs first add Microsoft's Debian 13 package
 feed.
 
 Options:
-  --install-dir <dir>       Install directory (default: <run-user-home>/.local/share/Quasar)
-  --data-dir <dir>          Quasar data directory (default: <run-user-home>/.config/Quasar)
+  --install-dir <dir>       Install directory (default: extracted installer root; source installs use <run-user-home>/.local/share/Quasar)
+  --data-dir <dir>          Quasar data directory (default: install directory)
   --service-name <name>     systemd service name (default: quasar)
   --user <user>             User to run Quasar as (system installs only; default: sudo caller)
   --user-service            Install a user systemd service (default)
@@ -417,7 +419,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ "$SKIP_BUILD" == "false" && -x "$SCRIPT_DIR/Quasar" && ! -f "$SCRIPT_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj" ]]; then
+if [[ -x "$SCRIPT_DIR/Quasar" && ! -f "$SCRIPT_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj" ]]; then
+    PACKAGED_INSTALL=true
+fi
+
+if [[ "$SKIP_BUILD" == "false" && "$PACKAGED_INSTALL" == "true" ]]; then
     SKIP_BUILD=true
 fi
 
@@ -464,10 +470,14 @@ if [[ -z "$RUN_HOME" ]]; then
     exit 1
 fi
 if [[ -z "$INSTALL_DIR" ]]; then
-    INSTALL_DIR="$RUN_HOME/.local/share/Quasar"
+    if [[ "$PACKAGED_INSTALL" == "true" ]]; then
+        INSTALL_DIR="$SCRIPT_DIR"
+    else
+        INSTALL_DIR="$RUN_HOME/.local/share/Quasar"
+    fi
 fi
 if [[ -z "$DATA_DIR" ]]; then
-    DATA_DIR="$RUN_HOME/.config/Quasar"
+    DATA_DIR="$INSTALL_DIR"
 fi
 INSTALL_DIR="$(realpath -m "$INSTALL_DIR")"
 DATA_DIR="$(realpath -m "$DATA_DIR")"
@@ -485,11 +495,6 @@ case "$DATA_DIR" in
         exit 1
         ;;
 esac
-
-if [[ "$DATA_DIR" == "$INSTALL_DIR" || "$DATA_DIR" == "$INSTALL_DIR"/* ]]; then
-    echo "Data directory must not be inside the install directory: $DATA_DIR" >&2
-    exit 1
-fi
 
 require_dotnet_installation
 
@@ -576,6 +581,20 @@ restart_service() {
     else
         systemctl --user restart "$SERVICE_NAME.service"
     fi
+}
+
+copy_if_different() {
+    local source="$1"
+    local destination="$2"
+    if [[ ! -f "$source" ]]; then
+        return
+    fi
+
+    if [[ "$(realpath -m "$source")" == "$(realpath -m "$destination")" ]]; then
+        return
+    fi
+
+    cp -a "$source" "$destination"
 }
 
 cleanup_old_opt_install() {
@@ -665,10 +684,18 @@ if [[ "$SKIP_BUILD" == "true" ]]; then
         echo "Existing publish output not found: $SOURCE_DIR" >&2
         exit 1
     fi
-    find "$SOURCE_DIR" -mindepth 1 -maxdepth 1 \
-        ! -name "quasar-*.tar.gz" \
-        ! -name "quasar-*.zip" \
-        -exec cp -a -- {} "$PUBLISH_DIR/" \;
+    if [[ "$(realpath -m "$SOURCE_DIR")" == "$INSTALL_DIR" ]]; then
+        for source_entry in Quasar appsettings.json install.sh uninstall.sh quasar-renice.c README.md WebService; do
+            if [[ -e "$SOURCE_DIR/$source_entry" ]]; then
+                cp -a -- "$SOURCE_DIR/$source_entry" "$PUBLISH_DIR/"
+            fi
+        done
+    else
+        find "$SOURCE_DIR" -mindepth 1 -maxdepth 1 \
+            ! -name "quasar-*.tar.gz" \
+            ! -name "quasar-*.zip" \
+            -exec cp -a -- {} "$PUBLISH_DIR/" \;
+    fi
 else
     BUILD_VERSION="$(resolve_build_version)"
     NUGET_VERSION="$(normalize_nuget_version "$BUILD_VERSION")"
@@ -685,18 +712,16 @@ else
     install -d -m 0755 "$INSTALL_DIR"
     install -d -m 0755 "$DATA_DIR"
 fi
-find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+if [[ "$DATA_DIR" != "$INSTALL_DIR" && "$DATA_DIR" != "$INSTALL_DIR"/* ]]; then
+    find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+fi
 cp -a "$PUBLISH_DIR/." "$INSTALL_DIR/"
-if [[ -f "$SCRIPT_DIR/install.sh" ]]; then
-    cp -a "$SCRIPT_DIR/install.sh" "$INSTALL_DIR/install.sh"
-fi
-if [[ -f "$SCRIPT_DIR/uninstall.sh" ]]; then
-    cp -a "$SCRIPT_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
-fi
+copy_if_different "$SCRIPT_DIR/install.sh" "$INSTALL_DIR/install.sh"
+copy_if_different "$SCRIPT_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
 if [[ -f "$SCRIPT_DIR/tools/quasar-renice.c" ]]; then
-    cp -a "$SCRIPT_DIR/tools/quasar-renice.c" "$INSTALL_DIR/quasar-renice.c"
+    copy_if_different "$SCRIPT_DIR/tools/quasar-renice.c" "$INSTALL_DIR/quasar-renice.c"
 elif [[ -f "$SCRIPT_DIR/quasar-renice.c" ]]; then
-    cp -a "$SCRIPT_DIR/quasar-renice.c" "$INSTALL_DIR/quasar-renice.c"
+    copy_if_different "$SCRIPT_DIR/quasar-renice.c" "$INSTALL_DIR/quasar-renice.c"
 fi
 if [[ "${EUID}" -eq 0 ]]; then
     chown -R "$RUN_USER:$RUN_GROUP" "$INSTALL_DIR"

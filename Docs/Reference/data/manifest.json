@@ -214,8 +214,8 @@
       "path": "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
       "name": "MagnetarPaths.cs",
       "ext": ".cs",
-      "size": 9431,
-      "sha256": "6e824b87f8b9d17ea2b5df145bcbb4039ea9c8363eacf911b056f76396a79da1",
+      "size": 9588,
+      "sha256": "72657ef5526d7d3b6ae3565d8e58ef5688bb40f4c8c34d0f2a0c590e53d8fc14",
       "module": "Magnetar.Protocol",
       "tier": 1,
       "status": "pending"
@@ -434,8 +434,8 @@
       "path": "Quasar.Bootstrap/Program.cs",
       "name": "Program.cs",
       "ext": ".cs",
-      "size": 86396,
-      "sha256": "5d5c408e229675b6d6f8b952e7ba4f8e119b68de0f246169483b0956935a5c90",
+      "size": 95399,
+      "sha256": "e6606b7369b3f9f4ab529ddd1774620981d407fffecd09ec70679e133e4a5db7",
       "module": "Quasar.Bootstrap",
       "tier": 1,
       "status": "pending"
@@ -924,8 +924,8 @@
       "path": "Quasar/Components/Pages/SteamWorkshopApiKeyDialog.razor",
       "name": "SteamWorkshopApiKeyDialog.razor",
       "ext": ".razor",
-      "size": 3725,
-      "sha256": "33dea2e47c1b007b0122bec7af1001722103e6ebc979deff4bc89ec415fcfd24",
+      "size": 3748,
+      "sha256": "d145344e73662ab3a566b75cce35f62a5b24ea096cb111d520ccefa934b03bfc",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"

@@ -60,11 +60,14 @@ worker** read JSON config from these locations, later ones overriding earlier:
    preserve this file during Bootstrap self-updates. UI-worker activation updates
    it from the staged, resolved `appsettings.json` so Bootstrap and the managed
    worker keep the same base settings.
-2. The Quasar **data directory** `appsettings.json` — the recommended place for
-   persistent local overrides because it is never touched by updates:
-   - Windows: `%APPDATA%\Quasar\appsettings.json`
-   - Linux: `~/.config/Quasar/appsettings.json` by default for `install.sh`
-     systemd installs (or `$QUASAR_DATA_DIR/appsettings.json`)
+2. The Quasar **data directory** `appsettings.json`. Bootstrap uses the install
+   root as the default data directory, so this is normally the same file as item
+   1. Set `QUASAR_DATA_DIR` (or `--data-dir <dir>` on Linux installs) to keep
+   persistent local overrides in a separate directory.
+
+When Bootstrap starts without a custom `QUASAR_DATA_DIR`, it migrates legacy
+default data roots (`~/.config/Quasar` on Linux/macOS,
+`%APPDATA%\Quasar` on Windows) into the install root.
 
 The shipped defaults are defined in [`Quasar/appsettings.json`](../Quasar/appsettings.json).
 

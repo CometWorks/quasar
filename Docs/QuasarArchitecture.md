@@ -468,8 +468,8 @@ Required model:
 Expected layout:
 
 - active runtime under a versioned release directory
-- active managed web releases under `~/.config/Quasar/ManagedRuntime/WebService/<version>/`
-- transient staged payloads under `~/.config/Quasar/Updates/Staged/`
+- active managed web releases under `<install-root>/ManagedRuntime/WebService/<version>/`
+- transient staged payloads under `<install-root>/Updates/Staged/`
 - stable release pointer / manifest for the currently active version
 - release identity from `AssemblyInformationalVersion` and the active-release
   pointer, not from numeric `AssemblyVersion`
@@ -540,6 +540,10 @@ under Bootstrap, an admin can force activation from the UI. The worker writes a
 request file under `Updates/` containing the detected version and asset;
 Bootstrap consumes it with a watcher and runs the same checksum-verified
 self-update path for that requested release immediately.
+Bootstrap also owns default data-root migration: if no custom `QUASAR_DATA_DIR`
+is set, or it still points at the legacy default AppData path, Bootstrap moves
+the legacy root into the launcher install root and passes that root to the
+worker.
 
 The Updates page also shows installed managed-runtime versions independently of
 Quasar self-update state: Quasar UI/Bootstrap, Magnetar, and the Space Engineers
@@ -880,7 +884,7 @@ As of this document:
 - Discord per-server options now include chat relay and simspeed alert rules. Discord-to-game chat is injected as `[Discord] <username>: <message>` so in-game readers see the Discord sender, and `DiscordChatRelayService` suppresses the matching game-history echo before it can post back to Discord as the server/bot author. `DiscordSimSpeedAlertService` evaluates fresh raw metric samples for connected/running agents on the registry change path, sending alerts through the configured simspeed channel or the server's analytics channel. Baseline rules detect sharp sample-to-sample drops across every unseen raw sample pair and sustained low average simspeed, and the Discord page exposes thresholds, windows, cooldowns, and per-rule enable switches. `DiscordBotService` also publishes aggregate managed-server state through Discord presence: the bot status reflects unhealthy/faulted vs active vs idle server instances, and its activity text shows active/total servers, player count, and issue/warning counts.
 - a unified GitHub-release-based update/publish pipeline now exists covering both Linux and Windows in a single combined release (`.github/workflows/release.yml`): each build produces `quasar-installer-linux.tar.gz` / `quasar-web-linux-x64.tar.gz` (Linux) and `quasar-installer-windows.zip` / `quasar-web-win-x64.zip` (Windows) under one tag; tag pushes and `main` publish full releases while pull requests publish draft prereleases; installer archives contain a single top-level `quasar-installer-*` directory for clean manual extraction; the release carries one combined `SHA256SUMS` covering every archive; release identity is normalized from `AssemblyInformationalVersion` and the active-release pointer (not numeric `AssemblyVersion`); four-part build tags such as `1.0.0.37` are canonical and numeric prerelease aliases such as `1.0.0-37` normalize to them; every downloaded asset is verified against `SHA256SUMS`; the UI stages web updates and queues them for explicit activation from `/settings/updates`; Bootstrap self-upgrades from the launcher stream only when an actually-newer asset appears (see [Linux Deployment and Updates](LinuxDeploymentAndUpdates.md) and [Windows Deployment and Updates](WindowsDeploymentAndUpdates.md))
 - `Quasar.Bootstrap` runs as the stable launcher that owns the public port on both Linux (systemd service) and Windows (Scheduled Task): it activates web releases through the `Updates/active-release.json` pointer after staged payloads are promoted into `ManagedRuntime/WebService/<version>/`, and performs worker cutover by draining the old worker and starting the managed one on the same port — a launcher, not yet a reverse proxy — so the public endpoint stays stable across the short listener gap while managed Magnetar servers keep running; on Linux, the UI shutdown action prefers `systemctl --user stop quasar.service` / `systemctl stop quasar.service` when the installed unit is detectable, falling back to the worker-written shutdown request that makes Bootstrap exit without respawning; on Linux the launcher exits with code 75 so systemd restarts it for self-upgrade; on Windows the launcher spawns a detached replacement `Quasar.exe serve --quiet` and exits 0, with the Scheduled Task restart-on-failure as the safety net
-- Windows deployment exists via `install.ps1`/`uninstall.ps1`: `install.ps1` publishes to `%ProgramFiles%\Quasar` and registers a Scheduled Task (`Quasar`) that starts at boot and restarts the launcher on failure; the task runs with `QUASAR_MODE=Service` and `QUASAR_OPEN_BROWSER_ON_START=false` mirroring the Linux systemd environment
+- Windows deployment exists via `install.ps1`/`uninstall.ps1`: extracted release installs default to the installer root, source installs default to `%ProgramFiles%\Quasar`, and the installer registers a Scheduled Task (`Quasar`) that starts at boot and restarts the launcher on failure; the task runs Bootstrap directly with `serve --quiet --service`
 - staged relaunch now persists supervisor runtime state so managed DS processes survive worker turnover
 - obsolete `webui/` is removed from the repository
 - per-server isolated app-data path handling groundwork exists

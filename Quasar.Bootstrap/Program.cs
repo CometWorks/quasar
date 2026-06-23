@@ -28,6 +28,8 @@ internal static class Program
 
     public static async Task<int> Main(string[] args)
     {
+        BootstrapDataDirectoryMigration.ApplyInstallRootDefault();
+
         var quiet = args.Any(static arg => string.Equals(arg, "--quiet", StringComparison.OrdinalIgnoreCase));
         var openBrowser = args.Any(static arg => string.Equals(arg, "--open-browser", StringComparison.OrdinalIgnoreCase));
         var force = args.Any(static arg => string.Equals(arg, "--force", StringComparison.OrdinalIgnoreCase));
@@ -556,6 +558,221 @@ internal static class Program
     }
 }
 
+internal static class BootstrapDataDirectoryMigration
+{
+    private const string DataDirectoryEnvironmentVariable = "QUASAR_DATA_DIR";
+
+    public static BootstrapDataDirectoryMigrationResult LastResult { get; private set; } = BootstrapDataDirectoryMigrationResult.Empty;
+
+    public static void ApplyInstallRootDefault()
+    {
+        LastResult = BootstrapDataDirectoryMigrationResult.Empty;
+
+        var installRoot = NormalizeDirectory(AppContext.BaseDirectory);
+        if (string.IsNullOrWhiteSpace(installRoot))
+            return;
+
+        var legacyRoot = GetLegacyQuasarDirectory();
+        var configuredRoot = Environment.GetEnvironmentVariable(DataDirectoryEnvironmentVariable);
+        if (IsCustomDataDirectory(configuredRoot, installRoot, legacyRoot))
+            return;
+
+        var targetRoot = string.IsNullOrWhiteSpace(configuredRoot) || IsSamePath(configuredRoot, legacyRoot)
+            ? installRoot
+            : NormalizeDirectory(configuredRoot);
+
+        if (string.IsNullOrWhiteSpace(targetRoot))
+            targetRoot = installRoot;
+
+        if (!string.IsNullOrWhiteSpace(legacyRoot) &&
+            !IsSamePath(legacyRoot, targetRoot) &&
+            IsPathUnder(targetRoot, legacyRoot))
+        {
+            Environment.SetEnvironmentVariable(DataDirectoryEnvironmentVariable, legacyRoot);
+            LastResult = new BootstrapDataDirectoryMigrationResult(
+                legacyRoot,
+                targetRoot,
+                Migrated: false,
+                ErrorMessage: "Install root is inside the legacy data directory.");
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(targetRoot);
+            var migrated = false;
+            if (!string.IsNullOrWhiteSpace(legacyRoot) &&
+                !IsSamePath(legacyRoot, targetRoot) &&
+                Directory.Exists(legacyRoot))
+            {
+                MergeDirectoryContents(legacyRoot, targetRoot);
+                TryRewriteMigratedActiveReleasePointer(legacyRoot, targetRoot);
+                TryDeleteDirectoryIfEmpty(legacyRoot);
+                migrated = true;
+            }
+
+            Environment.SetEnvironmentVariable(DataDirectoryEnvironmentVariable, targetRoot);
+            LastResult = new BootstrapDataDirectoryMigrationResult(legacyRoot, targetRoot, migrated, string.Empty);
+        }
+        catch (Exception exception)
+        {
+            if (!string.IsNullOrWhiteSpace(configuredRoot))
+                Environment.SetEnvironmentVariable(DataDirectoryEnvironmentVariable, configuredRoot);
+
+            LastResult = new BootstrapDataDirectoryMigrationResult(
+                legacyRoot,
+                targetRoot,
+                Migrated: false,
+                ErrorMessage: exception.Message);
+        }
+    }
+
+    private static bool IsCustomDataDirectory(string? configuredRoot, string installRoot, string legacyRoot)
+    {
+        return !string.IsNullOrWhiteSpace(configuredRoot) &&
+               !IsSamePath(configuredRoot, installRoot) &&
+               !IsSamePath(configuredRoot, legacyRoot);
+    }
+
+    private static string GetLegacyQuasarDirectory()
+    {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        return string.IsNullOrWhiteSpace(appData)
+            ? string.Empty
+            : NormalizeDirectory(Path.Combine(appData, "Quasar"));
+    }
+
+    private static void TryRewriteMigratedActiveReleasePointer(string legacyRoot, string targetRoot)
+    {
+        var pointerPath = Path.Combine(targetRoot, "Updates", "active-release.json");
+        if (!File.Exists(pointerPath))
+            return;
+
+        try
+        {
+            var pointer = JsonSerializer.Deserialize<QuasarActiveReleasePointer>(
+                File.ReadAllText(pointerPath),
+                LauncherCoordinator.JsonOptions);
+            if (pointer is null)
+                return;
+
+            var fileName = RewriteMigratedPath(pointer.FileName, legacyRoot, targetRoot);
+            var workingDirectory = RewriteMigratedPath(pointer.WorkingDirectory, legacyRoot, targetRoot);
+            if (string.Equals(fileName, pointer.FileName, StringComparison.Ordinal) &&
+                string.Equals(workingDirectory, pointer.WorkingDirectory, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var rewritten = new QuasarActiveReleasePointer
+            {
+                Version = pointer.Version,
+                FileName = fileName,
+                Arguments = pointer.Arguments,
+                WorkingDirectory = workingDirectory,
+                ActivatedAtUtc = pointer.ActivatedAtUtc,
+            };
+            File.WriteAllText(pointerPath, JsonSerializer.Serialize(rewritten, LauncherCoordinator.JsonOptions));
+        }
+        catch
+        {
+        }
+    }
+
+    private static string RewriteMigratedPath(string value, string legacyRoot, string targetRoot)
+    {
+        if (string.IsNullOrWhiteSpace(value) || !Path.IsPathFullyQualified(value))
+            return value;
+
+        if (IsSamePath(value, legacyRoot))
+            return targetRoot;
+
+        if (!IsPathUnder(value, legacyRoot))
+            return value;
+
+        var relativePath = Path.GetRelativePath(NormalizeDirectory(legacyRoot), NormalizeDirectory(value));
+        return Path.Combine(targetRoot, relativePath);
+    }
+
+    private static void MergeDirectoryContents(string sourceDirectory, string destinationDirectory)
+    {
+        Directory.CreateDirectory(destinationDirectory);
+
+        foreach (var sourcePath in Directory.EnumerateFiles(sourceDirectory))
+        {
+            var destinationPath = Path.Combine(destinationDirectory, Path.GetFileName(sourcePath));
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            File.Copy(sourcePath, destinationPath, overwrite: true);
+            TryDeleteFile(sourcePath);
+        }
+
+        foreach (var sourceChildDirectory in Directory.EnumerateDirectories(sourceDirectory))
+        {
+            var destinationChildDirectory = Path.Combine(destinationDirectory, Path.GetFileName(sourceChildDirectory));
+            MergeDirectoryContents(sourceChildDirectory, destinationChildDirectory);
+            TryDeleteDirectoryIfEmpty(sourceChildDirectory);
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void TryDeleteDirectoryIfEmpty(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path) && !Directory.EnumerateFileSystemEntries(path).Any())
+                Directory.Delete(path);
+        }
+        catch
+        {
+        }
+    }
+
+    private static string NormalizeDirectory(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return string.Empty;
+
+        return Path.GetFullPath(path.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private static bool IsSamePath(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
+
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return string.Equals(NormalizeDirectory(left), NormalizeDirectory(right), comparison);
+    }
+
+    private static bool IsPathUnder(string path, string possibleParent)
+    {
+        var normalizedPath = NormalizeDirectory(path) + Path.DirectorySeparatorChar;
+        var normalizedParent = NormalizeDirectory(possibleParent) + Path.DirectorySeparatorChar;
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return normalizedPath.StartsWith(normalizedParent, comparison);
+    }
+}
+
+internal readonly record struct BootstrapDataDirectoryMigrationResult(
+    string LegacyPath,
+    string TargetPath,
+    bool Migrated,
+    string ErrorMessage)
+{
+    public static BootstrapDataDirectoryMigrationResult Empty { get; } = new(string.Empty, string.Empty, false, string.Empty);
+}
+
 internal sealed class BootstrapOptions
 {
     public const string SupervisorName = "Quasar";
@@ -810,6 +1027,23 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Starting Quasar...");
+        var migration = BootstrapDataDirectoryMigration.LastResult;
+        if (migration.Migrated)
+        {
+            _logger.LogInformation(
+                "Migrated legacy Quasar data directory from {LegacyPath} to {TargetPath}.",
+                migration.LegacyPath,
+                migration.TargetPath);
+        }
+        else if (!string.IsNullOrWhiteSpace(migration.ErrorMessage))
+        {
+            _logger.LogWarning(
+                "Failed migrating legacy Quasar data directory from {LegacyPath} to {TargetPath}: {Message}",
+                migration.LegacyPath,
+                migration.TargetPath,
+                migration.ErrorMessage);
+        }
+
         Directory.CreateDirectory(MagnetarPaths.GetWebServiceDirectory());
         Directory.CreateDirectory(MagnetarPaths.GetQuasarUpdatesDirectory());
         await EnsureInitialWebReleaseAvailableAsync(cancellationToken).ConfigureAwait(false);
@@ -1598,6 +1832,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         startInfo.Environment["QUASAR_LAUNCHER_TOKEN"] = _launcherToken;
         startInfo.Environment["QUASAR_BOOTSTRAP_VERSION"] = _options.Version;
         startInfo.Environment["QUASAR_INSTALL_DIR"] = AppContext.BaseDirectory;
+        startInfo.Environment["QUASAR_DATA_DIR"] = MagnetarPaths.GetQuasarDirectory();
         startInfo.Environment["QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN"] = _options.PreserveServersOnShutdown ? "true" : "false";
         if (_foregroundOptions.IsForeground)
             startInfo.Environment["QUASAR_CONSOLE_LOGGING"] = "true";

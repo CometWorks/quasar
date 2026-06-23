@@ -12,7 +12,7 @@ Small MudBlazor dialog for entering or updating the Steam Web API key used serve
   - `string CurrentWebApiKey` — pre-populates the field when editing an existing key.
 - **Key UI**
   - Explanatory `MudText` plus an outlined info alert with a prominent bold `MudLink` to `https://steamcommunity.com/dev/apikey`.
-  - Platform-specific storage text: Windows uses `%APPDATA%\Quasar`/profile ACLs; Linux/macOS uses `~/.config/Quasar` and owner-only credentials-file permissions when supported; all platforms mention the `QUASAR_DATA_DIR` override and Data Protection keyring dependency.
+  - Platform-specific storage text: Windows/Linux/macOS report the Quasar install directory as the default storage root, all platforms mention the `QUASAR_DATA_DIR` override and Data Protection keyring dependency, and Linux/macOS mention owner-only credentials-file permissions when supported.
   - `MudTextField` with `InputType.Password` and a key adornment icon.
   - Cancel / Save buttons; Save is disabled while the field is blank.
 - **`Save`** — trims the key, returns `DialogResult.Ok(key)`.

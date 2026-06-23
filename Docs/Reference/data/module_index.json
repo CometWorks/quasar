@@ -152,7 +152,7 @@
       "name": "MagnetarPaths.cs",
       "kind": "class (static)",
       "tier": 1,
-      "summary": "Central, shared resolver for every on-disk path Quasar and its helpers use. All locations hang off a single Quasar data root (`~/.config/Quasar` on Linux/macOS, `%APPDATA%\\Quasar` on Windows), overridable via the `QUASAR_DATA_DIR` environment variable. Used by the supervisor, bootstrap launcher, and other components so they agree on file layout."
+      "summary": "Central, shared resolver for every on-disk path Quasar and its helpers use. All locations hang off a single Quasar data root, overridable via the `QUASAR_DATA_DIR` environment variable. The library fallback is the OS application-data root (`~/.config/Quasar` on Linux/macOS, `%APPDATA%\\Quasar` on Windows), but installed Bootstrap sets `QUASAR_DATA_DIR` to the launcher install root after migrating that legacy default, so the supervisor and launcher agree on the install-root layout."
     },
     {
       "path": "Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs",
@@ -310,7 +310,7 @@
       "name": "Program.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Entry point and core logic for the Quasar launcher. It implements three CLI commands (`ensure-running`, `serve`, `activate-release`) and the supporting types `BootstrapOptions` (host/port + update + preserve-servers policy from `appsettings.json`) and `LauncherCoordinator` (an `IHostedService` that supervises the Quasar worker process, watches the active-release pointer and Bootstrap update request files, downloads an initial UI worker from the UI release stream when needed, hot-reloads activated UI releases, and self-upgrades the launcher from the primary Quasar release stream)."
+      "summary": "Entry point and core logic for the Quasar launcher. It implements three CLI commands (`ensure-running`, `serve`, `activate-release`), applies the install-root default data directory and legacy AppData migration before any path lookup, and includes the supporting types `BootstrapOptions` (host/port + update + preserve-servers policy from `appsettings.json`) and `LauncherCoordinator` (an `IHostedService` that supervises the Quasar worker process, watches the active-release pointer and Bootstrap update request files, downloads an initial UI worker from the UI release stream when needed, hot-reloads activated UI releases, and self-upgrades the launcher from the primary Quasar release stream)."
     },
     {
       "path": "Quasar.Bootstrap/Properties/launchSettings.json",

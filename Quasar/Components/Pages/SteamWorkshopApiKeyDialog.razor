@@ -75,10 +75,10 @@
     private static string GetPlatformStorageLocation()
     {
         if (OperatingSystem.IsWindows())
-            return "%APPDATA%\\Quasar, or QUASAR_DATA_DIR when that override is set";
+            return "the Quasar install directory, or QUASAR_DATA_DIR when that override is set";
 
         if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
-            return "~/.config/Quasar, or QUASAR_DATA_DIR when that override is set";
+            return "the Quasar install directory, or QUASAR_DATA_DIR when that override is set";
 
         return "the Quasar data directory, or QUASAR_DATA_DIR when that override is set";
     }

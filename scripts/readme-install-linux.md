@@ -22,14 +22,15 @@ port is configurable — see [Configuration](Docs/Configuration.md).
 Install the **.NET 10 runtime** before running `install.sh`.
 
 ```bash
-tar -xzf quasar-installer-linux.tar.gz -C /tmp
-/tmp/quasar-installer-linux/install.sh --start
+mkdir -p ~/.local/share/Quasar
+tar -xzf quasar-installer-linux.tar.gz -C ~/.local/share/Quasar --strip-components=1
+~/.local/share/Quasar/install.sh --start
 ```
 
-This installs Quasar to `~/.local/share/Quasar`, creates the user's
-`~/.config/Quasar` data directory, and starts the user `quasar.service`. Pass
-`--system` with `sudo` for a machine-wide service, or `--data-dir <dir>` to
-store Quasar state elsewhere. The web UI is then served at
+This installs Quasar in the extracted folder, keeps Quasar state in the same
+folder by default, and starts the user `quasar.service`. Pass `--system` with
+`sudo` for a machine-wide service, `--install-dir <dir>` to copy it elsewhere,
+or `--data-dir <dir>` to store Quasar state elsewhere. The web UI is then served at
 `http://localhost:8080`. In the installed user service, the UI **Shutdown
 Quasar** action requests `systemctl --user stop quasar.service`. Manage the
 service with:
@@ -44,7 +45,7 @@ systemctl --user restart quasar.service
 
 ```bash
 ~/.local/share/Quasar/uninstall.sh          # stop and remove the user service
-~/.local/share/Quasar/uninstall.sh --purge  # also delete ~/.local/share/Quasar
+~/.local/share/Quasar/uninstall.sh --purge  # also delete the install folder
 ```
 
 The uninstall script stops `quasar.service` before removing it.
