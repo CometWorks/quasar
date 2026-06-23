@@ -123,7 +123,7 @@ export function drawLcdBitmapText(ctx, font, text, color, renderScale, x, y, wid
                     glyph.height * renderScale);
             }
 
-            atX += (glyph.advanceWidth - glyph.leftSideBearing) * renderScale;
+            atX += glyph.advanceWidth * renderScale;
             if (i < chars.length - 1) atX += font.spacing * renderScale;
         }
     }
