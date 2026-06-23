@@ -674,8 +674,8 @@
       "path": "Quasar/Components/Pages/Configs.razor",
       "name": "Configs.razor",
       "ext": ".razor",
-      "size": 127286,
-      "sha256": "b3cac12e7199df4789422b204be50dd02ac3b40a36eab4e9d9dcef4d611d00ee",
+      "size": 128650,
+      "sha256": "f302a98a0a7fdcfb576bb14845567a53b1f8a9f39076c69eaa3cf0a61d99211e",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -724,8 +724,8 @@
       "path": "Quasar/Components/Pages/Entities.razor",
       "name": "Entities.razor",
       "ext": ".razor",
-      "size": 12843,
-      "sha256": "d21dce911dc713522ff51557c566781f411830d1bb1ba68e11c416e499b4a455",
+      "size": 21325,
+      "sha256": "78517f00784cadb6773673410480e973202357d01d4e2e348aea4c32f0e4a08b",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -1834,8 +1834,8 @@
       "path": "Quasar/Services/QuasarConfigProfileCatalog.cs",
       "name": "QuasarConfigProfileCatalog.cs",
       "ext": ".cs",
-      "size": 15956,
-      "sha256": "d550eaf06107ec2bc87ecdecde126b0de5900d32238322b31469a13a577b1245",
+      "size": 16846,
+      "sha256": "1c5a61f5bb0532e68c95e06bfc8f6b665b7ca033b72f073283d8e2c0b3028503",
       "module": "Quasar.Services.Core",
       "tier": 1,
       "status": "pending"
@@ -2094,8 +2094,8 @@
       "path": "Quasar/wwwroot/app.css",
       "name": "app.css",
       "ext": ".css",
-      "size": 22703,
-      "sha256": "52ae73f6181895673afcc1767bcc1af9b43743324af858dae6001bda599a69e4",
+      "size": 23859,
+      "sha256": "4581fe4d0fa46a97dd6e48a979e08ec2ffd1b560b691000408196fbf2071e929",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"

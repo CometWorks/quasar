@@ -37,6 +37,14 @@
                     Create Profile
                 </MudButton>
 
+                <MudButton
+                    Variant="Variant.Outlined"
+                    Color="Color.Secondary"
+                    StartIcon="@Icons.Material.Filled.Restore"
+                    OnClick="RestoreDefaultProfilesAsync">
+                    Restore Default Profiles
+                </MudButton>
+
                 <MudDivider />
 
                 @if (Templates.Count == 0)
@@ -1061,6 +1069,31 @@
         await ConfigProfiles.UpsertAsync(template);
         SelectProfile(template.ConfigProfileId);
         Snackbar.Add("Config profile cloned.", Severity.Success);
+    }
+
+    private async Task RestoreDefaultProfilesAsync()
+    {
+        if (!await ConfirmPendingChangesBeforeSwitchAsync())
+            return;
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Restore default profiles?",
+            "Survival (default) and Creative (default) will be recreated or reset to Quasar defaults. Custom profiles will not be changed.",
+            yesText: "Restore Defaults",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        var selectedProfileId = FirstExistingProfileId(_selectedProfileId) ?? "survival-default";
+        _selectedProfileId = selectedProfileId;
+        await ConfigProfiles.RestoreDefaultProfilesAsync();
+
+        SelectProfile(FirstExistingProfileId(selectedProfileId)
+                      ?? FirstExistingProfileId("survival-default")
+                      ?? Templates.FirstOrDefault()?.ConfigProfileId
+                      ?? string.Empty);
+        Snackbar.Add("Default config profiles restored.", Severity.Success);
     }
 
     private async Task ClearCurrentProfileModsAsync()

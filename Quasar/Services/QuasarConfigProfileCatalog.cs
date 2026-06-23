@@ -115,6 +115,33 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
         Changed?.Invoke();
     }
 
+    public async Task RestoreDefaultProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        var defaults = CreateDefaultProfiles(saveToDisk: false);
+
+        foreach (var profile in defaults)
+            await SaveProfileAsync(profile, cancellationToken);
+
+        lock (_sync)
+        {
+            foreach (var profile in defaults)
+            {
+                var normalized = Normalize(Clone(profile));
+                var index = _profiles.FindIndex(existing =>
+                    string.Equals(existing.ConfigProfileId, normalized.ConfigProfileId, StringComparison.OrdinalIgnoreCase));
+
+                if (index >= 0)
+                    _profiles[index] = Clone(normalized);
+                else
+                    _profiles.Add(Clone(normalized));
+            }
+
+            _snapshot = CreateSnapshot(_profiles);
+        }
+
+        Changed?.Invoke();
+    }
+
     private List<QuasarConfigProfile> LoadProfiles()
     {
         try
