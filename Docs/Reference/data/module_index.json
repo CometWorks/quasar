@@ -480,7 +480,7 @@
       "name": "Configs.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "The `/configs` page: a full editor for reusable Magnetar config templates (`QuasarConfigProfile`) that are applied to assigned dedicated servers at startup. A sidebar lists/creates/clones/deletes templates; the main column edits World settings, Plugins, Mods, and Developer dev-folders across tabbed and collapsible panels, generating only the active tab and opened panel bodies. QoL features include searchable/jump-to world options, a refreshable plugin catalog, Steam Workshop search, world-template mod merge, dead Workshop mod cleanup, unsaved-change guarding, and integration with the plugin-manifest picker dialog for registering local dev folders. (This page has no charts; the analytics charting work lives in `Analytics.razor`.)"
+      "summary": "The `/configs` page: a full editor for reusable Magnetar config templates (`QuasarConfigProfile`) that are applied to assigned dedicated servers at startup. A sidebar lists/creates/restores/clones/deletes templates; the main column edits World settings, Plugins, Mods, and Developer dev-folders across tabbed and collapsible panels, generating only the active tab and opened panel bodies. QoL features include searchable/jump-to world options, a refreshable plugin catalog, Steam Workshop search, world-template mod merge, all-mod clearing, crossplay-safe profile cloning, default-profile restoration, dead Workshop mod cleanup, unsaved-change guarding, and integration with the plugin-manifest picker dialog for registering local dev folders. (This page has no charts; the analytics charting work lives in `Analytics.razor`.)"
     },
     {
       "path": "Quasar/Components/Pages/Configs.razor.css",
@@ -515,7 +515,7 @@
       "name": "Entities.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page (`/entities`) providing a live entity browser for connected Space Engineers server agents. The user selects a connected agent and entity type filter, presses Refresh to fetch up to 500 entities, then can search across the result set and delete individual entities with confirmation. Requires a live Quasar.Agent connection; shows an informational alert otherwise."
+      "summary": "Routable page (`/entities`) providing a live entity browser for connected Space Engineers server agents. The user selects a connected agent and entity type filter, presses Refresh to fetch up to 500 entities, then can search across the result set and delete individual entities or a multi-selected batch with confirmation. Entity rows support normal click selection, Ctrl/Meta toggle selection, and Shift range selection. Requires a live Quasar.Agent connection; shows an informational alert otherwise."
     },
     {
       "path": "Quasar/Components/Pages/Error.razor",
@@ -1095,7 +1095,7 @@
       "name": "QuasarConfigProfileCatalog.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Manages the persistent catalog of named Quasar configuration profiles (reusable bundles of root/session settings, plugin selections, and mod lists). Profiles are stored as individual `profile.json` files under `<QuasarDir>/ConfigProfiles/<id>/`. The catalog watches the directory for external edits, debounces reload events, keeps versioned history on every save, and fires a `Changed` event when the in-memory state diverges from disk."
+      "summary": "Manages the persistent catalog of named Quasar configuration profiles (reusable bundles of root/session settings, plugin selections, and mod lists). Profiles are stored as individual `profile.json` files under `<QuasarDir>/ConfigProfiles/<id>/`. The catalog watches the directory for external edits, debounces reload events, keeps versioned history on every save, can recreate/reset Quasar's built-in starter profiles, and fires a `Changed` event when the in-memory state diverges from disk."
     },
     {
       "path": "Quasar/Services/QuasarDevFolderCatalog.cs",

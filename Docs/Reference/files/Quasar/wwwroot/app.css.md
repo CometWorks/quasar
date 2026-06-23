@@ -30,13 +30,14 @@ Global stylesheet for the Quasar Blazor Server UI. Overrides MudBlazor's elevati
 **MudBlazor overrides:**
 - `.mud-expansion-panels > .mud-expand-panel` — flat bordered panels with `0.5rem` gap, hover/focus header highlight, expanded-header bottom border
 - `.mud-checkbox` — rounded hit area with hover/focus background highlight
-- `.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover` — paints hovered table rows with Quasar's `--quasar-hover-list-background` / `--quasar-hover-list-text` variables (falling back to active theme secondary colours), forces row descendants and button roots to the hover text colour, switches standalone SVG icons and outlined borders to the same contrast colour, keeps success/warning/error buttons and chips on semantic mixed hover colours, lets button-owned icons inherit from MudBlazor's button root colour, and skips expanded server detail rows
+- `.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected)` — paints hovered rows and rows explicitly marked selected with Quasar's `--quasar-hover-list-background` / `--quasar-hover-list-text` variables (falling back to active theme secondary colours), forces row descendants and button roots to the hover text colour, switches standalone SVG icons and outlined borders to the same contrast colour, keeps success/warning/error buttons and chips on semantic mixed hover colours, lets button-owned icons inherit from MudBlazor's button root colour, and skips expanded server detail rows
 - `.mud-main-content`, `.mud-drawer` / `.magnetar-drawer` — background and right-border styling
 
 **Utility / feature classes:**
 - `.mono` — JetBrains Mono / Cascadia Code monospace font; `.mud-typography-caption.mono` renders monospace ID captions at 50% opacity (`opacity: 0.5`)
 - `.quasar-visually-hidden` — accessible visually-hidden text helper used by unlabeled table action headers
 - `.quasar-actions-column` — shared MudTable action-column rule that shrinks the column to action width, right-aligns its contents, and lets data columns consume the remaining table width
+- `.entity-row-selectable` / `.quasar-row-selected` — selectable table-row affordance and selected-row marker used by the entity browser; selected rows reuse the same contrast-safe colour shift as hovered MudTable rows
 - `.copyable-path`, `.copyable-path-inline`, `.copyable-path-text`, `.copyable-path-button` — shared layout and monospace wrapping for `CopyablePath` path labels and clipboard icon buttons
 - `.appearance-color-field` — colour-backed wrapper behind each Appearance page `MudColorPicker`, using sanitized background/foreground CSS custom properties over a checkerboard layer so opaque and alpha colours are previewable while picker text/icons switch to readable dark or light contrast
 - `.chat-list` / `.chat-row` — scrollable chat log column with row separators
