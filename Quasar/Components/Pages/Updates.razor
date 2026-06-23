@@ -137,11 +137,15 @@
                             <MudButton Variant="Variant.Filled"
                                        Color="Color.Warning"
                                        StartIcon="@Icons.Material.Filled.RestartAlt"
-                                       Disabled="_busy || _snapshot.Web is null || !_snapshot.Web.IsStaged || _snapshot.Web.IsCurrent"
+                                       Disabled="@(!CanActivateWebUpdate)"
                                        OnClick="ActivateAsync">
                                 Activate
                             </MudButton>
                         </MudStack>
+                        @if (_snapshot.Web is { IsStaged: true, IsCurrent: false } && !IsUnderBootstrap)
+                        {
+                            <MudText Typo="Typo.caption">Quasar is not running under Bootstrap, so this update cannot be activated from the UI.</MudText>
+                        }
                     }
                 </MudStack>
             </MudPaper>
@@ -387,10 +391,35 @@
 
     private async Task ActivateAsync()
     {
-        await RunBusyAsync(
-            () => UpdateService.ActivateStagedWebUpdateAsync(),
-            "Quasar UI update activation requested. The page will reconnect shortly.",
-            "Failed activating update");
+        if (!CanActivateWebUpdate)
+        {
+            if (!IsUnderBootstrap)
+                Snackbar.Add("Quasar is not running under Bootstrap, so this update cannot be activated from the UI.", Severity.Warning);
+
+            return;
+        }
+
+        var targetVersion = _snapshot.Web?.Version ?? string.Empty;
+        _busy = true;
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/settings/updates", new
+            {
+                expectedVersion = targetVersion,
+                initialDelayMs = 500,
+            });
+            await UpdateService.ActivateStagedWebUpdateAsync();
+            _snapshot = UpdateService.GetSnapshot();
+            Snackbar.Add("Quasar UI update activation requested. The page will reconnect shortly.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed activating update: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task ForceActivateBootstrapAsync()
@@ -412,7 +441,10 @@
         _bootstrapActivationRequested = true;
         try
         {
-            await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/settings/updates");
+            await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/settings/updates", new
+            {
+                requireUnhealthy = true,
+            });
             await UpdateService.RequestBootstrapUpdateActivationAsync();
             _snapshot = UpdateService.GetSnapshot();
             Snackbar.Add("Bootstrap update activation requested. Quasar will restart shortly.", Severity.Success);
@@ -641,6 +673,11 @@
         !_bootstrapActivationRequested &&
         IsUnderBootstrap &&
         _snapshot.Bootstrap is { IsNewer: true };
+
+    private bool CanActivateWebUpdate =>
+        !_busy &&
+        IsUnderBootstrap &&
+        _snapshot.Web is { IsStaged: true, IsCurrent: false };
 
     private static string FormatWebReleaseOption(QuasarUpdateCandidate release)
     {

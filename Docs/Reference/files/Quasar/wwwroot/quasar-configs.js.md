@@ -20,7 +20,7 @@ Small JavaScript interop module registered as `window.quasarConfigs`. Provides u
 | `getScrollEdgeState(id, threshold)` | `(string, number?) → object` | Returns `{ nearTop, nearBottom }` booleans for scroll containers; retained for simple edge checks |
 | `attachRolloverLog(id, dotNetRef, options)` | `(string, DotNetObjectReference, object) → void` | Attaches browser-side scroll, click, and `Ctrl`/`Alt` + `PageUp`/`PageDown`/`Home`/`End` listeners for the server-log viewer; calls .NET only when a 250-line window move or start/end jump is needed |
 | `detachRolloverLog(id)` | `(string) → void` | Removes listeners installed by `attachRolloverLog` |
-| `reloadWhenHealthy(targetUrl, options)` | `(string, object?) → void` | Used during a Quasar worker restart (the Blazor circuit drops): after an initial delay, polls the anonymous `/api/health` endpoint at `pollIntervalMs` (default 1 s) and navigates to `targetUrl` once it responds `ok`; falls back to a plain reload after `maxWaitMs` (default 120 s) |
+| `reloadWhenHealthy(targetUrl, options)` | `(string, object?) → void` | Used during a Quasar worker restart (the Blazor circuit drops): after an initial delay, polls the anonymous `/api/health` endpoint at `pollIntervalMs` (default 1 s) and navigates to `targetUrl` once it responds `ok`, optionally waiting for `expectedVersion` or for an unhealthy gap via `requireUnhealthy`; falls back to a plain reload after `maxWaitMs` (default 120 s) |
 
 ## Dependencies
 - Called by Blazor components via `IJSRuntime` (specific callers not determinable from this file alone)

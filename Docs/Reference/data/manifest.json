@@ -434,8 +434,8 @@
       "path": "Quasar.Bootstrap/Program.cs",
       "name": "Program.cs",
       "ext": ".cs",
-      "size": 95399,
-      "sha256": "e6606b7369b3f9f4ab529ddd1774620981d407fffecd09ec70679e133e4a5db7",
+      "size": 96453,
+      "sha256": "5330cde918b0c67442fe79125f0dcc95eff7337c4afbf1dee9513aaffa06b2dd",
       "module": "Quasar.Bootstrap",
       "tier": 1,
       "status": "pending"
@@ -934,8 +934,8 @@
       "path": "Quasar/Components/Pages/Updates.razor",
       "name": "Updates.razor",
       "ext": ".razor",
-      "size": 27689,
-      "sha256": "0769fe53ceff39972594110e53a22ca0f1bf4c090ede2cdb4301a99a5b5d30b2",
+      "size": 28978,
+      "sha256": "a13e47bceb35ff341d772b65a555595b7e6bce56c100a87b15823e36c64f448f",
       "module": "Quasar.Components",
       "tier": 2,
       "status": "pending"
@@ -1964,8 +1964,8 @@
       "path": "Quasar/Services/Updates/QuasarUpdateService.cs",
       "name": "QuasarUpdateService.cs",
       "ext": ".cs",
-      "size": 47252,
-      "sha256": "895348b11a244ed83a70f0158a875db25323723abfc7e0da86056b62ed5c544c",
+      "size": 47464,
+      "sha256": "473266643d585fd75ad67294a9a727f3aba348393ce15cbc3f0e7f54f837d2eb",
       "module": "Quasar.Services.Core",
       "tier": 2,
       "status": "pending"
@@ -2134,8 +2134,8 @@
       "path": "Quasar/wwwroot/quasar-configs.js",
       "name": "quasar-configs.js",
       "ext": ".js",
-      "size": 9808,
-      "sha256": "b0a29210fe1f8988e65a765d631069f2eb6b5e980cc99f8559ff3c82f73ffeac",
+      "size": 10978,
+      "sha256": "7f1eca665c40ce0655fbff3bac49d88f64fd73ae5cbe8fca7c67b24f00a6b0bc",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"

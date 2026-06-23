@@ -92,10 +92,12 @@ default and lists selectable `quasar-web-win-x64.zip` releases on
 `AutoStageWebUpdates` enabled, a newer web asset is downloaded and staged
 automatically after its `SHA256SUMS` entry is verified; with it disabled, releases
 remain queued until the operator stages the selected version. Activation is
-explicit; the UI copies the staged payload into
-`<install-root>\ManagedRuntime\WebService\<version>`, clears stale staged
-payloads, and Bootstrap drains the old worker, starts the managed `Quasar.exe` on
-the same port, and leaves managed Magnetar servers running.
+explicit and requires the worker to be running under Bootstrap; the UI copies the
+staged payload into `<install-root>\ManagedRuntime\WebService\<version>`, clears
+stale staged payloads, and Bootstrap drains the old worker, starts the managed
+`Quasar.exe` on the same port, and leaves managed Magnetar servers running. The
+browser polls `/api/health` until the activated UI version is serving, then
+reloads the Updates page.
 
 Staging also resolves `appsettings.json`. Quasar uses the stored release base in
 the data directory (`<install-root>\Updates\appsettings.base.json` by default) as the

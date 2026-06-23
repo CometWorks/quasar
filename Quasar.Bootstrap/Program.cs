@@ -658,8 +658,10 @@ internal static class BootstrapDataDirectoryMigration
 
             var fileName = RewriteMigratedPath(pointer.FileName, legacyRoot, targetRoot);
             var workingDirectory = RewriteMigratedPath(pointer.WorkingDirectory, legacyRoot, targetRoot);
+            var arguments = RewriteMigratedArguments(pointer.Arguments, legacyRoot, targetRoot);
             if (string.Equals(fileName, pointer.FileName, StringComparison.Ordinal) &&
-                string.Equals(workingDirectory, pointer.WorkingDirectory, StringComparison.Ordinal))
+                string.Equals(workingDirectory, pointer.WorkingDirectory, StringComparison.Ordinal) &&
+                string.Equals(arguments, pointer.Arguments, StringComparison.Ordinal))
             {
                 return;
             }
@@ -668,7 +670,7 @@ internal static class BootstrapDataDirectoryMigration
             {
                 Version = pointer.Version,
                 FileName = fileName,
-                Arguments = pointer.Arguments,
+                Arguments = arguments,
                 WorkingDirectory = workingDirectory,
                 ActivatedAtUtc = pointer.ActivatedAtUtc,
             };
@@ -692,6 +694,27 @@ internal static class BootstrapDataDirectoryMigration
 
         var relativePath = Path.GetRelativePath(NormalizeDirectory(legacyRoot), NormalizeDirectory(value));
         return Path.Combine(targetRoot, relativePath);
+    }
+
+    private static string RewriteMigratedArguments(string value, string legacyRoot, string targetRoot)
+    {
+        if (string.IsNullOrWhiteSpace(value) || string.IsNullOrWhiteSpace(legacyRoot))
+            return value;
+
+        var normalizedLegacyRoot = NormalizeDirectory(legacyRoot);
+        var normalizedTargetRoot = NormalizeDirectory(targetRoot);
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var rewritten = value.Replace(normalizedLegacyRoot, normalizedTargetRoot, comparison);
+
+        if (OperatingSystem.IsWindows())
+        {
+            rewritten = rewritten.Replace(
+                normalizedLegacyRoot.Replace('\\', '/'),
+                normalizedTargetRoot.Replace('\\', '/'),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        return rewritten;
     }
 
     private static void MergeDirectoryContents(string sourceDirectory, string destinationDirectory)
