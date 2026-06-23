@@ -39,6 +39,18 @@ Magnetar sends only the enabled plugin IDs plus a random local instance ID when
 consent is granted. It does not send a Steam ID, account, world, or server
 content.
 
+## Implicit Magnetar mod
+
+Each server definition defaults **Disable implicit Magnetar mod load** to off.
+With the default setting, Quasar omits Magnetar's `-noimplicitmod` launch flag
+so Magnetar loads `MagnetarMod` normally.
+
+Turn this on only from the server editor's **Runtime** section. The UI asks for
+confirmation because enabling it passes `-noimplicitmod` on the next server
+start, which disables `MagnetarMod` and breaks the mission screen popup used by
+server-side plugins. Magnetar already does this automatically when cross-play is
+enabled. Turning it back off removes the flag from future starts.
+
 ## Where configuration is read from
 
 Both the **Bootstrap launcher** (`Quasar`/`Quasar.exe`) and the replaceable **web

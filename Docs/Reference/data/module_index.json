@@ -634,7 +634,7 @@
       "name": "ServerEditorDialog.razor.css",
       "kind": "CSS",
       "tier": 3,
-      "summary": "Scoped stylesheet for `ServerEditorDialog.razor`. Constrains the dialog's scrollable content area and styles the template-select input slots with subtle background tints and focus highlights. Previously named `ServerEditorDialog.razor.css`."
+      "summary": "Scoped stylesheet for `ServerEditorDialog.razor`. Constrains the dialog's scrollable content area, styles the template-select input slots with subtle background tints and focus highlights, and restores the controlled read-only implicit-Magnetar-mod checkbox's icon color without recoloring its label. Previously named `ServerEditorDialog.razor.css`."
     },
     {
       "path": "Quasar/Components/Pages/Servers.razor",

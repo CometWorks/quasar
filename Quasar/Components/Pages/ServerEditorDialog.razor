@@ -330,6 +330,22 @@
                                         Writes Magnetar launch command, working directory, and environment variables to Quasar logs on next start. May expose secrets.
                                     </MudText>
                                 </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <div class="server-editor-controlled-checkbox" style="@DisableImplicitMagnetarModLoadColorStyle">
+                                        <MudTooltip Text="@DisableImplicitMagnetarModLoadWarning">
+                                            <MudCheckBox T="bool"
+                                                         Value="_editor.DisableImplicitMagnetarModLoad"
+                                                         ReadOnly="true"
+                                                         StopClickPropagation="true"
+                                                         @onclick="ToggleDisableImplicitMagnetarModLoadAsync"
+                                                         Label="Disable implicit Magnetar mod load"
+                                                         Color="@DisableImplicitMagnetarModLoadColor" />
+                                        </MudTooltip>
+                                    </div>
+                                    <MudText Typo="Typo.caption" Color="Color.Warning">
+                                        @DisableImplicitMagnetarModLoadHint
+                                    </MudText>
+                                </MudItem>
                                 <MudItem xs="12">
                                     <MudTextField
                                         @bind-Value="_editor.LaunchArguments"
@@ -338,7 +354,7 @@
                                         Lines="3"
                                         Sizing="InputSizing.Auto"
                                         MaxLines="10000"
-                                        HelperText="Tokens: {uniqueName} {configPath} {quasarBaseUrl} {hostId} {dsAppDataPath} {magnetarAppDataPath} {ds64Path} {worldPath}. Quasar enforces -noconsole, -path, -config, and -ds64 for managed servers." />
+                                        HelperText="Tokens: {uniqueName} {configPath} {quasarBaseUrl} {hostId} {dsAppDataPath} {magnetarAppDataPath} {ds64Path} {worldPath}. Quasar owns -noconsole, -daemon, -noimplicitmod, -path, -config, and -ds64 for managed servers." />
                                 </MudItem>
                             </MudGrid>
                         </ChildContent>
@@ -475,6 +491,11 @@
     [Parameter]
     public bool UniqueNameLocked { get; set; }
 
+    private const string DisableImplicitMagnetarModLoadWarning = "Turning this on passes -noimplicitmod at startup, disables MagnetarMod, and breaks the mission screen popup used by server-side plugins. This is already done automatically by Magnetar when cross-play is enabled.";
+    private const string DisableImplicitMagnetarModLoadHint = "This mod load disabling is already done automatically by Magnetar when cross-play is enabled.";
+    private const Color DisableImplicitMagnetarModLoadColor = Color.Warning;
+    private static string DisableImplicitMagnetarModLoadColorStyle => BuildControlledCheckboxColorStyle(DisableImplicitMagnetarModLoadColor);
+
     private static readonly System.Text.RegularExpressions.Regex UniqueNameRegex = new("^[a-zA-Z0-9_-]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private DedicatedServerDefinition _editor = new();
@@ -484,6 +505,7 @@
     private bool _healthPolicyExpanded;
     private bool _runtimeExpanded;
     private bool _pathsExpanded;
+    private bool _disableImplicitMagnetarModLoadDialogOpen;
     private static readonly DedicatedServerProcessPriority[] ProcessPriorities =
     [
         DedicatedServerProcessPriority.Low,
@@ -495,15 +517,30 @@
 
     private static bool IsWindowsHost => OperatingSystem.IsWindows();
 
+    private static string BuildControlledCheckboxColorStyle(Color color)
+    {
+        var token = color switch
+        {
+            Color.Primary => "primary",
+            Color.Secondary => "secondary",
+            Color.Tertiary => "tertiary",
+            Color.Info => "info",
+            Color.Success => "success",
+            Color.Warning => "warning",
+            Color.Error => "error",
+            Color.Dark => "dark",
+            Color.Surface => "surface",
+            _ => "warning",
+        };
+
+        return $"--server-editor-controlled-checkbox-color: var(--mud-palette-{token});";
+    }
+
     protected override void OnInitialized()
     {
         _editor = Definition.Clone();
         _isEditing = IsEditing;
         _isClone = IsClone && !_isEditing;
-        _restartPolicyExpanded = _isEditing;
-        _healthPolicyExpanded = _isEditing;
-        _runtimeExpanded = _isEditing;
-        _pathsExpanded = _isEditing;
 
         // Only Windows offers the .NET Framework 4.8 (Legacy) build; everywhere else .NET 10
         // is the sole runtime, so pin the selection to keep the disabled selector coherent.
@@ -685,6 +722,37 @@
         catch (Exception exception)
         {
             Snackbar.Add($"Failed to reset world: {exception.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ToggleDisableImplicitMagnetarModLoadAsync()
+    {
+        if (_disableImplicitMagnetarModLoadDialogOpen)
+            return;
+
+        if (_editor.DisableImplicitMagnetarModLoad)
+        {
+            _editor.DisableImplicitMagnetarModLoad = false;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        _disableImplicitMagnetarModLoadDialogOpen = true;
+        try
+        {
+            var confirmed = await DialogService.ShowMessageBoxAsync(
+                "Disable implicit Magnetar mod load",
+                DisableImplicitMagnetarModLoadWarning,
+                yesText: "Disable",
+                cancelText: "Keep Loading");
+
+            if (confirmed == true)
+                _editor.DisableImplicitMagnetarModLoad = true;
+        }
+        finally
+        {
+            _disableImplicitMagnetarModLoadDialogOpen = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 

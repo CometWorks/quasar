@@ -47,6 +47,8 @@ public sealed class DedicatedServerDefinition
 
     public string LaunchArguments { get; set; } = string.Empty;
 
+    public bool DisableImplicitMagnetarModLoad { get; set; }
+
     public bool LogLaunchEnvironment { get; set; }
 
     public string AgentProfilerMode { get; set; } = "SafeContinuous";
@@ -123,6 +125,7 @@ public sealed class DedicatedServerDefinition
             ConfigProfileId = ConfigProfileId,
             WorldTemplateId = WorldTemplateId,
             LaunchArguments = LaunchArguments,
+            DisableImplicitMagnetarModLoad = DisableImplicitMagnetarModLoad,
             LogLaunchEnvironment = LogLaunchEnvironment,
             AgentProfilerMode = AgentProfilerMode,
             DsLogFilesToKeep = DsLogFilesToKeep,

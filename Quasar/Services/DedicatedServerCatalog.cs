@@ -347,6 +347,7 @@ public sealed class DedicatedServerCatalog : IDisposable
             ConfigProfileId = server.ConfigProfileId,
             WorldTemplateId = server.WorldTemplateId,
             LaunchArguments = server.LaunchArguments,
+            DisableImplicitMagnetarModLoad = server.DisableImplicitMagnetarModLoad,
             LogLaunchEnvironment = server.LogLaunchEnvironment,
             AgentProfilerMode = server.AgentProfilerMode,
             DsLogFilesToKeep = server.DsLogFilesToKeep,

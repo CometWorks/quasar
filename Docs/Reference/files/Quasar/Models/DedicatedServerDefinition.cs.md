@@ -30,6 +30,7 @@ Namespace: `Quasar.Models`
 | `ConfigProfileId` | Reference to a `QuasarConfigProfile` by ID. |
 | `WorldTemplateId` | Reference to a `QuasarWorldTemplate` by ID. |
 | `LaunchArguments` | Extra CLI arguments appended at launch. |
+| `DisableImplicitMagnetarModLoad` | Controls Magnetar's implicit mod loading. Default false omits `-noimplicitmod`; true makes Quasar pass `-noimplicitmod` so Magnetar does not load `MagnetarMod`. |
 | `LogLaunchEnvironment` | Per-server troubleshooting flag. When enabled from the server editor, the supervisor writes the final Magnetar executable path, arguments, working directory, and environment variables to Quasar logs on next start. Default false. |
 | `AgentProfilerMode` | Per-server profiler mode (`SafeContinuous`, `DeepContinuous`, or `Off`), default `SafeContinuous`; forwarded to the agent at launch and editable live from Analytics. |
 | `DsLogFilesToKeep` | Number of Quasar-managed DS log slots to retain, including the current `stdout.log` / `stderr.log` slot (default 10). |
@@ -56,7 +57,7 @@ Namespace: `Quasar.Models`
 | `ReadyProcessPriority` | OS process priority once the server is running. |
 | `CpuAffinity` | Canonical cpuset string (e.g. "0-7" or "0-7,16-23") pinning the server process to a fixed set of logical cores; empty = no affinity (all cores); when set must contain >=2 cores; applied locally by the supervisor each time the process starts (see `CpuAffinitySpec`). Default empty. |
 | `UpdatedAtUtc` | Timestamp of the last configuration save. |
-| `Clone()` | Shallow copy of all fields (including in-game names, `ManagedRuntime`, `AgentProfilerMode`, `CpuAffinity`, `LogLaunchEnvironment`, and `DsLogFilesToKeep`, used before mutations). |
+| `Clone()` | Shallow copy of all fields (including in-game names, `ManagedRuntime`, `AgentProfilerMode`, `CpuAffinity`, `DisableImplicitMagnetarModLoad`, `LogLaunchEnvironment`, and `DsLogFilesToKeep`, used before mutations). |
 
 ## Dependencies
 - [`Quasar/Models/DedicatedServerGoalState.cs`](DedicatedServerGoalState.cs.md)

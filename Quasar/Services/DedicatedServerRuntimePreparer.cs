@@ -18,6 +18,7 @@ public sealed class DedicatedServerRuntimePreparer
     private static readonly Regex Ds64OptionPattern = new(@"(?<!\S)-ds64(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex NoSplashPattern = new(@"(?<!\S)-nosplash(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex DaemonPattern = new(@"(?<!\S)-daemon(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex NoImplicitModPattern = new(@"(?<!\S)-noimplicitmod(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex ConsentOptionPattern = new(@"(?<!\S)-(?:no)?consent(?!\S)|(?<!\S)-withdraw-consent(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly XNamespace XsiNamespace = "http://www.w3.org/2001/XMLSchema-instance";
     private static readonly XNamespace XsdNamespace = "http://www.w3.org/2001/XMLSchema";
@@ -690,18 +691,22 @@ public sealed class DedicatedServerRuntimePreparer
             throw new InvalidOperationException("Launch arguments cannot include -ignorelastsession for Quasar-managed servers.");
 
         var sanitizedArguments = StripManagedArguments(baseArguments);
-        var additions = new[]
+        var additions = new List<string>
         {
             "-noconsole",
             // Detach Magnetar from Quasar's session (Linux setsid / Windows FreeConsole),
             // in place so the PID and stdout/stderr pipes stay valid. This keeps managed
             // servers alive when Quasar stops and shields them from terminal-driven signals.
             "-daemon",
-            $"-path {QuoteArgument(dedicatedServerAppDataPath)}",
-            $"-config {QuoteArgument(magnetarAppDataPath)}",
-            $"-ds64 {QuoteArgument(dedicatedServer64Path)}",
-            dataHandlingConsent == true ? "-consent" : "-noconsent",
         };
+
+        if (definition.DisableImplicitMagnetarModLoad)
+            additions.Add("-noimplicitmod");
+
+        additions.Add($"-path {QuoteArgument(dedicatedServerAppDataPath)}");
+        additions.Add($"-config {QuoteArgument(magnetarAppDataPath)}");
+        additions.Add($"-ds64 {QuoteArgument(dedicatedServer64Path)}");
+        additions.Add(dataHandlingConsent == true ? "-consent" : "-noconsent");
 
         if (string.IsNullOrWhiteSpace(sanitizedArguments))
             return string.Join(" ", additions);
@@ -743,6 +748,7 @@ public sealed class DedicatedServerRuntimePreparer
         sanitized = Ds64OptionPattern.Replace(sanitized, string.Empty);
         sanitized = NoSplashPattern.Replace(sanitized, string.Empty);
         sanitized = DaemonPattern.Replace(sanitized, string.Empty);
+        sanitized = NoImplicitModPattern.Replace(sanitized, string.Empty);
         sanitized = ConsentOptionPattern.Replace(sanitized, string.Empty);
         sanitized = Regex.Replace(sanitized, @"\s{2,}", " ");
         return sanitized.Trim();
