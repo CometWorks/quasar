@@ -662,6 +662,7 @@ function createLcdCanvasTexture(surface, textureToken, material) {
     const canvas = document.createElement("canvas");
     canvas.width = clamp(Math.round(Number(surface.textureWidth) || 512), 16, 2048);
     canvas.height = clamp(Math.round(Number(surface.textureHeight) || 512), 16, 2048);
+    const layoutCanvas = lcdLayoutCanvas(surface, canvas);
     const texture = new THREE.CanvasTexture(canvas);
     texture.name = `lcd:${surface.materialName || surface.name || "surface"}`;
     texture.flipY = false;
@@ -669,11 +670,22 @@ function createLcdCanvasTexture(surface, textureToken, material) {
     texture.wrapS = THREE.ClampToEdgeWrapping;
     texture.wrapT = THREE.ClampToEdgeWrapping;
 
-    const context = { canvas, ctx: canvas.getContext("2d"), texture, material, surface, images: new Map() };
+    const context = { canvas: layoutCanvas, outputCanvas: canvas, ctx: layoutCanvas.getContext("2d"), texture, material, surface, images: new Map() };
     renderLcdCanvas(context);
     loadLcdCanvasImages(context, textureToken);
     loadLcdCanvasFonts(context);
     return texture;
+}
+
+function lcdLayoutCanvas(surface, textureCanvas) {
+    const width = Number(surface.surfaceWidth) || textureCanvas.width;
+    const height = Number(surface.surfaceHeight) || textureCanvas.height;
+    if (Math.round(width) === textureCanvas.width && Math.round(height) === textureCanvas.height) return textureCanvas;
+
+    const layoutCanvas = document.createElement("canvas");
+    layoutCanvas.width = clamp(Math.round(width), 1, 4096);
+    layoutCanvas.height = clamp(Math.round(height), 1, 4096);
+    return layoutCanvas;
 }
 
 function loadLcdCanvasImages(context, textureToken) {
@@ -718,7 +730,7 @@ function lcdCanvasTexturePaths(surface) {
 }
 
 function renderLcdCanvas(context) {
-    const { canvas, ctx, surface } = context;
+    const { canvas, outputCanvas, ctx, surface } = context;
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = "source-over";
@@ -732,6 +744,14 @@ function renderLcdCanvas(context) {
     for (const sprite of sortedLcdSprites(surface.sprites || [])) drawLcdSprite(context, sprite);
     if (String(surface.text || "")) drawLcdText(context, surface.text, surface.font, surface.fontColor, surface.fontSize, surface.alignment, surface.textPadding, null, null, true);
     ctx.restore();
+    if (outputCanvas !== canvas) {
+        const outputContext = outputCanvas.getContext("2d");
+        outputContext.save();
+        outputContext.setTransform(1, 0, 0, 1, 0, 0);
+        outputContext.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
+        outputContext.drawImage(canvas, 0, 0, outputCanvas.width, outputCanvas.height);
+        outputContext.restore();
+    }
     context.texture.needsUpdate = true;
 }
 
@@ -795,7 +815,7 @@ function drawLcdText(context, text, font, color, scale, alignment = "LEFT", padd
             bitmapFont,
             text,
             color,
-            lcdBitmapTextScale(scale || 1, canvas, useSurfaceFontScale),
+            lcdBitmapTextScale(scale || 1, context.outputCanvas || canvas, useSurfaceFontScale),
             topLeft.x,
             topLeft.y,
             boxSize.x,
@@ -803,7 +823,8 @@ function drawLcdText(context, text, font, color, scale, alignment = "LEFT", padd
         return;
     }
 
-    const fontSize = Math.max(8, Math.min(180, (Number(scale) || 1) * Math.min(canvas.width, canvas.height) / 16));
+    const scaleCanvas = context.outputCanvas || canvas;
+    const fontSize = Math.max(8, Math.min(180, (Number(scale) || 1) * Math.min(scaleCanvas.width, scaleCanvas.height) / 16));
     ctx.save();
     ctx.font = `${fontSize}px ${lcdCanvasFont(font)}`;
     const lines = wrapLcdText(ctx, String(text || ""), boxSize.x, fontSize);
