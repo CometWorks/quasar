@@ -263,8 +263,23 @@ namespace Quasar.Agent
             AddGeneratedBlockModelParts(grid, block, dto, catalog, warnings);
             AddRuntimeSubparts(grid, block, dto, catalog, warnings);
             AddSkinTextureChanges(block, dto);
+            AddLcdMaterialsToHideWhenOffline(block, dto);
             AddLcdSurfaces(block, dto, catalog, warnings);
             return dto;
+        }
+
+        private static void AddLcdMaterialsToHideWhenOffline(MySlimBlock block, ViewerBlockInstance dto)
+        {
+            var textPanelDefinition = block.BlockDefinition as MyTextPanelDefinition;
+            if (textPanelDefinition?.MaterialNamesToHideWhenOffline == null)
+                return;
+
+            foreach (var materialName in textPanelDefinition.MaterialNamesToHideWhenOffline)
+            {
+                var name = materialName?.Trim();
+                if (!string.IsNullOrEmpty(name) && !dto.LcdMaterialsToHideWhenOffline.Contains(name, StringComparer.OrdinalIgnoreCase))
+                    dto.LcdMaterialsToHideWhenOffline.Add(name);
+            }
         }
 
         private static void AddLcdSurfaces(
@@ -278,6 +293,7 @@ namespace Quasar.Agent
                 return;
 
             var screenAreas = ScreenAreasForBlock(block.BlockDefinition);
+            var isWorking = (block.FatBlock as MyFunctionalBlock)?.IsWorking ?? true;
             for (var i = 0; i < surfaces.Count; i++)
             {
                 try
@@ -286,7 +302,7 @@ namespace Quasar.Agent
                     if (surface == null)
                         continue;
 
-                    var surfaceDto = ToLcdSurface(i, surface, screenAreas, catalog);
+                    var surfaceDto = ToLcdSurface(i, surface, screenAreas, catalog, isWorking);
                     if (!string.IsNullOrEmpty(surfaceDto.MaterialName))
                         dto.LcdSurfaces.Add(surfaceDto);
                 }
@@ -372,11 +388,14 @@ namespace Quasar.Agent
             int index,
             MyTextPanelComponent surface,
             List<ScreenAreaInfo> screenAreas,
-            MetadataAssetCatalog catalog)
+            MetadataAssetCatalog catalog,
+            bool isWorking)
         {
             var area = index < screenAreas.Count ? screenAreas[index] : null;
             var textureSize = surface.TextureSize;
             var surfaceSize = surface.SurfaceSize;
+            var surfaceWidth = SafePositive(surfaceSize.X, area?.ScreenWidth ?? 1);
+            var surfaceHeight = SafePositive(surfaceSize.Y, area?.ScreenHeight ?? 1);
             var dto = new ViewerLcdSurface
             {
                 Index = index,
@@ -384,10 +403,12 @@ namespace Quasar.Agent
                 Name = surface.Name ?? string.Empty,
                 DisplayName = FirstNonEmpty(surface.DisplayName, area?.DisplayName),
                 ContentType = surface.ContentType.ToString(),
+                IsWorking = isWorking,
+                UsesOnlineTextureWhenEmpty = surface.UseOnlineTexture,
                 TextureWidth = SafeDimension(textureSize.X, area?.TextureResolution ?? 512),
                 TextureHeight = SafeDimension(textureSize.Y, area?.TextureResolution ?? 512),
-                SurfaceWidth = SafePositive(surfaceSize.X, area?.ScreenWidth ?? 1),
-                SurfaceHeight = SafePositive(surfaceSize.Y, area?.ScreenHeight ?? 1),
+                SurfaceWidth = surfaceWidth,
+                SurfaceHeight = surfaceHeight,
                 PreserveAspectRatio = surface.PreserveAspectRatio,
                 TextPadding = surface.TextPadding,
                 Font = surface.Font.SubtypeName ?? string.Empty,
@@ -401,6 +422,9 @@ namespace Quasar.Agent
                 ScriptForegroundColor = ToDto(surface.ScriptForegroundColor),
                 CurrentlyShownImageId = CurrentlyShownImage(surface),
             };
+
+            dto.EmptyOnlineImage = EmptyOnlineImage(surface.UseOnlineTexture, surfaceWidth, surfaceHeight, catalog);
+            dto.EmptyOfflineImage = EmptyOfflineImage(surfaceWidth, surfaceHeight, catalog);
 
             for (var i = 0; i < surface.SelectedTexturesToDraw.Count; i++)
             {
@@ -423,6 +447,21 @@ namespace Quasar.Agent
             }
 
             return dto;
+        }
+
+        private static ViewerLcdImage EmptyOnlineImage(bool useOnlineTexture, float surfaceWidth, float surfaceHeight, MetadataAssetCatalog catalog)
+        {
+            return useOnlineTexture ? ToLcdImage(WideLcdPlaceholder(surfaceWidth, surfaceHeight) ? "Online_wide" : "Online", catalog) : null;
+        }
+
+        private static ViewerLcdImage EmptyOfflineImage(float surfaceWidth, float surfaceHeight, MetadataAssetCatalog catalog)
+        {
+            return ToLcdImage(WideLcdPlaceholder(surfaceWidth, surfaceHeight) ? "Offline_wide" : "Offline", catalog);
+        }
+
+        private static bool WideLcdPlaceholder(float surfaceWidth, float surfaceHeight)
+        {
+            return surfaceWidth > surfaceHeight * 4f;
         }
 
         private static string CurrentlyShownImage(MyTextPanelComponent surface)

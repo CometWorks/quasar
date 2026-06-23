@@ -145,6 +145,8 @@ public class ViewerBlockInstance
     public List<ViewerMaterialTextureChange> SkinTextureChanges { get; set; } = new();
 
     public List<ViewerLcdSurface> LcdSurfaces { get; set; } = new();
+
+    public List<string> LcdMaterialsToHideWhenOffline { get; set; } = new();
 }
 
 public class ViewerLcdSurface
@@ -158,6 +160,10 @@ public class ViewerLcdSurface
     public string DisplayName { get; set; } = string.Empty;
 
     public string ContentType { get; set; } = string.Empty;
+
+    public bool IsWorking { get; set; } = true;
+
+    public bool UsesOnlineTextureWhenEmpty { get; set; }
 
     public int TextureWidth { get; set; }
 
@@ -194,6 +200,10 @@ public class ViewerLcdSurface
     public int CurrentImageIndex { get; set; }
 
     public string CurrentlyShownImageId { get; set; } = string.Empty;
+
+    public ViewerLcdImage? EmptyOnlineImage { get; set; }
+
+    public ViewerLcdImage? EmptyOfflineImage { get; set; }
 
     public List<ViewerLcdSprite> Sprites { get; set; } = new();
 }

@@ -356,7 +356,9 @@ function createModelMeshes(assetId, block, matrix, patternOffset = null, renderC
     const renderables = [];
     const groupsByLayer = new Map();
     for (const group of model.groups) {
+        if (isOfflineHiddenLcdMaterial(block, group.materialName)) continue;
         const material = sharedModelMaterial(model, group, block, renderContext);
+        if (!material) continue;
         const layer = modelMaterialRenderLayer(material);
         let entries = groupsByLayer.get(layer);
         if (!entries) {
@@ -519,7 +521,7 @@ function patternUvOffset(patternOffset) {
 function sharedModelMaterial(model, group, block, renderContext) {
     const technique = String(group.technique || "MESH").toUpperCase();
     const lcdSurface = lcdSurfaceForMaterial(block, group.materialName);
-    if (lcdSurface) return sharedLcdMaterial(model, group, block, lcdSurface, renderContext, technique);
+    if (lcdSurface && lcdReplacementMode(lcdSurface) !== "model") return sharedLcdMaterial(model, group, block, lcdSurface, renderContext, technique);
 
     const skin = materialSkinOverride(block, group.materialName);
     const transparentMaterial = transparentMaterialForGroup(group, technique);
@@ -585,11 +587,32 @@ function lcdSurfaceForMaterial(block, materialName) {
     return null;
 }
 
+function isOfflineHiddenLcdMaterial(block, materialName) {
+    const key = String(materialName || "").trim().toLowerCase();
+    if (!key) return false;
+    const hidden = block.lcdMaterialsToHideWhenOffline || [];
+    if (!hidden.length) return false;
+    if (!(block.lcdSurfaces || []).some(surface => surface && surface.isWorking === false)) return false;
+    return hidden.some(name => String(name || "").trim().toLowerCase() === key);
+}
+
+function lcdReplacementMode(surface) {
+    if (surface && surface.isWorking === false) return "placeholder";
+    if (String(surface?.contentType || "").toUpperCase() === "NONE") return surface.emptyOnlineImage ? "placeholder" : "model";
+    return "content";
+}
+
 function lcdSurfaceKey(surface) {
     const images = (surface.selectedImages || []).map(image => `${image.id || ""}:${image.texturePath || image.spritePath || ""}`).join(",");
+    const onlineImage = surface.emptyOnlineImage ? `${surface.emptyOnlineImage.id || ""}:${surface.emptyOnlineImage.texturePath || surface.emptyOnlineImage.spritePath || ""}` : "";
+    const offlineImage = surface.emptyOfflineImage ? `${surface.emptyOfflineImage.id || ""}:${surface.emptyOfflineImage.texturePath || surface.emptyOfflineImage.spritePath || ""}` : "";
     const sprites = (surface.sprites || []).map(sprite => `${sprite.index}:${sprite.type}:${sprite.data}:${sprite.texturePath || sprite.spritePath || ""}:${vectorKey(sprite.position)}:${vectorKey(sprite.size)}:${colorKey(sprite.color)}:${sprite.rotationOrScale}`).join(",");
     return [
         surface.contentType,
+        surface.isWorking === false ? 0 : 1,
+        surface.usesOnlineTextureWhenEmpty ? 1 : 0,
+        onlineImage,
+        offlineImage,
         surface.currentImageIndex,
         surface.currentlyShownImageId,
         surface.text,
@@ -619,7 +642,7 @@ function colorKey(color) {
 }
 
 function applyLcdSurfaceTexture(material, surface, textureToken) {
-    const directPath = lcdDirectTexturePath(surface);
+    const directPath = lcdDirectPlaceholderPath(surface) || lcdDirectTexturePath(surface);
     if (directPath) {
         loadTrackedTexture({ slot: "LcdTexture", path: directPath }, textureToken).then(texture => {
             material.map = texture;
@@ -635,7 +658,14 @@ function applyLcdSurfaceTexture(material, surface, textureToken) {
     material.needsUpdate = true;
 }
 
+function lcdDirectPlaceholderPath(surface) {
+    if (lcdReplacementMode(surface) !== "placeholder") return "";
+    const image = surface.isWorking === false ? surface.emptyOfflineImage : surface.emptyOnlineImage;
+    return image && (image.spritePath || image.texturePath) || "";
+}
+
 function lcdDirectTexturePath(surface) {
+    if (lcdReplacementMode(surface) !== "content") return "";
     const contentType = String(surface.contentType || "").toUpperCase();
     const hasText = !!String(surface.text || "");
     const hasSprites = (surface.sprites || []).length > 0;

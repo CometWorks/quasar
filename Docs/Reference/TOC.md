@@ -4,7 +4,7 @@ Generated reference handbook for the **Quasar** stack — a supervisor and manag
 
 For the hand-written architecture narrative and design rationale, see [QuasarArchitecture.md](../QuasarArchitecture.md).
 
-This handbook covers **224 source files** across **11 modules**. Browse by module below, or jump to the flat [file Index](Index.md).
+This handbook covers **225 source files** across **11 modules**. Browse by module below, or jump to the flat [file Index](Index.md).
 
 ## Runtime topology
 

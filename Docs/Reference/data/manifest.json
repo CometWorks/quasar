@@ -204,8 +204,8 @@
       "path": "Magnetar.Protocol/Model/ViewerSceneDtos.cs",
       "name": "ViewerSceneDtos.cs",
       "ext": ".cs",
-      "size": 10924,
-      "sha256": "d09ee2baae9466d2cc6eb0a5e12e5d0ccd8cbfe1c7516e469814f2f1210af4ba",
+      "size": 11228,
+      "sha256": "4036d0ced8b84ae74ff47dd3268816805097470c98417c580ebb245d5d0b3f74",
       "module": "Magnetar.Protocol",
       "tier": 1,
       "status": "pending"
@@ -394,8 +394,8 @@
       "path": "Quasar.Agent/GridRenderSceneInspector.cs",
       "name": "GridRenderSceneInspector.cs",
       "ext": ".cs",
-      "size": 38323,
-      "sha256": "24c81c3ccb008e13d1c2f13423a80b2882866003aa2e6d9860299816c8428580",
+      "size": 40345,
+      "sha256": "cb287454576cc84d20e2bd87ad3c2be3c2bdb5508ad74ba15cb0ef0fb10bc72a",
       "module": "Quasar.Agent",
       "tier": 1,
       "status": "pending"
@@ -2144,8 +2144,8 @@
       "path": "Quasar/wwwroot/viewer/content-folder.js",
       "name": "content-folder.js",
       "ext": ".js",
-      "size": 17717,
-      "sha256": "dd9972fd6b101d2472a16ead5dc1061c0c74de66b2a82f7ecc9fef3262ec35b8",
+      "size": 17721,
+      "sha256": "63039ae5bf84951f287859d11bf7536819c10ca49ce7c09995fe7fa3b0a112b3",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"
@@ -2174,8 +2174,8 @@
       "path": "Quasar/wwwroot/viewer/grid-renderer.js",
       "name": "grid-renderer.js",
       "ext": ".js",
-      "size": 74551,
-      "sha256": "139b8e76992b567f514500d00c8c06d8920415841168a38f25673c060d16bccc",
+      "size": 79654,
+      "sha256": "2e236accff163ac62466dbe5c0e353d94cb7edba276a31f3ba43dc7faa13fc85",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"
@@ -2189,6 +2189,16 @@
       "module": "Quasar.Host",
       "tier": 3,
       "status": "skipped-unknown"
+    },
+    {
+      "path": "Quasar/wwwroot/viewer/lcd-font-loader.js",
+      "name": "lcd-font-loader.js",
+      "ext": ".js",
+      "size": 14987,
+      "sha256": "cac24a378ba9e740559885f3fb4edec3e50e7353c623579f588460d8ac20ffa6",
+      "module": "Quasar.Host",
+      "tier": 3,
+      "status": "pending"
     },
     {
       "path": "Quasar/wwwroot/viewer/logging.js",
