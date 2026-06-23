@@ -216,7 +216,10 @@ window.quasarConfigs = window.quasarConfigs || {
         const pollIntervalMs = opts.pollIntervalMs || 1000;
         const maxWaitMs = opts.maxWaitMs || 120000;
         const initialDelayMs = opts.initialDelayMs || 1500;
+        const expectedVersion = (opts.expectedVersion || opts.ExpectedVersion || "").toString().trim().toLowerCase();
+        const requireUnhealthy = !!(opts.requireUnhealthy ?? opts.RequireUnhealthy);
         const startedAt = Date.now();
+        let observedUnhealthy = !requireUnhealthy;
 
         const scheduleNext = () => {
             if (Date.now() - startedAt >= maxWaitMs) {
@@ -226,16 +229,43 @@ window.quasarConfigs = window.quasarConfigs || {
             window.setTimeout(check, pollIntervalMs);
         };
 
+        const isExpectedVersion = (payload) => {
+            if (!expectedVersion) {
+                return true;
+            }
+
+            const actual = (payload?.version ?? payload?.Version ?? "").toString().trim().toLowerCase();
+            return actual === expectedVersion;
+        };
+
         const check = () => {
             fetch("/api/health", { cache: "no-store" })
-                .then((response) => {
-                    if (response.ok) {
+                .then(async (response) => {
+                    if (!response.ok) {
+                        observedUnhealthy = true;
+                        scheduleNext();
+                        return;
+                    }
+
+                    let payload = null;
+                    if (expectedVersion) {
+                        try {
+                            payload = await response.json();
+                        } catch {
+                            payload = null;
+                        }
+                    }
+
+                    if (observedUnhealthy && isExpectedVersion(payload)) {
                         window.location.href = url;
                     } else {
                         scheduleNext();
                     }
                 })
-                .catch(scheduleNext);
+                .catch(() => {
+                    observedUnhealthy = true;
+                    scheduleNext();
+                });
         };
 
         window.setTimeout(check, initialDelayMs);

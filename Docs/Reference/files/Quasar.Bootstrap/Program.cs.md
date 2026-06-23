@@ -25,7 +25,7 @@ Entry point and core logic for the Quasar launcher. It implements three CLI comm
 ### `BootstrapDataDirectoryMigration` (static)
 - Runs once at process start before `MagnetarPaths` is used.
 - Treats a blank `QUASAR_DATA_DIR`, a legacy default data root (`~/.config/Quasar` / `%APPDATA%\Quasar`), or an install-root value as the default path policy.
-- Uses `AppContext.BaseDirectory` as the target data root, recursively copies legacy default root contents into it, rewrites migrated `Updates/active-release.json` file/working-directory paths from the old root to the new root, removes copied legacy files/directories when possible, then sets `QUASAR_DATA_DIR` for the current process and child worker.
+- Uses `AppContext.BaseDirectory` as the target data root, recursively copies legacy default root contents into it, rewrites migrated `Updates/active-release.json` file, argument, and working-directory paths from the old root to the new root, removes copied legacy files/directories when possible, then sets `QUASAR_DATA_DIR` for the current process and child worker.
 - Refuses the migration and falls back to the legacy root if the launcher install root is inside the legacy root, preventing recursive self-copy.
 - Leaves custom `QUASAR_DATA_DIR` values untouched.
 

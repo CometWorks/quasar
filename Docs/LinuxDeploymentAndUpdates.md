@@ -111,14 +111,17 @@ conflicts, auto-staging stops with a warning and `/settings/updates` shows a
 git-style conflict editor. Resolve and save the JSON there, or choose **Force
 release defaults** to stage the release file without local appsettings values.
 
-Activation is explicit. The UI copies the staged payload into
+Activation is explicit and requires the worker to be running under Bootstrap.
+The UI copies the staged payload into
 `ManagedRuntime/WebService/<version>`, writes the active-release pointer to that
 managed worker, updates the install-directory `appsettings.json` from the
 resolved staged file, and clears old staged payloads. Bootstrap copies that
 install-directory file into the managed worker before launch, observes the
 pointer change, drains the old worker, starts the managed worker on the same
-public port, and leaves managed Magnetar servers running. After a successful
-cutover, Bootstrap prunes inactive managed web-release directories.
+public port, and leaves managed Magnetar servers running. The browser polls
+`/api/health` until the activated UI version is serving, then reloads the
+Updates page. After a successful cutover, Bootstrap prunes inactive managed
+web-release directories.
 
 This intentionally accepts a short web/agent disconnect. `Quasar.Agent`
 reconnects, and managed Magnetar processes stay alive because Quasar launches

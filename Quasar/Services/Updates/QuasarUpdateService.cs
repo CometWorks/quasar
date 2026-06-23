@@ -379,6 +379,9 @@ public sealed class QuasarUpdateService : BackgroundService
 
     public Task ActivateStagedWebUpdateAsync(CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(_webOptions.LauncherToken))
+            throw new InvalidOperationException("Quasar is not running under Bootstrap, so staged UI updates cannot be activated from the UI.");
+
         var candidate = GetSnapshot().Web;
         if (candidate is null || !candidate.IsStaged || string.IsNullOrWhiteSpace(candidate.StagedDirectory))
             throw new InvalidOperationException("No staged Quasar UI update is ready to activate.");

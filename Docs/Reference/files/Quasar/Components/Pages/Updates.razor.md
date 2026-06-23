@@ -19,7 +19,7 @@ Authorization: `QuasarPolicyNames.CanManageSecurity`
 - `ManagedRuntimeWarmupService` — managed Magnetar/DS snapshot plus manual update checks
 - `ISnackbar` — user feedback for update actions
 - `IDialogService` — confirmation dialogs before enabling prerelease updates or forcing Bootstrap activation
-- `IJSRuntime` — starts browser-side health polling before a forced Bootstrap restart drops the circuit
+- `IJSRuntime` — starts browser-side health polling before UI-worker activation or a forced Bootstrap restart drops the circuit
 
 **Key members**
 
@@ -31,8 +31,8 @@ Authorization: `QuasarPolicyNames.CanManageSecurity`
 | `CheckDedicatedServerNowAsync()` | Runs an immediate managed DS check through `ManagedRuntimeWarmupService.CheckDedicatedServerNowAsync()`. |
 | `HandleSelectedWebVersionChanged(...)` | Selects the UI release to stage/install from the discovered list, including older rollback targets. |
 | `StageAsync()` | Downloads and stages the selected Quasar UI release unless it is already current or staged; if appsettings rollover conflicts, loads the conflict text and warns instead of reporting success. |
-| `ActivateAsync()` | Requests staged UI activation; the update service promotes the staged payload into the managed active-release directory and writes the active-release pointer. Older staged releases are allowed for rollback. |
-| `ForceActivateBootstrapAsync()` | Confirms, starts browser health polling, then asks `QuasarUpdateService` to write the Bootstrap update request file so the launcher activates the detected update immediately. Disabled when no Bootstrap update is detected or the worker is not launcher-managed. |
+| `ActivateAsync()` | Starts browser health polling for the selected target version, then requests staged UI activation; disabled outside Bootstrap because no launcher is watching the active-release pointer. Older staged releases are allowed for rollback. |
+| `ForceActivateBootstrapAsync()` | Confirms, starts browser health polling that waits for a restart gap, then asks `QuasarUpdateService` to write the Bootstrap update request file so the launcher activates the detected update immediately. Disabled when no Bootstrap update is detected or the worker is not launcher-managed. |
 | `HandleIncludePrereleaseChanged(bool)` | Confirms before enabling prerelease updates, persists the stream setting through `QuasarUpdateService`, refreshes the release list, and shows a strong warning while prereleases are enabled. |
 | `HandleAutoStageWebUpdatesChanged(bool)` | Persists whether release checks should automatically download/stage a newer UI release or only queue releases for manual staging. |
 | `LoadAppSettingsConflictAsync()` / `SaveAppSettingsResolutionAsync()` / `ForceReleaseAppSettingsAsync()` | Reads the staged conflict file, saves a manually resolved JSON file, or force-restages release defaults after confirmation. |
