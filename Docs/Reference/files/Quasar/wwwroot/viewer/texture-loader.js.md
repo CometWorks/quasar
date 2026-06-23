@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Browser-side texture resolver/loader for the grid viewer. It resolves logical texture paths against the selected local Content folder, classifies color/data texture role from material slots or filename map tokens, disables Three.js' default vertical texture flip to match Space Engineers model UVs, preserves explicit DDS sRGB format tags for compressed uploads, caches extension-candidate hits and misses for the active Content folder, coalesces duplicate logical texture loads before file metadata is known, caches completed textures by resolved path/size/mtime/color role, loads browser-native images, parses common SE DDS compressed formats, and throttles path resolution, file reads, and WebGL upload/init separately.
+Browser-side texture resolver/loader for the grid viewer. It resolves logical texture paths against the selected local Content folder, classifies color/data texture role from material slots or filename map tokens, disables Three.js' default vertical texture flip to match Space Engineers model UVs, preserves explicit DDS sRGB format tags for compressed uploads, caches extension-candidate hits and misses for the active Content folder, coalesces duplicate logical texture loads before file metadata is known, caches completed textures by resolved path/size/mtime/color role, loads browser-native images, parses common SE DDS compressed formats, decodes textures to Canvas2D with an LCD sprite option that restores drawable alpha from RGB for premultiplied atlas masks, and throttles path resolution, file reads, and WebGL upload/init separately.
 
 ## Structure
 

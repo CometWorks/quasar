@@ -720,8 +720,8 @@ function lcdLayoutCanvas(surface, textureCanvas) {
 
 function loadLcdCanvasImages(context, textureToken) {
     for (const path of lcdCanvasTexturePaths(context.surface)) {
-        loadTrackedTexture({ slot: "LcdTexture", path }, textureToken).then(texture => {
-            context.images.set(path, textureToCanvas(texture));
+        loadTrackedTexture({ slot: "LcdTexture", path, logLabel: context.surface.__quasarLcdDebugLabel, logStage: "canvas-image" }, textureToken).then(texture => {
+            context.images.set(path, textureToCanvas(texture, 0, 0, { premultipliedSpriteAlpha: true }));
             renderLcdCanvas(context);
             context.texture.needsUpdate = true;
             context.material.needsUpdate = true;

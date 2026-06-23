@@ -224,7 +224,7 @@ function configureTexture(texture, logicalPath, slot) {
         : THREE.NoColorSpace;
 }
 
-export function textureToCanvas(texture, width = 0, height = 0) {
+export function textureToCanvas(texture, width = 0, height = 0, options = {}) {
     const image = texture && texture.image;
     width = Math.max(1, Math.round(Number(width) || Number(image && image.width) || 1));
     height = Math.max(1, Math.round(Number(height) || Number(image && image.height) || 1));
@@ -233,7 +233,9 @@ export function textureToCanvas(texture, width = 0, height = 0) {
         const canvas = document.createElement("canvas");
         canvas.width = width;
         canvas.height = height;
-        canvas.getContext("2d").drawImage(image, 0, 0, width, height);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(image, 0, 0, width, height);
+        if (options.premultipliedSpriteAlpha) restorePremultipliedSpriteAlpha(ctx, width, height);
         return canvas;
     }
 
@@ -282,8 +284,30 @@ export function textureToCanvas(texture, width = 0, height = 0) {
         const targetOffset = y * width * 4;
         imageData.data.set(pixels.subarray(sourceOffset, sourceOffset + width * 4), targetOffset);
     }
+    if (options.premultipliedSpriteAlpha) restorePremultipliedSpriteAlphaData(imageData.data);
     ctx.putImageData(imageData, 0, 0);
     return canvas;
+}
+
+function restorePremultipliedSpriteAlpha(ctx, width, height) {
+    const imageData = ctx.getImageData(0, 0, width, height);
+    if (!restorePremultipliedSpriteAlphaData(imageData.data)) return;
+    ctx.putImageData(imageData, 0, 0);
+}
+
+function restorePremultipliedSpriteAlphaData(data) {
+    let maxRgb = 0;
+    let maxAlpha = 0;
+    for (let i = 0; i < data.length; i += 4) {
+        maxRgb = Math.max(maxRgb, data[i], data[i + 1], data[i + 2]);
+        maxAlpha = Math.max(maxAlpha, data[i + 3]);
+    }
+    if (maxRgb < 8 || maxAlpha > 8 || maxAlpha >= maxRgb) return false;
+
+    for (let i = 0; i < data.length; i += 4) {
+        data[i + 3] = Math.max(data[i + 3], data[i], data[i + 1], data[i + 2]);
+    }
+    return true;
 }
 
 function isCanvasDrawable(value) {
