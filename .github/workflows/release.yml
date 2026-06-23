@@ -291,6 +291,15 @@ jobs:
           DS64: ${{ github.workspace }}/ds64
         run: scripts/package-linux-release.sh
 
+      - name: Verify Linux installer archive root
+        run: |
+          set -euo pipefail
+          roots="$(tar -tzf artifacts/linux/quasar-installer-linux.tar.gz | awk -F/ 'NF { print $1 }' | sort -u)"
+          if [ "$roots" != "Quasar" ]; then
+            echo "ERROR: expected quasar-installer-linux.tar.gz root directory to be Quasar; found: $roots" >&2
+            exit 1
+          fi
+
       - name: Upload Linux archives
         uses: actions/upload-artifact@v4
         with:
@@ -430,6 +439,27 @@ jobs:
           DS64: ${{ github.workspace }}\ds64
         run: scripts/package-windows-release.ps1
 
+      - name: Verify Windows installer archive root
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path 'artifacts/windows/quasar-installer-windows.zip').Path)
+          try {
+            $roots = @(
+              $zip.Entries |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_.FullName) } |
+                ForEach-Object { ($_.FullName -replace '\\', '/').Split('/')[0] } |
+                Sort-Object -Unique
+            )
+          }
+          finally {
+            $zip.Dispose()
+          }
+          if ($roots.Count -ne 1 -or $roots[0] -ne 'Quasar') {
+            throw "expected quasar-installer-windows.zip root directory to be Quasar; found: $($roots -join ', ')"
+          }
+
       - name: Upload Windows archives
         uses: actions/upload-artifact@v4
         with:
@@ -494,7 +524,7 @@ jobs:
             | **Linux** (x64) | **`quasar-installer-linux.tar.gz`** |
             | **Windows** (x64) | **`quasar-installer-windows.zip`** |
 
-            Download the archive with **installer** in its name. It contains one top-level folder with the Quasar **Bootstrap launcher**, the install/uninstall scripts, and a default `appsettings.json`. Follow the [Linux](https://github.com/CometWorks/quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md) or [Windows](https://github.com/CometWorks/quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md) deployment guide to install it. The web UI is available on http://127.0.0.1:8080 by default (the web server listens on all interfaces at 0.0.0.0:8080).
+            Download the archive with **installer** in its name. It contains one top-level `Quasar` folder with the Quasar **Bootstrap launcher**, the install/uninstall scripts, and a default `appsettings.json`. Follow the [Linux](https://github.com/CometWorks/quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md) or [Windows](https://github.com/CometWorks/quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md) deployment guide to install it. The web UI is available on http://127.0.0.1:8080 by default (the web server listens on all interfaces at 0.0.0.0:8080).
 
             The other two archives (`quasar-web-linux-x64.tar.gz` and `quasar-web-win-x64.zip`) are updates that Quasar downloads and applies automatically — you never download them by hand.
 

@@ -1,13 +1,13 @@
 ## Install and run on Windows (x64)
 
 You downloaded **`quasar-installer-windows.zip`**. It contains one
-`quasar-installer-windows\` folder with the Quasar launcher (`Quasar.exe`), the
+`Quasar\` folder with the Quasar launcher (`Quasar.exe`), the
 `install.ps1` / `uninstall.ps1` scripts, and a default `appsettings.json`. The
 steps below assume you have extracted the zip, for example:
 
 ```powershell
 Expand-Archive quasar-installer-windows.zip -DestinationPath C:\quasar
-cd C:\quasar\quasar-installer-windows
+cd C:\quasar\Quasar
 ```
 
 ### Run in the foreground

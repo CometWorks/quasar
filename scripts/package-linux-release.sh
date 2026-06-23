@@ -11,7 +11,7 @@ ASSEMBLY_FILE_VERSION="1.0.0"
 NUGET_VERSION="$VERSION"
 WEB_ARCHIVE_NAME="quasar-web-linux-x64.tar.gz"
 INSTALLER_ARCHIVE_NAME="quasar-installer-linux.tar.gz"
-INSTALLER_ROOT_NAME="quasar-installer-linux"
+INSTALLER_ROOT_NAME="Quasar"
 
 normalize_version_component() {
     local value="${1:-0}"

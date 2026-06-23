@@ -24,7 +24,7 @@ $Version = if ($env:VERSION) { $env:VERSION } else { '' }
 $DefaultAssemblyFileVersion = '1.0.0'
 $WebArchiveName = 'quasar-web-win-x64.zip'
 $InstallerArchiveName = 'quasar-installer-windows.zip'
-$InstallerRootName = 'quasar-installer-windows'
+$InstallerRootName = 'Quasar'
 
 function Normalize-VersionComponent {
     param([string]$Value)

@@ -8,7 +8,7 @@ web UI worker.
 `scripts/package-linux-release.sh` produces:
 
 - `quasar-installer-linux.tar.gz`
-  - top-level `quasar-installer-linux/` directory
+  - top-level `Quasar/` directory
   - `Quasar` Bootstrap launcher
   - `install.sh`
   - `uninstall.sh`
@@ -152,7 +152,7 @@ Bootstrap checks the primary Quasar release stream every 15 minutes by default.
 When it finds an actually newer `quasar-installer-linux.tar.gz` asset (semver
 core and prerelease compared against the running launcher's release identity), it
 verifies the release's `SHA256SUMS` entry, extracts the archive, strips the
-single top-level installer directory, replaces the installed launcher files,
+single top-level `Quasar` directory, replaces the installed launcher files,
 drains the UI worker, and exits with a failure code so systemd restarts the
 updated launcher. Existing `appsettings.json` is preserved.
 Bootstrap must not drain the worker for a release whose normalized version is
@@ -219,7 +219,7 @@ the whole Quasar service. The installer can build and install a narrow setuid
 root helper when the feature is needed:
 
 ```bash
-/tmp/quasar-installer-linux/install.sh --install-renice-helper --no-build --no-enable
+/tmp/Quasar/install.sh --install-renice-helper --no-build --no-enable
 ```
 
 The helper is installed as `/usr/local/bin/quasar-renice`, accepts only Quasar's

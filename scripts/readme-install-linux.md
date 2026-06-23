@@ -1,14 +1,14 @@
 ## Install and run on Linux (x64)
 
 You downloaded **`quasar-installer-linux.tar.gz`**. It contains one
-`quasar-installer-linux/` folder with the Quasar launcher (`Quasar`), the
+`Quasar/` folder with the Quasar launcher (`Quasar`), the
 `install.sh` / `uninstall.sh` scripts, and a default `appsettings.json`.
 
 ### Run in the foreground
 
 ```bash
 tar -xzf quasar-installer-linux.tar.gz
-cd quasar-installer-linux
+cd Quasar
 ./Quasar serve
 ```
 

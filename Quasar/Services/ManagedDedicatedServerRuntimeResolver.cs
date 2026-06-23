@@ -18,6 +18,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan MagnetarReleaseCheckCooldown = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan SteamCmdKillWaitTimeout = TimeSpan.FromSeconds(10);
     private const string MagnetarLauncherName = "MagnetarInterim";
     private const string MagnetarReleaseMarkerFileName = ".quasar-magnetar-release.json";
     private const string DedicatedServerAppId = "298740";
@@ -65,6 +66,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     private readonly ILogger<ManagedDedicatedServerRuntimeResolver> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ManagedRuntimeOptions _options;
+    private readonly IHostApplicationLifetime _lifetime;
     private readonly SemaphoreSlim _magnetarInstallLock = new(1, 1);
     private readonly SemaphoreSlim _steamCmdInstallLock = new(1, 1);
     private readonly SemaphoreSlim _dedicatedServerInstallLock = new(1, 1);
@@ -75,11 +77,13 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     public ManagedDedicatedServerRuntimeResolver(
         ILogger<ManagedDedicatedServerRuntimeResolver> logger,
         IHttpClientFactory httpClientFactory,
-        ManagedRuntimeOptions options)
+        ManagedRuntimeOptions options,
+        IHostApplicationLifetime lifetime)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _options = options;
+        _lifetime = lifetime;
     }
 
     public async Task<ResolvedDedicatedServerRuntime> ResolveAsync(
@@ -1091,21 +1095,20 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                     return string.Empty;
                 }
 
-                var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-                var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-                await process.WaitForExitAsync(cancellationToken);
-                var stdout = await stdoutTask;
-                var stderr = await stderrTask;
+                var result = await WaitForSteamCmdProcessAsync(
+                    process,
+                    $"managed DS install attempt {attempt}/{DedicatedServerInstallMaxAttempts}",
+                    cancellationToken);
 
-                if (process.ExitCode != 0)
+                if (result.ExitCode != 0)
                 {
                     _logger.LogWarning(
                         "steamcmd failed installing/updating managed DS on attempt {Attempt}/{MaxAttempts}. ExitCode={ExitCode}. Stdout={Stdout}. Stderr={Stderr}",
                         attempt,
                         DedicatedServerInstallMaxAttempts,
-                        process.ExitCode,
-                        TrimForLog(stdout),
-                        TrimForLog(stderr));
+                        result.ExitCode,
+                        TrimForLog(result.Stdout),
+                        TrimForLog(result.Stderr));
                     if (attempt < DedicatedServerInstallMaxAttempts)
                         continue;
 
@@ -1315,16 +1318,76 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             throw new InvalidOperationException($"Failed starting steamcmd while {action}.", exception);
         }
 
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
+        var result = await WaitForSteamCmdProcessAsync(process, action, cancellationToken);
 
-        if (process.ExitCode != 0)
+        if (result.ExitCode != 0)
         {
             throw new InvalidOperationException(
-                $"steamcmd failed while {action}. ExitCode={process.ExitCode}. Stdout={TrimForLog(stdout)}. Stderr={TrimForLog(stderr)}");
+                $"steamcmd failed while {action}. ExitCode={result.ExitCode}. Stdout={TrimForLog(result.Stdout)}. Stderr={TrimForLog(result.Stderr)}");
+        }
+    }
+
+    private async Task<SteamCmdProcessResult> WaitForSteamCmdProcessAsync(
+        Process process,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _lifetime.ApplicationStopping);
+
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+
+        try
+        {
+            await process.WaitForExitAsync(linkedCancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            KillSteamCmdProcessTree(process, action);
+            await WaitForKilledSteamCmdAsync(process, action);
+            throw;
+        }
+
+        var stdout = await stdoutTask;
+        var stderr = await stderrTask;
+        return new SteamCmdProcessResult(process.ExitCode, stdout, stderr);
+    }
+
+    private void KillSteamCmdProcessTree(Process process, string action)
+    {
+        try
+        {
+            if (process.HasExited)
+                return;
+
+            _logger.LogInformation("Stopping steamcmd after cancellation while {Action}.", action);
+            process.Kill(entireProcessTree: true);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed stopping steamcmd after cancellation while {Action}.", action);
+        }
+    }
+
+    private async Task WaitForKilledSteamCmdAsync(Process process, string action)
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(SteamCmdKillWaitTimeout);
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Timed out waiting for killed steamcmd while {Action}.", action);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogDebug(exception, "Failed waiting for killed steamcmd while {Action}.", action);
         }
     }
 
@@ -1918,6 +1981,8 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         [JsonPropertyName("browser_download_url")]
         public string BrowserDownloadUrl { get; set; } = string.Empty;
     }
+
+    private sealed record SteamCmdProcessResult(int ExitCode, string Stdout, string Stderr);
 }
 
 internal enum ArchiveKind

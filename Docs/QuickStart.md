@@ -13,7 +13,7 @@ Grab the latest release from GitHub. Each release contains platform archives:
 
 ```bash
 tar -xzf quasar-installer-linux.tar.gz
-cd quasar-installer-linux
+cd Quasar
 ./Quasar serve
 ```
 
@@ -21,7 +21,7 @@ cd quasar-installer-linux
 
 ```cmd
 Expand-Archive quasar-installer-windows.zip -DestinationPath C:\quasar
-cd C:\quasar\quasar-installer-windows
+cd C:\quasar\Quasar
 Quasar.exe serve
 ```
 
@@ -82,7 +82,7 @@ Run from an **elevated PowerShell**:
 
 ```powershell
 Expand-Archive quasar-installer-windows.zip -DestinationPath C:\quasar
-cd C:\quasar\quasar-installer-windows
+cd C:\quasar\Quasar
 .\install.ps1 -Start   # installs in place and starts the task
 ```
 
