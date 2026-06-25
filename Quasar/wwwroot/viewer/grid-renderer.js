@@ -551,8 +551,8 @@ function sharedModelMaterial(model, group, block, renderContext) {
     const skin = materialSkinOverride(block, group.materialName);
     const transparentMaterial = transparentMaterialForGroup(group, technique);
     const renderMode = modelMaterialRenderMode(technique);
-    const colorMaskable = !technique.includes("GLASS") && !isTransparentScreenAreaGroup(group);
     const textures = materialTexturesForGroup(group, skin, transparentMaterial);
+    const colorMaskable = isModelMaterialColorMaskable(group, technique, textures);
     const key = `${model.logicalPath}|${group.materialIndex}|${group.materialName}|${group.technique}|${stableTextureKey(textures)}|glass=${transparentMaterialKey(transparentMaterial)}|metalnessColorable=${skin && skin.metalnessColorable ? 1 : 0}`;
     if (renderContext.materials.has(key)) return renderContext.materials.get(key);
 
@@ -1185,6 +1185,12 @@ function materialTexturesForGroup(group, skin, transparentMaterial) {
         if (transparentMaterial.glossTexture) textures.GlassGlossTexture = transparentMaterial.glossTexture;
     }
     return textures;
+}
+
+function isModelMaterialColorMaskable(group, technique, textures) {
+    return !!colorMaskTextureSelection(textures)
+        && !technique.includes("GLASS")
+        && !isTransparentScreenAreaGroup(group);
 }
 
 function assetModifierSubtype(node) {
