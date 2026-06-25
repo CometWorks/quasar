@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid viewer. It owns renderer setup, orbit/free-fly camera behavior, floor grid generation, sun marker/lighting, object disposal, viewport resizing, hover readouts, and per-frame stats rendering.
+Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid viewer. It owns renderer setup, orbit/free-fly camera behavior, floor grid generation with per-axis block-boundary alignment, sun marker/lighting, object disposal, viewport resizing, hover readouts, and per-frame stats rendering.
 
 ## Structure
 
@@ -13,7 +13,7 @@ Key exports:
 |---|---|
 | `initScene()` | Creates the scene, renderer, camera, controls, lighting, floor grid, pointer handlers, and resize observer. |
 | `animate(time)` | Per-frame render loop that updates controls/free-fly movement, renders the scene, and refreshes render stats. |
-| `replaceFloorGrid(bounds, gridSize)` | Rebuilds the scaled floor grid using SE small/large grid cell semantics. |
+| `replaceFloorGrid(bounds, gridSize, alignment = null)` | Rebuilds the scaled floor grid using SE small/large grid cell semantics and optional per-axis lattice offsets. |
 | `fitCameraToScene()` | Frames the active grid bounds and updates camera clipping planes/orbit target. |
 | `updateSceneBounds(refit = false)` | Recomputes displayed bounds, floor grid, and sun marker placement. |
 | `updateLighting()` | Applies sun toggle state to ambient/environment/directional lighting. |

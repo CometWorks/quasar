@@ -57,6 +57,7 @@ export async function renderGridScene(scene) {
     for (const block of scene.blockInstances || []) bounds.union(blockBox(block, scene.grid.gridSize || 2.5));
     state.currentBounds = bounds;
     state.currentGridSize = scene.grid.gridSize || 2.5;
+    state.currentFloorGridAlignment = floorGridAlignment(scene);
     renderVoxelBodies(scene.voxels || []);
     progress.rebuild();
     updateSceneBounds(false);
@@ -167,6 +168,41 @@ function progressiveRebuildMaxDelayMs(scene) {
     if (blocks > 2000) return 900;
     if (blocks > 1000) return 650;
     return 250;
+}
+
+function floorGridAlignment(scene) {
+    const gridSize = scene.grid && scene.grid.gridSize || 2.5;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+
+    for (const block of scene.blockInstances || []) {
+        const min = block.min || block.cell;
+        const max = block.max || block.cell || min;
+        if (!min || !max) continue;
+        minX = Math.min(minX, Number(min.x) || 0);
+        maxX = Math.max(maxX, Number(max.x) || 0);
+        minZ = Math.min(minZ, Number(min.z) || 0);
+        maxZ = Math.max(maxZ, Number(max.z) || 0);
+    }
+
+    if (!Number.isFinite(minX) || !Number.isFinite(maxX) || !Number.isFinite(minZ) || !Number.isFinite(maxZ)) {
+        return { offsetX: 0, offsetZ: 0, cellCountX: 0, cellCountZ: 0 };
+    }
+
+    const cellCountX = Math.max(1, Math.round(maxX - minX + 1));
+    const cellCountZ = Math.max(1, Math.round(maxZ - minZ + 1));
+    return {
+        offsetX: floorAxisOffset(cellCountX, gridSize),
+        offsetZ: floorAxisOffset(cellCountZ, gridSize),
+        cellCountX,
+        cellCountZ,
+    };
+}
+
+function floorAxisOffset(cellCount, gridSize) {
+    return Math.abs(cellCount % 2) === 1 ? gridSize * 0.5 : 0;
 }
 
 function buildModelLayer(scene, definitions, renderContext) {

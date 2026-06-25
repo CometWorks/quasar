@@ -24,6 +24,7 @@ export const state = {
     lastFrameTime: 0,
     currentBounds: null,
     currentGridSize: 2.5,
+    currentFloorGridAlignment: null,
     viewTransform: null,
     viewRotation: null,
     sceneRenderCounts: { modelMeshes: 0, proxyMeshes: 0, voxelProxies: 0 },

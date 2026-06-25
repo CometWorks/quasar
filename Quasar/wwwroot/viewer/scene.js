@@ -78,20 +78,20 @@ export function animate(time) {
     updateRenderStats();
 }
 
-export function replaceFloorGrid(bounds, gridSize) {
+export function replaceFloorGrid(bounds, gridSize, alignment = null) {
     const visible = state.floorGrid ? state.floorGrid.visible : true;
     if (state.floorGrid) {
         state.scene.remove(state.floorGrid);
         disposeObjectTree(state.floorGrid);
     }
 
-    state.floorGrid = createFloorGrid(bounds, gridSize);
+    state.floorGrid = createFloorGrid(bounds, gridSize, alignment);
     state.floorGrid.visible = visible && (!els.showGridHelper || els.showGridHelper.checked);
     state.scene.add(state.floorGrid);
 }
 
-function createFloorGrid(bounds, gridSize) {
-    const layout = floorGridLayout(bounds, gridSize);
+function createFloorGrid(bounds, gridSize, alignment) {
+    const layout = floorGridLayout(bounds, gridSize, alignment);
     const positions = [];
     const colors = [];
     const minorColor = colorComponents(0x1e293b);
@@ -104,9 +104,10 @@ function createFloorGrid(bounds, gridSize) {
         colors,
         startCell: layout.startXCell,
         endCell: layout.endXCell,
-        rangeStart: layout.startZCell * SMALL_GRID_CUBE_SIZE - layout.originZ,
-        rangeEnd: layout.endZCell * SMALL_GRID_CUBE_SIZE - layout.originZ,
+        rangeStart: layout.offsetZ + layout.startZCell * SMALL_GRID_CUBE_SIZE - layout.originZ,
+        rangeEnd: layout.offsetZ + layout.endZCell * SMALL_GRID_CUBE_SIZE - layout.originZ,
         origin: layout.originX,
+        offset: layout.offsetX,
         axis: "x",
         majorEveryCells,
         minorColor,
@@ -118,9 +119,10 @@ function createFloorGrid(bounds, gridSize) {
         colors,
         startCell: layout.startZCell,
         endCell: layout.endZCell,
-        rangeStart: layout.startXCell * SMALL_GRID_CUBE_SIZE - layout.originX,
-        rangeEnd: layout.endXCell * SMALL_GRID_CUBE_SIZE - layout.originX,
+        rangeStart: layout.offsetX + layout.startXCell * SMALL_GRID_CUBE_SIZE - layout.originX,
+        rangeEnd: layout.offsetX + layout.endXCell * SMALL_GRID_CUBE_SIZE - layout.originX,
         origin: layout.originZ,
+        offset: layout.offsetZ,
         axis: "z",
         majorEveryCells,
         minorColor,
@@ -146,7 +148,7 @@ function createFloorGrid(bounds, gridSize) {
     return grid;
 }
 
-function floorGridLayout(bounds, gridSize) {
+function floorGridLayout(bounds, gridSize, alignment) {
     const majorStep = Math.max(SMALL_GRID_CUBE_SIZE, Number(gridSize) || LARGE_GRID_CUBE_SIZE);
     if (!bounds || bounds.isEmpty()) {
         const halfSize = FLOOR_GRID_DEFAULT_SIZE * 0.5;
@@ -155,21 +157,25 @@ function floorGridLayout(bounds, gridSize) {
 
     const padding = majorStep * FLOOR_GRID_PADDING_SUPERSQUARES;
     const y = bounds.min.y - Math.max(0.02, majorStep * 0.02);
-    return floorGridCells(bounds.min.x - padding, bounds.max.x + padding, bounds.min.z - padding, bounds.max.z + padding, y, majorStep);
+    const offsetX = Number(alignment && alignment.offsetX) || 0;
+    const offsetZ = Number(alignment && alignment.offsetZ) || 0;
+    return floorGridCells(bounds.min.x - padding, bounds.max.x + padding, bounds.min.z - padding, bounds.max.z + padding, y, majorStep, offsetX, offsetZ);
 }
 
-function floorGridCells(minX, maxX, minZ, maxZ, y, majorStep) {
-    const startXCell = Math.floor(minX / SMALL_GRID_CUBE_SIZE);
-    const endXCell = Math.ceil(maxX / SMALL_GRID_CUBE_SIZE);
-    const startZCell = Math.floor(minZ / SMALL_GRID_CUBE_SIZE);
-    const endZCell = Math.ceil(maxZ / SMALL_GRID_CUBE_SIZE);
+function floorGridCells(minX, maxX, minZ, maxZ, y, majorStep, offsetX = 0, offsetZ = 0) {
+    const startXCell = Math.floor((minX - offsetX) / SMALL_GRID_CUBE_SIZE);
+    const endXCell = Math.ceil((maxX - offsetX) / SMALL_GRID_CUBE_SIZE);
+    const startZCell = Math.floor((minZ - offsetZ) / SMALL_GRID_CUBE_SIZE);
+    const endZCell = Math.ceil((maxZ - offsetZ) / SMALL_GRID_CUBE_SIZE);
     return {
         startXCell,
         endXCell,
         startZCell,
         endZCell,
-        originX: (startXCell + endXCell) * SMALL_GRID_CUBE_SIZE * 0.5,
-        originZ: (startZCell + endZCell) * SMALL_GRID_CUBE_SIZE * 0.5,
+        originX: offsetX + (startXCell + endXCell) * SMALL_GRID_CUBE_SIZE * 0.5,
+        originZ: offsetZ + (startZCell + endZCell) * SMALL_GRID_CUBE_SIZE * 0.5,
+        offsetX,
+        offsetZ,
         y,
         majorStep,
     };
@@ -177,8 +183,9 @@ function floorGridCells(minX, maxX, minZ, maxZ, y, majorStep) {
 
 function appendFloorGridLines(options) {
     for (let cell = options.startCell; cell <= options.endCell; cell++) {
-        const coordinate = cell * SMALL_GRID_CUBE_SIZE - options.origin;
-        const isAxis = cell === 0;
+        const worldCoordinate = options.offset + cell * SMALL_GRID_CUBE_SIZE;
+        const coordinate = worldCoordinate - options.origin;
+        const isAxis = Math.abs(worldCoordinate) < 1e-6;
         const isMajor = cell % options.majorEveryCells === 0;
         const color = isAxis ? options.axisColor : isMajor ? options.majorColor : options.minorColor;
         if (options.axis === "x") {
@@ -220,7 +227,7 @@ export function fitCameraToScene() {
 
 export function updateSceneBounds(refit = false) {
     state.currentBounds = objectWorldBounds(state.gridGroup) || boundsToBox3(state.lastScene && state.lastScene.grid && state.lastScene.grid.bounds);
-    replaceFloorGrid(state.currentBounds, state.currentGridSize);
+    replaceFloorGrid(state.currentBounds, state.currentGridSize, state.currentFloorGridAlignment);
     updateSunLightPosition();
     if (refit) fitCameraToScene();
 }
