@@ -1330,9 +1330,18 @@ function parseTransparentMaterialDefinitions(text) {
 function spaceEngineersTransparentMaterialParameters(definition, technique) {
     const sourceColor = definition.color || { r: 1, g: 1, b: 1, a: 0.38 };
     const alpha = clamp(sourceColor.a, 0, 1);
-    const glassLike = String(definition.subtype || "").toLowerCase().includes("glass") || String(technique || "").toUpperCase().includes("GLASS");
-    const opacity = glassLike ? clamp(0.35 + alpha * 0.65, 0.35, 0.9) : alpha;
-    const colorScale = glassLike ? clamp(0.55 + alpha * 0.45, 0.55, 1) : 1;
+    const subtype = String(definition.subtype || "").toLowerCase();
+    const glassLike = subtype.includes("glass") || String(technique || "").toUpperCase().includes("GLASS");
+    const outsideGlass = glassLike && subtype.includes("outside");
+    const insideGlass = glassLike && subtype.includes("inside");
+    const opacity = outsideGlass
+        ? clamp(0.76 + definition.reflectivity * 0.22 + definition.colorAdd.a * 0.08, 0.76, 0.92)
+        : insideGlass
+            ? clamp(0.34 + (1 - alpha) * 0.2, 0.34, 0.55)
+            : glassLike ? clamp(0.35 + alpha * 0.65, 0.35, 0.9) : alpha;
+    const colorScale = outsideGlass
+        ? 0.34
+        : insideGlass ? 0.72 : glassLike ? clamp(0.55 + alpha * 0.45, 0.55, 1) : 1;
     const light = definition.lightMultiplier || { r: 1, g: 1, b: 1, a: 1 };
     const lightIntensity = Math.max(light.r, light.g, light.b, light.a);
     const shadow = definition.shadowMultiplier || { a: 1 };
@@ -1360,7 +1369,7 @@ function spaceEngineersTransparentMaterialParameters(definition, technique) {
             seTransparentAlphaSaturation: { value: clamp(definition.alphaSaturation, 0, 1) },
             seTransparentOpacity: { value: opacity },
             seTransparentGlossTextureAdd: { value: clamp(definition.glossTextureAdd, 0, 1) },
-            seTransparentSpecularFactor: { value: clamp(definition.specularColorFactor, 0, 8) },
+            seTransparentSpecularFactor: { value: clamp(definition.specularColorFactor, 0, outsideGlass ? 2 : 8) },
         },
     };
 }
@@ -1760,7 +1769,7 @@ float seRemoveMetalnessFromColoring(float metalness, float coloring) {
 #endif
 }
 if (seUseTransparentMaterial) {
-    diffuseColor.rgb = diffuseColor.rgb * seTransparentLightFactor + seTransparentColorAdd.rgb * seTransparentColorAdd.a * seTransparentSpecularFactor * 0.2;
+    diffuseColor.rgb = diffuseColor.rgb * seTransparentLightFactor + seTransparentColorAdd.rgb * seTransparentColorAdd.a * seTransparentSpecularFactor * 0.04;
 }`);
     };
     material.customProgramCacheKey = () => transparentParameters ? "se-grid-viewer-color-mask-transparent-v1" : "se-grid-viewer-color-mask-v5";

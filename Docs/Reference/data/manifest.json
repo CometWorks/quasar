@@ -394,8 +394,8 @@
       "path": "Quasar.Agent/GridRenderSceneInspector.cs",
       "name": "GridRenderSceneInspector.cs",
       "ext": ".cs",
-      "size": 55082,
-      "sha256": "f4891e9901723089e98c1703271517be7d795db65448c29b56cfa2e2cfe849e5",
+      "size": 59481,
+      "sha256": "10e67030fecc5c541de15790952220faa010620c2d7ca840c5f5b7fbaa3b1dda",
       "module": "Quasar.Agent",
       "tier": 1,
       "status": "pending"
@@ -2174,8 +2174,8 @@
       "path": "Quasar/wwwroot/viewer/grid-renderer.js",
       "name": "grid-renderer.js",
       "ext": ".js",
-      "size": 95138,
-      "sha256": "c12ba176d2fa08234891975a1e8ddbc028f9314656fe89181ce0b67754cb837a",
+      "size": 96555,
+      "sha256": "37152b2da6a75cfae5e4932096976f6283170e1ed31524ae3ac97d250ab7a2fd",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"
@@ -2204,8 +2204,8 @@
       "path": "Quasar/wwwroot/viewer/logging.js",
       "name": "logging.js",
       "ext": ".js",
-      "size": 895,
-      "sha256": "b8a77845c821962e3f24ad4adabe483ed76ee2a996fd24e9acca06f0cd82be23",
+      "size": 1151,
+      "sha256": "ef96aff0053b5624fd32cacaaa6956e114ebf332ffda6db69838ce8b26c79022",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"
@@ -2244,8 +2244,8 @@
       "path": "Quasar/wwwroot/viewer/mwm-loader.js",
       "name": "mwm-loader.js",
       "ext": ".js",
-      "size": 14375,
-      "sha256": "cdbae8ca9a0988d62f7bf7c79aa23f2ea1fb2cc93aeacb1648749adfba57b5b5",
+      "size": 17304,
+      "sha256": "b7345cee7a055358ab92302722e06d9cb17eb77f7c969202b02e0e0970c75f19",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"
