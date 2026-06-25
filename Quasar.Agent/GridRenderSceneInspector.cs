@@ -129,8 +129,7 @@ namespace Quasar.Agent
         {
             var definition = block.BlockDefinition as MyLightingBlockDefinition;
             var isReflector = lightingBlock is MyReflectorLight;
-            var power = ValidLightPower(lightingBlock.CurrentLightPower, lightingBlock.IsWorking ? 1f : 0f);
-            var enabled = lightingBlock.IsWorking && power > 0f && lightingBlock.Intensity > 0f;
+            var enabled = lightingBlock.IsWorking && lightingBlock.Intensity > 0f;
             var blockId = lightingBlock.EntityId.ToString();
             var radius = ValidLightValue(lightingBlock.Radius, 0f);
             var reflectorRadius = ValidLightValue(lightingBlock.ReflectorRadius, radius);
@@ -143,7 +142,7 @@ namespace Quasar.Agent
 
             if (isReflector)
             {
-                var spotIntensity = ViewerLightIntensity(power, lightingBlock.Intensity, 8f);
+                var spotIntensity = ViewerLightIntensity(lightingBlock.Intensity, 8f);
                 if (reflectorRadius > 0f || spotIntensity > 0f)
                 {
                     lightSources.Add(new ViewerLightSource
@@ -167,7 +166,7 @@ namespace Quasar.Agent
                     });
                 }
 
-                var companionIntensity = ViewerLightIntensity(power, lightingBlock.Intensity, 0.3f);
+                var companionIntensity = ViewerLightIntensity(lightingBlock.Intensity, 0.3f);
                 if (radius > 0f && companionIntensity > 0f)
                 {
                     lightSources.Add(new ViewerLightSource
@@ -194,7 +193,7 @@ namespace Quasar.Agent
                 return;
             }
 
-            var intensity = ViewerLightIntensity(power, lightingBlock.Intensity, 2f);
+            var intensity = ViewerLightIntensity(lightingBlock.Intensity, 2f);
             if (radius <= 0f && intensity <= 0f)
                 return;
 
@@ -223,9 +222,8 @@ namespace Quasar.Agent
         {
             var functionalBlock = block.FatBlock as MyFunctionalBlock;
             var enabledByBlock = functionalBlock == null || functionalBlock.IsWorking;
-            var power = ValidLightPower(lightingComponent.CurrentLightPower, enabledByBlock ? 1f : 0f);
             var radius = ValidLightValue(lightingComponent.Radius, 0f);
-            var intensity = ViewerLightIntensity(power, lightingComponent.Intensity, 2f);
+            var intensity = ViewerLightIntensity(lightingComponent.Intensity, 2f);
             if (radius <= 0f && intensity <= 0f)
                 return;
 
@@ -247,7 +245,7 @@ namespace Quasar.Agent
                 Intensity = intensity,
                 Falloff = ValidLightValue(lightingComponent.Falloff, 1f),
                 ConeDegrees = 52f,
-                Enabled = enabledByBlock && power > 0f && radius > 0f && intensity > 0f,
+                Enabled = enabledByBlock && radius > 0f && intensity > 0f,
                 BlinkIntervalSeconds = ValidLightValue(lightingComponent.BlinkIntervalSeconds, 0f),
                 BlinkLength = ValidLightValue(lightingComponent.BlinkLength, 0f),
                 BlinkOffset = ValidLightValue(lightingComponent.BlinkOffset, 0f),
@@ -283,17 +281,12 @@ namespace Quasar.Agent
             return up;
         }
 
-        private static float ViewerLightIntensity(float power, float intensity, float gameScale)
+        private static float ViewerLightIntensity(float intensity, float gameScale)
         {
-            if (!power.IsValid() || !intensity.IsValid() || !gameScale.IsValid())
+            if (!intensity.IsValid() || !gameScale.IsValid())
                 return 0f;
 
-            return Math.Min(80f, Math.Max(0f, power * intensity * gameScale));
-        }
-
-        private static float ValidLightPower(float value, float fallback)
-        {
-            return value.IsValid() ? Math.Min(1f, Math.Max(0f, value)) : fallback;
+            return Math.Min(80f, Math.Max(0f, intensity * gameScale));
         }
 
         private static float ValidLightValue(float value, float fallback)
