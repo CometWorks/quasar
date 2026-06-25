@@ -568,6 +568,11 @@ function sharedModelMaterial(model, group, block, renderContext) {
         side: modelMaterialSide(technique, renderMode),
     });
     if (transparentMaterial && transparentMaterial.color) material.userData.seTransparentMaterialColor = color.clone();
+    if (renderMode.decal) {
+        material.polygonOffset = true;
+        material.polygonOffsetFactor = -1;
+        material.polygonOffsetUnits = -1;
+    }
     if (transparent) material.forceSinglePass = true;
     material.userData.renderCacheKey = key;
     material.userData.seRenderMode = modelMaterialRenderModeName(renderMode);
