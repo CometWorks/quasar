@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using Magnetar.Protocol.Model;
@@ -28,7 +29,6 @@ namespace Quasar.Agent
     internal static class GridRenderSceneInspector
     {
         private const int ChunkSizeCells = 16;
-
         public static EntityRenderScene Build(long entityId, string gameVersion, string pluginVersion)
         {
             if (!MyEntities.TryGetEntityById<MyCubeGrid>(entityId, out var grid) || grid == null || grid.MarkedForClose || grid.Closed)
@@ -65,8 +65,10 @@ namespace Quasar.Agent
                 }
 
                 chunk.Include(block.Min, block.Max);
-                scene.BlockInstances.Add(ToBlockInstance(grid, block, definitionId, chunkId, catalog, scene.Warnings));
+                var blockInstance = ToBlockInstance(grid, block, definitionId, chunkId, catalog, scene.Warnings);
+                scene.BlockInstances.Add(blockInstance);
                 AddLightSources(grid, block, scene.LightSources, scene.Warnings);
+                AddSubpartLightSources(blockInstance, scene.LightSources);
             }
 
             scene.BlockDefinitions = definitions.Values.OrderBy(definition => definition.Id, StringComparer.Ordinal).ToList();
@@ -145,49 +147,21 @@ namespace Quasar.Agent
                 var spotIntensity = ViewerLightIntensity(lightingBlock.Intensity, 8f);
                 if (reflectorRadius > 0f || spotIntensity > 0f)
                 {
-                    lightSources.Add(new ViewerLightSource
-                    {
-                        Id = blockId + ":spot",
-                        BlockId = blockId,
-                        Kind = "spot",
-                        Position = ToDto(position),
-                        Direction = ToDto(direction),
-                        Up = ToDto(up),
-                        Color = ToDto(lightingBlock.Color),
-                        Radius = radius,
-                        ReflectorRadius = reflectorRadius,
-                        Intensity = spotIntensity,
-                        Falloff = falloff,
-                        ConeDegrees = coneDegrees,
-                        Enabled = enabled && reflectorRadius > 0f && spotIntensity > 0f,
-                        BlinkIntervalSeconds = ValidLightValue(lightingBlock.BlinkIntervalSeconds, 0f),
-                        BlinkLength = ValidLightValue(lightingBlock.BlinkLength, 0f),
-                        BlinkOffset = ValidLightValue(lightingBlock.BlinkOffset, 0f),
-                    });
+                    lightSources.Add(CreateLightSource(
+                        blockId + ":spot", blockId, "spot", position, direction, up, lightingBlock.Color,
+                        radius, reflectorRadius, spotIntensity, falloff, coneDegrees,
+                        enabled && reflectorRadius > 0f && spotIntensity > 0f,
+                        lightingBlock.BlinkIntervalSeconds, lightingBlock.BlinkLength, lightingBlock.BlinkOffset));
                 }
 
                 var companionIntensity = ViewerLightIntensity(lightingBlock.Intensity, 0.3f);
                 if (radius > 0f && companionIntensity > 0f)
                 {
-                    lightSources.Add(new ViewerLightSource
-                    {
-                        Id = blockId + ":point",
-                        BlockId = blockId,
-                        Kind = "point",
-                        Position = ToDto(position),
-                        Direction = ToDto(direction),
-                        Up = ToDto(up),
-                        Color = ToDto(lightingBlock.Color),
-                        Radius = radius,
-                        ReflectorRadius = reflectorRadius,
-                        Intensity = companionIntensity,
-                        Falloff = falloff,
-                        ConeDegrees = coneDegrees,
-                        Enabled = enabled && radius > 0f && companionIntensity > 0f,
-                        BlinkIntervalSeconds = ValidLightValue(lightingBlock.BlinkIntervalSeconds, 0f),
-                        BlinkLength = ValidLightValue(lightingBlock.BlinkLength, 0f),
-                        BlinkOffset = ValidLightValue(lightingBlock.BlinkOffset, 0f),
-                    });
+                    lightSources.Add(CreateLightSource(
+                        blockId + ":point", blockId, "point", position, direction, up, lightingBlock.Color,
+                        radius, reflectorRadius, companionIntensity, falloff, coneDegrees,
+                        enabled && radius > 0f && companionIntensity > 0f,
+                        lightingBlock.BlinkIntervalSeconds, lightingBlock.BlinkLength, lightingBlock.BlinkOffset));
                 }
 
                 return;
@@ -197,25 +171,11 @@ namespace Quasar.Agent
             if (radius <= 0f && intensity <= 0f)
                 return;
 
-            lightSources.Add(new ViewerLightSource
-            {
-                Id = blockId + ":point",
-                BlockId = blockId,
-                Kind = "point",
-                Position = ToDto(position),
-                Direction = ToDto(direction),
-                Up = ToDto(up),
-                Color = ToDto(lightingBlock.Color),
-                Radius = radius,
-                ReflectorRadius = reflectorRadius,
-                Intensity = intensity,
-                Falloff = falloff,
-                ConeDegrees = coneDegrees,
-                Enabled = enabled && radius > 0f && intensity > 0f,
-                BlinkIntervalSeconds = ValidLightValue(lightingBlock.BlinkIntervalSeconds, 0f),
-                BlinkLength = ValidLightValue(lightingBlock.BlinkLength, 0f),
-                BlinkOffset = ValidLightValue(lightingBlock.BlinkOffset, 0f),
-            });
+            lightSources.Add(CreateLightSource(
+                blockId + ":point", blockId, "point", position, direction, up, lightingBlock.Color,
+                radius, reflectorRadius, intensity, falloff, coneDegrees,
+                enabled && radius > 0f && intensity > 0f,
+                lightingBlock.BlinkIntervalSeconds, lightingBlock.BlinkLength, lightingBlock.BlinkOffset));
         }
 
         private static void AddLightingComponentSource(MyCubeGrid grid, MySlimBlock block, MyLightingComponent lightingComponent, List<ViewerLightSource> lightSources)
@@ -231,25 +191,60 @@ namespace Quasar.Agent
             var position = LightPosition(block, lightingComponent.Offset);
             var direction = LightDirection(block);
             var up = LightUp(block);
-            lightSources.Add(new ViewerLightSource
+            lightSources.Add(CreateLightSource(
+                blockId + ":component-light", blockId, "point", position, direction, up, lightingComponent.Color,
+                radius, ValidLightValue(lightingComponent.ReflectorRadius, radius), intensity,
+                ValidLightValue(lightingComponent.Falloff, 1f), 52f,
+                enabledByBlock && radius > 0f && intensity > 0f,
+                lightingComponent.BlinkIntervalSeconds, lightingComponent.BlinkLength, lightingComponent.BlinkOffset));
+        }
+
+        private static ViewerLightSource CreateLightSource(
+            string id,
+            string blockId,
+            string kind,
+            Vector3 position,
+            Vector3 direction,
+            Vector3 up,
+            Color color,
+            float radius,
+            float reflectorRadius,
+            float intensity,
+            float falloff,
+            float coneDegrees,
+            bool enabled,
+            float blinkIntervalSeconds,
+            float blinkLength,
+            float blinkOffset)
+        {
+            return new ViewerLightSource
             {
-                Id = blockId + ":component-light",
+                Id = id,
                 BlockId = blockId,
-                Kind = "point",
+                Kind = kind,
                 Position = ToDto(position),
                 Direction = ToDto(direction),
                 Up = ToDto(up),
-                Color = ToDto(lightingComponent.Color),
+                Color = ToDto(color),
                 Radius = radius,
-                ReflectorRadius = ValidLightValue(lightingComponent.ReflectorRadius, radius),
+                ReflectorRadius = reflectorRadius,
                 Intensity = intensity,
-                Falloff = ValidLightValue(lightingComponent.Falloff, 1f),
-                ConeDegrees = 52f,
-                Enabled = enabledByBlock && radius > 0f && intensity > 0f,
-                BlinkIntervalSeconds = ValidLightValue(lightingComponent.BlinkIntervalSeconds, 0f),
-                BlinkLength = ValidLightValue(lightingComponent.BlinkLength, 0f),
-                BlinkOffset = ValidLightValue(lightingComponent.BlinkOffset, 0f),
-            });
+                Falloff = falloff,
+                ConeDegrees = coneDegrees,
+                Enabled = enabled,
+                BlinkIntervalSeconds = ValidLightValue(blinkIntervalSeconds, 0f),
+                BlinkLength = ValidLightValue(blinkLength, 0f),
+                BlinkOffset = ValidLightValue(blinkOffset, 0f),
+            };
+        }
+
+        private static void AddSubpartLightSources(ViewerBlockInstance blockInstance, List<ViewerLightSource> lightSources)
+        {
+            foreach (var subpart in blockInstance.Subparts)
+            {
+                foreach (var lightSource in subpart.LightSources)
+                    lightSources.Add(lightSource);
+            }
         }
 
         private static Vector3 LightPosition(MySlimBlock block, float offset)
@@ -841,12 +836,15 @@ namespace Quasar.Agent
                         }
                         else
                         {
-                            dto.Subparts.Add(new ViewerBlockSubpart
+                            var localMatrix = subpart.PositionComp.WorldMatrixRef * gridWorldInverse;
+                            var subpartDto = new ViewerBlockSubpart
                             {
                                 Name = subpartPath,
                                 ModelAssetId = modelAssetId,
-                                LocalMatrix = ToDto(subpart.PositionComp.WorldMatrixRef * gridWorldInverse),
-                            });
+                                LocalMatrix = ToDto(localMatrix),
+                            };
+                            AddRuntimeSubpartLightSources(block, subpart, subpartPath, localMatrix, subpartDto.LightSources);
+                            dto.Subparts.Add(subpartDto);
                         }
                     }
                 }
@@ -858,6 +856,131 @@ namespace Quasar.Agent
                 if (subpart.Subparts != null && subpart.Subparts.Count > 0)
                     AddRuntimeSubparts(block, subpart.Subparts, subpartPath, gridWorldInverse, dto, catalog, warnings);
             }
+        }
+
+        private static void AddRuntimeSubpartLightSources(
+            MySlimBlock block,
+            MyEntitySubpart subpart,
+            string subpartPath,
+            MatrixD subpartGridLocalMatrix,
+            List<ViewerLightSource> lightSources)
+        {
+            var fatBlock = block.FatBlock;
+            if (fatBlock == null)
+                return;
+
+            var logic = LightingLogic(fatBlock);
+            if (logic != null)
+            {
+                AddRuntimeSubpartLightingLogicSources(block, subpart, subpartPath, subpartGridLocalMatrix, logic, lightSources);
+                return;
+            }
+
+            MyLightingComponent lightingComponent;
+            if (fatBlock.Components != null && fatBlock.Components.TryGet(out lightingComponent))
+            {
+                logic = LightingLogic(lightingComponent);
+                if (logic != null)
+                {
+                    AddRuntimeSubpartLightingLogicSources(block, subpart, subpartPath, subpartGridLocalMatrix, logic, lightSources);
+                    return;
+                }
+            }
+        }
+
+        private static void AddRuntimeSubpartLightingLogicSources(
+            MySlimBlock block,
+            MyEntitySubpart subpart,
+            string subpartPath,
+            MatrixD subpartGridLocalMatrix,
+            MyLightingLogic logic,
+            List<ViewerLightSource> lightSources)
+        {
+            var functionalBlock = block.FatBlock as MyFunctionalBlock;
+            var enabled = (functionalBlock == null || functionalBlock.IsWorking) && logic.Intensity > 0f;
+            var blockId = block.FatBlock.EntityId.ToString();
+            var radius = ValidLightValue(logic.Radius, 0f);
+            var reflectorRadius = ValidLightValue(logic.ReflectorRadius, radius);
+            var falloff = ValidLightValue(logic.Falloff, 1f);
+            var coneDegrees = logic.ReflectorConeDegrees > 0f ? logic.ReflectorConeDegrees : 52f;
+            var matrices = RuntimeSubpartLightMatrices(logic, subpart, subpartGridLocalMatrix).ToList();
+            foreach (var sourceMatrix in matrices)
+            {
+                var position = sourceMatrix.Translation;
+                var direction = SafeNormalized(sourceMatrix.Forward, Vector3.Forward);
+                var up = SafeNormalized(sourceMatrix.Up, Vector3.Up);
+                var sourceId = blockId + ":subpart:" + subpartPath + ":" + lightSources.Count;
+
+                if (logic.IsReflector)
+                {
+                    var spotIntensity = ViewerLightIntensity(logic.Intensity, 8f);
+                    if (reflectorRadius > 0f || spotIntensity > 0f)
+                    {
+                        lightSources.Add(CreateLightSource(
+                            sourceId + ":spot", blockId, "spot", (Vector3)position, direction, up, logic.Color,
+                            radius, reflectorRadius, spotIntensity, falloff, coneDegrees,
+                            enabled && reflectorRadius > 0f && spotIntensity > 0f,
+                            logic.BlinkIntervalSeconds, logic.BlinkLength, logic.BlinkOffset));
+                    }
+
+                    var companionIntensity = ViewerLightIntensity(logic.Intensity, 0.3f);
+                    if (radius > 0f && companionIntensity > 0f)
+                    {
+                        lightSources.Add(CreateLightSource(
+                            sourceId + ":point", blockId, "point", (Vector3)position, direction, up, logic.Color,
+                            radius, reflectorRadius, companionIntensity, falloff, coneDegrees,
+                            enabled && radius > 0f && companionIntensity > 0f,
+                            logic.BlinkIntervalSeconds, logic.BlinkLength, logic.BlinkOffset));
+                    }
+
+                    continue;
+                }
+
+                var intensity = ViewerLightIntensity(logic.Intensity, 2f);
+                if (radius <= 0f && intensity <= 0f)
+                    continue;
+
+                lightSources.Add(CreateLightSource(
+                    sourceId + ":point", blockId, "point", (Vector3)position, direction, up, logic.Color,
+                    radius, reflectorRadius, intensity, falloff, coneDegrees,
+                    enabled && radius > 0f && intensity > 0f,
+                    logic.BlinkIntervalSeconds, logic.BlinkLength, logic.BlinkOffset));
+            }
+        }
+
+        private static IEnumerable<MatrixD> RuntimeSubpartLightMatrices(MyLightingLogic logic, MyEntitySubpart subpart, MatrixD subpartGridLocalMatrix)
+        {
+            foreach (var localData in logic.LightLocalDatas)
+            {
+                if (localData == null)
+                    continue;
+
+                var localDataSubpart = localData.Subpart;
+                if (!ReferenceEquals(localDataSubpart, subpart))
+                    continue;
+
+                yield return MatrixD.Normalize(localData.LocalMatrix) * subpartGridLocalMatrix;
+            }
+        }
+
+        private static MyLightingLogic LightingLogic(object owner)
+        {
+            for (var type = owner.GetType(); type != null; type = type.BaseType)
+            {
+                var field = type.GetField("m_lightingLogic", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (field?.GetValue(owner) is MyLightingLogic logic)
+                    return logic;
+            }
+
+            return null;
+        }
+
+        private static Vector3 SafeNormalized(Vector3 value, Vector3 fallback)
+        {
+            if (!value.IsValid() || value.LengthSquared() < 0.0001f)
+                value = fallback;
+            value.Normalize();
+            return value;
         }
 
         private static void AddSkinTextureChanges(MySlimBlock block, ViewerBlockInstance dto)

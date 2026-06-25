@@ -297,6 +297,8 @@ public class ViewerBlockSubpart
     public string ModelAssetId { get; set; } = string.Empty;
 
     public ViewerMatrix LocalMatrix { get; set; } = ViewerMatrix.Identity();
+
+    public List<ViewerLightSource> LightSources { get; set; } = new();
 }
 
 public class ViewerMaterialTextureChange

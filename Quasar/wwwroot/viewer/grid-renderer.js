@@ -72,7 +72,7 @@ export async function renderGridScene(scene) {
     state.stats["Voxel bodies"] = (scene.voxels || []).length;
     state.stats["Voxel proxies"] = state.sceneRenderCounts.voxelProxies;
     state.stats["LCD surfaces"] = countLcdSurfaces(scene);
-    updateGridLightStats(scene.lightSources || []);
+    updateGridLightStats(collectSceneLightSources(scene));
     renderSummary(scene, resolutionStats, textureStats);
 
     await ensureArmorSkinDefinitionsLoaded();
@@ -271,7 +271,7 @@ function configureEnvironment(scene) {
 
 function buildGridLightGroup(scene, gridGroup) {
     state.gridLights = [];
-    const sources = scene.lightSources || [];
+    const sources = collectSceneLightSources(scene);
     const lightGroup = new THREE.Group();
     lightGroup.name = "QuasarGridLights";
     gridGroup.add(lightGroup);
@@ -292,6 +292,31 @@ function buildGridLightGroup(scene, gridGroup) {
 
     if (sources.length > selectedSources.length) log(`Grid lights capped at ${selectedSources.length} of ${sources.length}.`, "warn");
     updateLighting();
+}
+
+function collectSceneLightSources(scene) {
+    const sources = [];
+    const seen = new Set();
+    const add = source => {
+        if (!source) return;
+        const key = source.id || `${source.blockId || ""}:${source.kind || ""}:${formatViewerVector(source.position)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        sources.push(source);
+    };
+
+    for (const source of scene.lightSources || []) add(source);
+    for (const block of scene.blockInstances || []) {
+        for (const subpart of block.subparts || []) {
+            for (const source of subpart.lightSources || []) add(source);
+        }
+    }
+
+    return sources;
+}
+
+function formatViewerVector(vector) {
+    return `${num(vector && vector.x, 0).toFixed(3)}, ${num(vector && vector.y, 0).toFixed(3)}, ${num(vector && vector.z, 0).toFixed(3)}`;
 }
 
 function createGridLight(source, lightGroup) {
