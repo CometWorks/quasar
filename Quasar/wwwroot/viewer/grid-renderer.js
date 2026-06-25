@@ -725,18 +725,21 @@ function sharedModelMaterial(model, group, block, renderContext) {
     const key = `${model.logicalPath}|${group.materialIndex}|${group.materialName}|${group.technique}|${stableTextureKey(textures)}|glass=${transparentMaterialKey(transparentMaterial)}|metalnessColorable=${skin && skin.metalnessColorable ? 1 : 0}`;
     if (renderContext.materials.has(key)) return renderContext.materials.get(key);
 
-    const color = transparentMaterial && transparentMaterial.color ? new THREE.Color(transparentMaterial.color.r, transparentMaterial.color.g, transparentMaterial.color.b) : colorFromHash(`${model.logicalPath}|${group.materialName || group.materialIndex}`);
+    const transparentParameters = transparentMaterial ? spaceEngineersTransparentMaterialParameters(transparentMaterial, technique) : null;
+    const color = transparentParameters?.color || colorFromHash(`${model.logicalPath}|${group.materialName || group.materialIndex}`);
     const transparent = renderMode.blended || (renderMode.decal && !renderMode.cutout);
     const material = new THREE.MeshStandardMaterial({
         color,
-        roughness: transparentMaterial && Number.isFinite(transparentMaterial.gloss) ? clamp(1 - transparentMaterial.gloss, 0, 1) : 0.72,
-        metalness: 0.22,
+        roughness: transparentParameters ? transparentParameters.roughness : 0.72,
+        metalness: transparentParameters ? transparentParameters.metalness : 0.22,
         transparent,
-        opacity: transparentMaterial && transparentMaterial.color ? clamp(transparentMaterial.color.a, 0, 1) : technique.includes("GLASS") ? 0.38 : renderMode.blended ? 0.7 : 1,
+        opacity: transparentParameters ? transparentParameters.opacity : technique.includes("GLASS") ? 0.38 : renderMode.blended ? 0.7 : 1,
         depthWrite: !renderMode.blended && !renderMode.decal,
+        premultipliedAlpha: !!transparentParameters,
+        envMapIntensity: transparentParameters ? transparentParameters.envMapIntensity : 1,
         side: modelMaterialSide(technique, renderMode),
     });
-    if (transparentMaterial && transparentMaterial.color) material.userData.seTransparentMaterialColor = color.clone();
+    if (transparentParameters) material.userData.seTransparentMaterialColor = color.clone();
     if (renderMode.decal) {
         material.polygonOffset = true;
         material.polygonOffsetFactor = -1;
@@ -745,7 +748,7 @@ function sharedModelMaterial(model, group, block, renderContext) {
     if (transparent) material.forceSinglePass = true;
     material.userData.renderCacheKey = key;
     material.userData.seRenderMode = modelMaterialRenderModeName(renderMode);
-    applySpaceEngineersColorMasking(material, skin && skin.metalnessColorable, colorMaskable);
+    applySpaceEngineersColorMasking(material, skin && skin.metalnessColorable, colorMaskable, transparentParameters);
     applyModelTextures(material, { ...group, textures }, technique, renderMode, renderContext.textureToken, colorMaskable);
     renderContext.materials.set(key, material);
     return material;
@@ -1308,10 +1311,58 @@ function parseTransparentMaterialDefinitions(text) {
             texture,
             glossTexture,
             color: parseVector4(directChild(node, "Color"), { r: 1, g: 1, b: 1, a: 0.38 }),
-            gloss: num(directChildText(node, "Gloss"), 0.4),
+            colorAdd: parseVector4(directChild(node, "ColorAdd"), { r: 0, g: 0, b: 0, a: 0 }),
+            shadowMultiplier: parseVector4(directChild(node, "ShadowMultiplier"), { r: 0, g: 0, b: 0, a: 1 }),
+            lightMultiplier: parseVector4(directChild(node, "LightMultiplier"), { r: 1, g: 1, b: 1, a: 1 }),
+            reflectivity: directChildNumber(node, "Reflectivity", 0.04),
+            fresnel: directChildNumber(node, "Fresnel", 0.25),
+            reflectionShadow: directChildNumber(node, "ReflectionShadow", 0.4),
+            gloss: directChildNumber(node, "Gloss", 0.4),
+            glossTextureAdd: directChildNumber(node, "GlossTextureAdd", 0),
+            specularColorFactor: directChildNumber(node, "SpecularColorFactor", 1),
+            alphaSaturation: directChildNumber(node, "AlphaSaturation", 1),
+            canBeAffectedByOtherLights: directChildText(node, "CanBeAffectedByOtherLights").toLowerCase() !== "false",
         });
     }
     return definitions;
+}
+
+function spaceEngineersTransparentMaterialParameters(definition, technique) {
+    const sourceColor = definition.color || { r: 1, g: 1, b: 1, a: 0.38 };
+    const alpha = clamp(sourceColor.a, 0, 1);
+    const glassLike = String(definition.subtype || "").toLowerCase().includes("glass") || String(technique || "").toUpperCase().includes("GLASS");
+    const opacity = glassLike ? clamp(0.35 + alpha * 0.65, 0.35, 0.9) : alpha;
+    const colorScale = glassLike ? clamp(0.55 + alpha * 0.45, 0.55, 1) : 1;
+    const light = definition.lightMultiplier || { r: 1, g: 1, b: 1, a: 1 };
+    const lightIntensity = Math.max(light.r, light.g, light.b, light.a);
+    const shadow = definition.shadowMultiplier || { a: 1 };
+    const lightFactor = glassLike
+        ? clamp(0.58 + lightIntensity * 2.2, 0.58, 1) / clamp(1 + Math.max(0, shadow.a - 1) * 0.08, 1, 1.5)
+        : 1;
+
+    return {
+        color: new THREE.Color(
+            clamp(sourceColor.r * colorScale, 0, 1),
+            clamp(sourceColor.g * colorScale, 0, 1),
+            clamp(sourceColor.b * colorScale, 0, 1)),
+        opacity,
+        roughness: clamp(1 - (definition.gloss + definition.glossTextureAdd * 0.35), 0.04, 1),
+        metalness: clamp(definition.reflectivity * 3, 0, 0.35),
+        envMapIntensity: clamp(0.45 + definition.reflectivity * 9 + definition.fresnel * 0.8, 0.45, 1.6),
+        uniforms: {
+            seUseTransparentMaterial: { value: true },
+            seTransparentColorAdd: { value: new THREE.Vector4(
+                clamp(definition.colorAdd?.r, 0, 4),
+                clamp(definition.colorAdd?.g, 0, 4),
+                clamp(definition.colorAdd?.b, 0, 4),
+                clamp(definition.colorAdd?.a, 0, 4)) },
+            seTransparentLightFactor: { value: clamp(lightFactor, 0.25, 1.25) },
+            seTransparentAlphaSaturation: { value: clamp(definition.alphaSaturation, 0, 1) },
+            seTransparentOpacity: { value: opacity },
+            seTransparentGlossTextureAdd: { value: clamp(definition.glossTextureAdd, 0, 1) },
+            seTransparentSpecularFactor: { value: clamp(definition.specularColorFactor, 0, 8) },
+        },
+    };
 }
 
 function parseVector4(node, fallback) {
@@ -1348,7 +1399,34 @@ function isTransparentScreenAreaMaterialName(name) {
 function transparentMaterialKey(definition) {
     if (!definition) return "none";
     const color = definition.color || {};
-    return [definition.subtype, definition.texture, definition.glossTexture, color.r, color.g, color.b, color.a, definition.gloss].join("|");
+    const add = definition.colorAdd || {};
+    const light = definition.lightMultiplier || {};
+    const shadow = definition.shadowMultiplier || {};
+    return [
+        definition.subtype,
+        definition.texture,
+        definition.glossTexture,
+        color.r,
+        color.g,
+        color.b,
+        color.a,
+        add.r,
+        add.g,
+        add.b,
+        add.a,
+        light.r,
+        light.g,
+        light.b,
+        light.a,
+        shadow.a,
+        definition.reflectivity,
+        definition.fresnel,
+        definition.reflectionShadow,
+        definition.gloss,
+        definition.glossTextureAdd,
+        definition.specularColorFactor,
+        definition.alphaSaturation,
+    ].join("|");
 }
 
 function materialTexturesForGroup(group, skin, transparentMaterial) {
@@ -1380,6 +1458,11 @@ function directChild(parent, name) {
 function directChildText(parent, name) {
     const child = directChild(parent, name);
     return child ? (child.textContent || "").trim() : "";
+}
+
+function directChildNumber(parent, name, fallback) {
+    const text = directChildText(parent, name);
+    return text === "" ? fallback : num(text, fallback);
 }
 
 function directChildren(parent, name) {
@@ -1539,7 +1622,7 @@ function textureSelection(textures, preferredSlots) {
     return null;
 }
 
-function applySpaceEngineersColorMasking(material, metalnessColorable, colorMaskable = true) {
+function applySpaceEngineersColorMasking(material, metalnessColorable, colorMaskable = true, transparentParameters = null) {
     material.userData.seColorMaskUniforms = {
         seColorMaskMap: { value: fallbackWhiteTexture() },
         seUseColorMaskMap: { value: false },
@@ -1553,7 +1636,15 @@ function applySpaceEngineersColorMasking(material, metalnessColorable, colorMask
         seUseAlphaMaskMap: { value: false },
         seAlphaMaskRedChannel: { value: 0 },
         seAlphaMaskCutoff: { value: 0.5 },
+        seUseTransparentMaterial: { value: false },
+        seTransparentColorAdd: { value: new THREE.Vector4(0, 0, 0, 0) },
+        seTransparentLightFactor: { value: 1 },
+        seTransparentAlphaSaturation: { value: 1 },
+        seTransparentOpacity: { value: material.opacity },
+        seTransparentGlossTextureAdd: { value: 0 },
+        seTransparentSpecularFactor: { value: 1 },
     };
+    if (transparentParameters) Object.assign(material.userData.seColorMaskUniforms, transparentParameters.uniforms);
     material.onBeforeCompile = shader => {
         Object.assign(shader.uniforms, material.userData.seColorMaskUniforms);
         shader.fragmentShader = shader.fragmentShader.replace("#include <color_pars_fragment>", `#include <color_pars_fragment>
@@ -1569,6 +1660,13 @@ uniform sampler2D seAlphaMaskMap;
 uniform bool seUseAlphaMaskMap;
 uniform float seAlphaMaskRedChannel;
 uniform float seAlphaMaskCutoff;
+uniform bool seUseTransparentMaterial;
+uniform vec4 seTransparentColorAdd;
+uniform float seTransparentLightFactor;
+uniform float seTransparentAlphaSaturation;
+uniform float seTransparentOpacity;
+uniform float seTransparentGlossTextureAdd;
+uniform float seTransparentSpecularFactor;
 
 vec3 seHsvToRgb(vec3 hsv) {
   vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
@@ -1618,6 +1716,13 @@ float seRemoveMetalnessFromColoring(float metalness, float coloring) {
         shader.fragmentShader = shader.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>
 #ifdef USE_MAP
   if (seUseColorMetalAlpha) diffuseColor.a = opacity;
+  if (seUseTransparentMaterial) {
+    float seTextureAlpha = max(sampledDiffuseColor.a, 0.65);
+    float seAlphaRemap = mix(1.0, seTextureAlpha, seTransparentAlphaSaturation);
+    diffuseColor.a = clamp(seTransparentOpacity * seAlphaRemap, 0.0, 1.0);
+  }
+#else
+  if (seUseTransparentMaterial) diffuseColor.a = clamp(seTransparentOpacity, 0.0, 1.0);
 #endif`);
         shader.fragmentShader = shader.fragmentShader.replace("#include <alphatest_fragment>", `#ifdef USE_ALPHAMAP
   if (seUseAlphaMaskMap) {
@@ -1630,7 +1735,7 @@ float seRemoveMetalnessFromColoring(float metalness, float coloring) {
         shader.fragmentShader = shader.fragmentShader.replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
 #ifdef USE_NORMALMAP
   if (seUseNormalGlossAlpha) {
-    float seGloss = texture2D(normalMap, vNormalMapUv).a;
+    float seGloss = clamp(texture2D(normalMap, vNormalMapUv).a + (seUseTransparentMaterial ? seTransparentGlossTextureAdd : 0.0), 0.0, 1.0);
     roughnessFactor = clamp(1.0 - seGloss, 0.0, 1.0);
   }
 #endif`);
@@ -1653,9 +1758,12 @@ float seRemoveMetalnessFromColoring(float metalness, float coloring) {
 #else
     diffuseColor.rgb = seColorizeGray(diffuseColor.rgb, sePaintMask, 1.0);
 #endif
+}
+if (seUseTransparentMaterial) {
+    diffuseColor.rgb = diffuseColor.rgb * seTransparentLightFactor + seTransparentColorAdd.rgb * seTransparentColorAdd.a * seTransparentSpecularFactor * 0.2;
 }`);
     };
-    material.customProgramCacheKey = () => "se-grid-viewer-color-mask-v4";
+    material.customProgramCacheKey = () => transparentParameters ? "se-grid-viewer-color-mask-transparent-v1" : "se-grid-viewer-color-mask-v5";
 }
 
 function applyDefaultBlockColorMaskUniforms(renderer, scene, camera, geometry, material) {
