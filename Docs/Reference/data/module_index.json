@@ -145,7 +145,7 @@
       "name": "ViewerSceneDtos.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Shared metadata-only DTOs for the Quasar grid viewer scene contract. `EntityRenderSceneRequest` carries the target entity ID for `ServerCommandType.GetEntityRenderScene`; `EntityRenderScene` and related `Viewer*` classes describe grid identity, block placement, transforms, logical model/texture references, generated model parts, runtime subparts, LCD surface text/image metadata, empty online/offline placeholder images, block-level offline-hidden LCD materials, bounds, chunks, and warnings without including raw assets, server-rendered LCD texture bytes, or extracted mesh geometry."
+      "summary": "Shared metadata-only DTOs for the Quasar grid viewer scene contract. `EntityRenderSceneRequest` carries the target entity ID for `ServerCommandType.GetEntityRenderScene`; `EntityRenderScene` and related `Viewer*` classes describe grid identity, block placement, transforms, scene environment, captured block and subpart light sources, logical model/texture references, generated model parts, runtime subparts, LCD surface text/image metadata, empty online/offline placeholder images, block-level offline-hidden LCD materials, bounds, chunks, and warnings without including raw assets, server-rendered LCD texture bytes, or extracted mesh geometry."
     },
     {
       "path": "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
@@ -280,7 +280,7 @@
       "name": "GridRenderSceneInspector.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Game-thread helper that builds metadata-only grid viewer scene snapshots from live `MyCubeGrid` instances. It maps grid/block definitions and instances into `Magnetar.Protocol` viewer DTOs, registers logical model and texture names, includes generated cube-part and runtime subpart metadata, captures LCD material names, working state, `UseOnlineTexture`, built-in online/offline placeholder image paths, selected image paths, text settings, background colors, sprite metadata, and `MaterialNamesToHideWhenOffline` from standalone `MyTextPanel` blocks and `IMyMultiTextPanelComponentOwner` blocks such as cockpits/control seats, and intentionally avoids client-render-only dependencies such as `VRage.Render` texture-change payloads or offscreen LCD texture bytes."
+      "summary": "Game-thread helper that builds metadata-only grid viewer scene snapshots from live `MyCubeGrid` instances. It maps grid/block definitions and instances into `Magnetar.Protocol` viewer DTOs, registers logical model and texture names, includes generated cube-part and runtime subpart metadata, captures terminal-synced lighting metadata from classic `MyLightingBlock`, component-based `MyLightingComponent`, and runtime subpart lighting-logic sources using server working state instead of client render fade power, captures LCD material names, working state, `UseOnlineTexture`, built-in online/offline placeholder image paths, selected image paths, text settings, background colors, sprite metadata, and `MaterialNamesToHideWhenOffline` from standalone `MyTextPanel` blocks and `IMyMultiTextPanelComponentOwner` blocks such as cockpits/control seats, and intentionally avoids client-render-only dependencies such as `VRage.Render` texture-change payloads or offscreen LCD texture bytes."
     },
     {
       "path": "Quasar.Agent/PluginLogOutbox.cs",
@@ -925,7 +925,7 @@
       "name": "controls.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Wires the grid viewer control panel and keyboard input to scene actions. It connects reload/content selection buttons, render toggles, camera mode switching, camera reset, and free-fly movement key tracking."
+      "summary": "Wires the grid viewer control panel and keyboard input to scene actions. It connects reload/content selection buttons, render toggles including the unified lighting toggle, camera mode switching, camera reset, and free-fly movement key tracking."
     },
     {
       "path": "Quasar/wwwroot/viewer/geometry.js",
@@ -939,7 +939,7 @@
       "name": "grid-renderer.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Main renderer for metadata-only grid scenes. It displays instanced proxy batches while local MWM models resolve with bounded parallelism, resolves local armor skin texture overrides from `ArmorModifiers.sbc`, resolves glass and transparent LCD screen-area material names through `TransparentMaterials.sbc`, conditionally applies LCD screen material overrides for active content, built-in empty online/offline placeholders, and model-preserving `ContentType.NONE` surfaces, skips block-definition materials hidden while LCD blocks are offline, renders transparent LCD replacements single-sided and in the late transparent render layer to match the game material path and keep the floor grid consistently tinted, composes LCD background colors with regular/transparent-screen semantics, lays out LCD canvases in Space Engineers `SurfaceSize` coordinates before mapping them to the raw render texture, renders loaded LCD text through the local Space Engineers bitmap font loader for `Debug`/`Monospace`, progressively rebuilds the model layer with adaptive throttling, builds instanced batches for shared model/material combinations, applies Space Engineers-style material paint while skipping transparent glass/screen planes, handles cutout and blended transparency, adds voxel proxies and lighting context, and progressively loads selected material textures without blocking scene construction."
+      "summary": "Main renderer for metadata-only grid scenes. It computes centered floor-grid alignment from block integer footprint parity, de-duplicates top-level and subpart light-source metadata before creating capped point/spot lights, selects a four-light projected-shadow budget for reflector spot lights, marks model/proxy grid geometry for shadow casting and receiving, displays instanced proxy batches while local MWM models resolve with bounded parallelism, resolves local armor skin texture overrides from `ArmorModifiers.sbc`, resolves glass and transparent LCD screen-area material names through `TransparentMaterials.sbc`, applies LCD material replacement and placeholder behavior, progressively rebuilds the model layer with adaptive throttling, builds instanced batches for shared model/material combinations, applies Space Engineers-style material paint, handles cutout/blended transparency, adds voxel proxies, and progressively loads selected material textures without blocking scene construction."
     },
     {
       "path": "Quasar/wwwroot/viewer/lcd-font-loader.js",
@@ -995,14 +995,14 @@
       "name": "scene.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid viewer. It owns renderer setup, orbit/free-fly camera behavior, floor grid generation, sun marker/lighting, object disposal, viewport resizing, hover readouts, and per-frame stats rendering."
+      "summary": "Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid viewer. It owns renderer setup including shadow-map configuration, orbit/free-fly camera behavior, floor grid generation with per-axis block-boundary alignment, ambient/environment lighting fallback, directional sun/shadow-camera fitting with texel-scaled normal bias, marker helpers, object disposal, viewport resizing, hover readouts, and per-frame stats rendering."
     },
     {
       "path": "Quasar/wwwroot/viewer/state.js",
       "name": "state.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Shared mutable runtime state and DOM-element cache for the standalone grid viewer ES modules. It centralizes Three.js objects, camera/fly-mode state, current scene/bounds, local Content folder handles or folder-input adapters, model/texture caches, progressive texture stats, timing counters, and displayed stats."
+      "summary": "Shared mutable runtime state and DOM-element cache for the standalone grid viewer ES modules. It centralizes Three.js objects including the directional sun, its target, and captured grid light groups, camera/fly-mode state, current scene/bounds, floor-grid alignment metadata, local Content folder handles or folder-input adapters, model/texture caches, progressive texture stats, timing counters, and displayed stats."
     },
     {
       "path": "Quasar/wwwroot/viewer/styles.css",
@@ -1016,7 +1016,7 @@
       "name": "texture-loader.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Browser-side texture resolver/loader for the grid viewer. It resolves logical texture paths against the selected local Content folder, classifies color/data texture role from material slots or filename map tokens, disables Three.js' default vertical texture flip to match Space Engineers model UVs, preserves explicit DDS sRGB format tags for compressed uploads, caches extension-candidate hits and misses for the active Content folder, coalesces duplicate logical texture loads before file metadata is known, caches completed textures by resolved path/size/mtime/color role, loads browser-native images, parses common SE DDS compressed formats, and throttles path resolution, file reads, and WebGL upload/init separately."
+      "summary": "Browser-side texture resolver/loader for the grid viewer. It resolves logical texture paths against the selected local Content folder, classifies color/data texture role from material slots or filename map tokens, disables Three.js' default vertical texture flip to match Space Engineers model UVs, preserves explicit DDS sRGB format tags for compressed uploads, caches extension-candidate hits and misses for the active Content folder, coalesces duplicate logical texture loads before file metadata is known, caches completed textures by resolved path/size/mtime/color role, loads browser-native images, parses common SE DDS compressed formats, decodes textures to Canvas2D with an LCD sprite option that restores drawable alpha from RGB for premultiplied atlas masks, and throttles path resolution, file reads, and WebGL upload/init separately."
     }
   ],
   "Quasar.Services.Core": [

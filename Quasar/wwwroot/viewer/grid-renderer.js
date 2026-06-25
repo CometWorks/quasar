@@ -20,6 +20,11 @@ let transparentMaterialDefinitions = new Map();
 const MAX_CONCURRENT_MODEL_RESOLVES = 48;
 const MODEL_REBUILD_THROTTLE_MS = 100;
 const MAX_VIEWER_LIGHTS = 128;
+const MAX_PROJECTED_LIGHT_SHADOWS = 12;
+const PROJECTED_LIGHT_SHADOW_MAP_SIZE = 1024;
+const PROJECTED_LIGHT_SHADOW_NEAR = 0.05;
+const PROJECTED_LIGHT_SHADOW_BIAS = -0.0001;
+const PROJECTED_LIGHT_SHADOW_NORMAL_BIAS = 0.025;
 
 export async function renderGridScene(scene) {
     const renderToken = ++modelRenderToken;
@@ -282,9 +287,10 @@ function buildGridLightGroup(scene, gridGroup) {
         .slice()
         .sort((a, b) => lightSourceSortKey(b, center) - lightSourceSortKey(a, center))
         .slice(0, MAX_VIEWER_LIGHTS);
+    const shadowSourceIds = selectProjectedShadowSourceIds(selectedSources, center);
 
     for (const source of selectedSources) {
-        const light = createGridLight(source, lightGroup);
+        const light = createGridLight(source, lightGroup, shadowSourceIds.has(lightSourceIdentity(source)));
         if (!light) continue;
         light.userData.lightSource = source;
         state.gridLights.push(light);
@@ -299,7 +305,7 @@ function collectSceneLightSources(scene) {
     const seen = new Set();
     const add = source => {
         if (!source) return;
-        const key = source.id || `${source.blockId || ""}:${source.kind || ""}:${formatViewerVector(source.position)}`;
+        const key = lightSourceIdentity(source);
         if (seen.has(key)) return;
         seen.add(key);
         sources.push(source);
@@ -315,11 +321,16 @@ function collectSceneLightSources(scene) {
     return sources;
 }
 
+function lightSourceIdentity(source) {
+    if (!source) return "";
+    return source.id ? String(source.id) : `${source.blockId || ""}:${source.kind || ""}:${formatViewerVector(source.position)}`;
+}
+
 function formatViewerVector(vector) {
     return `${num(vector && vector.x, 0).toFixed(3)}, ${num(vector && vector.y, 0).toFixed(3)}, ${num(vector && vector.z, 0).toFixed(3)}`;
 }
 
-function createGridLight(source, lightGroup) {
+function createGridLight(source, lightGroup, castsProjectedShadow = false) {
     if (!source || source.enabled === false || num(source.intensity, 0) <= 0) return null;
     const kind = String(source.kind || "point").toLowerCase();
     const color = lightColor(source.color);
@@ -334,7 +345,8 @@ function createGridLight(source, lightGroup) {
         const light = new THREE.SpotLight(color, intensity, reflectorRadius || radius || 1, coneRadians, 0.35, decay);
         light.name = `GridSpotLight:${source.id || source.blockId || "unknown"}`;
         light.position.copy(position);
-        light.castShadow = false;
+        light.castShadow = castsProjectedShadow;
+        if (castsProjectedShadow) configureProjectedLightShadow(light, source, reflectorRadius || radius || 1);
 
         const direction = vec3(source.direction);
         if (direction.lengthSq() === 0) direction.set(0, 0, -1);
@@ -351,6 +363,42 @@ function createGridLight(source, lightGroup) {
     light.castShadow = false;
     lightGroup.add(light);
     return light;
+}
+
+function selectProjectedShadowSourceIds(sources, center) {
+    return new Set(sources
+        .filter(isProjectedShadowCandidate)
+        .sort((a, b) => {
+            const scoreDelta = projectedShadowScore(b, center) - projectedShadowScore(a, center);
+            if (scoreDelta !== 0) return scoreDelta;
+            return lightSourceIdentity(a).localeCompare(lightSourceIdentity(b));
+        })
+        .slice(0, MAX_PROJECTED_LIGHT_SHADOWS)
+        .map(lightSourceIdentity));
+}
+
+function isProjectedShadowCandidate(source) {
+    if (!source || source.enabled === false) return false;
+    if (String(source.kind || "point").toLowerCase() !== "spot") return false;
+    if (num(source.intensity, 0) <= 0) return false;
+    return Math.max(num(source.reflectorRadius, 0), num(source.radius, 0), 0) > 0;
+}
+
+function projectedShadowScore(source, center) {
+    const position = vec3(source && source.position);
+    const distancePenalty = Math.min(1_000_000, position.distanceTo(center));
+    const reach = Math.max(num(source && source.reflectorRadius, 0), num(source && source.radius, 0), 1);
+    return Math.max(0, num(source && source.intensity, 0)) * reach * 1000 - distancePenalty;
+}
+
+function configureProjectedLightShadow(light, source, distance) {
+    light.shadow.mapSize.set(PROJECTED_LIGHT_SHADOW_MAP_SIZE, PROJECTED_LIGHT_SHADOW_MAP_SIZE);
+    light.shadow.camera.near = PROJECTED_LIGHT_SHADOW_NEAR;
+    light.shadow.camera.far = Math.max(distance, 1);
+    light.shadow.camera.fov = clamp(num(source && source.coneDegrees, 52), 1, 150);
+    light.shadow.bias = PROJECTED_LIGHT_SHADOW_BIAS;
+    light.shadow.normalBias = PROJECTED_LIGHT_SHADOW_NORMAL_BIAS;
+    light.shadow.camera.updateProjectionMatrix();
 }
 
 function gridLocalCenter(scene) {
@@ -1995,11 +2043,15 @@ function updateModelRenderStats(renderStats) {
 
 function updateGridLightStats(lightSources) {
     const sources = lightSources || [];
+    const shadowedSpotLights = state.gridLights.filter(light => light.isSpotLight && light.castShadow).length;
+    const eligibleProjectedShadows = sources.filter(isProjectedShadowCandidate).length;
     state.stats["Grid light sources"] = sources.length;
     state.stats["Active grid lights"] = sources.filter(source => source && source.enabled !== false && num(source.intensity, 0) > 0).length;
     state.stats["Viewer grid lights"] = state.gridLights.length;
     state.stats["Point lights"] = state.gridLights.filter(light => light.isPointLight).length;
     state.stats["Spot lights"] = state.gridLights.filter(light => light.isSpotLight).length;
+    state.stats["Projected light shadows"] = shadowedSpotLights;
+    state.stats["Capped projected shadows"] = Math.max(0, eligibleProjectedShadows - shadowedSpotLights);
     state.stats["Capped grid lights"] = Math.max(0, sources.length - state.gridLights.length);
 }
 
