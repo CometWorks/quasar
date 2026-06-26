@@ -1,0 +1,1262 @@
+{
+  "Docs/StateMachines/diagrams/mermaid-config.json": {
+    "mtime": 1781461137.639345,
+    "ast_hash": "67bd04513fbf286a748662882e7bed41",
+    "semantic_hash": "67bd04513fbf286a748662882e7bed41"
+  },
+  "Magnetar.Protocol/Bridge/IQuasarConfigProvider.cs": {
+    "mtime": 1780666969.3838053,
+    "ast_hash": "f42b1d9af2c77fb48dfb7f3cea5058e0",
+    "semantic_hash": "f42b1d9af2c77fb48dfb7f3cea5058e0"
+  },
+  "Magnetar.Protocol/Discovery/WebServiceDiscoveryManifest.cs": {
+    "mtime": 1780666969.3821342,
+    "ast_hash": "0f375e9d1c9d1409fe219bcd7bef2c98",
+    "semantic_hash": "0f375e9d1c9d1409fe219bcd7bef2c98"
+  },
+  "Magnetar.Protocol/Magnetar.Protocol.csproj": {
+    "mtime": 1781985829.5223894,
+    "ast_hash": "791caa45b04aa1b58746ffcfd19e81e5",
+    "semantic_hash": "791caa45b04aa1b58746ffcfd19e81e5"
+  },
+  "Magnetar.Protocol/Model/AgentHello.cs": {
+    "mtime": 1780666969.3822052,
+    "ast_hash": "5d3f662972739bfbb2536af00e83d8a0",
+    "semantic_hash": "5d3f662972739bfbb2536af00e83d8a0"
+  },
+  "Magnetar.Protocol/Model/AgentSnapshot.cs": {
+    "mtime": 1782045132.0091863,
+    "ast_hash": "af49d3e9238ab374332532ecadd41253",
+    "semantic_hash": "af49d3e9238ab374332532ecadd41253"
+  },
+  "Magnetar.Protocol/Model/ChatCommandSnapshot.cs": {
+    "mtime": 1782045132.0091863,
+    "ast_hash": "58010a62412532804a71a35895d0c150",
+    "semantic_hash": "58010a62412532804a71a35895d0c150"
+  },
+  "Magnetar.Protocol/Model/ChatMessageSnapshot.cs": {
+    "mtime": 1781623696.4157674,
+    "ast_hash": "263be65adf8a4f2952a86419890110f9",
+    "semantic_hash": "263be65adf8a4f2952a86419890110f9"
+  },
+  "Magnetar.Protocol/Model/DeathEventSnapshot.cs": {
+    "mtime": 1780666969.3824034,
+    "ast_hash": "c615862018ebaecc178be8793ea5c0cd",
+    "semantic_hash": "c615862018ebaecc178be8793ea5c0cd"
+  },
+  "Magnetar.Protocol/Model/EntityDeleteRequest.cs": {
+    "mtime": 1780666969.3824716,
+    "ast_hash": "b10ff38d036d8460bff334fdfa4074e7",
+    "semantic_hash": "b10ff38d036d8460bff334fdfa4074e7"
+  },
+  "Magnetar.Protocol/Model/EntityListFilter.cs": {
+    "mtime": 1780666969.3825366,
+    "ast_hash": "57321c67a68843043ea7740131d7c31d",
+    "semantic_hash": "57321c67a68843043ea7740131d7c31d"
+  },
+  "Magnetar.Protocol/Model/EntityListResult.cs": {
+    "mtime": 1780666969.3825963,
+    "ast_hash": "bb2980ae555f3307df3bec0c8cfa82a2",
+    "semantic_hash": "bb2980ae555f3307df3bec0c8cfa82a2"
+  },
+  "Magnetar.Protocol/Model/EntitySummary.cs": {
+    "mtime": 1780666969.3826559,
+    "ast_hash": "cebc73d8218de1faea68bf381fb07add",
+    "semantic_hash": "cebc73d8218de1faea68bf381fb07add"
+  },
+  "Magnetar.Protocol/Model/KickedPlayerSnapshot.cs": {
+    "mtime": 1780740021.3558078,
+    "ast_hash": "67ee5a6d9a3bc76c7284c5f1d8def596",
+    "semantic_hash": "67ee5a6d9a3bc76c7284c5f1d8def596"
+  },
+  "Magnetar.Protocol/Model/PlayerSnapshot.cs": {
+    "mtime": 1780666969.382717,
+    "ast_hash": "66c709dab8c39c384ba4815af49494cd",
+    "semantic_hash": "66c709dab8c39c384ba4815af49494cd"
+  },
+  "Magnetar.Protocol/Model/PluginConfigData.cs": {
+    "mtime": 1780666969.3827813,
+    "ast_hash": "c72b837b7422faae2ca4bb10694b5845",
+    "semantic_hash": "c72b837b7422faae2ca4bb10694b5845"
+  },
+  "Magnetar.Protocol/Model/PluginConfigSnapshot.cs": {
+    "mtime": 1780666969.3829386,
+    "ast_hash": "2abd58f94b577a6f0c6189d7dc335e72",
+    "semantic_hash": "2abd58f94b577a6f0c6189d7dc335e72"
+  },
+  "Magnetar.Protocol/Model/PluginConfigUpdateRequest.cs": {
+    "mtime": 1780666969.3829975,
+    "ast_hash": "7007beca078cf24a8f8c8da1fade1ff4",
+    "semantic_hash": "7007beca078cf24a8f8c8da1fade1ff4"
+  },
+  "Magnetar.Protocol/Model/PluginLogBatch.cs": {
+    "mtime": 1780698558.9760993,
+    "ast_hash": "62530a20f6765e7aa78eaf517d7daa80",
+    "semantic_hash": "62530a20f6765e7aa78eaf517d7daa80"
+  },
+  "Magnetar.Protocol/Model/PluginRuntimeInfo.cs": {
+    "mtime": 1780666969.3830557,
+    "ast_hash": "f86efced0c288d60f966837509b4e0de",
+    "semantic_hash": "f86efced0c288d60f966837509b4e0de"
+  },
+  "Magnetar.Protocol/Model/ProfilerSnapshot.cs": {
+    "mtime": 1780836367.0249877,
+    "ast_hash": "1e927e67a8793a47e281300fea57ef6c",
+    "semantic_hash": "1e927e67a8793a47e281300fea57ef6c"
+  },
+  "Magnetar.Protocol/Model/ServerMetrics.cs": {
+    "mtime": 1782030819.1726816,
+    "ast_hash": "e55bffccfe20300cb89b50507e33de5c",
+    "semantic_hash": "e55bffccfe20300cb89b50507e33de5c"
+  },
+  "Magnetar.Protocol/Runtime/MagnetarPaths.cs": {
+    "mtime": 1782241207.980019,
+    "ast_hash": "a4d2bce25ebb67fc2de202ba497e1a86",
+    "semantic_hash": "a4d2bce25ebb67fc2de202ba497e1a86"
+  },
+  "Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs": {
+    "mtime": 1780666969.383344,
+    "ast_hash": "a1e61922b2cef3cd661412f19b6c4f6c",
+    "semantic_hash": "a1e61922b2cef3cd661412f19b6c4f6c"
+  },
+  "Magnetar.Protocol/Runtime/QuasarReleaseVersion.cs": {
+    "mtime": 1780912861.9017956,
+    "ast_hash": "4099c0e02be6a553bd346ee3bd062cc3",
+    "semantic_hash": "4099c0e02be6a553bd346ee3bd062cc3"
+  },
+  "Magnetar.Protocol/Runtime/QuasarWebReleaseLayout.cs": {
+    "mtime": 1780850287.1346555,
+    "ast_hash": "12204d5ac953e474700ed12bb00f9c33",
+    "semantic_hash": "12204d5ac953e474700ed12bb00f9c33"
+  },
+  "Magnetar.Protocol/Transport/AgentWireMessage.cs": {
+    "mtime": 1780698558.9760993,
+    "ast_hash": "c5b6ad5cb6040142c86323facbdbc9a2",
+    "semantic_hash": "c5b6ad5cb6040142c86323facbdbc9a2"
+  },
+  "Magnetar.Protocol/Transport/ServerCommandEnvelope.cs": {
+    "mtime": 1780666969.3835163,
+    "ast_hash": "3827667d1a5c18f6c513cfbe38f8f2f1",
+    "semantic_hash": "3827667d1a5c18f6c513cfbe38f8f2f1"
+  },
+  "Magnetar.Protocol/Transport/ServerCommandResult.cs": {
+    "mtime": 1780666969.3835905,
+    "ast_hash": "c5039c603726848178cfa3867ae62f53",
+    "semantic_hash": "c5039c603726848178cfa3867ae62f53"
+  },
+  "Magnetar.Protocol/Transport/ServerCommandType.cs": {
+    "mtime": 1781119922.769176,
+    "ast_hash": "d96b3978f7bf35ea0f5c5a525f0cedde",
+    "semantic_hash": "d96b3978f7bf35ea0f5c5a525f0cedde"
+  },
+  "Magnetar.Protocol/Transport/WireMessageKind.cs": {
+    "mtime": 1782151294.1763954,
+    "ast_hash": "e966f1aad62d508c3adcdf63086415ef",
+    "semantic_hash": "e966f1aad62d508c3adcdf63086415ef"
+  },
+  "Quasar.Agent/AdminPlugin.cs": {
+    "mtime": 1782151294.1763954,
+    "ast_hash": "c552d03f0ed6af26eb59bd72b7c7694c",
+    "semantic_hash": "c552d03f0ed6af26eb59bd72b7c7694c"
+  },
+  "Quasar.Agent/AgentConnection.cs": {
+    "mtime": 1782151294.1763954,
+    "ast_hash": "643cea6d54e636bd43b6e7b356fcb18b",
+    "semantic_hash": "643cea6d54e636bd43b6e7b356fcb18b"
+  },
+  "Quasar.Agent/AgentOptions.cs": {
+    "mtime": 1781119922.769176,
+    "ast_hash": "b28c7430ad1f5e1fb8aabb8a7f4b1b25",
+    "semantic_hash": "b28c7430ad1f5e1fb8aabb8a7f4b1b25"
+  },
+  "Quasar.Agent/AgentProfiler.cs": {
+    "mtime": 1781119922.769176,
+    "ast_hash": "8872c49b183ee34f2b8f610bd18eb063",
+    "semantic_hash": "8872c49b183ee34f2b8f610bd18eb063"
+  },
+  "Quasar.Agent/AgentProfilerMode.cs": {
+    "mtime": 1781119922.769176,
+    "ast_hash": "60ae78086d3f26f490af98e3e025dfb4",
+    "semantic_hash": "60ae78086d3f26f490af98e3e025dfb4"
+  },
+  "Quasar.Agent/AgentProfilerPatches.cs": {
+    "mtime": 1781119922.769176,
+    "ast_hash": "0c431ba67de243c082b2e4a0650a1d64",
+    "semantic_hash": "0c431ba67de243c082b2e4a0650a1d64"
+  },
+  "Quasar.Agent/AgentProfilerTranspiler.cs": {
+    "mtime": 1781119922.769176,
+    "ast_hash": "dadb04506d0ff52c986fd59ad1b76233",
+    "semantic_hash": "dadb04506d0ff52c986fd59ad1b76233"
+  },
+  "Quasar.Agent/EntityInspector.cs": {
+    "mtime": 1780666969.3815627,
+    "ast_hash": "2338afb2aa1d01ed5315b5e93e54d53c",
+    "semantic_hash": "2338afb2aa1d01ed5315b5e93e54d53c"
+  },
+  "Quasar.Agent/GameBridge.cs": {
+    "mtime": 1782045132.0091863,
+    "ast_hash": "7847f2ba5efe1bff54cfada8d8b1dfc9",
+    "semantic_hash": "7847f2ba5efe1bff54cfada8d8b1dfc9"
+  },
+  "Quasar.Agent/PluginLogOutbox.cs": {
+    "mtime": 1780698558.9764156,
+    "ast_hash": "15263a5ff4a9ee649f1e72adac09ac29",
+    "semantic_hash": "15263a5ff4a9ee649f1e72adac09ac29"
+  },
+  "Quasar.Agent/Quasar.Agent.csproj": {
+    "mtime": 1781985829.5233893,
+    "ast_hash": "91b8c95bffdb3a8097b39ef8b37c4b1d",
+    "semantic_hash": "91b8c95bffdb3a8097b39ef8b37c4b1d"
+  },
+  "Quasar.Agent/StopCommand.cs": {
+    "mtime": 1782151294.1763954,
+    "ast_hash": "5b150793d5f99d977a1ab3596ff3075b",
+    "semantic_hash": "5b150793d5f99d977a1ab3596ff3075b"
+  },
+  "Quasar.Agent/WebServiceLocator.cs": {
+    "mtime": 1780666969.3820074,
+    "ast_hash": "fec58c4e6b0c68fdcd25969b75d18458",
+    "semantic_hash": "fec58c4e6b0c68fdcd25969b75d18458"
+  },
+  "Quasar.Bootstrap/Program.cs": {
+    "mtime": 1782298366.26416,
+    "ast_hash": "12edd97312fe27599c9c7eef84c05998",
+    "semantic_hash": "12edd97312fe27599c9c7eef84c05998"
+  },
+  "Quasar.Bootstrap/Properties/launchSettings.json": {
+    "mtime": 1780666894.2775166,
+    "ast_hash": "d8bbad2fd14f211f77ce1a128cddf0f5",
+    "semantic_hash": "d8bbad2fd14f211f77ce1a128cddf0f5"
+  },
+  "Quasar.Bootstrap/Quasar.Bootstrap.csproj": {
+    "mtime": 1781984616.5476053,
+    "ast_hash": "abb93c5a7b1257c9d0b2e2f438e19381",
+    "semantic_hash": "abb93c5a7b1257c9d0b2e2f438e19381"
+  },
+  "Quasar.sln": {
+    "mtime": 1780003615.195646,
+    "ast_hash": "35e147053e87f1bf1ca27979e28da335",
+    "semantic_hash": "35e147053e87f1bf1ca27979e28da335"
+  },
+  "Quasar/Components/App.razor": {
+    "mtime": 1780828281.29031,
+    "ast_hash": "8eb231b381a12c996a9e4c4b8d00c6f5",
+    "semantic_hash": "8eb231b381a12c996a9e4c4b8d00c6f5"
+  },
+  "Quasar/Components/Dashboard/ServerCard.razor": {
+    "mtime": 1782151294.1763954,
+    "ast_hash": "aa2158392f85d88b4cb9b563272b80b3",
+    "semantic_hash": "aa2158392f85d88b4cb9b563272b80b3"
+  },
+  "Quasar/Components/Dashboard/ServerDetailPanel.razor": {
+    "mtime": 1782045132.0101862,
+    "ast_hash": "63ae556c702f65e1756b9352ea91b28a",
+    "semantic_hash": "63ae556c702f65e1756b9352ea91b28a"
+  },
+  "Quasar/Components/Layout/BrandingHeadContent.razor": {
+    "mtime": 1780666969.3680553,
+    "ast_hash": "a4715d49168cfd61b10445755eb87c49",
+    "semantic_hash": "a4715d49168cfd61b10445755eb87c49"
+  },
+  "Quasar/Components/Layout/MainLayout.razor": {
+    "mtime": 1782000229.881277,
+    "ast_hash": "433720536e23502c6d5546556f296d76",
+    "semantic_hash": "433720536e23502c6d5546556f296d76"
+  },
+  "Quasar/Components/Layout/NavMenu.razor": {
+    "mtime": 1781733462.3144326,
+    "ast_hash": "d4b9712eb79ec80d8c2f22d06b422e6f",
+    "semantic_hash": "d4b9712eb79ec80d8c2f22d06b422e6f"
+  },
+  "Quasar/Components/Layout/QuasarControlAction.cs": {
+    "mtime": 1781444096.6710632,
+    "ast_hash": "cf7c82b31515d13b4f605636ee0b8d5e",
+    "semantic_hash": "cf7c82b31515d13b4f605636ee0b8d5e"
+  },
+  "Quasar/Components/Layout/QuasarControlDialog.razor": {
+    "mtime": 1782030819.1734393,
+    "ast_hash": "e9dcd34e92057cabb40e19e8c3b29e46",
+    "semantic_hash": "e9dcd34e92057cabb40e19e8c3b29e46"
+  },
+  "Quasar/Components/Layout/ReconnectModal.razor": {
+    "mtime": 1780666969.3683069,
+    "ast_hash": "e2e1bba21367cb4f0041b730f9dc12b5",
+    "semantic_hash": "e2e1bba21367cb4f0041b730f9dc12b5"
+  },
+  "Quasar/Components/Layout/ReconnectModal.razor.js": {
+    "mtime": 1779630938.0233717,
+    "ast_hash": "38d8a9758570b3cdcb858199d735c19b",
+    "semantic_hash": "38d8a9758570b3cdcb858199d735c19b"
+  },
+  "Quasar/Components/Pages/Analytics.razor": {
+    "mtime": 1781623696.4167674,
+    "ast_hash": "cde98563e9c749b46ab58fa476c63db5",
+    "semantic_hash": "cde98563e9c749b46ab58fa476c63db5"
+  },
+  "Quasar/Components/Pages/AnalyticsPanelDialog.razor": {
+    "mtime": 1780666969.369116,
+    "ast_hash": "88db01b67b286957311c6ef49d043e24",
+    "semantic_hash": "88db01b67b286957311c6ef49d043e24"
+  },
+  "Quasar/Components/Pages/Appearance.razor": {
+    "mtime": 1782000229.8814027,
+    "ast_hash": "7334c01a7578a939925d4009fce3f816",
+    "semantic_hash": "7334c01a7578a939925d4009fce3f816"
+  },
+  "Quasar/Components/Pages/Backup.razor": {
+    "mtime": 1782030819.1735759,
+    "ast_hash": "25a1f728d73fae30758d64a570dcf8c1",
+    "semantic_hash": "25a1f728d73fae30758d64a570dcf8c1"
+  },
+  "Quasar/Components/Pages/Chat.razor": {
+    "mtime": 1782045132.0101862,
+    "ast_hash": "770115e46f8a60e633c5e13bfa39ac9e",
+    "semantic_hash": "770115e46f8a60e633c5e13bfa39ac9e"
+  },
+  "Quasar/Components/Pages/ConfigProfilePendingChangesDialog.razor": {
+    "mtime": 1780866006.6761608,
+    "ast_hash": "cdbc4c3573c5d156ae677d2dd6795a38",
+    "semantic_hash": "cdbc4c3573c5d156ae677d2dd6795a38"
+  },
+  "Quasar/Components/Pages/ConfigProfileQuickCreateDialog.razor": {
+    "mtime": 1781441834.4708228,
+    "ast_hash": "29c481de7c7773df235e37ca522eb6a4",
+    "semantic_hash": "29c481de7c7773df235e37ca522eb6a4"
+  },
+  "Quasar/Components/Pages/Configs.razor": {
+    "mtime": 1782206631.546061,
+    "ast_hash": "07e4b7ded5f8c5e1d5b2bc7b133838a7",
+    "semantic_hash": "07e4b7ded5f8c5e1d5b2bc7b133838a7"
+  },
+  "Quasar/Components/Pages/ConfigsPageDialog.razor": {
+    "mtime": 1780866006.6761608,
+    "ast_hash": "4cdc3e5b11d34d4a767e2a7aa7c5d49d",
+    "semantic_hash": "4cdc3e5b11d34d4a767e2a7aa7c5d49d"
+  },
+  "Quasar/Components/Pages/Discord.razor": {
+    "mtime": 1781733462.3145888,
+    "ast_hash": "a58005ffa490df434c43d9586efbb6c4",
+    "semantic_hash": "a58005ffa490df434c43d9586efbb6c4"
+  },
+  "Quasar/Components/Pages/DiscordConsoleDialog.razor": {
+    "mtime": 1781623696.4167674,
+    "ast_hash": "423355be54f79a9d5e885f917817bb0a",
+    "semantic_hash": "423355be54f79a9d5e885f917817bb0a"
+  },
+  "Quasar/Components/Pages/Entities.razor": {
+    "mtime": 1782206631.547061,
+    "ast_hash": "167d046a42cb2d17c61a91261dc692f5",
+    "semantic_hash": "167d046a42cb2d17c61a91261dc692f5"
+  },
+  "Quasar/Components/Pages/Error.razor": {
+    "mtime": 1780666969.370514,
+    "ast_hash": "af30818cfeaedba8d8c230fbf5364dc1",
+    "semantic_hash": "af30818cfeaedba8d8c230fbf5364dc1"
+  },
+  "Quasar/Components/Pages/FolderPickerDialog.razor": {
+    "mtime": 1781985829.5233893,
+    "ast_hash": "ab3b5b5e84a70aaad325321afac2d2ed",
+    "semantic_hash": "ab3b5b5e84a70aaad325321afac2d2ed"
+  },
+  "Quasar/Components/Pages/Home.razor": {
+    "mtime": 1782151294.1763954,
+    "ast_hash": "4e8b022a24747bc064a8189ceba4fee3",
+    "semantic_hash": "4e8b022a24747bc064a8189ceba4fee3"
+  },
+  "Quasar/Components/Pages/Hosts.razor": {
+    "mtime": 1780921524.1854367,
+    "ast_hash": "a640c3780a40b4fca1d21ec85cfc2dc5",
+    "semantic_hash": "a640c3780a40b4fca1d21ec85cfc2dc5"
+  },
+  "Quasar/Components/Pages/MergeWorldTemplateModsDialog.razor": {
+    "mtime": 1780666969.3709404,
+    "ast_hash": "027bbcbbca203ed798c7b89bb6ff693d",
+    "semantic_hash": "027bbcbbca203ed798c7b89bb6ff693d"
+  },
+  "Quasar/Components/Pages/NotFound.razor": {
+    "mtime": 1780666969.3710413,
+    "ast_hash": "d416bdb30b4d47e57209672dee783403",
+    "semantic_hash": "d416bdb30b4d47e57209672dee783403"
+  },
+  "Quasar/Components/Pages/Players.razor": {
+    "mtime": 1782000229.8821743,
+    "ast_hash": "e45be713c18ee3e0c4d65b0c599a48cd",
+    "semantic_hash": "e45be713c18ee3e0c4d65b0c599a48cd"
+  },
+  "Quasar/Components/Pages/PluginCatalogDescriptionDialog.razor": {
+    "mtime": 1780703671.3028696,
+    "ast_hash": "f086e96900858b8ec67bee8938329038",
+    "semantic_hash": "f086e96900858b8ec67bee8938329038"
+  },
+  "Quasar/Components/Pages/PluginManifestPickerDialog.razor": {
+    "mtime": 1780676529.4077373,
+    "ast_hash": "bd362045d5cf45adc392ffc4fad0beea",
+    "semantic_hash": "bd362045d5cf45adc392ffc4fad0beea"
+  },
+  "Quasar/Components/Pages/Plugins.razor": {
+    "mtime": 1781985829.5233893,
+    "ast_hash": "878eaf39ebf7ecddbb052cade34cdf70",
+    "semantic_hash": "878eaf39ebf7ecddbb052cade34cdf70"
+  },
+  "Quasar/Components/Pages/Security.razor": {
+    "mtime": 1782000229.8822901,
+    "ast_hash": "3664135388d4c40d6dc8fab152b9257f",
+    "semantic_hash": "3664135388d4c40d6dc8fab152b9257f"
+  },
+  "Quasar/Components/Pages/ServerConsoleDialog.razor": {
+    "mtime": 1781623696.4177675,
+    "ast_hash": "0042211c71e569f71697e418824bf6f0",
+    "semantic_hash": "0042211c71e569f71697e418824bf6f0"
+  },
+  "Quasar/Components/Pages/ServerDeleteDialog.razor": {
+    "mtime": 1781623696.4177675,
+    "ast_hash": "79fcaae67bb0ad03539dfaeba05ecf7b",
+    "semantic_hash": "79fcaae67bb0ad03539dfaeba05ecf7b"
+  },
+  "Quasar/Components/Pages/ServerEditorDialog.razor": {
+    "mtime": 1782209359.7453437,
+    "ast_hash": "58e91a37d20c26af0bfd51e371a6ec56",
+    "semantic_hash": "58e91a37d20c26af0bfd51e371a6ec56"
+  },
+  "Quasar/Components/Pages/Servers.razor": {
+    "mtime": 1782151294.1763954,
+    "ast_hash": "8a77012d4e3031c79e30134833a44ac3",
+    "semantic_hash": "8a77012d4e3031c79e30134833a44ac3"
+  },
+  "Quasar/Components/Pages/ServersPageDialog.razor": {
+    "mtime": 1782151294.1763954,
+    "ast_hash": "777f9596c4724b38b36bca1a42329796",
+    "semantic_hash": "777f9596c4724b38b36bca1a42329796"
+  },
+  "Quasar/Components/Pages/SteamWorkshopApiKeyDialog.razor": {
+    "mtime": 1782241207.980019,
+    "ast_hash": "69a7a65812fb777c529d2af1377c14f6",
+    "semantic_hash": "69a7a65812fb777c529d2af1377c14f6"
+  },
+  "Quasar/Components/Pages/Updates.razor": {
+    "mtime": 1782298366.26516,
+    "ast_hash": "0b576405f38e0a0d5d007037eadfb48b",
+    "semantic_hash": "0b576405f38e0a0d5d007037eadfb48b"
+  },
+  "Quasar/Components/Pages/WorldTemplateFromServerDialog.razor": {
+    "mtime": 1781623696.4177675,
+    "ast_hash": "a35b036b6f2ab97372735fce895269b2",
+    "semantic_hash": "a35b036b6f2ab97372735fce895269b2"
+  },
+  "Quasar/Components/Pages/WorldTemplateQuickImportDialog.razor": {
+    "mtime": 1782000229.8825727,
+    "ast_hash": "756d406f44c32e91efb7380ca8926c99",
+    "semantic_hash": "756d406f44c32e91efb7380ca8926c99"
+  },
+  "Quasar/Components/Pages/WorldTemplates.razor": {
+    "mtime": 1782000229.8825727,
+    "ast_hash": "5ca5bc96535f8d331215cd731a6e442b",
+    "semantic_hash": "5ca5bc96535f8d331215cd731a6e442b"
+  },
+  "Quasar/Components/Pages/WorldTemplatesPageDialog.razor": {
+    "mtime": 1780666969.3721325,
+    "ast_hash": "e9ef7ffcc73d68132477afe07ba46af6",
+    "semantic_hash": "e9ef7ffcc73d68132477afe07ba46af6"
+  },
+  "Quasar/Components/PluginConfigEditor.razor": {
+    "mtime": 1782000229.8825727,
+    "ast_hash": "cc2c5d994c3e72db8ea2cb77772bf7c8",
+    "semantic_hash": "cc2c5d994c3e72db8ea2cb77772bf7c8"
+  },
+  "Quasar/Components/PluginLogPanel.razor": {
+    "mtime": 1781979607.6483808,
+    "ast_hash": "29e96afb3c66ddaf457bdd4222f8f9f1",
+    "semantic_hash": "29e96afb3c66ddaf457bdd4222f8f9f1"
+  },
+  "Quasar/Components/Routes.razor": {
+    "mtime": 1780666969.3727539,
+    "ast_hash": "5eb2552b91e1596427d0b8e2b9055ecd",
+    "semantic_hash": "5eb2552b91e1596427d0b8e2b9055ecd"
+  },
+  "Quasar/Components/Shared/CopyablePath.razor": {
+    "mtime": 1781623696.419074,
+    "ast_hash": "c4a7d295942328d72c80f9139dd4a29d",
+    "semantic_hash": "c4a7d295942328d72c80f9139dd4a29d"
+  },
+  "Quasar/Components/_Imports.razor": {
+    "mtime": 1781623696.419074,
+    "ast_hash": "4fe94bc81b8f4ae469caf358f2f60346",
+    "semantic_hash": "4fe94bc81b8f4ae469caf358f2f60346"
+  },
+  "Quasar/Models/BrandingSettings.cs": {
+    "mtime": 1782000229.8829372,
+    "ast_hash": "8a2d92215519264b914227df61ecf453",
+    "semantic_hash": "8a2d92215519264b914227df61ecf453"
+  },
+  "Quasar/Models/CpuAffinitySpec.cs": {
+    "mtime": 1780740021.3574944,
+    "ast_hash": "34fa92f8b4b4a1f2e0a1eb5648829bab",
+    "semantic_hash": "34fa92f8b4b4a1f2e0a1eb5648829bab"
+  },
+  "Quasar/Models/DedicatedServerDefinition.cs": {
+    "mtime": 1782209359.7456293,
+    "ast_hash": "9b36b3fa8e807ab614d9d9a9432c9c74",
+    "semantic_hash": "9b36b3fa8e807ab614d9d9a9432c9c74"
+  },
+  "Quasar/Models/DedicatedServerGoalState.cs": {
+    "mtime": 1780666969.3730001,
+    "ast_hash": "fc035dcb8d16c41550fa027ee9f7939b",
+    "semantic_hash": "fc035dcb8d16c41550fa027ee9f7939b"
+  },
+  "Quasar/Models/DedicatedServerHealthState.cs": {
+    "mtime": 1780666969.3730636,
+    "ast_hash": "786cfe8458564dc6fa5400484bcda9bc",
+    "semantic_hash": "786cfe8458564dc6fa5400484bcda9bc"
+  },
+  "Quasar/Models/DedicatedServerProcessPriority.cs": {
+    "mtime": 1780666969.3734117,
+    "ast_hash": "8b3b804139ab03ecd2156aa0241ef2cd",
+    "semantic_hash": "8b3b804139ab03ecd2156aa0241ef2cd"
+  },
+  "Quasar/Models/DedicatedServerProcessState.cs": {
+    "mtime": 1780666969.3731382,
+    "ast_hash": "33ccc5a5fc184db36dec9adf8a3efc25",
+    "semantic_hash": "33ccc5a5fc184db36dec9adf8a3efc25"
+  },
+  "Quasar/Models/DedicatedServerRuntimeSnapshot.cs": {
+    "mtime": 1780904687.407599,
+    "ast_hash": "527f7f188495cd0d3887f51a3d75f681",
+    "semantic_hash": "527f7f188495cd0d3887f51a3d75f681"
+  },
+  "Quasar/Models/KnownPlayerRecord.cs": {
+    "mtime": 1780666969.3734794,
+    "ast_hash": "a012338a2ccad0eb935d6f1480d4f99d",
+    "semantic_hash": "a012338a2ccad0eb935d6f1480d4f99d"
+  },
+  "Quasar/Models/ManagedServerRuntime.cs": {
+    "mtime": 1780779341.95417,
+    "ast_hash": "43af8b0192d5128c93bd6a90947b0a71",
+    "semantic_hash": "43af8b0192d5128c93bd6a90947b0a71"
+  },
+  "Quasar/Models/QuasarBackupManifest.cs": {
+    "mtime": 1780904687.407599,
+    "ast_hash": "dac726659c563e43d686a3712ed2c947",
+    "semantic_hash": "dac726659c563e43d686a3712ed2c947"
+  },
+  "Quasar/Models/QuasarBackupSettings.cs": {
+    "mtime": 1780904687.407599,
+    "ast_hash": "202f2b6335d3c1e4bd9a1614f45a13cb",
+    "semantic_hash": "202f2b6335d3c1e4bd9a1614f45a13cb"
+  },
+  "Quasar/Models/QuasarConfigProfile.cs": {
+    "mtime": 1781395299.65433,
+    "ast_hash": "ed4928f565686279443ab1c373c619df",
+    "semantic_hash": "ed4928f565686279443ab1c373c619df"
+  },
+  "Quasar/Models/QuasarRestoreReport.cs": {
+    "mtime": 1780740021.3574944,
+    "ast_hash": "2a18cf17af60833ba780a1cdfa27017a",
+    "semantic_hash": "2a18cf17af60833ba780a1cdfa27017a"
+  },
+  "Quasar/Models/QuasarWorldTemplate.cs": {
+    "mtime": 1780666969.3736877,
+    "ast_hash": "ed6678bf2c56626ab738458b7914107e",
+    "semantic_hash": "ed6678bf2c56626ab738458b7914107e"
+  },
+  "Quasar/Program.cs": {
+    "mtime": 1782239268.0200484,
+    "ast_hash": "9fc4e667928fc2bb19f8e267da99da1a",
+    "semantic_hash": "9fc4e667928fc2bb19f8e267da99da1a"
+  },
+  "Quasar/Properties/launchSettings.json": {
+    "mtime": 1780850287.1367738,
+    "ast_hash": "6db8685dcee00ae2edabdf1e5b470d48",
+    "semantic_hash": "6db8685dcee00ae2edabdf1e5b470d48"
+  },
+  "Quasar/Quasar.csproj": {
+    "mtime": 1781985829.5243893,
+    "ast_hash": "8a322d36c3d615a1451a09dce760c1be",
+    "semantic_hash": "8a322d36c3d615a1451a09dce760c1be"
+  },
+  "Quasar/Services/AgentRegistry.cs": {
+    "mtime": 1780837647.485495,
+    "ast_hash": "147feff5b730060aab5b302249edec72",
+    "semantic_hash": "147feff5b730060aab5b302249edec72"
+  },
+  "Quasar/Services/AgentSocketHandler.cs": {
+    "mtime": 1782151294.1763954,
+    "ast_hash": "7f5a1f3d65d0647735e77babd3cc932c",
+    "semantic_hash": "7f5a1f3d65d0647735e77babd3cc932c"
+  },
+  "Quasar/Services/Analytics/AnalyticsMetrics.cs": {
+    "mtime": 1781395299.65433,
+    "ast_hash": "2bf9360bff5721756b1c9d5d04b6ef07",
+    "semantic_hash": "2bf9360bff5721756b1c9d5d04b6ef07"
+  },
+  "Quasar/Services/Analytics/AnalyticsSeriesService.cs": {
+    "mtime": 1781204660.3880706,
+    "ast_hash": "39df213beca1ccae0b035874f6366937",
+    "semantic_hash": "39df213beca1ccae0b035874f6366937"
+  },
+  "Quasar/Services/Analytics/AnalyticsStoreOptions.cs": {
+    "mtime": 1780700861.324076,
+    "ast_hash": "c9208f73cf1de263176711d44d8ee4ed",
+    "semantic_hash": "c9208f73cf1de263176711d44d8ee4ed"
+  },
+  "Quasar/Services/Analytics/AnalyticsViewConfig.cs": {
+    "mtime": 1781358372.5209532,
+    "ast_hash": "9781abedd13d5c36f3e501b59480c668",
+    "semantic_hash": "9781abedd13d5c36f3e501b59480c668"
+  },
+  "Quasar/Services/Analytics/MetricSample.cs": {
+    "mtime": 1780839706.5833175,
+    "ast_hash": "e8800e104b3d7763e44fdaf71cf685b4",
+    "semantic_hash": "e8800e104b3d7763e44fdaf71cf685b4"
+  },
+  "Quasar/Services/Analytics/MetricSampleFactory.cs": {
+    "mtime": 1780839706.5833175,
+    "ast_hash": "116167387084303b1c0613def882c8a7",
+    "semantic_hash": "116167387084303b1c0613def882c8a7"
+  },
+  "Quasar/Services/Analytics/MetricsStoreService.cs": {
+    "mtime": 1780839706.5833175,
+    "ast_hash": "42b48a8d3d7a7c44d95c16ebbad1d285",
+    "semantic_hash": "42b48a8d3d7a7c44d95c16ebbad1d285"
+  },
+  "Quasar/Services/Analytics/ProfilerSnapshotValidator.cs": {
+    "mtime": 1780837640.966598,
+    "ast_hash": "5f7013b8854dd2aae9e6c14072f0578c",
+    "semantic_hash": "5f7013b8854dd2aae9e6c14072f0578c"
+  },
+  "Quasar/Services/Analytics/ProfilerStoreService.cs": {
+    "mtime": 1780839711.270241,
+    "ast_hash": "0af3eecf255fc53a3ca7c934d54181cd",
+    "semantic_hash": "0af3eecf255fc53a3ca7c934d54181cd"
+  },
+  "Quasar/Services/Analytics/RrdCircularBuffer.cs": {
+    "mtime": 1780666969.3741653,
+    "ast_hash": "903ff03141857b24e6f2e18547343d58",
+    "semantic_hash": "903ff03141857b24e6f2e18547343d58"
+  },
+  "Quasar/Services/Analytics/RrdRollupBuffer.cs": {
+    "mtime": 1780839706.5843177,
+    "ast_hash": "adc2edd7a8c7ef29a680c4e3410bb80c",
+    "semantic_hash": "adc2edd7a8c7ef29a680c4e3410bb80c"
+  },
+  "Quasar/Services/Analytics/ServerMetricsStore.cs": {
+    "mtime": 1780700862.4780555,
+    "ast_hash": "f190077b2b61679cd6f626552d56c359",
+    "semantic_hash": "f190077b2b61679cd6f626552d56c359"
+  },
+  "Quasar/Services/AtomicFileWriter.cs": {
+    "mtime": 1780666969.3772438,
+    "ast_hash": "ed62a6063ca5a3a9eb440da6cd3f9ebf",
+    "semantic_hash": "ed62a6063ca5a3a9eb440da6cd3f9ebf"
+  },
+  "Quasar/Services/Auth/QuasarAuthConstants.cs": {
+    "mtime": 1780666969.376184,
+    "ast_hash": "609119840cca20115d538cd527c2d0f9",
+    "semantic_hash": "609119840cca20115d538cd527c2d0f9"
+  },
+  "Quasar/Services/Auth/QuasarAuthOptions.cs": {
+    "mtime": 1780666969.3762586,
+    "ast_hash": "f4ec0679677aea3db67956623ce4add3",
+    "semantic_hash": "f4ec0679677aea3db67956623ce4add3"
+  },
+  "Quasar/Services/Auth/QuasarAuthSettingsService.cs": {
+    "mtime": 1781723736.8255866,
+    "ast_hash": "f53a3cab2a2ed8bb376ff5ad7dad6e09",
+    "semantic_hash": "f53a3cab2a2ed8bb376ff5ad7dad6e09"
+  },
+  "Quasar/Services/Auth/QuasarRoleMapper.cs": {
+    "mtime": 1780666969.3763757,
+    "ast_hash": "4a26867ac39d76b037630f204479fde5",
+    "semantic_hash": "4a26867ac39d76b037630f204479fde5"
+  },
+  "Quasar/Services/Auth/RbacConfig.cs": {
+    "mtime": 1780666969.3764462,
+    "ast_hash": "827f440a1a439c7371ef7c3e65c6c5e0",
+    "semantic_hash": "827f440a1a439c7371ef7c3e65c6c5e0"
+  },
+  "Quasar/Services/Auth/RbacConfigCatalog.cs": {
+    "mtime": 1780666969.3765507,
+    "ast_hash": "e608d8838c0431e5a45e490b53a3bb7d",
+    "semantic_hash": "e608d8838c0431e5a45e490b53a3bb7d"
+  },
+  "Quasar/Services/Auth/TrustedNetworkEvaluator.cs": {
+    "mtime": 1781723736.8255866,
+    "ast_hash": "afd6bd6ce6a11445e04b6e57adedb202",
+    "semantic_hash": "afd6bd6ce6a11445e04b6e57adedb202"
+  },
+  "Quasar/Services/Backup/AutomaticBackupService.cs": {
+    "mtime": 1781977880.780752,
+    "ast_hash": "b6f7c9b07cb1ca20aa69514053e061c9",
+    "semantic_hash": "b6f7c9b07cb1ca20aa69514053e061c9"
+  },
+  "Quasar/Services/Backup/BackupCompatibility.cs": {
+    "mtime": 1780740021.3588123,
+    "ast_hash": "23b6f982aa23d8dfb3665a80bdf0bf0d",
+    "semantic_hash": "23b6f982aa23d8dfb3665a80bdf0bf0d"
+  },
+  "Quasar/Services/Backup/BackupFormatMigrations.cs": {
+    "mtime": 1780740021.3588123,
+    "ast_hash": "5430dd3ec5140cb6cb5a3d6772fe0e49",
+    "semantic_hash": "5430dd3ec5140cb6cb5a3d6772fe0e49"
+  },
+  "Quasar/Services/Backup/QuasarBackupService.cs": {
+    "mtime": 1782045132.0101862,
+    "ast_hash": "55f8a1f1dd97244c4c30e2b4d97735d3",
+    "semantic_hash": "55f8a1f1dd97244c4c30e2b4d97735d3"
+  },
+  "Quasar/Services/Backup/QuasarBackupSettingsService.cs": {
+    "mtime": 1781977880.780752,
+    "ast_hash": "1007a8d23b0d7e4eaf8fe4032e3b1359",
+    "semantic_hash": "1007a8d23b0d7e4eaf8fe4032e3b1359"
+  },
+  "Quasar/Services/Backup/ServerRestoreCoordinator.cs": {
+    "mtime": 1781461137.6423447,
+    "ast_hash": "2bc733619e894f9bf5d3b7fdcd63e325",
+    "semantic_hash": "2bc733619e894f9bf5d3b7fdcd63e325"
+  },
+  "Quasar/Services/BrandingPresets.cs": {
+    "mtime": 1780666969.3773289,
+    "ast_hash": "31fad51d325328a6ab624ee170b50a34",
+    "semantic_hash": "31fad51d325328a6ab624ee170b50a34"
+  },
+  "Quasar/Services/BrandingService.cs": {
+    "mtime": 1782045132.0101862,
+    "ast_hash": "83aeeb25d9953909bc4a530405d75e65",
+    "semantic_hash": "83aeeb25d9953909bc4a530405d75e65"
+  },
+  "Quasar/Services/BrowserLauncher.cs": {
+    "mtime": 1780666969.3775802,
+    "ast_hash": "03063a703f46e5cdcd47ecf71e698a74",
+    "semantic_hash": "03063a703f46e5cdcd47ecf71e698a74"
+  },
+  "Quasar/Services/DedicatedServerCatalog.cs": {
+    "mtime": 1782209359.7457974,
+    "ast_hash": "f5036db605b0ede09af0d810bdffa257",
+    "semantic_hash": "f5036db605b0ede09af0d810bdffa257"
+  },
+  "Quasar/Services/DedicatedServerRuntimePreparer.cs": {
+    "mtime": 1782239263.28513,
+    "ast_hash": "297b1599a760631046f6286d0d5807de",
+    "semantic_hash": "297b1599a760631046f6286d0d5807de"
+  },
+  "Quasar/Services/DedicatedServerSupervisor.cs": {
+    "mtime": 1782151294.1763954,
+    "ast_hash": "a7b5de69cf5973b1a72c18b6becd1b50",
+    "semantic_hash": "a7b5de69cf5973b1a72c18b6becd1b50"
+  },
+  "Quasar/Services/Discord/DeathMessagesCatalog.cs": {
+    "mtime": 1780666969.3743634,
+    "ast_hash": "6322d28d86e1a48a0f6c894fd798fdea",
+    "semantic_hash": "6322d28d86e1a48a0f6c894fd798fdea"
+  },
+  "Quasar/Services/Discord/DeathMessagesConfig.cs": {
+    "mtime": 1780666969.3744893,
+    "ast_hash": "c2c6defd958a8366cb22a6252eac94fa",
+    "semantic_hash": "c2c6defd958a8366cb22a6252eac94fa"
+  },
+  "Quasar/Services/Discord/DiscordAnalyticsExportService.cs": {
+    "mtime": 1780839706.5843177,
+    "ast_hash": "fa6c1b6a71641b33e5c96695a3bee0e2",
+    "semantic_hash": "fa6c1b6a71641b33e5c96695a3bee0e2"
+  },
+  "Quasar/Services/Discord/DiscordBotService.cs": {
+    "mtime": 1781267547.5081599,
+    "ast_hash": "536cc4e581b2e10df67e49047085cfde",
+    "semantic_hash": "536cc4e581b2e10df67e49047085cfde"
+  },
+  "Quasar/Services/Discord/DiscordChatRelayService.cs": {
+    "mtime": 1781729713.5654008,
+    "ast_hash": "c2e95afec5c1baff9aeecfa6e5556e1e",
+    "semantic_hash": "c2e95afec5c1baff9aeecfa6e5556e1e"
+  },
+  "Quasar/Services/Discord/DiscordCommandDispatcher.cs": {
+    "mtime": 1781395299.65433,
+    "ast_hash": "8c34fa3f3b7fef083d21d36e5220323d",
+    "semantic_hash": "8c34fa3f3b7fef083d21d36e5220323d"
+  },
+  "Quasar/Services/Discord/DiscordCommandRouter.cs": {
+    "mtime": 1781267547.5081599,
+    "ast_hash": "ebd2b8ef073c50324f4301795c26587f",
+    "semantic_hash": "ebd2b8ef073c50324f4301795c26587f"
+  },
+  "Quasar/Services/Discord/DiscordDeathRelayService.cs": {
+    "mtime": 1780666969.3752034,
+    "ast_hash": "790592d1dda89490ff85ef33a533f398",
+    "semantic_hash": "790592d1dda89490ff85ef33a533f398"
+  },
+  "Quasar/Services/Discord/DiscordLogRelayService.cs": {
+    "mtime": 1780666969.375319,
+    "ast_hash": "324778a34da7546104faecf14bca81a7",
+    "semantic_hash": "324778a34da7546104faecf14bca81a7"
+  },
+  "Quasar/Services/Discord/DiscordOptions.cs": {
+    "mtime": 1781119922.7701762,
+    "ast_hash": "b7333c43161b71dd8cc53e6cd4a190db",
+    "semantic_hash": "b7333c43161b71dd8cc53e6cd4a190db"
+  },
+  "Quasar/Services/Discord/DiscordOptionsCatalog.cs": {
+    "mtime": 1780666969.3755624,
+    "ast_hash": "f3da18255eab69594700539051ef0a35",
+    "semantic_hash": "f3da18255eab69594700539051ef0a35"
+  },
+  "Quasar/Services/Discord/DiscordRateLimiter.cs": {
+    "mtime": 1780666969.375682,
+    "ast_hash": "a473d0353c704538081298d413b3ccd3",
+    "semantic_hash": "a473d0353c704538081298d413b3ccd3"
+  },
+  "Quasar/Services/Discord/DiscordSimSpeedAlertService.cs": {
+    "mtime": 1781119922.7701762,
+    "ast_hash": "ea47de38952ec65924c6f19cbd7a44dc",
+    "semantic_hash": "ea47de38952ec65924c6f19cbd7a44dc"
+  },
+  "Quasar/Services/EntityService.cs": {
+    "mtime": 1780666969.3783472,
+    "ast_hash": "58d42c3f8ae4400b8ef13b7e4fb5a95c",
+    "semantic_hash": "58d42c3f8ae4400b8ef13b7e4fb5a95c"
+  },
+  "Quasar/Services/FileBrowserService.cs": {
+    "mtime": 1780676491.8724208,
+    "ast_hash": "ab7a78affd76723d64f4b26cfc97bc2e",
+    "semantic_hash": "ab7a78affd76723d64f4b26cfc97bc2e"
+  },
+  "Quasar/Services/IdentifierSlug.cs": {
+    "mtime": 1780866006.6771607,
+    "ast_hash": "3760173c66bb9e7c4d9dcaae340ba5fc",
+    "semantic_hash": "3760173c66bb9e7c4d9dcaae340ba5fc"
+  },
+  "Quasar/Services/KnownPlayerCatalog.cs": {
+    "mtime": 1781733462.3156965,
+    "ast_hash": "447ed66ddf57599946cac93020cf6878",
+    "semantic_hash": "447ed66ddf57599946cac93020cf6878"
+  },
+  "Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs": {
+    "mtime": 1782241207.980019,
+    "ast_hash": "d9d0d8d92089e32bdc5b349e18723a82",
+    "semantic_hash": "d9d0d8d92089e32bdc5b349e18723a82"
+  },
+  "Quasar/Services/ManagedRuntimeOptions.cs": {
+    "mtime": 1781996083.6664329,
+    "ast_hash": "8cfe7ef5fca087f66daab03f23011672",
+    "semantic_hash": "8cfe7ef5fca087f66daab03f23011672"
+  },
+  "Quasar/Services/ManagedRuntimeWarmupService.cs": {
+    "mtime": 1782151294.1773953,
+    "ast_hash": "af9ddcba4c10a4f53b32228f17c1eef4",
+    "semantic_hash": "af9ddcba4c10a4f53b32228f17c1eef4"
+  },
+  "Quasar/Services/PluginCatalogRefreshService.cs": {
+    "mtime": 1780740021.3588123,
+    "ast_hash": "0ee480197c1a43071e71bee61ed19d39",
+    "semantic_hash": "0ee480197c1a43071e71bee61ed19d39"
+  },
+  "Quasar/Services/PluginManifestReader.cs": {
+    "mtime": 1780666969.379045,
+    "ast_hash": "83217246a8b599c233b2aab0a5d4ba8c",
+    "semantic_hash": "83217246a8b599c233b2aab0a5d4ba8c"
+  },
+  "Quasar/Services/PluginSdk/PluginConfigDtos.cs": {
+    "mtime": 1781441834.4718227,
+    "ast_hash": "4dd2e5ab25d3d989aaff4b8d4981be7e",
+    "semantic_hash": "4dd2e5ab25d3d989aaff4b8d4981be7e"
+  },
+  "Quasar/Services/PluginSdk/PluginConfigService.cs": {
+    "mtime": 1780666969.3758705,
+    "ast_hash": "ad1c804779b970a2f5ab2d11f0679544",
+    "semantic_hash": "ad1c804779b970a2f5ab2d11f0679544"
+  },
+  "Quasar/Services/PluginSdk/PluginLogEntry.cs": {
+    "mtime": 1780666969.3759763,
+    "ast_hash": "33ba541ef49adaf7c18a9d25b4d05e58",
+    "semantic_hash": "33ba541ef49adaf7c18a9d25b4d05e58"
+  },
+  "Quasar/Services/PluginSdk/PluginLogStream.cs": {
+    "mtime": 1780698558.9784932,
+    "ast_hash": "a8fa1c7e96b278246c999f302ca2539a",
+    "semantic_hash": "a8fa1c7e96b278246c999f302ca2539a"
+  },
+  "Quasar/Services/QuasarConfigMetadata.cs": {
+    "mtime": 1781395299.65433,
+    "ast_hash": "320b7a385123ef74ddbeca006a4f1e8a",
+    "semantic_hash": "320b7a385123ef74ddbeca006a4f1e8a"
+  },
+  "Quasar/Services/QuasarConfigProfileCatalog.cs": {
+    "mtime": 1782206631.547061,
+    "ast_hash": "55b243508e42ba3172c093d9e0529fee",
+    "semantic_hash": "55b243508e42ba3172c093d9e0529fee"
+  },
+  "Quasar/Services/QuasarDevFolderCatalog.cs": {
+    "mtime": 1780740021.3588123,
+    "ast_hash": "675386277c8fd1892c32fd4888a7fa17",
+    "semantic_hash": "675386277c8fd1892c32fd4888a7fa17"
+  },
+  "Quasar/Services/QuasarLoggingConfigurator.cs": {
+    "mtime": 1781267409.660687,
+    "ast_hash": "82fa6801445b4af334bfe54e8a6156c2",
+    "semantic_hash": "82fa6801445b4af334bfe54e8a6156c2"
+  },
+  "Quasar/Services/QuasarPluginCatalogService.cs": {
+    "mtime": 1781953970.8419259,
+    "ast_hash": "d0a32d7ed016d1c46fee2901d398444c",
+    "semantic_hash": "d0a32d7ed016d1c46fee2901d398444c"
+  },
+  "Quasar/Services/QuasarShutdownService.cs": {
+    "mtime": 1782000229.8829372,
+    "ast_hash": "d4a7bbf3e63a5b8cfe6e9740b600af57",
+    "semantic_hash": "d4a7bbf3e63a5b8cfe6e9740b600af57"
+  },
+  "Quasar/Services/QuasarTheme.cs": {
+    "mtime": 1780666969.3798819,
+    "ast_hash": "f0ccd70e93a825321ece95b1a3ef5f59",
+    "semantic_hash": "f0ccd70e93a825321ece95b1a3ef5f59"
+  },
+  "Quasar/Services/QuasarWorkshopModResolver.cs": {
+    "mtime": 1780904687.4082687,
+    "ast_hash": "7add7c4b70e6f0402e63b77f89895e75",
+    "semantic_hash": "7add7c4b70e6f0402e63b77f89895e75"
+  },
+  "Quasar/Services/QuasarWorldTemplateCatalog.cs": {
+    "mtime": 1780866006.6771607,
+    "ast_hash": "ebf43daf8699333611b98dc59c118edb",
+    "semantic_hash": "ebf43daf8699333611b98dc59c118edb"
+  },
+  "Quasar/Services/ServerManagementActions.cs": {
+    "mtime": 1781733462.3156965,
+    "ast_hash": "3953e3e88a77a4764be19893e5c11104",
+    "semantic_hash": "3953e3e88a77a4764be19893e5c11104"
+  },
+  "Quasar/Services/SteamWorkshopCredentialsCatalog.cs": {
+    "mtime": 1781623696.4197674,
+    "ast_hash": "1190b6f3181750acdd41450566699ac9",
+    "semantic_hash": "1190b6f3181750acdd41450566699ac9"
+  },
+  "Quasar/Services/TextSanitizer.cs": {
+    "mtime": 1781729713.5655906,
+    "ast_hash": "75bf35d12e0d53ad7ede0633dd4f63f6",
+    "semantic_hash": "75bf35d12e0d53ad7ede0633dd4f63f6"
+  },
+  "Quasar/Services/ThemePreferenceService.cs": {
+    "mtime": 1780698698.5529168,
+    "ast_hash": "b32e330cac57f76bcd7190fd648cc6a9",
+    "semantic_hash": "b32e330cac57f76bcd7190fd648cc6a9"
+  },
+  "Quasar/Services/Updates/QuasarUpdateOptions.cs": {
+    "mtime": 1781996083.6664329,
+    "ast_hash": "e00d4f11282e1977694b41ee679eba7d",
+    "semantic_hash": "e00d4f11282e1977694b41ee679eba7d"
+  },
+  "Quasar/Services/Updates/QuasarUpdateService.cs": {
+    "mtime": 1782298366.26516,
+    "ast_hash": "4c8f1b34a3af63b1cbb966b111d3adc2",
+    "semantic_hash": "4c8f1b34a3af63b1cbb966b111d3adc2"
+  },
+  "Quasar/Services/Updates/QuasarUpdateSnapshot.cs": {
+    "mtime": 1781395299.65433,
+    "ast_hash": "7e71c8dcca7ad0774f8d61da332e384a",
+    "semantic_hash": "7e71c8dcca7ad0774f8d61da332e384a"
+  },
+  "Quasar/Services/WebServiceManifestHostedService.cs": {
+    "mtime": 1780836104.292074,
+    "ast_hash": "16def8153be4276a6096e6bb3b2c9afa",
+    "semantic_hash": "16def8153be4276a6096e6bb3b2c9afa"
+  },
+  "Quasar/Services/WebServiceOptions.cs": {
+    "mtime": 1781989331.89627,
+    "ast_hash": "ae6c48535d468582148c3fc57e5030d9",
+    "semantic_hash": "ae6c48535d468582148c3fc57e5030d9"
+  },
+  "Quasar/Services/WebServiceState.cs": {
+    "mtime": 1780666969.3807664,
+    "ast_hash": "380cc8e5cd8182449ed56c3b28e0f9e1",
+    "semantic_hash": "380cc8e5cd8182449ed56c3b28e0f9e1"
+  },
+  "Quasar/Services/WorldSandboxConfigEditor.cs": {
+    "mtime": 1781395299.65433,
+    "ast_hash": "26662045cb789c7c3209581046acd466",
+    "semantic_hash": "26662045cb789c7c3209581046acd466"
+  },
+  "Quasar/Services/WorldTemplateImportLocationService.cs": {
+    "mtime": 1781994343.194181,
+    "ast_hash": "8eca8432c84a5a2d98517ec9905c1d22",
+    "semantic_hash": "8eca8432c84a5a2d98517ec9905c1d22"
+  },
+  "Quasar/appsettings.Development.json": {
+    "mtime": 1780901160.6544325,
+    "ast_hash": "d3f876899a634c7886567507e08d6c87",
+    "semantic_hash": "d3f876899a634c7886567507e08d6c87"
+  },
+  "Quasar/appsettings.json": {
+    "mtime": 1781996083.6664329,
+    "ast_hash": "4913b6ff7e65ffbfdcff62c9e1908395",
+    "semantic_hash": "4913b6ff7e65ffbfdcff62c9e1908395"
+  },
+  "Quasar/wwwroot/lib/uplot/uPlot.iife.min.js": {
+    "mtime": 1780828281.2918897,
+    "ast_hash": "39c8840dbd7d50df7bdbb2883c89d2d3",
+    "semantic_hash": "39c8840dbd7d50df7bdbb2883c89d2d3"
+  },
+  "Quasar/wwwroot/quasar-charts.js": {
+    "mtime": 1781204660.3880706,
+    "ast_hash": "5ed1507dea9626d7e63abedc96a3f75c",
+    "semantic_hash": "5ed1507dea9626d7e63abedc96a3f75c"
+  },
+  "Quasar/wwwroot/quasar-configs.js": {
+    "mtime": 1782298366.26516,
+    "ast_hash": "7629ab48299b2adac6497c74d09ac7dd",
+    "semantic_hash": "7629ab48299b2adac6497c74d09ac7dd"
+  },
+  "install.sh": {
+    "mtime": 1782241207.980019,
+    "ast_hash": "272ec1df783103fd82885a909c092d06",
+    "semantic_hash": "272ec1df783103fd82885a909c092d06"
+  },
+  "scripts/generate-analytics-data.py": {
+    "mtime": 1780701239.5443373,
+    "ast_hash": "d609978079fddde0ef39e9719853cefb",
+    "semantic_hash": "d609978079fddde0ef39e9719853cefb"
+  },
+  "scripts/install.ps1": {
+    "mtime": 1782241207.981019,
+    "ast_hash": "6afd244c09c990511209c6cfabb25d17",
+    "semantic_hash": "6afd244c09c990511209c6cfabb25d17"
+  },
+  "scripts/package-linux-release.sh": {
+    "mtime": 1782241207.981019,
+    "ast_hash": "7e55fc68c73d9a64e185774e5ae01cf4",
+    "semantic_hash": "7e55fc68c73d9a64e185774e5ae01cf4"
+  },
+  "scripts/package-windows-release.ps1": {
+    "mtime": 1782241207.981019,
+    "ast_hash": "1f8e3d9dbb7f0da62613d9b0a1970123",
+    "semantic_hash": "1f8e3d9dbb7f0da62613d9b0a1970123"
+  },
+  "scripts/uninstall.ps1": {
+    "mtime": 1782241207.981019,
+    "ast_hash": "7d367c00f849cdd4ed2239850c8889a4",
+    "semantic_hash": "7d367c00f849cdd4ed2239850c8889a4"
+  },
+  "tools/quasar-renice.c": {
+    "mtime": 1781444096.6725297,
+    "ast_hash": "cc0ff10d04707b28416a4828d12a082e",
+    "semantic_hash": "cc0ff10d04707b28416a4828d12a082e"
+  },
+  "uninstall.sh": {
+    "mtime": 1782241207.981019,
+    "ast_hash": "cab6a186279933899c24ad181b6aaa3d",
+    "semantic_hash": "cab6a186279933899c24ad181b6aaa3d"
+  },
+  ".github/workflows/release.yml": {
+    "mtime": 1782241207.9780192,
+    "ast_hash": "5904af9fd287af1f98ab3ae22d7159ba",
+    "semantic_hash": "5904af9fd287af1f98ab3ae22d7159ba"
+  },
+  "AGENTS.md": {
+    "mtime": 1782028664.0985496,
+    "ast_hash": "67f8e4442869dd6bfa5e9ad367192478",
+    "semantic_hash": "67f8e4442869dd6bfa5e9ad367192478"
+  },
+  "Docs/BuildingAndDevelopment.md": {
+    "mtime": 1781985829.5193894,
+    "ast_hash": "f4006b6e2b694ed0f889cf763cae6250",
+    "semantic_hash": "f4006b6e2b694ed0f889cf763cae6250"
+  },
+  "Docs/Configuration.md": {
+    "mtime": 1782241207.9780192,
+    "ast_hash": "04082c36b5cd062da2231d1940fb4706",
+    "semantic_hash": "04082c36b5cd062da2231d1940fb4706"
+  },
+  "Docs/LinuxDeploymentAndUpdates.md": {
+    "mtime": 1782298366.26316,
+    "ast_hash": "24e24f294cb44ae37d36bc37604c668f",
+    "semantic_hash": "24e24f294cb44ae37d36bc37604c668f"
+  },
+  "Docs/QuasarArchitecture.md": {
+    "mtime": 1782241207.9780192,
+    "ast_hash": "1c31f8db97e05e46cc26e20aee957ae3",
+    "semantic_hash": "1c31f8db97e05e46cc26e20aee957ae3"
+  },
+  "Docs/QuickStart.md": {
+    "mtime": 1782241207.9790192,
+    "ast_hash": "59458f01d78270cf0c9b72615d13413d",
+    "semantic_hash": "59458f01d78270cf0c9b72615d13413d"
+  },
+  "Docs/StateMachines/AgentConnection.md": {
+    "mtime": 1781461137.6366653,
+    "ast_hash": "6c7a6750ed8bb72f86fddb6629b014b0",
+    "semantic_hash": "6c7a6750ed8bb72f86fddb6629b014b0"
+  },
+  "Docs/StateMachines/BackupJobs.md": {
+    "mtime": 1782030819.1726816,
+    "ast_hash": "f4ca3760d1a30e497d56440c4970daf0",
+    "semantic_hash": "f4ca3760d1a30e497d56440c4970daf0"
+  },
+  "Docs/StateMachines/BlazorReconnect.md": {
+    "mtime": 1781461137.6367073,
+    "ast_hash": "0419de244ba1e15b385eccadef4430d0",
+    "semantic_hash": "0419de244ba1e15b385eccadef4430d0"
+  },
+  "Docs/StateMachines/ConfigProfileChanges.md": {
+    "mtime": 1781461137.6367073,
+    "ast_hash": "2185096c56662ec9a4851b077f5703da",
+    "semantic_hash": "2185096c56662ec9a4851b077f5703da"
+  },
+  "Docs/StateMachines/DedicatedServerLifecycle.md": {
+    "mtime": 1782151294.1753955,
+    "ast_hash": "07e10c559686bd1d7c05a1147cb33d8b",
+    "semantic_hash": "07e10c559686bd1d7c05a1147cb33d8b"
+  },
+  "Docs/StateMachines/Index.md": {
+    "mtime": 1781461137.6367073,
+    "ast_hash": "1f8ab44efb84752f98dec70a41129158",
+    "semantic_hash": "1f8ab44efb84752f98dec70a41129158"
+  },
+  "Docs/StateMachines/ManagedRuntimeProvisioning.md": {
+    "mtime": 1781461137.6367073,
+    "ast_hash": "42e21fdeac9a8def132e4d9dc3fc5f98",
+    "semantic_hash": "42e21fdeac9a8def132e4d9dc3fc5f98"
+  },
+  "Docs/StateMachines/ProfilerMode.md": {
+    "mtime": 1781461137.6367073,
+    "ast_hash": "a8e3c919bcd8bf3633ec384868642a68",
+    "semantic_hash": "a8e3c919bcd8bf3633ec384868642a68"
+  },
+  "Docs/StateMachines/SelfUpdateAndRelease.md": {
+    "mtime": 1781994343.193181,
+    "ast_hash": "0e9b13cac22be7b1aa08c03a16a812f9",
+    "semantic_hash": "0e9b13cac22be7b1aa08c03a16a812f9"
+  },
+  "Docs/StateMachines/ThemeMode.md": {
+    "mtime": 1781461137.6367073,
+    "ast_hash": "1bfb3d183ab6dbbf4765fb593042b265",
+    "semantic_hash": "1bfb3d183ab6dbbf4765fb593042b265"
+  },
+  "Docs/WindowsDeploymentAndUpdates.md": {
+    "mtime": 1782298366.26416,
+    "ast_hash": "26687b581ef826da9c52f16cc9137439",
+    "semantic_hash": "26687b581ef826da9c52f16cc9137439"
+  },
+  "Docs/clone-feature-plan.md": {
+    "mtime": 1780666969.3672256,
+    "ast_hash": "384376b06cb03c197642be7ced775ecf",
+    "semantic_hash": "384376b06cb03c197642be7ced775ecf"
+  },
+  "Docs/pluginsdk-integration-plan.md": {
+    "mtime": 1780666969.367323,
+    "ast_hash": "625545a5525af17c7b0c57707ec8ffb5",
+    "semantic_hash": "625545a5525af17c7b0c57707ec8ffb5"
+  },
+  "Docs/public-access-auth-rbac-plan.md": {
+    "mtime": 1780666969.3674822,
+    "ast_hash": "5f3e328e18ed63b2f40fb52fd36a09e5",
+    "semantic_hash": "5f3e328e18ed63b2f40fb52fd36a09e5"
+  },
+  "Docs/remote-host-ssh-plan.md": {
+    "mtime": 1780666969.3676682,
+    "ast_hash": "31009596a856026bb305b00e102dbc80",
+    "semantic_hash": "31009596a856026bb305b00e102dbc80"
+  },
+  "README.md": {
+    "mtime": 1782157099.5589402,
+    "ast_hash": "97da4092cb78234a058584a0cca7a708",
+    "semantic_hash": "97da4092cb78234a058584a0cca7a708"
+  },
+  "admin-entity-list-plan.md": {
+    "mtime": 1780666969.383973,
+    "ast_hash": "0e8f9c998269c0a684cb51681c146dc4",
+    "semantic_hash": "0e8f9c998269c0a684cb51681c146dc4"
+  },
+  "scripts/readme-install-linux.md": {
+    "mtime": 1782241207.981019,
+    "ast_hash": "1c4fa3d9c8640adc616f69179e0bbb02",
+    "semantic_hash": "1c4fa3d9c8640adc616f69179e0bbb02"
+  },
+  "scripts/readme-install-windows.md": {
+    "mtime": 1782241207.981019,
+    "ast_hash": "a2192b83b8d131194f444d3ce73c0908",
+    "semantic_hash": "a2192b83b8d131194f444d3ce73c0908"
+  },
+  "whitelabel-theme-configurator.md": {
+    "mtime": 1782241207.981019,
+    "ast_hash": "3818aa037a5ab1c159a1eccaec8dbf95",
+    "semantic_hash": "3818aa037a5ab1c159a1eccaec8dbf95"
+  },
+  "Docs/StateMachines/diagrams/agent-connection-client.png": {
+    "mtime": 1781461137.637598,
+    "ast_hash": "edec9ffae999eacb86a4d81389b66647",
+    "semantic_hash": "edec9ffae999eacb86a4d81389b66647"
+  },
+  "Docs/StateMachines/diagrams/agent-connection-supervisor.png": {
+    "mtime": 1781461137.637598,
+    "ast_hash": "c2e0c7b808d3f46e48276f69110575ce",
+    "semantic_hash": "c2e0c7b808d3f46e48276f69110575ce"
+  },
+  "Docs/StateMachines/diagrams/backup-job.png": {
+    "mtime": 1781461137.637598,
+    "ast_hash": "2f809565ea7afe8d9a7240e0f8fbaed2",
+    "semantic_hash": "2f809565ea7afe8d9a7240e0f8fbaed2"
+  },
+  "Docs/StateMachines/diagrams/blazor-reconnect.png": {
+    "mtime": 1781461137.637598,
+    "ast_hash": "748cee27fa4e0e5a408f6a3e8abf2081",
+    "semantic_hash": "748cee27fa4e0e5a408f6a3e8abf2081"
+  },
+  "Docs/StateMachines/diagrams/bootstrap-cutover.png": {
+    "mtime": 1781461137.638345,
+    "ast_hash": "4fe4af57639fda87e96d59e1f8001017",
+    "semantic_hash": "4fe4af57639fda87e96d59e1f8001017"
+  },
+  "Docs/StateMachines/diagrams/config-profile-changes.png": {
+    "mtime": 1781461137.638345,
+    "ast_hash": "84ff90957b001cbe6b0252a019168aaa",
+    "semantic_hash": "84ff90957b001cbe6b0252a019168aaa"
+  },
+  "Docs/StateMachines/diagrams/ds-goal-state.png": {
+    "mtime": 1781461137.638345,
+    "ast_hash": "a2090344b7930bad6f7dc449ecc7ec98",
+    "semantic_hash": "a2090344b7930bad6f7dc449ecc7ec98"
+  },
+  "Docs/StateMachines/diagrams/ds-health-state.png": {
+    "mtime": 1781461137.639345,
+    "ast_hash": "ae1343326e7db466fb5a97013ccb6ea8",
+    "semantic_hash": "ae1343326e7db466fb5a97013ccb6ea8"
+  },
+  "Docs/StateMachines/diagrams/ds-process-state.png": {
+    "mtime": 1781461137.639345,
+    "ast_hash": "cf864c4c255e90e476da7839024037e8",
+    "semantic_hash": "cf864c4c255e90e476da7839024037e8"
+  },
+  "Docs/StateMachines/diagrams/profiler-mode.png": {
+    "mtime": 1781461137.639345,
+    "ast_hash": "0cb2e31bbd90fed2109f75f3ab29e0b5",
+    "semantic_hash": "0cb2e31bbd90fed2109f75f3ab29e0b5"
+  },
+  "Docs/StateMachines/diagrams/runtime-install-phase.png": {
+    "mtime": 1781461137.6403449,
+    "ast_hash": "1bfbbf4a249a3a4ad5c067d6f4a026e2",
+    "semantic_hash": "1bfbbf4a249a3a4ad5c067d6f4a026e2"
+  },
+  "Docs/StateMachines/diagrams/runtime-warmup.png": {
+    "mtime": 1781461137.6403449,
+    "ast_hash": "7796e9ea07438b938b68649470951dcc",
+    "semantic_hash": "7796e9ea07438b938b68649470951dcc"
+  },
+  "Docs/StateMachines/diagrams/theme-mode.png": {
+    "mtime": 1781461137.6413448,
+    "ast_hash": "93abbe699ef40f2c22c3dcea26e33d07",
+    "semantic_hash": "93abbe699ef40f2c22c3dcea26e33d07"
+  },
+  "Docs/StateMachines/diagrams/update-status.png": {
+    "mtime": 1781461137.6413448,
+    "ast_hash": "37c84a04440aef1cb144f29900b3739d",
+    "semantic_hash": "37c84a04440aef1cb144f29900b3739d"
+  },
+  "Quasar/wwwroot/Quasar-inverted-transparent.png": {
+    "mtime": 1780439194.4359097,
+    "ast_hash": "0f35d21d8d37001676faa4ebb01dec45",
+    "semantic_hash": "0f35d21d8d37001676faa4ebb01dec45"
+  },
+  "Quasar/wwwroot/Quasar.png": {
+    "mtime": 1780065134.4704132,
+    "ast_hash": "bcef5177cf8c9e635d915ff757eca400",
+    "semantic_hash": "bcef5177cf8c9e635d915ff757eca400"
+  }
+}
