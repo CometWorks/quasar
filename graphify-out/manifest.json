@@ -1050,14 +1050,14 @@
     "semantic_hash": "5904af9fd287af1f98ab3ae22d7159ba"
   },
   "AGENTS.md": {
-    "mtime": 1782028664.0985496,
-    "ast_hash": "67f8e4442869dd6bfa5e9ad367192478",
-    "semantic_hash": "67f8e4442869dd6bfa5e9ad367192478"
+    "mtime": 1782456680.0097034,
+    "ast_hash": "74906a1ae2ebc5bcd2f91fa74853bc96",
+    "semantic_hash": "74906a1ae2ebc5bcd2f91fa74853bc96"
   },
   "Docs/BuildingAndDevelopment.md": {
-    "mtime": 1781985829.5193894,
-    "ast_hash": "f4006b6e2b694ed0f889cf763cae6250",
-    "semantic_hash": "f4006b6e2b694ed0f889cf763cae6250"
+    "mtime": 1782461782.2242138,
+    "ast_hash": "3c1c1ed9c9d3ae34ad6fc55f8309606a",
+    "semantic_hash": "3c1c1ed9c9d3ae34ad6fc55f8309606a"
   },
   "Docs/Configuration.md": {
     "mtime": 1782241207.9780192,
@@ -1105,9 +1105,9 @@
     "semantic_hash": "07e10c559686bd1d7c05a1147cb33d8b"
   },
   "Docs/StateMachines/Index.md": {
-    "mtime": 1781461137.6367073,
-    "ast_hash": "1f8ab44efb84752f98dec70a41129158",
-    "semantic_hash": "1f8ab44efb84752f98dec70a41129158"
+    "mtime": 1782456680.0097034,
+    "ast_hash": "f3e4b5f70bfdac7b9b7e12cb1864a689",
+    "semantic_hash": "f3e4b5f70bfdac7b9b7e12cb1864a689"
   },
   "Docs/StateMachines/ManagedRuntimeProvisioning.md": {
     "mtime": 1781461137.6367073,
@@ -1155,9 +1155,9 @@
     "semantic_hash": "31009596a856026bb305b00e102dbc80"
   },
   "README.md": {
-    "mtime": 1782157099.5589402,
-    "ast_hash": "97da4092cb78234a058584a0cca7a708",
-    "semantic_hash": "97da4092cb78234a058584a0cca7a708"
+    "mtime": 1782456680.0097034,
+    "ast_hash": "e4ddb6f31e0b4f4f19d893520000d180",
+    "semantic_hash": "e4ddb6f31e0b4f4f19d893520000d180"
   },
   "admin-entity-list-plan.md": {
     "mtime": 1780666969.383973,
@@ -1258,5 +1258,10 @@
     "mtime": 1780065134.4704132,
     "ast_hash": "bcef5177cf8c9e635d915ff757eca400",
     "semantic_hash": "bcef5177cf8c9e635d915ff757eca400"
+  },
+  "scripts/graphify-prune-plumbing.py": {
+    "mtime": 1782462281.4524086,
+    "ast_hash": "1bb19b020c9efad99a35f298a01a7392",
+    "semantic_hash": "1bb19b020c9efad99a35f298a01a7392"
   }
 }
