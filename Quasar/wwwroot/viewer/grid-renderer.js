@@ -631,24 +631,34 @@ function polygonizeVoxelCube(cube, positions, indicesByMaterial) {
 }
 
 function polygonizeVoxelTetra(vertices, positions, indicesByMaterial) {
-    const inside = vertices.map(vertex => vertex.value >= VOXEL_ISO_LEVEL);
-    const insideCount = inside.reduce((count, value) => count + (value ? 1 : 0), 0);
-    if (insideCount === 0 || insideCount === 4) return;
-
-    const intersections = [];
-    for (let a = 0; a < 4; a++) {
-        for (let b = a + 1; b < 4; b++) {
-            if (inside[a] === inside[b]) continue;
-            intersections.push(interpolateVoxelEdge(vertices[a], vertices[b]));
-        }
+    const inside = [];
+    const outside = [];
+    for (const vertex of vertices) {
+        if (vertex.value >= VOXEL_ISO_LEVEL) inside.push(vertex);
+        else outside.push(vertex);
     }
 
-    const material = dominantVoxelMaterial(vertices.filter((_, index) => inside[index]));
-    if (intersections.length === 3) {
-        addVoxelTriangle(intersections[0], intersections[1], intersections[2], material, positions, indicesByMaterial, insideCount === 1);
-    } else if (intersections.length === 4) {
-        addVoxelTriangle(intersections[0], intersections[1], intersections[2], material, positions, indicesByMaterial, false);
-        addVoxelTriangle(intersections[0], intersections[2], intersections[3], material, positions, indicesByMaterial, false);
+    const insideCount = inside.length;
+    if (insideCount === 0 || insideCount === 4) return;
+
+    const material = dominantVoxelMaterial(inside);
+    if (insideCount === 1) {
+        const a = interpolateVoxelEdge(inside[0], outside[0]);
+        const b = interpolateVoxelEdge(inside[0], outside[1]);
+        const c = interpolateVoxelEdge(inside[0], outside[2]);
+        addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, true);
+    } else if (insideCount === 3) {
+        const a = interpolateVoxelEdge(outside[0], inside[0]);
+        const b = interpolateVoxelEdge(outside[0], inside[1]);
+        const c = interpolateVoxelEdge(outside[0], inside[2]);
+        addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, false);
+    } else {
+        const a = interpolateVoxelEdge(inside[0], outside[0]);
+        const b = interpolateVoxelEdge(inside[1], outside[0]);
+        const c = interpolateVoxelEdge(inside[1], outside[1]);
+        const d = interpolateVoxelEdge(inside[0], outside[1]);
+        addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, false);
+        addVoxelTriangle(a, c, d, material, positions, indicesByMaterial, false);
     }
 }
 
