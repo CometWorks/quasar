@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { els, state } from "./state.js";
 import { blockBox, boundsToBox3 } from "./geometry.js";
 import { colorFromHash, matrixDtoToThree, num, vec3 } from "./math.js";
-import { disposeObjectTree, fitCameraToScene, updateLighting, updateSceneBounds, updateSunLightPosition } from "./scene.js";
+import { disposeObjectTree, fitCameraToScene, floorGridLayout, updateLighting, updateSceneBounds, updateSunLightPosition } from "./scene.js";
 import { resolveModelAsset } from "./mwm-loader.js";
 import { loadTexture, textureToCanvas } from "./texture-loader.js";
 import { log } from "./logging.js";
@@ -537,12 +537,13 @@ function createVoxelDataChunkMesh(chunk, voxel) {
     const positions = [];
     const indicesByMaterial = new Map();
     const cube = createVoxelCubeScratch();
+    const clipBounds = voxelFloorClipBounds();
 
     for (let z = 0; z < sz - 1; z++) {
         for (let y = 0; y < sy - 1; y++) {
             for (let x = 0; x < sx - 1; x++) {
                 fillVoxelCubeScratch(cube, x, y, z, sx, sy, content, materials, worldOrigin, viewTransform);
-                polygonizeVoxelCube(cube, positions, indicesByMaterial);
+                polygonizeVoxelCube(cube, positions, indicesByMaterial, clipBounds);
             }
         }
     }
@@ -623,14 +624,14 @@ function fillVoxelCubeScratch(cube, x, y, z, sx, sy, content, materials, worldOr
     }
 }
 
-function polygonizeVoxelCube(cube, positions, indicesByMaterial) {
+function polygonizeVoxelCube(cube, positions, indicesByMaterial, clipBounds) {
     for (const tetra of VOXEL_TETRAHEDRA) {
         const vertices = tetra.map(index => cube[index]);
-        polygonizeVoxelTetra(vertices, positions, indicesByMaterial);
+        polygonizeVoxelTetra(vertices, positions, indicesByMaterial, clipBounds);
     }
 }
 
-function polygonizeVoxelTetra(vertices, positions, indicesByMaterial) {
+function polygonizeVoxelTetra(vertices, positions, indicesByMaterial, clipBounds) {
     const inside = [];
     const outside = [];
     for (const vertex of vertices) {
@@ -646,19 +647,19 @@ function polygonizeVoxelTetra(vertices, positions, indicesByMaterial) {
         const a = interpolateVoxelEdge(inside[0], outside[0]);
         const b = interpolateVoxelEdge(inside[0], outside[1]);
         const c = interpolateVoxelEdge(inside[0], outside[2]);
-        addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, true);
+        addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, true, clipBounds);
     } else if (insideCount === 3) {
         const a = interpolateVoxelEdge(outside[0], inside[0]);
         const b = interpolateVoxelEdge(outside[0], inside[1]);
         const c = interpolateVoxelEdge(outside[0], inside[2]);
-        addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, false);
+        addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, false, clipBounds);
     } else {
         const a = interpolateVoxelEdge(inside[0], outside[0]);
         const b = interpolateVoxelEdge(inside[1], outside[0]);
         const c = interpolateVoxelEdge(inside[1], outside[1]);
         const d = interpolateVoxelEdge(inside[0], outside[1]);
-        addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, false);
-        addVoxelTriangle(a, c, d, material, positions, indicesByMaterial, false);
+        addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, false, clipBounds);
+        addVoxelTriangle(a, c, d, material, positions, indicesByMaterial, false, clipBounds);
     }
 }
 
@@ -668,19 +669,66 @@ function interpolateVoxelEdge(a, b) {
     return new THREE.Vector3().lerpVectors(a.position, b.position, clamp(t, 0, 1));
 }
 
-function addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, reverse) {
+function addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, reverse, clipBounds) {
+    const polygon = reverse ? [a, c, b] : [a, b, c];
+    const clipped = clipVoxelPolygonToFloor(polygon, clipBounds);
+    if (clipped.length < 3) return;
+
     let indices = indicesByMaterial.get(material);
     if (!indices) {
         indices = [];
         indicesByMaterial.set(material, indices);
     }
     const base = positions.length / 3;
-    if (reverse) {
-        positions.push(a.x, a.y, a.z, c.x, c.y, c.z, b.x, b.y, b.z);
-    } else {
-        positions.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+    for (const vertex of clipped) positions.push(vertex.x, vertex.y, vertex.z);
+    for (let i = 1; i < clipped.length - 1; i++) {
+        indices.push(base, base + i, base + i + 1);
     }
-    indices.push(base, base + 1, base + 2);
+}
+
+function clipVoxelPolygonToFloor(polygon, bounds) {
+    if (!bounds) return polygon;
+    let clipped = clipVoxelPolygonAxis(polygon, "x", bounds.minX, true);
+    clipped = clipVoxelPolygonAxis(clipped, "x", bounds.maxX, false);
+    clipped = clipVoxelPolygonAxis(clipped, "z", bounds.minZ, true);
+    return clipVoxelPolygonAxis(clipped, "z", bounds.maxZ, false);
+}
+
+function clipVoxelPolygonAxis(polygon, axis, limit, keepGreater) {
+    if (polygon.length === 0) return polygon;
+    const result = [];
+    let previous = polygon[polygon.length - 1];
+    let previousInside = keepGreater ? previous[axis] >= limit : previous[axis] <= limit;
+    for (const current of polygon) {
+        const currentInside = keepGreater ? current[axis] >= limit : current[axis] <= limit;
+        if (currentInside !== previousInside) result.push(intersectVoxelClipEdge(previous, current, axis, limit));
+        if (currentInside) result.push(current);
+        previous = current;
+        previousInside = currentInside;
+    }
+    return result;
+}
+
+function intersectVoxelClipEdge(a, b, axis, limit) {
+    const delta = b[axis] - a[axis];
+    const t = Math.abs(delta) > 0.000001 ? (limit - a[axis]) / delta : 0;
+    return new THREE.Vector3().lerpVectors(a, b, clamp(t, 0, 1));
+}
+
+function voxelFloorClipBounds() {
+    const bounds = state.currentBounds && state.currentBounds.clone();
+    if (!bounds || bounds.isEmpty()) return null;
+    if (state.gridGroup) {
+        state.gridGroup.updateMatrixWorld(true);
+        bounds.applyMatrix4(state.gridGroup.matrixWorld);
+    }
+    const layout = floorGridLayout(bounds, state.currentGridSize, state.currentFloorGridAlignment);
+    return {
+        minX: layout.offsetX + layout.startXCell * layout.minorStep,
+        maxX: layout.offsetX + layout.endXCell * layout.minorStep,
+        minZ: layout.offsetZ + layout.startZCell * layout.minorStep,
+        maxZ: layout.offsetZ + layout.endZCell * layout.minorStep,
+    };
 }
 
 function appendArray(target, source) {

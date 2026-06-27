@@ -14,6 +14,7 @@ Key exports:
 | `initScene()` | Creates the scene, renderer, camera, controls, lighting, floor grid, pointer handlers, and resize observer. |
 | `animate(time)` | Per-frame render loop that updates controls/free-fly movement, renders the scene, and refreshes render stats. |
 | `replaceFloorGrid(bounds, gridSize, alignment = null)` | Rebuilds the scaled floor grid using SE small/large grid cell semantics and optional per-axis lattice offsets. |
+| `floorGridLayout(bounds, gridSize, alignment)` | Computes the snapped floor-grid cell layout used by both floor rendering and client-side voxel clipping. |
 | `fitCameraToScene()` | Frames the active grid bounds and updates camera clipping planes/orbit target. |
 | `updateSceneBounds(refit = false)` | Recomputes displayed bounds, floor grid, and sun marker placement. |
 | `updateLighting()` | Applies the lighting toggle state to ambient fill, the directional sun, grid light group, and sun marker helpers. |

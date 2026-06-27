@@ -152,7 +152,7 @@ function createFloorGrid(bounds, gridSize, alignment) {
     return grid;
 }
 
-function floorGridLayout(bounds, gridSize, alignment) {
+export function floorGridLayout(bounds, gridSize, alignment) {
     const majorStep = Math.max(SMALL_GRID_CUBE_SIZE, Number(gridSize) || LARGE_GRID_CUBE_SIZE);
     if (!bounds || bounds.isEmpty()) {
         const halfSize = FLOOR_GRID_DEFAULT_SIZE * 0.5;
@@ -182,6 +182,7 @@ function floorGridCells(minX, maxX, minZ, maxZ, y, majorStep, offsetX = 0, offse
         offsetZ,
         y,
         majorStep,
+        minorStep: SMALL_GRID_CUBE_SIZE,
     };
 }
 
