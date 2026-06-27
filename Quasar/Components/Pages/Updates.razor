@@ -4,6 +4,7 @@
 @inject QuasarUpdateService UpdateService
 @inject QuasarUpdateOptions Options
 @inject WebServiceOptions WebOptions
+@inject GitHubUpdateCredentialsCatalog GitHubCredentials
 @inject ManagedRuntimeWarmupService RuntimeWarmup
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -266,6 +267,80 @@
                     <MudText Typo="Typo.body2">
                         Release stream: @(_includePrerelease ? "stable and prerelease" : "stable only")
                     </MudText>
+                    <MudDivider />
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudText Typo="Typo.subtitle1">GitHub token</MudText>
+                            <MudChip T="string"
+                                     Size="Size.Small"
+                                     Variant="Variant.Outlined"
+                                     Color="@GetGitHubTokenChipColor()"
+                                     Icon="@GetGitHubTokenChipIcon()">
+                                @FormatGitHubTokenStatus()
+                            </MudChip>
+                        </MudStack>
+                        @if (!string.IsNullOrWhiteSpace(_snapshot.GitHubTokenWarning))
+                        {
+                            <MudAlert Severity="@(_snapshot.GitHubTokenExpired ? Severity.Error : Severity.Warning)" Variant="Variant.Outlined" Dense="true">
+                                @_snapshot.GitHubTokenWarning
+                            </MudAlert>
+                        }
+                        <MudText Typo="Typo.body2">
+                            Add a GitHub personal access token so Quasar update checks use your account rate limit instead of the shared public IP limit.
+                        </MudText>
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                            <MudStack Spacing="1">
+                                <MudText Typo="Typo.body2">
+                                    Create a Fine-grained personal access token:
+                                </MudText>
+                                <ol class="mud-typography mud-typography-body2 ma-0 pl-4">
+                                    <li>Open GitHub Settings, then Developer settings, Personal access tokens, Fine-grained tokens.</li>
+                                    <li>Choose Generate new token. Name it Quasar update checks and set an expiration you can renew before it ends.</li>
+                                    <li>Set Resource owner to the account or organization that owns @Options.Owner/@Options.Repository.</li>
+                                    <li>Under Repository access, choose Only select repositories and select @Options.Repository.</li>
+                                    <li>Under Repository permissions, set Contents to Read-only. Leave Account permissions unset. Metadata read-only is automatic.</li>
+                                    <li>Generate the token, copy it once, paste it here, save it, then press Check Quasar.</li>
+                                </ol>
+                                <MudLink Href="https://github.com/settings/personal-access-tokens/new"
+                                         Target="_blank"
+                                         Underline="Underline.Always"
+                                         Color="Color.Primary"
+                                         Typo="Typo.subtitle2">
+                                    Open GitHub fine-grained token page
+                                </MudLink>
+                            </MudStack>
+                        </MudAlert>
+                        <MudText Typo="Typo.caption">
+                            Stored encrypted in @System.IO.Path.GetFileName(MagnetarPaths.GetQuasarGitHubUpdateCredentialsPath()) with the same local Data Protection keyring used for the Steam Workshop API key.
+                        </MudText>
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+                            <MudTextField
+                                @bind-Value="_githubToken"
+                                Label="GitHub token"
+                                Variant="Variant.Outlined"
+                                InputType="InputType.Password"
+                                Immediate="true"
+                                Adornment="Adornment.Start"
+                                AdornmentIcon="@Icons.Material.Filled.Key"
+                                Disabled="_busy"
+                                Class="configs-search-field" />
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Save"
+                                       Disabled="_busy || string.IsNullOrWhiteSpace(_githubToken)"
+                                       OnClick="SaveGitHubTokenAsync">
+                                Save token
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Default"
+                                       StartIcon="@Icons.Material.Filled.DeleteOutline"
+                                       Disabled="_busy || !_snapshot.GitHubTokenConfigured"
+                                       OnClick="ClearGitHubTokenAsync">
+                                Clear
+                            </MudButton>
+                        </MudStack>
+                    </MudStack>
+                    <MudDivider />
                     <MudSwitch T="bool"
                                Value="_includePrerelease"
                                ValueChanged="HandleIncludePrereleaseChanged"
@@ -308,6 +383,7 @@
     private bool _bootstrapActivationRequested;
     private string _selectedWebVersion = string.Empty;
     private string _appSettingsConflictText = string.Empty;
+    private string _githubToken = string.Empty;
 
     protected override void OnInitialized()
     {
@@ -603,6 +679,63 @@
             "Failed forcing release appsettings.json");
     }
 
+    private async Task SaveGitHubTokenAsync()
+    {
+        var token = _githubToken.Trim();
+        if (string.IsNullOrWhiteSpace(token))
+            return;
+
+        _busy = true;
+        try
+        {
+            await GitHubCredentials.SaveAsync(new GitHubUpdateCredentials
+            {
+                Token = token,
+            });
+
+            _githubToken = string.Empty;
+            _snapshot = UpdateService.GetSnapshot();
+            Snackbar.Add("GitHub update token saved.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed saving GitHub token: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ClearGitHubTokenAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Clear GitHub token?",
+            "Quasar update checks will go back to unauthenticated GitHub API rate limits.",
+            yesText: "Clear token",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        _busy = true;
+        try
+        {
+            await GitHubCredentials.ClearAsync();
+            _githubToken = string.Empty;
+            _snapshot = UpdateService.GetSnapshot();
+            Snackbar.Add("GitHub update token cleared.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed clearing GitHub token: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
     private async Task RunBusyAsync(Func<Task> action, string successMessage, string failurePrefix)
     {
         _busy = true;
@@ -665,6 +798,47 @@
         string.IsNullOrWhiteSpace(_snapshot.CurrentBootstrapVersion)
             ? "not managed by Bootstrap"
             : _snapshot.CurrentBootstrapVersion;
+
+    private string FormatGitHubTokenStatus()
+    {
+        if (!_snapshot.GitHubTokenConfigured)
+            return "not set";
+
+        if (_snapshot.GitHubTokenExpired && _snapshot.GitHubTokenExpiresAtUtc is null)
+            return "rejected";
+
+        if (_snapshot.GitHubTokenExpired)
+            return "expired";
+
+        if (_snapshot.GitHubTokenExpiringSoon)
+            return "expires soon";
+
+        if (_snapshot.GitHubTokenExpiresAtUtc is { } expiresAtUtc)
+            return $"expires {expiresAtUtc.ToLocalTime():yyyy-MM-dd}";
+
+        return "set";
+    }
+
+    private Color GetGitHubTokenChipColor()
+    {
+        if (!_snapshot.GitHubTokenConfigured)
+            return Color.Warning;
+
+        if (_snapshot.GitHubTokenExpired)
+            return Color.Error;
+
+        return _snapshot.GitHubTokenExpiringSoon ? Color.Warning : Color.Success;
+    }
+
+    private string GetGitHubTokenChipIcon()
+    {
+        if (!_snapshot.GitHubTokenConfigured)
+            return Icons.Material.Filled.KeyOff;
+
+        return _snapshot.GitHubTokenExpired || _snapshot.GitHubTokenExpiringSoon
+            ? Icons.Material.Filled.Warning
+            : Icons.Material.Filled.Key;
+    }
 
     private bool IsUnderBootstrap => !string.IsNullOrWhiteSpace(WebOptions.LauncherToken);
 

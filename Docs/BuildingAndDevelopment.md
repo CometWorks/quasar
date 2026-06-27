@@ -1,8 +1,7 @@
 # Building and Development
 
 How to build Quasar from source, the project layout, and local development
-utilities. For the runtime design see [Architecture](QuasarArchitecture.md); for
-the full per-file reference see the generated [code handbook](Reference/TOC.md).
+utilities. For the runtime design see [Architecture](QuasarArchitecture.md).
 
 ## Projects
 
@@ -105,6 +104,18 @@ python3 scripts/generate-analytics-data.py
 Optional `--server <name>` to target one server, `--days <n>`, `--seed <n>`,
 `--raw-hours <hours>`, `--raw-interval <seconds>`. Uses `QUASAR_DATA_DIR`
 automatically if set, otherwise defaults to the local Quasar data root.
+
+When refreshing the local graphify graph, prune generic framework plumbing after
+`.graphify_extract.json` is produced and before graph build/report generation:
+
+```bash
+python3 scripts/graphify-prune-plumbing.py
+```
+
+This removes low-signal C#/.NET primitives such as `Task`,
+`CancellationToken`, `string`, and collection types from the graph extraction,
+so clustering and god-node reports focus on Quasar concepts instead of async and
+framework plumbing.
 
 Managed agents collect continuous profiler telemetry for Analytics. The default
 agent profiler mode is `SafeContinuous` ("Simple, low overhead" in the UI),

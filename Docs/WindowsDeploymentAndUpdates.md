@@ -210,3 +210,42 @@ elsewhere. Environment overrides:
 - `QUASAR_UPDATES_LINUX_BOOTSTRAP_ASSET`
 - `QUASAR_UPDATES_WINDOWS_WEB_ASSET`
 - `QUASAR_UPDATES_WINDOWS_BOOTSTRAP_ASSET`
+
+## GitHub Token for Update Checks
+
+Quasar can check GitHub releases without a token, but hosts on shared servers,
+NAT gateways, and public cloud IP ranges can hit GitHub's unauthenticated rate
+limit. The Updates page lets an admin save a GitHub token for release checks.
+It is stored in `github-updates.json` under the Quasar data directory with the
+same Data Protection encryption model used for the Steam Workshop API key.
+
+Use a fine-grained personal access token:
+
+1. Open GitHub, then go to Settings, Developer settings, Personal access tokens,
+   Fine-grained tokens. Direct link:
+   <https://github.com/settings/personal-access-tokens/new>.
+2. Choose Generate new token.
+3. Set Token name to something recognizable, such as `Quasar update checks`.
+4. Set Expiration to a date you can renew before it ends. GitHub may require an
+   expiration for organization resources.
+5. Set Resource owner to the account or organization that owns the configured
+   update repository.
+6. Under Repository access, choose Only select repositories and select the
+   Quasar update repository, normally `CometWorks/quasar`.
+7. Under Repository permissions, set Contents to Read-only. Leave Account
+   permissions unset. Metadata read-only is automatic.
+8. Generate the token, copy it once, paste it into Settings, Updates, GitHub
+   token, then press Save token.
+9. Press Check Quasar to verify the token and update status.
+
+GitHub documents that the releases API works with fine-grained tokens when
+Repository permissions include Contents read-only:
+<https://docs.github.com/rest/releases/releases>. General REST authentication
+guidance for fine-grained tokens is here:
+<https://docs.github.com/rest/overview/authenticating-to-the-rest-api>.
+
+When GitHub reports a token expiration, Quasar records it in memory. If the
+token is expired, expiring soon, or rejected during an update check, the Updates
+page shows a warning and the notification icon in the app bar gets a warning
+badge. Save a fresh token before the old one expires to keep automatic checks
+working.

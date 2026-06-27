@@ -366,3 +366,5 @@ MigrationBackup/
 
 .editorconfig
 .claude
+
+graphify-out/cache/

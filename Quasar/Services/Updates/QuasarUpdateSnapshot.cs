@@ -16,6 +16,16 @@ public sealed record QuasarUpdateSnapshot
 
     public bool AutoStageWebUpdates { get; init; } = true;
 
+    public bool GitHubTokenConfigured { get; init; }
+
+    public DateTimeOffset? GitHubTokenExpiresAtUtc { get; init; }
+
+    public bool GitHubTokenExpired { get; init; }
+
+    public bool GitHubTokenExpiringSoon { get; init; }
+
+    public string GitHubTokenWarning { get; init; } = string.Empty;
+
     public string Message { get; init; } = string.Empty;
 
     public DateTimeOffset? LastCheckedUtc { get; init; }
