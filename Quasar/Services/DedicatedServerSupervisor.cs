@@ -1172,7 +1172,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             Environment.NewLine,
             $"Server={definition.UniqueName}",
             $"FileName={startInfo.FileName}",
-            $"Arguments={startInfo.Arguments}",
+            $"Arguments={RedactLaunchArguments(startInfo.Arguments)}",
             $"WorkingDirectory={startInfo.WorkingDirectory}",
             "Environment:",
             environment);
@@ -1182,6 +1182,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             Environment.NewLine,
             launchEnvironment);
     }
+
+    private static string RedactLaunchArguments(string arguments) =>
+        Regex.Replace(
+            arguments,
+            @"(?<!\S)(-github-token)(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?",
+            "$1 <redacted>",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private void SetRuntimeMessage(string uniqueName, string message)
     {

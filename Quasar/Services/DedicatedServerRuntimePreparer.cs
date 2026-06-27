@@ -20,6 +20,7 @@ public sealed class DedicatedServerRuntimePreparer
     private static readonly Regex DaemonPattern = new(@"(?<!\S)-daemon(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex NoImplicitModPattern = new(@"(?<!\S)-noimplicitmod(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex ConsentOptionPattern = new(@"(?<!\S)-(?:no)?consent(?!\S)|(?<!\S)-withdraw-consent(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex GitHubTokenOptionPattern = new(@"(?<!\S)-github-token(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly XNamespace XsiNamespace = "http://www.w3.org/2001/XMLSchema-instance";
     private static readonly XNamespace XsdNamespace = "http://www.w3.org/2001/XMLSchema";
 
@@ -30,6 +31,7 @@ public sealed class DedicatedServerRuntimePreparer
     private readonly QuasarWorldTemplateCatalog _worldTemplates;
     private readonly QuasarPluginCatalogService _pluginCatalog;
     private readonly QuasarDevFolderCatalog _devFolderCatalog;
+    private readonly GitHubUpdateCredentialsCatalog _githubCredentials;
 
     public DedicatedServerRuntimePreparer(
         ILogger<DedicatedServerRuntimePreparer> logger,
@@ -38,7 +40,8 @@ public sealed class DedicatedServerRuntimePreparer
         QuasarConfigProfileCatalog configProfiles,
         QuasarWorldTemplateCatalog worldTemplates,
         QuasarPluginCatalogService pluginCatalog,
-        QuasarDevFolderCatalog devFolderCatalog)
+        QuasarDevFolderCatalog devFolderCatalog,
+        GitHubUpdateCredentialsCatalog githubCredentials)
     {
         _logger = logger;
         _options = options;
@@ -47,6 +50,7 @@ public sealed class DedicatedServerRuntimePreparer
         _worldTemplates = worldTemplates;
         _pluginCatalog = pluginCatalog;
         _devFolderCatalog = devFolderCatalog;
+        _githubCredentials = githubCredentials;
     }
 
     public async Task<PreparedDedicatedServerLaunch> PrepareAsync(
@@ -80,7 +84,8 @@ public sealed class DedicatedServerRuntimePreparer
             worldPath,
             runtimeConfigPath,
             _options,
-            _dataHandlingConsent.GetSettings().ConsentGranted);
+            _dataHandlingConsent.GetSettings().ConsentGranted,
+            _githubCredentials.GetCredentials().Token);
 
         return new PreparedDedicatedServerLaunch(
             dedicatedServerAppDataPath,
@@ -677,7 +682,8 @@ public sealed class DedicatedServerRuntimePreparer
         string worldPath,
         string runtimeConfigPath,
         WebServiceOptions options,
-        bool? dataHandlingConsent)
+        bool? dataHandlingConsent,
+        string gitHubToken)
     {
         var baseArguments = ExpandLaunchArguments(
             definition,
@@ -707,6 +713,8 @@ public sealed class DedicatedServerRuntimePreparer
         additions.Add($"-config {QuoteArgument(magnetarAppDataPath)}");
         additions.Add($"-ds64 {QuoteArgument(dedicatedServer64Path)}");
         additions.Add(dataHandlingConsent == true ? "-consent" : "-noconsent");
+        if (!string.IsNullOrWhiteSpace(gitHubToken))
+            additions.Add($"-github-token {QuoteArgument(gitHubToken.Trim())}");
 
         if (string.IsNullOrWhiteSpace(sanitizedArguments))
             return string.Join(" ", additions);
@@ -750,6 +758,7 @@ public sealed class DedicatedServerRuntimePreparer
         sanitized = DaemonPattern.Replace(sanitized, string.Empty);
         sanitized = NoImplicitModPattern.Replace(sanitized, string.Empty);
         sanitized = ConsentOptionPattern.Replace(sanitized, string.Empty);
+        sanitized = GitHubTokenOptionPattern.Replace(sanitized, string.Empty);
         sanitized = Regex.Replace(sanitized, @"\s{2,}", " ");
         return sanitized.Trim();
     }

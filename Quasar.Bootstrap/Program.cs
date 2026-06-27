@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Formats.Tar;
 using System.IO.Compression;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -9,6 +10,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Magnetar.Protocol.Discovery;
 using Magnetar.Protocol.Runtime;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -954,6 +956,51 @@ internal sealed class BootstrapOptions
     }
 }
 
+internal static class GitHubUpdateTokenReader
+{
+    private const string DataProtectionPurpose = "Quasar.GitHubUpdateCredentials.v1";
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    public static string ReadToken(ILogger logger)
+    {
+        var path = MagnetarPaths.GetQuasarGitHubUpdateCredentialsPath();
+        if (!File.Exists(path))
+            return string.Empty;
+
+        try
+        {
+            var json = File.ReadAllText(path);
+            var persisted = JsonSerializer.Deserialize<PersistedCredentials>(json, JsonOptions);
+            if (persisted is null)
+                return string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(persisted.ProtectedToken))
+            {
+                var protector = DataProtectionProvider
+                    .Create(new DirectoryInfo(MagnetarPaths.GetQuasarDataProtectionKeyringDirectory()), options => options.SetApplicationName("Quasar"))
+                    .CreateProtector(DataProtectionPurpose);
+
+                return protector.Unprotect(persisted.ProtectedToken).Trim();
+            }
+
+            return persisted.Token?.Trim() ?? string.Empty;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Failed reading GitHub update token from {Path}. Continuing without GitHub authentication.", path);
+            return string.Empty;
+        }
+    }
+
+    private sealed class PersistedCredentials
+    {
+        public string? ProtectedToken { get; set; }
+
+        public string? Token { get; set; }
+    }
+}
+
 internal sealed class LauncherCoordinator : IHostedService, IDisposable
 {
     internal static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -1545,6 +1592,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         CancellationToken cancellationToken)
     {
         var url = $"https://api.github.com/repos/{_options.UpdatesOwner}/{_options.UpdatesRepository}/releases?per_page=100";
+        ApplyGitHubAuthorization();
         using var response = await _downloadClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -1576,8 +1624,17 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
             return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+        ApplyGitHubAuthorization();
         var text = await _downloadClient.GetStringAsync(asset.BrowserDownloadUrl, cancellationToken).ConfigureAwait(false);
         return ParseSha256Sums(text);
+    }
+
+    private void ApplyGitHubAuthorization()
+    {
+        var token = GitHubUpdateTokenReader.ReadToken(_logger);
+        _downloadClient.DefaultRequestHeaders.Authorization = string.IsNullOrWhiteSpace(token)
+            ? null
+            : new AuthenticationHeaderValue("Bearer", token);
     }
 
     private static Dictionary<string, string> ParseSha256Sums(string text)
