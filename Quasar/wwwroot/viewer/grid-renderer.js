@@ -1565,9 +1565,14 @@ function applyModelTextures(material, group, technique, renderMode, textureToken
     const normal = textureSelection(group.textures, normalSlots);
     if (normal) {
         loadTrackedTexture(normal, textureToken).then(texture => {
-            material.normalMap = texture;
-            material.normalScale.set(-1, 1);
-            setSpaceEngineersNormalGlossTexture(material, true);
+            if (normal.slot === "GlassGlossTexture") {
+                material.roughnessMap = texture;
+                setSpaceEngineersTransparentGlossTexture(material, true);
+            } else {
+                material.normalMap = texture;
+                material.normalScale.set(-1, 1);
+                setSpaceEngineersNormalGlossTexture(material, true);
+            }
             material.needsUpdate = true;
         }).catch(error => log(`Normal texture fallback retained for ${normal.path}: ${error.message}`, true));
     }
@@ -1646,6 +1651,7 @@ function applySpaceEngineersColorMasking(material, metalnessColorable, colorMask
         seAlphaMaskRedChannel: { value: 0 },
         seAlphaMaskCutoff: { value: 0.5 },
         seUseTransparentMaterial: { value: false },
+        seUseTransparentGlossTexture: { value: false },
         seTransparentColorAdd: { value: new THREE.Vector4(0, 0, 0, 0) },
         seTransparentLightFactor: { value: 1 },
         seTransparentAlphaSaturation: { value: 1 },
@@ -1670,6 +1676,7 @@ uniform bool seUseAlphaMaskMap;
 uniform float seAlphaMaskRedChannel;
 uniform float seAlphaMaskCutoff;
 uniform bool seUseTransparentMaterial;
+uniform bool seUseTransparentGlossTexture;
 uniform vec4 seTransparentColorAdd;
 uniform float seTransparentLightFactor;
 uniform float seTransparentAlphaSaturation;
@@ -1742,8 +1749,14 @@ float seRemoveMetalnessFromColoring(float metalness, float coloring) {
 #endif
 #include <alphatest_fragment>`);
         shader.fragmentShader = shader.fragmentShader.replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
+#ifdef USE_ROUGHNESSMAP
+  if (seUseTransparentGlossTexture) {
+    float seGloss = clamp(texture2D(roughnessMap, vRoughnessMapUv).a + seTransparentGlossTextureAdd, 0.0, 1.0);
+    roughnessFactor = clamp(1.0 - seGloss, 0.0, 1.0);
+  }
+#endif
 #ifdef USE_NORMALMAP
-  if (seUseNormalGlossAlpha) {
+  if (seUseNormalGlossAlpha && !seUseTransparentGlossTexture) {
     float seGloss = clamp(texture2D(normalMap, vNormalMapUv).a + (seUseTransparentMaterial ? seTransparentGlossTextureAdd : 0.0), 0.0, 1.0);
     roughnessFactor = clamp(1.0 - seGloss, 0.0, 1.0);
   }
@@ -1789,6 +1802,11 @@ function setSpaceEngineersColorMetalTexture(material, enabled) {
 function setSpaceEngineersNormalGlossTexture(material, enabled) {
     const uniforms = material.userData.seColorMaskUniforms;
     if (uniforms) uniforms.seUseNormalGlossAlpha.value = !!enabled;
+}
+
+function setSpaceEngineersTransparentGlossTexture(material, enabled) {
+    const uniforms = material.userData.seColorMaskUniforms;
+    if (uniforms) uniforms.seUseTransparentGlossTexture.value = !!enabled;
 }
 
 function setSpaceEngineersColorMaskTexture(material, texture) {
