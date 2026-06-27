@@ -85,7 +85,10 @@ namespace Quasar.Agent
             scene.TextureAssets = catalog.TextureAssetsSnapshot();
             scene.Voxels = LoadedVoxels();
             if (includeVoxels)
+            {
                 scene.VoxelDeformations = BuildVoxelDeformations(grid, scene.Warnings);
+                scene.VoxelMaterials = BuildVoxelMaterials(scene.VoxelDeformations, scene.Warnings);
+            }
             else
                 scene.Warnings.Add("Voxel data generation disabled by URL.");
             return scene;
@@ -377,6 +380,53 @@ namespace Quasar.Agent
             }
 
             return dto;
+        }
+
+        private static List<ViewerVoxelMaterial> BuildVoxelMaterials(List<ViewerVoxelDataChunk> chunks, List<string> warnings)
+        {
+            var materialIndexes = new HashSet<byte>();
+            foreach (var chunk in chunks)
+            {
+                if (chunk?.Materials == null)
+                    continue;
+
+                foreach (var material in chunk.Materials)
+                    materialIndexes.Add(material);
+            }
+
+            var result = new List<ViewerVoxelMaterial>();
+            foreach (var materialIndex in materialIndexes.OrderBy(index => index))
+            {
+                try
+                {
+                    var definition = MyDefinitionManager.Static.GetVoxelMaterialDefinition(materialIndex);
+                    if (definition == null)
+                        continue;
+
+                    var textureSet = definition.RenderParams.TextureSets != null && definition.RenderParams.TextureSets.Length > 0
+                        ? definition.RenderParams.TextureSets[0]
+                        : default;
+                    result.Add(new ViewerVoxelMaterial
+                    {
+                        Index = definition.Index,
+                        SubtypeId = definition.Id.SubtypeName ?? string.Empty,
+                        MaterialTypeName = definition.MaterialTypeName ?? string.Empty,
+                        ColorMetalXZnY = textureSet.ColorMetalXZnY ?? string.Empty,
+                        ColorMetalY = textureSet.ColorMetalY ?? string.Empty,
+                        NormalGlossXZnY = textureSet.NormalGlossXZnY ?? string.Empty,
+                        NormalGlossY = textureSet.NormalGlossY ?? string.Empty,
+                        ExtXZnY = textureSet.ExtXZnY ?? string.Empty,
+                        ExtY = textureSet.ExtY ?? string.Empty,
+                        TilingScale = definition.RenderParams.StandardTilingSetup.TilingScale,
+                    });
+                }
+                catch (Exception exception)
+                {
+                    warnings.Add("Failed to inspect voxel material " + materialIndex + ": " + exception.Message);
+                }
+            }
+
+            return result;
         }
 
         private static List<ViewerVoxelDataChunk> BuildVoxelDeformations(MyCubeGrid grid, List<string> warnings)

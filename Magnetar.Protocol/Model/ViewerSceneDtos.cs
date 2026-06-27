@@ -42,6 +42,8 @@ public class EntityRenderScene
 
     public List<ViewerVoxelBody> Voxels { get; set; } = new();
 
+    public List<ViewerVoxelMaterial> VoxelMaterials { get; set; } = new();
+
     public List<ViewerVoxelDataChunk> VoxelDeformations { get; set; } = new();
 
     public List<ViewerLightSource> LightSources { get; set; } = new();
@@ -372,6 +374,29 @@ public class ViewerVoxelBody
     public bool ContentChanged { get; set; }
 
     public ViewerPlanetInfo? Planet { get; set; }
+}
+
+public class ViewerVoxelMaterial
+{
+    public int Index { get; set; }
+
+    public string SubtypeId { get; set; } = string.Empty;
+
+    public string MaterialTypeName { get; set; } = string.Empty;
+
+    public string ColorMetalXZnY { get; set; } = string.Empty;
+
+    public string ColorMetalY { get; set; } = string.Empty;
+
+    public string NormalGlossXZnY { get; set; } = string.Empty;
+
+    public string NormalGlossY { get; set; } = string.Empty;
+
+    public string ExtXZnY { get; set; } = string.Empty;
+
+    public string ExtY { get; set; } = string.Empty;
+
+    public float TilingScale { get; set; }
 }
 
 public class ViewerVoxelDataChunk

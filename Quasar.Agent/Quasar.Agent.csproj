@@ -48,6 +48,7 @@
     <Reference Include="VRage.Game" HintPath="$(DS64)\VRage.Game.dll" Private="False" />
     <Reference Include="VRage.Library" HintPath="$(DS64)\VRage.Library.dll" Private="False" />
     <Reference Include="VRage.Math" HintPath="$(DS64)\VRage.Math.dll" Private="False" />
+    <Reference Include="VRage.Render" HintPath="$(DS64)\VRage.Render.dll" Private="False" />
     <!-- Magnetar PluginSdk: provides ServerControl lifecycle events the agent
          subscribes to. Provided by the Magnetar host at runtime, so not copied. -->
     <Reference Include="PluginSdk" HintPath="$(MagnetarBin)\PluginSdk.dll" Private="False" />

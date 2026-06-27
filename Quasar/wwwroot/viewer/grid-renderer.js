@@ -67,7 +67,7 @@ export async function renderGridScene(scene) {
     state.currentBounds = bounds;
     state.currentGridSize = scene.grid.gridSize || 2.5;
     state.currentFloorGridAlignment = floorGridAlignment(scene);
-    renderVoxelBodies(scene.voxels || [], scene.voxelDeformations || []);
+    renderVoxelBodies(scene.voxels || [], scene.voxelDeformations || [], scene.voxelMaterials || []);
     progress.rebuild();
     updateSceneBounds(false);
     updateSunLightPosition();
@@ -80,6 +80,7 @@ export async function renderGridScene(scene) {
     state.stats["Voxel mesh parts"] = state.sceneRenderCounts.voxelMeshParts;
     state.stats["Voxel mesh vertices"] = state.sceneRenderCounts.voxelMeshVertices;
     state.stats["Voxel mesh triangles"] = state.sceneRenderCounts.voxelMeshTriangles;
+    state.stats["Voxel materials"] = (scene.voxelMaterials || []).length;
     state.stats["LCD surfaces"] = countLcdSurfaces(scene);
     updateGridLightStats(collectSceneLightSources(scene));
     renderSummary(scene, resolutionStats, textureStats);
@@ -462,7 +463,7 @@ function gridLocalBounds(scene) {
     return hasBounds ? bounds : null;
 }
 
-function renderVoxelBodies(voxels, voxelChunks) {
+function renderVoxelBodies(voxels, voxelChunks, voxelMaterials) {
     state.sceneRenderCounts.voxelProxies = 0;
     state.sceneRenderCounts.voxelMeshChunks = 0;
     state.sceneRenderCounts.voxelMeshParts = 0;
@@ -480,10 +481,11 @@ function renderVoxelBodies(voxels, voxelChunks) {
 
     const meshedBodyIds = new Set();
     const voxelBodiesById = new Map(voxels.map(voxel => [String(voxel.id || ""), voxel]));
+    const voxelMaterialsByIndex = new Map((voxelMaterials || []).map(material => [Number(material.index), material]));
     let failedVoxelChunks = 0;
     for (const chunk of voxelChunks) {
         const voxel = voxelBodiesById.get(String(chunk.voxelBodyId || ""));
-        const mesh = createVoxelDataChunkMesh(chunk, voxel);
+        const mesh = createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex);
         if (!mesh) {
             failedVoxelChunks++;
             if (failedVoxelChunks <= 5) log(`Voxel chunk ${chunk.chunkId || "chunk"} for ${chunk.voxelBodyId || "unknown"} produced no mesh: ${describeVoxelDataChunk(chunk, voxel)}.`, true);
@@ -518,7 +520,7 @@ function renderVoxelBodies(voxels, voxelChunks) {
     if (proxyGroup.children.length) group.add(proxyGroup);
 }
 
-function createVoxelDataChunkMesh(chunk, voxel) {
+function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex) {
     const content = voxelByteArray(chunk.content);
     const materials = voxelByteArray(chunk.materials);
     const size = chunk.size || {};
@@ -535,6 +537,7 @@ function createVoxelDataChunkMesh(chunk, voxel) {
         positionLeftBottomCorner.z + num(storageMin.z, 0));
     const viewTransform = state.viewTransform || new THREE.Matrix4();
     const positions = [];
+    const uvs = [];
     const indicesByMaterial = new Map();
     const cube = createVoxelCubeScratch();
     const clipBounds = voxelFloorClipBounds();
@@ -543,7 +546,7 @@ function createVoxelDataChunkMesh(chunk, voxel) {
         for (let y = 0; y < sy - 1; y++) {
             for (let x = 0; x < sx - 1; x++) {
                 fillVoxelCubeScratch(cube, x, y, z, sx, sy, content, materials, worldOrigin, viewTransform);
-                polygonizeVoxelCube(cube, positions, indicesByMaterial, clipBounds);
+                polygonizeVoxelCube(cube, positions, uvs, indicesByMaterial, clipBounds);
             }
         }
     }
@@ -553,13 +556,14 @@ function createVoxelDataChunkMesh(chunk, voxel) {
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
     const meshMaterials = [];
     const allIndices = [];
     for (const [materialIndex, partIndices] of [...indicesByMaterial.entries()].sort((a, b) => a[0] - b[0])) {
         const start = allIndices.length;
         appendArray(allIndices, partIndices);
         geometry.addGroup(start, partIndices.length, meshMaterials.length);
-        meshMaterials.push(createVoxelMeshMaterial(materialIndex));
+        meshMaterials.push(createVoxelMeshMaterial(materialIndex, voxelMaterialsByIndex && voxelMaterialsByIndex.get(Number(materialIndex))));
         state.sceneRenderCounts.voxelMeshParts++;
         state.sceneRenderCounts.voxelMeshTriangles += Math.floor(partIndices.length / 3);
     }
@@ -624,14 +628,14 @@ function fillVoxelCubeScratch(cube, x, y, z, sx, sy, content, materials, worldOr
     }
 }
 
-function polygonizeVoxelCube(cube, positions, indicesByMaterial, clipBounds) {
+function polygonizeVoxelCube(cube, positions, uvs, indicesByMaterial, clipBounds) {
     for (const tetra of VOXEL_TETRAHEDRA) {
         const vertices = tetra.map(index => cube[index]);
-        polygonizeVoxelTetra(vertices, positions, indicesByMaterial, clipBounds);
+        polygonizeVoxelTetra(vertices, positions, uvs, indicesByMaterial, clipBounds);
     }
 }
 
-function polygonizeVoxelTetra(vertices, positions, indicesByMaterial, clipBounds) {
+function polygonizeVoxelTetra(vertices, positions, uvs, indicesByMaterial, clipBounds) {
     const inside = [];
     const outside = [];
     for (const vertex of vertices) {
@@ -647,19 +651,19 @@ function polygonizeVoxelTetra(vertices, positions, indicesByMaterial, clipBounds
         const a = interpolateVoxelEdge(inside[0], outside[0]);
         const b = interpolateVoxelEdge(inside[0], outside[1]);
         const c = interpolateVoxelEdge(inside[0], outside[2]);
-        addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, true, clipBounds);
+        addVoxelTriangle(a, b, c, material, positions, uvs, indicesByMaterial, true, clipBounds);
     } else if (insideCount === 3) {
         const a = interpolateVoxelEdge(outside[0], inside[0]);
         const b = interpolateVoxelEdge(outside[0], inside[1]);
         const c = interpolateVoxelEdge(outside[0], inside[2]);
-        addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, false, clipBounds);
+        addVoxelTriangle(a, b, c, material, positions, uvs, indicesByMaterial, false, clipBounds);
     } else {
         const a = interpolateVoxelEdge(inside[0], outside[0]);
         const b = interpolateVoxelEdge(inside[1], outside[0]);
         const c = interpolateVoxelEdge(inside[1], outside[1]);
         const d = interpolateVoxelEdge(inside[0], outside[1]);
-        addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, false, clipBounds);
-        addVoxelTriangle(a, c, d, material, positions, indicesByMaterial, false, clipBounds);
+        addVoxelTriangle(a, b, c, material, positions, uvs, indicesByMaterial, false, clipBounds);
+        addVoxelTriangle(a, c, d, material, positions, uvs, indicesByMaterial, false, clipBounds);
     }
 }
 
@@ -669,7 +673,7 @@ function interpolateVoxelEdge(a, b) {
     return new THREE.Vector3().lerpVectors(a.position, b.position, clamp(t, 0, 1));
 }
 
-function addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, reverse, clipBounds) {
+function addVoxelTriangle(a, b, c, material, positions, uvs, indicesByMaterial, reverse, clipBounds) {
     const polygon = reverse ? [a, c, b] : [a, b, c];
     const clipped = clipVoxelPolygonToFloor(polygon, clipBounds);
     if (clipped.length < 3) return;
@@ -680,10 +684,34 @@ function addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, rever
         indicesByMaterial.set(material, indices);
     }
     const base = positions.length / 3;
-    for (const vertex of clipped) positions.push(vertex.x, vertex.y, vertex.z);
+    const projection = voxelUvProjection(clipped);
+    for (const vertex of clipped) {
+        positions.push(vertex.x, vertex.y, vertex.z);
+        appendVoxelUv(uvs, vertex, projection);
+    }
     for (let i = 1; i < clipped.length - 1; i++) {
         indices.push(base, base + i, base + i + 1);
     }
+}
+
+function voxelUvProjection(polygon) {
+    const a = polygon[0];
+    const b = polygon[1];
+    const c = polygon[2];
+    const normal = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
+    const ax = Math.abs(normal.x);
+    const ay = Math.abs(normal.y);
+    const az = Math.abs(normal.z);
+    if (ay >= ax && ay >= az) return "xz";
+    if (ax >= az) return "zy";
+    return "xy";
+}
+
+function appendVoxelUv(uvs, vertex, projection) {
+    const scale = 1 / 8;
+    if (projection === "xz") uvs.push(vertex.x * scale, vertex.z * scale);
+    else if (projection === "zy") uvs.push(vertex.z * scale, vertex.y * scale);
+    else uvs.push(vertex.x * scale, vertex.y * scale);
 }
 
 function clipVoxelPolygonToFloor(polygon, bounds) {
@@ -749,15 +777,36 @@ function dominantVoxelMaterial(vertices) {
     return bestMaterial;
 }
 
-function createVoxelMeshMaterial(materialIndex) {
+function createVoxelMeshMaterial(materialIndex, definition) {
     const color = colorFromHash(`voxel:${materialIndex}`, 0x5b6f54);
-    return new THREE.MeshStandardMaterial({
+    const material = new THREE.MeshStandardMaterial({
         color,
         roughness: 0.96,
         metalness: 0,
         flatShading: false,
         side: THREE.DoubleSide,
     });
+    applyVoxelTextureAsync(material, materialIndex, definition);
+    return material;
+}
+
+function applyVoxelTextureAsync(material, materialIndex, definition) {
+    const colorTexture = normalizeLogicalTexturePath(definition && (definition.colorMetalXZnY || definition.colorMetalY));
+    if (!colorTexture) return;
+
+    loadTexture(colorTexture, "ColorMetal")
+        .then(texture => {
+            if (!texture || material.disposed) return;
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            material.map = texture;
+            material.color.set(0xffffff);
+            material.needsUpdate = true;
+            state.stats["Voxel material textures loaded"] = (state.stats["Voxel material textures loaded"] || 0) + 1;
+        })
+        .catch(error => {
+            if (error && !error.isMissingLocalTexture) log(`Failed to load voxel material ${materialIndex} texture ${colorTexture}: ${error.message}`, true);
+        });
 }
 
 function voxelByteArray(value) {
