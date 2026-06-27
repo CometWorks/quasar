@@ -177,11 +177,18 @@
 
         var web = GetPrimaryWebUpdate(snapshot);
         var bootstrap = snapshot.Bootstrap;
-        var noticeKey = $"{web?.Version}:{web?.IsStaged}:{bootstrap?.Version}";
+        var tokenWarning = snapshot.GitHubTokenWarning;
+        var noticeKey = $"{web?.Version}:{web?.IsStaged}:{bootstrap?.Version}:{tokenWarning}";
         if (noticeKey == _lastUpdateNotice)
             return;
 
         _lastUpdateNotice = noticeKey;
+        if (!string.IsNullOrWhiteSpace(tokenWarning))
+        {
+            _ = InvokeAsync(() => Snackbar.Add(tokenWarning, snapshot.GitHubTokenExpired ? Severity.Error : Severity.Warning));
+            return;
+        }
+
         if (web is not null && web.IsStaged)
         {
             _ = InvokeAsync(() => Snackbar.Add($"Quasar UI {web.Version} is staged. Open Updates to activate.", Severity.Info));
@@ -236,12 +243,23 @@
     };
 
     private bool HasUpdateBellBadge =>
-        GetPrimaryWebUpdate(_updateSnapshot) is not null || _updateSnapshot.Bootstrap is not null;
+        HasGitHubTokenWarning || GetPrimaryWebUpdate(_updateSnapshot) is not null || _updateSnapshot.Bootstrap is not null;
 
-    private Color GetUpdateBellColor() => HasUpdateBellBadge ? Color.Warning : Color.Inherit;
+    private bool HasGitHubTokenWarning => !string.IsNullOrWhiteSpace(_updateSnapshot.GitHubTokenWarning);
+
+    private Color GetUpdateBellColor()
+    {
+        if (_updateSnapshot.GitHubTokenExpired)
+            return Color.Error;
+
+        return HasUpdateBellBadge ? Color.Warning : Color.Inherit;
+    }
 
     private string GetUpdateBellTooltip()
     {
+        if (HasGitHubTokenWarning)
+            return _updateSnapshot.GitHubTokenWarning;
+
         var web = GetPrimaryWebUpdate(_updateSnapshot);
         if (web is not null)
             return web.IsStaged

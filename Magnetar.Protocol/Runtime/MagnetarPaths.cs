@@ -78,6 +78,9 @@ public static class MagnetarPaths
     public static string GetQuasarWorkshopOptionsPath() =>
         Path.Combine(GetQuasarDirectory(), "steam-workshop.json");
 
+    public static string GetQuasarGitHubUpdateCredentialsPath() =>
+        Path.Combine(GetQuasarDirectory(), "github-updates.json");
+
     public static string GetQuasarDataProtectionKeyringDirectory() =>
         Path.Combine(GetQuasarDirectory(), "DataProtection-Keys");
 

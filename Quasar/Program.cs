@@ -164,6 +164,7 @@ public class Program
             builder.Services.AddSingleton<PluginCatalogRefreshService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PluginCatalogRefreshService>());
             builder.Services.AddSingleton<SteamWorkshopCredentialsCatalog>();
+            builder.Services.AddSingleton<GitHubUpdateCredentialsCatalog>();
             builder.Services.AddSingleton<QuasarWorkshopModResolver>();
             builder.Services.AddSingleton<ManagedDedicatedServerRuntimeResolver>();
             builder.Services.AddSingleton<ManagedRuntimeWarmupService>();
