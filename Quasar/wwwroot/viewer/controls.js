@@ -2,6 +2,7 @@ import { els, state } from "./state.js";
 import { fitCameraToScene, setCameraMode, updateLighting, updateSceneBounds } from "./scene.js";
 
 export function wireControls(actions) {
+    configureVoxelControl();
     els.reloadScene.addEventListener("click", actions.reloadScene);
     els.pickContent.addEventListener("click", actions.pickContent);
     els.resetCamera.addEventListener("click", fitCameraToScene);
@@ -28,6 +29,16 @@ export function wireControls(actions) {
         event.preventDefault();
     });
     window.addEventListener("blur", () => state.flyKeys.clear());
+}
+
+export function configureVoxelControl() {
+    const supported = !!(state.voxelSupport && state.voxelSupport.present);
+    els.showVoxels.disabled = !supported;
+    els.showVoxels.checked = supported && !!state.voxelSupport.enabled;
+    const row = els.showVoxels.closest("label") || els.showVoxels.parentElement;
+    if (row) row.classList.toggle("is-disabled", !supported);
+    if (!supported) els.showVoxels.title = "Add voxels=1 to the URL to request voxel data.";
+    else els.showVoxels.title = "";
 }
 
 function isFlyKey(code) {

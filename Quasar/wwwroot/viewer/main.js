@@ -1,7 +1,7 @@
 import { cacheElements, els, state } from "./state.js";
 import { initScene, animate } from "./scene.js";
-import { wireControls } from "./controls.js";
-import { fetchEntityScene } from "./quasar-api.js";
+import { configureVoxelControl, wireControls } from "./controls.js";
+import { fetchEntityScene, parseVoxelFlag } from "./quasar-api.js";
 import { pickContentFolder, restoreContentFolder } from "./content-folder.js";
 import { renderGridScene } from "./grid-renderer.js";
 import { downloadLog, log } from "./logging.js";
@@ -10,6 +10,7 @@ document.addEventListener("DOMContentLoaded", start);
 
 async function start() {
     cacheElements();
+    state.voxelSupport = parseVoxelFlag();
     initScene();
     wireControls({ reloadScene, pickContent: selectContentFolder });
     els.downloadLog.addEventListener("click", downloadLog);
@@ -29,7 +30,9 @@ async function reloadScene() {
     els.reloadScene.disabled = true;
     try {
         state.timings = {};
-        log("Requesting metadata-only scene snapshot from Quasar.");
+        state.voxelSupport = parseVoxelFlag();
+        configureVoxelControl();
+        log(state.voxelSupport.enabled ? "Requesting scene snapshot with bounded voxel data from Quasar." : "Requesting scene snapshot without voxel data from Quasar.");
         const fetchStart = performance.now();
         const scene = await fetchEntityScene();
         addTiming("sceneSnapshotFetch", performance.now() - fetchStart);

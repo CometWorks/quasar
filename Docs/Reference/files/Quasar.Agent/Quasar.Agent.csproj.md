@@ -11,6 +11,7 @@ Key settings:
 - `TargetFramework`: netstandard2.0
 - `Platforms` / `PlatformTarget`: x64
 - `Nullable`: disable; `LangVersion`: latest
+- `CopyLocalLockFileAssemblies`: true, keeps package dependencies available for plugin packaging
 
 **Reference groups:**
 

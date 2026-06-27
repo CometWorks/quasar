@@ -323,7 +323,7 @@ else
             return;
 
         var agentId = Uri.EscapeDataString(agent.AgentId);
-        Navigation.NavigateTo($"/viewer/entity?agentId={agentId}&entityId={entity.EntityId}");
+        Navigation.NavigateTo($"/viewer/entity?agentId={agentId}&entityId={entity.EntityId}&voxels=1");
     }
 
     private bool MatchesSearch(EntitySummary entity)

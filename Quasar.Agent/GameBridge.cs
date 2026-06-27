@@ -1106,7 +1106,7 @@ namespace Quasar.Agent
                 return CreateResult(command, false, "Viewer scene request is missing an entity id.");
 
             var gameVersion = MySession.Static?.AppVersionFromSave.ToString() ?? string.Empty;
-            var scene = GridRenderSceneInspector.Build(request.EntityId, gameVersion, _pluginVersion);
+            var scene = GridRenderSceneInspector.Build(request.EntityId, gameVersion, _pluginVersion, request.IncludeVoxels);
             return CreateResult(command, true, "Viewer scene snapshot captured.", SerializePayload(scene));
         }
 

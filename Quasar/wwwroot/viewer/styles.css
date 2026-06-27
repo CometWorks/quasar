@@ -83,6 +83,7 @@ button:disabled { cursor: not-allowed; filter: grayscale(0.7) brightness(0.65); 
 
 .check-row { display: flex; align-items: center; gap: 0.55rem; }
 .check-row input { width: 1rem; min-height: 1rem; }
+.check-row.is-disabled { opacity: 0.48; cursor: not-allowed; }
 
 .summary-list, .stats-card dl { display: grid; grid-template-columns: 1fr auto; gap: 0.4rem 0.75rem; margin: 0; }
 .summary-list dt, .stats-card dt { color: var(--muted); }

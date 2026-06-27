@@ -269,12 +269,14 @@ public class Program
             var viewerScene = app.MapGet("/api/viewer/entities/{agentId}/{entityId:long}/scene", async (
                 string agentId,
                 long entityId,
+                HttpContext context,
                 ViewerSceneService viewerSceneService,
                 CancellationToken cancellationToken) =>
             {
                 try
                 {
-                    return Results.Json(await viewerSceneService.GetEntitySceneAsync(agentId, entityId, cancellationToken));
+                    var includeVoxels = IsTrueLikeQueryFlag(context.Request.Query["voxels"]);
+                    return Results.Json(await viewerSceneService.GetEntitySceneAsync(agentId, entityId, includeVoxels, cancellationToken));
                 }
                 catch (TimeoutException exception)
                 {
@@ -483,6 +485,18 @@ public class Program
         }
 
         return false;
+    }
+
+    private static bool IsTrueLikeQueryFlag(Microsoft.Extensions.Primitives.StringValues values)
+    {
+        if (values.Count == 0)
+            return false;
+
+        var value = values[0];
+        return string.IsNullOrEmpty(value) ||
+               string.Equals(value, "1", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ShouldListenOnAnyInterface(string host)

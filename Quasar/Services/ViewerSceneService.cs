@@ -5,8 +5,9 @@ using Magnetar.Protocol.Transport;
 namespace Quasar.Services;
 
 /// <summary>
-/// Requests metadata-only render scenes from connected agents. This service never
-/// exposes Space Engineers assets, raw model bytes, textures, or extracted geometry.
+/// Requests render scenes from connected agents. This service never exposes Space
+/// Engineers assets, raw model bytes, or textures. Optional voxel geometry is
+/// bounded to the selected grid scene.
 /// </summary>
 public sealed class ViewerSceneService
 {
@@ -23,6 +24,7 @@ public sealed class ViewerSceneService
     public async Task<EntityRenderScene> GetEntitySceneAsync(
         string agentId,
         long entityId,
+        bool includeVoxels,
         CancellationToken cancellationToken = default)
     {
         var agent = _registry.GetAgents().FirstOrDefault(candidate =>
@@ -31,7 +33,11 @@ public sealed class ViewerSceneService
         if (agent is null)
             throw new InvalidOperationException("The selected server is not connected.");
 
-        var payload = JsonSerializer.Serialize(new EntityRenderSceneRequest { EntityId = entityId }, JsonOptions);
+        var payload = JsonSerializer.Serialize(new EntityRenderSceneRequest
+        {
+            EntityId = entityId,
+            IncludeVoxels = includeVoxels,
+        }, JsonOptions);
         var command = new ServerCommandEnvelope
         {
             UniqueName = agent.UniqueNameKey,

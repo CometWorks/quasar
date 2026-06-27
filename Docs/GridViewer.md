@@ -9,17 +9,18 @@ Quasar includes a first-pass browser grid viewer for live grid entities listed o
 3. Refresh the entity list.
 4. Click the eye icon beside a grid entity.
 
-The viewer opens `/viewer/entity?agentId=...&entityId=...` and requests a scene snapshot from `/api/viewer/entities/{agentId}/{entityId}/scene`.
+The viewer opens `/viewer/entity?agentId=...&entityId=...&voxels=1` and requests a scene snapshot from `/api/viewer/entities/{agentId}/{entityId}/scene`. Direct viewer URLs without a `voxels` parameter keep voxel data support disabled.
 
 ## Asset Boundary
 
 Quasar does not serve Space Engineers assets to the browser.
 
-The viewer endpoint returns metadata only:
+The viewer endpoint returns scene metadata and, when explicitly requested with `voxels=1`, bounded voxel terrain content/material samples intersecting the selected grid bounds:
 
 - grid identity, transform, size, bounds, and static/dynamic state
 - scene lighting metadata, including the current in-game sun direction and captured block and runtime-subpart light sources
 - loaded voxel body metadata and world bounds for planets, asteroids, moons, and voxel maps
+- optional voxel data chunks bounded to the selected grid `WorldAABB`; the browser procedurally meshes these chunks from the scalar field
 - block definition IDs and block placement
 - block cell coordinates, orientation, color mask, skin ID, build state, and integrity
 - logical model paths for block definitions, current block models, generated cube parts, and runtime subparts
@@ -32,8 +33,10 @@ The endpoint must not return:
 - raw `.mwm` bytes
 - raw texture bytes
 - server-rendered LCD texture bytes
-- extracted vertices, indices, normals, UVs, or other mesh geometry
+- raw extracted game model geometry, UVs, or material texture data
 - a generic asset download API
+
+Voxel data payloads are sampled by the running server from live voxel storage and are limited by conservative chunk and byte budgets. They do not include Space Engineers `.mwm`, `.dds`, `.png`, or other asset files.
 
 ## Local Content Folder
 
@@ -81,7 +84,9 @@ The viewer statistics panel reports unique model assets listed by the scene, mod
 
 The stats panel exposes timing counters for the main asset pipeline: scene snapshot fetch, model path resolution, local file metadata reads, MWM file reads, MWM parse time, total model resolution, texture path resolution, DDS file reads, DDS parse time, and compressed texture upload validation/init. Path resolution covers handle lookup only; local file metadata reads cover `getFile()` snapshots; byte-read timings cover `arrayBuffer()` work. Successful DDS loads are written to the browser console at debug level instead of rebuilding the visible warning log for every texture; the visible log batches DOM updates and is primarily for warnings/fallbacks.
 
-Loaded voxel bodies are shown as metadata-only proxies: planets use a wire sphere from the in-game radius metadata, and other voxel maps use their world bounds. The `Show voxels` toggle controls these proxies. Quasar still does not transmit voxel storage samples or generated voxel mesh geometry.
+Loaded voxel bodies can be shown as untextured terrain mesh when the viewer URL includes `voxels=1`. The agent sends only mixed voxel content/material chunks that intersect the selected grid's world bounding box, skips empty/full chunks, and stops at conservative safety limits. The browser procedurally builds the terrain surface from those density samples and groups generated triangles by material index for future texture support.
+
+The `Show voxels` control is disabled unless the URL includes a `voxels` parameter. `voxels=1`, `voxels=true`, `voxels=yes`, and an empty `voxels` value enable and check it by default. `voxels=0`, `voxels=false`, and `voxels=no` leave it enabled but unchecked and request the initial scene without voxel data. If a voxel body has no data chunk because it was skipped, capped, or failed, the viewer may still show the old metadata proxy as a fallback: planets use a wire sphere from radius metadata, and other voxel maps use their world bounds.
 
 The `Show lighting` toggle controls all explicit viewer lights. When enabled, the sun position comes from `MySector.DirectionToSunNormalized` in the running game and is rendered as a directional light with the existing marker and ray helper. The renderer enables Three.js shadow maps, and the sun casts shadows from model and proxy grid geometry through a tightly fitted orthographic shadow camera with texel-scaled normal bias instead of a point-light cube shadow; projected/reflector spot lights can also cast shadows under a four-light cap that follows Space Engineers' active spot-shadow budget model, while point/interior lights and reflector companion fill lights do not cast shadows. Captured in-game grid lights are also rendered from metadata-only light records, including terminal-synced color, radius, falloff, intensity, reflector cone data, blink settings, and server working state. The agent includes classic block lights, component-based lights, and runtime-subpart lights exposed through Space Engineers lighting logic; subpart records are folded into the scene light list and also remain attached to their subpart metadata for consumers that inspect block geometry. The browser de-duplicates top-level and subpart light records before rendering or reporting stats. The browser maps Space Engineers falloff into Three.js decay with the direction inverted, so lower in-game falloff values keep lights tighter instead of expanding their viewer influence. The agent does not use `CurrentLightPower` for snapshots because that value is a client/render fade derived from working state and can remain zero on dedicated servers. Interior/component lights become point lights; reflector blocks become spotlights with a weak companion point light for local fill. To protect browser performance, the viewer instantiates a deterministic capped subset of the highest-impact grid lights while still reporting the captured and capped counts in the stats panel. When disabled, all explicit sun and grid lights are hidden and the viewer uses stronger diffuse-only ambient lighting so the grid remains readable without scene lights. The fallback does not use an environment map, so ambient illumination does not add point-like specular highlights or glass reflections when the sun is obscured.
 

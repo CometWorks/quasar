@@ -14,10 +14,12 @@ using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.EntityComponents;
 using Sandbox.Game.World;
 using SpaceEngineers.Game.EntityComponents.Blocks;
+using VRage.Entities.Components;
 using VRage.Game;
 using VRage.Game.Entity;
 using VRage.Game.GUI.TextPanel;
 using VRage.Utils;
+using VRage.Voxels;
 using VRageMath;
 
 namespace Quasar.Agent
@@ -29,7 +31,13 @@ namespace Quasar.Agent
     internal static class GridRenderSceneInspector
     {
         private const int ChunkSizeCells = 16;
-        public static EntityRenderScene Build(long entityId, string gameVersion, string pluginVersion)
+        private const int DefaultVoxelChunkSize = 32;
+        private const int MaxVoxelSceneChunks = 96;
+        private const int MaxVoxelDataBytes = 8 * 1024 * 1024;
+        private const int VoxelDataPadding = 1;
+        private const int VoxelLod = 0;
+
+        public static EntityRenderScene Build(long entityId, string gameVersion, string pluginVersion, bool includeVoxels = false)
         {
             if (!MyEntities.TryGetEntityById<MyCubeGrid>(entityId, out var grid) || grid == null || grid.MarkedForClose || grid.Closed)
                 throw new InvalidOperationException("Grid not found or not loaded on this server.");
@@ -76,6 +84,10 @@ namespace Quasar.Agent
             scene.ModelAssets = catalog.ModelAssetsSnapshot();
             scene.TextureAssets = catalog.TextureAssetsSnapshot();
             scene.Voxels = LoadedVoxels();
+            if (includeVoxels)
+                scene.VoxelDeformations = BuildVoxelDeformations(grid, scene.Warnings);
+            else
+                scene.Warnings.Add("Voxel data generation disabled by URL.");
             return scene;
         }
 
@@ -365,6 +377,260 @@ namespace Quasar.Agent
             }
 
             return dto;
+        }
+
+        private static List<ViewerVoxelDataChunk> BuildVoxelDeformations(MyCubeGrid grid, List<string> warnings)
+        {
+            var session = MySession.Static;
+            var result = new List<ViewerVoxelDataChunk>();
+            if (session?.VoxelMaps?.Instances == null)
+                return result;
+
+            var gridAabb = grid.PositionComp.WorldAABB;
+            var totalBytes = 0;
+            var chunkBudgetReached = false;
+
+            foreach (var voxel in session.VoxelMaps.Instances)
+            {
+                if (voxel == null || voxel.MarkedForClose || voxel.Closed || VoxelKind(voxel) == "voxelPhysics")
+                    continue;
+
+                try
+                {
+                    var voxelAabb = voxel.PositionComp.WorldAABB;
+                    if (!voxelAabb.Intersects(gridAabb))
+                        continue;
+
+                    var intersection = Intersect(voxelAabb, gridAabb);
+                    if (!TryWorldAabbToStorageRange(voxel, intersection, out var storageMin, out var storageMax))
+                        continue;
+
+                    var skippedEmpty = 0;
+                    var skippedFull = 0;
+                    foreach (var chunkRange in SplitStorageRange(storageMin, storageMax, DefaultVoxelChunkSize))
+                    {
+                        if (result.Count >= MaxVoxelSceneChunks)
+                        {
+                            chunkBudgetReached = true;
+                            break;
+                        }
+
+                        var contentState = ClassifyVoxelChunk(voxel, chunkRange.Min, chunkRange.Max);
+                        if (contentState == "empty")
+                        {
+                            skippedEmpty++;
+                            continue;
+                        }
+                        if (contentState == "full")
+                        {
+                            skippedFull++;
+                            continue;
+                        }
+
+                        var sampleCount = RangeSampleCount(chunkRange.Min, chunkRange.Max);
+                        var requiredBytes = checked(sampleCount * 2);
+                        if (totalBytes + requiredBytes > MaxVoxelDataBytes)
+                        {
+                            warnings.Add("Voxel data safety limit exceeded; remaining voxel chunks were skipped.");
+                            return result;
+                        }
+
+                        var chunk = TryBuildVoxelDataChunk(voxel, chunkRange.Min, chunkRange.Max, contentState, warnings);
+                        if (chunk == null)
+                            continue;
+
+                        totalBytes += chunk.Content.Length + chunk.Materials.Length;
+                        result.Add(chunk);
+                    }
+
+                    if (skippedEmpty > 0 || skippedFull > 0)
+                        warnings.Add("Skipped " + skippedEmpty + " empty and " + skippedFull + " full voxel data chunks for " + FirstNonEmpty(voxel.DisplayName, voxel.Name, voxel.EntityId.ToString()) + ".");
+
+                    if (chunkBudgetReached)
+                        break;
+                }
+                catch (Exception exception)
+                {
+                    warnings.Add("Failed to sample voxel body " + FirstNonEmpty(voxel.DisplayName, voxel.Name, voxel.EntityId.ToString()) + ": " + exception.Message);
+                }
+            }
+
+            if (chunkBudgetReached)
+                warnings.Add("Voxel data chunk budget reached; remaining voxel chunks were skipped.");
+
+            return result;
+        }
+
+        private static IEnumerable<StorageRange> SplitStorageRange(Vector3I min, Vector3I max, int chunkSize)
+        {
+            for (var z = min.Z; z <= max.Z; z += chunkSize)
+            for (var y = min.Y; y <= max.Y; y += chunkSize)
+            for (var x = min.X; x <= max.X; x += chunkSize)
+            {
+                yield return new StorageRange
+                {
+                    Min = new Vector3I(x, y, z),
+                    Max = new Vector3I(
+                        Math.Min(max.X, x + chunkSize),
+                        Math.Min(max.Y, y + chunkSize),
+                        Math.Min(max.Z, z + chunkSize)),
+                };
+            }
+        }
+
+        private static string ClassifyVoxelChunk(MyVoxelBase voxel, Vector3I min, Vector3I max)
+        {
+            var data = new MyStorageData(MyStorageDataTypeFlags.ContentAndMaterial);
+            data.Resize(min, max);
+            var flags = MyVoxelRequestFlags.ConsiderContent;
+            voxel.Storage.ReadRange(data, MyStorageDataTypeFlags.ContentAndMaterial, VoxelLod, min, max, ref flags);
+
+            var hasEmpty = false;
+            var hasFull = false;
+            var content = data[MyStorageDataTypeEnum.Content];
+            var count = data.Size3D.Size;
+            for (var i = 0; i < count; i++)
+            {
+                var value = content[i];
+                if (value == 0)
+                    hasEmpty = true;
+                else if (value == byte.MaxValue)
+                    hasFull = true;
+                else
+                    return "mixed";
+
+                if (hasEmpty && hasFull)
+                    return "mixed";
+            }
+
+            return hasFull ? "full" : "empty";
+        }
+
+        private static ViewerVoxelDataChunk TryBuildVoxelDataChunk(
+            MyVoxelBase voxel,
+            Vector3I min,
+            Vector3I max,
+            string contentState,
+            List<string> warnings)
+        {
+            try
+            {
+                var data = new MyStorageData(MyStorageDataTypeFlags.ContentAndMaterial);
+                data.Resize(min, max);
+                var flags = MyVoxelRequestFlags.ConsiderContent;
+                voxel.Storage.ReadRange(data, MyStorageDataTypeFlags.ContentAndMaterial, VoxelLod, min, max, ref flags);
+                return CopyVoxelDataChunk(voxel, min, max, contentState, data);
+            }
+            catch (Exception exception)
+            {
+                warnings.Add("Failed to sample voxel chunk " + ChunkId(min) + " for " + FirstNonEmpty(voxel.DisplayName, voxel.Name, voxel.EntityId.ToString()) + ": " + exception.Message);
+                return null;
+            }
+        }
+
+        private static ViewerVoxelDataChunk CopyVoxelDataChunk(MyVoxelBase voxel, Vector3I min, Vector3I max, string contentState, MyStorageData data)
+        {
+            var worldMatrix = VoxelWorldMatrix(voxel);
+            var size = data.Size3D;
+            return new ViewerVoxelDataChunk
+            {
+                VoxelBodyId = voxel.EntityId.ToString(),
+                ChunkId = ChunkId(min),
+                Lod = VoxelLod,
+                StorageMin = ToDto(min),
+                StorageMax = ToDto(max),
+                WorldAabb = ToDto(StorageRangeWorldAabb(worldMatrix, min, max)),
+                ContentState = contentState,
+                Size = ToDto(size),
+                Content = CopyStorageBytes(data, MyStorageDataTypeEnum.Content),
+                Materials = CopyStorageBytes(data, MyStorageDataTypeEnum.Material),
+            };
+        }
+
+        private static byte[] CopyStorageBytes(MyStorageData data, MyStorageDataTypeEnum type)
+        {
+            var source = data[type];
+            var copy = new byte[data.Size3D.Size];
+            Array.Copy(source, copy, copy.Length);
+            return copy;
+        }
+
+        private static int RangeSampleCount(Vector3I min, Vector3I max)
+        {
+            return checked((max.X - min.X + 1) * (max.Y - min.Y + 1) * (max.Z - min.Z + 1));
+        }
+
+        private static bool TryWorldAabbToStorageRange(MyVoxelBase voxel, BoundingBoxD worldAabb, out Vector3I storageMin, out Vector3I storageMax)
+        {
+            var inverse = MatrixD.Invert(VoxelWorldMatrix(voxel));
+            var localMin = new Vector3D(double.PositiveInfinity);
+            var localMax = new Vector3D(double.NegativeInfinity);
+            foreach (var corner in WorldAabbCorners(worldAabb))
+            {
+                var local = Vector3D.Transform(corner, inverse);
+                localMin = Vector3D.Min(localMin, local);
+                localMax = Vector3D.Max(localMax, local);
+            }
+
+            storageMin = new Vector3I(
+                (int)Math.Floor(localMin.X) - VoxelDataPadding,
+                (int)Math.Floor(localMin.Y) - VoxelDataPadding,
+                (int)Math.Floor(localMin.Z) - VoxelDataPadding);
+            storageMax = new Vector3I(
+                (int)Math.Ceiling(localMax.X) + VoxelDataPadding,
+                (int)Math.Ceiling(localMax.Y) + VoxelDataPadding,
+                (int)Math.Ceiling(localMax.Z) + VoxelDataPadding);
+            storageMin = Clamp(storageMin, voxel.StorageMin, voxel.StorageMax);
+            storageMax = Clamp(storageMax, voxel.StorageMin, voxel.StorageMax);
+            return storageMin.X <= storageMax.X && storageMin.Y <= storageMax.Y && storageMin.Z <= storageMax.Z;
+        }
+
+        private static MatrixD VoxelWorldMatrix(MyVoxelBase voxel)
+        {
+            return MatrixD.CreateWorld(
+                voxel.PositionLeftBottomCorner,
+                voxel.Orientation.Forward,
+                voxel.Orientation.Up);
+        }
+
+        private static BoundingBoxD StorageRangeWorldAabb(MatrixD worldMatrix, Vector3I min, Vector3I max)
+        {
+            var bounds = BoundingBoxD.CreateInvalid();
+            var localMin = new Vector3D(min.X, min.Y, min.Z);
+            var localMax = new Vector3D(max.X + 1, max.Y + 1, max.Z + 1);
+            foreach (var corner in LocalAabbCorners(localMin, localMax))
+                bounds.Include(Vector3D.Transform(corner, worldMatrix));
+            return bounds;
+        }
+
+        private static BoundingBoxD Intersect(BoundingBoxD a, BoundingBoxD b)
+        {
+            return new BoundingBoxD(Vector3D.Max(a.Min, b.Min), Vector3D.Min(a.Max, b.Max));
+        }
+
+        private static IEnumerable<Vector3D> WorldAabbCorners(BoundingBoxD box)
+        {
+            return LocalAabbCorners(box.Min, box.Max);
+        }
+
+        private static IEnumerable<Vector3D> LocalAabbCorners(Vector3D min, Vector3D max)
+        {
+            yield return new Vector3D(min.X, min.Y, min.Z);
+            yield return new Vector3D(max.X, min.Y, min.Z);
+            yield return new Vector3D(min.X, max.Y, min.Z);
+            yield return new Vector3D(max.X, max.Y, min.Z);
+            yield return new Vector3D(min.X, min.Y, max.Z);
+            yield return new Vector3D(max.X, min.Y, max.Z);
+            yield return new Vector3D(min.X, max.Y, max.Z);
+            yield return new Vector3D(max.X, max.Y, max.Z);
+        }
+
+        private static Vector3I Clamp(Vector3I value, Vector3I min, Vector3I max)
+        {
+            return new Vector3I(
+                Math.Max(min.X, Math.Min(max.X, value.X)),
+                Math.Max(min.Y, Math.Min(max.Y, value.Y)),
+                Math.Max(min.Z, Math.Min(max.Z, value.Z)));
         }
 
         private static string VoxelKind(MyVoxelBase voxel)
@@ -1191,6 +1457,13 @@ namespace Quasar.Agent
             public int ScreenHeight { get; set; } = 1;
 
             public string Script { get; set; } = string.Empty;
+        }
+
+        private sealed class StorageRange
+        {
+            public Vector3I Min { get; set; }
+
+            public Vector3I Max { get; set; }
         }
 
         private sealed class MetadataAssetCatalog

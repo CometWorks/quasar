@@ -10,6 +10,8 @@ namespace Magnetar.Protocol.Model;
 public class EntityRenderSceneRequest
 {
     public long EntityId { get; set; }
+
+    public bool IncludeVoxels { get; set; }
 }
 
 /// <summary>
@@ -39,6 +41,8 @@ public class EntityRenderScene
     public List<ViewerGridChunk> Chunks { get; set; } = new();
 
     public List<ViewerVoxelBody> Voxels { get; set; } = new();
+
+    public List<ViewerVoxelDataChunk> VoxelDeformations { get; set; } = new();
 
     public List<ViewerLightSource> LightSources { get; set; } = new();
 
@@ -368,6 +372,33 @@ public class ViewerVoxelBody
     public bool ContentChanged { get; set; }
 
     public ViewerPlanetInfo? Planet { get; set; }
+}
+
+public class ViewerVoxelDataChunk
+{
+    public string SchemaVersion { get; set; } = "quasar-voxel-data.v1";
+
+    public string VoxelBodyId { get; set; } = string.Empty;
+
+    public string ChunkId { get; set; } = string.Empty;
+
+    public int Lod { get; set; }
+
+    public ViewerVector3I StorageMin { get; set; } = new();
+
+    public ViewerVector3I StorageMax { get; set; } = new();
+
+    public ViewerBounds WorldAabb { get; set; } = new();
+
+    public string ContentState { get; set; } = "unknown";
+
+    public ViewerVector3I Size { get; set; } = new();
+
+    public byte[] Content { get; set; } = Array.Empty<byte>();
+
+    public byte[] Materials { get; set; } = Array.Empty<byte>();
+
+    public List<string> Warnings { get; set; } = new();
 }
 
 public class ViewerPlanetInfo

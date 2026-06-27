@@ -31,7 +31,7 @@
 
 **Commands handled by `ExecuteCommandOnGameThread`:**
 
-`Refresh`, `SendChat`, `SaveWorld`, `StopServer`, `SetProfilerMode`, `KickPlayer`, `BanPlayer`, `UnbanPlayer`, `PromotePlayer`, `DemotePlayer`, `SetPlayerPromoteLevel`, `ClearKickCooldown` (calls `MyMultiplayer.Static.KickClient(steamId, kicked: false)`), `ListEntities`, `DeleteEntity`
+`Refresh`, `SendChat`, `SaveWorld`, `StopServer`, `SetProfilerMode`, `KickPlayer`, `BanPlayer`, `UnbanPlayer`, `PromotePlayer`, `DemotePlayer`, `SetPlayerPromoteLevel`, `ClearKickCooldown` (calls `MyMultiplayer.Static.KickClient(steamId, kicked: false)`), `ListEntities`, `DeleteEntity`, `GetEntityRenderScene` (passes the request's voxel-mesh inclusion flag to `GridRenderSceneInspector`)
 
 **Pulsar interop:** `EnumerateChildPlugins` reflects into `Pulsar.Legacy.Loader.PluginLoader` to discover child plugins by reading its `Plugins` property and each entry's `plugin` field, `Id`, and `FriendlyName`.
 

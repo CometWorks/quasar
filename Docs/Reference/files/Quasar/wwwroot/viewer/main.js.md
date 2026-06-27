@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Entry point for the standalone grid viewer page. It initializes DOM references, Three.js scene state, control wiring, persisted Content folder restoration, scene reloads, and high-level fetch timing for the stats panel.
+Entry point for the standalone grid viewer page. It initializes DOM references, parsed voxel URL support state, Three.js scene state, control wiring, persisted Content folder restoration, scene reloads, and high-level fetch timing for the stats panel.
 
 ## Structure
 
@@ -12,7 +12,7 @@ Lifecycle functions:
 | Function | Purpose |
 |---|---|
 | `start()` | Runs on `DOMContentLoaded`, initializes the viewer, restores the Content folder, starts animation, and loads the first scene. |
-| `reloadScene()` | Fetches a metadata-only entity scene from Quasar, records scene-fetch timing, and delegates rendering. |
+| `reloadScene()` | Refreshes voxel URL support state, fetches an entity scene from Quasar, records scene-fetch timing, and delegates rendering. |
 | `selectContentFolder()` | Prompts for a local Content folder and re-renders the last scene when available. |
 
 ## Dependencies

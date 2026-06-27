@@ -67,7 +67,7 @@ export async function renderGridScene(scene) {
     state.currentBounds = bounds;
     state.currentGridSize = scene.grid.gridSize || 2.5;
     state.currentFloorGridAlignment = floorGridAlignment(scene);
-    renderVoxelBodies(scene.voxels || []);
+    renderVoxelBodies(scene.voxels || [], scene.voxelDeformations || []);
     progress.rebuild();
     updateSceneBounds(false);
     updateSunLightPosition();
@@ -76,6 +76,10 @@ export async function renderGridScene(scene) {
     updateTextureStats();
     state.stats["Voxel bodies"] = (scene.voxels || []).length;
     state.stats["Voxel proxies"] = state.sceneRenderCounts.voxelProxies;
+    state.stats["Voxel data chunks"] = state.sceneRenderCounts.voxelMeshChunks;
+    state.stats["Voxel mesh parts"] = state.sceneRenderCounts.voxelMeshParts;
+    state.stats["Voxel mesh vertices"] = state.sceneRenderCounts.voxelMeshVertices;
+    state.stats["Voxel mesh triangles"] = state.sceneRenderCounts.voxelMeshTriangles;
     state.stats["LCD surfaces"] = countLcdSurfaces(scene);
     updateGridLightStats(collectSceneLightSources(scene));
     renderSummary(scene, resolutionStats, textureStats);
@@ -458,25 +462,219 @@ function gridLocalBounds(scene) {
     return hasBounds ? bounds : null;
 }
 
-function renderVoxelBodies(voxels) {
+function renderVoxelBodies(voxels, voxelChunks) {
     state.sceneRenderCounts.voxelProxies = 0;
-    if (!voxels.length) return;
+    state.sceneRenderCounts.voxelMeshChunks = 0;
+    state.sceneRenderCounts.voxelMeshParts = 0;
+    state.sceneRenderCounts.voxelMeshVertices = 0;
+    state.sceneRenderCounts.voxelMeshTriangles = 0;
+    if (!voxels.length && !voxelChunks.length) return;
 
     const group = new THREE.Group();
     group.name = "QuasarVoxels";
     group.matrixAutoUpdate = false;
-    group.matrix.copy(state.viewTransform || new THREE.Matrix4());
+    group.matrix.identity();
     group.visible = !els.showVoxels || els.showVoxels.checked;
     state.voxelGroup = group;
     state.scene.add(group);
 
-    for (const voxel of voxels) {
-        const mesh = createVoxelProxy(voxel);
+    const meshedBodyIds = new Set();
+    const voxelBodiesById = new Map(voxels.map(voxel => [String(voxel.id || ""), voxel]));
+    for (const chunk of voxelChunks) {
+        const mesh = createVoxelDataChunkMesh(chunk, voxelBodiesById.get(String(chunk.voxelBodyId || "")));
         if (!mesh) continue;
         group.add(mesh);
         state.voxelMeshes.push(mesh);
+        meshedBodyIds.add(String(chunk.voxelBodyId || ""));
+        state.sceneRenderCounts.voxelMeshChunks++;
+    }
+
+    const proxyGroup = new THREE.Group();
+    proxyGroup.name = "QuasarVoxelProxies";
+    proxyGroup.matrixAutoUpdate = false;
+    proxyGroup.matrix.copy(state.viewTransform || new THREE.Matrix4());
+
+    for (const voxel of voxels) {
+        if (meshedBodyIds.has(String(voxel.id || ""))) continue;
+        const mesh = createVoxelProxy(voxel);
+        if (!mesh) continue;
+        proxyGroup.add(mesh);
+        state.voxelMeshes.push(mesh);
         state.sceneRenderCounts.voxelProxies++;
     }
+
+    if (proxyGroup.children.length) group.add(proxyGroup);
+}
+
+function createVoxelDataChunkMesh(chunk, voxel) {
+    const content = voxelByteArray(chunk.content);
+    const materials = voxelByteArray(chunk.materials);
+    const size = chunk.size || {};
+    const sx = Math.max(0, Math.floor(num(size.x, 0)));
+    const sy = Math.max(0, Math.floor(num(size.y, 0)));
+    const sz = Math.max(0, Math.floor(num(size.z, 0)));
+    if (sx < 2 || sy < 2 || sz < 2 || content.length < sx * sy * sz) return null;
+
+    const storageMin = chunk.storageMin || {};
+    const localOrigin = new THREE.Vector3(num(storageMin.x, 0), num(storageMin.y, 0), num(storageMin.z, 0));
+    const voxelWorldMatrix = matrixDtoToThree(voxel && voxel.worldMatrix);
+    const worldTransform = (state.viewTransform || new THREE.Matrix4()).clone().multiply(voxelWorldMatrix);
+    const positions = [];
+    const indicesByMaterial = new Map();
+    const cube = createVoxelCubeScratch();
+
+    for (let z = 0; z < sz - 1; z++) {
+        for (let y = 0; y < sy - 1; y++) {
+            for (let x = 0; x < sx - 1; x++) {
+                fillVoxelCubeScratch(cube, x, y, z, sx, sy, content, materials, localOrigin, worldTransform);
+                polygonizeVoxelCube(cube, positions, indicesByMaterial);
+            }
+        }
+    }
+
+    const vertexCount = positions.length / 3;
+    if (vertexCount <= 0 || !indicesByMaterial.size) return null;
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    const meshMaterials = [];
+    const allIndices = [];
+    for (const [materialIndex, partIndices] of [...indicesByMaterial.entries()].sort((a, b) => a[0] - b[0])) {
+        const start = allIndices.length;
+        allIndices.push(...partIndices);
+        geometry.addGroup(start, partIndices.length, meshMaterials.length);
+        meshMaterials.push(createVoxelMeshMaterial(materialIndex));
+        state.sceneRenderCounts.voxelMeshParts++;
+        state.sceneRenderCounts.voxelMeshTriangles += Math.floor(partIndices.length / 3);
+    }
+    geometry.setIndex(allIndices);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+
+    const mesh = new THREE.Mesh(geometry, meshMaterials);
+    mesh.name = `VoxelData:${chunk.voxelBodyId || "unknown"}:${chunk.chunkId || "chunk"}`;
+    mesh.userData.voxel = {
+        id: chunk.voxelBodyId || "",
+        kind: "voxelData",
+        displayName: chunk.chunkId || "voxel data chunk",
+        chunk,
+    };
+    state.sceneRenderCounts.voxelMeshVertices += vertexCount;
+    return mesh;
+}
+
+const VOXEL_ISO_LEVEL = 127.5;
+const VOXEL_TETRAHEDRA = [
+    [0, 5, 1, 6], [0, 1, 2, 6], [0, 2, 3, 6],
+    [0, 3, 7, 6], [0, 7, 4, 6], [0, 4, 5, 6],
+];
+const VOXEL_CUBE_OFFSETS = [
+    [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
+    [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1],
+];
+
+function createVoxelCubeScratch() {
+    return Array.from({ length: 8 }, () => ({ position: new THREE.Vector3(), value: 0, material: 0 }));
+}
+
+function fillVoxelCubeScratch(cube, x, y, z, sx, sy, content, materials, localOrigin, worldTransform) {
+    for (let i = 0; i < VOXEL_CUBE_OFFSETS.length; i++) {
+        const offset = VOXEL_CUBE_OFFSETS[i];
+        const px = x + offset[0];
+        const py = y + offset[1];
+        const pz = z + offset[2];
+        const index = px + sx * (py + sy * pz);
+        cube[i].position.set(localOrigin.x + px, localOrigin.y + py, localOrigin.z + pz).applyMatrix4(worldTransform);
+        cube[i].value = num(content[index], 0);
+        cube[i].material = num(materials[index], 0);
+    }
+}
+
+function polygonizeVoxelCube(cube, positions, indicesByMaterial) {
+    for (const tetra of VOXEL_TETRAHEDRA) {
+        const vertices = tetra.map(index => cube[index]);
+        polygonizeVoxelTetra(vertices, positions, indicesByMaterial);
+    }
+}
+
+function polygonizeVoxelTetra(vertices, positions, indicesByMaterial) {
+    const inside = vertices.map(vertex => vertex.value >= VOXEL_ISO_LEVEL);
+    const insideCount = inside.reduce((count, value) => count + (value ? 1 : 0), 0);
+    if (insideCount === 0 || insideCount === 4) return;
+
+    const intersections = [];
+    for (let a = 0; a < 4; a++) {
+        for (let b = a + 1; b < 4; b++) {
+            if (inside[a] === inside[b]) continue;
+            intersections.push(interpolateVoxelEdge(vertices[a], vertices[b]));
+        }
+    }
+
+    const material = dominantVoxelMaterial(vertices.filter((_, index) => inside[index]));
+    if (intersections.length === 3) {
+        addVoxelTriangle(intersections[0], intersections[1], intersections[2], material, positions, indicesByMaterial, insideCount === 1);
+    } else if (intersections.length === 4) {
+        addVoxelTriangle(intersections[0], intersections[1], intersections[2], material, positions, indicesByMaterial, false);
+        addVoxelTriangle(intersections[0], intersections[2], intersections[3], material, positions, indicesByMaterial, false);
+    }
+}
+
+function interpolateVoxelEdge(a, b) {
+    const delta = b.value - a.value;
+    const t = Math.abs(delta) > 0.0001 ? (VOXEL_ISO_LEVEL - a.value) / delta : 0.5;
+    return new THREE.Vector3().lerpVectors(a.position, b.position, clamp(t, 0, 1));
+}
+
+function addVoxelTriangle(a, b, c, material, positions, indicesByMaterial, reverse) {
+    let indices = indicesByMaterial.get(material);
+    if (!indices) {
+        indices = [];
+        indicesByMaterial.set(material, indices);
+    }
+    const base = positions.length / 3;
+    if (reverse) {
+        positions.push(a.x, a.y, a.z, c.x, c.y, c.z, b.x, b.y, b.z);
+    } else {
+        positions.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+    }
+    indices.push(base, base + 1, base + 2);
+}
+
+function dominantVoxelMaterial(vertices) {
+    const counts = new Map();
+    for (const vertex of vertices) counts.set(vertex.material, (counts.get(vertex.material) || 0) + 1);
+    let bestMaterial = 0;
+    let bestCount = -1;
+    for (const [material, count] of counts) {
+        if (count > bestCount) {
+            bestMaterial = material;
+            bestCount = count;
+        }
+    }
+    return bestMaterial;
+}
+
+function createVoxelMeshMaterial(materialIndex) {
+    const color = colorFromHash(`voxel:${materialIndex}`, 0x5b6f54);
+    return new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.96,
+        metalness: 0,
+        flatShading: false,
+        side: THREE.DoubleSide,
+    });
+}
+
+function voxelByteArray(value) {
+    if (!value) return new Uint8Array();
+    if (value instanceof Uint8Array) return value;
+    if (Array.isArray(value)) return Uint8Array.from(value);
+    if (typeof value !== "string") return new Uint8Array();
+
+    const binary = atob(value);
+    const result = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) result[i] = binary.charCodeAt(i);
+    return result;
 }
 
 function createVoxelProxy(voxel) {
@@ -2238,6 +2436,7 @@ function renderSummary(scene, resolutionStats, textureStats) {
     addSummary("Textures", textureStats.listed.toLocaleString());
     addSummary("LCDs", countLcdSurfaces(scene).toLocaleString());
     addSummary("Voxels", (scene.voxels || []).length.toLocaleString());
+    addSummary("Voxel chunks", (scene.voxelDeformations || []).length.toLocaleString());
     if (scene.environment && scene.environment.sunDirection) {
         const direction = scene.environment.sunDirection;
         addSummary("Sun", `${formatNumber(direction.x)}, ${formatNumber(direction.y)}, ${formatNumber(direction.z)}`);
