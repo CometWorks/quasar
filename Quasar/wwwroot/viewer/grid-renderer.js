@@ -557,6 +557,7 @@ function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex) {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
     geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.setAttribute("uv2", new THREE.Float32BufferAttribute(uvs, 2));
     const meshMaterials = [];
     const allIndices = [];
     for (const [materialIndex, partIndices] of [...indicesByMaterial.entries()].sort((a, b) => a[0] - b[0])) {
@@ -781,32 +782,49 @@ function createVoxelMeshMaterial(materialIndex, definition) {
     const color = colorFromHash(`voxel:${materialIndex}`, 0x5b6f54);
     const material = new THREE.MeshStandardMaterial({
         color,
-        roughness: 0.96,
+        roughness: 1,
         metalness: 0,
         flatShading: false,
         side: THREE.DoubleSide,
     });
-    applyVoxelTextureAsync(material, materialIndex, definition);
+    applySpaceEngineersColorMasking(material, false, false);
+    applyVoxelTexturesAsync(material, materialIndex, definition);
     return material;
 }
 
-function applyVoxelTextureAsync(material, materialIndex, definition) {
+function applyVoxelTexturesAsync(material, materialIndex, definition) {
     const colorTexture = normalizeLogicalTexturePath(definition && (definition.colorMetalXZnY || definition.colorMetalY));
-    if (!colorTexture) return;
+    const normalTexture = normalizeLogicalTexturePath(definition && (definition.normalGlossXZnY || definition.normalGlossY));
 
-    loadTexture(colorTexture, "ColorMetal")
-        .then(texture => {
-            if (!texture || material.disposed) return;
-            texture.wrapS = THREE.RepeatWrapping;
-            texture.wrapT = THREE.RepeatWrapping;
-            material.map = texture;
-            material.color.set(0xffffff);
-            material.needsUpdate = true;
-            state.stats["Voxel material textures loaded"] = (state.stats["Voxel material textures loaded"] || 0) + 1;
-        })
-        .catch(error => {
-            if (error && !error.isMissingLocalTexture) log(`Failed to load voxel material ${materialIndex} texture ${colorTexture}: ${error.message}`, true);
-        });
+    if (colorTexture) {
+        loadTexture(colorTexture, "ColorMetalTexture")
+            .then(texture => {
+                if (!texture) return;
+                material.map = texture;
+                material.color.set(0xffffff);
+                setSpaceEngineersColorMetalTexture(material, true);
+                material.needsUpdate = true;
+                state.stats["Voxel material textures loaded"] = (state.stats["Voxel material textures loaded"] || 0) + 1;
+            })
+            .catch(error => {
+                if (error && !error.isMissingLocalTexture) log(`Failed to load voxel material ${materialIndex} color texture ${colorTexture}: ${error.message}`, true);
+            });
+    }
+
+    if (normalTexture) {
+        loadTexture(normalTexture, "NormalGlossTexture")
+            .then(texture => {
+                if (!texture) return;
+                material.normalMap = texture;
+                material.normalScale.set(-1, 1);
+                setSpaceEngineersNormalGlossTexture(material, true);
+                material.needsUpdate = true;
+                state.stats["Voxel material textures loaded"] = (state.stats["Voxel material textures loaded"] || 0) + 1;
+            })
+            .catch(error => {
+                if (error && !error.isMissingLocalTexture) log(`Failed to load voxel material ${materialIndex} normal/gloss texture ${normalTexture}: ${error.message}`, true);
+            });
+    }
 }
 
 function voxelByteArray(value) {
