@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -66,6 +67,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     private readonly ILogger<ManagedDedicatedServerRuntimeResolver> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ManagedRuntimeOptions _options;
+    private readonly GitHubUpdateCredentialsCatalog _githubCredentials;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly SemaphoreSlim _magnetarInstallLock = new(1, 1);
     private readonly SemaphoreSlim _steamCmdInstallLock = new(1, 1);
@@ -78,11 +80,13 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         ILogger<ManagedDedicatedServerRuntimeResolver> logger,
         IHttpClientFactory httpClientFactory,
         ManagedRuntimeOptions options,
+        GitHubUpdateCredentialsCatalog githubCredentials,
         IHostApplicationLifetime lifetime)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _options = options;
+        _githubCredentials = githubCredentials;
         _lifetime = lifetime;
     }
 
@@ -535,6 +539,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         using var client = _httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromMinutes(5);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Quasar");
+        ApplyGitHubAuthorization(client, archive.ArchiveUrl);
 
         var archivePath = Path.Combine(extractRoot, "magnetar-download" + InferArchiveExtension(archive.ArchiveUrl));
         _logger.LogInformation("Downloading Magnetar runtime {Release}...", archive.DisplayName);
@@ -572,6 +577,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         using var client = _httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromMinutes(5);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Quasar");
+        ApplyGitHubAuthorization(client);
 
         try
         {
@@ -676,6 +682,22 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             asset.Name,
             asset.BrowserDownloadUrl);
     }
+
+    private void ApplyGitHubAuthorization(HttpClient client, string? url = null)
+    {
+        if (!string.IsNullOrWhiteSpace(url) &&
+            (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !IsGitHubHost(uri.Host)))
+            return;
+
+        var token = _githubCredentials.GetCredentials().Token;
+        if (!string.IsNullOrWhiteSpace(token))
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+    }
+
+    private static bool IsGitHubHost(string host) =>
+        host.Equals("github.com", StringComparison.OrdinalIgnoreCase) ||
+        host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase) ||
+        host.Equals("codeload.github.com", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsCurrentMagnetarInstall(string installDirectory, MagnetarArchiveReference archive)
     {

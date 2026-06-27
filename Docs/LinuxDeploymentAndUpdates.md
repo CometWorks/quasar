@@ -304,7 +304,7 @@ Use a fine-grained personal access token:
 5. Set Resource owner to the account or organization that owns the configured
    update repository.
 6. Under Repository access, choose Only select repositories and select the
-   Quasar update repository, normally `CometWorks/quasar`.
+   update repositories, normally `CometWorks/quasar` and `CometWorks/magnetar`.
 7. Under Repository permissions, set Contents to Read-only. Leave Account
    permissions unset. Metadata read-only is automatic.
 8. Generate the token, copy it once, paste it into Settings, Updates, GitHub
