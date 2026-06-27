@@ -36,6 +36,9 @@ namespace Quasar.Agent
         private const int MaxVoxelDataBytes = 8 * 1024 * 1024;
         private const int VoxelDataPadding = 1;
         private const int VoxelLod = 0;
+        private const double SmallGridCubeSize = 0.5;
+        private const double LargeGridCubeSize = 2.5;
+        private const int FloorGridPaddingSupersquares = 2;
 
         public static EntityRenderScene Build(long entityId, string gameVersion, string pluginVersion, bool includeVoxels = false)
         {
@@ -436,7 +439,7 @@ namespace Quasar.Agent
             if (session?.VoxelMaps?.Instances == null)
                 return result;
 
-            var gridAabb = grid.PositionComp.WorldAABB;
+            var samplingAabb = VoxelSamplingWorldAabb(grid);
             var totalBytes = 0;
             var chunkBudgetReached = false;
 
@@ -448,10 +451,10 @@ namespace Quasar.Agent
                 try
                 {
                     var voxelAabb = voxel.PositionComp.WorldAABB;
-                    if (!voxelAabb.Intersects(gridAabb))
+                    if (!voxelAabb.Intersects(samplingAabb))
                         continue;
 
-                    var intersection = Intersect(voxelAabb, gridAabb);
+                    var intersection = Intersect(voxelAabb, samplingAabb);
                     if (!TryWorldAabbToStorageRange(voxel, intersection, out var storageMin, out var storageMax))
                         continue;
 
@@ -620,6 +623,77 @@ namespace Quasar.Agent
         private static int RangeSampleCount(Vector3I min, Vector3I max)
         {
             return checked((max.X - min.X + 1) * (max.Y - min.Y + 1) * (max.Z - min.Z + 1));
+        }
+
+        private static BoundingBoxD VoxelSamplingWorldAabb(MyCubeGrid grid)
+        {
+            if (!TryGridLocalBlockBounds(grid, out var bounds, out var minCell, out var maxCell))
+                return grid.PositionComp.WorldAABB;
+
+            var gridSize = GridCubeSize(grid);
+            var padding = gridSize * FloorGridPaddingSupersquares;
+            var offsetX = FloorAxisOffset(maxCell.X - minCell.X + 1, gridSize);
+            var offsetZ = FloorAxisOffset(maxCell.Z - minCell.Z + 1, gridSize);
+            var startXCell = (int)Math.Floor((bounds.Min.X - padding - offsetX) / SmallGridCubeSize);
+            var endXCell = (int)Math.Ceiling((bounds.Max.X + padding - offsetX) / SmallGridCubeSize);
+            var startZCell = (int)Math.Floor((bounds.Min.Z - padding - offsetZ) / SmallGridCubeSize);
+            var endZCell = (int)Math.Ceiling((bounds.Max.Z + padding - offsetZ) / SmallGridCubeSize);
+
+            var localMin = new Vector3D(
+                offsetX + startXCell * SmallGridCubeSize,
+                bounds.Min.Y - padding,
+                offsetZ + startZCell * SmallGridCubeSize);
+            var localMax = new Vector3D(
+                offsetX + endXCell * SmallGridCubeSize,
+                bounds.Max.Y + padding,
+                offsetZ + endZCell * SmallGridCubeSize);
+            return LocalAabbToWorldAabb(localMin, localMax, grid.WorldMatrix);
+        }
+
+        private static bool TryGridLocalBlockBounds(MyCubeGrid grid, out BoundingBoxD bounds, out Vector3I minCell, out Vector3I maxCell)
+        {
+            bounds = BoundingBoxD.CreateInvalid();
+            minCell = new Vector3I(int.MaxValue);
+            maxCell = new Vector3I(int.MinValue);
+            var hasBlocks = false;
+            var gridSize = GridCubeSize(grid);
+            var half = gridSize * 0.5;
+
+            foreach (var block in grid.CubeBlocks)
+            {
+                if (block == null)
+                    continue;
+
+                hasBlocks = true;
+                minCell = Vector3I.Min(minCell, block.Min);
+                maxCell = Vector3I.Max(maxCell, block.Max);
+                bounds.Include(new Vector3D(block.Min.X * gridSize - half, block.Min.Y * gridSize - half, block.Min.Z * gridSize - half));
+                bounds.Include(new Vector3D(block.Max.X * gridSize + half, block.Max.Y * gridSize + half, block.Max.Z * gridSize + half));
+            }
+
+            return hasBlocks;
+        }
+
+        private static double GridCubeSize(MyCubeGrid grid)
+        {
+            var size = grid.GridSize;
+            if (size > 0f && size.IsValid())
+                return size;
+
+            return grid.GridSizeEnum == MyCubeSize.Small ? SmallGridCubeSize : LargeGridCubeSize;
+        }
+
+        private static double FloorAxisOffset(int cellCount, double gridSize)
+        {
+            return Math.Abs(cellCount % 2) == 1 ? gridSize * 0.5 : 0;
+        }
+
+        private static BoundingBoxD LocalAabbToWorldAabb(Vector3D localMin, Vector3D localMax, MatrixD worldMatrix)
+        {
+            var bounds = BoundingBoxD.CreateInvalid();
+            foreach (var corner in LocalAabbCorners(localMin, localMax))
+                bounds.Include(Vector3D.Transform(corner, worldMatrix));
+            return bounds;
         }
 
         private static bool TryWorldAabbToStorageRange(MyVoxelBase voxel, BoundingBoxD worldAabb, out Vector3I storageMin, out Vector3I storageMax)
