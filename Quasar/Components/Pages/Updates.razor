@@ -291,14 +291,14 @@
                         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
                             <MudStack Spacing="1">
                                 <MudText Typo="Typo.body2">
-                                    Create a Fine-grained personal access token:
+                                    Create a fine-grained personal access token:
                                 </MudText>
                                 <ol class="mud-typography mud-typography-body2 ma-0 pl-4">
                                     <li>Open GitHub Settings, then Developer settings, Personal access tokens, Fine-grained tokens.</li>
-                                    <li>Choose Generate new token. Name it Quasar update checks and set an expiration you can renew before it ends.</li>
-                                    <li>Set Resource owner to CometWorks so one token can cover Quasar and Magnetar release checks.</li>
-                                    <li>Under Repository access, choose Only select repositories and select @Options.Repository and magnetar.</li>
-                                    <li>Under Repository permissions, set Contents to Read-only. Leave Account permissions unset. Metadata read-only is automatic.</li>
+                                    <li>Choose Generate new token.</li>
+                                    <li>Name it Quasar update checks and set an expiration you can renew before it ends.</li>
+                                    <li>Under Repository access, choose Public repositories.</li>
+                                    <li>Leave Repository permissions and Account permissions unset. Public release checks only need authentication for rate limiting.</li>
                                     <li>Generate the token, copy it once, paste it here, save it, then press Check Quasar.</li>
                                 </ol>
                                 <MudLink Href="https://github.com/settings/personal-access-tokens/new"
