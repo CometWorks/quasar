@@ -226,23 +226,18 @@ Use a fine-grained personal access token:
    <https://github.com/settings/personal-access-tokens/new>.
 2. Choose Generate new token.
 3. Set Token name to something recognizable, such as `Quasar update checks`.
-4. Set Expiration to a date you can renew before it ends. GitHub may require an
-   expiration for organization resources.
-5. Set Resource owner to the account or organization that owns the configured
-   update repository.
-6. Under Repository access, choose Only select repositories and select the
-   update repositories, normally `CometWorks/quasar` and `CometWorks/magnetar`.
-7. Under Repository permissions, set Contents to Read-only. Leave Account
-   permissions unset. Metadata read-only is automatic.
-8. Generate the token, copy it once, paste it into Settings, Updates, GitHub
+4. Set Expiration to a date you can renew before it ends.
+5. Under Repository access, choose Public repositories.
+6. Leave Repository permissions and Account permissions unset. Quasar reads
+   public release metadata and public release assets; the token is only needed so
+   GitHub treats the requests as authenticated for rate limiting.
+7. Generate the token, copy it once, paste it into Settings, Updates, GitHub
    token, then press Save token.
-9. Press Check Quasar to verify the token and update status.
+8. Press Check Quasar to verify the token and update status.
 
-GitHub documents that the releases API works with fine-grained tokens when
-Repository permissions include Contents read-only:
-<https://docs.github.com/rest/releases/releases>. General REST authentication
-guidance for fine-grained tokens is here:
-<https://docs.github.com/rest/overview/authenticating-to-the-rest-api>.
+GitHub documents that unauthenticated REST API requests are rate limited by IP,
+while authenticated requests use the authenticated user's primary rate limit:
+<https://docs.github.com/rest/using-the-rest-api/rate-limits-for-the-rest-api>.
 
 When GitHub reports a token expiration, Quasar records it in memory. If the
 token is expired, expiring soon, or rejected during an update check, the Updates
