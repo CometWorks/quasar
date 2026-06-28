@@ -381,11 +381,7 @@ function renderLogisticsOverlay(scene, gridGroups, definitions) {
     group.name = "QuasarLogisticsOverlay";
     group.visible = !!(els.showLogistics && els.showLogistics.checked);
     state.logisticsGroup = group;
-
-    const primary = primaryGrid(scene) || scene.grid || {};
-    const logisticsGridSize = primary.gridSize || scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
-    const parent = gridGroups.get(String(primary.id || "")) || state.gridGroup;
-    parent.add(group);
+    state.gridGroup.add(group);
 
     const smallEdges = edges.filter(edge => edge && edge.isSmallRestricted).length;
     const danglingEdges = edges.filter(edge => edge && edge.isDangling).length;
@@ -400,16 +396,40 @@ function renderLogisticsOverlay(scene, gridGroups, definitions) {
     const nodeById = new Map(nodes.map(node => [String(node.id || ""), node]));
     const blockById = new Map((scene.blockInstances || []).map(block => [String(block.id || ""), block]));
     const maskRenderContext = createRenderContext(textureStatsToken);
+    const overlayByGridId = new Map();
+    const gridOverlay = gridId => {
+        const key = String(gridId || primaryGrid(scene)?.id || scene.grid?.id || "");
+        let overlay = overlayByGridId.get(key);
+        if (!overlay) {
+            const grid = gridById(scene, key) || primaryGrid(scene) || scene.grid || {};
+            overlay = new THREE.Group();
+            overlay.name = `LogisticsGrid:${key || "primary"}`;
+            overlay.matrixAutoUpdate = false;
+            overlay.matrix.copy(gridRelativeMatrix(grid));
+            group.add(overlay);
+            overlayByGridId.set(key, overlay);
+        }
+        return overlay;
+    };
+
+    const logisticsGridSize = gridId => {
+        const grid = gridById(scene, String(gridId || "")) || primaryGrid(scene) || scene.grid || {};
+        return grid.gridSize || scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
+    };
+
     for (const edge of edges) {
-        const line = createLogisticsEdge(edge, logisticsGridSize);
-        if (line) group.add(line);
+        const fromNode = nodeById.get(String(edge && edge.fromNodeId || ""));
+        const gridId = edge && edge.gridId || fromNode && fromNode.gridId || "";
+        const line = createLogisticsEdge(edge, logisticsGridSize(gridId));
+        if (line) gridOverlay(gridId).add(line);
     }
 
     for (const node of nodes) {
         const block = blockById.get(String(node.blockId || node.id || ""));
         const definition = block && definitions && definitions.get(block.blockTypeId);
-        const masks = createLogisticsNodeMasks(node, block, definition, maskRenderContext, logisticsGridSize);
-        for (const mask of masks) group.add(mask);
+        const gridId = node.gridId || block && block.gridId || "";
+        const masks = createLogisticsNodeMasks(node, block, definition, maskRenderContext, logisticsGridSize(gridId));
+        for (const mask of masks) gridOverlay(gridId).add(mask);
     }
 }
 

@@ -76,6 +76,8 @@ public class ViewerLogisticsNode
 {
     public string Id { get; set; } = string.Empty;
 
+    public string GridId { get; set; } = string.Empty;
+
     public string BlockId { get; set; } = string.Empty;
 
     public string BlockTypeId { get; set; } = string.Empty;
@@ -102,6 +104,8 @@ public class ViewerLogisticsNode
 public class ViewerLogisticsEdge
 {
     public string Id { get; set; } = string.Empty;
+
+    public string GridId { get; set; } = string.Empty;
 
     public string FromNodeId { get; set; } = string.Empty;
 

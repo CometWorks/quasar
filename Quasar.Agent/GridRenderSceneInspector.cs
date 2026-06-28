@@ -74,6 +74,7 @@ namespace Quasar.Agent
             var contextObb = contextLocalAabb.HasValue ? new MyOrientedBoundingBoxD(contextLocalAabb.Value, grid.WorldMatrix) : (MyOrientedBoundingBoxD?)null;
             var contextBlocks = 0;
             var clippedGridCount = 0;
+            var logisticsGrids = new List<MyCubeGrid>();
 
             foreach (var sceneGrid in ContextGrids(grid, contextAabb, contextObb, scene.Warnings))
             {
@@ -97,6 +98,8 @@ namespace Quasar.Agent
                 if (result.Grid.IsClippedToContext)
                     clippedGridCount++;
                 scene.Grids.Add(result.Grid);
+                if (isPrimary || result.IncludedBlockCount > 0)
+                    logisticsGrids.Add(sceneGrid);
             }
 
             if (scene.Grids.Count == 0)
@@ -104,7 +107,7 @@ namespace Quasar.Agent
             scene.Grid = scene.Grids.FirstOrDefault(candidate => candidate.IsPrimary) ?? scene.Grid;
             scene.BlockDefinitions = definitions.Values.OrderBy(definition => definition.Id, StringComparer.Ordinal).ToList();
             scene.Chunks = chunks.Values.Select(chunk => chunk.ToDto()).OrderBy(chunk => chunk.Id, StringComparer.Ordinal).ToList();
-            scene.Logistics = BuildLogistics(grid, scene.BlockInstances, scene.Warnings);
+            scene.Logistics = BuildLogistics(logisticsGrids, scene.BlockInstances, scene.Warnings);
             scene.ModelAssets = catalog.ModelAssetsSnapshot();
             scene.TextureAssets = catalog.TextureAssetsSnapshot();
             scene.Mods = catalog.ModsSnapshot();
@@ -1297,7 +1300,40 @@ namespace Quasar.Agent
             return dto;
         }
 
-        private static ViewerGridLogistics BuildLogistics(MyCubeGrid grid, List<ViewerBlockInstance> instances, List<string> warnings)
+        private static ViewerGridLogistics BuildLogistics(IEnumerable<MyCubeGrid> grids, List<ViewerBlockInstance> instances, List<string> warnings)
+        {
+            var logistics = new ViewerGridLogistics();
+            var nextSystemId = 0;
+            foreach (var grid in grids.Where(candidate => candidate != null && !candidate.MarkedForClose && !candidate.Closed))
+            {
+                var gridLogistics = BuildGridLogistics(grid, instances, warnings);
+                foreach (var node in gridLogistics.Nodes)
+                {
+                    if (node.SystemId >= 0)
+                        node.SystemId += nextSystemId;
+                    logistics.Nodes.Add(node);
+                }
+
+                foreach (var edge in gridLogistics.Edges)
+                {
+                    if (edge.SystemId >= 0)
+                        edge.SystemId += nextSystemId;
+                    logistics.Edges.Add(edge);
+                }
+
+                foreach (var system in gridLogistics.Systems)
+                {
+                    system.Id += nextSystemId;
+                    logistics.Systems.Add(system);
+                }
+
+                nextSystemId = logistics.Systems.Count == 0 ? nextSystemId : logistics.Systems.Max(system => system.Id) + 1;
+            }
+
+            return logistics;
+        }
+
+        private static ViewerGridLogistics BuildGridLogistics(MyCubeGrid grid, List<ViewerBlockInstance> instances, List<string> warnings)
         {
             var logistics = new ViewerGridLogistics();
             var gridId = grid.EntityId.ToString();
@@ -1332,6 +1368,7 @@ namespace Quasar.Agent
                     var node = new ViewerLogisticsNode
                     {
                         Id = instance.Id,
+                        GridId = gridId,
                         BlockId = instance.Id,
                         BlockTypeId = instance.BlockTypeId,
                         Role = LogisticsRole(fatBlock, slimBlock.BlockDefinition),
@@ -1381,7 +1418,8 @@ namespace Quasar.Agent
                         var isSmall = line.Type == MyObjectBuilder_ConveyorLine.LineType.SMALL_LINE;
                         logistics.Edges.Add(new ViewerLogisticsEdge
                         {
-                            Id = "line:" + logistics.Edges.Count,
+                            Id = gridId + ":line:" + logistics.Edges.Count,
+                            GridId = gridId,
                             FromNodeId = sourceNode.Id,
                             ToNodeId = targetNode?.Id ?? string.Empty,
                             LineType = isSmall ? "small" : line.Type == MyObjectBuilder_ConveyorLine.LineType.LARGE_LINE ? "large" : "unknown",
