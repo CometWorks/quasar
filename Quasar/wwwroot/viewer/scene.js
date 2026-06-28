@@ -3,10 +3,14 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { els, state } from "./state.js";
 import { boundsToBox3 } from "./geometry.js";
 
-const SMALL_GRID_CUBE_SIZE = 0.5;
-const LARGE_GRID_CUBE_SIZE = 2.5;
+export const SMALL_GRID_CUBE_SIZE = 0.5;
+export const LARGE_GRID_CUBE_SIZE = SMALL_GRID_CUBE_SIZE * 5;
+export const ASTEROID_GRID_CUBE_SIZE = LARGE_GRID_CUBE_SIZE * 5;
 const FLOOR_GRID_DEFAULT_SIZE = 240;
 const FLOOR_GRID_PADDING_SUPERSQUARES = 2;
+const DEFAULT_FOG_DENSITY = 0.0025;
+const FOG_OBSCURE_FLOOR_GRID_SPANS = 6;
+const FOG_OBSCURED_TRANSMITTANCE = 0.03;
 const FLY_MOUSE_SENSITIVITY = 0.0022;
 const FLY_BASE_SPEED = 18;
 const FLY_FAST_MULTIPLIER = 3;
@@ -22,7 +26,7 @@ const SUN_SHADOW_TEXEL_NORMAL_BIAS = 2.0;
 export function initScene() {
     state.scene = new THREE.Scene();
     state.scene.background = new THREE.Color(0x070b12);
-    state.scene.fog = new THREE.FogExp2(0x070b12, 0.0025);
+    state.scene.fog = new THREE.FogExp2(0x070b12, DEFAULT_FOG_DENSITY);
 
     state.camera = new THREE.PerspectiveCamera(55, 1, 0.05, 200000);
     state.camera.position.set(28, 24, 32);
@@ -57,7 +61,7 @@ export function initScene() {
     state.scene.add(state.sunMarker);
     state.scene.add(state.sunMarkerLine);
     updateLighting();
-    replaceFloorGrid(null, 2.5);
+    replaceFloorGrid(null, LARGE_GRID_CUBE_SIZE);
 
     state.raycaster = new THREE.Raycaster();
     state.pointer = new THREE.Vector2();
@@ -92,6 +96,7 @@ export function replaceFloorGrid(bounds, gridSize, alignment = null) {
     state.floorGrid = createFloorGrid(bounds, gridSize, alignment);
     state.floorGrid.visible = visible && (!els.showGridHelper || els.showGridHelper.checked);
     state.scene.add(state.floorGrid);
+    updateFogForFloorGrid(state.floorGrid.userData && state.floorGrid.userData.layout);
 }
 
 function createFloorGrid(bounds, gridSize, alignment) {
@@ -101,18 +106,19 @@ function createFloorGrid(bounds, gridSize, alignment) {
     const minorColor = colorComponents(0x1e293b);
     const majorColor = colorComponents(0x2563eb);
     const axisColor = colorComponents(0x6ee7f9);
-    const majorEveryCells = Math.max(1, Math.round(layout.majorStep / SMALL_GRID_CUBE_SIZE));
+    const majorEveryCells = Math.max(1, Math.round(layout.majorStep / layout.minorStep));
 
     appendFloorGridLines({
         positions,
         colors,
         startCell: layout.startXCell,
         endCell: layout.endXCell,
-        rangeStart: layout.offsetZ + layout.startZCell * SMALL_GRID_CUBE_SIZE - layout.originZ,
-        rangeEnd: layout.offsetZ + layout.endZCell * SMALL_GRID_CUBE_SIZE - layout.originZ,
+        rangeStart: layout.offsetZ + layout.startZCell * layout.minorStep - layout.originZ,
+        rangeEnd: layout.offsetZ + layout.endZCell * layout.minorStep - layout.originZ,
         origin: layout.originX,
         offset: layout.offsetX,
         axis: "x",
+        minorStep: layout.minorStep,
         majorEveryCells,
         minorColor,
         majorColor,
@@ -123,11 +129,12 @@ function createFloorGrid(bounds, gridSize, alignment) {
         colors,
         startCell: layout.startZCell,
         endCell: layout.endZCell,
-        rangeStart: layout.offsetX + layout.startXCell * SMALL_GRID_CUBE_SIZE - layout.originX,
-        rangeEnd: layout.offsetX + layout.endXCell * SMALL_GRID_CUBE_SIZE - layout.originX,
+        rangeStart: layout.offsetX + layout.startXCell * layout.minorStep - layout.originX,
+        rangeEnd: layout.offsetX + layout.endXCell * layout.minorStep - layout.originX,
         origin: layout.originZ,
         offset: layout.offsetZ,
         axis: "z",
+        minorStep: layout.minorStep,
         majorEveryCells,
         minorColor,
         majorColor,
@@ -149,46 +156,48 @@ function createFloorGrid(bounds, gridSize, alignment) {
     grid.name = "FloorGrid";
     grid.position.set(layout.originX, layout.y, layout.originZ);
     grid.frustumCulled = false;
+    grid.userData.layout = layout;
     return grid;
 }
 
 export function floorGridLayout(bounds, gridSize, alignment) {
-    const majorStep = Math.max(SMALL_GRID_CUBE_SIZE, Number(gridSize) || LARGE_GRID_CUBE_SIZE);
+    const minorStep = Math.max(SMALL_GRID_CUBE_SIZE, Number(alignment && alignment.minorStep) || SMALL_GRID_CUBE_SIZE);
+    const majorStep = Math.max(minorStep, Number(gridSize) || LARGE_GRID_CUBE_SIZE);
     if (!bounds || bounds.isEmpty()) {
         const halfSize = FLOOR_GRID_DEFAULT_SIZE * 0.5;
-        return floorGridCells(-halfSize, halfSize, -halfSize, halfSize, -0.02, majorStep);
+        return floorGridCells(-halfSize, halfSize, -halfSize, halfSize, -0.02, majorStep, 0, 0, minorStep);
     }
 
     const padding = majorStep * FLOOR_GRID_PADDING_SUPERSQUARES;
     const y = bounds.min.y - Math.max(0.02, majorStep * 0.02);
     const offsetX = Number(alignment && alignment.offsetX) || 0;
     const offsetZ = Number(alignment && alignment.offsetZ) || 0;
-    return floorGridCells(bounds.min.x - padding, bounds.max.x + padding, bounds.min.z - padding, bounds.max.z + padding, y, majorStep, offsetX, offsetZ);
+    return floorGridCells(bounds.min.x - padding, bounds.max.x + padding, bounds.min.z - padding, bounds.max.z + padding, y, majorStep, offsetX, offsetZ, minorStep);
 }
 
-function floorGridCells(minX, maxX, minZ, maxZ, y, majorStep, offsetX = 0, offsetZ = 0) {
-    const startXCell = Math.floor((minX - offsetX) / SMALL_GRID_CUBE_SIZE);
-    const endXCell = Math.ceil((maxX - offsetX) / SMALL_GRID_CUBE_SIZE);
-    const startZCell = Math.floor((minZ - offsetZ) / SMALL_GRID_CUBE_SIZE);
-    const endZCell = Math.ceil((maxZ - offsetZ) / SMALL_GRID_CUBE_SIZE);
+function floorGridCells(minX, maxX, minZ, maxZ, y, majorStep, offsetX = 0, offsetZ = 0, minorStep = SMALL_GRID_CUBE_SIZE) {
+    const startXCell = Math.floor((minX - offsetX) / minorStep);
+    const endXCell = Math.ceil((maxX - offsetX) / minorStep);
+    const startZCell = Math.floor((minZ - offsetZ) / minorStep);
+    const endZCell = Math.ceil((maxZ - offsetZ) / minorStep);
     return {
         startXCell,
         endXCell,
         startZCell,
         endZCell,
-        originX: offsetX + (startXCell + endXCell) * SMALL_GRID_CUBE_SIZE * 0.5,
-        originZ: offsetZ + (startZCell + endZCell) * SMALL_GRID_CUBE_SIZE * 0.5,
+        originX: offsetX + (startXCell + endXCell) * minorStep * 0.5,
+        originZ: offsetZ + (startZCell + endZCell) * minorStep * 0.5,
         offsetX,
         offsetZ,
         y,
         majorStep,
-        minorStep: SMALL_GRID_CUBE_SIZE,
+        minorStep,
     };
 }
 
 function appendFloorGridLines(options) {
     for (let cell = options.startCell; cell <= options.endCell; cell++) {
-        const worldCoordinate = options.offset + cell * SMALL_GRID_CUBE_SIZE;
+        const worldCoordinate = options.offset + cell * options.minorStep;
         const coordinate = worldCoordinate - options.origin;
         const isAxis = Math.abs(worldCoordinate) < 1e-6;
         const isMajor = cell % options.majorEveryCells === 0;
@@ -199,6 +208,17 @@ function appendFloorGridLines(options) {
             appendFloorGridLine(options.positions, options.colors, options.rangeStart, coordinate, options.rangeEnd, coordinate, color);
         }
     }
+}
+
+function updateFogForFloorGrid(layout) {
+    if (!state.scene || !state.scene.fog || !layout) return;
+
+    const width = Math.max(1, (layout.endXCell - layout.startXCell) * layout.minorStep);
+    const depth = Math.max(1, (layout.endZCell - layout.startZCell) * layout.minorStep);
+    const span = Math.max(width, depth, FLOOR_GRID_DEFAULT_SIZE);
+    const obscureDistance = span * FOG_OBSCURE_FLOOR_GRID_SPANS;
+    const targetDensity = Math.sqrt(-Math.log(FOG_OBSCURED_TRANSMITTANCE)) / obscureDistance;
+    state.scene.fog.density = Math.min(DEFAULT_FOG_DENSITY, targetDensity);
 }
 
 function appendFloorGridLine(positions, colors, x1, z1, x2, z2, color) {
@@ -394,7 +414,7 @@ function configureSunShadow(bounds, lightPosition, target) {
     }
 
     const size = shadowBounds.getSize(new THREE.Vector3()).length();
-    const padding = Math.max(state.currentGridSize || 2.5, size * SUN_SHADOW_PADDING_SCALE);
+    const padding = Math.max(state.currentGridSize || LARGE_GRID_CUBE_SIZE, size * SUN_SHADOW_PADDING_SCALE);
     camera.up.copy(up);
     camera.left = minX - padding;
     camera.right = maxX + padding;
@@ -409,7 +429,7 @@ function configureSunShadow(bounds, lightPosition, target) {
 function configureSunShadowBias(camera) {
     const shadowWidth = Math.max(camera.right - camera.left, camera.top - camera.bottom);
     const texelSize = shadowWidth / SUN_SHADOW_MAP_SIZE;
-    const maxNormalBias = Math.max(SUN_SHADOW_MIN_NORMAL_BIAS, (state.currentGridSize || 2.5) * 0.25);
+    const maxNormalBias = Math.max(SUN_SHADOW_MIN_NORMAL_BIAS, (state.currentGridSize || LARGE_GRID_CUBE_SIZE) * 0.25);
     state.sunLight.shadow.bias = 0;
     state.sunLight.shadow.normalBias = clamp(texelSize * SUN_SHADOW_TEXEL_NORMAL_BIAS, SUN_SHADOW_MIN_NORMAL_BIAS, maxNormalBias);
 }

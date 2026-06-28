@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid/asteroid viewer. It owns renderer setup including shadow-map configuration, orbit/free-fly camera behavior, floor grid generation with per-axis block-boundary alignment, relative-space bounds tracking across grid and voxel groups, diffuse-only ambient lighting fallback, directional sun/shadow-camera fitting with texel-scaled normal bias, marker helpers, object disposal, viewport resizing, hover readouts, and per-frame stats rendering.
+Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid/asteroid viewer. It owns renderer setup including shadow-map configuration, orbit/free-fly camera behavior, floor grid generation with per-axis block-boundary alignment and configurable minor-cell size, fog density scaled so the obscured threshold is several active floor-grid spans away, relative-space bounds tracking across grid and voxel groups, diffuse-only ambient lighting fallback, directional sun/shadow-camera fitting with texel-scaled normal bias, marker helpers, object disposal, viewport resizing, hover readouts, and per-frame stats rendering.
 
 ## Structure
 
@@ -11,9 +11,10 @@ Key exports:
 
 | Export | Purpose |
 |---|---|
+| `SMALL_GRID_CUBE_SIZE` / `LARGE_GRID_CUBE_SIZE` / `ASTEROID_GRID_CUBE_SIZE` | Shared floor-grid sizing constants for small-grid, large-grid, and asteroid-scale viewer modes. |
 | `initScene()` | Creates the scene, renderer, camera, controls, lighting, floor grid, pointer handlers, and resize observer. |
 | `animate(time)` | Per-frame render loop that updates controls/free-fly movement, renders the scene, and refreshes render stats. |
-| `replaceFloorGrid(bounds, gridSize, alignment = null)` | Rebuilds the scaled floor grid using SE small/large grid cell semantics and optional per-axis lattice offsets. |
+| `replaceFloorGrid(bounds, gridSize, alignment = null)` | Rebuilds the scaled floor grid using SE small/large/asteroid grid cell semantics, optional per-axis lattice offsets, and updates fog density from the floor span. |
 | `floorGridLayout(bounds, gridSize, alignment)` | Computes the snapped floor-grid cell layout used by both floor rendering and client-side voxel clipping. |
 | `fitCameraToScene()` | Frames the active grid bounds and updates camera clipping planes/orbit target. |
 | `updateSceneBounds(refit = false)` | Recomputes displayed relative-space bounds from visible grid/voxel groups, then refreshes the floor grid and sun marker placement. |

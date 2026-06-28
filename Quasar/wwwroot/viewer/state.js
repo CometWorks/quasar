@@ -26,7 +26,7 @@ export const state = {
     flyPitch: 0,
     lastFrameTime: 0,
     currentBounds: null,
-    currentGridSize: 2.5,
+    currentGridSize: null,
     currentFloorGridAlignment: null,
     viewTransform: null,
     viewRotation: null,

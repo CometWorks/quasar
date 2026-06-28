@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { els, state } from "./state.js";
 import { blockBox, boundsToBox3 } from "./geometry.js";
 import { colorFromHash, matrixDtoToThree, num, vec3 } from "./math.js";
-import { disposeObjectTree, fitCameraToScene, floorGridLayout, updateLighting, updateSceneBounds, updateSunLightPosition } from "./scene.js";
+import { ASTEROID_GRID_CUBE_SIZE, LARGE_GRID_CUBE_SIZE, disposeObjectTree, fitCameraToScene, floorGridLayout, updateLighting, updateSceneBounds, updateSunLightPosition } from "./scene.js";
 import { resolveModelAsset } from "./mwm-loader.js";
 import { loadTexture, textureToCanvas } from "./texture-loader.js";
 import { log } from "./logging.js";
@@ -63,14 +63,14 @@ export async function renderGridScene(scene) {
     const progress = createProgressiveModelRender(scene, definitions, group, renderTextureToken, renderToken);
 
     const bounds = new THREE.Box3();
-    for (const block of scene.blockInstances || []) bounds.union(blockBox(block, scene.grid && scene.grid.gridSize || 2.5));
+    for (const block of scene.blockInstances || []) bounds.union(blockBox(block, scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE));
     if (bounds.isEmpty()) {
         const voxelBounds = standaloneVoxelViewBounds(scene);
         if (voxelBounds) bounds.copy(voxelBounds);
     }
     state.currentBounds = bounds;
-    state.currentGridSize = scene.grid && scene.grid.gridSize || 2.5;
     state.currentFloorGridAlignment = floorGridAlignment(scene);
+    state.currentGridSize = floorGridMajorStep(scene);
     renderVoxelBodies(scene.voxels || [], scene.voxelDeformations || [], scene.voxelMaterials || []);
     progress.rebuild();
     updateSceneBounds(false);
@@ -192,7 +192,11 @@ function progressiveRebuildMaxDelayMs(scene) {
 }
 
 function floorGridAlignment(scene) {
-    const gridSize = scene.grid && scene.grid.gridSize || 2.5;
+    if (standaloneVoxelBody(scene)) {
+        return { offsetX: 0, offsetZ: 0, cellCountX: 0, cellCountZ: 0, minorStep: LARGE_GRID_CUBE_SIZE };
+    }
+
+    const gridSize = scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
     let minX = Infinity;
     let maxX = -Infinity;
     let minZ = Infinity;
@@ -222,6 +226,10 @@ function floorGridAlignment(scene) {
     };
 }
 
+function floorGridMajorStep(scene) {
+    return standaloneVoxelBody(scene) ? ASTEROID_GRID_CUBE_SIZE : scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
+}
+
 function floorAxisOffset(cellCount, gridSize) {
     return Math.abs(cellCount % 2) === 1 ? gridSize * 0.5 : 0;
 }
@@ -235,7 +243,7 @@ function buildModelLayer(scene, definitions, renderContext) {
 
     for (const block of scene.blockInstances || []) {
         const definition = definitions.get(block.blockTypeId);
-        const box = blockBox(block, scene.grid.gridSize || 2.5);
+        const box = blockBox(block, scene.grid.gridSize || LARGE_GRID_CUBE_SIZE);
         const blockMeshes = createBlockMeshes(block, definition, renderContext);
         if (blockMeshes.length) {
             for (const mesh of blockMeshes) queueModelBatch(mesh, renderContext);
@@ -475,7 +483,7 @@ function gridLocalBounds(scene) {
     }
     if (hasBounds) return bounds;
 
-    const gridSize = scene.grid && scene.grid.gridSize || 2.5;
+    const gridSize = scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
     for (const block of scene.blockInstances || []) {
         bounds.union(blockBox(block, gridSize));
         hasBounds = true;
