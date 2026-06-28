@@ -1,7 +1,7 @@
 import { cacheElements, els, state } from "./state.js";
 import { initScene, animate } from "./scene.js";
-import { configureVoxelControl, wireControls } from "./controls.js";
-import { fetchEntityScene, parseVoxelFlag } from "./quasar-api.js";
+import { configureContextControl, configureVoxelControl, wireControls } from "./controls.js";
+import { fetchEntityScene, parseContextFlag, parseVoxelFlag } from "./quasar-api.js";
 import { pickContentFolder, pickModsFolder, restoreContentFolder, restoreModsFolder } from "./content-folder.js";
 import { renderGridScene } from "./grid-renderer.js";
 import { downloadLog, log } from "./logging.js";
@@ -11,6 +11,7 @@ document.addEventListener("DOMContentLoaded", start);
 async function start() {
     cacheElements();
     state.voxelSupport = parseVoxelFlag();
+    state.contextSupport = parseContextFlag();
     initScene();
     wireControls({ reloadScene, pickContent: selectContentFolder, pickMods: selectModsFolder });
     els.downloadLog.addEventListener("click", downloadLog);
@@ -39,8 +40,10 @@ async function reloadScene() {
     try {
         state.timings = {};
         state.voxelSupport = parseVoxelFlag();
+        state.contextSupport = parseContextFlag();
         configureVoxelControl();
-        log(state.voxelSupport.enabled ? "Requesting scene snapshot with bounded voxel data from Quasar." : "Requesting scene snapshot without voxel data from Quasar.");
+        configureContextControl();
+        log(`Requesting scene snapshot ${state.contextSupport.enabled ? "with" : "without"} context and ${state.voxelSupport.enabled ? "with" : "without"} voxel data from Quasar.`);
         const fetchStart = performance.now();
         const scene = await fetchEntityScene();
         addTiming("sceneSnapshotFetch", performance.now() - fetchStart);

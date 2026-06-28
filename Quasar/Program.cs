@@ -276,7 +276,8 @@ public class Program
                 try
                 {
                     var includeVoxels = IsTrueLikeQueryFlag(context.Request.Query["voxels"]);
-                    return Results.Json(await viewerSceneService.GetEntitySceneAsync(agentId, entityId, includeVoxels, cancellationToken));
+                    var includeContext = IsTrueLikeQueryFlag(context.Request.Query["context"]);
+                    return Results.Json(await viewerSceneService.GetEntitySceneAsync(agentId, entityId, includeVoxels, includeContext, cancellationToken));
                 }
                 catch (TimeoutException exception)
                 {

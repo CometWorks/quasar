@@ -3,7 +3,7 @@
 **Module:** Quasar.Components  **Kind:** Blazor component  **Tier:** 2
 
 ## Summary
-Routable page (`/entities`) providing a live entity browser for connected Space Engineers server agents. The user selects a connected agent and entity type filter, presses Refresh to fetch up to 500 entities, then can search across the result set, open viewer links for grids and asteroid voxels with voxel support enabled by default (`voxels=1`), and delete individual entities with confirmation. Requires a live Quasar.Agent connection; shows an informational alert otherwise.
+Routable page (`/entities`) providing a live entity browser for connected Space Engineers server agents. The user selects a connected agent and entity type filter, presses Refresh to fetch up to 500 entities, then can search across the result set, open viewer links for grids with voxel and context support enabled by default (`voxels=1&context=1`) or asteroid voxels with voxel support enabled (`voxels=1`), and delete individual entities with confirmation. Requires a live Quasar.Agent connection; shows an informational alert otherwise.
 
 ## Structure
 - **Route:** `@page "/entities"`

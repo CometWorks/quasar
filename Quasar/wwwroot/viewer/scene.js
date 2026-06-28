@@ -247,8 +247,11 @@ export function fitCameraToScene() {
 }
 
 export function updateSceneBounds(refit = false) {
-    state.currentBounds = sceneContentBounds() || transformedGridBounds() || state.currentBounds;
-    replaceFloorGrid(state.currentBounds, state.currentGridSize, state.currentFloorGridAlignment);
+    const contentBounds = sceneContentBounds();
+    const fallbackBounds = transformedGridBounds() || state.currentBounds;
+    const cameraBounds = unionBounds(contentBounds, state.contextBounds) || fallbackBounds;
+    state.currentBounds = cameraBounds;
+    replaceFloorGrid(state.contextBounds || contentBounds || fallbackBounds, state.currentGridSize, state.currentFloorGridAlignment);
     updateSunLightPosition();
     if (refit) fitCameraToScene();
 }
@@ -261,6 +264,10 @@ export function updateLighting() {
         state.sunLight.intensity = lightingEnabled ? Math.max(0.15, state.sunIntensity || 1) * SUN_LIGHT_INTENSITY_SCALE : 0;
     }
     if (state.gridLightGroup) state.gridLightGroup.visible = lightingEnabled;
+    for (const light of state.gridLights || []) {
+        light.visible = lightingEnabled;
+        if (light.target) light.target.visible = lightingEnabled;
+    }
     if (state.sunMarker) state.sunMarker.visible = lightingEnabled;
     if (state.sunMarkerLine) state.sunMarkerLine.visible = lightingEnabled;
 }
@@ -483,6 +490,17 @@ function sceneContentBounds() {
         const objectBounds = objectWorldBounds(object);
         if (!objectBounds) continue;
         bounds.union(objectBounds);
+        hasBounds = true;
+    }
+    return hasBounds ? bounds : null;
+}
+
+function unionBounds(...items) {
+    const bounds = new THREE.Box3();
+    let hasBounds = false;
+    for (const item of items) {
+        if (!item || item.isEmpty()) continue;
+        bounds.union(item);
         hasBounds = true;
     }
     return hasBounds ? bounds : null;

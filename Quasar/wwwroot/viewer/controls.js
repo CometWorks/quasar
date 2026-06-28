@@ -3,6 +3,7 @@ import { fitCameraToScene, setCameraMode, updateLighting, updateSceneBounds } fr
 
 export function wireControls(actions) {
     configureVoxelControl();
+    configureContextControl();
     els.reloadScene.addEventListener("click", actions.reloadScene);
     els.pickContent.addEventListener("click", actions.pickContent);
     els.pickMods.addEventListener("click", actions.pickMods);
@@ -14,6 +15,13 @@ export function wireControls(actions) {
     els.showVoxels.addEventListener("change", () => {
         if (state.voxelGroup) state.voxelGroup.visible = els.showVoxels.checked;
         updateSceneBounds(false);
+    });
+    els.showContext.addEventListener("change", () => {
+        state.contextSupport = { present: true, enabled: els.showContext.checked };
+        const url = new URL(window.location.href);
+        url.searchParams.set("context", els.showContext.checked ? "1" : "0");
+        window.history.replaceState(null, "", url);
+        actions.reloadScene();
     });
     els.showLighting.addEventListener("change", () => {
         updateLighting();
@@ -40,6 +48,12 @@ export function configureVoxelControl() {
     if (row) row.classList.toggle("is-disabled", !supported);
     if (!supported) els.showVoxels.title = "Add voxels=1 to the URL to request voxel data.";
     else els.showVoxels.title = "";
+}
+
+export function configureContextControl() {
+    els.showContext.disabled = false;
+    els.showContext.checked = !!(state.contextSupport && state.contextSupport.enabled);
+    els.showContext.title = "Reloads the scene with nearby grids and bounded voxels.";
 }
 
 function isFlyKey(code) {

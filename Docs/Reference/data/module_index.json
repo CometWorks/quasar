@@ -145,7 +145,7 @@
       "name": "ViewerSceneDtos.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Shared DTOs for the Quasar grid viewer scene contract. `EntityRenderSceneRequest` carries the target entity ID and optional voxel-data inclusion flag for `ServerCommandType.GetEntityRenderScene`; `EntityRenderScene` and related `Viewer*` classes describe grid identity, block placement, transforms, scene environment, captured block and subpart light sources, logical model/texture references, generated model parts, runtime subparts, LCD surface text/image metadata, empty online/offline placeholder images, block-level offline-hidden LCD materials, voxel body metadata, optional bounded voxel content/material chunks, bounds, chunks, and warnings without including raw assets or server-rendered LCD texture bytes."
+      "summary": "Shared DTOs for the Quasar grid viewer scene contract. `EntityRenderSceneRequest` carries the target entity ID plus optional voxel-data and context-mode inclusion flags for `ServerCommandType.GetEntityRenderScene`; `EntityRenderScene` and related `Viewer*` classes describe primary/context grid identity, ownership metadata for blocks/chunks/lights, context bounds and counters, block placement, transforms, scene environment, active mod asset roots, captured block and subpart light sources, logical model/texture references with optional mod root hints, generated model parts, runtime subparts, LCD surface text/image metadata, empty online/offline placeholder images, block-level offline-hidden LCD materials, voxel body metadata, optional bounded voxel content/material chunks, bounds, chunks, and warnings without including raw assets, server local mod paths, or server-rendered LCD texture bytes."
     },
     {
       "path": "Magnetar.Protocol/Runtime/MagnetarPaths.cs",
@@ -280,7 +280,7 @@
       "name": "GridRenderSceneInspector.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Game-thread helper that builds viewer scene snapshots from live `MyCubeGrid` and asteroid `MyVoxelBase` instances. It maps grid/block definitions and instances into `Magnetar.Protocol` viewer DTOs, registers logical model and texture names, includes generated cube-part and runtime subpart metadata, captures terminal-synced lighting metadata from classic `MyLightingBlock`, component-based `MyLightingComponent`, and runtime subpart lighting-logic sources using server working state instead of client render fade power, captures LCD material names, working state, `UseOnlineTexture`, built-in online/offline placeholder image paths, selected image paths, text settings, background colors, sprite metadata, and `MaterialNamesToHideWhenOffline` from standalone `MyTextPanel` blocks and `IMyMultiTextPanelComponentOwner` blocks such as cockpits/control seats. When requested for grids, it samples bounded voxel content/material ranges intersecting the same snapped X/Z footprint covered by the viewer floor grid, with vertical padding and conservative byte limits, preserving surfaces that cross internal chunk boundaries where possible so the browser can procedurally mesh them. For standalone asteroid voxel maps, it emits a synthetic grid anchor, chooses the lowest storage LOD that fits separate body chunk/byte limits, samples the selected voxel storage in chunks, skips uniform empty/full chunks, and resolves stale/direct `MyVoxelPhysics` requests through their root voxel before rejecting planets. It intentionally avoids client-render-only dependencies such as `VRage.Render` texture-change payloads or offscreen LCD texture bytes and does not expose raw game asset files."
+      "summary": "Game-thread helper that builds viewer scene snapshots from live `MyCubeGrid` and asteroid `MyVoxelBase` instances. It maps primary and optional context grids into `Magnetar.Protocol` viewer DTOs, computes a selected-grid-centered context AABB, enumerates loaded intersecting grids deterministically, clips surrounding grids at block selection time with conservative context caps, registers active scene mod asset roots from `MySession.Static.Mods`, registers logical model and texture names with mod root hints from definition contexts or normalized `ModsPath` paths, includes generated cube-part and runtime subpart metadata, captures terminal-synced lighting metadata from classic `MyLightingBlock`, component-based `MyLightingComponent`, and runtime subpart lighting-logic sources using server working state instead of client render fade power, captures LCD metadata from standalone `MyTextPanel` and `IMyMultiTextPanelComponentOwner` blocks, and assigns grid ownership on blocks, chunks, and lights. When requested for grids, it samples bounded voxel content/material ranges intersecting the floor-grid footprint or the context AABB, preserving surfaces that cross internal chunk boundaries where possible so the browser can procedurally mesh them. For standalone asteroid voxel maps, it emits a synthetic grid anchor, chooses the lowest storage LOD that fits separate body chunk/byte limits, samples the selected voxel storage in chunks, skips uniform empty/full chunks, and resolves stale/direct `MyVoxelPhysics` requests through their root voxel before rejecting planets. It intentionally avoids client-render-only dependencies such as `VRage.Render` texture-change payloads or offscreen LCD texture bytes and does not expose raw game asset files or server-local mod paths."
     },
     {
       "path": "Quasar.Agent/PluginLogOutbox.cs",
@@ -515,7 +515,7 @@
       "name": "Entities.razor",
       "kind": "Blazor component",
       "tier": 2,
-      "summary": "Routable page (`/entities`) providing a live entity browser for connected Space Engineers server agents. The user selects a connected agent and entity type filter, presses Refresh to fetch up to 500 entities, then can search across the result set, open viewer links for grids and asteroid voxels with voxel support enabled by default (`voxels=1`), and delete individual entities with confirmation. Requires a live Quasar.Agent connection; shows an informational alert otherwise."
+      "summary": "Routable page (`/entities`) providing a live entity browser for connected Space Engineers server agents. The user selects a connected agent and entity type filter, presses Refresh to fetch up to 500 entities, then can search across the result set, open viewer links for grids with voxel and context support enabled by default (`voxels=1&context=1`) or asteroid voxels with voxel support enabled (`voxels=1`), and delete individual entities with confirmation. Requires a live Quasar.Agent connection; shows an informational alert otherwise."
     },
     {
       "path": "Quasar/Components/Pages/Error.razor",
@@ -918,14 +918,14 @@
       "name": "content-folder.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Browser local-content helper for the grid viewer's Space Engineers `Content` folder. It preserves the Chromium File System Access path with persisted directory handles, falls back to a Firefox-compatible folder file input, validates the expected `Data`, `Models`, and `Textures` directories, resolves logical asset, SBC data, and XML font paths through a lazy case-insensitive path cache, and separates path lookup from deferred `getFile()` snapshots."
+      "summary": "Browser local-asset helper for the grid viewer's Space Engineers `Content` and global `Mods` folders. It preserves Chromium File System Access persisted directory handles, falls back to Firefox-compatible folder file inputs, validates Content and Mods selections, tracks active scene mod roots, resolves logical asset paths through hinted mod roots before vanilla Content, supports direct `Mods/<mod-name>/...` paths, matches Workshop `123.sbm` scene names against `123` directories, and lazily reads unpacked mod directories or `.sbm` zip archives without sending asset bytes through Quasar."
     },
     {
       "path": "Quasar/wwwroot/viewer/controls.js",
       "name": "controls.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Wires the grid viewer control panel and keyboard input to scene actions. It connects reload/content selection buttons, render toggles including URL-gated voxel visibility and the unified lighting toggle, camera mode switching, camera reset, and free-fly movement key tracking."
+      "summary": "Wires the grid viewer control panel and keyboard input to scene actions. It connects reload, Content selection, Mods selection, render toggles including URL-gated voxel visibility, context-mode reloads through the `context` query flag, the unified lighting toggle, camera mode switching, camera reset, and free-fly movement key tracking."
     },
     {
       "path": "Quasar/wwwroot/viewer/geometry.js",
@@ -939,7 +939,7 @@
       "name": "grid-renderer.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Main renderer for grid and asteroid viewer scenes. It computes centered floor-grid alignment from block integer footprint parity, switches standalone asteroid scenes to the exported asteroid/large grid sizing constants, centers standalone voxel scenes on the selected asteroid bounds, de-duplicates top-level and subpart light-source metadata before creating capped point/spot lights, selects a four-light projected-shadow budget for reflector spot lights, marks model/proxy grid geometry for shadow casting and receiving, displays instanced proxy batches while local MWM models resolve with bounded parallelism, resolves local armor skin texture overrides from `ArmorModifiers.sbc`, resolves glass and transparent LCD screen-area material names through `TransparentMaterials.sbc`, applies a viewer-side approximation of Space Engineers transparent material constants for glass opacity/color/gloss, applies transparent gloss maps as roughness-only inputs instead of normal maps, applies LCD material replacement and placeholder behavior, progressively rebuilds the model layer with adaptive throttling, builds instanced batches for shared model/material combinations, applies Space Engineers-style material paint, handles cutout/blended transparency, procedurally meshes voxel content/material chunks when present with scalar-field gradient normals aligned to mesher winding, scales voxel sample coordinates by each chunk's `lod`, renders standalone asteroid voxel terrain without floor clipping, renders voxel terrain visually double-sided without forced reverse-face shadow rendering, and progressively loads selected material textures without blocking scene construction."
+      "summary": "Main renderer for grid, context-grid, and asteroid viewer scenes. It computes selected-grid floor alignment from block integer footprint parity, sizes the floor from context bounds when present, creates one relative-view group per exported grid, batches/proxies blocks under their owning grid transform, switches standalone asteroid scenes to the exported asteroid/large grid sizing constants, centers standalone voxel scenes on selected asteroid bounds, rebuilds active scene mod roots for the asset resolver, de-duplicates top-level and subpart light-source metadata before creating capped point/spot lights under owning grid groups, selects a projected-shadow budget for reflector spot lights, displays instanced proxy batches while local MWM models resolve with bounded parallelism from Content and/or Mods roots, resolves local armor skin texture overrides from `ArmorModifiers.sbc`, resolves glass and transparent LCD screen-area material names through `TransparentMaterials.sbc`, applies Space Engineers-style material paint/transparency/LCD behavior, progressively rebuilds per-grid model layers with adaptive throttling, procedurally meshes voxel content/material chunks when present, applies voxel material `TilingScale` and dominant-axis texture selection, renders standalone asteroid voxel terrain without floor clipping, renders voxel terrain visually double-sided without forced reverse-face shadow rendering, and progressively loads selected material textures from each model's source root without blocking scene construction."
     },
     {
       "path": "Quasar/wwwroot/viewer/lcd-font-loader.js",
@@ -960,7 +960,7 @@
       "name": "main.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Entry point for the standalone grid/asteroid viewer page. It initializes DOM references, parsed voxel URL support state, Three.js scene state, control wiring, persisted Content folder restoration, scene reloads, high-level fetch timing for the stats panel, and scene-loaded logging that can identify grid or voxel-only snapshots."
+      "summary": "Entry point for the standalone grid/asteroid viewer page. It initializes DOM references, parsed voxel and context URL support state, Three.js scene state, control wiring, independent persisted Content and Mods folder restoration, scene reloads, high-level fetch timing for the stats panel, and scene-loaded logging that can identify grid or voxel-only snapshots."
     },
     {
       "path": "Quasar/wwwroot/viewer/materials.js",
@@ -981,28 +981,28 @@
       "name": "mwm-loader.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Browser-side parser for locally selected Space Engineers `.mwm` render model files. It resolves model paths through the Content folder helper, fetches lazy file metadata only when cache keys or bytes are needed, caches parsed models by path/size/mtime, follows `GeometryDataAsset` indirection, and extracts static mesh geometry/material data including `GLASS` transparent-material names without recording model timing counters."
+      "summary": "Browser-side parser for locally selected Space Engineers `.mwm` render model files. It resolves model paths through the root-aware asset helper using optional mod root hints, fetches lazy file metadata only when cache keys or bytes are needed, caches parsed models by root/path/size/mtime, follows `GeometryDataAsset` indirection through the same source root first, and extracts static mesh geometry/material data including `GLASS` transparent-material names without recording model timing counters."
     },
     {
       "path": "Quasar/wwwroot/viewer/quasar-api.js",
       "name": "quasar-api.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "HTTP helper for the standalone grid viewer. It reads the `agentId`, `entityId`, and optional `voxels` query parameters, parses true-like/false-like voxel support state, and fetches scene JSON from Quasar's viewer API with an explicit `voxels=1` or `voxels=0` request flag."
+      "summary": "HTTP helper for the standalone grid viewer. It reads the `agentId`, `entityId`, optional `voxels`, and optional `context` query parameters, parses true-like/false-like support state, and fetches scene JSON from Quasar's viewer API with explicit `voxels=...` and `context=...` request flags."
     },
     {
       "path": "Quasar/wwwroot/viewer/scene.js",
       "name": "scene.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid/asteroid viewer. It owns renderer setup including shadow-map configuration, orbit/free-fly camera behavior, floor grid generation with per-axis block-boundary alignment and configurable minor-cell size, fog density scaled so the obscured threshold is several active floor-grid spans away, relative-space bounds tracking across grid and voxel groups, diffuse-only ambient lighting fallback, directional sun/shadow-camera fitting with texel-scaled normal bias, marker helpers, object disposal, viewport resizing, hover readouts, and per-frame stats rendering."
+      "summary": "Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid/asteroid viewer. It owns renderer setup including shadow-map configuration, orbit/free-fly camera behavior, floor grid generation with selected-grid alignment and context-bound sizing support, fog density scaled so the obscured threshold is several active floor-grid spans away, grid/voxel/context relative-space bounds tracking with renderer-provided/metadata fallback, diffuse-only ambient lighting fallback, directional sun/shadow-camera fitting with texel-scaled normal bias, marker helpers, object disposal, viewport resizing, hover readouts, and per-frame stats rendering."
     },
     {
       "path": "Quasar/wwwroot/viewer/state.js",
       "name": "state.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Shared mutable runtime state and DOM-element cache for the standalone grid viewer ES modules. It centralizes Three.js objects including the directional sun, its target, captured grid light groups, and voxel group, camera/fly-mode state, current scene/bounds, voxel URL support state, floor-grid alignment metadata, local Content folder handles or folder-input adapters, model/texture caches, progressive texture stats, voxel clipping counters, timing counters, and displayed stats. Grid-size defaults are assigned by renderer/scene modules so this state module does not import `scene.js` and avoids a circular ES-module dependency."
+      "summary": "Shared mutable runtime state and DOM-element cache for the standalone grid viewer ES modules. It centralizes Three.js objects including the directional sun, its target, captured grid light groups, and voxel group, camera/fly-mode state, current scene/bounds, voxel and context URL support state, context bounds/grid IDs, floor-grid alignment metadata, local Content and global Mods folder handles or folder-input adapters, active scene mod roots, model/texture caches, progressive texture stats, voxel clipping counters, timing counters, and displayed stats. Grid-size defaults are assigned by renderer/scene modules so this state module does not import `scene.js` and avoids a circular ES-module dependency."
     },
     {
       "path": "Quasar/wwwroot/viewer/styles.css",
@@ -1016,7 +1016,7 @@
       "name": "texture-loader.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Browser-side texture resolver/loader for the grid viewer. It resolves logical texture paths against the selected local Content folder, classifies color/data texture role from material slots or filename map tokens, disables Three.js' default vertical texture flip to match Space Engineers model UVs, preserves explicit DDS sRGB format tags for compressed uploads, caches extension-candidate hits and misses for the active Content folder, coalesces duplicate logical texture loads before file metadata is known, caches completed textures by resolved path/size/mtime/color role, loads browser-native images, parses common SE DDS compressed formats, decodes textures to Canvas2D with an LCD sprite option that restores drawable alpha from RGB for premultiplied atlas masks, and throttles path resolution, file reads, and WebGL upload/init separately."
+      "summary": "Browser-side texture resolver/loader for the grid viewer. It resolves logical texture paths against the selected local Content folder or a hinted mod source root, classifies color/data texture role from material slots or filename map tokens, disables Three.js' default vertical texture flip to match Space Engineers model UVs, preserves explicit DDS sRGB format tags for compressed uploads, caches extension-candidate hits and misses for the active asset-folder generation and root hint, coalesces duplicate logical texture loads before file metadata is known, caches completed textures by resolved root/path/size/mtime/color role, loads browser-native images, parses common SE DDS compressed formats, decodes textures to Canvas2D with an LCD sprite option that restores drawable alpha from RGB for premultiplied atlas masks, and throttles path resolution, file reads, and WebGL upload/init separately."
     }
   ],
   "Quasar.Services.Core": [
@@ -1298,7 +1298,7 @@
       "name": "ViewerSceneService.cs",
       "kind": "class",
       "tier": 1,
-      "summary": "Quasar service that requests viewer scene snapshots from a connected agent using the existing command/result WebSocket pipeline. It sends `GetEntityRenderScene` with the target entity ID and optional voxel-mesh inclusion flag, waits for the correlated result, deserializes `EntityRenderScene`, and never exposes raw Space Engineers asset files or texture bytes."
+      "summary": "Quasar service that requests viewer scene snapshots from a connected agent using the existing command/result WebSocket pipeline. It sends `GetEntityRenderScene` with the target entity ID plus optional voxel-mesh and context inclusion flags, waits for the correlated result, deserializes `EntityRenderScene`, and never exposes raw Space Engineers asset files or texture bytes."
     },
     {
       "path": "Quasar/Services/WebServiceManifestHostedService.cs",

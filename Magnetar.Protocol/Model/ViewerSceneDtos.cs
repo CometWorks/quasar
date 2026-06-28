@@ -12,6 +12,8 @@ public class EntityRenderSceneRequest
     public long EntityId { get; set; }
 
     public bool IncludeVoxels { get; set; }
+
+    public bool IncludeContext { get; set; }
 }
 
 /// <summary>
@@ -27,6 +29,10 @@ public class EntityRenderScene
     public string PluginVersion { get; set; } = string.Empty;
 
     public ViewerGrid Grid { get; set; } = new();
+
+    public ViewerSceneContext Context { get; set; } = new();
+
+    public List<ViewerGrid> Grids { get; set; } = new();
 
     public ViewerSceneEnvironment Environment { get; set; } = new();
 
@@ -62,11 +68,32 @@ public class ViewerSceneEnvironment
     public float SunIntensity { get; set; } = 1.9f;
 }
 
+public class ViewerSceneContext
+{
+    public bool Enabled { get; set; }
+
+    public string PrimaryGridId { get; set; } = string.Empty;
+
+    public ViewerBounds WorldAabb { get; set; } = new();
+
+    public ViewerBounds RelativeAabb { get; set; } = new();
+
+    public int GridCount { get; set; }
+
+    public int ClippedGridCount { get; set; }
+
+    public int VoxelBodyCount { get; set; }
+
+    public int VoxelMeshChunkCount { get; set; }
+}
+
 public class ViewerLightSource
 {
     public string Id { get; set; } = string.Empty;
 
     public string BlockId { get; set; } = string.Empty;
+
+    public string GridId { get; set; } = string.Empty;
 
     public string Kind { get; set; } = string.Empty;
 
@@ -110,6 +137,14 @@ public class ViewerGrid
     public bool IsStatic { get; set; }
 
     public int BlockCount { get; set; }
+
+    public bool IsPrimary { get; set; }
+
+    public bool IsContext { get; set; }
+
+    public bool IsClippedToContext { get; set; }
+
+    public ViewerBounds? ContextClippedWorldAabb { get; set; }
 
     public ViewerMatrix WorldMatrix { get; set; } = ViewerMatrix.Identity();
 
@@ -358,6 +393,8 @@ public class ViewerModAssetRoot
 public class ViewerGridChunk
 {
     public string Id { get; set; } = string.Empty;
+
+    public string GridId { get; set; } = string.Empty;
 
     public ViewerVector3I MinCell { get; set; } = new();
 

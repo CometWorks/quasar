@@ -7,7 +7,7 @@ namespace Quasar.Services;
 /// <summary>
 /// Requests render scenes from connected agents. This service never exposes Space
 /// Engineers assets, raw model bytes, or textures. Optional voxel geometry is
-/// bounded to the selected grid scene.
+    /// bounded to the selected grid or requested context scene.
 /// </summary>
 public sealed class ViewerSceneService
 {
@@ -25,6 +25,7 @@ public sealed class ViewerSceneService
         string agentId,
         long entityId,
         bool includeVoxels,
+        bool includeContext,
         CancellationToken cancellationToken = default)
     {
         var agent = _registry.GetAgents().FirstOrDefault(candidate =>
@@ -37,6 +38,7 @@ public sealed class ViewerSceneService
         {
             EntityId = entityId,
             IncludeVoxels = includeVoxels,
+            IncludeContext = includeContext,
         }, JsonOptions);
         var command = new ServerCommandEnvelope
         {

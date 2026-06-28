@@ -48,12 +48,13 @@ export async function renderGridScene(scene) {
     configureEnvironment(scene);
 
     const group = new THREE.Group();
-    group.name = "QuasarGrid";
+    group.name = "QuasarGrids";
     group.matrixAutoUpdate = false;
-    group.matrix.copy(gridViewMatrix(scene));
+    group.matrix.identity();
     state.gridGroup = group;
     state.scene.add(group);
-    buildGridLightGroup(scene, group);
+    const gridGroups = buildGridGroups(scene, group);
+    buildGridLightGroups(scene, gridGroups);
 
     const definitions = new Map((scene.blockDefinitions || []).map(definition => [definition.id, definition]));
     const modelAssets = new Map((scene.modelAssets || []).map(asset => [asset.assetId, asset]));
@@ -61,11 +62,13 @@ export async function renderGridScene(scene) {
     state.modelResolution.clear();
     const textureStats = initializeTextureStats(collectReferencedTextureAssets(scene));
     const resolutionStats = { found: 0, parsed: 0, missing: 0, listed: (scene.modelAssets || []).length };
-    const progress = createProgressiveModelRender(scene, definitions, group, renderTextureToken, renderToken);
+    const progress = createProgressiveModelRender(scene, definitions, gridGroups, renderTextureToken, renderToken);
 
-    const bounds = new THREE.Box3();
-    for (const block of scene.blockInstances || []) bounds.union(blockBox(block, scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE));
-    if (bounds.isEmpty()) {
+    state.contextBounds = contextRelativeBounds(scene);
+    state.contextGridIds = new Set(sceneGrids(scene).filter(grid => grid && grid.isContext).map(grid => String(grid.id || "")));
+    state.primaryGridId = primaryGrid(scene)?.id || "";
+    const bounds = state.contextBounds ? state.contextBounds.clone() : new THREE.Box3();
+    if (!state.contextBounds && bounds.isEmpty()) {
         const voxelBounds = standaloneVoxelViewBounds(scene);
         if (voxelBounds) bounds.copy(voxelBounds);
     }
@@ -88,6 +91,11 @@ export async function renderGridScene(scene) {
     state.stats["Voxel chunks clipped"] = state.sceneRenderCounts.voxelClippedChunks;
     state.stats["Voxel polygons clipped"] = state.sceneRenderCounts.voxelClippedPolygons;
     state.stats["Voxel materials"] = (scene.voxelMaterials || []).length;
+    state.stats["Context mode"] = scene.context && scene.context.enabled ? "on" : "off";
+    state.stats["Context grids"] = scene.context && scene.context.enabled ? num(scene.context.gridCount, gridGroups.size) : 0;
+    state.stats["Context clipped grids"] = scene.context && scene.context.enabled ? num(scene.context.clippedGridCount, 0) : 0;
+    state.stats["Context blocks"] = state.contextGridIds.size ? (scene.blockInstances || []).filter(block => state.contextGridIds.has(String(block.gridId || ""))).length : 0;
+    state.stats["Context voxels"] = scene.context && scene.context.enabled ? num(scene.context.voxelBodyCount, (scene.voxels || []).length) : 0;
     state.stats["Scene mods"] = state.modRoots.size;
     state.stats["LCD surfaces"] = countLcdSurfaces(scene);
     updateGridLightStats(collectSceneLightSources(scene));
@@ -105,7 +113,7 @@ export async function renderGridScene(scene) {
     updateTimingStats();
 }
 
-function createProgressiveModelRender(scene, definitions, group, textureToken, renderToken) {
+function createProgressiveModelRender(scene, definitions, gridGroups, textureToken, renderToken) {
     let modelLayer = null;
     let rebuildQueued = false;
     let rebuildTimer = 0;
@@ -161,13 +169,21 @@ function createProgressiveModelRender(scene, definitions, group, textureToken, r
             rebuildQueued = false;
             completedSinceLastRebuild = 0;
             const renderContext = createRenderContext(textureToken);
-            const nextLayer = buildModelLayer(scene, definitions, renderContext);
+            const nextLayer = buildModelLayer(scene, definitions, renderContext, gridGroups);
             const previousLayer = modelLayer;
             modelLayer = nextLayer.layer;
-            group.add(modelLayer);
+            for (const gridGroup of gridGroups.values()) {
+                const child = modelLayer.children.find(candidate => candidate.userData.gridId === gridGroup.userData.gridId);
+                if (child) gridGroup.add(child);
+            }
             if (previousLayer) {
-                group.remove(previousLayer);
-                disposeObjectTree(previousLayer);
+                for (const gridGroup of gridGroups.values()) {
+                    const oldChild = gridGroup.children.find(child => child.userData.modelLayerToken === previousLayer.userData.modelLayerToken);
+                    if (oldChild) {
+                        gridGroup.remove(oldChild);
+                        disposeObjectTree(oldChild);
+                    }
+                }
             }
             progress.lastRenderStats = nextLayer.stats;
             state.sceneRenderCounts.modelMeshes = nextLayer.stats.modelMeshes;
@@ -198,13 +214,16 @@ function floorGridAlignment(scene) {
         return { offsetX: 0, offsetZ: 0, cellCountX: 0, cellCountZ: 0, minorStep: LARGE_GRID_CUBE_SIZE };
     }
 
-    const gridSize = scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
+    const primary = primaryGrid(scene) || scene.grid || {};
+    const primaryId = String(primary.id || "");
+    const gridSize = primary.gridSize || LARGE_GRID_CUBE_SIZE;
     let minX = Infinity;
     let maxX = -Infinity;
     let minZ = Infinity;
     let maxZ = -Infinity;
 
     for (const block of scene.blockInstances || []) {
+        if (primaryId && block.gridId && String(block.gridId) !== primaryId) continue;
         const min = block.min || block.cell;
         const max = block.max || block.cell || min;
         if (!min || !max) continue;
@@ -229,42 +248,64 @@ function floorGridAlignment(scene) {
 }
 
 function floorGridMajorStep(scene) {
-    return standaloneVoxelBody(scene) ? ASTEROID_GRID_CUBE_SIZE : scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
+    return standaloneVoxelBody(scene) ? ASTEROID_GRID_CUBE_SIZE : primaryGrid(scene)?.gridSize || scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
 }
 
 function floorAxisOffset(cellCount, gridSize) {
     return Math.abs(cellCount % 2) === 1 ? gridSize * 0.5 : 0;
 }
 
-function buildModelLayer(scene, definitions, renderContext) {
+function buildModelLayer(scene, definitions, renderContext, gridGroups) {
     const layer = new THREE.Group();
     layer.name = "QuasarGridModels";
+    layer.userData.modelLayerToken = `models:${Date.now()}:${Math.random()}`;
     let modelMeshes = 0;
     let proxyMeshes = 0;
-    const proxyBatches = new Map();
-
+    const stats = { proxyBatches: 0, modelBatches: 0 };
+    const blocksByGrid = new Map();
     for (const block of scene.blockInstances || []) {
-        const definition = definitions.get(block.blockTypeId);
-        const box = blockBox(block, scene.grid.gridSize || LARGE_GRID_CUBE_SIZE);
-        const blockMeshes = createBlockMeshes(block, definition, renderContext);
-        if (blockMeshes.length) {
-            for (const mesh of blockMeshes) queueModelBatch(mesh, renderContext);
-            modelMeshes += blockMeshes.length;
-        } else {
-            queueBlockProxy(proxyBatches, block, definition, box);
-            proxyMeshes++;
+        const gridId = String(block.gridId || primaryGrid(scene)?.id || "");
+        let blocks = blocksByGrid.get(gridId);
+        if (!blocks) {
+            blocks = [];
+            blocksByGrid.set(gridId, blocks);
         }
+        blocks.push(block);
     }
 
-    flushProxyBatches(layer, proxyBatches);
-    const modelBatches = flushModelBatches(layer, renderContext);
+    for (const [gridId, blocks] of blocksByGrid) {
+        const grid = gridById(scene, gridId) || primaryGrid(scene) || scene.grid || {};
+        const gridLayer = new THREE.Group();
+        gridLayer.name = `GridModels:${gridId || "primary"}`;
+        gridLayer.userData.gridId = gridId;
+        gridLayer.userData.modelLayerToken = layer.userData.modelLayerToken;
+        const gridRenderContext = { ...renderContext, batches: new Map() };
+        const proxyBatches = new Map();
+        for (const block of blocks) {
+            const definition = definitions.get(block.blockTypeId);
+            const box = blockBox(block, grid.gridSize || LARGE_GRID_CUBE_SIZE);
+            const blockMeshes = createBlockMeshes(block, definition, gridRenderContext);
+            if (blockMeshes.length) {
+                for (const mesh of blockMeshes) queueModelBatch(mesh, gridRenderContext);
+                modelMeshes += blockMeshes.length;
+            } else {
+                queueBlockProxy(proxyBatches, block, definition, box);
+                proxyMeshes++;
+            }
+        }
+        flushProxyBatches(gridLayer, proxyBatches);
+        stats.proxyBatches += proxyBatches.size;
+        stats.modelBatches += flushModelBatches(gridLayer, gridRenderContext);
+        if (gridLayer.children.length) layer.add(gridLayer);
+    }
+
     return {
         layer,
         stats: {
             modelMeshes,
             proxyMeshes,
-            proxyBatches: proxyBatches.size,
-            modelBatches,
+            proxyBatches: stats.proxyBatches,
+            modelBatches: stats.modelBatches,
             sharedGeometries: renderContext.geometries.size,
             sharedMaterials: renderContext.materials.size,
         },
@@ -281,13 +322,98 @@ function createRenderContext(textureToken) {
 }
 
 function configureRelativeView(scene) {
-    const worldMatrix = matrixDtoToThree(scene.grid && scene.grid.worldMatrix);
+    const anchorGrid = primaryGrid(scene) || scene.grid || {};
+    const worldMatrix = matrixDtoToThree(anchorGrid.worldMatrix);
     const voxel = standaloneVoxelBody(scene);
     const voxelBounds = voxel && boundsToBox3(voxel.worldAabb);
-    const center = voxelBounds && !voxelBounds.isEmpty() ? voxelBounds.getCenter(new THREE.Vector3()) : gridCenterWorld(scene, worldMatrix);
+    const center = voxelBounds && !voxelBounds.isEmpty() ? voxelBounds.getCenter(new THREE.Vector3()) : gridCenterWorld(scene, worldMatrix, anchorGrid);
     const inverseRotation = new THREE.Matrix4().extractRotation(worldMatrix).invert();
     state.viewRotation = inverseRotation;
     state.viewTransform = inverseRotation.clone().multiply(new THREE.Matrix4().makeTranslation(-center.x, -center.y, -center.z));
+}
+
+function buildGridGroups(scene, root) {
+    const groups = new Map();
+    for (const grid of sceneGrids(scene)) {
+        const gridId = String(grid.id || "");
+        if (!gridId || groups.has(gridId)) continue;
+        const group = new THREE.Group();
+        group.name = `${grid.isPrimary ? "Primary" : "Context"}Grid:${grid.displayName || gridId}`;
+        group.matrixAutoUpdate = false;
+        group.matrix.copy(gridRelativeMatrix(grid));
+        group.userData.gridId = gridId;
+        group.userData.grid = grid;
+        root.add(group);
+        groups.set(gridId, group);
+    }
+    if (!groups.size && scene.grid) {
+        const gridId = String(scene.grid.id || "");
+        const group = new THREE.Group();
+        group.name = `PrimaryGrid:${scene.grid.displayName || gridId || "grid"}`;
+        group.matrixAutoUpdate = false;
+        group.matrix.copy(gridRelativeMatrix(scene.grid));
+        group.userData.gridId = gridId;
+        group.userData.grid = scene.grid;
+        root.add(group);
+        groups.set(gridId, group);
+    }
+    return groups;
+}
+
+function sceneGrids(scene) {
+    const grids = [];
+    const seen = new Set();
+    const add = grid => {
+        if (!grid) return;
+        const id = String(grid.id || "");
+        if (id && seen.has(id)) return;
+        if (id) seen.add(id);
+        grids.push(grid);
+    };
+    for (const grid of scene.grids || []) add(grid);
+    add(scene.grid);
+    return grids;
+}
+
+function primaryGrid(scene) {
+    const contextPrimaryId = scene.context && scene.context.primaryGridId ? String(scene.context.primaryGridId) : "";
+    return sceneGrids(scene).find(grid => contextPrimaryId && String(grid.id || "") === contextPrimaryId)
+        || sceneGrids(scene).find(grid => grid && grid.isPrimary)
+        || scene.grid
+        || sceneGrids(scene)[0]
+        || null;
+}
+
+function gridById(scene, gridId) {
+    const id = String(gridId || "");
+    return sceneGrids(scene).find(grid => String(grid.id || "") === id) || null;
+}
+
+function gridRelativeMatrix(grid) {
+    return (state.viewTransform || new THREE.Matrix4()).clone().multiply(matrixDtoToThree(grid && grid.worldMatrix));
+}
+
+function contextRelativeBounds(scene) {
+    const context = scene.context || {};
+    if (!context.enabled) return null;
+    const bounds = boundsToBox3(context.worldAabb);
+    if (!bounds || bounds.isEmpty()) return null;
+    return transformBounds(bounds, state.viewTransform || new THREE.Matrix4());
+}
+
+function transformBounds(bounds, matrix) {
+    const transformed = new THREE.Box3();
+    for (const point of [
+        new THREE.Vector3(bounds.min.x, bounds.min.y, bounds.min.z),
+        new THREE.Vector3(bounds.min.x, bounds.min.y, bounds.max.z),
+        new THREE.Vector3(bounds.min.x, bounds.max.y, bounds.min.z),
+        new THREE.Vector3(bounds.min.x, bounds.max.y, bounds.max.z),
+        new THREE.Vector3(bounds.max.x, bounds.min.y, bounds.min.z),
+        new THREE.Vector3(bounds.max.x, bounds.min.y, bounds.max.z),
+        new THREE.Vector3(bounds.max.x, bounds.max.y, bounds.min.z),
+        new THREE.Vector3(bounds.max.x, bounds.max.y, bounds.max.z),
+    ]) transformed.expandByPoint(point.applyMatrix4(matrix));
+    return transformed.isEmpty() ? null : transformed;
 }
 
 function standaloneVoxelBody(scene) {
@@ -309,12 +435,12 @@ function configureEnvironment(scene) {
     updateLighting();
 }
 
-function buildGridLightGroup(scene, gridGroup) {
+function buildGridLightGroups(scene, gridGroups) {
     state.gridLights = [];
     const sources = collectSceneLightSources(scene);
     const lightGroup = new THREE.Group();
     lightGroup.name = "QuasarGridLights";
-    gridGroup.add(lightGroup);
+    state.gridGroup.add(lightGroup);
     state.gridLightGroup = lightGroup;
 
     const center = gridLocalCenter(scene);
@@ -325,7 +451,9 @@ function buildGridLightGroup(scene, gridGroup) {
     const shadowSourceIds = selectProjectedShadowSourceIds(selectedSources, center);
 
     for (const source of selectedSources) {
-        const light = createGridLight(source, lightGroup, shadowSourceIds.has(lightSourceIdentity(source)));
+        const sourceGridGroup = gridGroups.get(String(source.gridId || "")) || gridGroups.get(String(primaryGrid(scene)?.id || ""));
+        const lightParent = sourceGridGroup || lightGroup;
+        const light = createGridLight(source, lightParent, shadowSourceIds.has(lightSourceIdentity(source)));
         if (!light) continue;
         light.userData.lightSource = source;
         state.gridLights.push(light);
@@ -459,13 +587,8 @@ function lightDecay(falloff) {
     return Math.min(2, Math.max(0, 3 - value));
 }
 
-function gridViewMatrix(scene) {
-    const worldMatrix = matrixDtoToThree(scene.grid && scene.grid.worldMatrix);
-    return (state.viewTransform || new THREE.Matrix4()).clone().multiply(worldMatrix);
-}
-
-function gridCenterWorld(scene, worldMatrix) {
-    const worldBounds = boundsToBox3(scene.grid && scene.grid.bounds);
+function gridCenterWorld(scene, worldMatrix, grid = scene.grid) {
+    const worldBounds = boundsToBox3(grid && grid.bounds);
     if (worldBounds && !worldBounds.isEmpty()) return worldBounds.getCenter(new THREE.Vector3());
 
     const localBounds = gridLocalBounds(scene);
@@ -477,7 +600,9 @@ function gridCenterWorld(scene, worldMatrix) {
 function gridLocalBounds(scene) {
     const bounds = new THREE.Box3();
     let hasBounds = false;
+    const primaryId = String(primaryGrid(scene)?.id || "");
     for (const chunk of scene.chunks || []) {
+        if (primaryId && chunk.gridId && String(chunk.gridId) !== primaryId) continue;
         const min = vec3(chunk.localAabbMin);
         const max = vec3(chunk.localAabbMax);
         bounds.union(new THREE.Box3(min, max));
@@ -485,8 +610,9 @@ function gridLocalBounds(scene) {
     }
     if (hasBounds) return bounds;
 
-    const gridSize = scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
+    const gridSize = primaryGrid(scene)?.gridSize || scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
     for (const block of scene.blockInstances || []) {
+        if (primaryId && block.gridId && String(block.gridId) !== primaryId) continue;
         bounds.union(blockBox(block, gridSize));
         hasBounds = true;
     }
@@ -2747,6 +2873,11 @@ function renderSummary(scene, resolutionStats, textureStats) {
     addSummary("Grid", scene.grid && scene.grid.displayName);
     addSummary("Entity", scene.grid && scene.grid.id);
     addSummary("Blocks", (scene.blockInstances || []).length.toLocaleString());
+    addSummary("Context", scene.context && scene.context.enabled ? "on" : "off");
+    if (scene.context && scene.context.enabled) {
+        addSummary("Context grids", num(scene.context.gridCount, sceneGrids(scene).length).toLocaleString());
+        addSummary("Clipped grids", num(scene.context.clippedGridCount, 0).toLocaleString());
+    }
     addSummary("Models", (scene.modelAssets || []).length.toLocaleString());
     addSummary("Found", resolutionStats.found.toLocaleString());
     addSummary("Parsed", resolutionStats.parsed.toLocaleString());

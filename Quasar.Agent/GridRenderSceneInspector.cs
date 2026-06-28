@@ -42,8 +42,12 @@ namespace Quasar.Agent
         private const double SmallGridCubeSize = 0.5;
         private const double LargeGridCubeSize = 2.5;
         private const int FloorGridPaddingSupersquares = 2;
+        private const double ContextHalfExtentScale = 2.0;
+        private const int MaxContextGrids = 64;
+        private const int MaxContextBlocks = 20000;
+        private const int MaxContextGridBlocks = 8000;
 
-        public static EntityRenderScene Build(long entityId, string gameVersion, string pluginVersion, bool includeVoxels = false)
+        public static EntityRenderScene Build(long entityId, string gameVersion, string pluginVersion, bool includeVoxels = false, bool includeContext = false)
         {
             if (!MyEntities.TryGetEntityById<MyCubeGrid>(entityId, out var grid) || grid == null || grid.MarkedForClose || grid.Closed)
                 throw new InvalidOperationException("Grid not found or not loaded on this server.");
@@ -62,44 +66,64 @@ namespace Quasar.Agent
 
             var definitions = new Dictionary<string, ViewerBlockDefinition>(StringComparer.Ordinal);
             var chunks = new Dictionary<string, ChunkBuilder>(StringComparer.Ordinal);
+            var contextAabb = includeContext ? ContextWorldAabb(grid) : (BoundingBoxD?)null;
+            var contextBlocks = 0;
+            var clippedGridCount = 0;
 
-            foreach (var block in grid.CubeBlocks)
+            foreach (var sceneGrid in ContextGrids(grid, contextAabb, scene.Warnings))
             {
-                if (block == null || block.BlockDefinition == null)
-                    continue;
-
-                var definitionId = DefinitionId(block.BlockDefinition);
-                if (!definitions.ContainsKey(definitionId))
-                    definitions[definitionId] = ToBlockDefinition(block.BlockDefinition, catalog, scene.Warnings);
-
-                var chunkCoord = ChunkCoordinate(block.Position, ChunkSizeCells);
-                var chunkId = ChunkId(chunkCoord);
-                if (!chunks.TryGetValue(chunkId, out var chunk))
+                var isPrimary = sceneGrid.EntityId == grid.EntityId;
+                if (!isPrimary && includeContext)
                 {
-                    chunk = new ChunkBuilder(chunkId);
-                    chunks.Add(chunkId, chunk);
+                    if (scene.Grids.Count >= MaxContextGrids)
+                    {
+                        scene.Warnings.Add("Context grid limit reached; remaining nearby grids were skipped.");
+                        break;
+                    }
+
+                    if (contextBlocks >= MaxContextBlocks)
+                    {
+                        scene.Warnings.Add("Context block limit reached; remaining nearby grids were skipped.");
+                        break;
+                    }
                 }
 
-                chunk.Include(block.Min, block.Max);
-                var blockInstance = ToBlockInstance(grid, block, definitionId, chunkId, catalog, scene.Warnings);
-                scene.BlockInstances.Add(blockInstance);
-                AddLightSources(grid, block, scene.LightSources, scene.Warnings);
-                AddSubpartLightSources(blockInstance, scene.LightSources);
+                var result = AddGridToScene(scene, sceneGrid, isPrimary, includeContext, contextAabb, definitions, chunks, catalog, ref contextBlocks);
+                if (result.Grid.IsClippedToContext)
+                    clippedGridCount++;
+                scene.Grids.Add(result.Grid);
             }
 
+            if (scene.Grids.Count == 0)
+                scene.Grids.Add(scene.Grid);
+            scene.Grid = scene.Grids.FirstOrDefault(candidate => candidate.IsPrimary) ?? scene.Grid;
             scene.BlockDefinitions = definitions.Values.OrderBy(definition => definition.Id, StringComparer.Ordinal).ToList();
-            scene.Chunks = chunks.Values.Select(chunk => chunk.ToDto(grid.GridSize)).OrderBy(chunk => chunk.Id, StringComparer.Ordinal).ToList();
+            scene.Chunks = chunks.Values.Select(chunk => chunk.ToDto()).OrderBy(chunk => chunk.Id, StringComparer.Ordinal).ToList();
             scene.ModelAssets = catalog.ModelAssetsSnapshot();
             scene.TextureAssets = catalog.TextureAssetsSnapshot();
             scene.Mods = catalog.ModsSnapshot();
-            scene.Voxels = LoadedVoxels();
+            scene.Voxels = LoadedVoxels(contextAabb);
             if (includeVoxels)
             {
-                scene.VoxelDeformations = BuildVoxelDeformations(grid, scene.Warnings);
+                scene.VoxelDeformations = BuildVoxelDeformations(grid, scene.Warnings, contextAabb);
                 scene.VoxelMaterials = BuildVoxelMaterials(scene.VoxelDeformations, scene.Warnings);
             }
             else
                 scene.Warnings.Add("Voxel data generation disabled by URL.");
+
+            if (includeContext && contextAabb.HasValue)
+            {
+                scene.Context = new ViewerSceneContext
+                {
+                    Enabled = true,
+                    PrimaryGridId = grid.EntityId.ToString(),
+                    WorldAabb = ToDto(contextAabb.Value),
+                    GridCount = scene.Grids.Count,
+                    ClippedGridCount = clippedGridCount,
+                    VoxelBodyCount = scene.Voxels.Count,
+                    VoxelMeshChunkCount = scene.VoxelDeformations.Count,
+                };
+            }
             return scene;
         }
 
@@ -131,6 +155,7 @@ namespace Quasar.Agent
                 Environment = ToEnvironment(),
                 CapturedAtUtc = DateTimeOffset.UtcNow,
             };
+            scene.Grids.Add(scene.Grid);
 
             scene.Voxels.Add(ToVoxelBody(voxel, kind));
             if (includeVoxels)
@@ -174,6 +199,137 @@ namespace Quasar.Agent
                 catalog.RegisterMod(mod);
         }
 
+        private static GridSceneAddResult AddGridToScene(
+            EntityRenderScene scene,
+            MyCubeGrid grid,
+            bool isPrimary,
+            bool includeContext,
+            BoundingBoxD? contextAabb,
+            Dictionary<string, ViewerBlockDefinition> definitions,
+            Dictionary<string, ChunkBuilder> chunks,
+            MetadataAssetCatalog catalog,
+            ref int contextBlocks)
+        {
+            var gridDto = ToGrid(grid, isPrimary, includeContext && !isPrimary);
+            var included = 0;
+            var skipped = 0;
+            var includedBounds = BoundingBoxD.CreateInvalid();
+            foreach (var block in grid.CubeBlocks)
+            {
+                if (block == null || block.BlockDefinition == null)
+                    continue;
+
+                var includeBlock = isPrimary || !contextAabb.HasValue || BlockWorldAabb(grid, block).Intersects(contextAabb.Value);
+                if (!includeBlock)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                if (!isPrimary && includeContext)
+                {
+                    if (included >= MaxContextGridBlocks)
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    if (contextBlocks >= MaxContextBlocks)
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    contextBlocks++;
+                }
+
+                var definitionId = DefinitionId(block.BlockDefinition);
+                if (!definitions.ContainsKey(definitionId))
+                    definitions[definitionId] = ToBlockDefinition(block.BlockDefinition, catalog, scene.Warnings);
+
+                var chunkCoord = ChunkCoordinate(block.Position, ChunkSizeCells);
+                var chunkId = grid.EntityId + ":" + ChunkId(chunkCoord);
+                if (!chunks.TryGetValue(chunkId, out var chunk))
+                {
+                    chunk = new ChunkBuilder(chunkId, grid.EntityId.ToString(), grid.GridSize);
+                    chunks.Add(chunkId, chunk);
+                }
+
+                chunk.Include(block.Min, block.Max);
+                var blockWorldAabb = BlockWorldAabb(grid, block);
+                includedBounds.Include(blockWorldAabb.Min);
+                includedBounds.Include(blockWorldAabb.Max);
+                var blockInstance = ToBlockInstance(grid, block, definitionId, chunkId, catalog, scene.Warnings);
+                scene.BlockInstances.Add(blockInstance);
+                AddLightSources(grid, block, scene.LightSources, scene.Warnings);
+                AddSubpartLightSources(blockInstance, scene.LightSources);
+                included++;
+            }
+
+            gridDto.BlockCount = included;
+            if (!isPrimary && includeContext && contextAabb.HasValue)
+            {
+                gridDto.IsClippedToContext = skipped > 0 || contextAabb.Value.Contains(grid.PositionComp.WorldAABB) != ContainmentType.Contains;
+                if (gridDto.IsClippedToContext)
+                {
+                    if (included == 0)
+                        includedBounds = Intersect(grid.PositionComp.WorldAABB, contextAabb.Value);
+                    gridDto.ContextClippedWorldAabb = ToDto(includedBounds);
+                    scene.Warnings.Add("Context grid " + gridDto.DisplayName + " was clipped to the context volume.");
+                }
+            }
+
+            return new GridSceneAddResult { Grid = gridDto, IncludedBlockCount = included, SkippedBlockCount = skipped };
+        }
+
+        private static BoundingBoxD ContextWorldAabb(MyCubeGrid grid)
+        {
+            var selected = grid.PositionComp.WorldAABB;
+            var center = selected.Center;
+            var halfExtents = (selected.Max - selected.Min) * 0.5;
+            halfExtents.X = Math.Max(halfExtents.X, LargeGridCubeSize);
+            halfExtents.Y = Math.Max(halfExtents.Y, LargeGridCubeSize);
+            halfExtents.Z = Math.Max(halfExtents.Z, LargeGridCubeSize);
+            var contextHalfExtents = halfExtents * ContextHalfExtentScale;
+            return new BoundingBoxD(center - contextHalfExtents, center + contextHalfExtents);
+        }
+
+        private static IEnumerable<MyCubeGrid> ContextGrids(MyCubeGrid primary, BoundingBoxD? contextAabb, List<string> warnings)
+        {
+            yield return primary;
+            if (!contextAabb.HasValue)
+                yield break;
+
+            IEnumerable<MyCubeGrid> candidates;
+            try
+            {
+                candidates = MyEntities.GetEntities().OfType<MyCubeGrid>().ToList();
+            }
+            catch (Exception exception)
+            {
+                warnings.Add("Failed to enumerate context grids: " + exception.Message);
+                yield break;
+            }
+
+            foreach (var grid in candidates
+                         .Where(candidate => candidate != null && candidate.EntityId != primary.EntityId && !candidate.MarkedForClose && !candidate.Closed)
+                         .Where(candidate => candidate.PositionComp != null && candidate.PositionComp.WorldAABB.Intersects(contextAabb.Value))
+                         .OrderBy(candidate => FirstNonEmpty(candidate.DisplayName, candidate.Name, "Grid " + candidate.EntityId), StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(candidate => candidate.EntityId))
+            {
+                yield return grid;
+            }
+        }
+
+        private static BoundingBoxD BlockWorldAabb(MyCubeGrid grid, MySlimBlock block)
+        {
+            var gridSize = GridCubeSize(grid);
+            var half = gridSize * 0.5;
+            var localMin = new Vector3D(block.Min.X * gridSize - half, block.Min.Y * gridSize - half, block.Min.Z * gridSize - half);
+            var localMax = new Vector3D(block.Max.X * gridSize + half, block.Max.Y * gridSize + half, block.Max.Z * gridSize + half);
+            return LocalAabbToWorldAabb(localMin, localMax, grid.WorldMatrix);
+        }
+
         private static void AddLightSources(MyCubeGrid grid, MySlimBlock block, List<ViewerLightSource> lightSources, List<string> warnings)
         {
             var fatBlock = block.FatBlock;
@@ -185,21 +341,32 @@ namespace Quasar.Agent
 
             try
             {
+                var start = lightSources.Count;
                 var lightingBlock = fatBlock as MyLightingBlock;
                 if (lightingBlock != null)
                 {
                     AddLightingBlockSource(grid, block, lightingBlock, lightSources);
+                    AssignGridId(lightSources, start, grid.EntityId.ToString());
                     return;
                 }
 
                 MyLightingComponent lightingComponent;
                 if (fatBlock.Components != null && fatBlock.Components.TryGet(out lightingComponent))
+                {
                     AddLightingComponentSource(grid, block, lightingComponent, lightSources);
+                    AssignGridId(lightSources, start, grid.EntityId.ToString());
+                }
             }
             catch (Exception exception)
             {
                 warnings.Add("Failed to inspect light source for block " + block.Position + ": " + exception.Message);
             }
+        }
+
+        private static void AssignGridId(List<ViewerLightSource> lightSources, int start, string gridId)
+        {
+            for (var i = start; i < lightSources.Count; i++)
+                lightSources[i].GridId = gridId;
         }
 
         private static void AddLightingBlockSource(MyCubeGrid grid, MySlimBlock block, MyLightingBlock lightingBlock, List<ViewerLightSource> lightSources)
@@ -318,7 +485,10 @@ namespace Quasar.Agent
             foreach (var subpart in blockInstance.Subparts)
             {
                 foreach (var lightSource in subpart.LightSources)
+                {
+                    lightSource.GridId = blockInstance.GridId;
                     lightSources.Add(lightSource);
+                }
             }
         }
 
@@ -366,6 +536,11 @@ namespace Quasar.Agent
 
         private static ViewerGrid ToGrid(MyCubeGrid grid)
         {
+            return ToGrid(grid, false, false);
+        }
+
+        private static ViewerGrid ToGrid(MyCubeGrid grid, bool isPrimary, bool isContext)
+        {
             return new ViewerGrid
             {
                 Id = grid.EntityId.ToString(),
@@ -375,6 +550,8 @@ namespace Quasar.Agent
                 IsStatic = grid.IsStatic,
                 WorldMatrix = ToDto(grid.WorldMatrix),
                 BlockCount = grid.BlocksCount,
+                IsPrimary = isPrimary,
+                IsContext = isContext,
                 Bounds = ToDto(grid.PositionComp.WorldAABB),
             };
         }
@@ -389,12 +566,13 @@ namespace Quasar.Agent
                 GridSpace = "voxel",
                 IsStatic = true,
                 BlockCount = 0,
+                IsPrimary = true,
                 WorldMatrix = ToDto(MatrixD.Identity),
                 Bounds = ToDto(voxel.PositionComp.WorldAABB),
             };
         }
 
-        private static List<ViewerVoxelBody> LoadedVoxels()
+        private static List<ViewerVoxelBody> LoadedVoxels(BoundingBoxD? worldAabb = null)
         {
             var session = MySession.Static;
             if (session?.VoxelMaps?.Instances == null)
@@ -408,6 +586,8 @@ namespace Quasar.Agent
 
                 var kind = VoxelKind(voxel);
                 if (kind == "voxelPhysics")
+                    continue;
+                if (worldAabb.HasValue && (voxel.PositionComp == null || !voxel.PositionComp.WorldAABB.Intersects(worldAabb.Value)))
                     continue;
 
                 try
@@ -504,14 +684,14 @@ namespace Quasar.Agent
             return result;
         }
 
-        private static List<ViewerVoxelDataChunk> BuildVoxelDeformations(MyCubeGrid grid, List<string> warnings)
+        private static List<ViewerVoxelDataChunk> BuildVoxelDeformations(MyCubeGrid grid, List<string> warnings, BoundingBoxD? samplingOverride = null)
         {
             var session = MySession.Static;
             var result = new List<ViewerVoxelDataChunk>();
             if (session?.VoxelMaps?.Instances == null)
                 return result;
 
-            var samplingAabb = VoxelSamplingWorldAabb(grid);
+            var samplingAabb = samplingOverride ?? VoxelSamplingWorldAabb(grid);
             var totalBytes = 0;
             var chunkBudgetReached = false;
 
@@ -1736,14 +1916,18 @@ namespace Quasar.Agent
         private sealed class ChunkBuilder
         {
             private readonly string _id;
+            private readonly string _gridId;
+            private readonly float _gridSize;
             private Vector3I _min;
             private Vector3I _max;
             private bool _initialized;
             private int _count;
 
-            public ChunkBuilder(string id)
+            public ChunkBuilder(string id, string gridId, float gridSize)
             {
                 _id = id;
+                _gridId = gridId;
+                _gridSize = gridSize;
             }
 
             public void Include(Vector3I blockMin, Vector3I blockMax)
@@ -1763,16 +1947,17 @@ namespace Quasar.Agent
                 _count++;
             }
 
-            public ViewerGridChunk ToDto(float gridSize)
+            public ViewerGridChunk ToDto()
             {
-                var half = gridSize * 0.5f;
+                var half = _gridSize * 0.5f;
                 return new ViewerGridChunk
                 {
                     Id = _id,
+                    GridId = _gridId,
                     MinCell = GridRenderSceneInspector.ToDto(_min),
                     MaxCell = GridRenderSceneInspector.ToDto(_max),
-                    LocalAabbMin = GridRenderSceneInspector.ToDto(new Vector3(_min.X * gridSize - half, _min.Y * gridSize - half, _min.Z * gridSize - half)),
-                    LocalAabbMax = GridRenderSceneInspector.ToDto(new Vector3(_max.X * gridSize + half, _max.Y * gridSize + half, _max.Z * gridSize + half)),
+                    LocalAabbMin = GridRenderSceneInspector.ToDto(new Vector3(_min.X * _gridSize - half, _min.Y * _gridSize - half, _min.Z * _gridSize - half)),
+                    LocalAabbMax = GridRenderSceneInspector.ToDto(new Vector3(_max.X * _gridSize + half, _max.Y * _gridSize + half, _max.Z * _gridSize + half)),
                     BlockCount = _count,
                 };
             }
@@ -1798,6 +1983,15 @@ namespace Quasar.Agent
             public Vector3I Min { get; set; }
 
             public Vector3I Max { get; set; }
+        }
+
+        private sealed class GridSceneAddResult
+        {
+            public ViewerGrid Grid { get; set; }
+
+            public int IncludedBlockCount { get; set; }
+
+            public int SkippedBlockCount { get; set; }
         }
 
         private sealed class MetadataAssetCatalog

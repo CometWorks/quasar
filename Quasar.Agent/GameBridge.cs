@@ -1109,7 +1109,7 @@ namespace Quasar.Agent
             var gameVersion = MySession.Static?.AppVersionFromSave.ToString() ?? string.Empty;
             EntityRenderScene scene;
             if (MyEntities.TryGetEntityById<MyCubeGrid>(request.EntityId, out var grid) && grid != null && !grid.MarkedForClose && !grid.Closed)
-                scene = GridRenderSceneInspector.Build(request.EntityId, gameVersion, _pluginVersion, request.IncludeVoxels);
+                scene = GridRenderSceneInspector.Build(request.EntityId, gameVersion, _pluginVersion, request.IncludeVoxels, request.IncludeContext);
             else if (MyEntities.TryGetEntityById<MyVoxelBase>(request.EntityId, out var voxel) && voxel != null && !voxel.MarkedForClose && !voxel.Closed)
                 scene = GridRenderSceneInspector.BuildVoxel(request.EntityId, gameVersion, _pluginVersion, request.IncludeVoxels);
             else

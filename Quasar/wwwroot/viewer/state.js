@@ -18,6 +18,10 @@ export const state = {
     voxelGroup: null,
     voxelMeshes: [],
     voxelSupport: { present: false, enabled: false },
+    contextSupport: { present: false, enabled: false },
+    contextBounds: null,
+    contextGridIds: new Set(),
+    primaryGridId: "",
     raycaster: null,
     pointer: null,
     cameraMode: "orbit",
@@ -51,7 +55,7 @@ export const els = {};
 
 export function cacheElements() {
     for (const id of [
-        "viewport", "sceneSummary", "reloadScene", "contentStatus", "pickContent", "folderPicker", "modsStatus", "pickMods", "modsFolderPicker", "showGridHelper", "showVoxels", "showLighting",
+        "viewport", "sceneSummary", "reloadScene", "contentStatus", "pickContent", "folderPicker", "modsStatus", "pickMods", "modsFolderPicker", "showGridHelper", "showVoxels", "showContext", "showLighting",
         "cameraMode", "resetCamera", "stats", "log", "downloadLog", "hoverReadout", "cameraHint"
     ]) {
         els[id] = document.getElementById(id);

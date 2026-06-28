@@ -3,12 +3,13 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Wires the grid viewer control panel and keyboard input to scene actions. It connects reload, Content selection, Mods selection, render toggles including URL-gated voxel visibility and the unified lighting toggle, camera mode switching, camera reset, and free-fly movement key tracking.
+Wires the grid viewer control panel and keyboard input to scene actions. It connects reload, Content selection, Mods selection, render toggles including URL-gated voxel visibility, context-mode reloads through the `context` query flag, the unified lighting toggle, camera mode switching, camera reset, and free-fly movement key tracking.
 
 ## Structure
 
 | Export | Purpose |
 |---|---|
+| `configureContextControl()` | Enables/checks the `Context mode` checkbox according to parsed URL context state. |
 | `configureVoxelControl()` | Enables/checks/disables the `Show voxels` checkbox according to parsed URL voxel support state. |
 | `wireControls(actions)` | Attaches all DOM event listeners using callbacks supplied by `main.js`. |
 
