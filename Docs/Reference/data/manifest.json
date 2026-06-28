@@ -2174,8 +2174,8 @@
       "path": "Quasar/wwwroot/viewer/grid-renderer.js",
       "name": "grid-renderer.js",
       "ext": ".js",
-      "size": 135364,
-      "sha256": "21aace470a9f25e3a667fcfe000edc623b07b4cd3ff3a9cc3800d62f43f3fb30",
+      "size": 135406,
+      "sha256": "662a8d213d0f8112b8659f2925d26aaca7d01050a4d67546062d9af8e2e521b4",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"
@@ -2264,8 +2264,8 @@
       "path": "Quasar/wwwroot/viewer/scene.js",
       "name": "scene.js",
       "ext": ".js",
-      "size": 30054,
-      "sha256": "339d78beb430a55da6d424ba2bbf1f393d8e7682b7b4e3fac1fa7953f675b02a",
+      "size": 31391,
+      "sha256": "05d5964fce5baf21a0305ffd264b2f16f5cbcfde54f98a7ea6ced9646dd8e5bc",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"

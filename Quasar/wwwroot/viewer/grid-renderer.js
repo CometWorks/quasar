@@ -418,14 +418,14 @@ function createLogisticsEdge(edge, gridSize) {
     const points = logisticsEdgePoints(edge);
     if (points.length < 2) return null;
 
-    const color = edge.isDangling ? new THREE.Color(0xff2f2f) : colorFromHash(`logistics-system:${num(edge.systemId, -1)}`);
+    const color = edge.isDangling ? new THREE.Color(0xff2f2f) : edge.isWorking === false ? new THREE.Color(0xffa12b) : new THREE.Color(0x7dd3fc);
     const opacity = edge.isWorking === false ? 0.34 : 0.94;
     const geometry = new LineGeometry();
     geometry.setPositions(points.flatMap(point => [point.x, point.y, point.z]));
     const material = new LineMaterial({
         color,
         transparent: true,
-        opacity,
+        opacity: opacity * 0.72,
         linewidth: Math.max(0.025, gridSize * 0.05),
         worldUnits: true,
         dashed: !!edge.isSmallRestricted,
@@ -439,6 +439,8 @@ function createLogisticsEdge(edge, gridSize) {
     line.renderOrder = 30;
     line.frustumCulled = false;
     line.userData.logisticsEdge = edge;
+    line.userData.logisticsSystemId = num(edge.systemId, -1);
+    material.userData.logisticsBaseOpacity = opacity;
     if (edge.isSmallRestricted) line.computeLineDistances();
     return line;
 }
@@ -493,22 +495,20 @@ function createLogisticsFallbackMask(node, block, material, gridSize) {
     mesh.receiveShadow = false;
     mesh.userData.block = block;
     mesh.userData.logisticsNode = node;
+    mesh.userData.logisticsSystemId = num(node.systemId, -1);
     return [mesh];
 }
 
 function sharedLogisticsMaskMaterial(color, opacity, renderContext) {
-    const key = `logistics-mask:${color.getHexString()}:${opacity.toFixed(3)}`;
-    if (renderContext.materials.has(key)) return renderContext.materials.get(key);
     const material = new THREE.MeshBasicMaterial({
         color,
         transparent: true,
-        opacity,
+        opacity: opacity * 0.72,
         depthTest: false,
         depthWrite: false,
         side: THREE.DoubleSide,
     });
-    material.userData.renderCacheKey = key;
-    renderContext.materials.set(key, material);
+    material.userData.logisticsBaseOpacity = opacity;
     return material;
 }
 
@@ -536,6 +536,7 @@ function createLogisticsModelMaskMeshes(assetId, block, node, matrix, patternOff
     mesh.receiveShadow = false;
     mesh.userData.block = block;
     mesh.userData.logisticsNode = node;
+    mesh.userData.logisticsSystemId = num(node.systemId, -1);
     return [mesh];
 }
 
@@ -549,7 +550,7 @@ function logisticsRoleColor(role, systemId) {
         case "tool": return new THREE.Color(0xb264ff);
         case "connector":
         case "sorter": return new THREE.Color(0xffe35a);
-        case "conveyor": return colorFromHash(`logistics-system:${num(systemId, -1)}`).multiplyScalar(0.75);
+        case "conveyor": return new THREE.Color(0x94a3b8);
         default: return new THREE.Color(0x9aa5b1);
     }
 }

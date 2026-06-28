@@ -548,9 +548,12 @@ function onPointerMove(event) {
     const hits = state.raycaster.intersectObjects(targets, true);
     const logisticsHit = hits.find(item => logisticsFromIntersection(item));
     if (logisticsHit) {
-        els.hoverReadout.textContent = describeLogistics(logisticsFromIntersection(logisticsHit));
+        const logistics = logisticsFromIntersection(logisticsHit);
+        updateLogisticsFocus(logisticsSystemId(logistics));
+        els.hoverReadout.textContent = describeLogistics(logistics);
         return;
     }
+    updateLogisticsFocus(null);
     const hit = hits.find(item => blockFromIntersection(item));
     if (hit) {
         els.hoverReadout.textContent = describeBlock(blockFromIntersection(hit));
@@ -594,6 +597,35 @@ function describeLogistics(item) {
         return `${kind} | system ${value.systemId ?? "?"} | ${value.lineType || "unknown"}${value.isWorking === false ? " | offline" : ""}`;
     }
     return `Logistics ${value.role || "node"} | system ${value.systemId ?? "?"} | ${value.blockTypeId || value.blockId || "no block"}${value.isWorking === false ? " | offline" : ""}`;
+}
+
+function logisticsSystemId(item) {
+    if (!item || !item.value) return null;
+    const id = Number(item.value.systemId);
+    return Number.isFinite(id) && id >= 0 ? id : null;
+}
+
+function updateLogisticsFocus(systemId) {
+    if (!state.logisticsGroup || state.logisticsGroup.userData.focusedSystemId === systemId) return;
+    state.logisticsGroup.userData.focusedSystemId = systemId;
+    state.logisticsGroup.traverse(object => {
+        const objectSystemId = Number(object.userData && object.userData.logisticsSystemId);
+        const focused = systemId != null && Number.isFinite(objectSystemId) && objectSystemId === systemId;
+        const factor = systemId == null ? 0.72 : focused ? 1 : 0.16;
+        applyLogisticsOpacityFactor(object.material, factor);
+    });
+}
+
+function applyLogisticsOpacityFactor(material, factor) {
+    if (!material) return;
+    if (Array.isArray(material)) {
+        for (const item of material) applyLogisticsOpacityFactor(item, factor);
+        return;
+    }
+    const baseOpacity = material.userData && material.userData.logisticsBaseOpacity;
+    if (!Number.isFinite(baseOpacity)) return;
+    material.opacity = baseOpacity * factor;
+    material.needsUpdate = true;
 }
 
 function onViewportClick() {
