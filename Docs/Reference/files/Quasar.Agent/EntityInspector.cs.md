@@ -17,7 +17,7 @@
 | `MapGrid` (private) | Populates grid-specific fields: block count, PCU, size class (Large/Small), static flag, first big owner |
 | `MapCharacter` (private) | Classifies as Player/Bot/Corpse, resolves owner identity |
 | `MapFloating` (private) | Extracts item subtype name and stack amount |
-| `MapVoxel` (private) | Detects Planet vs Asteroid from type name |
+| `MapVoxel` (private) | Detects Planet vs Asteroid from type name and skips internal `MyVoxelPhysics` planet-sector entities so they are not exposed as viewable asteroids |
 | `MapOther` (private) | Falls through for standalone non-typed entities |
 | `NewSummary` (private) | Fills position, AABB, `SizeMeters`, and full 4×4 world matrix |
 | `ResolveOwner` (private) | Looks up `DisplayName` and `SteamId` from `MySession.Static.Players` |

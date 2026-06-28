@@ -106,7 +106,14 @@ namespace Quasar.Agent
 
             var kind = VoxelKind(voxel);
             if (kind == "voxelPhysics")
-                throw new InvalidOperationException("Voxel physics entities cannot be opened in the viewer.");
+            {
+                voxel = voxel.RootVoxel;
+                if (voxel == null || voxel.MarkedForClose || voxel.Closed)
+                    throw new InvalidOperationException("Voxel physics root entity is not loaded on this server.");
+
+                kind = VoxelKind(voxel);
+            }
+
             if (kind == "planet")
                 throw new InvalidOperationException("Planet viewer support is not available yet.");
             if (voxel.Storage == null)

@@ -374,8 +374,8 @@
       "path": "Quasar.Agent/EntityInspector.cs",
       "name": "EntityInspector.cs",
       "ext": ".cs",
-      "size": 10785,
-      "sha256": "14806374ad3f9106063c6e21e9fb1045d62bba8b9adf043a8ab515e595ca9e52",
+      "size": 10873,
+      "sha256": "e8c33c6073214de593757419c7369da32fb65894e63eb0ad183dddf8645a8225",
       "module": "Quasar.Agent",
       "tier": 1,
       "status": "pending"
@@ -394,8 +394,8 @@
       "path": "Quasar.Agent/GridRenderSceneInspector.cs",
       "name": "GridRenderSceneInspector.cs",
       "ext": ".cs",
-      "size": 78385,
-      "sha256": "c3bfdfd4e98572147ffdd002ff7ad44bd806d9b856ade5989e045303e6340835",
+      "size": 78577,
+      "sha256": "deb8b6e5eebcd3fd220b5f48d0436e0707c49516c8522d32056ea66a1aa77e15",
       "module": "Quasar.Agent",
       "tier": 1,
       "status": "pending"
