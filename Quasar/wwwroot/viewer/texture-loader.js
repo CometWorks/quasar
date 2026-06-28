@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { getContentFolderCacheGeneration, resolveContentFile } from "./content-folder.js";
+import { getAssetFolderCacheGeneration, resolveAssetFile } from "./content-folder.js";
 import { state } from "./state.js";
 
 const MAX_CONCURRENT_TEXTURE_RESOLVES = 24;
@@ -14,16 +14,16 @@ let texturePathCacheGeneration = -1;
 
 export async function resolveTextureAsset(asset) {
     if (!asset || !asset.logicalPath) return null;
-    return await resolveTextureFile(asset.logicalPath);
+    return await resolveTextureFile(asset.logicalPath, { rootId: asset.rootId || asset.RootId || "", sourceKind: asset.sourceKind || asset.SourceKind || "" });
 }
 
-export async function loadTexture(logicalPath, slot = "") {
+export async function loadTexture(logicalPath, slot = "", options = {}) {
     if (!logicalPath) return null;
     const colorSpaceKey = isNonColorTexture(logicalPath, slot) ? "data" : "color";
-    const logicalKey = `${normalizeTextureKey(logicalPath)}|${colorSpaceKey}`;
+    const logicalKey = `${options.rootId || options.RootId || ""}|${normalizeTextureKey(logicalPath)}|${colorSpaceKey}`;
     if (state.textureLoadPromises.has(logicalKey)) return await state.textureLoadPromises.get(logicalKey);
 
-    const promise = loadTextureUncoalesced(logicalPath, slot, colorSpaceKey);
+    const promise = loadTextureUncoalesced(logicalPath, slot, colorSpaceKey, options);
     state.textureLoadPromises.set(logicalKey, promise);
     try {
         return await promise;
@@ -32,8 +32,8 @@ export async function loadTexture(logicalPath, slot = "") {
     }
 }
 
-async function loadTextureUncoalesced(logicalPath, slot, colorSpaceKey) {
-    const resolved = await resolveQueue(() => resolveTextureFile(logicalPath));
+async function loadTextureUncoalesced(logicalPath, slot, colorSpaceKey, options) {
+    const resolved = await resolveQueue(() => resolveTextureFile(logicalPath, options));
     if (!resolved) {
         const error = new Error(`Missing local texture: ${logicalPath}`);
         error.isMissingLocalTexture = true;
@@ -41,7 +41,7 @@ async function loadTextureUncoalesced(logicalPath, slot, colorSpaceKey) {
     }
 
     const file = await resolved.getFile();
-    const cacheKey = `${resolved.logicalPath.toLowerCase()}|${file.size}|${file.lastModified || 0}|${colorSpaceKey}`;
+    const cacheKey = `${resolved.rootId || "content"}|${resolved.logicalPath.toLowerCase()}|${file.size}|${file.lastModified || 0}|${colorSpaceKey}`;
     if (state.textureCache.has(cacheKey)) return await state.textureCache.get(cacheKey);
 
     const promise = loadResolvedTexture(resolved, file, slot);
@@ -56,15 +56,15 @@ async function loadTextureUncoalesced(logicalPath, slot, colorSpaceKey) {
     }
 }
 
-export async function resolveTextureFile(logicalPath) {
+export async function resolveTextureFile(logicalPath, options = {}) {
     const path = String(logicalPath || "").trim();
     if (!path) return null;
     const generation = ensureTexturePathCacheGeneration();
-    const cacheKey = normalizeTextureKey(path);
+    const cacheKey = `${options.rootId || options.RootId || ""}|${options.sourceKind || options.SourceKind || ""}|${normalizeTextureKey(path)}`;
     if (resolvedTexturePathCache.has(cacheKey)) return resolvedTexturePathCache.get(cacheKey);
     if (inFlightTexturePathCache.has(cacheKey)) return await inFlightTexturePathCache.get(cacheKey);
 
-    const promise = resolveTextureFileUncached(path, generation);
+    const promise = resolveTextureFileUncached(path, options, generation);
     inFlightTexturePathCache.set(cacheKey, promise);
     try {
         const resolved = await promise;
@@ -75,18 +75,18 @@ export async function resolveTextureFile(logicalPath) {
     }
 }
 
-async function resolveTextureFileUncached(path, generation) {
+async function resolveTextureFileUncached(path, options, generation) {
     const hasExtension = /\.[a-z0-9]+$/i.test(path);
     const candidates = hasExtension ? [path] : [`${path}.dds`, `${path}.png`, `${path}.jpg`, `${path}.jpeg`, `${path}.webp`, path];
     for (const candidate of candidates) {
-        const candidateKey = normalizeTextureKey(candidate);
+        const candidateKey = `${options.rootId || options.RootId || ""}|${options.sourceKind || options.SourceKind || ""}|${normalizeTextureKey(candidate)}`;
         if (resolvedTexturePathCache.has(candidateKey)) {
             const cached = resolvedTexturePathCache.get(candidateKey);
             if (cached) return cached;
             continue;
         }
 
-        const resolved = await resolveContentFile(candidate);
+        const resolved = await resolveAssetFile(candidate, options);
         if (generation === texturePathCacheGeneration) resolvedTexturePathCache.set(candidateKey, resolved);
         if (resolved) return resolved;
     }
@@ -400,7 +400,7 @@ function normalizeTextureKey(logicalPath) {
 }
 
 function ensureTexturePathCacheGeneration() {
-    const generation = getContentFolderCacheGeneration();
+    const generation = getAssetFolderCacheGeneration();
     if (generation !== texturePathCacheGeneration) {
         resolvedTexturePathCache.clear();
         inFlightTexturePathCache.clear();

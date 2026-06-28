@@ -38,6 +38,8 @@ public class EntityRenderScene
 
     public List<ViewerTextureAsset> TextureAssets { get; set; } = new();
 
+    public List<ViewerModAssetRoot> Mods { get; set; } = new();
+
     public List<ViewerGridChunk> Chunks { get; set; } = new();
 
     public List<ViewerVoxelBody> Voxels { get; set; } = new();
@@ -321,6 +323,8 @@ public class ViewerModelAsset
     public string LogicalPath { get; set; } = string.Empty;
 
     public string SourceKind { get; set; } = string.Empty;
+
+    public string RootId { get; set; } = string.Empty;
 }
 
 public class ViewerTextureAsset
@@ -331,7 +335,24 @@ public class ViewerTextureAsset
 
     public string SourceKind { get; set; } = string.Empty;
 
+    public string RootId { get; set; } = string.Empty;
+
     public string Usage { get; set; } = string.Empty;
+}
+
+public class ViewerModAssetRoot
+{
+    public string RootId { get; set; } = string.Empty;
+
+    public string Name { get; set; } = string.Empty;
+
+    public ulong PublishedFileId { get; set; }
+
+    public string PublishedServiceName { get; set; } = string.Empty;
+
+    public string FriendlyName { get; set; } = string.Empty;
+
+    public bool IsDependency { get; set; }
 }
 
 public class ViewerGridChunk

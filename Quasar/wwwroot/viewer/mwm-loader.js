@@ -1,4 +1,4 @@
-import { resolveContentFile } from "./content-folder.js";
+import { resolveAssetFile } from "./content-folder.js";
 
 const modelCache = new Map();
 const textDecoder = new TextDecoder();
@@ -30,8 +30,11 @@ const TECHNIQUE_ORDER = new Map([
 
 export async function resolveModelAsset(asset) {
     if (!asset || !asset.logicalPath) return { status: "missing", message: "Model asset has no logical path." };
-    const resolved = await resolveContentFile(asset.logicalPath);
-    if (!resolved) return { status: "missing", message: `Missing local model: ${asset.logicalPath}` };
+    const resolved = await resolveAssetFile(asset.logicalPath, {
+        rootId: asset.rootId || asset.RootId || "",
+        sourceKind: asset.sourceKind || asset.SourceKind || "",
+    });
+    if (!resolved) return { status: "missing", message: `Missing local model: ${asset.logicalPath}${asset.rootId || asset.RootId ? " from mod" : ""}` };
 
     let file = null;
     try {
@@ -40,6 +43,8 @@ export async function resolveModelAsset(asset) {
         return {
             status: "parsed",
             logicalPath: resolved.logicalPath,
+            rootId: resolved.rootId || "",
+            rootKind: resolved.rootKind || "",
             byteLength: file.size,
             model,
             message: `Parsed ${asset.logicalPath} locally (${model.vertexCount.toLocaleString()} vertices, ${model.triangleCount.toLocaleString()} triangles).`,
@@ -48,6 +53,8 @@ export async function resolveModelAsset(asset) {
         return {
             status: "proxy",
             logicalPath: resolved.logicalPath,
+            rootId: resolved.rootId || "",
+            rootKind: resolved.rootKind || "",
             byteLength: file ? file.size : 0,
             message: `Resolved ${asset.logicalPath} locally (${file ? file.size : 0} bytes), but MWM parsing failed: ${error.message}. Rendering proxy geometry.`,
         };
@@ -55,9 +62,10 @@ export async function resolveModelAsset(asset) {
 }
 
 async function parseResolvedModel(resolved, file, stack) {
-    const cacheKey = `${resolved.logicalPath.toLowerCase()}|${file.size}|${file.lastModified || 0}`;
+    const cacheKey = `${resolved.rootId || "content"}|${resolved.logicalPath.toLowerCase()}|${file.size}|${file.lastModified || 0}`;
     if (modelCache.has(cacheKey)) return modelCache.get(cacheKey);
-    if (stack.has(resolved.logicalPath.toLowerCase())) throw new Error(`recursive GeometryDataAsset reference: ${resolved.logicalPath}`);
+    const stackKey = `${resolved.rootId || "content"}|${resolved.logicalPath.toLowerCase()}`;
+    if (stack.has(stackKey)) throw new Error(`recursive GeometryDataAsset reference: ${resolved.logicalPath}`);
 
     const promise = parseResolvedModelUncached(resolved, file, stack);
     modelCache.set(cacheKey, promise);
@@ -70,18 +78,19 @@ async function parseResolvedModel(resolved, file, stack) {
 }
 
 async function parseResolvedModelUncached(resolved, file, stack) {
-    stack.add(resolved.logicalPath.toLowerCase());
+    const stackKey = `${resolved.rootId || "content"}|${resolved.logicalPath.toLowerCase()}`;
+    stack.add(stackKey);
     try {
         const buffer = await file.arrayBuffer();
         const reader = new MwmReader(buffer);
         const tags = reader.readTagIndex();
         const geometryAsset = tags.get("GeometryDataAsset") ? reader.readStringTag(tags.get("GeometryDataAsset")) : "";
         if (!tags.has("Vertices") && geometryAsset) {
-            const geometryResolved = await resolveContentFile(geometryAsset);
+            const geometryResolved = await resolveAssetFile(geometryAsset, { rootId: resolved.rootId || "" });
             if (!geometryResolved) throw new Error(`missing geometry asset ${geometryAsset}`);
             const geometryFile = await geometryResolved.getFile();
             const model = await parseResolvedModel(geometryResolved, geometryFile, stack);
-            return { ...model, logicalPath: resolved.logicalPath, geometryLogicalPath: geometryResolved.logicalPath };
+            return { ...model, logicalPath: resolved.logicalPath, rootId: resolved.rootId || "", rootKind: resolved.rootKind || "", geometryLogicalPath: geometryResolved.logicalPath };
         }
 
         const patternScale = tags.has("PatternScale") ? validPatternScale(reader.readFloatTag(tags.get("PatternScale"))) : 1;
@@ -119,6 +128,8 @@ async function parseResolvedModelUncached(resolved, file, stack) {
 
         const model = {
             logicalPath: resolved.logicalPath,
+            rootId: resolved.rootId || "",
+            rootKind: resolved.rootKind || "",
             geometryLogicalPath: resolved.logicalPath,
             positions,
             normals,
@@ -131,7 +142,7 @@ async function parseResolvedModelUncached(resolved, file, stack) {
         };
         return model;
     } finally {
-        stack.delete(resolved.logicalPath.toLowerCase());
+        stack.delete(stackKey);
     }
 }
 

@@ -34,6 +34,10 @@ export const state = {
     lastScene: null,
     contentFolder: null,
     contentFolderName: "",
+    modsFolder: null,
+    modsFolderName: "",
+    sceneMods: [],
+    modRoots: new Map(),
     modelResolution: new Map(),
     textureResolution: new Map(),
     textureStats: { listed: 0, found: 0, loaded: 0, missing: 0, failed: 0 },
@@ -47,7 +51,7 @@ export const els = {};
 
 export function cacheElements() {
     for (const id of [
-        "viewport", "sceneSummary", "reloadScene", "contentStatus", "pickContent", "folderPicker", "showGridHelper", "showVoxels", "showLighting",
+        "viewport", "sceneSummary", "reloadScene", "contentStatus", "pickContent", "folderPicker", "modsStatus", "pickMods", "modsFolderPicker", "showGridHelper", "showVoxels", "showLighting",
         "cameraMode", "resetCamera", "stats", "log", "downloadLog", "hoverReadout", "cameraHint"
     ]) {
         els[id] = document.getElementById(id);

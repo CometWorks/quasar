@@ -6,7 +6,7 @@ import { ASTEROID_GRID_CUBE_SIZE, LARGE_GRID_CUBE_SIZE, disposeObjectTree, fitCa
 import { resolveModelAsset } from "./mwm-loader.js";
 import { loadTexture, textureToCanvas } from "./texture-loader.js";
 import { log } from "./logging.js";
-import { getContentFolderCacheGeneration, resolveContentFile } from "./content-folder.js";
+import { getContentFolderCacheGeneration, resolveContentFile, setSceneModRoots } from "./content-folder.js";
 import { drawLcdBitmapText, getLoadedLcdBitmapFont, lcdBitmapTextScale, loadLcdBitmapFont, supportedLcdFontId } from "./lcd-font-loader.js";
 
 let textureStatsToken = 0;
@@ -30,6 +30,7 @@ export async function renderGridScene(scene) {
     const renderToken = ++modelRenderToken;
     state.lastScene = scene;
     state.stats = {};
+    await setSceneModRoots(scene.mods || scene.Mods || []);
     if (state.gridGroup) {
         state.scene.remove(state.gridGroup);
         disposeObjectTree(state.gridGroup);
@@ -87,6 +88,7 @@ export async function renderGridScene(scene) {
     state.stats["Voxel chunks clipped"] = state.sceneRenderCounts.voxelClippedChunks;
     state.stats["Voxel polygons clipped"] = state.sceneRenderCounts.voxelClippedPolygons;
     state.stats["Voxel materials"] = (scene.voxelMaterials || []).length;
+    state.stats["Scene mods"] = state.modRoots.size;
     state.stats["LCD surfaces"] = countLcdSurfaces(scene);
     updateGridLightStats(collectSceneLightSources(scene));
     renderSummary(scene, resolutionStats, textureStats);
@@ -1164,7 +1166,7 @@ function modelBatchRenderOrder(materials) {
 }
 
 function sharedModelGeometry(model, patternOffset, renderContext, groups = model.groups, layer = "all") {
-    const key = `${model.geometryLogicalPath || model.logicalPath}|${patternOffsetKey(patternOffset)}|${layer}|${modelGeometryGroupsKey(groups)}`;
+    const key = `${model.rootId || ""}|${model.geometryLogicalPath || model.logicalPath}|${patternOffsetKey(patternOffset)}|${layer}|${modelGeometryGroupsKey(groups)}`;
     if (renderContext.geometries.has(key)) return renderContext.geometries.get(key);
 
     const geometry = new THREE.BufferGeometry();
@@ -1229,7 +1231,7 @@ function sharedModelMaterial(model, group, block, renderContext) {
     const renderMode = modelMaterialRenderMode(technique);
     const textures = materialTexturesForGroup(group, skin, transparentMaterial);
     const colorMaskable = isModelMaterialColorMaskable(group, technique, textures);
-    const key = `${model.logicalPath}|${group.materialIndex}|${group.materialName}|${group.technique}|${stableTextureKey(textures)}|glass=${transparentMaterialKey(transparentMaterial)}|metalnessColorable=${skin && skin.metalnessColorable ? 1 : 0}`;
+    const key = `${model.rootId || ""}|${model.logicalPath}|${group.materialIndex}|${group.materialName}|${group.technique}|${stableTextureKey(textures)}|glass=${transparentMaterialKey(transparentMaterial)}|metalnessColorable=${skin && skin.metalnessColorable ? 1 : 0}`;
     if (renderContext.materials.has(key)) return renderContext.materials.get(key);
 
     const transparentParameters = transparentMaterial ? spaceEngineersTransparentMaterialParameters(transparentMaterial, technique) : null;
@@ -1256,13 +1258,13 @@ function sharedModelMaterial(model, group, block, renderContext) {
     material.userData.renderCacheKey = key;
     material.userData.seRenderMode = modelMaterialRenderModeName(renderMode);
     applySpaceEngineersColorMasking(material, skin && skin.metalnessColorable, colorMaskable, transparentParameters);
-    applyModelTextures(material, { ...group, textures }, technique, renderMode, renderContext.textureToken, colorMaskable);
+    applyModelTextures(material, model, { ...group, textures }, technique, renderMode, renderContext.textureToken, colorMaskable);
     renderContext.materials.set(key, material);
     return material;
 }
 
 function sharedLcdMaterial(model, group, block, lcdSurface, renderContext, technique) {
-    const key = `${model.logicalPath}|${group.materialIndex}|${group.materialName}|lcd=${block.id || ""}:${lcdSurface.index || 0}:${lcdSurfaceKey(lcdSurface)}`;
+    const key = `${model.rootId || ""}|${model.logicalPath}|${group.materialIndex}|${group.materialName}|lcd=${block.id || ""}:${lcdSurface.index || 0}:${lcdSurfaceKey(lcdSurface)}`;
     if (renderContext.materials.has(key)) return renderContext.materials.get(key);
 
     const transparentSurface = isTransparentLcdSurface(lcdSurface);
@@ -2036,13 +2038,14 @@ function stableTextureKey(textures) {
         .join(";");
 }
 
-function applyModelTextures(material, group, technique, renderMode, textureToken, colorMaskable = true) {
+function applyModelTextures(material, model, group, technique, renderMode, textureToken, colorMaskable = true) {
+    const textureOptions = { rootId: model.rootId || "" };
     const usesTransparentMaterialTexture = technique.includes("GLASS") || !!group.textures?.GlassTexture || !!group.textures?.TransparentTexture;
     const base = textureSelection(group.textures, usesTransparentMaterialTexture
         ? ["GlassTexture", "TransparentTexture", "ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]
         : ["ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]);
     if (base) {
-        loadTrackedTexture(base, textureToken).then(texture => {
+        loadTrackedTexture(base, textureToken, textureOptions).then(texture => {
             material.map = texture;
             material.color.copy(material.userData.seTransparentMaterialColor || new THREE.Color(0xffffff));
             setSpaceEngineersColorMetalTexture(material, colorMetalTextureSelectionHasMetalness(base));
@@ -2052,7 +2055,7 @@ function applyModelTextures(material, group, technique, renderMode, textureToken
 
     const alphaMask = (renderMode.cutout || renderMode.decal) ? alphaMaskTextureSelection(group.textures) : null;
     if (alphaMask) {
-        loadTrackedTexture(alphaMask, textureToken).then(texture => {
+        loadTrackedTexture(alphaMask, textureToken, textureOptions).then(texture => {
             material.alphaMap = texture;
             setSpaceEngineersAlphaMaskTexture(material, texture);
             material.needsUpdate = true;
@@ -2061,7 +2064,7 @@ function applyModelTextures(material, group, technique, renderMode, textureToken
 
     const colorMask = colorMaskable ? colorMaskTextureSelection(group.textures) : null;
     if (colorMask) {
-        loadTrackedTexture(colorMask, textureToken).then(texture => {
+        loadTrackedTexture(colorMask, textureToken, textureOptions).then(texture => {
             setSpaceEngineersColorMaskTexture(material, texture);
         }).catch(error => log(`Paint mask texture fallback retained for ${colorMask.path}: ${error.message}`, true));
     }
@@ -2071,7 +2074,7 @@ function applyModelTextures(material, group, technique, renderMode, textureToken
         : ["NormalGlossTexture", "NormalTexture", "NormalMapTexture"];
     const normal = textureSelection(group.textures, normalSlots);
     if (normal) {
-        loadTrackedTexture(normal, textureToken).then(texture => {
+        loadTrackedTexture(normal, textureToken, textureOptions).then(texture => {
             if (normal.slot === "GlassGlossTexture") {
                 material.roughnessMap = texture;
                 setSpaceEngineersTransparentGlossTexture(material, true);
@@ -2114,9 +2117,9 @@ function colorMaskTextureSelection(textures) {
     return null;
 }
 
-function loadTrackedTexture(selection, textureToken) {
-    const key = textureAssetKey(selection.path);
-    return loadTexture(selection.path, selection.slot).then(texture => {
+function loadTrackedTexture(selection, textureToken, options = {}) {
+    const key = textureAssetKey(selection.path, options.rootId || "");
+    return loadTexture(selection.path, selection.slot, options).then(texture => {
         recordTextureLoadStatus(key, "loaded", textureToken);
         return texture;
     }).catch(error => {
@@ -2534,11 +2537,16 @@ function proxyOpacity(definition) {
 }
 
 async function resolveReferencedModelsProgressively(scene, modelAssets, stats, progress, renderToken) {
-    if (!state.contentFolder) {
-        log("No local Content folder selected; all models render as proxies.", true);
+    if (!state.contentFolder && !state.modsFolder) {
+        log("No local Content or Mods folder selected; all models render as proxies.", true);
         stats.missing = (scene.modelAssets || []).length;
         updateModelStats(stats, progress.lastRenderStats, modelAssets.size);
         return stats;
+    }
+
+    if (!state.contentFolder) log("No local Content folder selected; vanilla fallback assets may render as proxies.", true);
+    if (!state.modsFolder && [...modelAssets.values()].some(asset => asset.rootId || asset.RootId || String(asset.sourceKind || asset.SourceKind || "").toLowerCase() === "mod")) {
+        log("No local Mods folder selected; selecting the global Mods folder may resolve modded assets.", true);
     }
 
     await runWithConcurrency([...modelAssets.values()], MAX_CONCURRENT_MODEL_RESOLVES, async asset => {
@@ -2581,7 +2589,7 @@ async function runWithConcurrency(items, limit, operation) {
 function collectReferencedTextureAssets(scene) {
     const assets = new Map();
     for (const asset of scene.textureAssets || []) {
-        addTextureAsset(assets, asset.logicalPath, asset.usage || asset.Usage || "metadata");
+        addTextureAsset(assets, asset.logicalPath, asset.usage || asset.Usage || "metadata", asset.rootId || asset.RootId || "");
     }
 
     for (const resolved of state.modelResolution.values()) {
@@ -2590,7 +2598,7 @@ function collectReferencedTextureAssets(scene) {
 
         for (const group of model.groups || []) {
             for (const [slot, path] of Object.entries(group.textures || {})) {
-                addTextureAsset(assets, path, slot || "material");
+                addTextureAsset(assets, path, slot || "material", model.rootId || "");
             }
         }
     }
@@ -2603,12 +2611,13 @@ function countLcdSurfaces(scene) {
     return count;
 }
 
-function addTextureAsset(assets, logicalPath, usage) {
-    const key = textureAssetKey(logicalPath);
+function addTextureAsset(assets, logicalPath, usage, rootId = "") {
+    const key = textureAssetKey(logicalPath, rootId);
     if (!key || assets.has(key)) return;
     assets.set(key, {
         assetId: `texture:${key}`,
         logicalPath: String(logicalPath || "").trim().replaceAll("\\", "/"),
+        rootId,
         usage: usage || "unknown",
     });
 }
@@ -2617,9 +2626,9 @@ function initializeTextureStats(textureAssets) {
     state.textureResolution.clear();
     state.textureStats = { listed: textureAssets.size, found: 0, loaded: 0, missing: 0, failed: 0 };
     for (const [key, asset] of textureAssets) {
-        state.textureResolution.set(key, { asset, localStatus: state.contentFolder ? "pending" : "missing", loadStatus: "pending" });
+        state.textureResolution.set(key, { asset, localStatus: state.contentFolder || state.modsFolder ? "pending" : "missing", loadStatus: "pending" });
     }
-    if (!state.contentFolder) state.textureStats.missing = textureAssets.size;
+    if (!state.contentFolder && !state.modsFolder) state.textureStats.missing = textureAssets.size;
     return state.textureStats;
 }
 
@@ -2728,9 +2737,9 @@ function timingLabel(key) {
     return key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, value => value.toUpperCase());
 }
 
-function textureAssetKey(logicalPath) {
+function textureAssetKey(logicalPath, rootId = "") {
     const value = String(logicalPath || "").trim().replaceAll("\\", "/");
-    return value ? value.toLowerCase() : "";
+    return value ? `${rootId || ""}|${value.toLowerCase()}` : "";
 }
 
 function renderSummary(scene, resolutionStats, textureStats) {

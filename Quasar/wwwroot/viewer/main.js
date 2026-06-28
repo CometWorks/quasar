@@ -2,7 +2,7 @@ import { cacheElements, els, state } from "./state.js";
 import { initScene, animate } from "./scene.js";
 import { configureVoxelControl, wireControls } from "./controls.js";
 import { fetchEntityScene, parseVoxelFlag } from "./quasar-api.js";
-import { pickContentFolder, restoreContentFolder } from "./content-folder.js";
+import { pickContentFolder, pickModsFolder, restoreContentFolder, restoreModsFolder } from "./content-folder.js";
 import { renderGridScene } from "./grid-renderer.js";
 import { downloadLog, log } from "./logging.js";
 
@@ -12,7 +12,7 @@ async function start() {
     cacheElements();
     state.voxelSupport = parseVoxelFlag();
     initScene();
-    wireControls({ reloadScene, pickContent: selectContentFolder });
+    wireControls({ reloadScene, pickContent: selectContentFolder, pickMods: selectModsFolder });
     els.downloadLog.addEventListener("click", downloadLog);
     animate();
 
@@ -21,6 +21,14 @@ async function start() {
         updateContentStatus(restored ? `Using saved Content folder: ${state.contentFolderName}` : "No Content folder selected.");
     } catch (error) {
         log(`Could not restore Content folder: ${error.message}`, true);
+    }
+
+    try {
+        const restored = await restoreModsFolder();
+        updateModsStatus(restored ? `Using saved Mods folder: ${state.modsFolderName}` : "No Mods folder selected.");
+    } catch (error) {
+        updateModsStatus("No Mods folder selected.");
+        log(`Could not restore Mods folder: ${error.message}`, true);
     }
 
     await reloadScene();
@@ -43,6 +51,21 @@ async function reloadScene() {
         log(error.message, true);
     } finally {
         els.reloadScene.disabled = false;
+    }
+}
+
+async function selectModsFolder() {
+    els.pickMods.disabled = true;
+    try {
+        const handle = await pickModsFolder();
+        updateModsStatus(`Using Mods folder: ${handle.name || "Mods"}`);
+        if (state.lastScene) await renderGridScene(state.lastScene);
+    } catch (error) {
+        if (error.name === "AbortError") return;
+        updateModsStatus(error.message, true);
+        log(error.message, true);
+    } finally {
+        els.pickMods.disabled = false;
     }
 }
 
@@ -72,4 +95,9 @@ async function selectContentFolder() {
 function updateContentStatus(message, isError = false) {
     els.contentStatus.textContent = message;
     els.contentStatus.classList.toggle("is-error", isError);
+}
+
+function updateModsStatus(message, isError = false) {
+    els.modsStatus.textContent = message;
+    els.modsStatus.classList.toggle("is-error", isError);
 }

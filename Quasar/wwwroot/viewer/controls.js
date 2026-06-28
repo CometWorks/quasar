@@ -5,6 +5,7 @@ export function wireControls(actions) {
     configureVoxelControl();
     els.reloadScene.addEventListener("click", actions.reloadScene);
     els.pickContent.addEventListener("click", actions.pickContent);
+    els.pickMods.addEventListener("click", actions.pickMods);
     els.resetCamera.addEventListener("click", fitCameraToScene);
     els.cameraMode.addEventListener("change", () => setCameraMode(els.cameraMode.value));
     els.showGridHelper.addEventListener("change", () => {

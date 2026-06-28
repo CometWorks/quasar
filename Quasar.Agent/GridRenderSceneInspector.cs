@@ -58,6 +58,8 @@ namespace Quasar.Agent
                 CapturedAtUtc = DateTimeOffset.UtcNow,
             };
 
+            AddSceneMods(catalog);
+
             var definitions = new Dictionary<string, ViewerBlockDefinition>(StringComparer.Ordinal);
             var chunks = new Dictionary<string, ChunkBuilder>(StringComparer.Ordinal);
 
@@ -89,6 +91,7 @@ namespace Quasar.Agent
             scene.Chunks = chunks.Values.Select(chunk => chunk.ToDto(grid.GridSize)).OrderBy(chunk => chunk.Id, StringComparer.Ordinal).ToList();
             scene.ModelAssets = catalog.ModelAssetsSnapshot();
             scene.TextureAssets = catalog.TextureAssetsSnapshot();
+            scene.Mods = catalog.ModsSnapshot();
             scene.Voxels = LoadedVoxels();
             if (includeVoxels)
             {
@@ -159,6 +162,16 @@ namespace Quasar.Agent
                 SunDirection = ToDto(direction),
                 SunIntensity = intensity,
             };
+        }
+
+        private static void AddSceneMods(MetadataAssetCatalog catalog)
+        {
+            var mods = MySession.Static?.Mods;
+            if (mods == null)
+                return;
+
+            foreach (var mod in mods)
+                catalog.RegisterMod(mod);
         }
 
         private static void AddLightSources(MyCubeGrid grid, MySlimBlock block, List<ViewerLightSource> lightSources, List<string> warnings)
@@ -968,7 +981,7 @@ namespace Quasar.Agent
             MetadataAssetCatalog catalog,
             List<string> warnings)
         {
-            var modelAssetId = catalog.RegisterModel(definition.Model);
+            var modelAssetId = catalog.RegisterModel(definition.Model, definition.Context);
             var dto = new ViewerBlockDefinition
             {
                 Id = DefinitionId(definition),
@@ -987,7 +1000,7 @@ namespace Quasar.Agent
             {
                 foreach (var buildModel in definition.BuildProgressModels)
                 {
-                    var id = catalog.RegisterModel(buildModel.File);
+                    var id = catalog.RegisterModel(buildModel.File, definition.Context);
                     if (!string.IsNullOrEmpty(id))
                         dto.BuildProgressModelAssetIds.Add(id);
                 }
@@ -1012,7 +1025,7 @@ namespace Quasar.Agent
             try
             {
                 var currentModel = block.CalculateCurrentModel(out var _);
-                currentModelAssetId = catalog.RegisterModel(currentModel) ?? string.Empty;
+                currentModelAssetId = catalog.RegisterModel(currentModel, block.BlockDefinition.Context) ?? string.Empty;
             }
             catch (Exception exception)
             {
@@ -1344,7 +1357,7 @@ namespace Quasar.Agent
 
                 for (var i = 0; i < cubePartModels.Count; i++)
                 {
-                    var modelAssetId = catalog.RegisterModel(cubePartModels[i]);
+                    var modelAssetId = catalog.RegisterModel(cubePartModels[i], block.BlockDefinition.Context);
                     if (string.IsNullOrEmpty(modelAssetId))
                         continue;
 
@@ -1416,7 +1429,7 @@ namespace Quasar.Agent
                     }
                     else
                     {
-                        var modelAssetId = catalog.RegisterModel(modelPath);
+                        var modelAssetId = catalog.RegisterModel(modelPath, block.BlockDefinition.Context);
                         if (string.IsNullOrEmpty(modelAssetId))
                         {
                             warnings.Add("Runtime subpart " + subpartPath + " for block " + block.Position + " has no registered model asset.");
@@ -1791,22 +1804,30 @@ namespace Quasar.Agent
         {
             private readonly Dictionary<string, ViewerModelAsset> _modelsById = new Dictionary<string, ViewerModelAsset>(StringComparer.OrdinalIgnoreCase);
             private readonly Dictionary<string, ViewerTextureAsset> _texturesById = new Dictionary<string, ViewerTextureAsset>(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, ViewerModAssetRoot> _modsById = new Dictionary<string, ViewerModAssetRoot>(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, string> _modIdsByKey = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             private readonly Dictionary<string, string> _idsByLogicalPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             public string RegisterModel(string logicalPath)
             {
-                logicalPath = NormalizeLogicalPath(logicalPath);
-                if (string.IsNullOrEmpty(logicalPath))
+                return RegisterModel(logicalPath, null);
+            }
+
+            public string RegisterModel(string logicalPath, MyModContext context)
+            {
+                var normalized = NormalizeLogicalPath(logicalPath, context);
+                if (string.IsNullOrEmpty(normalized.LogicalPath))
                     return null;
 
-                var assetId = GetOrCreateId("model", logicalPath);
+                var assetId = GetOrCreateId("model", normalized.LogicalPath, normalized.RootId);
                 if (!_modelsById.ContainsKey(assetId))
                 {
                     _modelsById[assetId] = new ViewerModelAsset
                     {
                         AssetId = assetId,
-                        LogicalPath = logicalPath,
-                        SourceKind = SourceKind(logicalPath),
+                        LogicalPath = normalized.LogicalPath,
+                        SourceKind = SourceKind(normalized.LogicalPath, normalized.RootId),
+                        RootId = normalized.RootId,
                     };
                 }
 
@@ -1815,23 +1836,51 @@ namespace Quasar.Agent
 
             public string RegisterTexture(string logicalPath, string usage)
             {
-                logicalPath = NormalizeLogicalPath(logicalPath);
-                if (string.IsNullOrEmpty(logicalPath))
+                var normalized = NormalizeLogicalPath(logicalPath, null);
+                if (string.IsNullOrEmpty(normalized.LogicalPath))
                     return null;
 
-                var assetId = GetOrCreateId("texture", logicalPath);
+                var assetId = GetOrCreateId("texture", normalized.LogicalPath, normalized.RootId);
                 if (!_texturesById.ContainsKey(assetId))
                 {
                     _texturesById[assetId] = new ViewerTextureAsset
                     {
                         AssetId = assetId,
-                        LogicalPath = logicalPath,
-                        SourceKind = SourceKind(logicalPath),
+                        LogicalPath = normalized.LogicalPath,
+                        SourceKind = SourceKind(normalized.LogicalPath, normalized.RootId),
+                        RootId = normalized.RootId,
                         Usage = usage ?? "unknown",
                     };
                 }
 
                 return assetId;
+            }
+
+            public string RegisterMod(MyObjectBuilder_Checkpoint.ModItem? maybeModItem)
+            {
+                if (!maybeModItem.HasValue)
+                    return string.Empty;
+
+                var modItem = maybeModItem.Value;
+
+                var name = modItem.Name ?? string.Empty;
+                var service = modItem.PublishedServiceName ?? string.Empty;
+                var key = (service + ":" + modItem.PublishedFileId + ":" + name).ToLowerInvariant();
+                if (_modIdsByKey.TryGetValue(key, out var existing))
+                    return existing;
+
+                var rootId = "mod_" + ShortHash(key);
+                _modIdsByKey[key] = rootId;
+                _modsById[rootId] = new ViewerModAssetRoot
+                {
+                    RootId = rootId,
+                    Name = name,
+                    PublishedFileId = modItem.PublishedFileId,
+                    PublishedServiceName = service,
+                    FriendlyName = modItem.FriendlyName ?? string.Empty,
+                    IsDependency = modItem.IsDependency,
+                };
+                return rootId;
             }
 
             public List<ViewerModelAsset> ModelAssetsSnapshot()
@@ -1844,31 +1893,29 @@ namespace Quasar.Agent
                 return _texturesById.Values.OrderBy(asset => asset.AssetId, StringComparer.Ordinal).ToList();
             }
 
-            private string GetOrCreateId(string prefix, string logicalPath)
+            public List<ViewerModAssetRoot> ModsSnapshot()
             {
-                var key = prefix + ":" + logicalPath.ToLowerInvariant();
+                return _modsById.Values.OrderBy(mod => mod.RootId, StringComparer.Ordinal).ToList();
+            }
+
+            private string GetOrCreateId(string prefix, string logicalPath, string rootId)
+            {
+                var key = prefix + ":" + (rootId ?? string.Empty).ToLowerInvariant() + ":" + logicalPath.ToLowerInvariant();
                 if (_idsByLogicalPath.TryGetValue(key, out var existing))
                     return existing;
 
-                using (var sha = SHA256.Create())
-                {
-                    var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(key));
-                    var builder = new StringBuilder(prefix).Append('_');
-                    for (var i = 0; i < 8; i++)
-                        builder.Append(hash[i].ToString("x2"));
-
-                    var id = builder.ToString();
-                    _idsByLogicalPath[key] = id;
-                    return id;
-                }
+                var id = prefix + "_" + ShortHash(key);
+                _idsByLogicalPath[key] = id;
+                return id;
             }
 
-            private static string NormalizeLogicalPath(string path)
+            private NormalizedAssetPath NormalizeLogicalPath(string path, MyModContext context)
             {
                 if (string.IsNullOrWhiteSpace(path))
-                    return null;
+                    return new NormalizedAssetPath();
 
                 path = path.Trim().Replace('\\', '/');
+                var rootId = string.Empty;
                 var contentPath = VRage.FileSystem.MyFileSystem.ContentPath;
                 if (!string.IsNullOrEmpty(contentPath) && Path.IsPathRooted(path))
                 {
@@ -1878,15 +1925,92 @@ namespace Quasar.Agent
                         path = fullPath.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/');
                 }
 
+                var modsPath = VRage.FileSystem.MyFileSystem.ModsPath;
+                if (!string.IsNullOrEmpty(modsPath) && Path.IsPathRooted(path))
+                {
+                    var fullPath = Path.GetFullPath(path);
+                    var root = Path.GetFullPath(modsPath);
+                    if (fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var relative = fullPath.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/');
+                        var slash = relative.IndexOf('/');
+                        var modName = slash >= 0 ? relative.Substring(0, slash) : relative;
+                        path = slash >= 0 ? relative.Substring(slash + 1) : string.Empty;
+                        rootId = RegisterModByName(modName);
+                    }
+                }
+
                 while (path.StartsWith("./", StringComparison.Ordinal))
                     path = path.Substring(2);
 
-                return path;
+                if (path.StartsWith("Content/", StringComparison.OrdinalIgnoreCase))
+                    path = path.Substring("Content/".Length);
+
+                if (path.StartsWith("Mods/", StringComparison.OrdinalIgnoreCase))
+                {
+                    var relative = path.Substring("Mods/".Length);
+                    var slash = relative.IndexOf('/');
+                    if (slash >= 0)
+                    {
+                        rootId = RegisterModByName(relative.Substring(0, slash));
+                        path = relative.Substring(slash + 1);
+                    }
+                }
+
+                if (string.IsNullOrEmpty(rootId))
+                {
+                    var modItem = context?.ModItem;
+                    if (modItem.HasValue)
+                        rootId = RegisterMod(modItem);
+                }
+
+                return new NormalizedAssetPath { LogicalPath = path, RootId = rootId ?? string.Empty };
             }
 
-            private static string SourceKind(string logicalPath)
+            private string RegisterModByName(string name)
             {
-                return logicalPath.IndexOf("Mods/", StringComparison.OrdinalIgnoreCase) >= 0 ? "mod" : "game";
+                if (string.IsNullOrWhiteSpace(name))
+                    return string.Empty;
+
+                var service = string.Empty;
+                var key = service + ":0:" + name;
+                if (_modIdsByKey.TryGetValue(key, out var existing))
+                    return existing;
+
+                var rootId = "mod_" + ShortHash(key.ToLowerInvariant());
+                _modIdsByKey[key] = rootId;
+                _modsById[rootId] = new ViewerModAssetRoot
+                {
+                    RootId = rootId,
+                    Name = name,
+                    FriendlyName = name,
+                };
+                return rootId;
+            }
+
+            private static string SourceKind(string logicalPath, string rootId)
+            {
+                return !string.IsNullOrEmpty(rootId) || logicalPath.IndexOf("Mods/", StringComparison.OrdinalIgnoreCase) >= 0 ? "mod" : "game";
+            }
+
+            private static string ShortHash(string key)
+            {
+                using (var sha = SHA256.Create())
+                {
+                    var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(key));
+                    var builder = new StringBuilder();
+                    for (var i = 0; i < 8; i++)
+                        builder.Append(hash[i].ToString("x2"));
+
+                    return builder.ToString();
+                }
+            }
+
+            private sealed class NormalizedAssetPath
+            {
+                public string LogicalPath { get; set; } = string.Empty;
+
+                public string RootId { get; set; } = string.Empty;
             }
         }
     }

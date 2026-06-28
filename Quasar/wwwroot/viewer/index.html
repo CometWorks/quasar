@@ -10,7 +10,8 @@
     {
         "imports": {
             "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
-            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+            "zip.js": "https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.7.72/+esm"
         }
     }
     </script>
@@ -21,7 +22,7 @@
             <header>
                 <p class="eyebrow">Quasar viewer</p>
                 <h1>Grid Viewer</h1>
-                <p class="lede">Metadata comes from the server agent. Models and textures must come from your local Space Engineers <code>Content</code> folder.</p>
+                <p class="lede">Metadata comes from the server agent. Models and textures must come from your local Space Engineers <code>Content</code> and <code>Mods</code> folders.</p>
             </header>
 
             <section class="card">
@@ -35,7 +36,10 @@
                 <p id="contentStatus" class="status-text">No Content folder selected.</p>
                 <button id="pickContent" type="button" class="wide">Select Space Engineers Content Folder</button>
                 <input id="folderPicker" type="file" webkitdirectory directory multiple hidden>
-                <p class="hint">Quasar does not transmit .mwm files, texture files, or extracted geometry. Missing local files render as proxy boxes.</p>
+                <p id="modsStatus" class="status-text">No Mods folder selected.</p>
+                <button id="pickMods" type="button" class="wide">Select Space Engineers Mods Folder</button>
+                <input id="modsFolderPicker" type="file" webkitdirectory directory multiple hidden>
+                <p class="hint">Pick the global Mods folder that contains mod directories and .sbm files. Quasar does not transmit .mwm files, texture files, or extracted geometry. Missing local files render as proxy boxes.</p>
             </section>
 
             <section class="card">
