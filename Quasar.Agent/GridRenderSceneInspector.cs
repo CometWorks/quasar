@@ -692,6 +692,7 @@ namespace Quasar.Agent
                 return result;
 
             var samplingAabb = samplingOverride ?? VoxelSamplingWorldAabb(grid);
+            var samples = new List<VoxelSceneSample>();
             var totalBytes = 0;
             var chunkBudgetReached = false;
 
@@ -711,23 +712,49 @@ namespace Quasar.Agent
                         continue;
 
                     var bodyName = FirstNonEmpty(voxel.DisplayName, voxel.Name, voxel.EntityId.ToString());
-                    var bodyContentState = ClassifyVoxelChunk(voxel, storageMin, storageMax);
-                    if (bodyContentState == "empty")
+                    samples.Add(new VoxelSceneSample
                     {
-                        warnings.Add("Skipped empty voxel data range for " + bodyName + ".");
-                        continue;
-                    }
-                    if (bodyContentState == "full")
-                    {
-                        warnings.Add("Skipped full voxel data range for " + bodyName + ".");
-                        continue;
-                    }
+                        Voxel = voxel,
+                        BodyName = bodyName,
+                        StorageMin = storageMin,
+                        StorageMax = storageMax,
+                    });
+                }
+                catch (Exception exception)
+                {
+                    warnings.Add("Failed to prepare voxel body " + FirstNonEmpty(voxel.DisplayName, voxel.Name, voxel.EntityId.ToString()) + ": " + exception.Message);
+                }
+            }
 
-                    var bodySampleCount = RangeSampleCount(storageMin, storageMax);
-                    var bodyRequiredBytes = checked(bodySampleCount * 2);
+            var lod = ChooseVoxelSceneLod(samples);
+            if (lod > 0)
+                warnings.Add("Sampling grid voxel data at LOD " + lod + " to fit viewer payload limits.");
+
+            foreach (var sample in samples)
+            {
+                try
+                {
+                    var voxel = sample.Voxel;
+                    var bodyName = sample.BodyName;
+                    var storageMin = sample.StorageMin >> lod;
+                    var storageMax = sample.StorageMax >> lod;
+
+                    var bodyRequiredBytes = RangeSampleCountLong(storageMin, storageMax) * 2L;
                     if (bodyRequiredBytes <= MaxVoxelDataBytes - totalBytes)
                     {
-                        var bodyChunk = TryBuildVoxelDataChunk(voxel, storageMin, storageMax, bodyContentState, warnings);
+                        var bodyContentState = ClassifyVoxelChunk(voxel, storageMin, storageMax, lod);
+                        if (bodyContentState == "empty")
+                        {
+                            warnings.Add("Skipped empty voxel data range for " + bodyName + ".");
+                            continue;
+                        }
+                        if (bodyContentState == "full")
+                        {
+                            warnings.Add("Skipped full voxel data range for " + bodyName + ".");
+                            continue;
+                        }
+
+                        var bodyChunk = TryBuildVoxelDataChunk(voxel, storageMin, storageMax, bodyContentState, warnings, lod);
                         if (bodyChunk != null)
                         {
                             totalBytes += bodyChunk.Content.Length + bodyChunk.Materials.Length;
@@ -747,7 +774,7 @@ namespace Quasar.Agent
                             break;
                         }
 
-                        var contentState = ClassifyVoxelChunk(voxel, chunkRange.Min, chunkRange.Max);
+                        var contentState = ClassifyVoxelChunk(voxel, chunkRange.Min, chunkRange.Max, lod);
                         if (contentState == "empty")
                         {
                             skippedEmpty++;
@@ -759,15 +786,14 @@ namespace Quasar.Agent
                             continue;
                         }
 
-                        var sampleCount = RangeSampleCount(chunkRange.Min, chunkRange.Max);
-                        var requiredBytes = checked(sampleCount * 2);
+                        var requiredBytes = RangeSampleCountLong(chunkRange.Min, chunkRange.Max) * 2L;
                         if (totalBytes + requiredBytes > MaxVoxelDataBytes)
                         {
                             warnings.Add("Voxel data safety limit exceeded; remaining voxel chunks were skipped.");
                             return result;
                         }
 
-                        var chunk = TryBuildVoxelDataChunk(voxel, chunkRange.Min, chunkRange.Max, contentState, warnings);
+                        var chunk = TryBuildVoxelDataChunk(voxel, chunkRange.Min, chunkRange.Max, contentState, warnings, lod);
                         if (chunk == null)
                             continue;
 
@@ -783,7 +809,7 @@ namespace Quasar.Agent
                 }
                 catch (Exception exception)
                 {
-                    warnings.Add("Failed to sample voxel body " + FirstNonEmpty(voxel.DisplayName, voxel.Name, voxel.EntityId.ToString()) + ": " + exception.Message);
+                    warnings.Add("Failed to sample voxel body " + sample.BodyName + ": " + exception.Message);
                 }
             }
 
@@ -791,6 +817,32 @@ namespace Quasar.Agent
                 warnings.Add("Voxel data chunk budget reached; remaining voxel chunks were skipped.");
 
             return result;
+        }
+
+        private static int ChooseVoxelSceneLod(List<VoxelSceneSample> samples)
+        {
+            var lod = 0;
+            while (lod < MaxVoxelBodyLod)
+            {
+                var chunks = 0L;
+                var bytes = 0L;
+                foreach (var sample in samples)
+                {
+                    var min = sample.StorageMin >> lod;
+                    var max = sample.StorageMax >> lod;
+                    chunks += RangeChunkCount(min, max, DefaultVoxelChunkSize);
+                    bytes += RangeSampleCountLong(min, max) * 2L;
+                    if (chunks > MaxVoxelSceneChunks || bytes > MaxVoxelDataBytes)
+                        break;
+                }
+
+                if (chunks <= MaxVoxelSceneChunks && bytes <= MaxVoxelDataBytes)
+                    break;
+
+                lod++;
+            }
+
+            return lod;
         }
 
         private static List<ViewerVoxelDataChunk> BuildVoxelBodyDeformations(MyVoxelBase voxel, List<string> warnings)
@@ -1983,6 +2035,17 @@ namespace Quasar.Agent
             public Vector3I Min { get; set; }
 
             public Vector3I Max { get; set; }
+        }
+
+        private sealed class VoxelSceneSample
+        {
+            public MyVoxelBase Voxel { get; set; }
+
+            public string BodyName { get; set; } = string.Empty;
+
+            public Vector3I StorageMin { get; set; }
+
+            public Vector3I StorageMax { get; set; }
         }
 
         private sealed class GridSceneAddResult

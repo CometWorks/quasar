@@ -109,6 +109,8 @@ Loaded voxel bodies can be shown as textured terrain mesh when the viewer URL in
 
 Voxel mesh generation follows the game's coordinate convention: storage coordinates are first converted to absolute world positions with `PositionLeftBottomCorner + voxelCoord`, then transformed into the viewer's grid-relative coordinate space. The voxel entity `WorldMatrix` translation is the body center and must not be used as the storage-coordinate origin.
 
+Grid scenes automatically choose the lowest voxel LOD that fits the current intersecting voxel ranges within the scene chunk and byte budgets before sampling. The browser honors the chunk `lod` scale the same way as standalone asteroid scenes, so coarser fallback samples keep the correct world-space size instead of being skipped when LOD 0 would exceed the payload limits.
+
 When both `voxels=1` and `context=1` are enabled for a grid, voxel body metadata and voxel data chunks are bounded to the context volume instead of only the selected grid footprint. The same metadata-only asset boundary still applies: Quasar sends sampled live voxel scalar/material data and logical voxel material paths, not Space Engineers asset bytes.
 
 Voxel terrain UVs follow the Space Engineers voxel material tiling convention by using the inverse of each material's `TilingScale`, falling back to the legacy `1/8` scale only when metadata is unavailable or invalid. Generated voxel mesh groups are also split by dominant-axis projection so top/bottom-like surfaces prefer `ColorMetalY` and `NormalGlossY`, while side-like surfaces prefer `ColorMetalXZnY` and `NormalGlossXZnY`; both paths fall back to the alternate axis texture when needed.
