@@ -291,22 +291,20 @@
                         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
                             <MudStack Spacing="1">
                                 <MudText Typo="Typo.body2">
-                                    Create a fine-grained personal access token:
+                                    Create a classic personal access token without any permissions:
                                 </MudText>
                                 <ol class="mud-typography mud-typography-body2 ma-0 pl-4">
-                                    <li>Open GitHub Settings, then Developer settings, Personal access tokens, Fine-grained tokens.</li>
-                                    <li>Choose Generate new token.</li>
-                                    <li>Name it Quasar update checks and set an expiration you can renew before it ends.</li>
-                                    <li>Under Repository access, choose Public repositories.</li>
-                                    <li>Leave Repository permissions and Account permissions unset. Public release checks only need authentication for rate limiting.</li>
+                                    <li>Open GitHub's classic token creation page.</li>
+                                    <li>Set Note to Quasar update checks and set an expiration you can renew before it ends.</li>
+                                    <li>Do not select any scopes or permissions. Public release checks only need authentication for rate limiting.</li>
                                     <li>Generate the token, copy it once, paste it here, save it, then press Check Quasar.</li>
                                 </ol>
-                                <MudLink Href="https://github.com/settings/personal-access-tokens/new"
+                                <MudLink Href="https://github.com/settings/tokens/new"
                                          Target="_blank"
                                          Underline="Underline.Always"
                                          Color="Color.Primary"
                                          Typo="Typo.subtitle2">
-                                    Open GitHub fine-grained token page
+                                    Open GitHub classic token page
                                 </MudLink>
                             </MudStack>
                         </MudAlert>

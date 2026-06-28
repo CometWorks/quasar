@@ -25,9 +25,11 @@ reconciliation perform the transition. Quasar Agent owns the in-game `!stop`,
 `!quit`, and `!restart` roots for managed servers. `!stop` saves and reports
 `AdminStop`; `!quit` reports `AdminStop` and exits immediately without saving.
 Both flip the goal to `Off` (and therefore do **not** treat the shutdown as a
-crash to restart). `!restart` reports `AdminRestart`, keeps the goal `On`, moves
-the observed process to `Restarting`, and lets Quasar relaunch after the process
-exits.
+crash to restart). `!restart [seconds]` broadcasts a chat countdown (10 seconds
+by default, up to 3600 seconds; longer delays use periodic checkpoint
+announcements plus the final 10 seconds), then reports `AdminRestart`, keeps the
+goal `On`, moves the observed process to `Restarting`, and lets Quasar relaunch
+after the process exits.
 
 ```mermaid
 stateDiagram-v2
@@ -35,7 +37,7 @@ stateDiagram-v2
     Off --> On: operator Start / SetGoalStateAsync(On)
     On --> Off: operator Stop / SetGoalStateAsync(Off)
     On --> Off: Quasar Agent !stop / !quit (AdminStop signal)
-    On --> On: Quasar Agent !restart (AdminRestart signal)
+    On --> On: Quasar Agent !restart [seconds] countdown (AdminRestart signal)
     On --> Off: Discord !stop command
 ```
 
@@ -46,7 +48,7 @@ stateDiagram-v2
 | `Off → On` | Operator/API `SetGoalStateAsync(On)` | `DedicatedServerSupervisor.SetGoalStateAsync` |
 | `On → Off` | Operator/API `SetGoalStateAsync(Off)` | `DedicatedServerSupervisor.SetGoalStateAsync` |
 | `On → Off` | Quasar Agent `!stop` / `!quit` → agent `AdminStop` | `AgentSocketHandler.ProcessMessageAsync` (`AdminStop` case) |
-| `On → On` | Quasar Agent `!restart` → agent `AdminRestart` | `AgentSocketHandler.ProcessMessageAsync` (`AdminRestart` case), `DedicatedServerSupervisor.BeginAdminRestartAsync` |
+| `On → On` | Quasar Agent `!restart [seconds]` countdown → agent `AdminRestart` | `AgentSocketHandler.ProcessMessageAsync` (`AdminRestart` case), `DedicatedServerSupervisor.BeginAdminRestartAsync` |
 | `On → Off` | Discord `!stop` command | `DiscordCommandDispatcher.DispatchAsync` |
 
 ---
@@ -134,9 +136,9 @@ stateDiagram-v2
 - Planned restarts come from the health policy (`Unhealthy` +
   `AutoRestartOnUnhealthy`), `MaximumUptime`, `DailyRestartTimeLocal`
   (optionally staggered by `AvoidSimultaneousScheduledRestarts`), and the
-  Quasar Agent `!restart` command. Agent-requested restart is tracked as
-  `Restarting` before the process exits; the subsequent clean exit is relaunched
-  without consuming crash-restart budget.
+  Quasar Agent `!restart [seconds]` command. Agent-requested restart is tracked
+  as `Restarting` after the chat countdown and before the process exits; the
+  subsequent clean exit is relaunched without consuming crash-restart budget.
 
 ---
 

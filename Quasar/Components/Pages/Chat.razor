@@ -97,7 +97,8 @@
                              CoerceValue="true"
                              ResetValueOnEmptyText="false"
                              MinCharacters="1"
-                             MaxItems="8"
+                             MaxItems="@MaximumCommandSuggestionItems"
+                             ItemDisabledFunc="@IsCommandOverflowSuggestion"
                              HelperText="@InputHelperText"
                              OnKeyDown="HandleInputKeyDownAsync"
                              Disabled="@(!CanSendAgentCommand)" />
@@ -128,6 +129,9 @@
 
 @code
 {
+    private const int MaximumCommandSuggestionItems = 30;
+    private const string CommandSuggestionOverflowText = "...";
+
     private readonly string _chatScrollContainerId = $"admin-chat-{Guid.NewGuid():N}";
     private string _selectedUniqueName = string.Empty;
     private string _inputText = string.Empty;
@@ -235,9 +239,16 @@
             .OrderBy(command => command.Text, StringComparer.OrdinalIgnoreCase)
             .Select(command => command.Text)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(8);
+            .Take(MaximumCommandSuggestionItems + 1)
+            .ToList();
 
-        return Task.FromResult(suggestions);
+        if (suggestions.Count > MaximumCommandSuggestionItems)
+        {
+            suggestions.RemoveRange(MaximumCommandSuggestionItems - 1, suggestions.Count - (MaximumCommandSuggestionItems - 1));
+            suggestions.Add(CommandSuggestionOverflowText);
+        }
+
+        return Task.FromResult<IEnumerable<string>>(suggestions);
     }
 
     private async Task SendInputAsync()
@@ -412,6 +423,11 @@
     private static bool IsCommandText(string? value)
     {
         return value?.TrimStart().StartsWith('!') == true;
+    }
+
+    private static bool IsCommandOverflowSuggestion(string suggestion)
+    {
+        return string.Equals(suggestion, CommandSuggestionOverflowText, StringComparison.Ordinal);
     }
 
     private static bool MatchesCommandSuggestion(ChatCommandSnapshot command, string query)
