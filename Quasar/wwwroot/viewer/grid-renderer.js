@@ -80,6 +80,8 @@ export async function renderGridScene(scene) {
     state.stats["Voxel mesh parts"] = state.sceneRenderCounts.voxelMeshParts;
     state.stats["Voxel mesh vertices"] = state.sceneRenderCounts.voxelMeshVertices;
     state.stats["Voxel mesh triangles"] = state.sceneRenderCounts.voxelMeshTriangles;
+    state.stats["Voxel chunks clipped"] = state.sceneRenderCounts.voxelClippedChunks;
+    state.stats["Voxel polygons clipped"] = state.sceneRenderCounts.voxelClippedPolygons;
     state.stats["Voxel materials"] = (scene.voxelMaterials || []).length;
     state.stats["LCD surfaces"] = countLcdSurfaces(scene);
     updateGridLightStats(collectSceneLightSources(scene));
@@ -469,6 +471,8 @@ function renderVoxelBodies(voxels, voxelChunks, voxelMaterials) {
     state.sceneRenderCounts.voxelMeshParts = 0;
     state.sceneRenderCounts.voxelMeshVertices = 0;
     state.sceneRenderCounts.voxelMeshTriangles = 0;
+    state.sceneRenderCounts.voxelClippedChunks = 0;
+    state.sceneRenderCounts.voxelClippedPolygons = 0;
     if (!voxels.length && !voxelChunks.length) return;
 
     const group = new THREE.Group();
@@ -485,8 +489,14 @@ function renderVoxelBodies(voxels, voxelChunks, voxelMaterials) {
     let failedVoxelChunks = 0;
     for (const chunk of voxelChunks) {
         const voxel = voxelBodiesById.get(String(chunk.voxelBodyId || ""));
-        const mesh = createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex);
+        const diagnostics = { clippedChunk: false, surfacePolygons: 0, clippedPolygons: 0, emittedPolygons: 0 };
+        const mesh = createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex, diagnostics);
+        state.sceneRenderCounts.voxelClippedPolygons += diagnostics.clippedPolygons;
         if (!mesh) {
+            if (diagnostics.clippedChunk || diagnostics.surfacePolygons > 0 && diagnostics.emittedPolygons === 0 && diagnostics.clippedPolygons > 0) {
+                state.sceneRenderCounts.voxelClippedChunks++;
+                continue;
+            }
             failedVoxelChunks++;
             if (failedVoxelChunks <= 5) log(`Voxel chunk ${chunk.chunkId || "chunk"} for ${chunk.voxelBodyId || "unknown"} produced no mesh: ${describeVoxelDataChunk(chunk, voxel)}.`, true);
             continue;
@@ -497,8 +507,8 @@ function renderVoxelBodies(voxels, voxelChunks, voxelMaterials) {
         state.sceneRenderCounts.voxelMeshChunks++;
     }
 
-    if (voxelChunks.length && state.sceneRenderCounts.voxelMeshChunks === 0) {
-        log(`Received ${voxelChunks.length} voxel data chunk(s), but none produced renderable terrain.`, true);
+    if (failedVoxelChunks > 0 && state.sceneRenderCounts.voxelMeshChunks === 0) {
+        log(`Received ${failedVoxelChunks} voxel data chunk(s), but none produced renderable terrain.`, true);
     } else if (failedVoxelChunks > 0) {
         log(`Skipped ${failedVoxelChunks} voxel data chunk(s) that produced no terrain triangles.`, true);
     }
@@ -520,14 +530,19 @@ function renderVoxelBodies(voxels, voxelChunks, voxelMaterials) {
     if (proxyGroup.children.length) group.add(proxyGroup);
 }
 
-function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex) {
+function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex, diagnostics) {
     const content = voxelByteArray(chunk.content);
     const materials = voxelByteArray(chunk.materials);
     const size = chunk.size || {};
     const sx = Math.max(0, Math.floor(num(size.x, 0)));
     const sy = Math.max(0, Math.floor(num(size.y, 0)));
     const sz = Math.max(0, Math.floor(num(size.z, 0)));
-    if (sx < 2 || sy < 2 || sz < 2 || content.length < sx * sy * sz) return null;
+    const expectedSamples = sx * sy * sz;
+    if (sx < 2 || sy < 2 || sz < 2) {
+        if (diagnostics && content.length >= expectedSamples) diagnostics.clippedChunk = true;
+        return null;
+    }
+    if (content.length < expectedSamples) return null;
 
     const storageMin = chunk.storageMin || {};
     const positionLeftBottomCorner = vec3(voxel && voxel.positionLeftBottomCorner);
@@ -547,7 +562,7 @@ function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex) {
         for (let y = 0; y < sy - 1; y++) {
             for (let x = 0; x < sx - 1; x++) {
                 fillVoxelCubeScratch(cube, x, y, z, sx, sy, sz, content, materials, worldOrigin, viewTransform);
-                polygonizeVoxelCube(cube, positions, normals, uvs, indicesByMaterial, clipBounds);
+                polygonizeVoxelCube(cube, positions, normals, uvs, indicesByMaterial, clipBounds, diagnostics);
             }
         }
     }
@@ -650,14 +665,14 @@ function sampleVoxelContent(content, x, y, z, sx, sy, sz) {
     return num(content[px + sx * (py + sy * pz)], 0);
 }
 
-function polygonizeVoxelCube(cube, positions, normals, uvs, indicesByMaterial, clipBounds) {
+function polygonizeVoxelCube(cube, positions, normals, uvs, indicesByMaterial, clipBounds, diagnostics) {
     for (const tetra of VOXEL_TETRAHEDRA) {
         const vertices = tetra.map(index => cube[index]);
-        polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByMaterial, clipBounds);
+        polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByMaterial, clipBounds, diagnostics);
     }
 }
 
-function polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByMaterial, clipBounds) {
+function polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByMaterial, clipBounds, diagnostics) {
     const inside = [];
     const outside = [];
     for (const vertex of vertices) {
@@ -673,19 +688,19 @@ function polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByMateri
         const a = interpolateVoxelEdge(inside[0], outside[0]);
         const b = interpolateVoxelEdge(inside[0], outside[1]);
         const c = interpolateVoxelEdge(inside[0], outside[2]);
-        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByMaterial, true, clipBounds);
+        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByMaterial, true, clipBounds, diagnostics);
     } else if (insideCount === 3) {
         const a = interpolateVoxelEdge(outside[0], inside[0]);
         const b = interpolateVoxelEdge(outside[0], inside[1]);
         const c = interpolateVoxelEdge(outside[0], inside[2]);
-        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByMaterial, false, clipBounds);
+        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByMaterial, false, clipBounds, diagnostics);
     } else {
         const a = interpolateVoxelEdge(inside[0], outside[0]);
         const b = interpolateVoxelEdge(inside[1], outside[0]);
         const c = interpolateVoxelEdge(inside[1], outside[1]);
         const d = interpolateVoxelEdge(inside[0], outside[1]);
-        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByMaterial, false, clipBounds);
-        addVoxelTriangle(a, c, d, material, positions, normals, uvs, indicesByMaterial, false, clipBounds);
+        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByMaterial, false, clipBounds, diagnostics);
+        addVoxelTriangle(a, c, d, material, positions, normals, uvs, indicesByMaterial, false, clipBounds, diagnostics);
     }
 }
 
@@ -703,10 +718,15 @@ function createVoxelSurfaceVertex(aPosition, bPosition, aNormal, bNormal, t) {
     return vertex;
 }
 
-function addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByMaterial, reverse, clipBounds) {
+function addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByMaterial, reverse, clipBounds, diagnostics) {
     const polygon = reverse ? [a, c, b] : [a, b, c];
     const clipped = orientVoxelPolygon(clipVoxelPolygonToFloor(polygon, clipBounds));
-    if (clipped.length < 3) return;
+    if (diagnostics) diagnostics.surfacePolygons++;
+    if (clipped.length < 3) {
+        if (diagnostics) diagnostics.clippedPolygons++;
+        return;
+    }
+    if (diagnostics) diagnostics.emittedPolygons++;
 
     let indices = indicesByMaterial.get(material);
     if (!indices) {
