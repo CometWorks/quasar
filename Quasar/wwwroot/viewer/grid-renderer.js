@@ -1,4 +1,7 @@
 import * as THREE from "three";
+import { Line2 } from "three/addons/lines/Line2.js";
+import { LineGeometry } from "three/addons/lines/LineGeometry.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { els, state } from "./state.js";
 import { blockBox, boundsToBox3 } from "./geometry.js";
 import { colorFromHash, matrixDtoToThree, num, vec3 } from "./math.js";
@@ -413,12 +416,23 @@ function createLogisticsEdge(edge) {
     if (points.length < 2) return null;
 
     const color = colorFromHash(`logistics-system:${num(edge.systemId, -1)}`);
-    const opacity = edge.isWorking === false ? 0.22 : 0.85;
-    const material = edge.isSmallRestricted
-        ? new THREE.LineDashedMaterial({ color, transparent: true, opacity, dashSize: Math.max(0.12, state.currentGridSize * 0.18), gapSize: Math.max(0.08, state.currentGridSize * 0.12), depthTest: false, depthWrite: false })
-        : new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false });
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-    const line = new THREE.Line(geometry, material);
+    const opacity = edge.isWorking === false ? 0.34 : 0.94;
+    const gridSize = state.currentGridSize || LARGE_GRID_CUBE_SIZE;
+    const geometry = new LineGeometry();
+    geometry.setPositions(points.flatMap(point => [point.x, point.y, point.z]));
+    const material = new LineMaterial({
+        color,
+        transparent: true,
+        opacity,
+        linewidth: Math.max(0.025, gridSize * 0.05),
+        worldUnits: true,
+        dashed: !!edge.isSmallRestricted,
+        dashSize: Math.max(0.06, gridSize * 0.08),
+        gapSize: Math.max(0.035, gridSize * 0.045),
+        depthTest: false,
+        depthWrite: false,
+    });
+    const line = new Line2(geometry, material);
     line.name = `LogisticsEdge:${edge.id || "edge"}`;
     line.renderOrder = 30;
     line.frustumCulled = false;
