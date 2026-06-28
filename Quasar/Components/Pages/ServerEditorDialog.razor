@@ -317,11 +317,11 @@
                                 <MudItem xs="12" md="6">
                                     <MudNumericField T="int"
                                                      @bind-Value="_editor.DsLogFilesToKeep"
-                                                     Label="DS logs to keep"
+                                                     Label="Space Engineers DS logs to keep"
                                                      Variant="Variant.Outlined"
                                                      Min="DedicatedServerDefinition.MinimumDsLogFilesToKeep"
                                                      Max="DedicatedServerDefinition.MaximumDsLogFilesToKeep"
-                                                     HelperText="Includes the current stdout slot. Quasar rotates at server start and prunes old archives on stop." />
+                                                     HelperText="Keeps the newest SpaceEngineersDedicated*.log files in the DS app-data folder; older files are deleted on start and stop." />
                                 </MudItem>
                                 <MudItem xs="12" md="6">
                                     <MudCheckBox @bind-Value="_editor.LogLaunchEnvironment"

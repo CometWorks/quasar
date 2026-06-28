@@ -55,8 +55,18 @@ public sealed class WebServiceManifestHostedService : IHostedService
 
         try
         {
-            if (File.Exists(path))
-                File.Delete(path);
+            if (!File.Exists(path))
+                return Task.CompletedTask;
+
+            if (!ManifestBelongsToCurrentWorker(path))
+            {
+                _logger.LogDebug(
+                    "Leaving Quasar supervisor manifest at {Path} because another worker owns it.",
+                    path);
+                return Task.CompletedTask;
+            }
+
+            File.Delete(path);
         }
         catch (Exception exception)
         {
@@ -64,6 +74,25 @@ public sealed class WebServiceManifestHostedService : IHostedService
         }
 
         return Task.CompletedTask;
+    }
+
+    private bool ManifestBelongsToCurrentWorker(string path)
+    {
+        try
+        {
+            var manifest = JsonSerializer.Deserialize<WebServiceDiscoveryManifest>(File.ReadAllText(path), JsonOptions);
+            return manifest is not null &&
+                   manifest.ProcessId == Environment.ProcessId &&
+                   string.Equals(manifest.WorkerId, _options.WorkerId, StringComparison.Ordinal);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Failed to verify Quasar supervisor manifest ownership at {Path}; leaving it in place.",
+                path);
+            return false;
+        }
     }
 
     private void WriteManifest()

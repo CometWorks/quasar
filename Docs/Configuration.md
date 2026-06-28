@@ -51,6 +51,16 @@ start, which disables `MagnetarMod` and breaks the mission screen popup used by
 server-side plugins. Magnetar already does this automatically when cross-play is
 enabled. Turning it back off removes the flag from future starts.
 
+## Dedicated Server log retention
+
+Each server has a **Space Engineers DS logs to keep** setting in the server
+editor's **Runtime** section. It defaults to `5`.
+
+Quasar prunes `SpaceEngineersDedicated*.log` files from that server's Dedicated
+Server app-data directory on server start and stop, keeping the newest files and
+deleting older ones. Magnetar diagnostics remain in that server's Magnetar
+app-data `info.log`.
+
 ## Where configuration is read from
 
 Both the **Bootstrap launcher** (`Quasar`/`Quasar.exe`) and the replaceable **web

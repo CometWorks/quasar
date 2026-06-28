@@ -36,7 +36,7 @@ stateDiagram-v2
 
 | State | Behavior |
 | --- | --- |
-| `Locating` | `WebServiceLocator` resolves the Quasar base URI from the discovery manifest and `/api/health`. If no healthy instance is found, the agent does not start Quasar or Bootstrap; it waits for the reconnect loop. |
+| `Locating` | `WebServiceLocator` probes the explicit supervisor URL from `QUASAR_BASE_URL` (plus compatible public-base-url variables) and the discovery manifest, accepting the first `/api/health` response that succeeds. If no healthy instance is found, the agent does not start Quasar or Bootstrap; it waits for the reconnect loop. |
 | `Connecting` | Opens `ws(s)://…/ws/agent` (WebSocket keep-alive 20s). |
 | `Handshaking` | Sends the `Hello` identity message and forces an initial `PluginConfigSnapshot`. |
 | `Streaming` | Sends a `Snapshot` every ~2s, flushes buffered plugin-log batches, and dispatches inbound `Command` / `Ping` / `PluginConfigUpdate` messages. |

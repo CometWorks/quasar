@@ -182,9 +182,10 @@ reconnects to a detached Magnetar daemon:
    `{timestamp,level,plugin,thread,message,data?,exception?}` entries.
    `PluginLogStream` also rejects/hides `Magnetar` entries defensively.
 5. **Keep raw logs separate.** `DedicatedServerSupervisor.PumpStandardOutputAsync`
-   still writes stdout to `stdout.log` and still ignores PluginSdk JSON lines for
-   ordinary server-output handling, but it no longer creates synthetic
-   `Magnetar` plugin-log entries from non-plugin stdout.
+   drains stdout so the managed process cannot block and still ignores
+   PluginSdk JSON lines for ordinary server-output handling. Quasar does not
+   persist a Magnetar-specific stdout log; Magnetar-owned diagnostics stay in
+   the server's Magnetar app-data `info.log`.
 6. **Display it.** `PluginLogPanel.razor` (new component, on the Plugins page)
    subscribes to `PluginLogStream.Changed` and renders recent entries
    (time / level / server / plugin / message + exception) in a `MudTable`.

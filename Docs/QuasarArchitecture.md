@@ -147,7 +147,7 @@ Required separation per server:
 - Magnetar app-data directory
 - world/save directory
 - plugin/configuration surface
-- Quasar-captured server logs
+- DS-owned log files and Magnetar-owned `info.log`
 
 Quasar should treat these as explicit server properties rather than assuming one shared machine-global app-data location.
 
@@ -256,12 +256,14 @@ Theme preference should be stored in browser local storage using the `Blazor.Loc
 
 ## Discovery and Bootstrap
 
-Supervisor discovery should use a local manifest plus health probe.
+Supervisor discovery should use the explicit launch-provided base URL, a local
+manifest, and health probes.
 
 Expected local mechanism:
 
+- `QUASAR_BASE_URL` from managed-server launch environment
 - runtime manifest file
-- local health check
+- `/api/health` check for every candidate URL
 - process identity / server metadata
 
 Bootstrap/setup should be handled by `Quasar.Bootstrap` or the installed
@@ -294,7 +296,7 @@ It needs:
 - restart policy
 - restart backoff
 - last exit code / last crash reason
-- captured stdout plus the DS-owned log files
+- DS-owned log files plus Magnetar-owned `info.log`
 
 Quasar tracks two related but separate pieces of server state:
 
@@ -414,7 +416,10 @@ Requirements:
 Suggested layout:
 
 - `logs/quasar/`
-- `logs/magnetars/{uniqueName}/`
+
+Per-server Space Engineers Dedicated Server logs stay in that server's DS
+app-data directory. Per-server Magnetar diagnostics stay in that server's
+Magnetar app-data `info.log`.
 
 ### Service mode behavior
 
@@ -483,6 +488,9 @@ Linux-first cutover ownership:
   and writes `Updates/active-release.json`
 - Bootstrap observes the pointer change, drains the old worker, then starts the managed worker
 - the browser and `Quasar.Agent` reconnect after the short listener gap
+- retiring workers only delete the discovery manifest if the on-disk worker id
+  and process id still match themselves, so an old worker cannot remove the new
+  worker's manifest during cutover
 - Bootstrap self-update drains only when the primary release asset is actually
   newer than the running launcher's normalized release identity
 - `/settings/updates` can also write `Updates/bootstrap-update-request.json`
@@ -870,7 +878,9 @@ As of this document:
 - the server console dialog auto-refreshes the Dedicated Server log and
   Magnetar `info.log` every 5 seconds while a tail view is active, using
   append-only reads from the last loaded file offset instead of re-reading the
-  full log on each refresh
+  full log on each refresh. Server settings include DS log retention, defaulting
+  to 5 newest `SpaceEngineersDedicated*.log` files, with oldest files pruned on
+  start and stop.
 - plugin logs now relay through the Quasar Agent outbox over the existing
   WebSocket; entries from the `Magnetar` logger are dropped before control-plane
   transport and are also rejected by the in-memory plugin log stream

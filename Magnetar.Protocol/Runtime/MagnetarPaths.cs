@@ -45,9 +45,6 @@ public static class MagnetarPaths
     public static string GetQuasarLogDirectory() =>
         Path.Combine(GetQuasarDirectory(), "Logs");
 
-    public static string GetQuasarServerLogDirectory(string uniqueName) =>
-        Path.Combine(GetQuasarLogDirectory(), "Magnetars", SanitizePathSegment(uniqueName));
-
     public static string GetQuasarSupervisorStatePath() =>
         Path.Combine(GetQuasarDirectory(), "supervisor-state.json");
 
