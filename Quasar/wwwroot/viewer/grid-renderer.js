@@ -214,7 +214,7 @@ function floorGridAlignment(scene) {
 
     const primary = primaryGrid(scene) || scene.grid || {};
     const primaryId = String(primary.id || "");
-    const gridSize = primary.gridSize || LARGE_GRID_CUBE_SIZE;
+    const gridSize = floorGridMajorStep(scene);
     let minX = Infinity;
     let maxX = -Infinity;
     let minZ = Infinity;
@@ -246,7 +246,9 @@ function floorGridAlignment(scene) {
 }
 
 function floorGridMajorStep(scene) {
-    return standaloneVoxelBody(scene) ? ASTEROID_GRID_CUBE_SIZE : primaryGrid(scene)?.gridSize || scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
+    if (standaloneVoxelBody(scene)) return ASTEROID_GRID_CUBE_SIZE;
+    if (scene.context && scene.context.enabled) return LARGE_GRID_CUBE_SIZE;
+    return primaryGrid(scene)?.gridSize || scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
 }
 
 function floorAxisOffset(cellCount, gridSize) {
