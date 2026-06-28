@@ -95,6 +95,8 @@ public class ViewerLogisticsNode
     public bool HasInventory { get; set; }
 
     public int InventoryCount { get; set; }
+
+    public int ConveyorPortCount { get; set; }
 }
 
 public class ViewerLogisticsEdge

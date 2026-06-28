@@ -204,8 +204,8 @@
       "path": "Magnetar.Protocol/Model/ViewerSceneDtos.cs",
       "name": "ViewerSceneDtos.cs",
       "ext": ".cs",
-      "size": 16971,
-      "sha256": "8b0bf96d035c34d8504ebf26ddf549df34ea5db2fcb2a056d63655b3b7686a45",
+      "size": 17019,
+      "sha256": "5a4ae5b8474f377ab2961ca28df4f3dd13e07017401b54e696d8996c5cfd14d5",
       "module": "Magnetar.Protocol",
       "tier": 1,
       "status": "pending"
@@ -394,8 +394,8 @@
       "path": "Quasar.Agent/GridRenderSceneInspector.cs",
       "name": "GridRenderSceneInspector.cs",
       "ext": ".cs",
-      "size": 114731,
-      "sha256": "3aa9e1c76f7f51503f2d558b0ca53a7b3a6f8890b371eae75a0cc51a05b59b73",
+      "size": 114800,
+      "sha256": "3cb0edeab471247e5751800f5315f39754bcbea74646c48ba3fd55dbbae45178",
       "module": "Quasar.Agent",
       "tier": 1,
       "status": "pending"
@@ -2264,8 +2264,8 @@
       "path": "Quasar/wwwroot/viewer/scene.js",
       "name": "scene.js",
       "ext": ".js",
-      "size": 31391,
-      "sha256": "05d5964fce5baf21a0305ffd264b2f16f5cbcfde54f98a7ea6ced9646dd8e5bc",
+      "size": 31481,
+      "sha256": "c48beb09f3dcc55244cb10a560208acc32f91e8cafd60652a5d74ec2af2f77b6",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"

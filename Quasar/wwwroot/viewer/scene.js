@@ -601,6 +601,7 @@ function describeLogistics(item) {
 
 function logisticsSystemId(item) {
     if (!item || !item.value) return null;
+    if (item.kind === "node" && !(Number(item.value.conveyorPortCount) > 0)) return null;
     const id = Number(item.value.systemId);
     return Number.isFinite(id) && id >= 0 ? id : null;
 }

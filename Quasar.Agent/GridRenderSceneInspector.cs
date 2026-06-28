@@ -1341,6 +1341,7 @@ namespace Quasar.Agent
                         IsWorking = (fatBlock as MyFunctionalBlock)?.IsWorking ?? true,
                         HasInventory = fatBlock.HasInventory,
                         InventoryCount = fatBlock.InventoryCount,
+                        ConveyorPortCount = endpoint.GetLineCount(),
                     };
 
                     logistics.Nodes.Add(node);
