@@ -2,6 +2,8 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using PluginSdk.Logging;
 
 namespace Quasar.Agent
@@ -24,6 +26,7 @@ namespace Quasar.Agent
         // bound, and so a single wire message stays a reasonable size.
         private const int MaxBufferedLines = 10000;
         private const int MaxBatchLines = 500;
+        private const string SuppressedPluginName = "Magnetar";
 
         private readonly ConcurrentQueue<string> _queue = new ConcurrentQueue<string>();
         private int _count;
@@ -51,6 +54,9 @@ namespace Quasar.Agent
             if (string.IsNullOrEmpty(line))
                 return;
 
+            if (IsSuppressedPluginLog(line))
+                return;
+
             _queue.Enqueue(line);
 
             // Trim from the front if we are over the cap (drop oldest first).
@@ -58,6 +64,27 @@ namespace Quasar.Agent
                 _queue.TryDequeue(out _))
             {
                 Interlocked.Decrement(ref _count);
+            }
+        }
+
+        private static bool IsSuppressedPluginLog(string line)
+        {
+            var trimmed = line.TrimStart();
+            if (trimmed.Length == 0 ||
+                trimmed[0] != '{' ||
+                trimmed.IndexOf("\"plugin\"", StringComparison.Ordinal) < 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                var plugin = JObject.Parse(trimmed).Value<string>("plugin");
+                return string.Equals(plugin, SuppressedPluginName, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (JsonException)
+            {
+                return false;
             }
         }
 

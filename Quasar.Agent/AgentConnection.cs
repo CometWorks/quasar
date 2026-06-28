@@ -87,7 +87,7 @@ namespace Quasar.Agent
             {
                 try
                 {
-                    var baseUri = await _locator.EnsureWebServiceAsync(cancellationToken).ConfigureAwait(false);
+                    var baseUri = await WebServiceLocator.EnsureWebServiceAsync().ConfigureAwait(false);
                     if (baseUri != null)
                     {
                         using (var socket = new ClientWebSocket())

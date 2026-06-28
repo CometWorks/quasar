@@ -1,6 +1,7 @@
 @page "/world-templates"
 @implements IDisposable
 @inject QuasarWorldTemplateCatalog WorldTemplateCatalog
+@inject QuasarConfigProfileCatalog ConfigProfiles
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject WorldTemplateImportLocationService ImportLocations
@@ -172,6 +173,13 @@
                         <MudTd DataLabel="Description">@context.Template.Description</MudTd>
                         <MudTd DataLabel="" Class="quasar-actions-column">
                             <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
+                                <MudTooltip Text="Create config profile from world settings">
+                                    <MudIconButton Icon="@Icons.Material.Filled.SettingsApplications"
+                                                   Color="Color.Primary"
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => CreateConfigProfileFromTemplateAsync(context))"
+                                                   Disabled="@(!context.WorldExists || _importing)" />
+                                </MudTooltip>
                                 <MudTooltip Text="Clone template">
                                     <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
                                                    Color="Color.Default"
@@ -251,12 +259,17 @@
             return;
         }
 
+        var profilePrompt = await PromptForConfigProfileAsync(_name.Trim(), _sourcePath.Trim(), allowSkip: true);
+        if (profilePrompt.Canceled)
+            return;
+
         _importing = true;
         try
         {
             await WorldTemplateCatalog.ImportAsync(_name, _description, _sourcePath);
             Snackbar.Add($"World template '{_name}' imported.", Severity.Success);
             ResetForm();
+            await CreateConfigProfileAsync(profilePrompt.Profile);
         }
         catch (Exception ex)
         {
@@ -290,11 +303,16 @@
 
     private async Task ImportInstalledTemplateAsync(InstalledWorldTemplateSource source)
     {
+        var profilePrompt = await PromptForConfigProfileAsync(source.DisplayName, source.SourcePath, allowSkip: true);
+        if (profilePrompt.Canceled)
+            return;
+
         _importing = true;
         try
         {
             var template = await WorldTemplateCatalog.ImportAsync(source.DisplayName, source.Description, source.SourcePath);
             Snackbar.Add($"World template '{template.Name}' added.", Severity.Success);
+            await CreateConfigProfileAsync(profilePrompt.Profile);
         }
         catch (Exception ex)
         {
@@ -304,6 +322,88 @@
         {
             _importing = false;
         }
+    }
+
+    private async Task CreateConfigProfileFromTemplateAsync(WorldTemplateRow row)
+    {
+        if (!row.WorldExists)
+            return;
+
+        var sourceDir = WorldTemplateCatalog.GetWorldDirectory(row.Template.WorldTemplateId);
+        var profilePrompt = await PromptForConfigProfileAsync(row.Template.Name, sourceDir, allowSkip: false);
+        if (profilePrompt.Canceled || profilePrompt.Profile is null)
+            return;
+
+        _importing = true;
+        try
+        {
+            await CreateConfigProfileAsync(profilePrompt.Profile);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _importing = false;
+        }
+    }
+
+    private async Task<(bool Canceled, QuasarConfigProfile? Profile)> PromptForConfigProfileAsync(
+        string worldName,
+        string worldPath,
+        bool allowSkip)
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(WorldTemplateConfigProfileDialog.WorldName)] = worldName,
+            [nameof(WorldTemplateConfigProfileDialog.WorldPath)] = worldPath,
+            [nameof(WorldTemplateConfigProfileDialog.AllowSkip)] = allowSkip,
+        };
+
+        var dialog = await DialogService.ShowAsync<WorldTemplateConfigProfileDialog>(
+            "Config Profile From World",
+            parameters,
+            new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true });
+
+        var result = await dialog.Result;
+        if (result is null || result.Canceled)
+            return (true, null);
+
+        if (result.Data is WorldTemplateConfigProfileDialog.WorldTemplateConfigProfileDialogResult profileResult)
+            return (false, profileResult.Profile);
+
+        return (false, null);
+    }
+
+    private async Task<string?> CreateConfigProfileAsync(QuasarConfigProfile? profile)
+    {
+        if (profile is null)
+            return null;
+
+        await ConfigProfiles.UpsertAsync(profile);
+        Snackbar.Add($"Config profile '{profile.Name}' created from world settings.", Severity.Success);
+        await OpenConfigProfileEditorAsync(profile.ConfigProfileId);
+        return profile.ConfigProfileId;
+    }
+
+    private async Task OpenConfigProfileEditorAsync(string configProfileId)
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(ConfigsPageDialog.InitialProfileId)] = configProfileId,
+        };
+
+        var dialog = await DialogService.ShowAsync<ConfigsPageDialog>(
+            "Config Profiles",
+            parameters,
+            new DialogOptions
+            {
+                CloseOnEscapeKey = true,
+                FullScreen = true,
+            });
+
+        await dialog.Result;
     }
 
     private async Task OpenFolderPickerAsync()

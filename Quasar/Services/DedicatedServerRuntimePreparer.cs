@@ -698,7 +698,7 @@ public sealed class DedicatedServerRuntimePreparer
         {
             "-noconsole",
             // Detach Magnetar from Quasar's session (Linux setsid / Windows FreeConsole),
-            // in place so the PID and stdout/stderr pipes stay valid. This keeps managed
+            // in place so the PID and stdout pipe stay valid. This keeps managed
             // servers alive when Quasar stops and shields them from terminal-driven signals.
             "-daemon",
         };

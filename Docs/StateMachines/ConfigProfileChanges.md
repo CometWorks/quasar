@@ -38,6 +38,11 @@ stateDiagram-v2
 (atomic swap). External edits to the JSON are picked up by a debounced
 file-watch reload (`ScheduleReload`).
 
+**World-template import.** The world-template UI can derive a new config profile
+from a template's current `Sandbox_config.sbc`. It imports DS-visible session
+settings and workshop mods, then persists the result through the same
+`UpsertAsync` path.
+
 **Live vs restart-required.** Changes that the running server/agent can apply
 dynamically go live immediately; changes flagged restart-required are applied on
 the next server start via reconciliation (see

@@ -14,6 +14,7 @@ public sealed class PluginLogStream
 {
     /// <summary>Maximum entries retained per server server.</summary>
     public const int MaxEntriesPerServer = 10_000;
+    private const string SuppressedPluginName = "Magnetar";
 
     private readonly object _sync = new();
     private readonly Dictionary<string, Queue<PluginLogEntry>> _byUniqueName =
@@ -24,8 +25,12 @@ public sealed class PluginLogStream
     /// <summary>Appends one entry, evicting the oldest beyond the per-server cap.</summary>
     public void Append(PluginLogEntry entry)
     {
-        if (entry is null || string.IsNullOrWhiteSpace(entry.UniqueName))
+        if (entry is null ||
+            string.IsNullOrWhiteSpace(entry.UniqueName) ||
+            IsSuppressedPluginName(entry.Plugin))
+        {
             return;
+        }
 
         lock (_sync)
         {
@@ -52,7 +57,7 @@ public sealed class PluginLogStream
         lock (_sync)
         {
             return _byUniqueName.TryGetValue(uniqueName, out var queue)
-                ? queue.ToArray()
+                ? queue.Where(IsVisibleEntry).ToArray()
                 : Array.Empty<PluginLogEntry>();
         }
     }
@@ -64,6 +69,7 @@ public sealed class PluginLogStream
         {
             return _byUniqueName.Values
                 .SelectMany(queue => queue)
+                .Where(IsVisibleEntry)
                 .OrderByDescending(entry => entry.TimestampUtc)
                 .Take(limit)
                 .ToList();
@@ -75,6 +81,7 @@ public sealed class PluginLogStream
         lock (_sync)
         {
             return _byUniqueName.Keys
+                .Where(uniqueName => _byUniqueName.TryGetValue(uniqueName, out var queue) && queue.Any(IsVisibleEntry))
                 .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
@@ -86,6 +93,7 @@ public sealed class PluginLogStream
         {
             return _byUniqueName.Values
                 .SelectMany(queue => queue)
+                .Where(IsVisibleEntry)
                 .Select(entry => entry.Plugin)
                 .Where(name => !string.IsNullOrWhiteSpace(name))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -99,7 +107,9 @@ public sealed class PluginLogStream
         var limit = Math.Clamp(query.Limit, 1, MaxEntriesPerServer);
         lock (_sync)
         {
-            IEnumerable<PluginLogEntry> entries = _byUniqueName.Values.SelectMany(queue => queue);
+            IEnumerable<PluginLogEntry> entries = _byUniqueName.Values
+                .SelectMany(queue => queue)
+                .Where(IsVisibleEntry);
 
             if (!string.IsNullOrWhiteSpace(query.UniqueName))
                 entries = entries.Where(entry => string.Equals(entry.UniqueName, query.UniqueName, StringComparison.OrdinalIgnoreCase));
@@ -226,6 +236,12 @@ public sealed class PluginLogStream
             return false;
         }
     }
+
+    private static bool IsVisibleEntry(PluginLogEntry entry) =>
+        !IsSuppressedPluginName(entry.Plugin);
+
+    private static bool IsSuppressedPluginName(string? pluginName) =>
+        string.Equals(pluginName, SuppressedPluginName, StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed record PluginLogQuery
