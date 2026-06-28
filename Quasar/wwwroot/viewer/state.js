@@ -34,7 +34,7 @@ export const state = {
     currentFloorGridAlignment: null,
     viewTransform: null,
     viewRotation: null,
-    sceneRenderCounts: { modelMeshes: 0, proxyMeshes: 0, voxelProxies: 0, voxelMeshChunks: 0, voxelMeshParts: 0, voxelMeshVertices: 0, voxelMeshTriangles: 0, voxelClippedChunks: 0, voxelClippedPolygons: 0 },
+    sceneRenderCounts: { modelMeshes: 0, proxyMeshes: 0, voxelProxies: 0, voxelMeshChunks: 0, voxelMeshParts: 0, voxelMeshVertices: 0, voxelMeshTriangles: 0 },
     lastScene: null,
     contentFolder: null,
     contentFolderName: "",

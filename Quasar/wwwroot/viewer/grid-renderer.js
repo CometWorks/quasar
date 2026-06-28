@@ -88,8 +88,6 @@ export async function renderGridScene(scene) {
     state.stats["Voxel mesh parts"] = state.sceneRenderCounts.voxelMeshParts;
     state.stats["Voxel mesh vertices"] = state.sceneRenderCounts.voxelMeshVertices;
     state.stats["Voxel mesh triangles"] = state.sceneRenderCounts.voxelMeshTriangles;
-    state.stats["Voxel chunks clipped"] = state.sceneRenderCounts.voxelClippedChunks;
-    state.stats["Voxel polygons clipped"] = state.sceneRenderCounts.voxelClippedPolygons;
     state.stats["Voxel materials"] = (scene.voxelMaterials || []).length;
     state.stats["Context mode"] = scene.context && scene.context.enabled ? "on" : "off";
     state.stats["Context grids"] = scene.context && scene.context.enabled ? num(scene.context.gridCount, gridGroups.size) : 0;
@@ -634,8 +632,6 @@ function renderVoxelBodies(voxels, voxelChunks, voxelMaterials) {
     state.sceneRenderCounts.voxelMeshParts = 0;
     state.sceneRenderCounts.voxelMeshVertices = 0;
     state.sceneRenderCounts.voxelMeshTriangles = 0;
-    state.sceneRenderCounts.voxelClippedChunks = 0;
-    state.sceneRenderCounts.voxelClippedPolygons = 0;
     if (!voxels.length && !voxelChunks.length) return;
 
     const group = new THREE.Group();
@@ -652,14 +648,8 @@ function renderVoxelBodies(voxels, voxelChunks, voxelMaterials) {
     let failedVoxelChunks = 0;
     for (const chunk of voxelChunks) {
         const voxel = voxelBodiesById.get(String(chunk.voxelBodyId || ""));
-        const diagnostics = { clippedChunk: false, surfacePolygons: 0, clippedPolygons: 0, emittedPolygons: 0 };
-        const mesh = createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex, diagnostics);
-        state.sceneRenderCounts.voxelClippedPolygons += diagnostics.clippedPolygons;
+        const mesh = createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex);
         if (!mesh) {
-            if (diagnostics.clippedChunk || diagnostics.surfacePolygons > 0 && diagnostics.emittedPolygons === 0 && diagnostics.clippedPolygons > 0) {
-                state.sceneRenderCounts.voxelClippedChunks++;
-                continue;
-            }
             failedVoxelChunks++;
             if (failedVoxelChunks <= 5) log(`Voxel chunk ${chunk.chunkId || "chunk"} for ${chunk.voxelBodyId || "unknown"} produced no mesh: ${describeVoxelDataChunk(chunk, voxel)}.`, true);
             continue;
@@ -670,8 +660,8 @@ function renderVoxelBodies(voxels, voxelChunks, voxelMaterials) {
         state.sceneRenderCounts.voxelMeshChunks++;
     }
 
-    if (failedVoxelChunks > 0 && state.sceneRenderCounts.voxelMeshChunks === 0) {
-        log(`Received ${failedVoxelChunks} voxel data chunk(s), but none produced renderable terrain.`, true);
+    if (voxelChunks.length && state.sceneRenderCounts.voxelMeshChunks === 0) {
+        log(`Received ${voxelChunks.length} voxel data chunk(s), but none produced renderable terrain.`, true);
     } else if (failedVoxelChunks > 0) {
         log(`Skipped ${failedVoxelChunks} voxel data chunk(s) that produced no terrain triangles.`, true);
     }
@@ -693,7 +683,7 @@ function renderVoxelBodies(voxels, voxelChunks, voxelMaterials) {
     if (proxyGroup.children.length) group.add(proxyGroup);
 }
 
-function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex, diagnostics) {
+function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex) {
     const content = voxelByteArray(chunk.content);
     const materials = voxelByteArray(chunk.materials);
     const size = chunk.size || {};
@@ -702,10 +692,7 @@ function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex, diagnosti
     const sz = Math.max(0, Math.floor(num(size.z, 0)));
     const lodScale = Math.max(1, 2 ** Math.max(0, Math.floor(num(chunk.lod, 0))));
     const expectedSamples = sx * sy * sz;
-    if (sx < 2 || sy < 2 || sz < 2) {
-        if (diagnostics && content.length >= expectedSamples) diagnostics.clippedChunk = true;
-        return null;
-    }
+    if (sx < 2 || sy < 2 || sz < 2) return null;
     if (content.length < expectedSamples) return null;
 
     const storageMin = chunk.storageMin || {};
@@ -726,7 +713,7 @@ function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex, diagnosti
         for (let y = 0; y < sy - 1; y++) {
             for (let x = 0; x < sx - 1; x++) {
                 fillVoxelCubeScratch(cube, x, y, z, sx, sy, sz, content, materials, worldOrigin, lodScale, viewTransform);
-                polygonizeVoxelCube(cube, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds, diagnostics);
+                polygonizeVoxelCube(cube, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds);
             }
         }
     }
@@ -830,14 +817,14 @@ function sampleVoxelContent(content, x, y, z, sx, sy, sz) {
     return num(content[px + sx * (py + sy * pz)], 0);
 }
 
-function polygonizeVoxelCube(cube, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds, diagnostics) {
+function polygonizeVoxelCube(cube, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds) {
     for (const tetra of VOXEL_TETRAHEDRA) {
         const vertices = tetra.map(index => cube[index]);
-        polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds, diagnostics);
+        polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds);
     }
 }
 
-function polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds, diagnostics) {
+function polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds) {
     const inside = [];
     const outside = [];
     for (const vertex of vertices) {
@@ -853,19 +840,19 @@ function polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByVoxelP
         const a = interpolateVoxelEdge(inside[0], outside[0]);
         const b = interpolateVoxelEdge(inside[0], outside[1]);
         const c = interpolateVoxelEdge(inside[0], outside[2]);
-        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, true, clipBounds, diagnostics);
+        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, true, clipBounds);
     } else if (insideCount === 3) {
         const a = interpolateVoxelEdge(outside[0], inside[0]);
         const b = interpolateVoxelEdge(outside[0], inside[1]);
         const c = interpolateVoxelEdge(outside[0], inside[2]);
-        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, false, clipBounds, diagnostics);
+        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, false, clipBounds);
     } else {
         const a = interpolateVoxelEdge(inside[0], outside[0]);
         const b = interpolateVoxelEdge(inside[1], outside[0]);
         const c = interpolateVoxelEdge(inside[1], outside[1]);
         const d = interpolateVoxelEdge(inside[0], outside[1]);
-        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, false, clipBounds, diagnostics);
-        addVoxelTriangle(a, c, d, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, false, clipBounds, diagnostics);
+        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, false, clipBounds);
+        addVoxelTriangle(a, c, d, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, false, clipBounds);
     }
 }
 
@@ -883,15 +870,10 @@ function createVoxelSurfaceVertex(aPosition, bPosition, aNormal, bNormal, t) {
     return vertex;
 }
 
-function addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, reverse, clipBounds, diagnostics) {
+function addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, reverse, clipBounds) {
     const polygon = reverse ? [a, c, b] : [a, b, c];
     const clipped = orientVoxelPolygon(clipVoxelPolygonToFloor(polygon, clipBounds));
-    if (diagnostics) diagnostics.surfacePolygons++;
-    if (clipped.length < 3) {
-        if (diagnostics) diagnostics.clippedPolygons++;
-        return;
-    }
-    if (diagnostics) diagnostics.emittedPolygons++;
+    if (clipped.length < 3) return;
 
     const projection = voxelUvProjection(clipped);
     const partKey = voxelPartKey(material, projection);
