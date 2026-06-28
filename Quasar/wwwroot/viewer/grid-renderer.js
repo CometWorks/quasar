@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { els, state } from "./state.js";
-import { blockBox, boundsToBox3, createBoxMesh } from "./geometry.js";
+import { blockBox, boundsToBox3 } from "./geometry.js";
 import { colorFromHash, matrixDtoToThree, num, vec3 } from "./math.js";
 import { ASTEROID_GRID_CUBE_SIZE, LARGE_GRID_CUBE_SIZE, disposeObjectTree, fitCameraToScene, floorGridLayout, updateLighting, updateSceneBounds, updateSunLightPosition } from "./scene.js";
 import { resolveModelAsset } from "./mwm-loader.js";
@@ -48,6 +48,9 @@ export async function renderGridScene(scene) {
     configureRelativeView(scene);
     configureEnvironment(scene);
 
+    const definitions = new Map((scene.blockDefinitions || []).map(definition => [definition.id, definition]));
+    const modelAssets = new Map((scene.modelAssets || []).map(asset => [asset.assetId, asset]));
+
     const group = new THREE.Group();
     group.name = "QuasarGrids";
     group.matrixAutoUpdate = false;
@@ -56,11 +59,9 @@ export async function renderGridScene(scene) {
     state.scene.add(group);
     const gridGroups = buildGridGroups(scene, group);
     state.currentGridSize = floorGridMajorStep(scene);
-    renderLogisticsOverlay(scene, gridGroups);
+    renderLogisticsOverlay(scene, gridGroups, definitions);
     buildGridLightGroups(scene, gridGroups);
 
-    const definitions = new Map((scene.blockDefinitions || []).map(definition => [definition.id, definition]));
-    const modelAssets = new Map((scene.modelAssets || []).map(asset => [asset.assetId, asset]));
     const renderTextureToken = ++textureStatsToken;
     state.modelResolution.clear();
     const textureStats = initializeTextureStats(collectReferencedTextureAssets(scene));
@@ -185,6 +186,7 @@ function createProgressiveModelRender(scene, definitions, gridGroups, textureTok
                     }
                 }
             }
+            renderLogisticsOverlay(scene, gridGroups, definitions);
             progress.lastRenderStats = nextLayer.stats;
             state.sceneRenderCounts.modelMeshes = nextLayer.stats.modelMeshes;
             state.sceneRenderCounts.proxyMeshes = nextLayer.stats.proxyMeshes;
@@ -362,7 +364,13 @@ function buildGridGroups(scene, root) {
     return groups;
 }
 
-function renderLogisticsOverlay(scene, gridGroups) {
+function renderLogisticsOverlay(scene, gridGroups, definitions) {
+    if (state.logisticsGroup) {
+        if (state.logisticsGroup.parent) state.logisticsGroup.parent.remove(state.logisticsGroup);
+        disposeObjectTree(state.logisticsGroup);
+        state.logisticsGroup = null;
+    }
+
     const logistics = scene.logistics || {};
     const nodes = logistics.nodes || [];
     const edges = logistics.edges || [];
@@ -384,14 +392,18 @@ function renderLogisticsOverlay(scene, gridGroups) {
     if (!nodes.length && !edges.length) return;
 
     const nodeById = new Map(nodes.map(node => [String(node.id || ""), node]));
+    const blockById = new Map((scene.blockInstances || []).map(block => [String(block.id || ""), block]));
+    const maskRenderContext = createRenderContext(textureStatsToken);
     for (const edge of edges) {
         const line = createLogisticsEdge(edge);
         if (line) group.add(line);
     }
 
     for (const node of nodes) {
-        const highlight = createLogisticsNodeHighlight(node, nodeById);
-        if (highlight) group.add(highlight);
+        const block = blockById.get(String(node.blockId || node.id || ""));
+        const definition = block && definitions && definitions.get(block.blockTypeId);
+        const masks = createLogisticsNodeMasks(node, block, definition, maskRenderContext);
+        for (const mask of masks) group.add(mask);
     }
 }
 
@@ -403,48 +415,81 @@ function createLogisticsEdge(edge) {
     const color = colorFromHash(`logistics-system:${num(edge.systemId, -1)}`);
     const opacity = edge.isWorking === false ? 0.22 : 0.85;
     const material = edge.isSmallRestricted
-        ? new THREE.LineDashedMaterial({ color, transparent: true, opacity, dashSize: Math.max(0.12, state.currentGridSize * 0.18), gapSize: Math.max(0.08, state.currentGridSize * 0.12), depthWrite: false })
-        : new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
+        ? new THREE.LineDashedMaterial({ color, transparent: true, opacity, dashSize: Math.max(0.12, state.currentGridSize * 0.18), gapSize: Math.max(0.08, state.currentGridSize * 0.12), depthTest: false, depthWrite: false })
+        : new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false });
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     const line = new THREE.Line(geometry, material);
     line.name = `LogisticsEdge:${edge.id || "edge"}`;
-    line.renderOrder = 20;
+    line.renderOrder = 30;
     line.frustumCulled = false;
     line.userData.logisticsEdge = edge;
     if (edge.isSmallRestricted) line.computeLineDistances();
     return line;
 }
 
-function createLogisticsNodeHighlight(node) {
-    if (!node) return null;
+function createLogisticsNodeMasks(node, block, definition, renderContext) {
+    if (!node || !block) return [];
     const role = String(node.role || "other").toLowerCase();
-    const box = blockBox(node, state.currentGridSize || LARGE_GRID_CUBE_SIZE);
-    if (box.isEmpty()) return null;
-
     const color = logisticsRoleColor(role, node.systemId);
     const isPlainConveyor = role === "conveyor" || role === "other";
+    const material = sharedLogisticsMaskMaterial(color, node.isWorking === false ? 0.14 : isPlainConveyor ? 0.2 : 0.36, renderContext);
+    const masks = [];
+    if (block.modelParts && block.modelParts.length) {
+        for (const part of block.modelParts) {
+            masks.push(...createLogisticsModelMaskMeshes(part.modelAssetId, block, node, matrixDtoToThree(part.localMatrix), part.patternOffset, material, renderContext));
+        }
+    } else {
+        const assetId = block.currentModelAssetId || (definition && definition.modelAssetId) || "";
+        masks.push(...createLogisticsModelMaskMeshes(assetId, block, node, composeModelInstanceMatrix(block, definition), null, material, renderContext));
+    }
+
+    for (const subpart of block.subparts || []) {
+        masks.push(...createLogisticsModelMaskMeshes(subpart.modelAssetId, block, node, matrixDtoToThree(subpart.localMatrix), null, material, renderContext));
+    }
+    return masks;
+}
+
+function sharedLogisticsMaskMaterial(color, opacity, renderContext) {
+    const key = `logistics-mask:${color.getHexString()}:${opacity.toFixed(3)}`;
+    if (renderContext.materials.has(key)) return renderContext.materials.get(key);
     const material = new THREE.MeshBasicMaterial({
         color,
         transparent: true,
-        opacity: node.isWorking === false ? 0.08 : isPlainConveyor ? 0.06 : 0.16,
+        opacity,
+        depthTest: false,
         depthWrite: false,
+        side: THREE.DoubleSide,
     });
-    const mesh = createBoxMesh(box, material);
-    mesh.name = `LogisticsNode:${node.id || "node"}`;
-    mesh.renderOrder = 18;
+    material.userData.renderCacheKey = key;
+    renderContext.materials.set(key, material);
+    return material;
+}
+
+function createLogisticsModelMaskMeshes(assetId, block, node, matrix, patternOffset, material, renderContext) {
+    const resolved = assetId ? state.modelResolution.get(assetId) : null;
+    const model = resolved && resolved.status === "parsed" ? resolved.model : null;
+    if (!model) return [];
+
+    const groups = model.groups.filter(group => {
+        if (isOfflineHiddenLcdMaterial(block, group.materialName)) return false;
+        if (isResetLcdModelMaterialHidden(block, group.materialName)) return false;
+        if (isLcdModelFallbackMaterialHidden(block, group.materialName)) return false;
+        return true;
+    });
+    if (!groups.length) return [];
+
+    const geometry = sharedModelGeometry(model, patternOffset, renderContext, groups, "logistics-mask");
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `LogisticsNodeMask:${node.id || block.id || "node"}`;
+    mesh.matrixAutoUpdate = false;
+    mesh.matrix.copy(matrix);
+    mesh.renderOrder = 28;
+    mesh.frustumCulled = false;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.userData.block = block;
     mesh.userData.logisticsNode = node;
-
-    const outline = new THREE.Box3Helper(box, color);
-    outline.name = `LogisticsNodeOutline:${node.id || "node"}`;
-    outline.material.transparent = true;
-    outline.material.opacity = node.isWorking === false ? 0.25 : isPlainConveyor ? 0.35 : 0.85;
-    outline.renderOrder = 19;
-    outline.userData.logisticsNode = node;
-
-    const group = new THREE.Group();
-    group.add(mesh, outline);
-    group.userData.logisticsNode = node;
-    return group;
+    return [mesh];
 }
 
 function logisticsRoleColor(role, systemId) {
