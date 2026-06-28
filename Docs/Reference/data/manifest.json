@@ -394,8 +394,8 @@
       "path": "Quasar.Agent/GridRenderSceneInspector.cs",
       "name": "GridRenderSceneInspector.cs",
       "ext": ".cs",
-      "size": 114662,
-      "sha256": "32eeb5ff666289ee9fe87c6cf23d26f866064f1e4edb0297012e41651468006a",
+      "size": 114731,
+      "sha256": "3aa9e1c76f7f51503f2d558b0ca53a7b3a6f8890b371eae75a0cc51a05b59b73",
       "module": "Quasar.Agent",
       "tier": 1,
       "status": "pending"

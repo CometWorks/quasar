@@ -1538,8 +1538,12 @@ namespace Quasar.Agent
             var adjacency = nodes.Keys.ToDictionary(id => id, _ => new List<string>(), StringComparer.Ordinal);
             foreach (var edge in logistics.Edges)
             {
+                if (!edge.IsWorking)
+                    continue;
+
                 if (!adjacency.ContainsKey(edge.FromNodeId) || !adjacency.ContainsKey(edge.ToNodeId))
                     continue;
+
                 adjacency[edge.FromNodeId].Add(edge.ToNodeId);
                 adjacency[edge.ToNodeId].Add(edge.FromNodeId);
             }
