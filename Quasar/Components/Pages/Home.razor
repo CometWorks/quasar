@@ -153,11 +153,11 @@
                                 <MudText Typo="Typo.body2">
                                     @if (WorldTemplateCount > 0)
                                     {
-                                        @($"{WorldTemplateCount} world template(s) ready to seed server worlds on first launch.")
+                                    @($"{WorldTemplateCount} world template(s) ready for creating server saves.")
                                     }
                                     else
                                     {
-                                        @("Optional helper. Import a world template if first launch should seed the server world folder automatically.")
+                                        @("Optional helper. Import a world template to create server saves from it.")
                                     }
                                 </MudText>
                             </MudStack>
@@ -294,7 +294,7 @@
                                     {
                                         <MudButton Variant="Variant.Filled"
                                                    Color="Color.Primary"
-                                                   Disabled="@IsLaunchBlocked"
+                                                   Disabled="@(IsLaunchBlocked || string.IsNullOrWhiteSpace(server.WorldSaveName))"
                                                    StartIcon="@Icons.Material.Filled.PlayArrow"
                                                    OnClick="@(() => StartAsync(server.UniqueName))">
                                             Start @server.UniqueName
@@ -782,7 +782,7 @@ else
         if (ConfiguredServerCount == 0)
         {
             if (ConfigProfileCount == 0 && WorldTemplateCount == 0)
-                return "Optional: create config profile or import world template here first. Then create first server below.";
+                return "Optional: create config profile or import world template here first. Then create a server and select or create its save.";
 
             return "Next: create first server below. No page switch needed.";
         }
@@ -897,6 +897,14 @@ else
                 return;
             }
 
+            var definition = ServerCatalog.GetServer(uniqueName);
+            var worldBlockMessage = GetWorldLaunchBlockMessage(definition);
+            if (worldBlockMessage is not null)
+            {
+                Snackbar.Add(worldBlockMessage, Severity.Warning);
+                return;
+            }
+
             await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.On, reconcile: false);
             await Supervisor.StartServerAsync(uniqueName);
             Snackbar.Add($"Start requested for '{uniqueName}'.", Severity.Success);
@@ -912,6 +920,23 @@ else
         _ = RuntimeWarmup.RetryAsync();
         Snackbar.Add("Dedicated Server download retry started.", Severity.Info);
         return Task.CompletedTask;
+    }
+
+    private static string? GetWorldLaunchBlockMessage(DedicatedServerDefinition? definition)
+    {
+        if (definition is null)
+            return "Server definition not found.";
+
+        if (string.IsNullOrWhiteSpace(definition.WorldSaveName))
+            return "Select a world save before starting this server.";
+
+        var worldPath = definition.GetWorldSavePath();
+        if (string.IsNullOrWhiteSpace(worldPath) || !Directory.Exists(worldPath))
+            return $"World save folder not found: {worldPath}";
+
+        return File.Exists(Path.Combine(worldPath, "Sandbox.sbc"))
+            ? null
+            : $"World save '{worldPath}' is missing Sandbox.sbc.";
     }
 
     private async Task StopAsync(string uniqueName)
@@ -1044,9 +1069,9 @@ else
             ? "No config profile"
             : ConfigProfiles.GetProfile(server.ConfigProfileId)?.Name ?? $"Missing config: {server.ConfigProfileId}";
 
-        var worldTemplateName = string.IsNullOrWhiteSpace(server.WorldTemplateId)
-            ? "No world template"
-            : WorldTemplates.GetTemplate(server.WorldTemplateId)?.Name ?? $"Missing world: {server.WorldTemplateId}";
+        var worldTemplateName = string.IsNullOrWhiteSpace(server.WorldSaveName)
+            ? "No world save"
+            : $"Save: {server.WorldSaveName}";
 
         return $"{configProfileName} | {worldTemplateName}";
     }

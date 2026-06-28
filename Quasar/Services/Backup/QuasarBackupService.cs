@@ -509,13 +509,15 @@ public sealed class QuasarBackupService
         WriteEntry(archive, ServerDefinitionEntryName, JsonSerializer.SerializeToUtf8Bytes(definition, JsonOptions));
 
         var dedicatedServerAppDataRoot = Path.GetFullPath(definition.DedicatedServerAppDataPath);
-        var worldRoot = Path.GetFullPath(definition.WorldPath);
+        var savesRoot = string.IsNullOrWhiteSpace(definition.WorldPath)
+            ? string.Empty
+            : Path.GetFullPath(definition.WorldPath);
         AddDirectory(
             archive,
             DedicatedServerPrefix,
             definition.DedicatedServerAppDataPath,
             cancellationToken,
-            sourcePath => IsExcludedDedicatedServerBackupPath(dedicatedServerAppDataRoot, worldRoot, sourcePath));
+            sourcePath => IsExcludedDedicatedServerBackupPath(dedicatedServerAppDataRoot, savesRoot, sourcePath));
         AddDirectory(
             archive,
             MagnetarPrefix,
@@ -532,12 +534,13 @@ public sealed class QuasarBackupService
         bool includeWorldConfig,
         CancellationToken cancellationToken)
     {
+        var worldPath = RequireWorldSavePath(definition);
         WriteServerManifest(archive, definition, timestamp, QuasarBackupKind.World);
         WriteEntry(archive, ServerDefinitionEntryName, JsonSerializer.SerializeToUtf8Bytes(definition, JsonOptions));
         AddDirectory(
             archive,
             WorldPrefix,
-            ResolveWorldSnapshotSource(definition.WorldPath),
+            ResolveWorldSnapshotSource(worldPath),
             cancellationToken,
             includeWorldConfig ? null : IsWorldConfigPath);
     }
@@ -736,7 +739,7 @@ public sealed class QuasarBackupService
                 if (!includeWorldConfig && IsWorldConfigEntry(entry.FullName[WorldPrefix.Length..]))
                     continue;
 
-                destination = ResolvePrefixedExtractionTarget(entry.FullName, WorldPrefix, target.WorldPath);
+                destination = ResolvePrefixedExtractionTarget(entry.FullName, WorldPrefix, RequireWorldSavePath(target));
             }
 
             if (destination is null)
@@ -797,6 +800,7 @@ public sealed class QuasarBackupService
         CancellationToken cancellationToken)
     {
         var restored = 0;
+        var targetWorldPath = RequireWorldSavePath(target);
         foreach (var entry in archive.Entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -807,7 +811,7 @@ public sealed class QuasarBackupService
             if (!includeWorldConfig && IsWorldConfigEntry(relative))
                 continue;
 
-            var destination = ResolvePrefixedExtractionTarget(entry.FullName, WorldPrefix, target.WorldPath);
+            var destination = ResolvePrefixedExtractionTarget(entry.FullName, WorldPrefix, targetWorldPath);
             if (destination is null)
                 continue;
 
@@ -990,7 +994,7 @@ public sealed class QuasarBackupService
         string sourcePath)
     {
         var fullPath = Path.GetFullPath(sourcePath);
-        if (IsPathWithinRoot(fullPath, worldRoot))
+        if (!string.IsNullOrWhiteSpace(worldRoot) && IsPathWithinRoot(fullPath, worldRoot))
             return true;
 
         var relativePath = ToEntryPath(Path.GetRelativePath(dedicatedServerAppDataRoot, fullPath));
@@ -1050,6 +1054,15 @@ public sealed class QuasarBackupService
             .FirstOrDefault();
 
         return latestBackup ?? worldPath;
+    }
+
+    private static string RequireWorldSavePath(DedicatedServerDefinition definition)
+    {
+        var worldPath = definition.GetWorldSavePath();
+        if (string.IsNullOrWhiteSpace(worldPath))
+            throw new InvalidOperationException($"Server '{definition.UniqueName}' has no world save selected.");
+
+        return worldPath;
     }
 
     private static void AddFile(ZipArchive archive, string entryName, string sourcePath)
