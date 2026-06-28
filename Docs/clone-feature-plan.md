@@ -68,4 +68,4 @@ No new catalog methods are needed. Each entity type reuses existing APIs:
 
 - **Custom name prompt for world clone** — Currently auto-names as `{Name} (Copy)`. A lightweight dialog (similar to `WorldProfileQuickImportDialog`) could let the user set a name before the file copy begins.
 - **Clone-chain naming** — If `{Name} (Copy)` already exists, subsequent clones stack as `{Name} (Copy) (Copy)`. Auto-incrementing suffixes (`(Copy 2)`, `(Copy 3)`) could be added to the catalog service.
-- **Clone server with new world/config** — The editor dialog already allows changing the config profile and world template, so this works naturally.
+- **Clone server with new world/config** — The editor dialog allows changing the config profile, selecting an existing save, or creating a save from a world template before the clone is saved.

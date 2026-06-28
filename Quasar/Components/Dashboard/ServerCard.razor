@@ -52,7 +52,7 @@
                         <MudButton Variant="Variant.Filled"
                                    Color="Color.Success"
                                    Size="Size.Small"
-                                   Disabled="@LaunchBlocked"
+                                   Disabled="@IsStartDisabled"
                                    StartIcon="@Icons.Material.Filled.PlayArrow"
                                    OnClick="StartAsync">
                             Start
@@ -178,6 +178,9 @@
         or DedicatedServerProcessState.Crashed
         or DedicatedServerProcessState.Faulted;
 
+    private bool IsStartDisabled =>
+        LaunchBlocked || string.IsNullOrWhiteSpace(Server.WorldSaveName);
+
     private bool CanStop => ProcessState == DedicatedServerProcessState.Running;
 
     private bool CanKillStarting => ProcessState is DedicatedServerProcessState.Starting
@@ -253,8 +256,8 @@
             return Agent.WorldDisplayName;
         }
 
-        if (!string.IsNullOrWhiteSpace(Server.WorldPath))
-            return Path.GetFileName(Server.WorldPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (!string.IsNullOrWhiteSpace(Server.WorldSaveName))
+            return Server.WorldSaveName.Trim();
 
         return "World pending";
     }

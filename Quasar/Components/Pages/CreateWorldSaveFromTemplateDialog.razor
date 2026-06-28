@@ -1,0 +1,147 @@
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" @bind-IsValid="_formIsValid">
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.body2">
+                Create a world save in this server's saves folder from a reusable world template.
+            </MudText>
+
+            <MudSelect T="string"
+                       Value="_selectedTemplateId"
+                       ValueChanged="HandleTemplateChanged"
+                       Label="World template"
+                       Variant="Variant.Outlined"
+                       Required="true"
+                       RequiredError="World template required."
+                       HelperText="Template world files will be copied into a new save folder.">
+                @foreach (var template in _templates)
+                {
+                    <MudSelectItem T="string" Value="@template.WorldTemplateId">@template.Name</MudSelectItem>
+                }
+            </MudSelect>
+
+            @if (_templates.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    No world templates are available yet. Create or import one first.
+                </MudAlert>
+            }
+
+            <div>
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Add"
+                           OnClick="OpenImportWorldTemplateDialogAsync">
+                    New Template
+                </MudButton>
+            </div>
+        </MudStack>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   OnClick="CreateAsync"
+                   Disabled="@(string.IsNullOrWhiteSpace(_selectedTemplateId))">
+            Create Save
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Inject]
+    private QuasarWorldTemplateCatalog WorldTemplates { get; set; } = default!;
+
+    [Inject]
+    private IDialogService DialogService { get; set; } = default!;
+
+    [Parameter]
+    public string? InitialConfigProfileId { get; set; }
+
+    private MudForm? _form;
+    private bool _formIsValid;
+    private string _selectedTemplateId = string.Empty;
+    private string? _selectedConfigProfileId;
+    private IReadOnlyList<QuasarWorldTemplate> _templates = Array.Empty<QuasarWorldTemplate>();
+
+    protected override void OnInitialized()
+    {
+        RefreshTemplates();
+    }
+
+    private void RefreshTemplates()
+    {
+        _templates = WorldTemplates.GetTemplates();
+        if (string.IsNullOrWhiteSpace(_selectedTemplateId) && _templates.Count > 0)
+            _selectedTemplateId = _templates[0].WorldTemplateId;
+    }
+
+    private void HandleTemplateChanged(string value)
+    {
+        _selectedTemplateId = value ?? string.Empty;
+        _selectedConfigProfileId = null;
+    }
+
+    private async Task OpenImportWorldTemplateDialogAsync()
+    {
+        var dialog = await DialogService.ShowAsync<WorldTemplateQuickImportDialog>(
+            "Import World Template",
+            new DialogParameters
+            {
+                [nameof(WorldTemplateQuickImportDialog.InitialConfigProfileId)] = InitialConfigProfileId,
+            },
+            new DialogOptions
+            {
+                CloseOnEscapeKey = true,
+                FullWidth = true,
+                MaxWidth = MaxWidth.Large,
+            });
+
+        var result = await dialog.Result;
+        if (result is null || result.Canceled)
+            return;
+
+        string? configProfileId = null;
+        QuasarWorldTemplate? template = null;
+        if (result.Data is WorldTemplateQuickImportDialog.WorldTemplateQuickImportResult importResult)
+        {
+            template = importResult.Template;
+            configProfileId = importResult.ConfigProfileId;
+        }
+        else if (result.Data is QuasarWorldTemplate legacyTemplate)
+        {
+            template = legacyTemplate;
+        }
+
+        if (template is null)
+            return;
+
+        RefreshTemplates();
+        _selectedTemplateId = template.WorldTemplateId;
+        _selectedConfigProfileId = configProfileId;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task CreateAsync()
+    {
+        await _form!.ValidateAsync();
+        if (!_formIsValid)
+            return;
+
+        MudDialog.Close(DialogResult.Ok(new CreateWorldSaveFromTemplateRequest(
+            _selectedTemplateId,
+            _selectedConfigProfileId)));
+    }
+
+    public sealed record CreateWorldSaveFromTemplateRequest(string WorldTemplateId, string? ConfigProfileId);
+}

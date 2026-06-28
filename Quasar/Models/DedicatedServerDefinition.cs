@@ -39,6 +39,8 @@ public sealed class DedicatedServerDefinition
 
     public string WorldPath { get; set; } = string.Empty;
 
+    public string WorldSaveName { get; set; } = string.Empty;
+
     public string ConfigFilePath { get; set; } = string.Empty;
 
     public string ConfigProfileId { get; set; } = string.Empty;
@@ -121,6 +123,7 @@ public sealed class DedicatedServerDefinition
             DedicatedServerAppDataPath = DedicatedServerAppDataPath,
             MagnetarAppDataPath = MagnetarAppDataPath,
             WorldPath = WorldPath,
+            WorldSaveName = WorldSaveName,
             ConfigFilePath = ConfigFilePath,
             ConfigProfileId = ConfigProfileId,
             WorldTemplateId = WorldTemplateId,
@@ -153,5 +156,13 @@ public sealed class DedicatedServerDefinition
             CpuAffinity = CpuAffinity,
             UpdatedAtUtc = UpdatedAtUtc,
         };
+    }
+
+    public string GetWorldSavePath()
+    {
+        if (string.IsNullOrWhiteSpace(WorldPath) || string.IsNullOrWhiteSpace(WorldSaveName))
+            return string.Empty;
+
+        return Path.Combine(WorldPath.Trim(), WorldSaveName.Trim());
     }
 }

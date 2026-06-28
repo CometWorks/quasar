@@ -927,9 +927,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private async Task StartProcessAsync(ManagedServerState state, CancellationToken cancellationToken)
     {
         var definition = state.Definition;
-        if (string.IsNullOrWhiteSpace(definition.WorldTemplateId))
+        if (string.IsNullOrWhiteSpace(definition.WorldSaveName))
         {
-            SetFaulted(state.UniqueName, "World template required.");
+            SetFaulted(state.UniqueName, "World save required.");
             return;
         }
 
@@ -2643,6 +2643,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             DedicatedServerAppDataPath = definition.DedicatedServerAppDataPath,
             MagnetarAppDataPath = definition.MagnetarAppDataPath,
             WorldPath = definition.WorldPath,
+            WorldSaveName = definition.WorldSaveName,
             ConfigFilePath = definition.ConfigFilePath,
             ConfigProfileId = definition.ConfigProfileId,
             WorldTemplateId = definition.WorldTemplateId,

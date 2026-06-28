@@ -71,8 +71,8 @@ public sealed class DedicatedServerCatalog : IDisposable
         ArgumentNullException.ThrowIfNull(definition);
 
         var normalized = Normalize(Clone(definition));
-        if (string.IsNullOrWhiteSpace(normalized.WorldTemplateId))
-            throw new InvalidOperationException("World template required.");
+        if (string.IsNullOrWhiteSpace(normalized.WorldSaveName))
+            throw new InvalidOperationException("World save required.");
 
         // A new server has no OriginalUniqueName yet (every saved server carries one). For a
         // new server previousUniqueName stays equal to its own name so PrepareStorageForSave
@@ -182,15 +182,23 @@ public sealed class DedicatedServerCatalog : IDisposable
                 return null;
 
             using var document = JsonDocument.Parse(json);
-            var hasLegacyWorldTemplateId = document.RootElement.TryGetProperty("worldProfileId", out var legacyWorldProfileId);
+            var root = document.RootElement;
+            var rewriteDefinition = false;
+            var hasWorldSaveName = root.TryGetProperty("worldSaveName", out var worldSaveName) &&
+                                   worldSaveName.ValueKind == JsonValueKind.String;
+            if (!hasWorldSaveName)
+                rewriteDefinition = TryMigrateLegacyWorldPath(definition);
+
+            var hasLegacyWorldTemplateId = root.TryGetProperty("worldProfileId", out var legacyWorldProfileId);
             if (string.IsNullOrWhiteSpace(definition.WorldTemplateId) &&
                 hasLegacyWorldTemplateId &&
                 legacyWorldProfileId.ValueKind == JsonValueKind.String)
             {
                 definition.WorldTemplateId = legacyWorldProfileId.GetString() ?? string.Empty;
+                rewriteDefinition = true;
             }
 
-            if (hasLegacyWorldTemplateId)
+            if (rewriteDefinition)
                 RewriteLegacyServerDefinition(path, definition);
 
             return definition;
@@ -262,8 +270,16 @@ public sealed class DedicatedServerCatalog : IDisposable
             ? MagnetarPaths.GetQuasarServerMagnetarAppDataDirectory(server.UniqueName)
             : server.MagnetarAppDataPath.Trim();
         server.WorldPath = string.IsNullOrWhiteSpace(server.WorldPath)
-            ? Path.Combine(server.DedicatedServerAppDataPath, "Saves", GetDefaultWorldDirectoryName(server))
+            ? Path.Combine(server.DedicatedServerAppDataPath, "Saves")
             : server.WorldPath.Trim();
+        if (string.IsNullOrWhiteSpace(server.WorldSaveName) &&
+            LooksLikeWorldSavePath(server.WorldPath) &&
+            TrySplitWorldSavePath(server.WorldPath, out var savesPath, out var saveName))
+        {
+            server.WorldPath = savesPath;
+            server.WorldSaveName = saveName;
+        }
+        server.WorldSaveName = NormalizeWorldSaveName(server.WorldSaveName);
         server.ConfigFilePath = string.IsNullOrWhiteSpace(server.ConfigFilePath)
             ? Path.Combine(server.DedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg")
             : server.ConfigFilePath.Trim();
@@ -315,18 +331,6 @@ public sealed class DedicatedServerCatalog : IDisposable
         return server;
     }
 
-    private static string GetDefaultWorldDirectoryName(DedicatedServerDefinition server)
-    {
-        var invalidCharacters = Path.GetInvalidFileNameChars();
-        var sanitized = server.UniqueName.Trim();
-        foreach (var invalidCharacter in invalidCharacters)
-            sanitized = sanitized.Replace(invalidCharacter, '-');
-
-        return string.IsNullOrWhiteSpace(sanitized)
-            ? server.UniqueName
-            : sanitized;
-    }
-
     private static DedicatedServerDefinition Clone(DedicatedServerDefinition server)
     {
         return new DedicatedServerDefinition
@@ -343,6 +347,7 @@ public sealed class DedicatedServerCatalog : IDisposable
             DedicatedServerAppDataPath = server.DedicatedServerAppDataPath,
             MagnetarAppDataPath = server.MagnetarAppDataPath,
             WorldPath = server.WorldPath,
+            WorldSaveName = server.WorldSaveName,
             ConfigFilePath = server.ConfigFilePath,
             ConfigProfileId = server.ConfigProfileId,
             WorldTemplateId = server.WorldTemplateId,
@@ -396,6 +401,96 @@ public sealed class DedicatedServerCatalog : IDisposable
 
     private static string NormalizeOptionalName(string? value) =>
         WhitespaceRegex.Replace(value?.Trim() ?? string.Empty, " ");
+
+    private static string NormalizeWorldSaveName(string? value)
+    {
+        var normalized = WhitespaceRegex.Replace(value?.Trim() ?? string.Empty, " ");
+        if (string.IsNullOrWhiteSpace(normalized))
+            return string.Empty;
+
+        return IsValidWorldSaveName(normalized) ? normalized : string.Empty;
+    }
+
+    private static bool IsValidWorldSaveName(string value)
+    {
+        if (Path.IsPathRooted(value) ||
+            value.Contains(Path.DirectorySeparatorChar) ||
+            value.Contains(Path.AltDirectorySeparatorChar))
+        {
+            return false;
+        }
+
+        return value.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+    }
+
+    private static bool TryMigrateLegacyWorldPath(DedicatedServerDefinition definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition.WorldPath))
+            return false;
+
+        return TrySplitWorldSavePath(definition.WorldPath, out var savesPath, out var saveName) &&
+               ApplyWorldPathSplit(definition, savesPath, saveName);
+    }
+
+    private static bool LooksLikeWorldSavePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        var candidate = path.Trim();
+        if (File.Exists(candidate))
+        {
+            return string.Equals(Path.GetFileName(candidate), "Sandbox.sbc", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return File.Exists(Path.Combine(candidate, "Sandbox.sbc"));
+    }
+
+    private static bool TrySplitWorldSavePath(string path, out string savesPath, out string saveName)
+    {
+        savesPath = string.Empty;
+        saveName = string.Empty;
+
+        var candidate = path.Trim();
+        if (string.IsNullOrWhiteSpace(candidate))
+            return false;
+
+        if (File.Exists(candidate) &&
+            string.Equals(Path.GetFileName(candidate), "Sandbox.sbc", StringComparison.OrdinalIgnoreCase))
+        {
+            candidate = Path.GetDirectoryName(candidate) ?? string.Empty;
+        }
+
+        candidate = candidate.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (string.IsNullOrWhiteSpace(candidate))
+            return false;
+
+        var parent = Path.GetDirectoryName(candidate);
+        var name = Path.GetFileName(candidate);
+        if (string.IsNullOrWhiteSpace(parent) ||
+            string.IsNullOrWhiteSpace(name) ||
+            !IsValidWorldSaveName(name))
+        {
+            return false;
+        }
+
+        savesPath = parent;
+        saveName = name;
+        return true;
+    }
+
+    private static bool ApplyWorldPathSplit(DedicatedServerDefinition definition, string savesPath, string saveName)
+    {
+        if (string.Equals(definition.WorldPath?.Trim(), savesPath, StringComparison.Ordinal) &&
+            string.Equals(definition.WorldSaveName?.Trim(), saveName, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        definition.WorldPath = savesPath;
+        definition.WorldSaveName = saveName;
+        return true;
+    }
 
     /// <summary>
     /// Derives a unique-name slug from the supplied text, appending a "-N" suffix when

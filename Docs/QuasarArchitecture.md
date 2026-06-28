@@ -869,6 +869,7 @@ As of this document:
 - first process supervision exists for start/stop/restart and per-server logs
 - first health-monitoring and auto-recovery pass exists for agent attach grace, heartbeat freshness, simulation-frame progress scoring aligned with the DS watcher, and uptime-based warning/recycle policy
 - initial runtime launch preparation now exists for isolated app-data roots, runtime config sync, `LastSession.sbl`, and enforced headless launch shaping
+- server definitions store a saves root (`WorldPath`) plus selected save folder (`WorldSaveName`). Older definitions whose `WorldPath` pointed at a concrete save are migrated automatically by moving the final path segment into `WorldSaveName`. The server editor requires a selected save before save/start, lists existing saves from the saves root, and has an always-available Create From Template dialog that can create/import a world template before copying it into a new save.
 - neutral light/dark theming exists with local-storage persistence
 - config editing is now migrated out of Python into Quasar-managed JSON profiles and rendered runtime artifacts. Profiles cover Quasar root settings, server password (rendered to DS-compatible hash/salt), and DS-visible SE session settings including block type world limits; on server start Quasar writes session settings and mods into the world's authoritative `Sandbox_config.sbc` as well as the runtime DS config.
 - file watching/reload now exists for manual edits to Quasar-managed server/profile JSON

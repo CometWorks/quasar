@@ -19,7 +19,7 @@ public sealed class ServerManagementActions(
     private enum CloneWorldMode
     {
         CopyWorld,
-        EmptyWorld,
+        KeepSelectedWorld,
     }
 
     public async Task OpenConsoleDialogAsync(string uniqueName)
@@ -60,6 +60,7 @@ public sealed class ServerManagementActions(
         cloned.DedicatedServerAppDataPath = string.Empty;
         cloned.MagnetarAppDataPath = string.Empty;
         cloned.WorldPath = string.Empty;
+        cloned.WorldSaveName = string.Empty;
         cloned.ConfigFilePath = string.Empty;
 
         var created = await ShowEditorDialogAsync(cloned, isEditing: false, isClone: true);
@@ -81,7 +82,7 @@ public sealed class ServerManagementActions(
         {
             var worldMessage = cloneWorldMode == CloneWorldMode.CopyWorld
                 ? await CopyCloneWorldStateAsync(definition, saved)
-                : await EnsureCloneHasNoWorldAsync(definition, saved);
+                : KeepCloneWorldState(definition, saved);
             snackbar.Add($"Server cloned. {worldMessage}", Severity.Success);
         }
         catch (OperationCanceledException exception)
@@ -102,16 +103,16 @@ public sealed class ServerManagementActions(
             return;
         }
 
-        var worldPath = definition.WorldPath?.Trim() ?? string.Empty;
+        var worldPath = definition.GetWorldSavePath();
         if (string.IsNullOrWhiteSpace(worldPath) || !Directory.Exists(worldPath))
         {
-            snackbar.Add($"World path not found for '{definition.UniqueName}'.", Severity.Error);
+            snackbar.Add($"World save not found for '{definition.UniqueName}'.", Severity.Error);
             return;
         }
 
         if (!File.Exists(Path.Combine(worldPath, "Sandbox.sbc")))
         {
-            snackbar.Add($"World path '{worldPath}' does not contain Sandbox.sbc.", Severity.Error);
+            snackbar.Add($"World save '{worldPath}' does not contain Sandbox.sbc.", Severity.Error);
             return;
         }
 
@@ -230,20 +231,20 @@ public sealed class ServerManagementActions(
     {
         var sourceRunning = IsRunning(source.UniqueName);
         var message = sourceRunning
-            ? $"Clone '{GetDisplayName(source)}' with its current world state? The source is running, so Quasar will copy from the latest Space Engineers Backup snapshot instead of the live world folder. Choose 'No World' to leave the clone empty so first start creates it from the selected world template."
-            : $"Clone '{GetDisplayName(source)}' with its current world state? Choose 'No World' to leave the clone empty so first start creates it from the selected world template.";
+            ? $"Clone '{GetDisplayName(source)}' with its current world state? The source is running, so Quasar will copy from the latest Space Engineers Backup snapshot instead of the live world folder. Choose 'Keep Save' to use the save already selected in the editor."
+            : $"Clone '{GetDisplayName(source)}' with its current world state? Choose 'Keep Save' to use the save already selected in the editor.";
 
         var result = await dialogService.ShowMessageBoxAsync(
             "Clone world state?",
             message,
             yesText: "Copy World",
-            noText: "No World",
+            noText: "Keep Save",
             cancelText: "Cancel");
 
         if (result is null)
             return null;
 
-        return result.Value ? CloneWorldMode.CopyWorld : CloneWorldMode.EmptyWorld;
+        return result.Value ? CloneWorldMode.CopyWorld : CloneWorldMode.KeepSelectedWorld;
     }
 
     private async Task<string> CopyCloneWorldStateAsync(DedicatedServerDefinition source, DedicatedServerDefinition target)
@@ -251,9 +252,9 @@ public sealed class ServerManagementActions(
         EnsureCloneStorageIsIndependent(source, target);
         await ConfirmExistingCloneWorldPathDeleteAsync(target, "copy the source world into the clone");
 
-        var sourceWorldPath = source.WorldPath?.Trim() ?? string.Empty;
+        var sourceWorldPath = source.GetWorldSavePath();
         if (string.IsNullOrWhiteSpace(sourceWorldPath) || !Directory.Exists(sourceWorldPath))
-            throw new InvalidOperationException($"Source world path not found for '{source.UniqueName}'.");
+            throw new InvalidOperationException($"Source world save not found for '{source.UniqueName}'.");
 
         if (IsRunning(source.UniqueName))
         {
@@ -261,7 +262,7 @@ public sealed class ServerManagementActions(
             if (backupPath is null)
                 throw new InvalidOperationException($"No Space Engineers Backup snapshot exists under '{Path.Combine(sourceWorldPath, "Backup")}'. Stop the source server or let it create a backup before cloning world state.");
 
-            await CopyWorldDirectoryAsync(backupPath, target.WorldPath);
+            await CopyWorldDirectoryAsync(backupPath, target.GetWorldSavePath());
             return $"World copied from latest Backup snapshot '{Path.GetFileName(backupPath)}'.";
         }
 
@@ -269,23 +270,19 @@ public sealed class ServerManagementActions(
         return "World copied from the stopped source server.";
     }
 
-    private async Task<string> EnsureCloneHasNoWorldAsync(DedicatedServerDefinition source, DedicatedServerDefinition target)
+    private string KeepCloneWorldState(DedicatedServerDefinition source, DedicatedServerDefinition target)
     {
         EnsureCloneStorageIsIndependent(source, target);
-        await ConfirmExistingCloneWorldPathDeleteAsync(target, "leave the clone without a world");
 
-        if (!string.IsNullOrWhiteSpace(target.WorldPath) && Directory.Exists(target.WorldPath))
-            await Task.Run(() => Directory.Delete(target.WorldPath, recursive: true));
-
-        return "No world was copied; first start will create one from the selected template.";
+        return "Selected clone world save kept unchanged.";
     }
 
     private async Task CopyStoppedWorldStateAsync(string sourceWorldPath, DedicatedServerDefinition target)
     {
         if (!File.Exists(Path.Combine(sourceWorldPath, "Sandbox.sbc")))
-            throw new InvalidOperationException($"Source world path '{sourceWorldPath}' does not contain Sandbox.sbc.");
+            throw new InvalidOperationException($"Source world save '{sourceWorldPath}' does not contain Sandbox.sbc.");
 
-        await CopyWorldDirectoryAsync(sourceWorldPath, target.WorldPath);
+        await CopyWorldDirectoryAsync(sourceWorldPath, target.GetWorldSavePath());
     }
 
     private static string? FindLatestWorldBackupDirectory(string worldPath)
@@ -312,12 +309,13 @@ public sealed class ServerManagementActions(
 
     private async Task ConfirmExistingCloneWorldPathDeleteAsync(DedicatedServerDefinition target, string action)
     {
-        if (string.IsNullOrWhiteSpace(target.WorldPath) || !Directory.Exists(target.WorldPath))
+        var targetWorldPath = target.GetWorldSavePath();
+        if (string.IsNullOrWhiteSpace(targetWorldPath) || !Directory.Exists(targetWorldPath))
             return;
 
         var confirmed = await ConfirmDestructiveActionAsync(
             "Delete existing clone world folder?",
-            $"The clone's world path already exists: {target.WorldPath}. Quasar must delete that folder to {action}.",
+            $"The clone's world save already exists: {targetWorldPath}. Quasar must delete that folder to {action}.",
             "Delete Folder");
 
         if (!confirmed)
@@ -332,9 +330,9 @@ public sealed class ServerManagementActions(
             return false;
         }
 
-        if (PathsEqual(source.WorldPath, clone.WorldPath))
+        if (PathsEqual(source.GetWorldSavePath(), clone.GetWorldSavePath()))
         {
-            snackbar.Add("Clone world path matches the source. Clear the path override or choose a different folder.", Severity.Error);
+            snackbar.Add("Clone world save path matches the source. Choose a different save.", Severity.Error);
             return false;
         }
 
@@ -352,8 +350,8 @@ public sealed class ServerManagementActions(
         if (PathsEqual(source.DedicatedServerAppDataPath, target.DedicatedServerAppDataPath))
             throw new InvalidOperationException("Clone DS app-data path still matches the source.");
 
-        if (PathsEqual(source.WorldPath, target.WorldPath))
-            throw new InvalidOperationException("Clone world path still matches the source.");
+        if (PathsEqual(source.GetWorldSavePath(), target.GetWorldSavePath()))
+            throw new InvalidOperationException("Clone world save path still matches the source.");
 
         if (PathsEqual(source.ConfigFilePath, target.ConfigFilePath))
             throw new InvalidOperationException("Clone rendered config path still matches the source.");

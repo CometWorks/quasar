@@ -119,7 +119,7 @@ stateDiagram-v2
   `Faulted` and reconciliation does not keep trying. The attempt counter resets
   after a server runs past the reset window.
 - `Faulted` is reached from `SetFaulted` on launch-prep failures (missing world
-  template, runtime not ready, executable/working-dir missing, runtime prep
+  save selection, missing save files, runtime not ready, executable/working-dir missing, runtime prep
   failure, process start failure) or from crash-restart budget exhaustion. An
   explicit operator `Start` resets the streak and retries after the cause is
   fixed; the reconcile loop does not auto-retry `Crashed`/`Faulted` states.

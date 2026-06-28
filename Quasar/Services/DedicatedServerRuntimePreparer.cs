@@ -28,7 +28,6 @@ public sealed class DedicatedServerRuntimePreparer
     private readonly WebServiceOptions _options;
     private readonly DataHandlingConsentCatalog _dataHandlingConsent;
     private readonly QuasarConfigProfileCatalog _configProfiles;
-    private readonly QuasarWorldTemplateCatalog _worldTemplates;
     private readonly QuasarPluginCatalogService _pluginCatalog;
     private readonly QuasarDevFolderCatalog _devFolderCatalog;
     private readonly GitHubUpdateCredentialsCatalog _githubCredentials;
@@ -38,7 +37,6 @@ public sealed class DedicatedServerRuntimePreparer
         WebServiceOptions options,
         DataHandlingConsentCatalog dataHandlingConsent,
         QuasarConfigProfileCatalog configProfiles,
-        QuasarWorldTemplateCatalog worldTemplates,
         QuasarPluginCatalogService pluginCatalog,
         QuasarDevFolderCatalog devFolderCatalog,
         GitHubUpdateCredentialsCatalog githubCredentials)
@@ -47,7 +45,6 @@ public sealed class DedicatedServerRuntimePreparer
         _options = options;
         _dataHandlingConsent = dataHandlingConsent;
         _configProfiles = configProfiles;
-        _worldTemplates = worldTemplates;
         _pluginCatalog = pluginCatalog;
         _devFolderCatalog = devFolderCatalog;
         _githubCredentials = githubCredentials;
@@ -63,7 +60,7 @@ public sealed class DedicatedServerRuntimePreparer
         var dedicatedServerAppDataPath = RequirePath(definition.DedicatedServerAppDataPath, "DedicatedServerAppDataPath");
         var magnetarAppDataPath = RequirePath(definition.MagnetarAppDataPath, "MagnetarAppDataPath");
         var configProfile = ResolveConfigProfile(definition);
-        var worldPath = await ResolveOrSeedWorldPathAsync(definition, cancellationToken);
+        var worldPath = ResolveConfiguredWorldPath(definition);
         var runtimeConfigPath = Path.Combine(dedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg");
         var lastSessionPath = Path.Combine(dedicatedServerAppDataPath, "Saves", "LastSession.sbl");
 
@@ -763,55 +760,18 @@ public sealed class DedicatedServerRuntimePreparer
         return sanitized.Trim();
     }
 
-    private async Task<string> ResolveOrSeedWorldPathAsync(
-        DedicatedServerDefinition definition,
-        CancellationToken cancellationToken)
+    private static string ResolveConfiguredWorldPath(DedicatedServerDefinition definition)
     {
-        var worldPath = RequirePath(definition.WorldPath, "WorldPath");
-
-        // World already exists — validate and use it.
-        if (Directory.Exists(worldPath) && File.Exists(Path.Combine(worldPath, "Sandbox.sbc")))
-            return ResolveWorldPath(worldPath);
-
-        // World doesn't exist yet — seed from template if one is set.
-        if (!string.IsNullOrWhiteSpace(definition.WorldTemplateId))
+        var savesPath = RequirePath(definition.WorldPath, "Saves path");
+        var saveName = RequirePath(definition.WorldSaveName, "World save");
+        if (Path.IsPathRooted(saveName) ||
+            saveName.Contains(Path.DirectorySeparatorChar) ||
+            saveName.Contains(Path.AltDirectorySeparatorChar))
         {
-            var template = _worldTemplates.GetTemplate(definition.WorldTemplateId)
-                ?? throw new InvalidOperationException($"Unknown world template '{definition.WorldTemplateId}' for server '{definition.UniqueName}'.");
-
-            await SeedWorldFromTemplateAsync(definition.WorldTemplateId, worldPath, cancellationToken);
-            _logger.LogInformation(
-                "Seeded world for server {UniqueName} from template '{TemplateName}' at {WorldPath}.",
-                definition.UniqueName, template.Name, worldPath);
-            return worldPath;
+            throw new InvalidOperationException($"World save name '{saveName}' must be a folder name, not a path.");
         }
 
-        // No template — fall through to standard validation (throws if missing).
-        return ResolveWorldPath(worldPath);
-    }
-
-    private async Task SeedWorldFromTemplateAsync(
-        string worldTemplateId,
-        string destWorldPath,
-        CancellationToken cancellationToken)
-    {
-        var sourceDir = _worldTemplates.GetWorldDirectory(worldTemplateId);
-
-        if (!Directory.Exists(sourceDir))
-            throw new InvalidOperationException($"World template '{worldTemplateId}' has no stored world files at '{sourceDir}'.");
-
-        if (!File.Exists(Path.Combine(sourceDir, "Sandbox.sbc")))
-            throw new InvalidOperationException($"World template '{worldTemplateId}' is missing Sandbox.sbc.");
-
-        Directory.CreateDirectory(destWorldPath);
-        foreach (var sourceFile in Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var relative = Path.GetRelativePath(sourceDir, sourceFile);
-            var destFile = Path.Combine(destWorldPath, relative);
-            Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
-            File.Copy(sourceFile, destFile, overwrite: false);
-        }
+        return ResolveWorldPath(Path.Combine(savesPath, saveName));
     }
 
     private static string ResolveWorldPath(string worldPath)
