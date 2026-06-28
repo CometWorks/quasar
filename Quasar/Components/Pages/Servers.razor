@@ -5,7 +5,7 @@
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarWorldTemplateCatalog WorldTemplates
 @inject IDialogService DialogService
-@inject WebServiceOptions Options
+@inject ServerManagementActions ServerActions
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
@@ -179,7 +179,6 @@
 {
     private readonly HashSet<string> _expanded = new(StringComparer.OrdinalIgnoreCase);
     private bool _creatingWorldTemplate;
-    private bool _createOpenedFromParameter;
 
     private enum CloneWorldMode
     {
@@ -189,9 +188,6 @@
 
     [Parameter]
     public EventCallback<string> ConfigProfileSelected { get; set; }
-
-    [Parameter]
-    public bool OpenCreateOnStart { get; set; }
 
     [Parameter]
     public bool Embedded { get; set; }
@@ -248,15 +244,6 @@
         WorldTemplates.Changed += HandleChanged;
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!OpenCreateOnStart || _createOpenedFromParameter)
-            return;
-
-        _createOpenedFromParameter = true;
-        await OpenCreateDialogAsync();
-    }
-
     public void Dispose()
     {
         ServerCatalog.Changed -= HandleChanged;
@@ -280,14 +267,7 @@
         return agent;
     }
 
-    private async Task OpenCreateDialogAsync()
-    {
-        var definition = await ShowEditorDialogAsync(CreateBlank(), isEditing: false, isClone: false);
-        if (definition is null)
-            return;
-
-        await SaveDefinitionAsync(definition, "Server created.");
-    }
+    private Task OpenCreateDialogAsync() => ServerActions.OpenCreateDialogAsync();
 
     private async Task OpenCloneDialogAsync(DedicatedServerDefinition definition)
     {
@@ -996,28 +976,6 @@
     private void HandleChanged()
     {
         _ = InvokeAsync(StateHasChanged);
-    }
-
-    private DedicatedServerDefinition CreateBlank()
-    {
-        var healthMonitoringEnabled = !Options.DisableServerHealthMonitoring;
-        return new DedicatedServerDefinition
-        {
-            GoalState = DedicatedServerGoalState.Off,
-            ServerPort = AllocateNextPort(),
-            ServerIP = "0.0.0.0",
-            EnableHealthMonitoring = healthMonitoringEnabled,
-            AutoRestartOnUnhealthy = healthMonitoringEnabled,
-            AgentStartupGraceSeconds = 180,
-            AgentAttachRetryAttempts = DedicatedServerDefinition.DefaultAgentAttachRetryAttempts,
-            AgentAttachRetryDelaySeconds = DedicatedServerDefinition.DefaultAgentAttachRetryDelaySeconds,
-            AgentHeartbeatTimeoutSeconds = 20,
-            SimulationProgressWindowSeconds = 30,
-            MinimumSimulationProgressScore = 0.05f,
-            WarnAfterUptimeHours = 12,
-            RestartDelaySeconds = 5,
-            RestartOnCrash = true,
-        };
     }
 
     private string MakeCopyIdentifier(string uniqueName)

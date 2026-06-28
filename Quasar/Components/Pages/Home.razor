@@ -7,6 +7,7 @@
 @inject QuasarWorldTemplateCatalog WorldTemplates
 @inject ManagedRuntimeWarmupService RuntimeWarmup
 @inject DataHandlingConsentCatalog DataHandlingConsent
+@inject ServerManagementActions ServerActions
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
@@ -815,15 +816,7 @@ else
     private Task OpenImportWorldTemplateDialogAsync() =>
         ShowFullScreenPageDialogAsync<WorldTemplatesPageDialog>("World Templates");
 
-    private Task OpenCreateServerDialogAsync()
-    {
-        var parameters = new DialogParameters
-        {
-            [nameof(ServersPageDialog.OpenCreateOnStart)] = true,
-        };
-
-        return ShowFullScreenPageDialogAsync<ServersPageDialog>("Servers", parameters);
-    }
+    private Task OpenCreateServerDialogAsync() => ServerActions.OpenCreateDialogAsync();
 
     private Task OpenConfigProfileFromServerListAsync(string configProfileId)
     {

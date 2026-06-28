@@ -6,8 +6,7 @@
         </MudStack>
     </TitleContent>
     <DialogContent>
-        <Servers ConfigProfileSelected="OpenConfigProfileAsync"
-                 OpenCreateOnStart="@OpenCreateOnStart" />
+        <Servers ConfigProfileSelected="OpenConfigProfileAsync" />
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Done</MudButton>
@@ -21,9 +20,6 @@
 
     [Inject]
     private IDialogService DialogService { get; set; } = default!;
-
-    [Parameter]
-    public bool OpenCreateOnStart { get; set; }
 
     private void Close() => MudDialog.Close();
 

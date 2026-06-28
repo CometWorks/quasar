@@ -9,6 +9,7 @@ namespace Quasar.Services;
 public sealed class ServerManagementActions(
     DedicatedServerCatalog serverCatalog,
     DedicatedServerSupervisor supervisor,
+    WebServiceOptions options,
     AgentRegistry registry,
     QuasarWorldTemplateCatalog worldTemplates,
     IDialogService dialogService,
@@ -37,6 +38,15 @@ public sealed class ServerManagementActions(
         };
 
         await dialogService.ShowAsync<ServerConsoleDialog>($"Console — {uniqueName}", parameters, dialogOptions);
+    }
+
+    public async Task OpenCreateDialogAsync()
+    {
+        var definition = await ShowEditorDialogAsync(CreateBlank(), isEditing: false, isClone: false);
+        if (definition is null)
+            return;
+
+        await SaveDefinitionAsync(definition, "Server created.");
     }
 
     public async Task OpenEditDialogAsync(DedicatedServerDefinition definition)
@@ -468,6 +478,28 @@ public sealed class ServerManagementActions(
             port++;
 
         return port;
+    }
+
+    private DedicatedServerDefinition CreateBlank()
+    {
+        var healthMonitoringEnabled = !options.DisableServerHealthMonitoring;
+        return new DedicatedServerDefinition
+        {
+            GoalState = DedicatedServerGoalState.Off,
+            ServerPort = AllocateNextPort(),
+            ServerIP = "0.0.0.0",
+            EnableHealthMonitoring = healthMonitoringEnabled,
+            AutoRestartOnUnhealthy = healthMonitoringEnabled,
+            AgentStartupGraceSeconds = 180,
+            AgentAttachRetryAttempts = DedicatedServerDefinition.DefaultAgentAttachRetryAttempts,
+            AgentAttachRetryDelaySeconds = DedicatedServerDefinition.DefaultAgentAttachRetryDelaySeconds,
+            AgentHeartbeatTimeoutSeconds = 20,
+            SimulationProgressWindowSeconds = 30,
+            MinimumSimulationProgressScore = 0.05f,
+            WarnAfterUptimeHours = 12,
+            RestartDelaySeconds = 5,
+            RestartOnCrash = true,
+        };
     }
 
     private static string GetDisplayName(DedicatedServerDefinition definition) =>
