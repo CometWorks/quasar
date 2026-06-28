@@ -995,7 +995,7 @@
       "name": "scene.js",
       "kind": "JS",
       "tier": 3,
-      "summary": "Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid viewer. It owns renderer setup including shadow-map configuration, orbit/free-fly camera behavior, floor grid generation with per-axis block-boundary alignment, diffuse-only ambient lighting fallback, directional sun/shadow-camera fitting with texel-scaled normal bias, marker helpers, object disposal, viewport resizing, hover readouts, and per-frame stats rendering."
+      "summary": "Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid/asteroid viewer. It owns renderer setup including shadow-map configuration, orbit/free-fly camera behavior, floor grid generation with per-axis block-boundary alignment, relative-space bounds tracking across grid and voxel groups, diffuse-only ambient lighting fallback, directional sun/shadow-camera fitting with texel-scaled normal bias, marker helpers, object disposal, viewport resizing, hover readouts, and per-frame stats rendering."
     },
     {
       "path": "Quasar/wwwroot/viewer/state.js",

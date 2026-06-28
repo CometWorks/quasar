@@ -231,7 +231,7 @@ export function fitCameraToScene() {
 }
 
 export function updateSceneBounds(refit = false) {
-    state.currentBounds = objectWorldBounds(state.gridGroup) || boundsToBox3(state.lastScene && state.lastScene.grid && state.lastScene.grid.bounds);
+    state.currentBounds = sceneContentBounds() || transformedGridBounds() || state.currentBounds;
     replaceFloorGrid(state.currentBounds, state.currentGridSize, state.currentFloorGridAlignment);
     updateSunLightPosition();
     if (refit) fitCameraToScene();
@@ -251,7 +251,7 @@ export function updateLighting() {
 
 export function updateSunLightPosition() {
     if (!state.sunLight) return;
-    const bounds = objectWorldBounds(state.gridGroup) || state.currentBounds;
+    const bounds = sceneContentBounds() || state.currentBounds;
     const target = bounds ? bounds.getCenter(new THREE.Vector3()) : new THREE.Vector3();
     const direction = currentRelativeSunDirection();
     const markerDistance = bounds ? sunMarkerDistance(bounds) : 90;
@@ -455,6 +455,24 @@ function objectWorldBounds(object) {
     object.updateMatrixWorld(true);
     const bounds = new THREE.Box3().setFromObject(object);
     return bounds.isEmpty() ? null : bounds;
+}
+
+function sceneContentBounds() {
+    const bounds = new THREE.Box3();
+    let hasBounds = false;
+    for (const object of [state.gridGroup, state.voxelGroup]) {
+        const objectBounds = objectWorldBounds(object);
+        if (!objectBounds) continue;
+        bounds.union(objectBounds);
+        hasBounds = true;
+    }
+    return hasBounds ? bounds : null;
+}
+
+function transformedGridBounds() {
+    const bounds = boundsToBox3(state.lastScene && state.lastScene.grid && state.lastScene.grid.bounds);
+    if (!bounds || bounds.isEmpty()) return null;
+    return bounds.applyMatrix4(state.viewTransform || new THREE.Matrix4());
 }
 
 function onPointerMove(event) {
