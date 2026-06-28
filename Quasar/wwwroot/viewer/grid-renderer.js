@@ -67,7 +67,7 @@ export async function renderGridScene(scene) {
     state.contextBounds = contextRelativeBounds(scene);
     state.contextGridIds = new Set(sceneGrids(scene).filter(grid => grid && grid.isContext).map(grid => String(grid.id || "")));
     state.primaryGridId = primaryGrid(scene)?.id || "";
-    const bounds = state.contextBounds ? state.contextBounds.clone() : new THREE.Box3();
+    const bounds = state.contextBounds ? state.contextBounds.clone() : primaryGridRelativeBounds(scene);
     if (!state.contextBounds && bounds.isEmpty()) {
         const voxelBounds = standaloneVoxelViewBounds(scene);
         if (voxelBounds) bounds.copy(voxelBounds);
@@ -399,6 +399,13 @@ function contextRelativeBounds(scene) {
     const bounds = boundsToBox3(context.worldAabb);
     if (!bounds || bounds.isEmpty()) return null;
     return transformBounds(bounds, state.viewTransform || new THREE.Matrix4());
+}
+
+function primaryGridRelativeBounds(scene) {
+    const bounds = gridLocalBounds(scene);
+    const primary = primaryGrid(scene) || scene.grid;
+    if (!bounds || bounds.isEmpty() || !primary) return new THREE.Box3();
+    return transformBounds(bounds, gridRelativeMatrix(primary)) || new THREE.Box3();
 }
 
 function transformBounds(bounds, matrix) {
