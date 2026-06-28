@@ -20,8 +20,8 @@ Relevant source:
 ```mermaid
 stateDiagram-v2
     [*] --> Locating
-    Locating --> Locating: unhealthy, spawn Quasar.Bootstrap and poll
     Locating --> Connecting: service URI resolved
+    Locating --> Reconnecting: no healthy supervisor
     Connecting --> Handshaking: WebSocket opened
     Connecting --> Reconnecting: connect failed
     Handshaking --> Streaming: Hello and PluginConfigSnapshot sent
@@ -36,7 +36,7 @@ stateDiagram-v2
 
 | State | Behavior |
 | --- | --- |
-| `Locating` | `WebServiceLocator` resolves the Quasar base URI from the discovery manifest and `/api/health`; if no healthy instance is found it spawns `Quasar.Bootstrap` (guarded by a named mutex) and polls. |
+| `Locating` | `WebServiceLocator` resolves the Quasar base URI from the discovery manifest and `/api/health`. If no healthy instance is found, the agent does not start Quasar or Bootstrap; it waits for the reconnect loop. |
 | `Connecting` | Opens `ws(s)://…/ws/agent` (WebSocket keep-alive 20s). |
 | `Handshaking` | Sends the `Hello` identity message and forces an initial `PluginConfigSnapshot`. |
 | `Streaming` | Sends a `Snapshot` every ~2s, flushes buffered plugin-log batches, and dispatches inbound `Command` / `Ping` / `PluginConfigUpdate` messages. |
@@ -81,6 +81,8 @@ stateDiagram-v2
 The supervisor never reconnects the agent itself — reconnection is entirely
 agent-driven. The registry only observes liveness (`LastSeenUtc`) and dispatches
 commands via the cached sender, awaiting correlated `CommandResult` replies.
+The agent never starts the Quasar supervisor, Bootstrap launcher, or UI; those
+remain operator/service-owned processes.
 
 ---
 

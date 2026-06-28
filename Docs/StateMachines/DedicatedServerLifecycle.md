@@ -80,7 +80,7 @@ stateDiagram-v2
     Starting --> Running: agent attached, snapshot ready
     Starting --> Restarting: attach grace expired, retry budget remains
     Starting --> Stopping: operator Kill (cancel launch)
-    Starting --> Faulted: launch prep failure / attach retries exhausted
+    Starting --> Faulted: launch preflight/prep failure / attach retries exhausted
     Running --> Stopping: goal Off
     Running --> Restarting: unhealthy, uptime or scheduled
     Running --> Crashed: unexpected exit (code != 0)
@@ -119,10 +119,16 @@ stateDiagram-v2
   `Faulted` and reconciliation does not keep trying. The attempt counter resets
   after a server runs past the reset window.
 - `Faulted` is reached from `SetFaulted` on launch-prep failures (missing world
-  save selection, missing save files, runtime not ready, executable/working-dir missing, runtime prep
-  failure, process start failure) or from crash-restart budget exhaustion. An
+  save selection, missing save files, runtime not ready, executable/working-dir
+  missing, world preflight failure, runtime prep failure, process start failure)
+  or from crash-restart budget exhaustion. An
   explicit operator `Start` resets the streak and retries after the cause is
   fixed; the reconcile loop does not auto-retry `Crashed`/`Faulted` states.
+- World preflight blocks a known Space Engineers init crash: if
+  `Sandbox_config.sbc` has `EnableOxygen=false` and the save contains
+  oxygen-capable blocks or definitions such as O2/H2 generators, Quasar faults
+  before starting the DS process. Enable oxygen or remove the oxygen blocks to
+  start the world.
 - Clear error status is an explicit operator acknowledgement for a non-running
   `Crashed`/`Faulted` server. It sets the goal `Off`, resets health/restart
   counters and mod-download failure details, and returns the process state to

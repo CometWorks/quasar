@@ -137,6 +137,7 @@
     private const int InfoLogExceptionMatchLimit = 10;
     private const int ServerLogTabIndex = 0;
     private const int InfoLogTabIndex = 1;
+    private static readonly TimeSpan LogAutoRefreshInterval = TimeSpan.FromSeconds(5);
 
     [CascadingParameter]
     private IMudDialogInstance MudDialog { get; set; } = default!;
@@ -159,6 +160,7 @@
     private bool _serverLogScrollPending;
     private bool _serverLogRolloverBusy;
     private int _serverLogWindowStart;
+    private long _serverLogReadOffset;
     private string _serverLogMode = "tail";
     private bool _serverLogInteropDirty = true;
     private bool _serverLogInteropAttached;
@@ -171,7 +173,10 @@
     private string? _infoLogError;
     private bool _infoLogLoaded;
     private bool _infoLogScrollPending;
+    private long _infoLogReadOffset;
     private string _infoLogMode = "tail";
+    private CancellationTokenSource? _autoRefreshCts;
+    private Task? _autoRefreshTask;
     private string ServerLogDownloadHref => $"/api/servers/{Uri.EscapeDataString(UniqueName)}/logs/server/download";
     private string InfoLogDownloadHref => $"/api/servers/{Uri.EscapeDataString(UniqueName)}/logs/magnetar/download";
 
@@ -179,6 +184,49 @@
     {
         _serverLogPath = ResolveLatestServerLogPath();
         _infoLogPath = ResolveInfoLogPath();
+        StartAutoRefreshLoop();
+    }
+
+    private void StartAutoRefreshLoop()
+    {
+        _autoRefreshCts = new CancellationTokenSource();
+        _autoRefreshTask = Task.Run(() => AutoRefreshLoopAsync(_autoRefreshCts.Token));
+    }
+
+    private async Task AutoRefreshLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(LogAutoRefreshInterval);
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await InvokeAsync(() => RefreshActiveLogTailAsync(cancellationToken));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private async Task RefreshActiveLogTailAsync(CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        if (_activeTabIndex == ServerLogTabIndex && _serverLogLoaded)
+        {
+            await RefreshServerLogTailAsync(reloadOnReset: true);
+            return;
+        }
+
+        if (_activeTabIndex == InfoLogTabIndex && _infoLogLoaded)
+            await RefreshInfoLogTailAsync(reloadOnReset: true);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -235,8 +283,26 @@
         }
     }
 
+    private async Task<bool> IsScrolledNearBottomAsync(string containerId)
+    {
+        try
+        {
+            return await JS.InvokeAsync<bool>("quasarConfigs.isScrolledNearBottom", containerId, 48);
+        }
+        catch (JSDisconnectedException)
+        {
+            return true;
+        }
+    }
+
     private async Task RefreshServerLogAsync()
     {
+        if (_serverLogLoaded && _serverLogMode == "tail")
+        {
+            await RefreshServerLogTailAsync(reloadOnReset: true);
+            return;
+        }
+
         await LoadServerLogAsync();
     }
 
@@ -268,6 +334,7 @@
                 _serverLogError = null;
                 _serverLogMode = "tail";
                 _serverLogWindowStart = 0;
+                _serverLogReadOffset = 0;
             }
             else
             {
@@ -275,6 +342,7 @@
                 _serverLogLines = window.Lines;
                 _serverLogLineCount = window.TotalLineCount;
                 _serverLogWindowStart = window.StartLine;
+                _serverLogReadOffset = window.FileLength;
                 _serverLogTruncated = false;
                 _serverLogMissing = false;
                 _serverLogError = null;
@@ -290,12 +358,92 @@
             _serverLogMissing = false;
             _serverLogMode = "tail";
             _serverLogWindowStart = 0;
+            _serverLogReadOffset = 0;
         }
 
         _serverLogLoaded = true;
         _serverLogScrollPending = true;
         _serverLogInteropDirty = true;
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshServerLogTailAsync(bool reloadOnReset)
+    {
+        if (_serverLogMode != "tail")
+            return;
+
+        var latestPath = ResolveLatestServerLogPath();
+        if (!string.Equals(latestPath, _serverLogPath, StringComparison.OrdinalIgnoreCase))
+        {
+            if (reloadOnReset)
+                await LoadServerLogAsync();
+            return;
+        }
+
+        if (!File.Exists(_serverLogPath))
+        {
+            if (reloadOnReset)
+                await LoadServerLogAsync();
+            return;
+        }
+
+        if (_serverLogMissing)
+        {
+            if (reloadOnReset)
+                await LoadServerLogAsync();
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(_serverLogError))
+        {
+            if (reloadOnReset)
+                await LoadServerLogAsync();
+            return;
+        }
+
+        if (_serverLogRolloverBusy)
+            return;
+
+        // When viewing an older window, do not mutate the DOM every tick. Moving
+        // to newer lines will read the requested window and refresh counts.
+        if (CanLoadNewerServerLogLines)
+            return;
+
+        try
+        {
+            var update = await ReadAppendedLinesAsync(_serverLogPath, _serverLogReadOffset);
+            if (update.Reset)
+            {
+                if (reloadOnReset)
+                    await LoadServerLogAsync();
+                return;
+            }
+
+            _serverLogReadOffset = update.FileLength;
+            if (update.Lines.Count == 0)
+                return;
+
+            var shouldScroll = await IsScrolledNearBottomAsync(_scrollContainerId);
+            var lines = _serverLogLines
+                .Concat(update.Lines)
+                .TakeLast(ServerLogWindowLines)
+                .ToArray();
+
+            _serverLogLineCount += update.Lines.Count;
+            _serverLogLines = lines;
+            _serverLogWindowStart = Math.Max(0, _serverLogLineCount - _serverLogLines.Count);
+            _serverLogMissing = false;
+            _serverLogError = null;
+            _serverLogInteropDirty = true;
+            _serverLogScrollPending = shouldScroll;
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception exception)
+        {
+            _serverLogError = exception.Message;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     [JSInvokable]
@@ -346,6 +494,7 @@
             _serverLogLines = window.Lines;
             _serverLogLineCount = window.TotalLineCount;
             _serverLogWindowStart = window.StartLine;
+            _serverLogReadOffset = window.FileLength;
             _serverLogInteropDirty = true;
         }
         finally
@@ -375,9 +524,10 @@
             }
             else
             {
-                var (text, truncated) = await ReadTailAsync(_serverLogPath, InfoLogExceptionSearchBytes);
-                SetServerLogTextWindow(ExtractExceptionBlocks(text, truncated, "server log"));
-                _serverLogTruncated = truncated;
+                var tail = await ReadTailAsync(_serverLogPath, InfoLogExceptionSearchBytes);
+                SetServerLogTextWindow(ExtractExceptionBlocks(tail.Text, tail.Truncated, "server log"));
+                _serverLogTruncated = tail.Truncated;
+                _serverLogReadOffset = tail.FileLength;
                 _serverLogMissing = false;
                 _serverLogError = null;
                 _serverLogMode = "exceptions";
@@ -402,6 +552,12 @@
 
     private async Task RefreshInfoLogAsync()
     {
+        if (_infoLogLoaded && _infoLogMode == "tail")
+        {
+            await RefreshInfoLogTailAsync(reloadOnReset: true);
+            return;
+        }
+
         await LoadInfoLogAsync();
     }
 
@@ -429,13 +585,13 @@
                 _infoLogTruncated = false;
                 _infoLogError = null;
                 _infoLogMode = "tail";
+                _infoLogReadOffset = 0;
             }
             else
             {
-                var (text, truncated) = await ReadTailAsync(_infoLogPath, InfoLogTailBytes);
-                _infoLogContent = text;
-                _infoLogTruncated = truncated;
-                _infoLogLineCount = CountLines(text);
+                var tail = await ReadTailAsync(_infoLogPath, InfoLogTailBytes);
+                SetInfoLogTailContent(tail.Text, tail.Truncated);
+                _infoLogReadOffset = tail.FileLength;
                 _infoLogMissing = false;
                 _infoLogError = null;
                 _infoLogMode = "tail";
@@ -449,11 +605,75 @@
             _infoLogTruncated = false;
             _infoLogMissing = false;
             _infoLogMode = "tail";
+            _infoLogReadOffset = 0;
         }
 
         _infoLogLoaded = true;
         _infoLogScrollPending = true;
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshInfoLogTailAsync(bool reloadOnReset)
+    {
+        if (_infoLogMode != "tail")
+            return;
+
+        var latestPath = ResolveInfoLogPath();
+        if (!string.Equals(latestPath, _infoLogPath, StringComparison.OrdinalIgnoreCase))
+        {
+            if (reloadOnReset)
+                await LoadInfoLogAsync();
+            return;
+        }
+
+        if (!File.Exists(_infoLogPath))
+        {
+            if (reloadOnReset)
+                await LoadInfoLogAsync();
+            return;
+        }
+
+        if (_infoLogMissing)
+        {
+            if (reloadOnReset)
+                await LoadInfoLogAsync();
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(_infoLogError))
+        {
+            if (reloadOnReset)
+                await LoadInfoLogAsync();
+            return;
+        }
+
+        try
+        {
+            var update = await ReadAppendedTextAsync(_infoLogPath, _infoLogReadOffset);
+            if (update.Reset)
+            {
+                if (reloadOnReset)
+                    await LoadInfoLogAsync();
+                return;
+            }
+
+            _infoLogReadOffset = update.FileLength;
+            if (string.IsNullOrEmpty(update.Text))
+                return;
+
+            var shouldScroll = await IsScrolledNearBottomAsync(_infoLogScrollContainerId);
+            SetInfoLogTailContent(_infoLogContent + update.Text, _infoLogTruncated);
+            _infoLogMissing = false;
+            _infoLogError = null;
+            _infoLogScrollPending = shouldScroll;
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception exception)
+        {
+            _infoLogError = exception.Message;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private async Task LoadInfoLogExceptionsAsync()
@@ -473,9 +693,10 @@
             }
             else
             {
-                var (text, truncated) = await ReadTailAsync(_infoLogPath, InfoLogExceptionSearchBytes);
-                _infoLogContent = ExtractExceptionBlocks(text, truncated, "info.log");
-                _infoLogTruncated = truncated;
+                var tail = await ReadTailAsync(_infoLogPath, InfoLogExceptionSearchBytes);
+                _infoLogContent = ExtractExceptionBlocks(tail.Text, tail.Truncated, "info.log");
+                _infoLogTruncated = tail.Truncated;
+                _infoLogReadOffset = tail.FileLength;
                 _infoLogLineCount = CountLines(_infoLogContent);
                 _infoLogMissing = false;
                 _infoLogError = null;
@@ -508,7 +729,29 @@
             .ToArray();
     }
 
-    private static async Task<(string Text, bool Truncated)> ReadTailAsync(string path, int maxBytes)
+    private void SetInfoLogTailContent(string text, bool alreadyTruncated)
+    {
+        _infoLogContent = TrimInfoLogTailContent(text, out var truncated);
+        _infoLogTruncated = alreadyTruncated || truncated;
+        _infoLogLineCount = CountLines(_infoLogContent);
+    }
+
+    private static string TrimInfoLogTailContent(string text, out bool truncated)
+    {
+        truncated = false;
+        if (text.Length <= InfoLogTailBytes)
+            return text;
+
+        truncated = true;
+        var start = text.Length - InfoLogTailBytes;
+        var nextLine = text.IndexOf('\n', start);
+        if (nextLine >= 0 && nextLine + 1 < text.Length)
+            start = nextLine + 1;
+
+        return text[start..];
+    }
+
+    private static async Task<LogTailSnapshot> ReadTailAsync(string path, int maxBytes)
     {
         await using var stream = new FileStream(
             path,
@@ -516,8 +759,9 @@
             FileAccess.Read,
             FileShare.ReadWrite | FileShare.Delete);
 
+        var fileLength = stream.Length;
         var truncated = false;
-        if (stream.Length > maxBytes)
+        if (fileLength > maxBytes)
         {
             stream.Seek(-maxBytes, SeekOrigin.End);
             truncated = true;
@@ -531,7 +775,53 @@
         }
 
         var text = await reader.ReadToEndAsync();
-        return (text, truncated);
+        return new LogTailSnapshot(text, truncated, fileLength);
+    }
+
+    private static async Task<ServerLogAppend> ReadAppendedLinesAsync(string path, long startOffset)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+
+        var fileLength = stream.Length;
+        if (startOffset > fileLength)
+            return new ServerLogAppend(Array.Empty<string>(), fileLength, Reset: true);
+
+        if (startOffset == fileLength)
+            return new ServerLogAppend(Array.Empty<string>(), fileLength, Reset: false);
+
+        stream.Seek(Math.Max(0, startOffset), SeekOrigin.Begin);
+        using var reader = new StreamReader(stream);
+
+        var lines = new List<string>();
+        string? line;
+        while ((line = await reader.ReadLineAsync()) is not null)
+            lines.Add(line);
+
+        return new ServerLogAppend(lines, fileLength, Reset: false);
+    }
+
+    private static async Task<LogTextAppend> ReadAppendedTextAsync(string path, long startOffset)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+
+        var fileLength = stream.Length;
+        if (startOffset > fileLength)
+            return new LogTextAppend(string.Empty, fileLength, Reset: true);
+
+        if (startOffset == fileLength)
+            return new LogTextAppend(string.Empty, fileLength, Reset: false);
+
+        stream.Seek(Math.Max(0, startOffset), SeekOrigin.Begin);
+        using var reader = new StreamReader(stream);
+        return new LogTextAppend(await reader.ReadToEndAsync(), fileLength, Reset: false);
     }
 
     private static async Task<ServerLogLineWindow> ReadLatestLineWindowAsync(string path, int maxLines)
@@ -554,7 +844,7 @@
                 lines.Dequeue();
         }
 
-        return new ServerLogLineWindow(lines.ToArray(), Math.Max(0, totalLines - lines.Count), totalLines);
+        return new ServerLogLineWindow(lines.ToArray(), Math.Max(0, totalLines - lines.Count), totalLines, stream.Length);
     }
 
     private static async Task<ServerLogLineWindow> ReadLineWindowAsync(string path, int startLine, int maxLines)
@@ -586,7 +876,7 @@
             currentLine++;
         }
 
-        return new ServerLogLineWindow(lines, startLine, currentLine);
+        return new ServerLogLineWindow(lines, startLine, currentLine, stream.Length);
     }
 
     private static int CountLines(string text)
@@ -791,11 +1081,43 @@
 
     public async ValueTask DisposeAsync()
     {
+        _autoRefreshCts?.Cancel();
+        if (_autoRefreshTask is not null)
+        {
+            try
+            {
+                await _autoRefreshTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        _autoRefreshCts?.Dispose();
         await DetachServerLogInteropAsync();
         _serverLogInteropRef?.Dispose();
     }
 
-    private sealed record ServerLogLineWindow(IReadOnlyList<string> Lines, int StartLine, int TotalLineCount);
+    private sealed record ServerLogLineWindow(
+        IReadOnlyList<string> Lines,
+        int StartLine,
+        int TotalLineCount,
+        long FileLength);
+
+    private sealed record ServerLogAppend(
+        IReadOnlyList<string> Lines,
+        long FileLength,
+        bool Reset);
+
+    private sealed record LogTextAppend(
+        string Text,
+        long FileLength,
+        bool Reset);
+
+    private sealed record LogTailSnapshot(
+        string Text,
+        bool Truncated,
+        long FileLength);
 
     public sealed class ServerLogWindowMoveResult
     {

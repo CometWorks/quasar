@@ -1,0 +1,176 @@
+@using Quasar.Models
+@using Quasar.Services
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            @if (!string.IsNullOrWhiteSpace(_loadError))
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                    Could not read world settings from <code>@WorldSandboxConfigEditor.SandboxConfigFileName</code>. @_loadError
+                </MudAlert>
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    Found @_sessionSettingCount session setting(s) and @_modCount mod(s) in <code>@WorldSandboxConfigEditor.SandboxConfigFileName</code>.
+                </MudAlert>
+            }
+
+            @if (AllowSkip)
+            {
+                <MudRadioGroup T="ConfigProfileImportAction" @bind-Value="_action">
+                    <MudStack Spacing="1">
+                        <MudRadio T="ConfigProfileImportAction"
+                                  Value="ConfigProfileImportAction.CreateProfile"
+                                  Color="Color.Primary"
+                                  Disabled="@(!CanCreateFromSource)">
+                            Create a config profile from this world's settings
+                        </MudRadio>
+                        <MudRadio T="ConfigProfileImportAction" Value="ConfigProfileImportAction.Skip" Color="Color.Primary">
+                            Import the world template only
+                        </MudRadio>
+                    </MudStack>
+                </MudRadioGroup>
+            }
+
+            @if (_action == ConfigProfileImportAction.CreateProfile && CanCreateFromSource)
+            {
+                <MudForm @ref="_form" @bind-IsValid="_formIsValid">
+                    <MudStack Spacing="3">
+                        <MudTextField
+                            @bind-Value="_profileName"
+                            Label="Profile name"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            AutoFocus="@(!AllowSkip)"
+                            Required="true"
+                            RequiredError="Profile name required." />
+
+                        <MudTextField
+                            @bind-Value="_profileDescription"
+                            Label="Description"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            Lines="3"
+                            Sizing="InputSizing.Auto"
+                            MaxLines="10000" />
+                    </MudStack>
+                </MudForm>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   OnClick="ConfirmAsync"
+                   Disabled="@(!CanConfirm)">
+            @GetConfirmText()
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public string WorldName { get; set; } = string.Empty;
+
+    [Parameter]
+    public string WorldPath { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool AllowSkip { get; set; } = true;
+
+    private MudForm? _form;
+    private bool _formIsValid;
+    private string _profileName = string.Empty;
+    private string _profileDescription = string.Empty;
+    private QuasarConfigProfile? _sourceProfile;
+    private int _sessionSettingCount;
+    private int _modCount;
+    private string? _loadError;
+    private ConfigProfileImportAction _action = ConfigProfileImportAction.CreateProfile;
+
+    private bool CanCreateFromSource => _sourceProfile is not null && string.IsNullOrWhiteSpace(_loadError);
+
+    private bool CanConfirm =>
+        _action == ConfigProfileImportAction.Skip ||
+        (CanCreateFromSource && !string.IsNullOrWhiteSpace(_profileName));
+
+    protected override void OnInitialized()
+    {
+        _profileName = $"{GetWorldDisplayName()} Config";
+        _profileDescription = $"Created from world template '{GetWorldDisplayName()}'.";
+        LoadSourceProfile();
+        if (!CanCreateFromSource && AllowSkip)
+            _action = ConfigProfileImportAction.Skip;
+    }
+
+    private void LoadSourceProfile()
+    {
+        var sandboxConfigPath = Path.Combine(WorldPath.Trim(), WorldSandboxConfigEditor.SandboxConfigFileName);
+        try
+        {
+            var import = WorldSandboxConfigEditor.ReadConfigProfile(sandboxConfigPath);
+            _sourceProfile = import.Profile;
+            _sessionSettingCount = import.SessionSettingCount;
+            _modCount = import.ModCount;
+        }
+        catch (Exception exception)
+        {
+            _sourceProfile = null;
+            _sessionSettingCount = 0;
+            _modCount = 0;
+            _loadError = exception.Message;
+        }
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (_action == ConfigProfileImportAction.Skip)
+        {
+            MudDialog.Close(DialogResult.Ok(new WorldTemplateConfigProfileDialogResult(null)));
+            return;
+        }
+
+        if (_form is not null)
+        {
+            await _form.ValidateAsync();
+            if (!_formIsValid)
+                return;
+        }
+
+        if (_sourceProfile is null)
+            return;
+
+        _sourceProfile.ConfigProfileId = string.Empty;
+        _sourceProfile.Name = _profileName.Trim();
+        _sourceProfile.Description = _profileDescription?.Trim() ?? string.Empty;
+        MudDialog.Close(DialogResult.Ok(new WorldTemplateConfigProfileDialogResult(_sourceProfile)));
+    }
+
+    private string GetConfirmText() =>
+        _action == ConfigProfileImportAction.Skip
+            ? "Continue"
+            : "Create Profile";
+
+    private string GetWorldDisplayName() =>
+        string.IsNullOrWhiteSpace(WorldName) ? "Imported World" : WorldName.Trim();
+
+    public sealed record WorldTemplateConfigProfileDialogResult(QuasarConfigProfile? Profile);
+
+    private enum ConfigProfileImportAction
+    {
+        CreateProfile,
+        Skip,
+    }
+}

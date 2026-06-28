@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
@@ -10,30 +11,44 @@ public static class WorldSandboxConfigEditor
 {
     public const string SandboxConfigFileName = "Sandbox_config.sbc";
 
+    public sealed record ConfigProfileImport(QuasarConfigProfile Profile, int SessionSettingCount, int ModCount);
+
     public static IReadOnlyList<QuasarModSelection> ReadMods(string sandboxConfigPath)
     {
         if (!File.Exists(sandboxConfigPath))
             return Array.Empty<QuasarModSelection>();
 
-        XDocument document;
-        try
-        {
-            document = XDocument.Load(sandboxConfigPath, LoadOptions.PreserveWhitespace);
-        }
-        catch (Exception exception)
-        {
-            throw new InvalidOperationException($"Failed to parse '{sandboxConfigPath}'.", exception);
-        }
+        var document = LoadDocument(sandboxConfigPath);
+        var root = GetRoot(document, sandboxConfigPath);
+        return ReadMods(root);
+    }
 
-        var modsElement = document.Root?.Element("Mods");
+    public static ConfigProfileImport ReadConfigProfile(string sandboxConfigPath)
+    {
+        var document = LoadDocument(sandboxConfigPath);
+        var root = GetRoot(document, sandboxConfigPath);
+        var profile = new QuasarConfigProfile
+        {
+            SessionSettings = new QuasarSessionSettings(),
+            Mods = ReadMods(root).ToList(),
+        };
+
+        var sessionSettingCount = ApplyImportedSessionSettings(root, profile.SessionSettings);
+        return new ConfigProfileImport(profile, sessionSettingCount, profile.Mods.Count);
+    }
+
+    private static IReadOnlyList<QuasarModSelection> ReadMods(XElement root)
+    {
+        var modsElement = ElementIgnoreCase(root, "Mods");
         if (modsElement is null)
             return Array.Empty<QuasarModSelection>();
 
         var results = new List<QuasarModSelection>();
         var seen = new HashSet<long>();
-        foreach (var item in modsElement.Elements("ModItem"))
+        foreach (var item in modsElement.Elements().Where(element =>
+                     string.Equals(element.Name.LocalName, "ModItem", StringComparison.OrdinalIgnoreCase)))
         {
-            var idText = (item.Element("PublishedFileId")?.Value ?? string.Empty).Trim();
+            var idText = (ElementIgnoreCase(item, "PublishedFileId")?.Value ?? string.Empty).Trim();
             if (!long.TryParse(idText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var workshopId) || workshopId <= 0)
                 continue;
 
@@ -102,6 +117,178 @@ public static class WorldSandboxConfigEditor
     {
         return document.Root
             ?? throw new InvalidOperationException($"'{sandboxConfigPath}' has no root element.");
+    }
+
+    private static XElement? ElementIgnoreCase(XElement parent, string name) =>
+        parent.Elements().FirstOrDefault(element =>
+            string.Equals(element.Name.LocalName, name, StringComparison.OrdinalIgnoreCase));
+
+    private static int ApplyImportedSessionSettings(XElement root, QuasarSessionSettings sessionSettings)
+    {
+        var settingsElement = ElementIgnoreCase(root, "Settings");
+        if (settingsElement is null)
+            return 0;
+
+        var count = 0;
+        foreach (var option in QuasarConfigMetadata.Options.Where(option => option.Scope == QuasarConfigOptionScope.Session))
+        {
+            if (string.IsNullOrWhiteSpace(option.ElementName))
+                continue;
+
+            var element = ElementIgnoreCase(settingsElement, option.ElementName);
+            if (element is null)
+                continue;
+
+            var property = QuasarConfigMetadata.GetProperty(option);
+            if (!TryReadValue(option, property, element, out var value))
+                continue;
+
+            property.SetValue(sessionSettings, value);
+            count++;
+        }
+
+        return count;
+    }
+
+    private static bool TryReadValue(
+        QuasarConfigOptionDefinition option,
+        PropertyInfo property,
+        XElement element,
+        out object value)
+    {
+        value = default!;
+        var text = (element.Value ?? string.Empty).Trim();
+
+        switch (option.Kind)
+        {
+            case QuasarConfigOptionKind.Boolean:
+                if (TryParseBool(text, out var boolValue))
+                {
+                    value = boolValue;
+                    return true;
+                }
+
+                return false;
+
+            case QuasarConfigOptionKind.Integer:
+                return TryReadInteger(property.PropertyType, text, out value);
+
+            case QuasarConfigOptionKind.SelectInteger:
+                if (TryParseSelectInteger(option, text, out var selectValue))
+                {
+                    value = selectValue;
+                    return true;
+                }
+
+                return false;
+
+            case QuasarConfigOptionKind.Decimal:
+                if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var doubleValue))
+                {
+                    value = doubleValue;
+                    return true;
+                }
+
+                return false;
+
+            case QuasarConfigOptionKind.KeyValueText
+                when property.PropertyType == typeof(Dictionary<string, int>):
+                value = ReadBlockTypeLimits(element);
+                return true;
+
+            case QuasarConfigOptionKind.Text:
+            case QuasarConfigOptionKind.LongText:
+            case QuasarConfigOptionKind.Password:
+                value = text;
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryReadInteger(Type propertyType, string text, out object value)
+    {
+        value = default!;
+
+        if (propertyType == typeof(long))
+        {
+            if (!long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var longValue))
+                return false;
+
+            value = longValue;
+            return true;
+        }
+
+        if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intValue))
+            return false;
+
+        value = intValue;
+        return true;
+    }
+
+    private static bool TryParseBool(string text, out bool value)
+    {
+        if (bool.TryParse(text, out value))
+            return true;
+
+        if (string.Equals(text, "1", StringComparison.Ordinal))
+        {
+            value = true;
+            return true;
+        }
+
+        if (string.Equals(text, "0", StringComparison.Ordinal))
+        {
+            value = false;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryParseSelectInteger(QuasarConfigOptionDefinition option, string text, out int value)
+    {
+        if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+            return true;
+
+        foreach (var choice in option.SelectOptions)
+        {
+            if ((!string.IsNullOrEmpty(choice.XmlName) &&
+                 string.Equals(choice.XmlName, text, StringComparison.OrdinalIgnoreCase)) ||
+                string.Equals(choice.Label, text, StringComparison.OrdinalIgnoreCase))
+            {
+                value = choice.Value;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static Dictionary<string, int> ReadBlockTypeLimits(XElement blockTypeLimitsElement)
+    {
+        var limits = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var items = blockTypeLimitsElement
+            .Descendants()
+            .Where(element => string.Equals(element.Name.LocalName, "item", StringComparison.OrdinalIgnoreCase));
+
+        foreach (var item in items)
+        {
+            var key = (ElementIgnoreCase(item, "Key")?.Value ?? string.Empty).Trim();
+            var valueText = (ElementIgnoreCase(item, "Value")?.Value ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(key) ||
+                !int.TryParse(valueText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var limit))
+            {
+                continue;
+            }
+
+            limits[key] = Math.Clamp(limit, 0, short.MaxValue);
+        }
+
+        return limits
+            .OrderBy(limit => limit.Key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(limit => limit.Key, limit => limit.Value, StringComparer.OrdinalIgnoreCase);
     }
 
     private static void ApplySessionSettings(XElement root, QuasarSessionSettings sessionSettings)

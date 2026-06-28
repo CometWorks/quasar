@@ -21,7 +21,6 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultGracefulStopTimeout = TimeSpan.FromSeconds(30);
     private const string StandardOutputLogName = "stdout";
-    private const string StandardErrorLogName = "stderr";
     private const string ActiveLogExtension = ".log";
     private const string ReniceHelperPath = "/usr/local/bin/quasar-renice";
     private const string RestoreInProgressMessage = "Start deferred: a backup restore is in progress for this server.";
@@ -37,7 +36,6 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private readonly ManagedRuntimeWarmupService _runtimeWarmup;
     private readonly WebServiceOptions _options;
     private readonly ILogger<DedicatedServerSupervisor> _logger;
-    private readonly PluginLogStream _pluginLogStream;
     private readonly ServerRestoreCoordinator _restoreCoordinator;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Dictionary<string, ManagedServerState> _states = new(StringComparer.OrdinalIgnoreCase);
@@ -52,7 +50,6 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         ManagedDedicatedServerRuntimeResolver runtimeResolver,
         ManagedRuntimeWarmupService runtimeWarmup,
         WebServiceOptions options,
-        PluginLogStream pluginLogStream,
         ServerRestoreCoordinator restoreCoordinator,
         ILogger<DedicatedServerSupervisor> logger)
     {
@@ -62,7 +59,6 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _runtimeResolver = runtimeResolver;
         _runtimeWarmup = runtimeWarmup;
         _options = options;
-        _pluginLogStream = pluginLogStream;
         _restoreCoordinator = restoreCoordinator;
         _logger = logger;
 
@@ -989,11 +985,24 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
         cancellationToken.ThrowIfCancellationRequested();
 
+        var compatibilityIssue = WorldStartupCompatibilityGuard.Check(launch.WorldPath);
+        if (compatibilityIssue is not null)
+        {
+            SetFaulted(state.UniqueName, compatibilityIssue.Message);
+            _logger.LogWarning(
+                "Blocked server {UniqueName} startup because the world is incompatible with disabled oxygen. References: {References}",
+                state.UniqueName,
+                string.Join(", ", compatibilityIssue.References.Select(reference =>
+                    reference.LineNumber is > 0
+                        ? $"{reference.Token} at {reference.RelativePath}:{reference.LineNumber.Value}"
+                        : $"{reference.Token} at {reference.RelativePath}")));
+            return;
+        }
+
         string stdoutPath;
-        string stderrPath;
         try
         {
-            (stdoutPath, stderrPath) = PrepareServerLogSlot(state.UniqueName, definition.DsLogFilesToKeep);
+            stdoutPath = PrepareServerLogSlot(state.UniqueName, definition.DsLogFilesToKeep);
         }
         catch (Exception exception)
         {
@@ -1093,7 +1102,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 current.LastExitCode = null;
                 current.LastMessage = "Process started; waiting for server online signal.";
                 current.StandardOutputLogPath = stdoutPath;
-                current.StandardErrorLogPath = stderrPath;
+                current.StandardErrorLogPath = string.Empty;
                 current.IsRestartPending = false;
                 current.StopRequested = false;
                 current.ModDownloadFailures.Clear();
@@ -1127,7 +1136,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         NotifyChanged();
 
         _ = PumpStandardOutputAsync(process.StandardOutput, stdoutPath, state.UniqueName, _shutdown.Token);
-        _ = PumpStandardErrorAsync(process.StandardError, stderrPath, state.UniqueName, _shutdown.Token);
+        _ = DrainStandardErrorAsync(process.StandardError, _shutdown.Token);
     }
 
     private static void ConfigureNativeLibrarySearchPath(
@@ -1822,21 +1831,16 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             NotifyChanged();
     }
 
-    private const string MagnetarLogSource = "Magnetar";
-
-    private (string StandardOutputPath, string StandardErrorPath) PrepareServerLogSlot(string uniqueName, int dsLogFilesToKeep)
+    private string PrepareServerLogSlot(string uniqueName, int dsLogFilesToKeep)
     {
         var logDirectory = MagnetarPaths.GetQuasarServerLogDirectory(uniqueName);
         Directory.CreateDirectory(logDirectory);
 
         var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture);
         RotateActiveLogIfPresent(uniqueName, logDirectory, StandardOutputLogName, timestamp);
-        RotateActiveLogIfPresent(uniqueName, logDirectory, StandardErrorLogName, timestamp);
         PruneServerLogFiles(uniqueName, dsLogFilesToKeep);
 
-        return (
-            Path.Combine(logDirectory, StandardOutputLogName + ActiveLogExtension),
-            Path.Combine(logDirectory, StandardErrorLogName + ActiveLogExtension));
+        return Path.Combine(logDirectory, StandardOutputLogName + ActiveLogExtension);
     }
 
     private void RotateActiveLogIfPresent(string uniqueName, string logDirectory, string logName, string timestamp)
@@ -1892,7 +1896,6 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         var keepCount = NormalizeDsLogFilesToKeep(dsLogFilesToKeep);
         var archivedToKeep = Math.Max(0, keepCount - 1);
         PruneRotatedLogFiles(uniqueName, logDirectory, StandardOutputLogName, archivedToKeep);
-        PruneRotatedLogFiles(uniqueName, logDirectory, StandardErrorLogName, archivedToKeep);
     }
 
     private void PruneRotatedLogFiles(string uniqueName, string logDirectory, string logName, int archivedToKeep)
@@ -1960,32 +1963,28 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             else if (!string.IsNullOrWhiteSpace(line))
             {
                 RecordModDownloadFailure(uniqueName, line);
-                _pluginLogStream.Append(BuildMagnetarEntry(uniqueName, line, "Info"));
             }
         }
     }
 
-    private async Task PumpStandardErrorAsync(StreamReader reader, string path, string uniqueName, CancellationToken cancellationToken)
+    private static async Task DrainStandardErrorAsync(StreamReader reader, CancellationToken cancellationToken)
     {
-        await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-        await using var writer = new StreamWriter(stream)
+        try
         {
-            AutoFlush = true,
-        };
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            var line = await reader.ReadLineAsync(cancellationToken);
-            if (line is null)
-                break;
-
-            await writer.WriteLineAsync($"{DateTimeOffset.UtcNow:O} {line}");
-
-            if (!string.IsNullOrWhiteSpace(line))
+            while (!cancellationToken.IsCancellationRequested)
             {
-                RecordModDownloadFailure(uniqueName, line);
-                _pluginLogStream.Append(BuildMagnetarEntry(uniqueName, line, "Error"));
+                if (await reader.ReadLineAsync(cancellationToken) is null)
+                    break;
             }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (IOException)
+        {
+        }
+        catch
+        {
         }
     }
 
@@ -2041,27 +2040,6 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         message = text.Length <= 300 ? text : $"{text[..300]}...";
         return true;
-    }
-
-    private static PluginLogEntry BuildMagnetarEntry(string uniqueName, string line, string level)
-    {
-        var timestamp = DateTimeOffset.UtcNow;
-        var message = line;
-
-        if (TryNormalizePrefixedLogLine(line, out var parsedTimestamp, out var parsedMessage))
-        {
-            timestamp = parsedTimestamp;
-            message = parsedMessage;
-        }
-
-        return new PluginLogEntry
-        {
-            UniqueName = uniqueName,
-            TimestampUtc = timestamp,
-            Level = level,
-            Plugin = MagnetarLogSource,
-            Message = message,
-        };
     }
 
     private static bool TryNormalizePrefixedLogLine(

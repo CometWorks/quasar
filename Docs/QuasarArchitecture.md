@@ -7,12 +7,13 @@ This document is the implementation reference for the supervisor-based managemen
 > provisioning, backups, and more) are drawn as Mermaid + PNG state diagrams in
 > the [State Machine Diagrams](StateMachines/Index.md) section.
 
-It captures the agreed hybrid flow:
+It captures the current supervisor flow:
 
 - `Quasar` is the primary long-running supervisor
 - `Quasar.Agent` runs inside each Dedicated Server
 - agents attach to an already-running supervisor over raw WebSockets
-- if `Quasar` is missing, the agent may trigger bootstrap/setup
+- if `Quasar` is missing, the agent waits and retries; it does not start Quasar,
+  Bootstrap, or the UI
 - the agent must not become the long-running owner of the web host
 
 ## Naming
@@ -28,7 +29,7 @@ It captures the agreed hybrid flow:
 
 - `Quasar.Bootstrap`
   - lightweight installer / ensure-running helper
-  - can be invoked manually or from `Quasar.Agent`
+  - can be invoked manually or by the installed service/launcher flow
   - responsible for setting up or starting `Quasar`
 
 - `Quasar.Agent`
@@ -66,7 +67,7 @@ That means `Quasar` is responsible for:
 - reports state
 - receives commands
 - executes game-thread actions
-- assists with bootstrap when the supervisor is missing
+- reconnects when the supervisor is temporarily unreachable
 
 ## Target Workflow
 
@@ -82,17 +83,16 @@ Primary workflow:
 8. `Quasar` keeps DS servers running and restarts them as configured
 9. user can return later via bookmark or the printed URL
 
-Hybrid bootstrap workflow:
+Detached agent reconnect workflow:
 
 1. a DS server starts with `Quasar.Agent`
 2. agent tries to discover `Quasar`
-3. if missing, agent may invoke `Quasar.Bootstrap`
-4. `Quasar.Bootstrap` ensures `Quasar` is installed and running
-5. agent retries discovery and then attaches normally
+3. if missing or unhealthy, agent waits for the configured reconnect delay
+4. agent retries discovery and then attaches normally once Quasar is healthy
 
 Important boundary:
 
-- the agent may trigger bootstrap
+- the agent must not trigger bootstrap, start the UI, or own supervisor startup
 - the agent must not directly become the long-running host owner
 - the long-running owner remains `Quasar`
 
@@ -264,16 +264,16 @@ Expected local mechanism:
 - local health check
 - process identity / server metadata
 
-Bootstrap/setup should be handled by `Quasar.Bootstrap`.
+Bootstrap/setup should be handled by `Quasar.Bootstrap` or the installed
+service/launcher flow, not by `Quasar.Agent`.
 
 Expected behavior:
 
 - detect missing supervisor
 - install or locate supervisor binaries if needed
 - start supervisor in the correct mode
-- return enough information for the agent to retry attachment
-
-The current direct agent-side process spawn is only an implementation stepping stone and should be replaced by bootstrap-assisted supervisor setup.
+- return enough information for the agent to retry attachment after Quasar is
+  healthy
 
 ## Process Supervision
 
@@ -294,7 +294,7 @@ It needs:
 - restart policy
 - restart backoff
 - last exit code / last crash reason
-- captured stdout/stderr or redirected server logs
+- captured stdout plus the DS-owned log files
 
 Quasar tracks two related but separate pieces of server state:
 
@@ -751,7 +751,7 @@ Required for the first meaningful delivery:
 - per-server config history
 - Blazor Server UI for management
 - NLog-based file logging with minimal console output
-- bootstrap/setup path from the agent side via `Quasar.Bootstrap`
+- bootstrap/setup path owned outside the agent via `Quasar.Bootstrap`
 - neutral light/dark UI theme with persisted preference
 - config editing migrated out of Python
 
@@ -814,8 +814,8 @@ The protocol and IDs should remain compatible with those later additions.
 
 ### Stage 6: Agent bootstrap correction
 
-- replace direct agent-side host spawn with `Quasar.Bootstrap`
-- keep agent-side ensure-running flow
+- remove agent-side host/bootstrap spawning
+- keep agent-side discovery and reconnect flow
 - preserve raw WebSocket attachment behavior
 
 ### Stage 7: Config migration
@@ -867,11 +867,18 @@ As of this document:
 - atomic config history/versioning groundwork exists for server definitions
 - first desired goal-state reconciliation exists
 - first process supervision exists for start/stop/restart and per-server logs
+- the server console dialog auto-refreshes the Dedicated Server log and
+  Magnetar `info.log` every 5 seconds while a tail view is active, using
+  append-only reads from the last loaded file offset instead of re-reading the
+  full log on each refresh
+- plugin logs now relay through the Quasar Agent outbox over the existing
+  WebSocket; entries from the `Magnetar` logger are dropped before control-plane
+  transport and are also rejected by the in-memory plugin log stream
 - first health-monitoring and auto-recovery pass exists for agent attach grace, heartbeat freshness, simulation-frame progress scoring aligned with the DS watcher, and uptime-based warning/recycle policy
 - initial runtime launch preparation now exists for isolated app-data roots, runtime config sync, `LastSession.sbl`, and enforced headless launch shaping
 - server definitions store a saves root (`WorldPath`) plus selected save folder (`WorldSaveName`). Older definitions whose `WorldPath` pointed at a concrete save are migrated automatically by moving the final path segment into `WorldSaveName`. The server editor requires a selected save before save/start, lists existing saves from the saves root, and has an always-available Create From Template dialog that can create/import a world template before copying it into a new save.
 - neutral light/dark theming exists with local-storage persistence
-- config editing is now migrated out of Python into Quasar-managed JSON profiles and rendered runtime artifacts. Profiles cover Quasar root settings, server password (rendered to DS-compatible hash/salt), and DS-visible SE session settings including block type world limits; on server start Quasar writes session settings and mods into the world's authoritative `Sandbox_config.sbc` as well as the runtime DS config.
+- config editing is now migrated out of Python into Quasar-managed JSON profiles and rendered runtime artifacts. Profiles cover Quasar root settings, server password (rendered to DS-compatible hash/salt), and DS-visible SE session settings including block type world limits; on server start Quasar writes session settings and mods into the world's authoritative `Sandbox_config.sbc` as well as the runtime DS config. World-template import flows can also read a template's current `Sandbox_config.sbc` and create a config profile from its session settings and mods.
 - file watching/reload now exists for manual edits to Quasar-managed server/profile JSON
 - backup/restore now exists as versioned ZIP archives for Quasar configuration, server runtime state, and world-only data. Configuration backups cover servers, config profiles, world-template definitions, branding, and singleton settings files, with manual download/upload and semantic-version compatibility checks. The Backup page lists every configured server with per-row Back up server / Restore server / Back up world / Restore world actions; restore buttons use the latest matching stored archive for that server and backup kind. Automatic backup rules are configured separately for Quasar config, server backups, and world backups, each with its own schedule and retention. Quasar config backups include Quasar-managed catalog/config files only; server backups include the server definition plus non-cache Dedicated Server and Magnetar app data but not world saves; world backups include world save files and keep existing server/world config, using the latest Space Engineers `Backup` snapshot when present so backups can be taken while servers run. Restored server definitions from config or server backups are forced to `Off` goal state so restore cannot trigger a failed start loop before matching world files are restored.
 - per-server CPU affinity pinning now exists (cpuset strings applied via `taskset` on Linux and `Process.ProcessorAffinity` on Windows), enforced by the supervisor on process start and reconcile alongside process priority; Linux priority elevation can use the optional setuid `/usr/local/bin/quasar-renice` helper instead of granting `CAP_SYS_NICE` to the whole Quasar service
