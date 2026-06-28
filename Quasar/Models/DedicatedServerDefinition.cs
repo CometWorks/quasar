@@ -4,7 +4,7 @@ namespace Quasar.Models;
 
 public sealed class DedicatedServerDefinition
 {
-    public const int DefaultDsLogFilesToKeep = 10;
+    public const int DefaultDsLogFilesToKeep = 5;
     public const int MinimumDsLogFilesToKeep = 1;
     public const int MaximumDsLogFilesToKeep = 1000;
     public const int DefaultMaxRestartAttempts = 3;

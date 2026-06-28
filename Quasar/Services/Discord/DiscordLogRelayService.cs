@@ -1,5 +1,6 @@
 using Discord;
 using Discord.WebSocket;
+using Magnetar.Protocol.Runtime;
 
 namespace Quasar.Services.Discord;
 
@@ -8,6 +9,7 @@ public sealed class DiscordLogRelayService
     private const int ChunkSize = 1900;
     private readonly object _sync = new();
     private readonly DedicatedServerSupervisor _supervisor;
+    private readonly DedicatedServerCatalog _catalog;
     private readonly DiscordRateLimiter _rateLimiter;
     private readonly ILogger<DiscordLogRelayService> _logger;
     private readonly Dictionary<string, LogCursorState> _offsets = new(StringComparer.OrdinalIgnoreCase);
@@ -15,10 +17,12 @@ public sealed class DiscordLogRelayService
 
     public DiscordLogRelayService(
         DedicatedServerSupervisor supervisor,
+        DedicatedServerCatalog catalog,
         DiscordRateLimiter rateLimiter,
         ILogger<DiscordLogRelayService> logger)
     {
         _supervisor = supervisor;
+        _catalog = catalog;
         _rateLimiter = rateLimiter;
         _logger = logger;
     }
@@ -69,10 +73,14 @@ public sealed class DiscordLogRelayService
         {
             var snapshot = _supervisor.GetSnapshots()
                 .FirstOrDefault(item => string.Equals(item.UniqueName, serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
-            if (snapshot is null || string.IsNullOrWhiteSpace(snapshot.StandardOutputLogPath))
+            if (snapshot is null)
                 return;
 
-            var delta = await ReadDeltaAsync(serverOptions.UniqueName, snapshot.StandardOutputLogPath, cancellationToken);
+            var logPath = ResolveLatestDedicatedServerLogPath(serverOptions.UniqueName);
+            if (string.IsNullOrWhiteSpace(logPath))
+                return;
+
+            var delta = await ReadDeltaAsync(serverOptions.UniqueName, logPath, cancellationToken);
             if (string.IsNullOrWhiteSpace(delta))
                 return;
 
@@ -92,6 +100,32 @@ public sealed class DiscordLogRelayService
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Discord log export failed for server {UniqueName}", serverOptions.UniqueName);
+        }
+    }
+
+    private string? ResolveLatestDedicatedServerLogPath(string uniqueName)
+    {
+        var server = _catalog.GetServer(uniqueName);
+        if (server is null)
+            return null;
+
+        var appDataPath = string.IsNullOrWhiteSpace(server.DedicatedServerAppDataPath)
+            ? MagnetarPaths.GetQuasarServerDedicatedServerAppDataDirectory(uniqueName)
+            : server.DedicatedServerAppDataPath.Trim();
+
+        if (!Directory.Exists(appDataPath))
+            return null;
+
+        try
+        {
+            return Directory.EnumerateFiles(appDataPath, "SpaceEngineersDedicated*.log", SearchOption.TopDirectoryOnly)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault();
+        }
+        catch (Exception exception)
+        {
+            _logger.LogDebug(exception, "Failed resolving latest Dedicated Server log for server {UniqueName}.", uniqueName);
+            return null;
         }
     }
 

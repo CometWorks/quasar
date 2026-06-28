@@ -92,6 +92,11 @@ The pointer is `Updates/active-release.json`
 written by the worker's `Activating` step and observed via a `FileSystemWatcher`
 (debounced ~250ms).
 
+Each worker writes the shared supervisor discovery manifest on startup and only
+deletes it on shutdown when the on-disk worker id and process id still match that
+same worker. During cutover this prevents the retiring worker from deleting the
+new worker's manifest after agents have started reconnecting.
+
 Managed DS processes are not stopped during worker cutover, so their loaded
 `Quasar.Agent` assembly can remain older than the newly active web release. On a
 later server Restart action, `DedicatedServerSupervisor.RestartServerAsync`

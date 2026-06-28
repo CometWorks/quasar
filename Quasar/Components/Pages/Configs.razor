@@ -1073,7 +1073,7 @@
 
     private async Task RestoreDefaultProfilesAsync()
     {
-        if (!await ConfirmPendingChangesBeforeSwitchAsync())
+        if (!await ConfirmPendingChangesBeforeLeavingAsync())
             return;
 
         var confirmed = await DialogService.ShowMessageBoxAsync(
@@ -1191,13 +1191,13 @@
         if (string.Equals(_selectedProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))
             return;
 
-        if (!await ConfirmPendingChangesBeforeSwitchAsync())
+        if (!await ConfirmPendingChangesBeforeLeavingAsync())
             return;
 
         SelectProfile(configProfileId);
     }
 
-    private async Task<bool> ConfirmPendingChangesBeforeSwitchAsync()
+    public async Task<bool> ConfirmPendingChangesBeforeLeavingAsync()
     {
         if (!HasPendingChanges())
             return true;

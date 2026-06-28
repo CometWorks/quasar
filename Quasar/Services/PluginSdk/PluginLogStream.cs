@@ -4,11 +4,10 @@ namespace Quasar.Services.PluginSdk;
 
 /// <summary>
 /// In-memory ring buffer of recent plugin log entries, keyed by server unique
-/// name. The supervisor feeds entries parsed from each dedicated server's
-/// standard output (PluginSdk <c>QuasarLogSink</c> JSON lines); Blazor
-/// components subscribe to <see cref="Changed"/> and read recent entries for
-/// display. Mirrors the lightweight, lock-guarded, event-raising shape of the
-/// other Quasar runtime services.
+/// name. The agent socket handler feeds entries relayed from PluginSdk
+/// <c>QuasarLogSink</c>; Blazor components subscribe to <see cref="Changed"/>
+/// and read recent entries for display. Mirrors the lightweight, lock-guarded,
+/// event-raising shape of the other Quasar runtime services.
 /// </summary>
 public sealed class PluginLogStream
 {
@@ -159,11 +158,11 @@ public sealed class PluginLogStream
     }
 
     /// <summary>
-    /// Attempts to interpret one standard-output line as a PluginSdk
+    /// Attempts to interpret one PluginSdk
     /// <c>QuasarLogSink</c> JSON entry. Returns <c>true</c> and sets
     /// <paramref name="entry"/> only when the line is a JSON object carrying the
     /// sink's required fields (timestamp, level, plugin, message); ordinary game
-    /// output is rejected cheaply so it can flow to the plain log file.
+    /// output is rejected cheaply.
     /// </summary>
     public static bool TryParseSinkLine(string uniqueName, string? line, out PluginLogEntry? entry)
     {

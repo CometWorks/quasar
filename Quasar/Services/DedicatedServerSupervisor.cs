@@ -20,8 +20,6 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private static readonly TimeSpan RestartCounterResetWindow = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultGracefulStopTimeout = TimeSpan.FromSeconds(30);
-    private const string StandardOutputLogName = "stdout";
-    private const string ActiveLogExtension = ".log";
     private const string ReniceHelperPath = "/usr/local/bin/quasar-renice";
     private const string RestoreInProgressMessage = "Start deferred: a backup restore is in progress for this server.";
     private const int MaxModDownloadFailures = 20;
@@ -999,17 +997,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             return;
         }
 
-        string stdoutPath;
-        try
-        {
-            stdoutPath = PrepareServerLogSlot(state.UniqueName, definition.DsLogFilesToKeep);
-        }
-        catch (Exception exception)
-        {
-            SetFaulted(state.UniqueName, $"Failed preparing DS log files: {exception.Message}");
-            _logger.LogWarning(exception, "Failed preparing DS log files for server {UniqueName}.", state.UniqueName);
-            return;
-        }
+        PruneDedicatedServerLogFiles(state.UniqueName, launch.DedicatedServerAppDataPath, definition.DsLogFilesToKeep);
         cancellationToken.ThrowIfCancellationRequested();
 
         var process = new Process
@@ -1054,8 +1042,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         // Activate the PluginSdk QuasarLogSink inside the dedicated server: any
         // non-empty QUASAR_AGENT value makes plugins emit structured JSON log
-        // lines on standard output (LogEnvironment.IsManagedByQuasar), which the
-        // supervisor parses into the plugin log stream below.
+        // lines through the agent relay (LogEnvironment.IsManagedByQuasar).
         process.StartInfo.Environment["QUASAR_AGENT"] = definition.UniqueName;
 
         process.Exited += async (_, _) => await HandleProcessExitedAsync(state.UniqueName);
@@ -1101,7 +1088,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 current.StoppedAtUtc = null;
                 current.LastExitCode = null;
                 current.LastMessage = "Process started; waiting for server online signal.";
-                current.StandardOutputLogPath = stdoutPath;
+                current.StandardOutputLogPath = string.Empty;
                 current.StandardErrorLogPath = string.Empty;
                 current.IsRestartPending = false;
                 current.StopRequested = false;
@@ -1135,7 +1122,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         TryApplyCpuAffinity(state.UniqueName, definition.CpuAffinity, "startup");
         NotifyChanged();
 
-        _ = PumpStandardOutputAsync(process.StandardOutput, stdoutPath, state.UniqueName, _shutdown.Token);
+        _ = PumpStandardOutputAsync(process.StandardOutput, state.UniqueName, _shutdown.Token);
         _ = DrainStandardErrorAsync(process.StandardError, _shutdown.Token);
     }
 
@@ -1591,7 +1578,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         NotifyChanged();
         _logger.LogInformation("Server {UniqueName} exited with code {ExitCode}.", uniqueName, exitCode);
-        PruneServerLogFiles(uniqueName, definition.DsLogFilesToKeep);
+        PruneDedicatedServerLogFiles(uniqueName, definition.DedicatedServerAppDataPath, definition.DsLogFilesToKeep);
 
         if (!shouldRestart)
             return;
@@ -1678,8 +1665,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 state.LastExitCode = persistedState.LastExitCode;
                 state.StartedAtUtc = persistedState.StartedAtUtc;
                 state.StoppedAtUtc = persistedState.StoppedAtUtc;
-                state.StandardOutputLogPath = persistedState.StandardOutputLogPath ?? string.Empty;
-                state.StandardErrorLogPath = persistedState.StandardErrorLogPath ?? string.Empty;
+                state.StandardOutputLogPath = string.Empty;
+                state.StandardErrorLogPath = string.Empty;
                 state.LastHealthRecoveryActionUtc = persistedState.LastHealthRecoveryActionUtc;
                 state.StopRequested = false;
                 state.IsRestartPending = false;
@@ -1831,96 +1818,44 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             NotifyChanged();
     }
 
-    private string PrepareServerLogSlot(string uniqueName, int dsLogFilesToKeep)
+    private void PruneDedicatedServerLogFiles(string uniqueName, string appDataPath, int dsLogFilesToKeep)
     {
-        var logDirectory = MagnetarPaths.GetQuasarServerLogDirectory(uniqueName);
-        Directory.CreateDirectory(logDirectory);
+        if (string.IsNullOrWhiteSpace(appDataPath) || !Directory.Exists(appDataPath))
+            return;
 
-        var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture);
-        RotateActiveLogIfPresent(uniqueName, logDirectory, StandardOutputLogName, timestamp);
-        PruneServerLogFiles(uniqueName, dsLogFilesToKeep);
-
-        return Path.Combine(logDirectory, StandardOutputLogName + ActiveLogExtension);
-    }
-
-    private void RotateActiveLogIfPresent(string uniqueName, string logDirectory, string logName, string timestamp)
-    {
-        var activePath = Path.Combine(logDirectory, logName + ActiveLogExtension);
+        List<FileInfo> staleLogs;
         try
         {
-            if (!File.Exists(activePath))
-                return;
-
-            var activeLog = new FileInfo(activePath);
-            if (activeLog.Length == 0)
-            {
-                activeLog.Delete();
-                return;
-            }
-
-            var archivePath = ResolveArchivePath(logDirectory, logName, timestamp);
-            activeLog.MoveTo(archivePath);
+            var keepCount = NormalizeDsLogFilesToKeep(dsLogFilesToKeep);
+            staleLogs = new DirectoryInfo(appDataPath)
+                .EnumerateFiles("SpaceEngineersDedicated*.log", SearchOption.TopDirectoryOnly)
+                .OrderByDescending(file => file.LastWriteTimeUtc)
+                .ThenByDescending(file => file.Name, StringComparer.OrdinalIgnoreCase)
+                .Skip(keepCount)
+                .ToList();
         }
         catch (Exception exception)
         {
             _logger.LogWarning(
                 exception,
-                "Failed rotating {LogName} log for server {UniqueName}; new output will append to the existing active log.",
-                logName,
-                uniqueName);
-        }
-    }
-
-    private static string ResolveArchivePath(string logDirectory, string logName, string timestamp)
-    {
-        var path = Path.Combine(logDirectory, $"{logName}-{timestamp}{ActiveLogExtension}");
-        if (!File.Exists(path))
-            return path;
-
-        for (var suffix = 1; suffix < 1000; suffix++)
-        {
-            path = Path.Combine(logDirectory, $"{logName}-{timestamp}-{suffix}{ActiveLogExtension}");
-            if (!File.Exists(path))
-                return path;
-        }
-
-        return Path.Combine(logDirectory, $"{logName}-{timestamp}-{Guid.NewGuid():N}{ActiveLogExtension}");
-    }
-
-    private void PruneServerLogFiles(string uniqueName, int dsLogFilesToKeep)
-    {
-        var logDirectory = MagnetarPaths.GetQuasarServerLogDirectory(uniqueName);
-        if (!Directory.Exists(logDirectory))
+                "Failed enumerating Dedicated Server logs for server {UniqueName} in {Path}.",
+                uniqueName,
+                appDataPath);
             return;
+        }
 
-        var keepCount = NormalizeDsLogFilesToKeep(dsLogFilesToKeep);
-        var archivedToKeep = Math.Max(0, keepCount - 1);
-        PruneRotatedLogFiles(uniqueName, logDirectory, StandardOutputLogName, archivedToKeep);
-    }
-
-    private void PruneRotatedLogFiles(string uniqueName, string logDirectory, string logName, int archivedToKeep)
-    {
-        var directory = new DirectoryInfo(logDirectory);
-        var staleArchives = directory
-            .EnumerateFiles($"{logName}-*{ActiveLogExtension}", SearchOption.TopDirectoryOnly)
-            .OrderByDescending(file => file.LastWriteTimeUtc)
-            .ThenByDescending(file => file.Name, StringComparer.OrdinalIgnoreCase)
-            .Skip(archivedToKeep)
-            .ToList();
-
-        foreach (var archive in staleArchives)
+        foreach (var log in staleLogs)
         {
             try
             {
-                archive.Delete();
+                log.Delete();
             }
             catch (Exception exception)
             {
                 _logger.LogWarning(
                     exception,
-                    "Failed deleting old {LogName} log {Path} for server {UniqueName}.",
-                    logName,
-                    archive.FullName,
+                    "Failed deleting old Dedicated Server log {Path} for server {UniqueName}.",
+                    log.FullName,
                     uniqueName);
             }
         }
@@ -1934,36 +1869,35 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         return Math.Min(dsLogFilesToKeep, DedicatedServerDefinition.MaximumDsLogFilesToKeep);
     }
 
-    private async Task PumpStandardOutputAsync(StreamReader reader, string path, string uniqueName, CancellationToken cancellationToken)
+    private async Task PumpStandardOutputAsync(StreamReader reader, string uniqueName, CancellationToken cancellationToken)
     {
-        await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-        await using var writer = new StreamWriter(stream)
+        try
         {
-            AutoFlush = true,
-        };
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var line = await reader.ReadLineAsync(cancellationToken);
+                if (line is null)
+                    break;
 
-        while (!cancellationToken.IsCancellationRequested)
+                // Plugin SDK JSON lines reach the live panel through the agent's
+                // network relay (see AgentSocketHandler). This pump only drains
+                // stdout so the process cannot block and ordinary server output can
+                // still feed lightweight detectors.
+                if (PluginLogStream.TryParseSinkLine(uniqueName, line, out _))
+                {
+                    // Handled via the agent relay.
+                }
+                else if (!string.IsNullOrWhiteSpace(line))
+                {
+                    RecordModDownloadFailure(uniqueName, line);
+                }
+            }
+        }
+        catch (OperationCanceledException)
         {
-            var line = await reader.ReadLineAsync(cancellationToken);
-            if (line is null)
-                break;
-
-            await writer.WriteLineAsync($"{DateTimeOffset.UtcNow:O} {line}");
-
-            // Plugin SDK JSON lines now reach the live panel through the agent's
-            // network relay (see AgentSocketHandler), which survives Quasar
-            // restarts and reconnects to detached server daemons — unlike this
-            // stdout pump, which only exists for a child process we started.
-            // Skip them here to avoid double entries; still surface ordinary
-            // (non-plugin) server output.
-            if (PluginLogStream.TryParseSinkLine(uniqueName, line, out _))
-            {
-                // Handled via the agent relay.
-            }
-            else if (!string.IsNullOrWhiteSpace(line))
-            {
-                RecordModDownloadFailure(uniqueName, line);
-            }
+        }
+        catch (IOException)
+        {
         }
     }
 
