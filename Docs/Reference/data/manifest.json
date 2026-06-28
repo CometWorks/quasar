@@ -2264,8 +2264,8 @@
       "path": "Quasar/wwwroot/viewer/scene.js",
       "name": "scene.js",
       "ext": ".js",
-      "size": 27284,
-      "sha256": "b33d98f63ea75da06e7ab4aff7f18ec5971399d510483b754102383fbddc1e2d",
+      "size": 27400,
+      "sha256": "c10416100eb66b56b507846fb5c087eefa46a5b0bb6703312ad777958da21297",
       "module": "Quasar.Host",
       "tier": 3,
       "status": "pending"

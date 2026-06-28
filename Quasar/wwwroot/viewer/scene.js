@@ -480,7 +480,10 @@ function objectWorldBounds(object) {
 function sceneContentBounds() {
     const bounds = new THREE.Box3();
     let hasBounds = false;
-    for (const object of [state.gridGroup, state.voxelGroup]) {
+    const objects = state.lastScene && !(state.lastScene.blockInstances || []).length
+        ? [state.voxelGroup]
+        : [state.gridGroup];
+    for (const object of objects) {
         const objectBounds = objectWorldBounds(object);
         if (!objectBounds) continue;
         bounds.union(objectBounds);
