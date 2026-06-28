@@ -581,7 +581,7 @@ function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex, diagnosti
     const positions = [];
     const normals = [];
     const uvs = [];
-    const indicesByMaterial = new Map();
+    const indicesByVoxelPart = new Map();
     const cube = createVoxelCubeScratch();
     const clipBounds = voxelFloorClipBounds();
 
@@ -589,13 +589,13 @@ function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex, diagnosti
         for (let y = 0; y < sy - 1; y++) {
             for (let x = 0; x < sx - 1; x++) {
                 fillVoxelCubeScratch(cube, x, y, z, sx, sy, sz, content, materials, worldOrigin, lodScale, viewTransform);
-                polygonizeVoxelCube(cube, positions, normals, uvs, indicesByMaterial, clipBounds, diagnostics);
+                polygonizeVoxelCube(cube, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds, diagnostics);
             }
         }
     }
 
     const vertexCount = positions.length / 3;
-    if (vertexCount <= 0 || !indicesByMaterial.size) return null;
+    if (vertexCount <= 0 || !indicesByVoxelPart.size) return null;
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
@@ -604,11 +604,12 @@ function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex, diagnosti
     geometry.setAttribute("uv2", new THREE.Float32BufferAttribute(uvs, 2));
     const meshMaterials = [];
     const allIndices = [];
-    for (const [materialIndex, partIndices] of [...indicesByMaterial.entries()].sort((a, b) => a[0] - b[0])) {
+    for (const [partKey, partIndices] of [...indicesByVoxelPart.entries()].sort(compareVoxelPartEntries)) {
+        const part = parseVoxelPartKey(partKey);
         const start = allIndices.length;
         appendArray(allIndices, partIndices);
         geometry.addGroup(start, partIndices.length, meshMaterials.length);
-        meshMaterials.push(createVoxelMeshMaterial(materialIndex, voxelMaterialsByIndex && voxelMaterialsByIndex.get(Number(materialIndex))));
+        meshMaterials.push(createVoxelMeshMaterial(part.materialIndex, part.projection, voxelMaterialsByIndex && voxelMaterialsByIndex.get(part.materialIndex)));
         state.sceneRenderCounts.voxelMeshParts++;
         state.sceneRenderCounts.voxelMeshTriangles += Math.floor(partIndices.length / 3);
     }
@@ -692,14 +693,14 @@ function sampleVoxelContent(content, x, y, z, sx, sy, sz) {
     return num(content[px + sx * (py + sy * pz)], 0);
 }
 
-function polygonizeVoxelCube(cube, positions, normals, uvs, indicesByMaterial, clipBounds, diagnostics) {
+function polygonizeVoxelCube(cube, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds, diagnostics) {
     for (const tetra of VOXEL_TETRAHEDRA) {
         const vertices = tetra.map(index => cube[index]);
-        polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByMaterial, clipBounds, diagnostics);
+        polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds, diagnostics);
     }
 }
 
-function polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByMaterial, clipBounds, diagnostics) {
+function polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds, diagnostics) {
     const inside = [];
     const outside = [];
     for (const vertex of vertices) {
@@ -715,19 +716,19 @@ function polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByMateri
         const a = interpolateVoxelEdge(inside[0], outside[0]);
         const b = interpolateVoxelEdge(inside[0], outside[1]);
         const c = interpolateVoxelEdge(inside[0], outside[2]);
-        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByMaterial, true, clipBounds, diagnostics);
+        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, true, clipBounds, diagnostics);
     } else if (insideCount === 3) {
         const a = interpolateVoxelEdge(outside[0], inside[0]);
         const b = interpolateVoxelEdge(outside[0], inside[1]);
         const c = interpolateVoxelEdge(outside[0], inside[2]);
-        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByMaterial, false, clipBounds, diagnostics);
+        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, false, clipBounds, diagnostics);
     } else {
         const a = interpolateVoxelEdge(inside[0], outside[0]);
         const b = interpolateVoxelEdge(inside[1], outside[0]);
         const c = interpolateVoxelEdge(inside[1], outside[1]);
         const d = interpolateVoxelEdge(inside[0], outside[1]);
-        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByMaterial, false, clipBounds, diagnostics);
-        addVoxelTriangle(a, c, d, material, positions, normals, uvs, indicesByMaterial, false, clipBounds, diagnostics);
+        addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, false, clipBounds, diagnostics);
+        addVoxelTriangle(a, c, d, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, false, clipBounds, diagnostics);
     }
 }
 
@@ -745,7 +746,7 @@ function createVoxelSurfaceVertex(aPosition, bPosition, aNormal, bNormal, t) {
     return vertex;
 }
 
-function addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByMaterial, reverse, clipBounds, diagnostics) {
+function addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, reverse, clipBounds, diagnostics) {
     const polygon = reverse ? [a, c, b] : [a, b, c];
     const clipped = orientVoxelPolygon(clipVoxelPolygonToFloor(polygon, clipBounds));
     if (diagnostics) diagnostics.surfacePolygons++;
@@ -755,18 +756,20 @@ function addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByM
     }
     if (diagnostics) diagnostics.emittedPolygons++;
 
-    let indices = indicesByMaterial.get(material);
+    const projection = voxelUvProjection(clipped);
+    const partKey = voxelPartKey(material, projection);
+    let indices = indicesByVoxelPart.get(partKey);
     if (!indices) {
         indices = [];
-        indicesByMaterial.set(material, indices);
+        indicesByVoxelPart.set(partKey, indices);
     }
     const base = positions.length / 3;
-    const projection = voxelUvProjection(clipped);
+    const uvScale = voxelMaterialUvScale(voxelMaterialsByIndex && voxelMaterialsByIndex.get(Number(material)));
     const fallbackNormal = voxelPolygonNormal(clipped);
     for (const vertex of clipped) {
         positions.push(vertex.x, vertex.y, vertex.z);
         appendVoxelNormal(normals, vertex, fallbackNormal);
-        appendVoxelUv(uvs, vertex, projection);
+        appendVoxelUv(uvs, vertex, projection, uvScale);
     }
     for (let i = 1; i < clipped.length - 1; i++) {
         indices.push(base, base + i, base + i + 1);
@@ -814,11 +817,41 @@ function voxelUvProjection(polygon) {
     return "xy";
 }
 
-function appendVoxelUv(uvs, vertex, projection) {
-    const scale = 1 / 8;
+function appendVoxelUv(uvs, vertex, projection, scale) {
     if (projection === "xz") uvs.push(vertex.x * scale, vertex.z * scale);
     else if (projection === "zy") uvs.push(vertex.z * scale, vertex.y * scale);
     else uvs.push(vertex.x * scale, vertex.y * scale);
+}
+
+function voxelMaterialUvScale(definition) {
+    const tilingScale = num(definition && definition.tilingScale, 0);
+    return Number.isFinite(tilingScale) && tilingScale > 0 ? 1 / tilingScale : 1 / 8;
+}
+
+function voxelPartKey(materialIndex, projection) {
+    return `${Number(materialIndex) || 0}|${projection || "xz"}`;
+}
+
+function parseVoxelPartKey(key) {
+    const separator = String(key).indexOf("|");
+    if (separator < 0) return { materialIndex: Number(key) || 0, projection: "xz" };
+    return {
+        materialIndex: Number(String(key).slice(0, separator)) || 0,
+        projection: String(key).slice(separator + 1) || "xz",
+    };
+}
+
+function compareVoxelPartEntries(a, b) {
+    const left = parseVoxelPartKey(a[0]);
+    const right = parseVoxelPartKey(b[0]);
+    if (left.materialIndex !== right.materialIndex) return left.materialIndex - right.materialIndex;
+    return voxelProjectionSortOrder(left.projection) - voxelProjectionSortOrder(right.projection);
+}
+
+function voxelProjectionSortOrder(projection) {
+    if (projection === "xz") return 0;
+    if (projection === "zy") return 1;
+    return 2;
 }
 
 function clipVoxelPolygonToFloor(polygon, bounds) {
@@ -885,7 +918,7 @@ function dominantVoxelMaterial(vertices) {
     return bestMaterial;
 }
 
-function createVoxelMeshMaterial(materialIndex, definition) {
+function createVoxelMeshMaterial(materialIndex, projection, definition) {
     const color = colorFromHash(`voxel:${materialIndex}`, 0x5b6f54);
     const material = new THREE.MeshStandardMaterial({
         color,
@@ -895,13 +928,18 @@ function createVoxelMeshMaterial(materialIndex, definition) {
         side: THREE.DoubleSide,
     });
     applySpaceEngineersColorMasking(material, false, false);
-    applyVoxelTexturesAsync(material, materialIndex, definition);
+    applyVoxelTexturesAsync(material, materialIndex, projection, definition);
     return material;
 }
 
-function applyVoxelTexturesAsync(material, materialIndex, definition) {
-    const colorTexture = normalizeLogicalTexturePath(definition && (definition.colorMetalXZnY || definition.colorMetalY));
-    const normalTexture = normalizeLogicalTexturePath(definition && (definition.normalGlossXZnY || definition.normalGlossY));
+function applyVoxelTexturesAsync(material, materialIndex, projection, definition) {
+    const useYTexture = projection === "xz";
+    const colorTexture = normalizeLogicalTexturePath(definition && (useYTexture
+        ? definition.colorMetalY || definition.colorMetalXZnY
+        : definition.colorMetalXZnY || definition.colorMetalY));
+    const normalTexture = normalizeLogicalTexturePath(definition && (useYTexture
+        ? definition.normalGlossY || definition.normalGlossXZnY
+        : definition.normalGlossXZnY || definition.normalGlossY));
 
     if (colorTexture) {
         loadTexture(colorTexture, "ColorMetalTexture")

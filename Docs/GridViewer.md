@@ -89,6 +89,8 @@ Loaded voxel bodies can be shown as textured terrain mesh when the viewer URL in
 
 Voxel mesh generation follows the game's coordinate convention: storage coordinates are first converted to absolute world positions with `PositionLeftBottomCorner + voxelCoord`, then transformed into the viewer's grid-relative coordinate space. The voxel entity `WorldMatrix` translation is the body center and must not be used as the storage-coordinate origin.
 
+Voxel terrain UVs follow the Space Engineers voxel material tiling convention by using the inverse of each material's `TilingScale`, falling back to the legacy `1/8` scale only when metadata is unavailable or invalid. Generated voxel mesh groups are also split by dominant-axis projection so top/bottom-like surfaces prefer `ColorMetalY` and `NormalGlossY`, while side-like surfaces prefer `ColorMetalXZnY` and `NormalGlossXZnY`; both paths fall back to the alternate axis texture when needed.
+
 Grid scenes keep camera, floor-grid, and sun bounds anchored to rendered grid-group bounds rather than voxel meshes, full voxel-body proxies, or transformed world AABBs, so large intersecting voxel bodies do not pull the initial camera or floor grid away from the selected grid.
 
 Voxel-only asteroid scenes use rendered voxel-group bounds for camera, floor-grid, and sun placement so the sampled asteroid mesh remains centered even when metadata bounds and generated terrain bounds differ.
