@@ -49,7 +49,7 @@ The viewer resolves logical model, texture, and SBC data paths case-insensitivel
 
 ## Local Mods Folder
 
-Modded grids can also use assets from a user-selected global Space Engineers `Mods` folder. Select the folder that directly contains mod directories and `.sbm` archives, for example `%AppData%/SpaceEngineers/Mods` on typical Windows client installs. The viewer stores this folder handle independently from the local `Content` folder when the browser supports persistent directory handles.
+Modded grids can also use assets from a user-selected global Space Engineers `Mods` folder. Select the folder that directly contains mod directories and `.sbm` archives, for example `%AppData%/SpaceEngineers/Mods` on typical Windows client installs. Steam Workshop layouts such as `steamapps/workshop/content/244850`, where workshop items are directories named by published file ID, are also supported. The viewer stores this folder handle independently from the local `Content` folder when the browser supports persistent directory handles.
 
 Quasar still sends metadata only. The agent includes a metadata-only list of active scene mods and root hints on model assets, but it does not send server-local mod paths, model bytes, texture bytes, extracted geometry, or archive contents.
 

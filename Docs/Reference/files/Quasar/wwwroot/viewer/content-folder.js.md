@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Browser local-asset helper for the grid viewer's Space Engineers `Content` and global `Mods` folders. It preserves Chromium File System Access persisted directory handles, falls back to Firefox-compatible folder file inputs, validates Content and Mods selections, tracks active scene mod roots, resolves logical asset paths through hinted mod roots before vanilla Content, supports direct `Mods/<mod-name>/...` paths, and lazily reads unpacked mod directories or `.sbm` zip archives without sending asset bytes through Quasar.
+Browser local-asset helper for the grid viewer's Space Engineers `Content` and global `Mods` folders. It preserves Chromium File System Access persisted directory handles, falls back to Firefox-compatible folder file inputs, validates Content and Mods selections, tracks active scene mod roots, resolves logical asset paths through hinted mod roots before vanilla Content, supports direct `Mods/<mod-name>/...` paths, matches Workshop `123.sbm` scene names against `123` directories, and lazily reads unpacked mod directories or `.sbm` zip archives without sending asset bytes through Quasar.
 
 ## Structure
 

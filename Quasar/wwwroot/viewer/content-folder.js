@@ -332,6 +332,8 @@ function normalizeLogicalPath(path) {
     while (value.startsWith("./")) value = value.slice(2);
     value = value.replace(/\/+/g, "/");
     value = value.replace(/^Content\//i, "");
+    const workshopPath = /(?:^|\/)content\/244850\/([^/]+)\/(.+)$/i.exec(value);
+    if (workshopPath) return { path: workshopPath[2], modName: workshopPath[1] };
     if (/^Mods\//i.test(value)) {
         const parts = value.replace(/^Mods\//i, "").split("/").filter(Boolean);
         const modName = parts.shift() || "";
@@ -362,7 +364,7 @@ function getContentRoot() {
 
 async function resolveDirectModPath(modName, logicalPath, generation) {
     if (!state.modsFolder || !modName) return null;
-    const handle = await getTopLevelChild(state.modsFolder, modName, "directory") || await getTopLevelChild(state.modsFolder, modName, "file");
+    const handle = await findModRootHandle(modName);
     if (!handle) return null;
     const root = createModRoot(`mods-direct:${modName}`, modName, handle, null);
     return await resolveInRoot(root, logicalPath, generation);
@@ -376,9 +378,7 @@ async function getSceneModRoot(rootId) {
 
     root.resolved = true;
     const name = root.name || root.metadata?.name || root.metadata?.Name || "";
-    const handle = await getTopLevelChild(state.modsFolder, name, "directory") ||
-        await getTopLevelChild(state.modsFolder, name, "file") ||
-        (!name.toLowerCase().endsWith(".sbm") ? await getTopLevelChild(state.modsFolder, `${name}.sbm`, "file") : null);
+    const handle = await findModRootHandle(name);
     if (!handle) {
         root.missing = true;
         const friendly = root.metadata?.friendlyName || root.metadata?.FriendlyName || name || rootId;
@@ -389,6 +389,18 @@ async function getSceneModRoot(rootId) {
 
     Object.assign(root, createModRoot(rootId, name, handle, root.metadata));
     return root;
+}
+
+async function findModRootHandle(name) {
+    if (!state.modsFolder || !name) return null;
+    const lower = name.toLowerCase();
+    const stem = lower.endsWith(".sbm") ? name.slice(0, -4) : "";
+    const selectedName = String(state.modsFolder.name || "").toLowerCase();
+    if (selectedName === lower || (stem && selectedName === stem)) return state.modsFolder;
+    return await getTopLevelChild(state.modsFolder, name, "directory") ||
+        await getTopLevelChild(state.modsFolder, name, "file") ||
+        (stem ? await getTopLevelChild(state.modsFolder, stem, "directory") : null) ||
+        (!stem ? await getTopLevelChild(state.modsFolder, `${name}.sbm`, "file") : null);
 }
 
 function createModRoot(rootId, name, handle, metadata) {
@@ -424,6 +436,7 @@ async function getTopLevelChild(parentHandle, name, kind) {
 }
 
 async function resolveInRoot(root, logicalPath, generation) {
+    if (!root || !root.handle) return null;
     for (const candidate of candidatePaths(logicalPath)) {
         const resolved = root.kind === "mod-archive"
             ? await getArchiveFileByPath(root, candidate, generation)
@@ -434,6 +447,7 @@ async function resolveInRoot(root, logicalPath, generation) {
 }
 
 async function getDirectoryFileByPath(root, path, generation) {
+    if (!root.handle) return null;
     const parts = path.split("/").filter(Boolean);
     let current = getRootDirectoryNode(root);
     for (let i = 0; i < parts.length; i++) {
@@ -594,6 +608,7 @@ async function buildLowercaseChildMap(parent) {
     addCacheCounter("directoryEnumeration");
     return await lookupQueue(async () => {
         const map = new Map();
+        if (!parent.handle) return map;
         for await (const [entryName, entryHandle] of parent.handle.entries()) {
             const key = entryName.toLowerCase();
             map.set(key, createChildEntry(parent, entryName, entryHandle.kind, entryHandle));
@@ -671,10 +686,6 @@ export function clearAssetFolderCaches() {
     for (const root of state.modRoots?.values?.() || []) {
         if (root.archive?.reader && typeof root.archive.reader.close === "function") root.archive.reader.close().catch(() => {});
         root.archive = null;
-        root.resolved = false;
-        root.missing = false;
-        root.handle = null;
-        root.kind = "mod-pending";
     }
     resolvedPathCache.clear();
     inFlightPathCache.clear();
