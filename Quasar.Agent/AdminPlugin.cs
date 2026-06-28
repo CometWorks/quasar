@@ -57,6 +57,7 @@ namespace Quasar.Agent
 
         public void Update()
         {
+            RestartCommand.UpdateScheduledRestart();
             _bridge?.Update();
             RefreshDeathSubscriptions();
         }
@@ -67,6 +68,7 @@ namespace Quasar.Agent
             StopCommand.AdminStopRequested = null;
             QuitCommand.AdminStopRequested = null;
             RestartCommand.AdminRestartRequested = null;
+            RestartCommand.ClearScheduledRestart();
             MyVisualScriptLogicProvider.PlayerDied -= OnPlayerDied;
             UnsubscribeDeathHandlers();
             _connection?.Stop();

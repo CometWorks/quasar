@@ -292,21 +292,18 @@ It is stored in `github-updates.json` under the Quasar data directory with the
 same Data Protection encryption model and owner-only Unix permissions used for
 the Steam Workshop API key.
 
-Use a fine-grained personal access token:
+Use a classic personal access token without any permissions:
 
-1. Open GitHub, then go to Settings, Developer settings, Personal access tokens,
-   Fine-grained tokens. Direct link:
-   <https://github.com/settings/personal-access-tokens/new>.
-2. Choose Generate new token.
-3. Set Token name to something recognizable, such as `Quasar update checks`.
-4. Set Expiration to a date you can renew before it ends.
-5. Under Repository access, choose Public repositories.
-6. Leave Repository permissions and Account permissions unset. Quasar reads
-   public release metadata and public release assets; the token is only needed so
-   GitHub treats the requests as authenticated for rate limiting.
-7. Generate the token, copy it once, paste it into Settings, Updates, GitHub
+1. Open GitHub's classic token creation page:
+   <https://github.com/settings/tokens/new>.
+2. Set Note to something recognizable, such as `Quasar update checks`.
+3. Set Expiration to a date you can renew before it ends.
+4. Do not select any scopes or permissions. Quasar reads public release metadata
+   and public release assets; the token is only needed so GitHub treats the
+   requests as authenticated for rate limiting.
+5. Generate the token, copy it once, paste it into Settings, Updates, GitHub
    token, then press Save token.
-8. Press Check Quasar to verify the token and update status.
+6. Press Check Quasar to verify the token and update status.
 
 GitHub documents that unauthenticated REST API requests are rate limited by IP,
 while authenticated requests use the authenticated user's primary rate limit:
