@@ -120,11 +120,20 @@ namespace Quasar.Agent
                                     Hello = _bridge.GetHello(),
                                 }, cancellationToken).ConfigureAwait(false);
 
-                                await SendPluginConfigsAsync(socket, force: true, cancellationToken).ConfigureAwait(false);
-
+                                // Keep telemetry independent from optional config/log work.
                                 var snapshotTask = SnapshotLoopAsync(socket, cancellationToken);
+                                var pluginConfigTask = Task.Run(
+                                    () => PluginConfigLoopAsync(socket, cancellationToken),
+                                    cancellationToken);
+                                var pluginLogTask = Task.Run(
+                                    () => PluginLogLoopAsync(socket, cancellationToken),
+                                    cancellationToken);
                                 var receiveTask = ReceiveLoopAsync(socket, cancellationToken);
-                                await Task.WhenAny(snapshotTask, receiveTask).ConfigureAwait(false);
+                                await Task.WhenAny(
+                                    snapshotTask,
+                                    pluginConfigTask,
+                                    pluginLogTask,
+                                    receiveTask).ConfigureAwait(false);
                             }
                             finally
                             {
@@ -269,8 +278,27 @@ namespace Quasar.Agent
                     Snapshot = _bridge.GetSnapshot(),
                 }, cancellationToken).ConfigureAwait(false);
 
-                await SendPluginConfigsAsync(socket, force: false, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            }
+        }
 
+        private async Task PluginConfigLoopAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+        {
+            var force = true;
+
+            while (socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+            {
+                await SendPluginConfigsAsync(socket, force, cancellationToken).ConfigureAwait(false);
+                force = false;
+
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        private async Task PluginLogLoopAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+        {
+            while (socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+            {
                 await FlushPluginLogsAsync(socket, cancellationToken).ConfigureAwait(false);
 
                 await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);

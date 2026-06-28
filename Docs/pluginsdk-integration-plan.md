@@ -171,8 +171,9 @@ reconnects to a detached Magnetar daemon:
    (Note: while managed by Quasar, plugin logs route to stdout instead of the
    game `MyLog` — this is the SDK's intended behavior.)
 2. **Buffer and persist it in-process.** `Quasar.Agent.PluginLogOutbox`
-   subscribes to `LogEnvironment.LineEmitted`, appends each raw sink line to the
-   server's Magnetar app-data `info.log`, keeps a bounded retry buffer, and
+   subscribes to `LogEnvironment.LineEmitted`, appends a human-readable copy to
+   the server's Magnetar app-data `info.log`, keeps the raw JSON line in a
+   bounded retry buffer, and
    drops entries whose structured `plugin` field is `Magnetar` before any batch
    is sent to the control plane.
 3. **Relay it.** `AgentConnection` drains the outbox into `PluginLogBatch`
@@ -182,11 +183,12 @@ reconnects to a detached Magnetar daemon:
    agent connection, calls `PluginLogStream.TryParseSinkLine`, and appends valid
    `{timestamp,level,plugin,thread,message,data?,exception?}` entries.
    `PluginLogStream` also rejects/hides `Magnetar` entries defensively.
-5. **Keep raw logs in the instance log.** `DedicatedServerSupervisor.PumpStandardOutputAsync`
+5. **Keep readable logs in the instance log.** `DedicatedServerSupervisor.PumpStandardOutputAsync`
    drains stdout so the managed process cannot block and still ignores
    PluginSdk JSON lines for ordinary server-output handling. The agent-side
-   outbox tees those plugin stdout sink lines to the server's Magnetar app-data
-   `info.log`, so instance-local diagnostics include plugin output even when
+   outbox formats those plugin stdout sink lines before writing to the server's
+   Magnetar app-data `info.log`, so instance-local diagnostics stay readable
+   and include plugin output even when
    the live Quasar panel receives the same entries through the WebSocket relay.
 6. **Display it.** `PluginLogPanel.razor` (new component, on the Plugins page)
    subscribes to `PluginLogStream.Changed` and renders recent entries

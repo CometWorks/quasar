@@ -117,10 +117,12 @@ public sealed class AgentSocketHandler
 
             case WireMessageKind.PluginConfigSnapshot when message.PluginConfigSnapshot is not null:
                 _pluginConfigService.IngestSnapshot(message.PluginConfigSnapshot);
+                _registry.TouchConnection(connectionId);
                 break;
 
             case WireMessageKind.PluginLogs when message.PluginLogs is not null:
                 IngestPluginLogs(message.PluginLogs, connectionId);
+                _registry.TouchConnection(connectionId);
                 break;
 
             case WireMessageKind.AdminStop:

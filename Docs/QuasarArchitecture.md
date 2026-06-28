@@ -419,7 +419,7 @@ Suggested layout:
 
 Per-server Space Engineers Dedicated Server logs stay in that server's DS
 app-data directory. Per-server Magnetar diagnostics and PluginSdk stdout sink
-lines captured by Quasar.Agent stay in that server's Magnetar app-data
+lines formatted by Quasar.Agent stay in that server's Magnetar app-data
 `info.log`.
 
 ### Service mode behavior
@@ -514,7 +514,9 @@ stable proxy/front door and run workers on internal ports.
 Practical guarantee:
 
 - browser sessions may briefly reconnect
-- `Quasar.Agent` sockets may briefly reconnect
+- `Quasar.Agent` sockets may briefly reconnect; the supervisor waits for the
+  first telemetry snapshot under startup grace before applying the normal
+  heartbeat timeout
 - the supervisor must preserve enough state that reconnect is operationally seamless
 - managed DS processes continue running independently during the rollover
 - already-running DS processes keep their loaded `Quasar.Agent` assembly until
@@ -884,7 +886,9 @@ As of this document:
   start and stop.
 - plugin logs now relay through the Quasar Agent outbox over the existing
   WebSocket; entries from the `Magnetar` logger are dropped before control-plane
-  transport and are also rejected by the in-memory plugin log stream
+  transport and are also rejected by the in-memory plugin log stream. The
+  agent still writes plugin output into the per-server Magnetar `info.log`, but
+  formats the PluginSdk JSON sink lines as normal text log lines first.
 - first health-monitoring and auto-recovery pass exists for agent attach grace, heartbeat freshness, simulation-frame progress scoring aligned with the DS watcher, and uptime-based warning/recycle policy
 - initial runtime launch preparation now exists for isolated app-data roots, runtime config sync, `LastSession.sbl`, and enforced headless launch shaping
 - server definitions store a saves root (`WorldPath`) plus selected save folder (`WorldSaveName`). Older definitions whose `WorldPath` pointed at a concrete save are migrated automatically by moving the final path segment into `WorldSaveName`. The server editor requires a selected save before save/start, lists existing saves from the saves root, and has an always-available Create From Template dialog that can create/import a world template before copying it into a new save.

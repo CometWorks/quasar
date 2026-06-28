@@ -125,10 +125,12 @@ web-release directories.
 
 This intentionally accepts a short web/agent disconnect. `Quasar.Agent`
 reconnects, and managed Magnetar processes stay alive because Quasar launches
-them detached with `-daemon`. Running DS processes keep the agent assembly they
-already loaded until that server process is stopped. On worker startup and each
-reconcile after reconnect, the supervisor compares the bundled
-`Agent/Quasar.Agent.dll` hash with the deployed Magnetar local DLL hash. When
+them detached with `-daemon`. Reconnect is startup-pending until the first
+telemetry snapshot arrives, so health recovery uses the startup grace instead of
+the shorter heartbeat timeout during rollover. Running DS processes keep the
+agent assembly they already loaded until that server process is stopped. On
+worker startup and each reconcile after reconnect, the supervisor compares the
+bundled `Agent/Quasar.Agent.dll` hash with the deployed Magnetar local DLL hash. When
 they differ, Quasar warns that a manual server restart is required. It does not
 auto-schedule that restart; the operator-triggered stop/start path runs launch
 preparation and injects the bundled deployable DLL before relaunch.

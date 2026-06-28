@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -94,7 +95,7 @@ namespace Quasar.Agent
                     using (var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
                     using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
                     {
-                        writer.WriteLine(line);
+                        writer.WriteLine(FormatForMagnetarInfoLog(line));
                     }
                 }
             }
@@ -118,6 +119,104 @@ namespace Quasar.Agent
 
             _infoLogPath = Path.Combine(appDataPath.Trim(), "info.log");
             return _infoLogPath;
+        }
+
+        private static string FormatForMagnetarInfoLog(string line)
+        {
+            var trimmed = line.TrimStart();
+            if (trimmed.Length == 0 ||
+                trimmed[0] != '{' ||
+                trimmed.IndexOf("\"plugin\"", StringComparison.Ordinal) < 0)
+            {
+                return line;
+            }
+
+            try
+            {
+                var root = JObject.Parse(trimmed);
+                var timestamp = FormatTimestamp(root["timestamp"]);
+                var level = root.Value<string>("level");
+                var plugin = root.Value<string>("plugin");
+                var thread = root.Value<string>("thread");
+                var message = root.Value<string>("message") ?? string.Empty;
+                var data = FormatData(root["data"]);
+                var exception = root.Value<string>("exception");
+
+                var builder = new StringBuilder();
+                if (!string.IsNullOrWhiteSpace(timestamp))
+                    builder.Append(timestamp).Append(' ');
+
+                if (!string.IsNullOrWhiteSpace(level))
+                    builder.Append(level).Append(": ");
+
+                if (!string.IsNullOrWhiteSpace(plugin))
+                    builder.Append('[').Append(plugin).Append("] ");
+
+                if (!string.IsNullOrWhiteSpace(thread))
+                    builder.Append("[thread ").Append(thread).Append("] ");
+
+                builder.Append(message);
+
+                if (!string.IsNullOrWhiteSpace(data))
+                    builder.Append(' ').Append(data);
+
+                if (!string.IsNullOrWhiteSpace(exception))
+                    builder.AppendLine().Append(exception);
+
+                return builder.Length == 0 ? line : builder.ToString();
+            }
+            catch (Exception)
+            {
+                return line;
+            }
+        }
+
+        private static string FormatTimestamp(JToken token)
+        {
+            if (token == null || token.Type == JTokenType.Null || token.Type == JTokenType.Undefined)
+                return string.Empty;
+
+            DateTimeOffset timestamp;
+            if (token.Type == JTokenType.Date)
+            {
+                var value = token.Value<object>();
+                if (value is DateTimeOffset offset)
+                {
+                    timestamp = offset;
+                }
+                else if (value is DateTime dateTime)
+                {
+                    timestamp = dateTime.Kind == DateTimeKind.Unspecified
+                        ? new DateTimeOffset(DateTime.SpecifyKind(dateTime, DateTimeKind.Utc))
+                        : new DateTimeOffset(dateTime.ToUniversalTime());
+                }
+                else
+                {
+                    return string.Empty;
+                }
+            }
+            else if (!DateTimeOffset.TryParse(
+                token.Value<string>(),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out timestamp))
+            {
+                return string.Empty;
+            }
+
+            return timestamp
+                .ToUniversalTime()
+                .ToString("yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture);
+        }
+
+        private static string FormatData(JToken token)
+        {
+            if (token == null || token.Type == JTokenType.Null || token.Type == JTokenType.Undefined)
+                return string.Empty;
+
+            return token.Type == JTokenType.String
+                ? token.Value<string>()
+                : token.ToString(Formatting.None);
         }
 
         private static bool IsSuppressedPluginLog(string line)

@@ -60,7 +60,7 @@ Quasar prunes `SpaceEngineersDedicated*.log` files from that server's Dedicated
 Server app-data directory on server start and stop, keeping the newest files and
 deleting older ones. Magnetar diagnostics remain in that server's Magnetar
 app-data `info.log`; PluginSdk stdout sink lines captured by Quasar.Agent are
-also appended there for the specific instance.
+also appended there as normal text log lines for the specific instance.
 
 ## Where configuration is read from
 

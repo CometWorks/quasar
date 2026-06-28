@@ -1879,10 +1879,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 if (line is null)
                     break;
 
-                // Plugin SDK JSON lines reach the live panel and instance
-                // Magnetar info.log through the agent path. This pump only
-                // drains stdout so the process cannot block and ordinary server
-                // output can still feed lightweight detectors.
+                // Plugin SDK JSON lines reach the live panel through the agent
+                // path; the agent also writes a formatted copy to Magnetar
+                // info.log. This pump only drains stdout so the process cannot
+                // block and ordinary server output can still feed lightweight
+                // detectors.
                 if (PluginLogStream.TryParseSinkLine(uniqueName, line, out _))
                 {
                     // Handled by Quasar.Agent.
@@ -2154,6 +2155,25 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             return new ServerHealthAssessment(
                 DedicatedServerHealthState.Unhealthy,
                 "Quasar.Agent did not attach within the configured startup grace period.");
+        }
+
+        if (agent.Snapshot is null)
+        {
+            // Hello only proves the socket opened. Keep startup/adoption grace in
+            // force until the first telemetry snapshot proves the agent can poll
+            // the DS runtime and the supervisor can evaluate normal health.
+            var agentWatch = state.AgentWatchSinceUtc ?? state.StartedAtUtc;
+            var agentWait = agentWatch.HasValue ? now - agentWatch.Value : uptime;
+            if (agentWait < TimeSpan.FromSeconds(state.Definition.AgentStartupGraceSeconds))
+            {
+                return new ServerHealthAssessment(
+                    DedicatedServerHealthState.Warning,
+                    "Waiting for Quasar.Agent telemetry snapshot.");
+            }
+
+            return new ServerHealthAssessment(
+                DedicatedServerHealthState.Unhealthy,
+                "Quasar.Agent did not send a telemetry snapshot within the configured startup grace period.");
         }
 
         var silence = now - agent.LastSeenUtc;
