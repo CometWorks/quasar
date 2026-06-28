@@ -409,8 +409,8 @@ function renderLogisticsOverlay(scene, gridGroups, definitions) {
 
 function createLogisticsEdge(edge) {
     if (!edge) return null;
-    const points = [vec3(edge.from), vec3(edge.to)];
-    if (points[0].distanceToSquared(points[1]) < 0.0001) return null;
+    const points = logisticsEdgePoints(edge);
+    if (points.length < 2) return null;
 
     const color = colorFromHash(`logistics-system:${num(edge.systemId, -1)}`);
     const opacity = edge.isWorking === false ? 0.22 : 0.85;
@@ -425,6 +425,23 @@ function createLogisticsEdge(edge) {
     line.userData.logisticsEdge = edge;
     if (edge.isSmallRestricted) line.computeLineDistances();
     return line;
+}
+
+function logisticsEdgePoints(edge) {
+    const source = Array.isArray(edge.path) && edge.path.length >= 2 ? edge.path : [edge.from, edge.to];
+    const points = [];
+    for (const item of source) {
+        const point = vec3(item);
+        if (!points.length || points[points.length - 1].distanceToSquared(point) > 0.0001) points.push(point);
+    }
+    if (points.length < 2 || totalPolylineLengthSquared(points) < 0.0001) return [];
+    return points;
+}
+
+function totalPolylineLengthSquared(points) {
+    let total = 0;
+    for (let i = 1; i < points.length; i++) total += points[i - 1].distanceToSquared(points[i]);
+    return total;
 }
 
 function createLogisticsNodeMasks(node, block, definition, renderContext) {

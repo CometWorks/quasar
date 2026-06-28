@@ -116,6 +116,8 @@ public class ViewerLogisticsEdge
     public ViewerVector3 From { get; set; } = new();
 
     public ViewerVector3 To { get; set; } = new();
+
+    public List<ViewerVector3> Path { get; set; } = new();
 }
 
 public class ViewerLogisticsSystem

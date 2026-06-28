@@ -1368,6 +1368,7 @@ namespace Quasar.Agent
 
                         var from = LogisticsLinePosition(grid, line, 0, fromNode);
                         var to = LogisticsLinePosition(grid, line, 1, toNode);
+                        var path = LogisticsLinePath(grid, line, from, to);
                         var isSmall = line.Type == MyObjectBuilder_ConveyorLine.LineType.SMALL_LINE;
                         logistics.Edges.Add(new ViewerLogisticsEdge
                         {
@@ -1379,6 +1380,7 @@ namespace Quasar.Agent
                             IsWorking = line.IsWorking,
                             From = ToDto(from),
                             To = ToDto(to),
+                            Path = path.Select(ToDto).ToList(),
                         });
                     }
                 }
@@ -1438,6 +1440,65 @@ namespace Quasar.Agent
             {
                 return LogisticsNodeCenter(fallbackNode, grid.GridSize);
             }
+        }
+
+        private static List<Vector3> LogisticsLinePath(MyCubeGrid grid, MyConveyorLine line, Vector3 from, Vector3 to)
+        {
+            var path = new List<Vector3>();
+            AddLogisticsPathPoint(path, from);
+            try
+            {
+                foreach (var cell in line)
+                    AddLogisticsPathPoint(path, LogisticsCellCenter(grid, cell));
+            }
+            catch
+            {
+                path.Clear();
+                AddLogisticsPathPoint(path, from);
+            }
+
+            AddLogisticsPathPoint(path, to);
+            return SimplifyLogisticsPath(path);
+        }
+
+        private static Vector3 LogisticsCellCenter(MyCubeGrid grid, Vector3I cell)
+        {
+            return new Vector3(cell.X * grid.GridSize, cell.Y * grid.GridSize, cell.Z * grid.GridSize);
+        }
+
+        private static void AddLogisticsPathPoint(List<Vector3> path, Vector3 point)
+        {
+            if (path.Count > 0 && Vector3.DistanceSquared(path[path.Count - 1], point) < 0.0001f)
+                return;
+            path.Add(point);
+        }
+
+        private static List<Vector3> SimplifyLogisticsPath(List<Vector3> path)
+        {
+            if (path.Count <= 2)
+                return path;
+
+            var simplified = new List<Vector3> { path[0] };
+            for (var i = 1; i < path.Count - 1; i++)
+            {
+                var previous = simplified[simplified.Count - 1];
+                var current = path[i];
+                var next = path[i + 1];
+                var a = current - previous;
+                var b = next - current;
+                if (a.LengthSquared() > 0.0001f && b.LengthSquared() > 0.0001f)
+                {
+                    a.Normalize();
+                    b.Normalize();
+                    if (Vector3.DistanceSquared(a, b) < 0.0001f)
+                        continue;
+                }
+
+                simplified.Add(current);
+            }
+
+            AddLogisticsPathPoint(simplified, path[path.Count - 1]);
+            return simplified;
         }
 
         private static Vector3 LogisticsNodeCenter(ViewerLogisticsNode node, float gridSize)
