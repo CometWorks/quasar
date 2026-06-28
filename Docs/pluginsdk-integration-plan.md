@@ -170,10 +170,11 @@ reconnects to a detached Magnetar daemon:
    every SDK-using plugin selects `QuasarLogSink` and emits JSON on stdout.
    (Note: while managed by Quasar, plugin logs route to stdout instead of the
    game `MyLog` — this is the SDK's intended behavior.)
-2. **Buffer it in-process.** `Quasar.Agent.PluginLogOutbox` subscribes to
-   `LogEnvironment.LineEmitted`, keeps a bounded retry buffer, and drops entries
-   whose structured `plugin` field is `Magnetar` before any batch is sent to the
-   control plane.
+2. **Buffer and persist it in-process.** `Quasar.Agent.PluginLogOutbox`
+   subscribes to `LogEnvironment.LineEmitted`, appends each raw sink line to the
+   server's Magnetar app-data `info.log`, keeps a bounded retry buffer, and
+   drops entries whose structured `plugin` field is `Magnetar` before any batch
+   is sent to the control plane.
 3. **Relay it.** `AgentConnection` drains the outbox into `PluginLogBatch`
    messages on the existing WebSocket. Failed sends are requeued and retried on
    the next connection.
@@ -181,11 +182,12 @@ reconnects to a detached Magnetar daemon:
    agent connection, calls `PluginLogStream.TryParseSinkLine`, and appends valid
    `{timestamp,level,plugin,thread,message,data?,exception?}` entries.
    `PluginLogStream` also rejects/hides `Magnetar` entries defensively.
-5. **Keep raw logs separate.** `DedicatedServerSupervisor.PumpStandardOutputAsync`
+5. **Keep raw logs in the instance log.** `DedicatedServerSupervisor.PumpStandardOutputAsync`
    drains stdout so the managed process cannot block and still ignores
-   PluginSdk JSON lines for ordinary server-output handling. Quasar does not
-   persist a Magnetar-specific stdout log; Magnetar-owned diagnostics stay in
-   the server's Magnetar app-data `info.log`.
+   PluginSdk JSON lines for ordinary server-output handling. The agent-side
+   outbox tees those plugin stdout sink lines to the server's Magnetar app-data
+   `info.log`, so instance-local diagnostics include plugin output even when
+   the live Quasar panel receives the same entries through the WebSocket relay.
 6. **Display it.** `PluginLogPanel.razor` (new component, on the Plugins page)
    subscribes to `PluginLogStream.Changed` and renders recent entries
    (time / level / server / plugin / message + exception) in a `MudTable`.

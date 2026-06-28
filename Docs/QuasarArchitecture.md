@@ -418,8 +418,9 @@ Suggested layout:
 - `logs/quasar/`
 
 Per-server Space Engineers Dedicated Server logs stay in that server's DS
-app-data directory. Per-server Magnetar diagnostics stay in that server's
-Magnetar app-data `info.log`.
+app-data directory. Per-server Magnetar diagnostics and PluginSdk stdout sink
+lines captured by Quasar.Agent stay in that server's Magnetar app-data
+`info.log`.
 
 ### Service mode behavior
 
