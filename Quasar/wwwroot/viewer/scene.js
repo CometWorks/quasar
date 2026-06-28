@@ -590,7 +590,8 @@ function describeVoxel(voxel) {
 function describeLogistics(item) {
     const value = item && item.value || {};
     if (item && item.kind === "edge") {
-        return `Logistics edge | system ${value.systemId ?? "?"} | ${value.lineType || "unknown"}${value.isWorking === false ? " | offline" : ""}`;
+        const kind = value.isDangling ? "Open conveyor path" : "Logistics edge";
+        return `${kind} | system ${value.systemId ?? "?"} | ${value.lineType || "unknown"}${value.isWorking === false ? " | offline" : ""}`;
     }
     return `Logistics ${value.role || "node"} | system ${value.systemId ?? "?"} | ${value.blockTypeId || value.blockId || "no block"}${value.isWorking === false ? " | offline" : ""}`;
 }

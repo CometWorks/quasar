@@ -388,10 +388,12 @@ function renderLogisticsOverlay(scene, gridGroups, definitions) {
     parent.add(group);
 
     const smallEdges = edges.filter(edge => edge && edge.isSmallRestricted).length;
+    const danglingEdges = edges.filter(edge => edge && edge.isDangling).length;
     state.stats["Logistics systems"] = (logistics.systems || []).length;
     state.stats["Logistics nodes"] = nodes.length;
     state.stats["Logistics edges"] = edges.length;
     state.stats["Small conveyor links"] = smallEdges;
+    state.stats["Open conveyor paths"] = danglingEdges;
 
     if (!nodes.length && !edges.length) return;
 
@@ -416,7 +418,7 @@ function createLogisticsEdge(edge, gridSize) {
     const points = logisticsEdgePoints(edge);
     if (points.length < 2) return null;
 
-    const color = colorFromHash(`logistics-system:${num(edge.systemId, -1)}`);
+    const color = edge.isDangling ? new THREE.Color(0xff2f2f) : colorFromHash(`logistics-system:${num(edge.systemId, -1)}`);
     const opacity = edge.isWorking === false ? 0.34 : 0.94;
     const geometry = new LineGeometry();
     geometry.setPositions(points.flatMap(point => [point.x, point.y, point.z]));

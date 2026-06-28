@@ -1363,20 +1363,29 @@ namespace Quasar.Agent
 
                         var endpointA = line.GetEndpoint(0);
                         var endpointB = line.GetEndpoint(1);
-                        if (endpointA == null || endpointB == null || !nodesByEndpoint.TryGetValue(endpointA, out var fromNode) || !nodesByEndpoint.TryGetValue(endpointB, out var toNode))
+                        ViewerLogisticsNode fromNode = null;
+                        ViewerLogisticsNode toNode = null;
+                        var hasEndpointA = endpointA != null && nodesByEndpoint.TryGetValue(endpointA, out fromNode);
+                        var hasEndpointB = endpointB != null && nodesByEndpoint.TryGetValue(endpointB, out toNode);
+                        if (!hasEndpointA && !hasEndpointB)
                             continue;
 
-                        var from = LogisticsLinePosition(grid, line, 0, fromNode);
-                        var to = LogisticsLinePosition(grid, line, 1, toNode);
-                        var path = LogisticsLinePath(grid, line, from, to);
+                        var fromIndex = hasEndpointA ? 0 : 1;
+                        var toIndex = hasEndpointA ? 1 : 0;
+                        var sourceNode = hasEndpointA ? fromNode : toNode;
+                        var targetNode = hasEndpointA && hasEndpointB ? toNode : null;
+                        var from = LogisticsLinePosition(grid, line, fromIndex, sourceNode);
+                        var to = LogisticsLineEndpointPosition(grid, line, toIndex, from);
+                        var path = LogisticsLinePath(grid, line, from, to, fromIndex);
                         var isSmall = line.Type == MyObjectBuilder_ConveyorLine.LineType.SMALL_LINE;
                         logistics.Edges.Add(new ViewerLogisticsEdge
                         {
                             Id = "line:" + logistics.Edges.Count,
-                            FromNodeId = fromNode.Id,
-                            ToNodeId = toNode.Id,
+                            FromNodeId = sourceNode.Id,
+                            ToNodeId = targetNode?.Id ?? string.Empty,
                             LineType = isSmall ? "small" : line.Type == MyObjectBuilder_ConveyorLine.LineType.LARGE_LINE ? "large" : "unknown",
                             IsSmallRestricted = isSmall,
+                            IsDangling = targetNode == null,
                             IsWorking = line.IsWorking,
                             From = ToDto(from),
                             To = ToDto(to),
@@ -1429,6 +1438,18 @@ namespace Quasar.Agent
         {
             try
             {
+                return LogisticsLineEndpointPosition(grid, line, endpointIndex, LogisticsNodeCenter(fallbackNode, grid.GridSize));
+            }
+            catch
+            {
+                return LogisticsNodeCenter(fallbackNode, grid.GridSize);
+            }
+        }
+
+        private static Vector3 LogisticsLineEndpointPosition(MyCubeGrid grid, MyConveyorLine line, int endpointIndex, Vector3 fallback)
+        {
+            try
+            {
                 var position = line.GetEndpointPosition(endpointIndex);
                 var direction = position.VectorDirection;
                 return new Vector3(
@@ -1438,14 +1459,14 @@ namespace Quasar.Agent
             }
             catch
             {
-                return LogisticsNodeCenter(fallbackNode, grid.GridSize);
+                return fallback;
             }
         }
 
-        private static List<Vector3> LogisticsLinePath(MyCubeGrid grid, MyConveyorLine line, Vector3 from, Vector3 to)
+        private static List<Vector3> LogisticsLinePath(MyCubeGrid grid, MyConveyorLine line, Vector3 from, Vector3 to, int fromIndex)
         {
             var path = new List<Vector3>();
-            AddLogisticsPathPoint(path, from);
+            AddLogisticsPathPoint(path, fromIndex == 0 ? from : to);
             try
             {
                 foreach (var cell in line)
@@ -1454,10 +1475,12 @@ namespace Quasar.Agent
             catch
             {
                 path.Clear();
-                AddLogisticsPathPoint(path, from);
+                AddLogisticsPathPoint(path, fromIndex == 0 ? from : to);
             }
 
-            AddLogisticsPathPoint(path, to);
+            AddLogisticsPathPoint(path, fromIndex == 0 ? to : from);
+            if (fromIndex == 1)
+                path.Reverse();
             return SimplifyLogisticsPath(path);
         }
 

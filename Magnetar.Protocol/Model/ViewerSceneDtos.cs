@@ -111,6 +111,8 @@ public class ViewerLogisticsEdge
 
     public bool IsSmallRestricted { get; set; }
 
+    public bool IsDangling { get; set; }
+
     public bool IsWorking { get; set; } = true;
 
     public ViewerVector3 From { get; set; } = new();
