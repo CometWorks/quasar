@@ -105,7 +105,6 @@ function createFloorGrid(bounds, gridSize, alignment) {
     const colors = [];
     const minorColor = colorComponents(0x1e293b);
     const majorColor = colorComponents(0x2563eb);
-    const axisColor = colorComponents(0x6ee7f9);
     const majorEveryCells = Math.max(1, Math.round(layout.majorStep / layout.minorStep));
 
     appendFloorGridLines({
@@ -122,7 +121,6 @@ function createFloorGrid(bounds, gridSize, alignment) {
         majorEveryCells,
         minorColor,
         majorColor,
-        axisColor,
     });
     appendFloorGridLines({
         positions,
@@ -138,7 +136,6 @@ function createFloorGrid(bounds, gridSize, alignment) {
         majorEveryCells,
         minorColor,
         majorColor,
-        axisColor,
     });
 
     const geometry = new THREE.BufferGeometry();
@@ -199,9 +196,8 @@ function appendFloorGridLines(options) {
     for (let cell = options.startCell; cell <= options.endCell; cell++) {
         const worldCoordinate = options.offset + cell * options.minorStep;
         const coordinate = worldCoordinate - options.origin;
-        const isAxis = Math.abs(worldCoordinate) < 1e-6;
         const isMajor = cell % options.majorEveryCells === 0;
-        const color = isAxis ? options.axisColor : isMajor ? options.majorColor : options.minorColor;
+        const color = isMajor ? options.majorColor : options.minorColor;
         if (options.axis === "x") {
             appendFloorGridLine(options.positions, options.colors, coordinate, options.rangeStart, coordinate, options.rangeEnd, color);
         } else {
