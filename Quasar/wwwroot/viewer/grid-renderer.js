@@ -396,9 +396,11 @@ function gridRelativeMatrix(grid) {
 function contextRelativeBounds(scene) {
     const context = scene.context || {};
     if (!context.enabled) return null;
-    const bounds = boundsToBox3(context.worldAabb);
-    if (!bounds || bounds.isEmpty()) return null;
-    return transformBounds(bounds, state.viewTransform || new THREE.Matrix4());
+    const relativeBounds = boundsToBox3(context.relativeAabb);
+    if (relativeBounds && !relativeBounds.isEmpty()) return relativeBounds;
+    const worldBounds = boundsToBox3(context.worldAabb);
+    if (!worldBounds || worldBounds.isEmpty()) return null;
+    return transformBounds(worldBounds, state.viewTransform || new THREE.Matrix4());
 }
 
 function primaryGridRelativeBounds(scene) {

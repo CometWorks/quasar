@@ -66,11 +66,14 @@ namespace Quasar.Agent
 
             var definitions = new Dictionary<string, ViewerBlockDefinition>(StringComparer.Ordinal);
             var chunks = new Dictionary<string, ChunkBuilder>(StringComparer.Ordinal);
-            var contextAabb = includeContext ? ContextWorldAabb(grid) : (BoundingBoxD?)null;
+            var contextLocalAabb = includeContext ? ContextLocalAabb(grid) : (BoundingBoxD?)null;
+            var contextRelativeAabb = contextLocalAabb.HasValue ? ContextRelativeAabb(grid, contextLocalAabb.Value) : (BoundingBoxD?)null;
+            var contextAabb = contextLocalAabb.HasValue ? LocalAabbToWorldAabb(contextLocalAabb.Value.Min, contextLocalAabb.Value.Max, grid.WorldMatrix) : (BoundingBoxD?)null;
+            var contextObb = contextLocalAabb.HasValue ? new MyOrientedBoundingBoxD(contextLocalAabb.Value, grid.WorldMatrix) : (MyOrientedBoundingBoxD?)null;
             var contextBlocks = 0;
             var clippedGridCount = 0;
 
-            foreach (var sceneGrid in ContextGrids(grid, contextAabb, scene.Warnings))
+            foreach (var sceneGrid in ContextGrids(grid, contextAabb, contextObb, scene.Warnings))
             {
                 var isPrimary = sceneGrid.EntityId == grid.EntityId;
                 if (!isPrimary && includeContext)
@@ -88,7 +91,7 @@ namespace Quasar.Agent
                     }
                 }
 
-                var result = AddGridToScene(scene, sceneGrid, isPrimary, includeContext, contextAabb, definitions, chunks, catalog, ref contextBlocks);
+                var result = AddGridToScene(scene, sceneGrid, isPrimary, includeContext, contextAabb, contextObb, definitions, chunks, catalog, ref contextBlocks);
                 if (result.Grid.IsClippedToContext)
                     clippedGridCount++;
                 scene.Grids.Add(result.Grid);
@@ -118,6 +121,7 @@ namespace Quasar.Agent
                     Enabled = true,
                     PrimaryGridId = grid.EntityId.ToString(),
                     WorldAabb = ToDto(contextAabb.Value),
+                    RelativeAabb = ToDto(contextRelativeAabb.Value),
                     GridCount = scene.Grids.Count,
                     ClippedGridCount = clippedGridCount,
                     VoxelBodyCount = scene.Voxels.Count,
@@ -205,6 +209,7 @@ namespace Quasar.Agent
             bool isPrimary,
             bool includeContext,
             BoundingBoxD? contextAabb,
+            MyOrientedBoundingBoxD? contextObb,
             Dictionary<string, ViewerBlockDefinition> definitions,
             Dictionary<string, ChunkBuilder> chunks,
             MetadataAssetCatalog catalog,
@@ -219,7 +224,7 @@ namespace Quasar.Agent
                 if (block == null || block.BlockDefinition == null)
                     continue;
 
-                var includeBlock = isPrimary || !contextAabb.HasValue || BlockWorldAabb(grid, block).Intersects(contextAabb.Value);
+                var includeBlock = isPrimary || !contextObb.HasValue || BlockIntersectsContext(grid, block, contextObb.Value);
                 if (!includeBlock)
                 {
                     skipped++;
@@ -267,9 +272,12 @@ namespace Quasar.Agent
             }
 
             gridDto.BlockCount = included;
-            if (!isPrimary && includeContext && contextAabb.HasValue)
+            if (!isPrimary && includeContext && contextAabb.HasValue && contextObb.HasValue)
             {
-                gridDto.IsClippedToContext = skipped > 0 || contextAabb.Value.Contains(grid.PositionComp.WorldAABB) != ContainmentType.Contains;
+                var gridObb = GridObb(grid);
+                var contextBox = contextObb.Value;
+                var gridBox = gridObb.GetValueOrDefault();
+                gridDto.IsClippedToContext = skipped > 0 || !gridObb.HasValue || contextBox.Contains(ref gridBox) != ContainmentType.Contains;
                 if (gridDto.IsClippedToContext)
                 {
                     if (included == 0)
@@ -282,9 +290,9 @@ namespace Quasar.Agent
             return new GridSceneAddResult { Grid = gridDto, IncludedBlockCount = included, SkippedBlockCount = skipped };
         }
 
-        private static BoundingBoxD ContextWorldAabb(MyCubeGrid grid)
+        private static BoundingBoxD ContextLocalAabb(MyCubeGrid grid)
         {
-            var selected = grid.PositionComp.WorldAABB;
+            var selected = new BoundingBoxD(grid.PositionComp.LocalAABB.Min, grid.PositionComp.LocalAABB.Max);
             var center = selected.Center;
             var halfExtents = (selected.Max - selected.Min) * 0.5;
             halfExtents.X = Math.Max(halfExtents.X, LargeGridCubeSize);
@@ -294,10 +302,17 @@ namespace Quasar.Agent
             return new BoundingBoxD(center - contextHalfExtents, center + contextHalfExtents);
         }
 
-        private static IEnumerable<MyCubeGrid> ContextGrids(MyCubeGrid primary, BoundingBoxD? contextAabb, List<string> warnings)
+        private static BoundingBoxD ContextRelativeAabb(MyCubeGrid grid, BoundingBoxD contextLocalAabb)
+        {
+            var selected = new BoundingBoxD(grid.PositionComp.LocalAABB.Min, grid.PositionComp.LocalAABB.Max);
+            var center = selected.Center;
+            return new BoundingBoxD(contextLocalAabb.Min - center, contextLocalAabb.Max - center);
+        }
+
+        private static IEnumerable<MyCubeGrid> ContextGrids(MyCubeGrid primary, BoundingBoxD? contextAabb, MyOrientedBoundingBoxD? contextObb, List<string> warnings)
         {
             yield return primary;
-            if (!contextAabb.HasValue)
+            if (!contextAabb.HasValue || !contextObb.HasValue)
                 yield break;
 
             IEnumerable<MyCubeGrid> candidates;
@@ -317,8 +332,43 @@ namespace Quasar.Agent
                          .OrderBy(candidate => FirstNonEmpty(candidate.DisplayName, candidate.Name, "Grid " + candidate.EntityId), StringComparer.OrdinalIgnoreCase)
                          .ThenBy(candidate => candidate.EntityId))
             {
-                yield return grid;
+                var contextBox = contextObb.Value;
+                if (GridIntersectsContext(grid, contextBox))
+                    yield return grid;
             }
+        }
+
+        private static bool GridIntersectsContext(MyCubeGrid grid, MyOrientedBoundingBoxD contextObb)
+        {
+            if (grid.PositionComp == null)
+                return false;
+
+            var gridObb = GridObb(grid);
+            return gridObb.HasValue && gridObb.Value.Intersects(ref contextObb);
+        }
+
+        private static bool BlockIntersectsContext(MyCubeGrid grid, MySlimBlock block, MyOrientedBoundingBoxD contextObb)
+        {
+            var blockObb = BlockObb(grid, block);
+            return blockObb.Intersects(ref contextObb);
+        }
+
+        private static MyOrientedBoundingBoxD? GridObb(MyCubeGrid grid)
+        {
+            if (grid?.PositionComp == null)
+                return null;
+
+            var localAabb = grid.PositionComp.LocalAABB;
+            return new MyOrientedBoundingBoxD(new BoundingBoxD(localAabb.Min, localAabb.Max), grid.WorldMatrix);
+        }
+
+        private static MyOrientedBoundingBoxD BlockObb(MyCubeGrid grid, MySlimBlock block)
+        {
+            var gridSize = GridCubeSize(grid);
+            var half = gridSize * 0.5;
+            var localMin = new Vector3D(block.Min.X * gridSize - half, block.Min.Y * gridSize - half, block.Min.Z * gridSize - half);
+            var localMax = new Vector3D(block.Max.X * gridSize + half, block.Max.Y * gridSize + half, block.Max.Z * gridSize + half);
+            return new MyOrientedBoundingBoxD(new BoundingBoxD(localMin, localMax), grid.WorldMatrix);
         }
 
         private static BoundingBoxD BlockWorldAabb(MyCubeGrid grid, MySlimBlock block)
