@@ -1879,13 +1879,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 if (line is null)
                     break;
 
-                // Plugin SDK JSON lines reach the live panel through the agent's
-                // network relay (see AgentSocketHandler). This pump only drains
-                // stdout so the process cannot block and ordinary server output can
-                // still feed lightweight detectors.
+                // Plugin SDK JSON lines reach the live panel and instance
+                // Magnetar info.log through the agent path. This pump only
+                // drains stdout so the process cannot block and ordinary server
+                // output can still feed lightweight detectors.
                 if (PluginLogStream.TryParseSinkLine(uniqueName, line, out _))
                 {
-                    // Handled via the agent relay.
+                    // Handled by Quasar.Agent.
                 }
                 else if (!string.IsNullOrWhiteSpace(line))
                 {

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
+using System.Text;
 using System.Threading;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -29,6 +31,9 @@ namespace Quasar.Agent
         private const string SuppressedPluginName = "Magnetar";
 
         private readonly ConcurrentQueue<string> _queue = new ConcurrentQueue<string>();
+        private readonly object _fileSync = new object();
+        private string _infoLogPath;
+        private bool _fileWriteDisabled;
         private int _count;
         private int _subscribed;
 
@@ -54,6 +59,8 @@ namespace Quasar.Agent
             if (string.IsNullOrEmpty(line))
                 return;
 
+            AppendToMagnetarInfoLog(line);
+
             if (IsSuppressedPluginLog(line))
                 return;
 
@@ -65,6 +72,52 @@ namespace Quasar.Agent
             {
                 Interlocked.Decrement(ref _count);
             }
+        }
+
+        private void AppendToMagnetarInfoLog(string line)
+        {
+            if (_fileWriteDisabled)
+                return;
+
+            var path = ResolveInfoLogPath();
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            try
+            {
+                lock (_fileSync)
+                {
+                    var directory = Path.GetDirectoryName(path);
+                    if (!string.IsNullOrWhiteSpace(directory))
+                        Directory.CreateDirectory(directory);
+
+                    using (var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
+                    using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+                    {
+                        writer.WriteLine(line);
+                    }
+                }
+            }
+            catch
+            {
+                _fileWriteDisabled = true;
+            }
+        }
+
+        private string ResolveInfoLogPath()
+        {
+            if (_infoLogPath != null)
+                return _infoLogPath;
+
+            var appDataPath = Environment.GetEnvironmentVariable("QUASAR_MAGNETAR_APPDATA_PATH");
+            if (string.IsNullOrWhiteSpace(appDataPath))
+            {
+                _infoLogPath = string.Empty;
+                return _infoLogPath;
+            }
+
+            _infoLogPath = Path.Combine(appDataPath.Trim(), "info.log");
+            return _infoLogPath;
         }
 
         private static bool IsSuppressedPluginLog(string line)
