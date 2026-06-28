@@ -250,10 +250,24 @@ export function updateSceneBounds(refit = false) {
     const contentBounds = sceneContentBounds();
     const fallbackBounds = transformedGridBounds() || state.currentBounds;
     const cameraBounds = unionBounds(contentBounds, state.contextBounds) || fallbackBounds;
+    const floorBounds = floorGridBounds(contentBounds, fallbackBounds);
     state.currentBounds = cameraBounds;
-    replaceFloorGrid(state.contextBounds || contentBounds || fallbackBounds, state.currentGridSize, state.currentFloorGridAlignment);
+    replaceFloorGrid(floorBounds, state.currentGridSize, state.currentFloorGridAlignment);
     updateSunLightPosition();
     if (refit) fitCameraToScene();
+}
+
+function floorGridBounds(contentBounds, fallbackBounds) {
+    const bounds = state.contextBounds || contentBounds || fallbackBounds;
+    if (!bounds || bounds.isEmpty() || !state.contextBounds) return bounds;
+
+    const targetBounds = selectedGridContentBounds() || fallbackBounds;
+    if (!targetBounds || targetBounds.isEmpty()) return bounds;
+
+    const floorBounds = bounds.clone();
+    floorBounds.min.y = targetBounds.min.y;
+    floorBounds.max.y = targetBounds.max.y;
+    return floorBounds;
 }
 
 export function updateLighting() {
@@ -493,6 +507,16 @@ function sceneContentBounds() {
         hasBounds = true;
     }
     return hasBounds ? bounds : null;
+}
+
+function selectedGridContentBounds() {
+    if (!state.gridGroup) return null;
+    const primaryId = String(state.primaryGridId || "");
+    const children = state.gridGroup.children || [];
+    const selected = children.find(child => primaryId && String(child.userData && child.userData.gridId || "") === primaryId)
+        || children.find(child => child.name && child.name.startsWith("PrimaryGrid:"))
+        || (children.length === 1 ? children[0] : null);
+    return objectWorldBounds(selected);
 }
 
 function unionBounds(...items) {
