@@ -406,31 +406,14 @@
                                 </MudItem>
                                 <MudItem xs="12" md="6">
                                     <MudTextField
-                                        @bind-Value="_editor.WorldPath"
+                                        T="string"
+                                        Value="_editor.WorldPath"
+                                        ValueChanged="HandleSavesPathChanged"
                                         Label="Saves path"
                                         Variant="Variant.Outlined"
+                                        Immediate="true"
                                         HelperText="@($"Folder containing SE save folders. Default: {GetDefaultSavesPath()}")" />
                                 </MudItem>
-                                @if (_isEditing)
-                                {
-                                    <MudItem xs="12">
-                                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
-                                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-                                                <MudStack Spacing="0">
-                                                    <MudText Typo="Typo.subtitle2">Reset world state</MudText>
-                                                    <MudText Typo="Typo.body2">@ResetWorldStatusText</MudText>
-                                                </MudStack>
-                                                <MudButton Variant="Variant.Filled"
-                                                           Color="Color.Error"
-                                                           StartIcon="@Icons.Material.Filled.DeleteForever"
-                                                           Disabled="@(!CanResetWorld)"
-                                                           OnClick="ResetWorldAsync">
-                                                    Reset World
-                                                </MudButton>
-                                            </MudStack>
-                                        </MudAlert>
-                                    </MudItem>
-                                }
                                 <MudItem xs="12" md="6">
                                     <MudTextField
                                         @bind-Value="_editor.ConfigFilePath"
@@ -466,9 +449,6 @@
 
     [Inject]
     private DedicatedServerCatalog ServerCatalog { get; set; } = default!;
-
-    [Inject]
-    private DedicatedServerSupervisor Supervisor { get; set; } = default!;
 
     [Inject]
     private IDialogService DialogService { get; set; } = default!;
@@ -508,6 +488,7 @@
     private bool _pathsExpanded;
     private bool _disableImplicitMagnetarModLoadDialogOpen;
     private bool _creatingWorldSave;
+    private IReadOnlyList<WorldSaveOption> _availableWorldSaves = Array.Empty<WorldSaveOption>();
     private static readonly DedicatedServerProcessPriority[] ProcessPriorities =
     [
         DedicatedServerProcessPriority.Low,
@@ -552,6 +533,8 @@
         if (string.IsNullOrWhiteSpace(_editor.DisplayName) && !string.IsNullOrWhiteSpace(_editor.UniqueName))
             _editor.DisplayName = _editor.UniqueName;
 
+        NormalizeWorldPathForEditor();
+        RefreshAvailableWorldSaves();
         _identifierManuallyEdited = _isEditing || !string.IsNullOrWhiteSpace(_editor.UniqueName);
     }
 
@@ -581,6 +564,7 @@
             return;
 
         _editor.UniqueName = ServerCatalog.GenerateUniqueServerName(_editor.DisplayName);
+        RefreshAvailableWorldSaves();
     }
 
     private void HandleDisplayNameBlur(FocusEventArgs _)
@@ -600,6 +584,7 @@
     {
         _editor.UniqueName = value ?? string.Empty;
         _identifierManuallyEdited = true;
+        RefreshAvailableWorldSaves();
     }
 
     private void HandlePortChanged(int value)
@@ -607,14 +592,20 @@
         _editor.ServerPort = value;
     }
 
-    private IReadOnlyList<WorldSaveOption> AvailableWorldSaves => GetAvailableWorldSaves();
+    private IReadOnlyList<WorldSaveOption> AvailableWorldSaves => _availableWorldSaves;
 
     private void HandleWorldSaveChanged(string value)
     {
         _editor.WorldSaveName = value ?? string.Empty;
     }
 
-    private IReadOnlyList<WorldSaveOption> GetAvailableWorldSaves()
+    private void HandleSavesPathChanged(string value)
+    {
+        _editor.WorldPath = value ?? string.Empty;
+        RefreshAvailableWorldSaves();
+    }
+
+    private void RefreshAvailableWorldSaves()
     {
         var savesPath = GetEffectiveSavesPath();
         var selected = _editor.WorldSaveName?.Trim() ?? string.Empty;
@@ -651,9 +642,30 @@
             saves.Add(new WorldSaveOption(selected, selected + suffix));
         }
 
-        return saves
+        _availableWorldSaves = saves
             .OrderBy(save => save.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private void NormalizeWorldPathForEditor()
+    {
+        if (!string.IsNullOrWhiteSpace(_editor.WorldSaveName))
+            return;
+
+        var worldPath = _editor.WorldPath?.Trim();
+        if (string.IsNullOrWhiteSpace(worldPath) ||
+            !File.Exists(Path.Combine(worldPath, "Sandbox.sbc")))
+        {
+            return;
+        }
+
+        var saveName = Path.GetFileName(worldPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var savesPath = Directory.GetParent(worldPath)?.FullName;
+        if (string.IsNullOrWhiteSpace(saveName) || string.IsNullOrWhiteSpace(savesPath))
+            return;
+
+        _editor.WorldPath = savesPath;
+        _editor.WorldSaveName = saveName;
     }
 
     private decimal MinimumSimulationRateEditorValue =>
@@ -723,61 +735,6 @@
         MudDialog.Cancel();
     }
 
-    private bool CanResetWorld =>
-        _isEditing &&
-        !IsEditedServerActive() &&
-        !string.IsNullOrWhiteSpace(GetSelectedWorldSavePath()) &&
-        Directory.Exists(GetSelectedWorldSavePath());
-
-    private string ResetWorldStatusText
-    {
-        get
-        {
-            if (IsEditedServerActive())
-                return "Stop this server before deleting its world folder.";
-
-            if (string.IsNullOrWhiteSpace(_editor.WorldSaveName))
-                return "No world save is selected.";
-
-            var worldPath = GetSelectedWorldSavePath();
-            if (string.IsNullOrWhiteSpace(worldPath) || !Directory.Exists(worldPath))
-                return "No world save folder exists at the selected path.";
-
-            return "Deletes the selected world save folder. Select or create another save before starting.";
-        }
-    }
-
-    private async Task ResetWorldAsync()
-    {
-        if (!CanResetWorld)
-        {
-            Snackbar.Add(ResetWorldStatusText, Severity.Warning);
-            return;
-        }
-
-        var worldPath = GetSelectedWorldSavePath();
-        var confirmed = await DialogService.ShowMessageBoxAsync(
-            "Reset world save?",
-            $"Delete the world save folder '{worldPath}'? You must select or create another save before starting this server.",
-            yesText: "Delete World",
-            cancelText: "Cancel");
-
-        if (confirmed != true)
-            return;
-
-        try
-        {
-            await Task.Run(() => Directory.Delete(worldPath, recursive: true));
-            _editor.WorldSaveName = string.Empty;
-            Snackbar.Add("World save deleted. Select or create a save before start.", Severity.Success);
-            await InvokeAsync(StateHasChanged);
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add($"Failed to reset world: {exception.Message}", Severity.Error);
-        }
-    }
-
     private async Task ToggleDisableImplicitMagnetarModLoadAsync()
     {
         if (_disableImplicitMagnetarModLoadDialogOpen)
@@ -807,25 +764,6 @@
             _disableImplicitMagnetarModLoadDialogOpen = false;
             await InvokeAsync(StateHasChanged);
         }
-    }
-
-    private bool IsEditedServerActive()
-    {
-        var uniqueName = string.IsNullOrWhiteSpace(_editor.OriginalUniqueName)
-            ? _editor.UniqueName
-            : _editor.OriginalUniqueName;
-        if (string.IsNullOrWhiteSpace(uniqueName))
-            return false;
-
-        var state = Supervisor
-            .GetSnapshots()
-            .FirstOrDefault(snapshot => string.Equals(snapshot.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
-            ?.State ?? DedicatedServerProcessState.Stopped;
-
-        return state is DedicatedServerProcessState.Starting
-            or DedicatedServerProcessState.Running
-            or DedicatedServerProcessState.Restarting
-            or DedicatedServerProcessState.Stopping;
     }
 
     private async Task SaveAsync()
@@ -926,6 +864,7 @@
             if (!string.IsNullOrWhiteSpace(configProfileId))
                 _editor.ConfigProfileId = configProfileId;
 
+            RefreshAvailableWorldSaves();
             Snackbar.Add($"World save '{saveName}' created.", Severity.Success);
         }
         catch (Exception exception)
