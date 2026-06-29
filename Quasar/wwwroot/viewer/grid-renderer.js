@@ -1878,7 +1878,7 @@ function createModelMeshes(assetId, block, matrix, patternOffset = null, renderC
             matrix: (clip || canDeform) ? new THREE.Matrix4() : matrix,
             block,
             colorMask: colorMaskForBlock(block),
-            standalone: !!clip,
+            standalone: false,
             batchKey: `${geometry.userData.renderCacheKey}|${materials.map(material => material.userData.renderCacheKey).join("|")}`,
         });
     }
