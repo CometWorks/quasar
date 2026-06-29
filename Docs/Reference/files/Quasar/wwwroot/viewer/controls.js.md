@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Wires the grid viewer control panel and keyboard input to scene actions. It connects reload, Content selection, Mods selection, render toggles including URL-gated voxel visibility, mutually exclusive logistics and damaged-block overlays, context-mode reloads through the `context` query flag, the unified lighting toggle, camera mode switching, camera reset, and free-fly movement key tracking.
+Wires the grid viewer control panel and keyboard input to scene actions. It connects reload, Content selection, Mods selection, render toggles including URL-gated voxel and voxel-deformation overlay visibility, mutually exclusive logistics and damaged-block overlays, context-mode reloads through the `context` query flag, the unified lighting toggle, camera mode switching, camera reset, and free-fly movement key tracking.
 
 ## Structure
 

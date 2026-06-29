@@ -41,6 +41,7 @@ export async function renderGridScene(scene) {
         state.gridLights = [];
         state.logisticsGroup = null;
         state.damagedGroup = null;
+        state.damagedVoxelGroup = null;
     }
     if (state.voxelGroup) {
         state.scene.remove(state.voxelGroup);
@@ -375,6 +376,7 @@ function renderDamagedOverlay(scene, gridGroups, definitions, damagedVoxelChunks
         if (state.damagedGroup.parent) state.damagedGroup.parent.remove(state.damagedGroup);
         disposeObjectTree(state.damagedGroup);
         state.damagedGroup = null;
+        state.damagedVoxelGroup = null;
     }
 
     const damagedBlocks = (scene.blockInstances || []).filter(block => isProjectorDamagedBlock(block));
@@ -414,8 +416,14 @@ function renderDamagedOverlay(scene, gridGroups, definitions, damagedVoxelChunks
         for (const mask of masks) gridOverlay(block.gridId).add(mask);
     }
 
+    const damagedVoxelGroup = new THREE.Group();
+    damagedVoxelGroup.name = "DamagedVoxelDeformations";
+    damagedVoxelGroup.visible = !!(els.showVoxels && els.showVoxels.checked);
+    state.damagedVoxelGroup = damagedVoxelGroup;
+    group.add(damagedVoxelGroup);
+
     const voxelBodiesById = new Map((scene.voxels || []).map(voxel => [String(voxel.id || ""), voxel]));
-    for (const mask of createDamagedVoxelMasks(damagedVoxelChunks, voxelBodiesById)) group.add(mask);
+    for (const mask of createDamagedVoxelMasks(damagedVoxelChunks, voxelBodiesById)) damagedVoxelGroup.add(mask);
 }
 
 function createDamagedBlockMasks(block, definition, renderContext, gridSize) {

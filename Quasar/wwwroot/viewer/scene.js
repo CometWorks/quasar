@@ -573,6 +573,7 @@ function onPointerMove(event) {
 }
 
 function damagedBlockFromIntersection(hit) {
+    if (!isObjectHierarchyVisible(hit && hit.object)) return null;
     let object = hit && hit.object;
     while (object) {
         const userData = object.userData;
@@ -584,6 +585,7 @@ function damagedBlockFromIntersection(hit) {
 }
 
 function damagedItemFromIntersection(hit) {
+    if (!isObjectHierarchyVisible(hit && hit.object)) return null;
     let object = hit && hit.object;
     while (object) {
         const userData = object.userData;
@@ -593,6 +595,14 @@ function damagedItemFromIntersection(hit) {
     }
     const block = blockFromIntersection(hit);
     return isProjectorDamagedBlock(block) ? { kind: "block", value: block } : null;
+}
+
+function isObjectHierarchyVisible(object) {
+    while (object) {
+        if (!object.visible) return false;
+        object = object.parent;
+    }
+    return true;
 }
 
 function blockFromIntersection(hit) {

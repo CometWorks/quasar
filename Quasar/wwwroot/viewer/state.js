@@ -15,6 +15,7 @@ export const state = {
     gridGroup: null,
     logisticsGroup: null,
     damagedGroup: null,
+    damagedVoxelGroup: null,
     gridLightGroup: null,
     gridLights: [],
     voxelGroup: null,

@@ -29,4 +29,4 @@ Key exports:
 - [`Quasar/wwwroot/viewer/geometry.js`](geometry.js.md) for bounds conversion.
 
 ## Notes
-The hover path prioritizes visible overlay intersections before regular block/voxel readouts and ignores hidden mutually exclusive overlays. Damage focus brightens damaged block masks on the hovered block's grid or modified voxel damage chunks from the hovered voxel body, and dims other visible damage masks.
+The hover path prioritizes visible overlay intersections before regular block/voxel readouts and ignores hidden mutually exclusive overlays and hidden overlay subgroups. Damage focus brightens damaged block masks on the hovered block's grid or modified voxel damage chunks from the hovered voxel body, and dims other visible damage masks.

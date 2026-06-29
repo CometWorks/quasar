@@ -14,6 +14,7 @@ export function wireControls(actions) {
     });
     els.showVoxels.addEventListener("change", () => {
         if (state.voxelGroup) state.voxelGroup.visible = els.showVoxels.checked;
+        if (state.damagedVoxelGroup) state.damagedVoxelGroup.visible = els.showVoxels.checked;
         updateSceneBounds(false);
     });
     els.showContext.addEventListener("change", () => {
