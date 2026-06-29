@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using Sandbox.Game.Entities;
+using Sandbox.Game.Entities.Cube;
 using VRage.Game.Entity;
 using VRage.Game.Graphics;
 using VRage.Utils;
@@ -14,6 +15,7 @@ namespace Quasar.Agent
     internal static class EmissivePartCapturePatches
     {
         private static readonly ConcurrentDictionary<Type, MethodInfo> DefaultEmissivePartsMethods = new ConcurrentDictionary<Type, MethodInfo>();
+        private static readonly ConcurrentDictionary<Type, string[]> EmissiveTextureNames = new ConcurrentDictionary<Type, string[]>();
         private static Harmony _harmony;
         private static bool _applied;
 
@@ -31,6 +33,9 @@ namespace Quasar.Agent
                 count += Patch(AccessTools.Method(typeof(MyCubeBlock), "SetEmissiveState"), nameof(MyCubeBlockSetEmissiveStatePrefix)) ? 1 : 0;
                 count += Patch(AccessTools.Method(typeof(MyCubeBlock), "UpdateEmissiveParts"), nameof(MyCubeBlockUpdateEmissivePartsPrefix)) ? 1 : 0;
                 count += Patch(AccessTools.Method(typeof(MyEntity), "UpdateNamedEmissiveParts"), nameof(MyEntityUpdateNamedEmissivePartsPrefix)) ? 1 : 0;
+                count += PatchSegmentedSetEmissive("Sandbox.Game.Entities.MyBatteryBlock", nameof(BatterySetEmissivePrefix)) ? 1 : 0;
+                count += Patch(AccessTools.Method(AccessTools.TypeByName("Sandbox.Game.Entities.MyBatteryBlock"), "UpdateEmissivity"), nameof(BatteryUpdateEmissivityPostfix), postfix: true) ? 1 : 0;
+                count += PatchSegmentedSetEmissive("Sandbox.Game.Entities.Blocks.MyGasTank", nameof(GasTankSetEmissivePrefix)) ? 1 : 0;
                 Console.WriteLine($"Quasar emissive part capture patches applied: {count}");
             }
             catch (Exception exception)
@@ -53,18 +58,22 @@ namespace Quasar.Agent
                 _harmony = null;
                 _applied = false;
                 DefaultEmissivePartsMethods.Clear();
+                EmissiveTextureNames.Clear();
             }
         }
 
-        private static bool Patch(MethodBase method, string prefixMethodName)
+        private static bool Patch(MethodBase method, string patchMethodName, bool postfix = false)
         {
             if (method == null || _harmony == null)
                 return false;
 
             try
             {
-                var prefix = new HarmonyMethod(typeof(EmissivePartCapturePatches).GetMethod(prefixMethodName, BindingFlags.Static | BindingFlags.NonPublic));
-                _harmony.Patch(method, prefix);
+                var patch = new HarmonyMethod(typeof(EmissivePartCapturePatches).GetMethod(patchMethodName, BindingFlags.Static | BindingFlags.NonPublic));
+                if (postfix)
+                    _harmony.Patch(method, postfix: patch);
+                else
+                    _harmony.Patch(method, patch);
                 return true;
             }
             catch (Exception exception)
@@ -72,6 +81,12 @@ namespace Quasar.Agent
                 Console.WriteLine($"Quasar emissive part capture patch skipped: {method.DeclaringType?.FullName}.{method.Name}: {exception.Message}");
                 return false;
             }
+        }
+
+        private static bool PatchSegmentedSetEmissive(string typeName, string prefixMethodName)
+        {
+            var type = AccessTools.TypeByName(typeName);
+            return Patch(AccessTools.Method(type, "SetEmissive", new[] { typeof(Color), typeof(float) }), prefixMethodName);
         }
 
         private static void MyEntitySetEmissivePartsPrefix(MyEntity __instance, string emissiveName, Color emissivePartColor, float emissivity)
@@ -123,6 +138,82 @@ namespace Quasar.Agent
             EmissivePartCaptureCache.Record(__instance, "Display", displayPartColor, emissivity, "cubeBlockParts");
         }
 
+        private static void BatterySetEmissivePrefix(MyEntity __instance, Color color, float fill)
+        {
+            CaptureSegmentedEmissive(__instance, color, fill, offEmissivity: 0f, source: "batterySegments");
+        }
+
+        private static void GasTankSetEmissivePrefix(MyEntity __instance, Color color, float fill)
+        {
+            CaptureSegmentedEmissive(__instance, color, fill, offEmissivity: 1f, source: "gasTankSegments");
+        }
+
+        private static void BatteryUpdateEmissivityPostfix(MyCubeBlock __instance)
+        {
+            if (__instance?.BlockDefinition == null || __instance.BlockDefinition.Id.SubtypeName != "SmallBlockSmallBatteryBlock")
+                return;
+
+            var materialName = EmissiveTextureNamesFor(__instance.GetType()).FirstOrDefault();
+            if (string.IsNullOrEmpty(materialName))
+                return;
+
+            EmissivePartCaptureCache.RegisterRenderObjectIds(__instance);
+            EmissivePartCaptureCache.Record(__instance, materialName, BatteryStatusColor(__instance), 1f, "batterySmall");
+        }
+
+        private static void CaptureSegmentedEmissive(MyEntity entity, Color color, float fill, float offEmissivity, string source)
+        {
+            if (entity == null)
+                return;
+
+            EmissivePartCaptureCache.RegisterRenderObjectIds(entity);
+            var names = EmissiveTextureNamesFor(entity.GetType());
+            var fillCount = (int)(fill * names.Length);
+            for (var i = 0; i < names.Length; i++)
+                EmissivePartCaptureCache.Record(entity, names[i], i < fillCount ? color : Color.Black, i < fillCount ? 1f : offEmissivity, source);
+        }
+
+        private static Color BatteryStatusColor(MyCubeBlock block)
+        {
+            var state = MyCubeBlock.m_emissiveNames.Damaged;
+            var fallback = Color.Red;
+            var functional = block as MyFunctionalBlock;
+            if (block.IsFunctional && (functional?.Enabled ?? true))
+            {
+                if (block.IsWorking)
+                {
+                    var chargeMode = block.GetType().GetProperty("ChargeMode", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(block, null)?.ToString() ?? string.Empty;
+                    if (string.Equals(chargeMode, "Discharge", StringComparison.OrdinalIgnoreCase))
+                    {
+                        state = MyCubeBlock.m_emissiveNames.Alternative;
+                        fallback = Color.SteelBlue;
+                    }
+                    else if (string.Equals(chargeMode, "Recharge", StringComparison.OrdinalIgnoreCase))
+                    {
+                        state = MyCubeBlock.m_emissiveNames.Warning;
+                        fallback = Color.Yellow;
+                    }
+                    else
+                    {
+                        state = MyCubeBlock.m_emissiveNames.Working;
+                        fallback = Color.Green;
+                    }
+                }
+                else
+                {
+                    state = MyCubeBlock.m_emissiveNames.Disabled;
+                }
+            }
+            else if (block.IsFunctional)
+            {
+                state = MyCubeBlock.m_emissiveNames.Disabled;
+            }
+
+            return MyEmissiveColorPresets.LoadPresetState(block.BlockDefinition.EmissiveColorPreset, state, out var result)
+                ? result.EmissiveColor
+                : fallback;
+        }
+
         private static bool TryResolveState(MyCubeBlock block, MyStringHash state, out MyEmissiveColorStateResult result)
         {
             if (!block.HandleEmissiveStateChange)
@@ -156,6 +247,15 @@ namespace Quasar.Agent
             {
                 return index == 0 ? "Emissive" : index == 1 ? "Display" : null;
             }
+        }
+
+        private static string[] EmissiveTextureNamesFor(Type type)
+        {
+            return EmissiveTextureNames.GetOrAdd(type, current =>
+            {
+                var field = current.GetField("m_emissiveTextureNames", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                return field?.GetValue(null) as string[] ?? new[] { "Emissive0", "Emissive1", "Emissive2", "Emissive3" };
+            });
         }
     }
 }
