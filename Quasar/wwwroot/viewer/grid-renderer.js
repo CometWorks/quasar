@@ -1686,9 +1686,7 @@ function clipSegmentViewToRectXZ(a, b, bounds) {
 
 function floorClipBounds(options = {}) {
     if (!options.allowStandaloneVoxel && state.lastScene && !(state.lastScene.blockInstances || []).length) return null;
-    const sourceBounds = state.contextBounds && state.primaryFloorBounds && !state.primaryFloorBounds.isEmpty()
-        ? state.primaryFloorBounds
-        : state.currentBounds;
+    const sourceBounds = state.contextBounds || state.currentBounds;
     const bounds = sourceBounds && sourceBounds.clone();
     if (!bounds || bounds.isEmpty()) return null;
     if (state.gridGroup) {

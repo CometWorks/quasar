@@ -268,7 +268,9 @@ function floorGridBounds(contentBounds, fallbackBounds, selectedBounds = null) {
     const targetBounds = selectedBounds || fallbackBounds;
     if (!targetBounds || targetBounds.isEmpty()) return bounds;
 
-    const floorBounds = targetBounds.clone();
+    const floorBounds = bounds.clone();
+    floorBounds.min.y = targetBounds.min.y;
+    floorBounds.max.y = targetBounds.max.y;
     return floorBounds;
 }
 
