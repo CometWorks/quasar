@@ -63,7 +63,6 @@ export function initScene() {
     state.scene.add(state.sunMarker);
     state.scene.add(state.sunMarkerLine);
     updateLighting();
-    replaceFloorGrid(null, LARGE_GRID_CUBE_SIZE);
 
     state.raycaster = new THREE.Raycaster();
     state.pointer = new THREE.Vector2();

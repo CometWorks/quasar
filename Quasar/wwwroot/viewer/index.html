@@ -97,6 +97,16 @@
 
         <section class="viewport-wrap" aria-label="3D viewport">
             <div id="viewport" class="viewport"></div>
+            <div id="loadingOverlay" class="loading-overlay" role="status" aria-live="polite">
+                <div class="loading-card">
+                    <p class="eyebrow">Preparing viewer</p>
+                    <h2 id="loadingTitle">Loading scene</h2>
+                    <p id="loadingText">Starting renderer...</p>
+                    <div class="progress-shell" aria-hidden="true">
+                        <div id="loadingProgress" class="progress-bar is-indeterminate"></div>
+                    </div>
+                </div>
+            </div>
             <div id="cameraHint" class="camera-hint">Orbit mode</div>
             <div id="hoverReadout" class="hover-readout">No block selected</div>
         </section>

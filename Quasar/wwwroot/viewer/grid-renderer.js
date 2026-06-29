@@ -29,12 +29,15 @@ const PROJECTED_LIGHT_SHADOW_NEAR = 0.05;
 const PROJECTED_LIGHT_SHADOW_BIAS = -0.0001;
 const PROJECTED_LIGHT_SHADOW_NORMAL_BIAS = 0.025;
 
-export async function renderGridScene(scene) {
+export async function renderGridScene(scene, options = {}) {
     const renderToken = ++modelRenderToken;
+    const reportProgress = createProgressReporter(options.onProgress);
     state.lastScene = scene;
     state.stats = {};
+    reportProgress("Preparing scene", "Registering scene mod roots...");
     await setSceneModRoots(scene.mods || scene.Mods || []);
 
+    reportProgress("Preparing scene", "Configuring viewer transform...");
     configureRelativeView(scene);
     configureEnvironment(scene);
 
@@ -45,21 +48,27 @@ export async function renderGridScene(scene) {
     const resolutionStats = { found: 0, parsed: 0, missing: 0, listed: (scene.modelAssets || []).length };
     const preloadProgress = createPreloadModelProgress(scene, resolutionStats, modelAssets.size);
 
+    reportProgress("Preparing scene", "Loading material definition files...");
     await ensureArmorSkinDefinitionsLoaded();
+    reportProgress("Preparing scene", "Loading transparent material definitions...");
     await ensureTransparentMaterialDefinitionsLoaded();
     if (renderToken !== modelRenderToken) return;
 
-    await resolveReferencedModelsProgressively(scene, modelAssets, resolutionStats, preloadProgress, renderToken);
+    reportProgress("Loading models", "Resolving local model files...", 0, Math.max(1, modelAssets.size));
+    await resolveReferencedModelsProgressively(scene, modelAssets, resolutionStats, preloadProgress, renderToken, reportProgress);
     if (renderToken !== modelRenderToken) return;
 
+    reportProgress("Loading LCD fonts", "Loading local Space Engineers bitmap fonts...");
     await preloadLcdFonts(scene);
     if (renderToken !== modelRenderToken) return;
 
+    reportProgress("Loading textures", "Collecting material texture dependencies...");
     const textureSelections = collectSceneTextureSelections(scene, definitions);
     const textureStats = initializeTextureStats(textureSelectionsToAssets(textureSelections));
-    const preloadedTextures = await preloadTextureSelections(textureSelections, renderTextureToken);
+    const preloadedTextures = await preloadTextureSelections(textureSelections, renderTextureToken, reportProgress);
     if (renderToken !== modelRenderToken) return;
 
+    reportProgress("Rendering scene", "Swapping prepared scene into the viewport...");
     if (state.gridGroup) {
         state.scene.remove(state.gridGroup);
         disposeObjectTree(state.gridGroup);
@@ -125,6 +134,14 @@ export async function renderGridScene(scene) {
     updateGridLightStats(collectSceneLightSources(scene));
     renderSummary(scene, resolutionStats, textureStats);
     updateTimingStats();
+    reportProgress("Scene ready", "Finalizing viewport...", 1, 1);
+}
+
+function createProgressReporter(callback) {
+    return (title, text, value = null, max = null) => {
+        if (typeof callback !== "function") return;
+        callback({ title, text, value, max });
+    };
 }
 
 function createProgressiveModelRender(scene, definitions, gridGroups, textureToken, renderToken, preloadedTextures = null) {
@@ -3641,11 +3658,12 @@ function proxyOpacity(definition) {
     return definition && definition.visibilityClass === "transparent" ? 0.36 : 0.72;
 }
 
-async function resolveReferencedModelsProgressively(scene, modelAssets, stats, progress, renderToken) {
+async function resolveReferencedModelsProgressively(scene, modelAssets, stats, progress, renderToken, reportProgress = null) {
     if (!state.contentFolder && !state.modsFolder) {
         log("No local Content or Mods folder selected; all models render as proxies.", true);
         stats.missing = (scene.modelAssets || []).length;
         updateModelStats(stats, progress.lastRenderStats, modelAssets.size);
+        if (reportProgress) reportProgress("Loading models", "No local asset folder selected; models will use proxies.", modelAssets.size, Math.max(1, modelAssets.size));
         return stats;
     }
 
@@ -3654,9 +3672,11 @@ async function resolveReferencedModelsProgressively(scene, modelAssets, stats, p
         log("No local Mods folder selected; selecting the global Mods folder may resolve modded assets.", true);
     }
 
+    let completed = 0;
     await runWithConcurrency([...modelAssets.values()], MAX_CONCURRENT_MODEL_RESOLVES, async asset => {
         const result = await resolveModelAsset(asset);
         if (renderToken !== modelRenderToken) return;
+        completed++;
 
         state.modelResolution.set(asset.assetId, result);
         if (result.status === "missing") {
@@ -3669,6 +3689,7 @@ async function resolveReferencedModelsProgressively(scene, modelAssets, stats, p
         }
 
         updateModelStats(stats, progress.lastRenderStats, modelAssets.size);
+        if (reportProgress) reportProgress("Loading models", `Resolved ${completed.toLocaleString()} of ${modelAssets.size.toLocaleString()} model assets...`, completed, Math.max(1, modelAssets.size));
         progress.scheduleRebuild();
     });
     return stats;
@@ -3812,14 +3833,20 @@ function textureSelectionsToAssets(selections) {
     return assets;
 }
 
-async function preloadTextureSelections(selections, textureToken) {
+async function preloadTextureSelections(selections, textureToken, reportProgress = null) {
     const textures = new Map();
+    const total = selections.size;
+    let completed = 0;
+    if (reportProgress) reportProgress("Loading textures", `Loading ${total.toLocaleString()} texture assets...`, 0, Math.max(1, total));
     await Promise.all([...selections.values()].map(async item => {
         try {
             const texture = await loadTrackedTexture(item.selection, textureToken, item.options);
             if (texture) textures.set(preloadedTextureKey(item.selection, item.options), texture);
         } catch (error) {
             if (error && !error.isMissingLocalTexture) log(`Texture preload skipped for ${item.selection.path}: ${error.message}`, true);
+        } finally {
+            completed++;
+            if (reportProgress) reportProgress("Loading textures", `Loaded ${completed.toLocaleString()} of ${total.toLocaleString()} texture assets...`, completed, Math.max(1, total));
         }
     }));
     return textures;

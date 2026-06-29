@@ -10,6 +10,7 @@ document.addEventListener("DOMContentLoaded", start);
 
 async function start() {
     cacheElements();
+    showLoading("Loading scene", "Initializing renderer...");
     state.voxelSupport = parseVoxelFlag();
     state.contextSupport = parseContextFlag();
     initScene();
@@ -18,6 +19,7 @@ async function start() {
     animate();
 
     try {
+        showLoading("Loading scene", "Restoring saved Content folder...");
         const restored = await restoreContentFolder();
         updateContentStatus(restored ? `Using saved Content folder: ${state.contentFolderName}` : "No Content folder selected.");
     } catch (error) {
@@ -25,6 +27,7 @@ async function start() {
     }
 
     try {
+        showLoading("Loading scene", "Restoring saved Mods folder...");
         const restored = await restoreModsFolder();
         updateModsStatus(restored ? `Using saved Mods folder: ${state.modsFolderName}` : "No Mods folder selected.");
     } catch (error) {
@@ -37,6 +40,7 @@ async function start() {
 
 async function reloadScene() {
     els.reloadScene.disabled = true;
+    showLoading("Loading scene", "Requesting scene snapshot...");
     try {
         state.timings = {};
         state.voxelSupport = parseVoxelFlag();
@@ -47,14 +51,44 @@ async function reloadScene() {
         const fetchStart = performance.now();
         const scene = await fetchEntityScene();
         addTiming("sceneSnapshotFetch", performance.now() - fetchStart);
-        await renderGridScene(scene);
+        await renderGridScene(scene, { onProgress: updateLoadingProgress });
         const firstVoxel = scene.voxels && scene.voxels[0];
         log(`Loaded scene ${scene.grid && scene.grid.id || firstVoxel && (firstVoxel.displayName || firstVoxel.id) || "unknown"}.`);
+        hideLoading();
     } catch (error) {
+        showLoading("Could not load scene", error.message, { error: true });
         log(error.message, true);
     } finally {
         els.reloadScene.disabled = false;
     }
+}
+
+function updateLoadingProgress(progress) {
+    showLoading(progress.title || "Loading scene", progress.text || "Preparing scene...", progress);
+}
+
+function showLoading(title, text, options = {}) {
+    if (!els.loadingOverlay) return;
+    els.loadingOverlay.classList.remove("is-hidden");
+    els.loadingTitle.textContent = title;
+    els.loadingText.textContent = text;
+    els.loadingOverlay.classList.toggle("is-error", !!options.error);
+    const progress = els.loadingProgress;
+    if (!progress) return;
+
+    const value = Number(options.value);
+    const max = Number(options.max);
+    if (Number.isFinite(value) && Number.isFinite(max) && max > 0) {
+        progress.classList.remove("is-indeterminate");
+        progress.style.width = `${Math.max(0, Math.min(100, value / max * 100))}%`;
+    } else {
+        progress.style.width = "";
+        progress.classList.add("is-indeterminate");
+    }
+}
+
+function hideLoading() {
+    if (els.loadingOverlay) els.loadingOverlay.classList.add("is-hidden");
 }
 
 async function selectModsFolder() {
@@ -62,9 +96,14 @@ async function selectModsFolder() {
     try {
         const handle = await pickModsFolder();
         updateModsStatus(`Using Mods folder: ${handle.name || "Mods"}`);
-        if (state.lastScene) await renderGridScene(state.lastScene);
+        if (state.lastScene) {
+            showLoading("Reloading assets", "Preparing scene with selected Mods folder...");
+            await renderGridScene(state.lastScene, { onProgress: updateLoadingProgress });
+            hideLoading();
+        }
     } catch (error) {
         if (error.name === "AbortError") return;
+        showLoading("Could not reload assets", error.message, { error: true });
         updateModsStatus(error.message, true);
         log(error.message, true);
     } finally {
@@ -85,9 +124,14 @@ async function selectContentFolder() {
     try {
         const handle = await pickContentFolder();
         updateContentStatus(`Using Content folder: ${handle.name || "Content"}`);
-        if (state.lastScene) await renderGridScene(state.lastScene);
+        if (state.lastScene) {
+            showLoading("Reloading assets", "Preparing scene with selected Content folder...");
+            await renderGridScene(state.lastScene, { onProgress: updateLoadingProgress });
+            hideLoading();
+        }
     } catch (error) {
         if (error.name === "AbortError") return;
+        showLoading("Could not reload assets", error.message, { error: true });
         updateContentStatus(error.message, true);
         log(error.message, true);
     } finally {
