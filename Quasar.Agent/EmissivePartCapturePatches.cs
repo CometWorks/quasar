@@ -4,11 +4,13 @@ using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using Sandbox.Game.Entities;
+using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.Entities.Cube;
 using VRage.Game.Entity;
 using VRage.Game.Graphics;
 using VRage.Utils;
 using VRageMath;
+using VRageRender;
 
 namespace Quasar.Agent
 {
@@ -33,6 +35,7 @@ namespace Quasar.Agent
                 count += Patch(AccessTools.Method(typeof(MyCubeBlock), "SetEmissiveState"), nameof(MyCubeBlockSetEmissiveStatePrefix)) ? 1 : 0;
                 count += Patch(AccessTools.Method(typeof(MyCubeBlock), "UpdateEmissiveParts"), nameof(MyCubeBlockUpdateEmissivePartsPrefix)) ? 1 : 0;
                 count += Patch(AccessTools.Method(typeof(MyEntity), "UpdateNamedEmissiveParts"), nameof(MyEntityUpdateNamedEmissivePartsPrefix)) ? 1 : 0;
+                count += Patch(AccessTools.Method(typeof(MyRenderProxy), "UpdateModelProperties", new[] { typeof(uint), typeof(string), typeof(RenderFlags), typeof(RenderFlags), typeof(Color?), typeof(float?) }), nameof(MyRenderProxyUpdateModelPropertiesPrefix)) ? 1 : 0;
                 count += PatchSegmentedSetEmissive("Sandbox.Game.Entities.MyBatteryBlock", nameof(BatterySetEmissivePrefix)) ? 1 : 0;
                 count += Patch(AccessTools.Method(AccessTools.TypeByName("Sandbox.Game.Entities.MyBatteryBlock"), "UpdateEmissivity"), nameof(BatteryUpdateEmissivityPostfix), postfix: true) ? 1 : 0;
                 count += PatchSegmentedSetEmissive("Sandbox.Game.Entities.Blocks.MyGasTank", nameof(GasTankSetEmissivePrefix)) ? 1 : 0;
@@ -91,7 +94,7 @@ namespace Quasar.Agent
 
         private static void MyEntitySetEmissivePartsPrefix(MyEntity __instance, string emissiveName, Color emissivePartColor, float emissivity)
         {
-            if (__instance is MyCubeBlock)
+            if (__instance is MyCubeBlock block && !IsLightingBlock(block))
             {
                 EmissivePartCaptureCache.RegisterRenderObjectIds(__instance);
                 EmissivePartCaptureCache.Record(__instance, emissiveName, emissivePartColor, emissivity, "entity");
@@ -103,9 +106,17 @@ namespace Quasar.Agent
             EmissivePartCaptureCache.RecordByRenderObjectId(renderObjectId, emissiveName, emissivePartColor, emissivity, "renderObject");
         }
 
+        private static void MyRenderProxyUpdateModelPropertiesPrefix(uint id, string materialName, Color? diffuseColor, float? emissivity)
+        {
+            if (!diffuseColor.HasValue || !emissivity.HasValue)
+                return;
+
+            EmissivePartCaptureCache.RecordByRenderObjectId(id, materialName, diffuseColor.Value, emissivity.Value, "renderModelProperties");
+        }
+
         private static void MyCubeBlockSetEmissiveStatePrefix(MyCubeBlock __instance, MyStringHash state, uint renderObjectId, string namedPart)
         {
-            if (__instance == null || __instance.BlockDefinition == null || !RenderIdBelongsTo(__instance, renderObjectId))
+            if (__instance == null || IsLightingBlock(__instance) || __instance.BlockDefinition == null || !RenderIdBelongsTo(__instance, renderObjectId))
                 return;
 
             EmissivePartCaptureCache.RegisterRenderObjectIds(__instance);
@@ -130,7 +141,7 @@ namespace Quasar.Agent
 
         private static void MyCubeBlockUpdateEmissivePartsPrefix(MyCubeBlock __instance, uint renderObjectId, float emissivity, Color emissivePartColor, Color displayPartColor)
         {
-            if (__instance == null || !RenderIdBelongsTo(__instance, renderObjectId))
+            if (__instance == null || IsLightingBlock(__instance) || !RenderIdBelongsTo(__instance, renderObjectId))
                 return;
 
             EmissivePartCaptureCache.RegisterRenderObjectIds(__instance);
@@ -232,6 +243,11 @@ namespace Quasar.Agent
 
             var renderIds = entity.Render?.RenderObjectIDs;
             return renderIds != null && renderIds.Contains(renderObjectId);
+        }
+
+        private static bool IsLightingBlock(MyCubeBlock block)
+        {
+            return block is MyLightingBlock;
         }
 
         private static string DefaultEmissivePart(MyCubeBlock block, byte index)
