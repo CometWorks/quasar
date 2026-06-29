@@ -76,6 +76,7 @@ export async function renderGridScene(scene) {
     state.contextBounds = contextRelativeBounds(scene);
     state.contextGridIds = new Set(sceneGrids(scene).filter(grid => grid && grid.isContext).map(grid => String(grid.id || "")));
     state.primaryGridId = primaryGrid(scene)?.id || "";
+    state.primaryFloorBounds = primaryGridRelativeBounds(scene);
     const bounds = state.contextBounds ? state.contextBounds.clone() : primaryGridRelativeBounds(scene);
     if (!state.contextBounds && bounds.isEmpty()) {
         const voxelBounds = standaloneVoxelViewBounds(scene);
@@ -274,6 +275,7 @@ function buildModelLayer(scene, definitions, renderContext, gridGroups) {
     let proxyMeshes = 0;
     const stats = { proxyBatches: 0, modelBatches: 0 };
     const blocksByGrid = new Map();
+    const clipBounds = contextBlockClipBounds(scene);
     for (const block of scene.blockInstances || []) {
         const gridId = String(block.gridId || primaryGrid(scene)?.id || "");
         let blocks = blocksByGrid.get(gridId);
@@ -291,17 +293,38 @@ function buildModelLayer(scene, definitions, renderContext, gridGroups) {
         gridLayer.userData.gridId = gridId;
         gridLayer.userData.modelLayerToken = layer.userData.modelLayerToken;
         const gridRenderContext = { ...renderContext, batches: new Map() };
+        const gridMatrix = gridRelativeMatrix(grid);
+        const blockClip = grid.isContext && clipBounds ? { bounds: clipBounds, gridMatrix, inverseGridMatrix: gridMatrix.clone().invert() } : null;
         const proxyBatches = new Map();
         for (const block of blocks) {
             const definition = definitions.get(block.blockTypeId);
             const box = blockBox(block, grid.gridSize || LARGE_GRID_CUBE_SIZE);
-            const blockMeshes = createBlockMeshes(block, definition, gridRenderContext);
+            const clipRelation = blockClip ? boxFloorClipRelation(box, blockClip.gridMatrix, blockClip.bounds) : "inside";
+
+            const blockMeshes = createBlockMeshes(block, definition, gridRenderContext, blockClip);
             if (blockMeshes.length) {
-                for (const mesh of blockMeshes) queueModelBatch(mesh, gridRenderContext);
+                for (const mesh of blockMeshes) {
+                    if (mesh.standalone) addStandaloneBlockMesh(gridLayer, mesh);
+                    else queueModelBatch(mesh, gridRenderContext);
+                }
                 modelMeshes += blockMeshes.length;
             } else {
-                queueBlockProxy(proxyBatches, block, definition, box);
-                proxyMeshes++;
+                if (blockClip && blockHasResolvedModel(block, definition)) {
+                    continue;
+                }
+
+                if (clipRelation === "outside") continue;
+
+                if (clipRelation === "partial") {
+                    const proxy = createClippedBlockProxy(block, definition, box, blockClip);
+                    if (proxy) {
+                        gridLayer.add(proxy.solid, proxy.edges);
+                        proxyMeshes++;
+                    }
+                } else {
+                    queueBlockProxy(proxyBatches, block, definition, box);
+                    proxyMeshes++;
+                }
             }
         }
         flushProxyBatches(gridLayer, proxyBatches);
@@ -1452,21 +1475,25 @@ function voxelProjectionSortOrder(projection) {
 }
 
 function clipVoxelPolygonToFloor(polygon, bounds) {
-    if (!bounds) return polygon;
-    let clipped = clipVoxelPolygonAxis(polygon, "x", bounds.minX, true);
-    clipped = clipVoxelPolygonAxis(clipped, "x", bounds.maxX, false);
-    clipped = clipVoxelPolygonAxis(clipped, "z", bounds.minZ, true);
-    return clipVoxelPolygonAxis(clipped, "z", bounds.maxZ, false);
+    return clipPolygonToFloor(polygon, bounds, intersectVoxelClipEdge);
 }
 
-function clipVoxelPolygonAxis(polygon, axis, limit, keepGreater) {
+function clipPolygonToFloor(polygon, bounds, intersect) {
+    if (!bounds) return polygon;
+    let clipped = clipPolygonAxis(polygon, "x", bounds.minX, true, intersect);
+    clipped = clipPolygonAxis(clipped, "x", bounds.maxX, false, intersect);
+    clipped = clipPolygonAxis(clipped, "z", bounds.minZ, true, intersect);
+    return clipPolygonAxis(clipped, "z", bounds.maxZ, false, intersect);
+}
+
+function clipPolygonAxis(polygon, axis, limit, keepGreater, intersect) {
     if (polygon.length === 0) return polygon;
     const result = [];
     let previous = polygon[polygon.length - 1];
     let previousInside = keepGreater ? previous[axis] >= limit : previous[axis] <= limit;
     for (const current of polygon) {
         const currentInside = keepGreater ? current[axis] >= limit : current[axis] <= limit;
-        if (currentInside !== previousInside) result.push(intersectVoxelClipEdge(previous, current, axis, limit));
+        if (currentInside !== previousInside) result.push(intersect(previous, current, axis, limit));
         if (currentInside) result.push(current);
         previous = current;
         previousInside = currentInside;
@@ -1481,8 +1508,20 @@ function intersectVoxelClipEdge(a, b, axis, limit) {
 }
 
 function voxelFloorClipBounds() {
-    if (state.lastScene && !(state.lastScene.blockInstances || []).length) return null;
-    const bounds = state.currentBounds && state.currentBounds.clone();
+    return floorClipBounds({ allowStandaloneVoxel: false });
+}
+
+function contextBlockClipBounds(scene) {
+    if (!scene || !(scene.context && scene.context.enabled)) return null;
+    return floorClipBounds({ allowStandaloneVoxel: false });
+}
+
+function floorClipBounds(options = {}) {
+    if (!options.allowStandaloneVoxel && state.lastScene && !(state.lastScene.blockInstances || []).length) return null;
+    const sourceBounds = state.contextBounds && state.primaryFloorBounds && !state.primaryFloorBounds.isEmpty()
+        ? state.primaryFloorBounds
+        : state.currentBounds;
+    const bounds = sourceBounds && sourceBounds.clone();
     if (!bounds || bounds.isEmpty()) return null;
     if (state.gridGroup) {
         state.gridGroup.updateMatrixWorld(true);
@@ -1495,6 +1534,38 @@ function voxelFloorClipBounds() {
         minZ: layout.offsetZ + layout.startZCell * layout.minorStep,
         maxZ: layout.offsetZ + layout.endZCell * layout.minorStep,
     };
+}
+
+function boxFloorClipRelation(box, gridMatrix, bounds) {
+    if (!bounds || !box || box.isEmpty()) return "inside";
+    const points = boxCorners(box).map(point => point.applyMatrix4(gridMatrix));
+    let insideCount = 0;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const point of points) {
+        minX = Math.min(minX, point.x);
+        maxX = Math.max(maxX, point.x);
+        minZ = Math.min(minZ, point.z);
+        maxZ = Math.max(maxZ, point.z);
+        if (point.x >= bounds.minX && point.x <= bounds.maxX && point.z >= bounds.minZ && point.z <= bounds.maxZ) insideCount++;
+    }
+    if (maxX < bounds.minX || minX > bounds.maxX || maxZ < bounds.minZ || minZ > bounds.maxZ) return "outside";
+    return insideCount === points.length ? "inside" : "partial";
+}
+
+function boxCorners(box) {
+    return [
+        new THREE.Vector3(box.min.x, box.min.y, box.min.z),
+        new THREE.Vector3(box.min.x, box.min.y, box.max.z),
+        new THREE.Vector3(box.min.x, box.max.y, box.min.z),
+        new THREE.Vector3(box.min.x, box.max.y, box.max.z),
+        new THREE.Vector3(box.max.x, box.min.y, box.min.z),
+        new THREE.Vector3(box.max.x, box.min.y, box.max.z),
+        new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+        new THREE.Vector3(box.max.x, box.max.y, box.max.z),
+    ];
 }
 
 function appendArray(target, source) {
@@ -1614,22 +1685,34 @@ function createVoxelProxy(voxel) {
     return mesh;
 }
 
-function createBlockMeshes(block, definition, renderContext) {
+function createBlockMeshes(block, definition, renderContext, clip = null) {
     const meshes = [];
     if (block.modelParts && block.modelParts.length) {
         for (const part of block.modelParts) {
-            meshes.push(...createModelMeshes(part.modelAssetId, block, matrixDtoToThree(part.localMatrix), part.patternOffset, renderContext));
+            meshes.push(...createModelMeshes(part.modelAssetId, block, matrixDtoToThree(part.localMatrix), part.patternOffset, renderContext, clip));
         }
     } else {
         const assetId = block.currentModelAssetId || (definition && definition.modelAssetId) || "";
-        meshes.push(...createModelMeshes(assetId, block, composeModelInstanceMatrix(block, definition), null, renderContext));
+        meshes.push(...createModelMeshes(assetId, block, composeModelInstanceMatrix(block, definition), null, renderContext, clip));
     }
 
     for (const subpart of block.subparts || []) {
-        meshes.push(...createModelMeshes(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix), null, renderContext));
+        meshes.push(...createModelMeshes(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix), null, renderContext, clip));
     }
 
     return meshes;
+}
+
+function blockHasResolvedModel(block, definition) {
+    if (!block) return false;
+    if (block.modelParts && block.modelParts.some(part => isParsedModelAsset(part.modelAssetId))) return true;
+    if (isParsedModelAsset(block.currentModelAssetId || definition && definition.modelAssetId)) return true;
+    return (block.subparts || []).some(subpart => isParsedModelAsset(subpart.modelAssetId));
+}
+
+function isParsedModelAsset(assetId) {
+    const resolved = assetId ? state.modelResolution.get(assetId) : null;
+    return !!(resolved && resolved.status === "parsed" && resolved.model);
 }
 
 function composeModelInstanceMatrix(block, definition) {
@@ -1647,7 +1730,7 @@ function composeModelInstanceMatrix(block, definition) {
     return matrix;
 }
 
-function createModelMeshes(assetId, block, matrix, patternOffset = null, renderContext = createRenderContext(textureStatsToken)) {
+function createModelMeshes(assetId, block, matrix, patternOffset = null, renderContext = createRenderContext(textureStatsToken), clip = null) {
     const resolved = assetId ? state.modelResolution.get(assetId) : null;
     const model = resolved && resolved.status === "parsed" ? resolved.model : null;
     if (!model) return [];
@@ -1672,13 +1755,17 @@ function createModelMeshes(assetId, block, matrix, patternOffset = null, renderC
     for (const [layer, entries] of groupsByLayer) {
         const groups = entries.map(entry => entry.group);
         const materials = entries.map(entry => entry.material);
-        const geometry = sharedModelGeometry(model, patternOffset, renderContext, groups, layer);
+        const geometry = clip
+            ? clippedModelGeometry(model, patternOffset, groups, matrix, clip)
+            : sharedModelGeometry(model, patternOffset, renderContext, groups, layer);
+        if (!geometry) continue;
         renderables.push({
             geometry,
             materials,
-            matrix,
+            matrix: clip ? new THREE.Matrix4() : matrix,
             block,
             colorMask: colorMaskForBlock(block),
+            standalone: !!clip,
             batchKey: `${geometry.userData.renderCacheKey}|${materials.map(material => material.userData.renderCacheKey).join("|")}`,
         });
     }
@@ -1740,6 +1827,26 @@ function flushModelBatches(group, renderContext) {
     return renderContext.batches.size;
 }
 
+function addStandaloneBlockMesh(group, renderable) {
+    const mesh = new THREE.Mesh(renderable.geometry, renderable.materials);
+    mesh.name = `ClippedBlock:${renderable.block && renderable.block.id || "block"}`;
+    mesh.matrixAutoUpdate = false;
+    mesh.matrix.copy(renderable.matrix || new THREE.Matrix4());
+    mesh.renderOrder = modelBatchRenderOrder(renderable.materials);
+    mesh.castShadow = modelBatchCastsShadow(renderable.materials);
+    mesh.receiveShadow = true;
+    mesh.userData.block = renderable.block;
+    mesh.onBeforeRender = (renderer, scene, camera, geometry, material) => applyBlockColorMaskUniforms(material, renderable.colorMask);
+    group.add(mesh);
+}
+
+function applyBlockColorMaskUniforms(material, colorMask) {
+    const uniforms = material && material.userData && material.userData.seColorMaskUniforms;
+    if (!uniforms) return;
+    const mask = colorMask || { x: 0, y: -1, z: 0 };
+    uniforms.seBlockColorMask.value.set(mask.x, mask.y, mask.z);
+}
+
 function modelBatchUsesInstanceColor(materials) {
     return materials.some(material => material.userData.seRenderMode !== "lcd");
 }
@@ -1775,6 +1882,83 @@ function sharedModelGeometry(model, patternOffset, renderContext, groups = model
     geometry.userData.renderCacheKey = key;
     renderContext.geometries.set(key, geometry);
     return geometry;
+}
+
+function clippedModelGeometry(model, patternOffset, groups, matrix, clip) {
+    const positions = [];
+    const normals = model.normals ? [] : null;
+    const uvs = model.uvs ? [] : null;
+    const indices = [];
+    const geometryGroups = [];
+    const transformedUvs = model.uvs ? transformModelUvs(model.uvs, patternOffset) : null;
+    const toView = clip.gridMatrix.clone().multiply(matrix);
+    const fromViewToGrid = clip.inverseGridMatrix;
+
+    for (let materialIndex = 0; materialIndex < groups.length; materialIndex++) {
+        const group = groups[materialIndex];
+        const start = indices.length;
+        const end = group.start + group.count;
+        for (let i = group.start; i + 2 < end; i += 3) {
+            const polygon = [0, 1, 2].map(offset => modelClipVertex(model, transformedUvs, model.indices[i + offset], toView));
+            const clipped = clipPolygonToFloor(polygon, clip.bounds, interpolateModelClipVertex);
+            if (clipped.length < 3) continue;
+            const base = positions.length / 3;
+            for (const vertex of clipped) appendModelClipVertex(vertex, fromViewToGrid, positions, normals, uvs);
+            for (let j = 1; j < clipped.length - 1; j++) indices.push(base, base + j, base + j + 1);
+        }
+        if (indices.length > start) geometryGroups.push({ start, count: indices.length - start, materialIndex });
+    }
+
+    if (!positions.length || !indices.length) return null;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    if (normals) geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+    if (uvs) {
+        geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+        geometry.setAttribute("uv2", new THREE.Float32BufferAttribute(uvs, 2));
+    }
+    geometry.setIndex(indices);
+    for (const group of geometryGroups) geometry.addGroup(group.start, group.count, group.materialIndex);
+    if (!normals) geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+    geometry.userData.renderCacheKey = `clipped:${model.rootId || ""}:${model.geometryLogicalPath || model.logicalPath}:${Math.random()}`;
+    return geometry;
+}
+
+function modelClipVertex(model, uvs, index, toView) {
+    const positionIndex = index * 3;
+    const uvIndex = index * 2;
+    const vertex = new THREE.Vector3(model.positions[positionIndex], model.positions[positionIndex + 1], model.positions[positionIndex + 2]).applyMatrix4(toView);
+    if (model.normals) {
+        vertex.normal = new THREE.Vector3(model.normals[positionIndex], model.normals[positionIndex + 1], model.normals[positionIndex + 2]).transformDirection(toView);
+    }
+    if (uvs) vertex.uv = new THREE.Vector2(uvs[uvIndex], uvs[uvIndex + 1]);
+    return vertex;
+}
+
+function interpolateModelClipVertex(a, b, axis, limit) {
+    const delta = b[axis] - a[axis];
+    const t = Math.abs(delta) > 0.000001 ? clamp((limit - a[axis]) / delta, 0, 1) : 0;
+    const vertex = new THREE.Vector3().lerpVectors(a, b, t);
+    if (a.normal && b.normal) {
+        vertex.normal = new THREE.Vector3().lerpVectors(a.normal, b.normal, t);
+        if (vertex.normal.lengthSq() > 0.000001) vertex.normal.normalize();
+    }
+    if (a.uv && b.uv) vertex.uv = new THREE.Vector2().lerpVectors(a.uv, b.uv, t);
+    return vertex;
+}
+
+function appendModelClipVertex(vertex, fromViewToGrid, positions, normals, uvs) {
+    const local = vertex.clone().applyMatrix4(fromViewToGrid);
+    positions.push(local.x, local.y, local.z);
+    if (normals) {
+        const normal = vertex.normal ? vertex.normal.clone().transformDirection(fromViewToGrid) : new THREE.Vector3(0, 1, 0);
+        normals.push(normal.x, normal.y, normal.z);
+    }
+    if (uvs) {
+        const uv = vertex.uv || new THREE.Vector2();
+        uvs.push(uv.x, uv.y);
+    }
 }
 
 function modelGeometryGroupsKey(groups) {
@@ -3026,6 +3210,81 @@ function queueBlockProxy(proxyBatches, block, definition, box) {
         size: new THREE.Vector3(Math.max(size.x, 0.05), Math.max(size.y, 0.05), Math.max(size.z, 0.05)),
         color: displayColorForBlock(block),
     });
+}
+
+function createClippedBlockProxy(block, definition, box, clip) {
+    const geometry = clippedBoxGeometry(box, clip);
+    if (!geometry) return null;
+
+    const opacity = proxyOpacity(definition);
+    const material = new THREE.MeshStandardMaterial({
+        color: displayColorForBlock(block),
+        roughness: 0.78,
+        metalness: 0.12,
+        transparent: opacity < 1,
+        opacity,
+    });
+    const solid = new THREE.Mesh(geometry, material);
+    solid.name = `ClippedProxy:${block && block.id || "block"}`;
+    solid.matrixAutoUpdate = false;
+    solid.castShadow = true;
+    solid.receiveShadow = true;
+    solid.userData.block = block;
+
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: 0x93c5fd, transparent: true, opacity: 0.75 }));
+    edges.name = `ClippedProxyEdges:${block && block.id || "block"}`;
+    edges.matrixAutoUpdate = false;
+    return { solid, edges };
+}
+
+function clippedBoxGeometry(box, clip) {
+    const corners = boxCorners(box);
+    const faces = [
+        [0, 4, 6, 2],
+        [5, 1, 3, 7],
+        [1, 0, 2, 3],
+        [4, 5, 7, 6],
+        [2, 6, 7, 3],
+        [1, 5, 4, 0],
+    ];
+    const positions = [];
+    const normals = [];
+    const indices = [];
+
+    for (const face of faces) {
+        const viewPolygon = face.map(index => corners[index].clone().applyMatrix4(clip.gridMatrix));
+        const clipped = clipPolygonToFloor(viewPolygon, clip.bounds, interpolatePlainClipVertex);
+        if (clipped.length < 3) continue;
+        const base = positions.length / 3;
+        const localPolygon = clipped.map(vertex => vertex.clone().applyMatrix4(clip.inverseGridMatrix));
+        const normal = polygonLocalNormal(localPolygon);
+        for (const vertex of localPolygon) {
+            positions.push(vertex.x, vertex.y, vertex.z);
+            normals.push(normal.x, normal.y, normal.z);
+        }
+        for (let i = 1; i < localPolygon.length - 1; i++) indices.push(base, base + i, base + i + 1);
+    }
+
+    if (!positions.length || !indices.length) return null;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+    geometry.setIndex(indices);
+    geometry.computeBoundingSphere();
+    return geometry;
+}
+
+function interpolatePlainClipVertex(a, b, axis, limit) {
+    const delta = b[axis] - a[axis];
+    const t = Math.abs(delta) > 0.000001 ? clamp((limit - a[axis]) / delta, 0, 1) : 0;
+    return new THREE.Vector3().lerpVectors(a, b, t);
+}
+
+function polygonLocalNormal(polygon) {
+    if (polygon.length < 3) return new THREE.Vector3(0, 1, 0);
+    const normal = new THREE.Vector3().subVectors(polygon[1], polygon[0]).cross(new THREE.Vector3().subVectors(polygon[2], polygon[0]));
+    if (normal.lengthSq() < 0.000001) return new THREE.Vector3(0, 1, 0);
+    return normal.normalize();
 }
 
 function flushProxyBatches(layer, proxyBatches) {

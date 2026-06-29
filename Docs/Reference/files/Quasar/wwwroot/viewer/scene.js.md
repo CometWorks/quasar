@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid/asteroid viewer. It owns renderer setup, shadow-map configuration, orbit/free-fly camera behavior, floor grid generation, relative-space bounds tracking, ambient/sun/grid lighting application, object disposal, viewport resizing, block/voxel/logistics/damage hover readouts, logistics hover focus, same-grid damaged-block hover focus, same-body voxel damage hover focus, and per-frame stats rendering.
+Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid/asteroid viewer. It owns renderer setup, shadow-map configuration, orbit/free-fly camera behavior, floor grid generation, relative-space bounds tracking, context-mode selected-grid floor/camera/sun anchoring, ambient/sun/grid lighting application, object disposal, viewport resizing, block/voxel/logistics/damage hover readouts, logistics hover focus, same-grid damaged-block hover focus, same-body voxel damage hover focus, and per-frame stats rendering.
 
 ## Structure
 

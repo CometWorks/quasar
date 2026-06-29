@@ -249,24 +249,25 @@ export function fitCameraToScene() {
 export function updateSceneBounds(refit = false) {
     const contentBounds = sceneContentBounds();
     const fallbackBounds = transformedGridBounds() || state.currentBounds;
-    const cameraBounds = unionBounds(contentBounds, state.contextBounds) || fallbackBounds;
-    const floorBounds = floorGridBounds(contentBounds, fallbackBounds);
+    const selectedBounds = selectedGridContentBounds();
+    const cameraBounds = state.contextBounds
+        ? selectedBounds || fallbackBounds
+        : unionBounds(contentBounds, state.contextBounds) || fallbackBounds;
+    const floorBounds = floorGridBounds(contentBounds, fallbackBounds, selectedBounds);
     state.currentBounds = cameraBounds;
     replaceFloorGrid(floorBounds, state.currentGridSize, state.currentFloorGridAlignment);
     updateSunLightPosition();
     if (refit) fitCameraToScene();
 }
 
-function floorGridBounds(contentBounds, fallbackBounds) {
+function floorGridBounds(contentBounds, fallbackBounds, selectedBounds = null) {
     const bounds = state.contextBounds || contentBounds || fallbackBounds;
     if (!bounds || bounds.isEmpty() || !state.contextBounds) return bounds;
 
-    const targetBounds = selectedGridContentBounds() || fallbackBounds;
+    const targetBounds = selectedBounds || fallbackBounds;
     if (!targetBounds || targetBounds.isEmpty()) return bounds;
 
-    const floorBounds = bounds.clone();
-    floorBounds.min.y = targetBounds.min.y;
-    floorBounds.max.y = targetBounds.max.y;
+    const floorBounds = targetBounds.clone();
     return floorBounds;
 }
 
@@ -288,7 +289,7 @@ export function updateLighting() {
 
 export function updateSunLightPosition() {
     if (!state.sunLight) return;
-    const bounds = sceneContentBounds() || state.currentBounds;
+    const bounds = (state.contextBounds && selectedGridContentBounds()) || sceneContentBounds() || state.currentBounds;
     const target = bounds ? bounds.getCenter(new THREE.Vector3()) : new THREE.Vector3();
     const direction = currentRelativeSunDirection();
     const markerDistance = bounds ? sunMarkerDistance(bounds) : 90;
