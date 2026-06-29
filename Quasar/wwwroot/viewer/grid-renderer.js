@@ -503,14 +503,18 @@ function createDamagedModelMaskMeshes(assetId, block, matrix, patternOffset, mat
     });
     if (!groups.length) return [];
 
-    const geometry = clip
-        ? clippedModelGeometry(model, patternOffset, groups, matrix, clip)
-        : sharedModelGeometry(model, patternOffset, renderContext, groups, "damaged-mask");
+    const deformations = clip ? null : blockDeformationMap(block);
+    const canDeform = deformations && model.boneMapping && model.blendIndices && model.blendWeights;
+    const geometry = canDeform
+        ? deformedModelGeometry(model, patternOffset, groups, matrix, deformations, block)
+        : clip
+            ? clippedModelGeometry(model, patternOffset, groups, matrix, clip)
+            : sharedModelGeometry(model, patternOffset, renderContext, groups, "damaged-mask");
     if (!geometry) return [];
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `DamagedBlockMask:${block.id || "block"}`;
     mesh.matrixAutoUpdate = false;
-    mesh.matrix.copy(clip ? new THREE.Matrix4() : matrix);
+    mesh.matrix.copy((clip || canDeform) ? new THREE.Matrix4() : matrix);
     mesh.renderOrder = 29;
     mesh.frustumCulled = false;
     mesh.castShadow = false;
