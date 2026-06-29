@@ -58,7 +58,7 @@ export const els = {};
 
 export function cacheElements() {
     for (const id of [
-        "viewport", "sceneSummary", "reloadScene", "contentStatus", "pickContent", "folderPicker", "modsStatus", "pickMods", "modsFolderPicker", "showGridHelper", "showVoxels", "showContext", "showLighting", "showLogistics", "showDamaged",
+        "viewport", "sceneSummary", "reloadScene", "contentStatus", "pickContent", "folderPicker", "modsStatus", "pickMods", "modsFolderPicker", "showGridHelper", "showVoxels", "showContext", "showLighting", "showSun", "showLogistics", "showDamaged",
         "cameraMode", "resetCamera", "stats", "log", "downloadLog", "hoverReadout", "cameraHint"
     ]) {
         els[id] = document.getElementById(id);

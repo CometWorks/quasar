@@ -27,6 +27,9 @@ export function wireControls(actions) {
     els.showLighting.addEventListener("change", () => {
         updateLighting();
     });
+    els.showSun.addEventListener("change", () => {
+        updateLighting();
+    });
     els.showLogistics.addEventListener("change", () => {
         if (els.showLogistics.checked && els.showDamaged) {
             els.showDamaged.checked = false;

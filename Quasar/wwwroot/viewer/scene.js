@@ -58,6 +58,8 @@ export function initScene() {
 
     state.sunMarker = createSunMarker();
     state.sunMarkerLine = createSunMarkerLine();
+    state.sunMarker.visible = false;
+    state.sunMarkerLine.visible = false;
     state.scene.add(state.sunMarker);
     state.scene.add(state.sunMarkerLine);
     updateLighting();
@@ -283,8 +285,9 @@ export function updateLighting() {
         light.visible = lightingEnabled;
         if (light.target) light.target.visible = lightingEnabled;
     }
-    if (state.sunMarker) state.sunMarker.visible = lightingEnabled;
-    if (state.sunMarkerLine) state.sunMarkerLine.visible = lightingEnabled;
+    const sunMarkerVisible = !!(els.showSun && els.showSun.checked);
+    if (state.sunMarker) state.sunMarker.visible = sunMarkerVisible;
+    if (state.sunMarkerLine) state.sunMarkerLine.visible = sunMarkerVisible;
 }
 
 export function updateSunLightPosition() {
