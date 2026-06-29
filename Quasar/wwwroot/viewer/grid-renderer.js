@@ -68,7 +68,11 @@ export async function renderGridScene(scene, options = {}) {
     const preloadedTextures = await preloadTextureSelections(textureSelections, renderTextureToken, reportProgress);
     if (renderToken !== modelRenderToken) return;
 
+    const finalSwapStart = performance.now();
     reportProgress("Rendering scene", "Swapping prepared scene into the viewport...");
+    await nextAnimationFrame();
+    if (renderToken !== modelRenderToken) return;
+
     if (state.gridGroup) {
         state.scene.remove(state.gridGroup);
         disposeObjectTree(state.gridGroup);
@@ -104,17 +108,34 @@ export async function renderGridScene(scene, options = {}) {
     }
     state.currentBounds = bounds;
     state.currentFloorGridAlignment = floorGridAlignment(scene);
+
+    reportProgress("Rendering scene", "Preparing overlays and voxel terrain...");
+    await nextAnimationFrame();
+    if (renderToken !== modelRenderToken) return;
+
     renderLogisticsOverlay(scene, gridGroups, definitions);
     buildGridLightGroups(scene, gridGroups);
 
     renderVoxelBodies(scene.voxels || [], scene.voxelDeformations || [], scene.voxelMaterials || [], preloadedTextures, renderTextureToken);
     renderDamagedOverlay(scene, gridGroups, definitions, scene.voxelDamageDeformations || []);
+
+    reportProgress("Rendering scene", "Building model batches...");
+    await nextAnimationFrame();
+    if (renderToken !== modelRenderToken) return;
+
     const progress = createProgressiveModelRender(scene, definitions, gridGroups, renderTextureToken, renderToken, preloadedTextures);
     progress.rebuild();
     updateModelStats(resolutionStats, progress.lastRenderStats, modelAssets.size);
+
+    reportProgress("Rendering scene", "Framing viewport...");
     updateSceneBounds(false);
     updateSunLightPosition();
     fitCameraToScene();
+
+    await nextAnimationFrame();
+    if (renderToken !== modelRenderToken) return;
+
+    reportProgress("Rendering scene", "Updating statistics...");
     updateSummaryModelStats(resolutionStats);
     updateTextureStats();
     state.stats["Voxel bodies"] = (scene.voxels || []).length;
@@ -133,8 +154,13 @@ export async function renderGridScene(scene, options = {}) {
     state.stats["LCD surfaces"] = countLcdSurfaces(scene);
     updateGridLightStats(collectSceneLightSources(scene));
     renderSummary(scene, resolutionStats, textureStats);
+    addTiming("finalSceneSwap", performance.now() - finalSwapStart);
     updateTimingStats();
     reportProgress("Scene ready", "Finalizing viewport...", 1, 1);
+}
+
+function nextAnimationFrame() {
+    return new Promise(resolve => requestAnimationFrame(resolve));
 }
 
 function createProgressReporter(callback) {
