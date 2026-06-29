@@ -77,6 +77,7 @@ namespace Quasar.Agent
             var contextRelativeAabb = contextLocalAabb.HasValue ? ContextRelativeAabb(grid, contextLocalAabb.Value) : (BoundingBoxD?)null;
             var contextClip = contextRelativeAabb.HasValue ? BuildContextFloorClip(grid, contextRelativeAabb.Value) : null;
             var contextAabb = contextLocalAabb.HasValue ? LocalAabbToWorldAabb(contextLocalAabb.Value.Min, contextLocalAabb.Value.Max, grid.WorldMatrix) : (BoundingBoxD?)null;
+            var contextVoxelAabb = contextClip != null && contextRelativeAabb.HasValue ? ContextFloorWorldAabb(contextClip, contextRelativeAabb.Value) : contextAabb;
             var contextBlocks = 0;
             var clippedGridCount = 0;
             var logisticsGrids = new List<MyCubeGrid>();
@@ -116,10 +117,10 @@ namespace Quasar.Agent
             scene.ModelAssets = catalog.ModelAssetsSnapshot();
             scene.TextureAssets = catalog.TextureAssetsSnapshot();
             scene.Mods = catalog.ModsSnapshot();
-            scene.Voxels = LoadedVoxels(contextAabb);
+            scene.Voxels = LoadedVoxels(contextVoxelAabb, contextClip);
             if (includeVoxels)
             {
-                scene.VoxelDeformations = BuildVoxelDeformations(grid, scene.Warnings, contextAabb);
+                scene.VoxelDeformations = BuildVoxelDeformations(grid, scene.Warnings, contextVoxelAabb);
                 scene.VoxelDamageDeformations = BuildVoxelDamageDeformations(scene.VoxelDeformations, scene.Warnings);
                 scene.VoxelMaterials = BuildVoxelMaterials(scene.VoxelDeformations, scene.Warnings);
             }
@@ -343,6 +344,13 @@ namespace Quasar.Agent
             var selected = new BoundingBoxD(grid.PositionComp.LocalAABB.Min, grid.PositionComp.LocalAABB.Max);
             var center = selected.Center;
             return new BoundingBoxD(contextLocalAabb.Min - center, contextLocalAabb.Max - center);
+        }
+
+        private static BoundingBoxD ContextFloorWorldAabb(ContextFloorClip contextClip, BoundingBoxD contextRelativeAabb)
+        {
+            var localMin = contextClip.CenterLocal + new Vector3D(contextClip.MinX, contextRelativeAabb.Min.Y, contextClip.MinZ);
+            var localMax = contextClip.CenterLocal + new Vector3D(contextClip.MaxX, contextRelativeAabb.Max.Y, contextClip.MaxZ);
+            return LocalAabbToWorldAabb(localMin, localMax, contextClip.Primary.WorldMatrix);
         }
 
         private static IEnumerable<MyCubeGrid> ContextGrids(MyCubeGrid primary, ContextFloorClip contextClip, List<string> warnings)
@@ -713,7 +721,7 @@ namespace Quasar.Agent
             };
         }
 
-        private static List<ViewerVoxelBody> LoadedVoxels(BoundingBoxD? worldAabb = null)
+        private static List<ViewerVoxelBody> LoadedVoxels(BoundingBoxD? worldAabb = null, ContextFloorClip contextClip = null)
         {
             var session = MySession.Static;
             if (session?.VoxelMaps?.Instances == null)
@@ -729,6 +737,8 @@ namespace Quasar.Agent
                 if (kind == "voxelPhysics")
                     continue;
                 if (worldAabb.HasValue && (voxel.PositionComp == null || !voxel.PositionComp.WorldAABB.Intersects(worldAabb.Value)))
+                    continue;
+                if (contextClip != null && (voxel.PositionComp == null || !ProjectedWorldAabbIntersectsContext(voxel.PositionComp.WorldAABB, contextClip)))
                     continue;
 
                 try
