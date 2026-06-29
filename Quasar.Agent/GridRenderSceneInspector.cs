@@ -75,13 +75,13 @@ namespace Quasar.Agent
             var chunks = new Dictionary<string, ChunkBuilder>(StringComparer.Ordinal);
             var contextLocalAabb = includeContext ? ContextLocalAabb(grid) : (BoundingBoxD?)null;
             var contextRelativeAabb = contextLocalAabb.HasValue ? ContextRelativeAabb(grid, contextLocalAabb.Value) : (BoundingBoxD?)null;
+            var contextClip = contextRelativeAabb.HasValue ? BuildContextFloorClip(grid, contextRelativeAabb.Value) : null;
             var contextAabb = contextLocalAabb.HasValue ? LocalAabbToWorldAabb(contextLocalAabb.Value.Min, contextLocalAabb.Value.Max, grid.WorldMatrix) : (BoundingBoxD?)null;
-            var contextObb = contextLocalAabb.HasValue ? new MyOrientedBoundingBoxD(contextLocalAabb.Value, grid.WorldMatrix) : (MyOrientedBoundingBoxD?)null;
             var contextBlocks = 0;
             var clippedGridCount = 0;
             var logisticsGrids = new List<MyCubeGrid>();
 
-            foreach (var sceneGrid in ContextGrids(grid, contextAabb, contextObb, scene.Warnings))
+            foreach (var sceneGrid in ContextGrids(grid, contextClip, scene.Warnings))
             {
                 var isPrimary = sceneGrid.EntityId == grid.EntityId;
                 if (!isPrimary && includeContext)
@@ -99,7 +99,7 @@ namespace Quasar.Agent
                     }
                 }
 
-                var result = AddGridToScene(scene, sceneGrid, isPrimary, includeContext, contextAabb, contextObb, definitions, chunks, catalog, ref contextBlocks);
+                var result = AddGridToScene(scene, sceneGrid, isPrimary, includeContext, contextAabb, contextClip, definitions, chunks, catalog, ref contextBlocks);
                 if (result.Grid.IsClippedToContext)
                     clippedGridCount++;
                 scene.Grids.Add(result.Grid);
@@ -222,7 +222,7 @@ namespace Quasar.Agent
             bool isPrimary,
             bool includeContext,
             BoundingBoxD? contextAabb,
-            MyOrientedBoundingBoxD? contextObb,
+            ContextFloorClip contextClip,
             Dictionary<string, ViewerBlockDefinition> definitions,
             Dictionary<string, ChunkBuilder> chunks,
             MetadataAssetCatalog catalog,
@@ -237,7 +237,7 @@ namespace Quasar.Agent
                 if (block == null || block.BlockDefinition == null)
                     continue;
 
-                var includeBlock = isPrimary || !contextObb.HasValue || BlockIntersectsContext(grid, block, contextObb.Value);
+                var includeBlock = isPrimary || contextClip == null || BlockIntersectsContext(grid, block, contextClip);
                 if (!includeBlock)
                 {
                     skipped++;
@@ -285,12 +285,9 @@ namespace Quasar.Agent
             }
 
             gridDto.BlockCount = included;
-            if (!isPrimary && includeContext && contextAabb.HasValue && contextObb.HasValue)
+            if (!isPrimary && includeContext && contextAabb.HasValue && contextClip != null)
             {
-                var gridObb = GridObb(grid);
-                var contextBox = contextObb.Value;
-                var gridBox = gridObb.GetValueOrDefault();
-                gridDto.IsClippedToContext = skipped > 0 || !gridObb.HasValue || contextBox.Contains(ref gridBox) != ContainmentType.Contains;
+                gridDto.IsClippedToContext = skipped > 0 || !GridInsideContext(grid, contextClip);
                 if (gridDto.IsClippedToContext)
                 {
                     if (included == 0)
@@ -315,6 +312,32 @@ namespace Quasar.Agent
             return new BoundingBoxD(center - contextHalfExtents, center + contextHalfExtents);
         }
 
+        private static ContextFloorClip BuildContextFloorClip(MyCubeGrid grid, BoundingBoxD contextRelativeAabb)
+        {
+            Vector3I minCell;
+            Vector3I maxCell;
+            BoundingBoxD selected;
+            var hasBlocks = TryGridLocalBlockBounds(grid, out selected, out minCell, out maxCell);
+
+            var padding = LargeGridCubeSize * FloorGridPaddingSupersquares;
+            var offsetX = hasBlocks ? FloorAxisOffset(maxCell.X - minCell.X + 1, LargeGridCubeSize) : 0;
+            var offsetZ = hasBlocks ? FloorAxisOffset(maxCell.Z - minCell.Z + 1, LargeGridCubeSize) : 0;
+            var startXCell = (int)Math.Floor((contextRelativeAabb.Min.X - padding - offsetX) / SmallGridCubeSize);
+            var endXCell = (int)Math.Ceiling((contextRelativeAabb.Max.X + padding - offsetX) / SmallGridCubeSize);
+            var startZCell = (int)Math.Floor((contextRelativeAabb.Min.Z - padding - offsetZ) / SmallGridCubeSize);
+            var endZCell = (int)Math.Ceiling((contextRelativeAabb.Max.Z + padding - offsetZ) / SmallGridCubeSize);
+
+            return new ContextFloorClip
+            {
+                Primary = grid,
+                CenterLocal = new BoundingBoxD(grid.PositionComp.LocalAABB.Min, grid.PositionComp.LocalAABB.Max).Center,
+                MinX = offsetX + startXCell * SmallGridCubeSize,
+                MaxX = offsetX + endXCell * SmallGridCubeSize,
+                MinZ = offsetZ + startZCell * SmallGridCubeSize,
+                MaxZ = offsetZ + endZCell * SmallGridCubeSize,
+            };
+        }
+
         private static BoundingBoxD ContextRelativeAabb(MyCubeGrid grid, BoundingBoxD contextLocalAabb)
         {
             var selected = new BoundingBoxD(grid.PositionComp.LocalAABB.Min, grid.PositionComp.LocalAABB.Max);
@@ -322,10 +345,10 @@ namespace Quasar.Agent
             return new BoundingBoxD(contextLocalAabb.Min - center, contextLocalAabb.Max - center);
         }
 
-        private static IEnumerable<MyCubeGrid> ContextGrids(MyCubeGrid primary, BoundingBoxD? contextAabb, MyOrientedBoundingBoxD? contextObb, List<string> warnings)
+        private static IEnumerable<MyCubeGrid> ContextGrids(MyCubeGrid primary, ContextFloorClip contextClip, List<string> warnings)
         {
             yield return primary;
-            if (!contextAabb.HasValue || !contextObb.HasValue)
+            if (contextClip == null)
                 yield break;
 
             IEnumerable<MyCubeGrid> candidates;
@@ -340,48 +363,103 @@ namespace Quasar.Agent
             }
 
             foreach (var grid in candidates
-                         .Where(candidate => candidate != null && candidate.EntityId != primary.EntityId && !candidate.MarkedForClose && !candidate.Closed)
-                         .Where(candidate => candidate.PositionComp != null && candidate.PositionComp.WorldAABB.Intersects(contextAabb.Value))
-                         .OrderBy(candidate => FirstNonEmpty(candidate.DisplayName, candidate.Name, "Grid " + candidate.EntityId), StringComparer.OrdinalIgnoreCase)
-                         .ThenBy(candidate => candidate.EntityId))
+                          .Where(candidate => candidate != null && candidate.EntityId != primary.EntityId && !candidate.MarkedForClose && !candidate.Closed)
+                          .OrderBy(candidate => FirstNonEmpty(candidate.DisplayName, candidate.Name, "Grid " + candidate.EntityId), StringComparer.OrdinalIgnoreCase)
+                          .ThenBy(candidate => candidate.EntityId))
             {
-                var contextBox = contextObb.Value;
-                if (GridIntersectsContext(grid, contextBox))
+                if (GridIntersectsContext(grid, contextClip))
                     yield return grid;
             }
         }
 
-        private static bool GridIntersectsContext(MyCubeGrid grid, MyOrientedBoundingBoxD contextObb)
+        private static bool GridIntersectsContext(MyCubeGrid grid, ContextFloorClip contextClip)
         {
             if (grid.PositionComp == null)
                 return false;
 
-            var gridObb = GridObb(grid);
-            return gridObb.HasValue && gridObb.Value.Intersects(ref contextObb);
+            return ProjectedWorldAabbIntersectsContext(grid.PositionComp.WorldAABB, contextClip);
         }
 
-        private static bool BlockIntersectsContext(MyCubeGrid grid, MySlimBlock block, MyOrientedBoundingBoxD contextObb)
+        private static bool GridInsideContext(MyCubeGrid grid, ContextFloorClip contextClip)
         {
-            var blockObb = BlockObb(grid, block);
-            return blockObb.Intersects(ref contextObb);
+            return grid.PositionComp != null && ProjectedWorldAabbInsideContext(grid.PositionComp.WorldAABB, contextClip);
         }
 
-        private static MyOrientedBoundingBoxD? GridObb(MyCubeGrid grid)
+        private static bool BlockIntersectsContext(MyCubeGrid grid, MySlimBlock block, ContextFloorClip contextClip)
         {
-            if (grid?.PositionComp == null)
-                return null;
-
-            var localAabb = grid.PositionComp.LocalAABB;
-            return new MyOrientedBoundingBoxD(new BoundingBoxD(localAabb.Min, localAabb.Max), grid.WorldMatrix);
+            return ProjectedLocalAabbIntersectsContext(grid, BlockLocalAabb(grid, block), contextClip);
         }
 
-        private static MyOrientedBoundingBoxD BlockObb(MyCubeGrid grid, MySlimBlock block)
+        private static BoundingBoxD BlockLocalAabb(MyCubeGrid grid, MySlimBlock block)
         {
             var gridSize = GridCubeSize(grid);
             var half = gridSize * 0.5;
             var localMin = new Vector3D(block.Min.X * gridSize - half, block.Min.Y * gridSize - half, block.Min.Z * gridSize - half);
             var localMax = new Vector3D(block.Max.X * gridSize + half, block.Max.Y * gridSize + half, block.Max.Z * gridSize + half);
-            return new MyOrientedBoundingBoxD(new BoundingBoxD(localMin, localMax), grid.WorldMatrix);
+            return new BoundingBoxD(localMin, localMax);
+        }
+
+        private static bool ProjectedLocalAabbIntersectsContext(MyCubeGrid grid, BoundingBoxD localAabb, ContextFloorClip contextClip)
+        {
+            var projected = ProjectLocalAabbToContext(grid, localAabb, contextClip);
+            return projected.HasValue && RectIntersectsContext(projected.Value, contextClip);
+        }
+
+        private static bool ProjectedWorldAabbIntersectsContext(BoundingBoxD worldAabb, ContextFloorClip contextClip)
+        {
+            var projected = ProjectWorldAabbToContext(worldAabb, contextClip);
+            return projected.HasValue && RectIntersectsContext(projected.Value, contextClip);
+        }
+
+        private static bool ProjectedWorldAabbInsideContext(BoundingBoxD worldAabb, ContextFloorClip contextClip)
+        {
+            var projected = ProjectWorldAabbToContext(worldAabb, contextClip);
+            return projected.HasValue
+                   && projected.Value.Min.X >= contextClip.MinX
+                   && projected.Value.Max.X <= contextClip.MaxX
+                   && projected.Value.Min.Z >= contextClip.MinZ
+                   && projected.Value.Max.Z <= contextClip.MaxZ;
+        }
+
+        private static BoundingBoxD? ProjectLocalAabbToContext(MyCubeGrid grid, BoundingBoxD localAabb, ContextFloorClip contextClip)
+        {
+            if (grid == null || contextClip == null || contextClip.Primary == null)
+                return null;
+
+            var projected = BoundingBoxD.CreateInvalid();
+            var inversePrimaryWorld = MatrixD.Invert(contextClip.Primary.WorldMatrix);
+            foreach (var corner in LocalAabbCorners(localAabb.Min, localAabb.Max))
+            {
+                var world = Vector3D.Transform(corner, grid.WorldMatrix);
+                var primaryLocal = Vector3D.Transform(world, inversePrimaryWorld) - contextClip.CenterLocal;
+                projected.Include(primaryLocal);
+            }
+
+            return projected;
+        }
+
+        private static BoundingBoxD? ProjectWorldAabbToContext(BoundingBoxD worldAabb, ContextFloorClip contextClip)
+        {
+            if (contextClip == null || contextClip.Primary == null)
+                return null;
+
+            var projected = BoundingBoxD.CreateInvalid();
+            var inversePrimaryWorld = MatrixD.Invert(contextClip.Primary.WorldMatrix);
+            foreach (var corner in LocalAabbCorners(worldAabb.Min, worldAabb.Max))
+            {
+                var primaryLocal = Vector3D.Transform(corner, inversePrimaryWorld) - contextClip.CenterLocal;
+                projected.Include(primaryLocal);
+            }
+
+            return projected;
+        }
+
+        private static bool RectIntersectsContext(BoundingBoxD projected, ContextFloorClip contextClip)
+        {
+            return projected.Max.X >= contextClip.MinX
+                   && projected.Min.X <= contextClip.MaxX
+                   && projected.Max.Z >= contextClip.MinZ
+                   && projected.Min.Z <= contextClip.MaxZ;
         }
 
         private static BoundingBoxD BlockWorldAabb(MyCubeGrid grid, MySlimBlock block)
@@ -2739,6 +2817,21 @@ namespace Quasar.Agent
             public int IncludedBlockCount { get; set; }
 
             public int SkippedBlockCount { get; set; }
+        }
+
+        private sealed class ContextFloorClip
+        {
+            public MyCubeGrid Primary { get; set; }
+
+            public Vector3D CenterLocal { get; set; }
+
+            public double MinX { get; set; }
+
+            public double MaxX { get; set; }
+
+            public double MinZ { get; set; }
+
+            public double MaxZ { get; set; }
         }
 
         private sealed class MetadataAssetCatalog
