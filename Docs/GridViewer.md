@@ -57,7 +57,7 @@ Quasar still sends metadata only. The agent includes a metadata-only list of act
 
 When a model or texture has a mod root hint, the browser resolves it from the matching active mod under the selected global Mods folder first, then falls back to the selected vanilla `Content` folder. Logical paths that already start with `Mods/<mod-name>/...` are resolved directly under that mod name. For older or ambiguous snapshots marked as mod content without a root hint, the browser may try active scene mods in scene order after the Content fallback.
 
-Unpacked mod directories, `.sbm` archives, and legacy Steam Workshop `*_legacy.bin` packages are supported. Legacy packages are zip-backed archives stored inside Workshop item directories; the viewer opens them locally through the same zip reader only when an asset from that mod is requested, strips the package filename from server-local legacy paths such as `*_legacy.bin/Models/...`, and indexes archive entries lazily and case-insensitively. Asset bytes stay on the user's machine.
+Unpacked mod directories, `.sbm` archives, and legacy Steam Workshop `*_legacy.bin` packages are supported. Legacy packages are zip-backed archives stored inside Workshop item directories; the viewer opens them locally through the same zip reader only when an asset from that mod is requested, strips the package filename from server-local legacy paths such as `*_legacy.bin/Models/...`, reuses direct Workshop mod roots for model-derived material textures, and indexes archive entries lazily and case-insensitively. Asset bytes stay on the user's machine.
 
 Folder selection is optional and non-fatal:
 

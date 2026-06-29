@@ -303,6 +303,12 @@ async function resolveAssetFileUncached(normalized, rootId, sourceKind, generati
         if (direct) return direct;
     }
 
+    const directModName = directModNameFromRootId(rootId);
+    if (directModName) {
+        const direct = await resolveDirectModPath(directModName, normalized.path, generation);
+        if (direct) return direct;
+    }
+
     if (rootId) {
         const root = await getSceneModRoot(rootId);
         if (root) {
@@ -376,6 +382,11 @@ async function resolveDirectModPath(modName, logicalPath, generation) {
     if (!handle) return null;
     const root = createModRoot(`mods-direct:${modName}`, modName, handle, null);
     return await resolveInRoot(root, logicalPath, generation);
+}
+
+function directModNameFromRootId(rootId) {
+    const value = String(rootId || "");
+    return value.startsWith("mods-direct:") ? value.slice("mods-direct:".length) : "";
 }
 
 async function getSceneModRoot(rootId) {
