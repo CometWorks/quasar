@@ -54,6 +54,8 @@ public class EntityRenderScene
 
     public List<ViewerVoxelDataChunk> VoxelDeformations { get; set; } = new();
 
+    public List<ViewerVoxelDataChunk> VoxelDamageDeformations { get; set; } = new();
+
     public List<ViewerLightSource> LightSources { get; set; } = new();
 
     public ViewerGridLogistics Logistics { get; set; } = new();
@@ -554,6 +556,10 @@ public class ViewerVoxelDataChunk
     public ViewerBounds WorldAabb { get; set; } = new();
 
     public string ContentState { get; set; } = "unknown";
+
+    public bool IsModified { get; set; }
+
+    public byte[] Modified { get; set; } = Array.Empty<byte>();
 
     public ViewerVector3I Size { get; set; } = new();
 

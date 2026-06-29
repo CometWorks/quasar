@@ -34,8 +34,11 @@ namespace Quasar.Agent
     {
         private const int ChunkSizeCells = 16;
         private const int DefaultVoxelChunkSize = 32;
+        private const int DamageVoxelChunkSize = 16;
         private const int MaxVoxelSceneChunks = 96;
         private const int MaxVoxelDataBytes = 8 * 1024 * 1024;
+        private const int MaxVoxelDamageSceneChunks = 160;
+        private const int MaxVoxelDamageDataBytes = 4 * 1024 * 1024;
         private const int MaxVoxelBodySceneChunks = 160;
         private const int MaxVoxelBodyDataBytes = 12 * 1024 * 1024;
         private const int MaxVoxelBodyLod = 5;
@@ -115,6 +118,7 @@ namespace Quasar.Agent
             if (includeVoxels)
             {
                 scene.VoxelDeformations = BuildVoxelDeformations(grid, scene.Warnings, contextAabb);
+                scene.VoxelDamageDeformations = BuildVoxelDamageDeformations(scene.VoxelDeformations, scene.Warnings);
                 scene.VoxelMaterials = BuildVoxelMaterials(scene.VoxelDeformations, scene.Warnings);
             }
             else
@@ -171,6 +175,7 @@ namespace Quasar.Agent
             if (includeVoxels)
             {
                 scene.VoxelDeformations = BuildVoxelBodyDeformations(voxel, scene.Warnings);
+                scene.VoxelDamageDeformations = BuildVoxelDamageDeformations(scene.VoxelDeformations, scene.Warnings);
                 scene.VoxelMaterials = BuildVoxelMaterials(scene.VoxelDeformations, scene.Warnings);
             }
             else
@@ -842,7 +847,7 @@ namespace Quasar.Agent
                             continue;
                         }
 
-                        var requiredBytes = RangeSampleCountLong(chunkRange.Min, chunkRange.Max) * 2L;
+                        var requiredBytes = RangeSampleCountLong(chunkRange.Min, chunkRange.Max) * 3L;
                         if (totalBytes + requiredBytes > MaxVoxelDataBytes)
                         {
                             warnings.Add("Voxel data safety limit exceeded; remaining voxel chunks were skipped.");
@@ -963,6 +968,89 @@ namespace Quasar.Agent
             return result;
         }
 
+        private static List<ViewerVoxelDataChunk> BuildVoxelDamageDeformations(List<ViewerVoxelDataChunk> sourceChunks, List<string> warnings)
+        {
+            var result = new List<ViewerVoxelDataChunk>();
+            var totalBytes = 0;
+            var chunkBudgetReached = false;
+            var sourceVoxelIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var sourceChunk in sourceChunks)
+            {
+                if (sourceChunk == null || string.IsNullOrEmpty(sourceChunk.VoxelBodyId))
+                    continue;
+                sourceVoxelIds.Add(sourceChunk.VoxelBodyId);
+            }
+
+            if (sourceVoxelIds.Count == 0)
+                return result;
+
+            var voxelsById = new Dictionary<string, MyVoxelBase>(StringComparer.Ordinal);
+            var session = MySession.Static;
+            if (session?.VoxelMaps?.Instances != null)
+            {
+                foreach (var voxel in session.VoxelMaps.Instances)
+                {
+                    if (voxel == null || voxel.MarkedForClose || voxel.Closed || VoxelKind(voxel) == "voxelPhysics")
+                        continue;
+                    var id = voxel.EntityId.ToString();
+                    if (sourceVoxelIds.Contains(id))
+                        voxelsById[id] = voxel;
+                }
+            }
+
+            foreach (var sourceChunk in sourceChunks)
+            {
+                if (sourceChunk == null || !voxelsById.TryGetValue(sourceChunk.VoxelBodyId, out var voxel))
+                    continue;
+
+                var lod = Math.Max(0, sourceChunk.Lod);
+                var sourceMin = ToVector3I(sourceChunk.StorageMin);
+                var sourceMax = ToVector3I(sourceChunk.StorageMax);
+                foreach (var chunkRange in SplitStorageRange(sourceMin, sourceMax, DamageVoxelChunkSize))
+                {
+                    try
+                    {
+                        if (result.Count >= MaxVoxelDamageSceneChunks)
+                        {
+                            chunkBudgetReached = true;
+                            break;
+                        }
+
+                        var contentState = ClassifyVoxelChunk(voxel, chunkRange.Min, chunkRange.Max, lod);
+                        if (contentState == "empty" || contentState == "full")
+                            continue;
+
+                        var requiredBytes = RangeSampleCountLong(chunkRange.Min, chunkRange.Max) * 2L;
+                        if (totalBytes + requiredBytes > MaxVoxelDamageDataBytes)
+                        {
+                            warnings.Add("Voxel damage data safety limit exceeded; remaining voxel damage chunks were skipped.");
+                            return result;
+                        }
+
+                        var chunk = TryBuildVoxelDamageDataChunk(voxel, chunkRange.Min, chunkRange.Max, contentState, warnings, lod);
+                        if (chunk == null)
+                            continue;
+
+                        chunk.IsModified = true;
+                        totalBytes += chunk.Content.Length + chunk.Materials.Length;
+                        result.Add(chunk);
+                    }
+                    catch (Exception exception)
+                    {
+                        warnings.Add("Failed to sample voxel damage chunk " + ChunkId(chunkRange.Min) + " for " + FirstNonEmpty(voxel.DisplayName, voxel.Name, voxel.EntityId.ToString()) + ": " + exception.Message);
+                    }
+                }
+
+                if (chunkBudgetReached)
+                    break;
+            }
+
+            if (chunkBudgetReached)
+                warnings.Add("Voxel damage chunk budget reached; remaining voxel damage chunks were skipped.");
+
+            return result;
+        }
+
         private static int ChooseVoxelBodyLod(MyVoxelBase voxel)
         {
             var lod = 0;
@@ -1059,6 +1147,69 @@ namespace Quasar.Agent
                 warnings.Add("Failed to sample voxel chunk " + ChunkId(min) + " at LOD " + lod + " for " + FirstNonEmpty(voxel.DisplayName, voxel.Name, voxel.EntityId.ToString()) + ": " + exception.Message);
                 return null;
             }
+        }
+
+        private static ViewerVoxelDataChunk TryBuildVoxelDamageDataChunk(
+            MyVoxelBase voxel,
+            Vector3I min,
+            Vector3I max,
+            string contentState,
+            List<string> warnings,
+            int lod)
+        {
+            try
+            {
+                var provider = voxel?.Storage?.DataProvider;
+                if (provider == null)
+                    return null;
+
+                var current = new MyStorageData(MyStorageDataTypeFlags.ContentAndMaterial);
+                current.Resize(min, max);
+                var currentFlags = MyVoxelRequestFlags.ConsiderContent | MyVoxelRequestFlags.SurfaceMaterial;
+                voxel.Storage.ReadRange(current, MyStorageDataTypeFlags.ContentAndMaterial, lod, min, max, ref currentFlags);
+
+                var original = new MyStorageData(MyStorageDataTypeFlags.ContentAndMaterial);
+                original.Resize(min, max);
+                var offset = Vector3I.Zero;
+                var providerMin = min;
+                var providerMax = max;
+                provider.ReadRange(original, MyStorageDataTypeFlags.ContentAndMaterial, ref offset, lod, ref providerMin, ref providerMax);
+
+                var modified = BuildVoxelModifiedMask(current, original);
+                if (modified == null)
+                    return null;
+
+                var chunk = CopyVoxelDataChunk(voxel, min, max, contentState, current, lod);
+                chunk.IsModified = true;
+                chunk.Modified = modified;
+                return chunk;
+            }
+            catch (Exception exception)
+            {
+                warnings.Add("Failed to sample voxel damage chunk " + ChunkId(min) + " at LOD " + lod + " for " + FirstNonEmpty(voxel.DisplayName, voxel.Name, voxel.EntityId.ToString()) + ": " + exception.Message);
+                return null;
+            }
+        }
+
+        private static byte[] BuildVoxelModifiedMask(MyStorageData current, MyStorageData original)
+        {
+            var currentContent = current[MyStorageDataTypeEnum.Content];
+            var originalContent = original[MyStorageDataTypeEnum.Content];
+            var currentMaterials = current[MyStorageDataTypeEnum.Material];
+            var originalMaterials = original[MyStorageDataTypeEnum.Material];
+            var length = current.Size3D.Size;
+            var modified = new byte[length];
+            var hasModified = false;
+            for (var index = 0; index < length; index++)
+            {
+                if (currentContent[index] == originalContent[index] && currentMaterials[index] == originalMaterials[index])
+                    continue;
+
+                modified[index] = byte.MaxValue;
+                hasModified = true;
+            }
+
+            return hasModified ? modified : null;
         }
 
         private static ViewerVoxelDataChunk CopyVoxelDataChunk(MyVoxelBase voxel, Vector3I min, Vector3I max, string contentState, MyStorageData data)
@@ -2301,6 +2452,11 @@ namespace Quasar.Agent
         private static ViewerVector3I ToDto(Vector3I value)
         {
             return new ViewerVector3I { X = value.X, Y = value.Y, Z = value.Z };
+        }
+
+        private static Vector3I ToVector3I(ViewerVector3I value)
+        {
+            return value == null ? Vector3I.Zero : new Vector3I(value.X, value.Y, value.Z);
         }
 
         private static ViewerVector3 ToDto(Vector3 value)

@@ -555,11 +555,11 @@ function onPointerMove(event) {
         return;
     }
     updateLogisticsFocus(null);
-    const damagedHit = state.damagedGroup && state.damagedGroup.visible ? hits.find(item => damagedBlockFromIntersection(item)) : null;
+    const damagedHit = state.damagedGroup && state.damagedGroup.visible ? hits.find(item => damagedItemFromIntersection(item)) : null;
     if (damagedHit) {
-        const block = damagedBlockFromIntersection(damagedHit);
-        updateDamagedFocus(block && block.gridId ? { gridId: String(block.gridId), key: `grid:${block.gridId}` } : null);
-        els.hoverReadout.textContent = describeDamagedBlock(block);
+        const item = damagedItemFromIntersection(damagedHit);
+        updateDamagedFocus(damagedFocus(item));
+        els.hoverReadout.textContent = describeDamagedItem(item);
         return;
     }
     updateDamagedFocus(null);
@@ -581,6 +581,18 @@ function damagedBlockFromIntersection(hit) {
     }
     const block = blockFromIntersection(hit);
     return isProjectorDamagedBlock(block) ? block : null;
+}
+
+function damagedItemFromIntersection(hit) {
+    let object = hit && hit.object;
+    while (object) {
+        const userData = object.userData;
+        if (userData && userData.damagedVoxel) return { kind: "voxel", value: userData.damagedVoxel };
+        if (userData && userData.damagedBlock) return { kind: "block", value: userData.damagedBlock };
+        object = object.parent;
+    }
+    const block = blockFromIntersection(hit);
+    return isProjectorDamagedBlock(block) ? { kind: "block", value: block } : null;
 }
 
 function blockFromIntersection(hit) {
@@ -609,6 +621,14 @@ function describeBlock(block) {
 function describeDamagedBlock(block) {
     const percent = Math.round(damageRatio(block) * 100);
     return `Damaged ${block && block.blockTypeId || "Block"} | ${percent}% damage | ${block && block.id || "no id"}`;
+}
+
+function describeDamagedItem(item) {
+    if (item && item.kind === "voxel") {
+        const voxel = item.value || {};
+        return `Voxel deformation | ${voxel.displayName || voxel.id || "no id"}`;
+    }
+    return describeDamagedBlock(item && item.value);
 }
 
 function damageRatio(block) {
@@ -685,11 +705,28 @@ function updateDamagedFocus(focus) {
     if (!state.damagedGroup || state.damagedGroup.userData.focusKey === focusKey) return;
     state.damagedGroup.userData.focusKey = focusKey;
     state.damagedGroup.traverse(object => {
-        const gridId = String(object.userData && object.userData.damagedGridId || "");
-        const focused = focus && gridId && gridId === focus.gridId;
+        const focused = isDamagedFocusMatch(object, focus);
         const factor = !focus ? 0.72 : focused ? 1 : 0.16;
         applyDamagedOpacityFactor(object.material, factor);
     });
+}
+
+function damagedFocus(item) {
+    if (!item || !item.value) return null;
+    if (item.kind === "voxel") {
+        const bodyId = String(item.value.id || "");
+        return bodyId ? { kind: "voxel", bodyId, key: `voxel:${bodyId}` } : null;
+    }
+    const gridId = String(item.value.gridId || "");
+    return gridId ? { kind: "grid", gridId, key: `grid:${gridId}` } : null;
+}
+
+function isDamagedFocusMatch(object, focus) {
+    if (!focus) return false;
+    const userData = object.userData || {};
+    if (focus.kind === "voxel") return String(userData.damagedVoxelBodyId || "") === focus.bodyId;
+    if (focus.kind === "grid") return String(userData.damagedGridId || "") === focus.gridId;
+    return false;
 }
 
 function applyDamagedOpacityFactor(material, factor) {

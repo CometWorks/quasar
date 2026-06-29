@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid/asteroid viewer. It owns renderer setup, shadow-map configuration, orbit/free-fly camera behavior, floor grid generation, relative-space bounds tracking, ambient/sun/grid lighting application, object disposal, viewport resizing, block/voxel/logistics/damage hover readouts, logistics hover focus, same-grid damaged-block hover focus, and per-frame stats rendering.
+Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid/asteroid viewer. It owns renderer setup, shadow-map configuration, orbit/free-fly camera behavior, floor grid generation, relative-space bounds tracking, ambient/sun/grid lighting application, object disposal, viewport resizing, block/voxel/logistics/damage hover readouts, logistics hover focus, same-grid damaged-block hover focus, same-body voxel damage hover focus, and per-frame stats rendering.
 
 ## Structure
 
@@ -29,4 +29,4 @@ Key exports:
 - [`Quasar/wwwroot/viewer/geometry.js`](geometry.js.md) for bounds conversion.
 
 ## Notes
-The hover path prioritizes visible overlay intersections before regular block/voxel readouts and ignores hidden mutually exclusive overlays. Damaged-block focus brightens damaged masks on the hovered block's grid and dims damaged masks on other visible grids.
+The hover path prioritizes visible overlay intersections before regular block/voxel readouts and ignores hidden mutually exclusive overlays. Damage focus brightens damaged block masks on the hovered block's grid or modified voxel damage chunks from the hovered voxel body, and dims other visible damage masks.

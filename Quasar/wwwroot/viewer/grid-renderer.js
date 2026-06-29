@@ -64,7 +64,6 @@ export async function renderGridScene(scene) {
     const gridGroups = buildGridGroups(scene, group);
     state.currentGridSize = floorGridMajorStep(scene);
     renderLogisticsOverlay(scene, gridGroups, definitions);
-    renderDamagedOverlay(scene, gridGroups, definitions);
     buildGridLightGroups(scene, gridGroups);
 
     const renderTextureToken = ++textureStatsToken;
@@ -84,6 +83,7 @@ export async function renderGridScene(scene) {
     state.currentBounds = bounds;
     state.currentFloorGridAlignment = floorGridAlignment(scene);
     renderVoxelBodies(scene.voxels || [], scene.voxelDeformations || [], scene.voxelMaterials || []);
+    renderDamagedOverlay(scene, gridGroups, definitions, scene.voxelDamageDeformations || []);
     progress.rebuild();
     updateSceneBounds(false);
     updateSunLightPosition();
@@ -192,7 +192,7 @@ function createProgressiveModelRender(scene, definitions, gridGroups, textureTok
                 }
             }
             renderLogisticsOverlay(scene, gridGroups, definitions);
-            renderDamagedOverlay(scene, gridGroups, definitions);
+            renderDamagedOverlay(scene, gridGroups, definitions, scene.voxelDamageDeformations || []);
             progress.lastRenderStats = nextLayer.stats;
             state.sceneRenderCounts.modelMeshes = nextLayer.stats.modelMeshes;
             state.sceneRenderCounts.proxyMeshes = nextLayer.stats.proxyMeshes;
@@ -370,7 +370,7 @@ function buildGridGroups(scene, root) {
     return groups;
 }
 
-function renderDamagedOverlay(scene, gridGroups, definitions) {
+function renderDamagedOverlay(scene, gridGroups, definitions, damagedVoxelChunks = []) {
     if (state.damagedGroup) {
         if (state.damagedGroup.parent) state.damagedGroup.parent.remove(state.damagedGroup);
         disposeObjectTree(state.damagedGroup);
@@ -384,7 +384,8 @@ function renderDamagedOverlay(scene, gridGroups, definitions) {
     state.damagedGroup = group;
     state.gridGroup.add(group);
     state.stats["Damaged blocks"] = damagedBlocks.length;
-    if (!damagedBlocks.length) return;
+    state.stats["Damaged voxel chunks"] = damagedVoxelChunks.length;
+    if (!damagedBlocks.length && !damagedVoxelChunks.length) return;
 
     const maskRenderContext = createRenderContext(textureStatsToken);
     const overlayByGridId = new Map();
@@ -412,6 +413,9 @@ function renderDamagedOverlay(scene, gridGroups, definitions) {
         const masks = createDamagedBlockMasks(block, definition, maskRenderContext, gridSize(block.gridId));
         for (const mask of masks) gridOverlay(block.gridId).add(mask);
     }
+
+    const voxelBodiesById = new Map((scene.voxels || []).map(voxel => [String(voxel.id || ""), voxel]));
+    for (const mask of createDamagedVoxelMasks(damagedVoxelChunks, voxelBodiesById)) group.add(mask);
 }
 
 function createDamagedBlockMasks(block, definition, renderContext, gridSize) {
@@ -475,6 +479,39 @@ function createDamagedModelMaskMeshes(assetId, block, matrix, patternOffset, mat
     mesh.userData.damagedBlock = block;
     mesh.userData.damagedGridId = String(block.gridId || "");
     return [mesh];
+}
+
+function createDamagedVoxelMasks(chunks, voxelBodiesById) {
+    if (!chunks || !chunks.length) return [];
+
+    const masks = [];
+    const materialByBodyId = new Map();
+    for (const chunk of chunks) {
+        const bodyId = String(chunk && chunk.voxelBodyId || "");
+        const voxel = voxelBodiesById && voxelBodiesById.get(bodyId);
+        let material = materialByBodyId.get(bodyId);
+        if (!material) {
+            material = sharedDamagedMaskMaterial(0.72);
+            materialByBodyId.set(bodyId, material);
+        }
+
+        const mesh = createVoxelDataChunkMesh(chunk, voxel, new Map(), { countStats: false, modifiedOnly: true, materialFactory: () => material });
+        if (!mesh) continue;
+        mesh.name = `DamagedVoxelMask:${bodyId || "unknown"}:${chunk.chunkId || "chunk"}`;
+        mesh.renderOrder = 29;
+        mesh.frustumCulled = false;
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+        mesh.userData.damagedVoxel = {
+            id: bodyId,
+            kind: "voxelDamage",
+            displayName: voxel && voxel.displayName || chunk.chunkId || "voxel deformation",
+            chunk,
+        };
+        mesh.userData.damagedVoxelBodyId = bodyId;
+        masks.push(mesh);
+    }
+    return masks;
 }
 
 function sharedDamagedMaskMaterial(ratio) {
@@ -1110,9 +1147,10 @@ function renderVoxelBodies(voxels, voxelChunks, voxelMaterials) {
     if (proxyGroup.children.length) group.add(proxyGroup);
 }
 
-function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex) {
+function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex, options = {}) {
     const content = voxelByteArray(chunk.content);
     const materials = voxelByteArray(chunk.materials);
+    const modified = options.modifiedOnly ? voxelByteArray(chunk.modified) : null;
     const size = chunk.size || {};
     const sx = Math.max(0, Math.floor(num(size.x, 0)));
     const sy = Math.max(0, Math.floor(num(size.y, 0)));
@@ -1139,8 +1177,8 @@ function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex) {
     for (let z = 0; z < sz - 1; z++) {
         for (let y = 0; y < sy - 1; y++) {
             for (let x = 0; x < sx - 1; x++) {
-                fillVoxelCubeScratch(cube, x, y, z, sx, sy, sz, content, materials, worldOrigin, lodScale, viewTransform);
-                polygonizeVoxelCube(cube, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds);
+                fillVoxelCubeScratch(cube, x, y, z, sx, sy, sz, content, materials, modified, worldOrigin, lodScale, viewTransform);
+                polygonizeVoxelCube(cube, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds, options.modifiedOnly);
             }
         }
     }
@@ -1160,9 +1198,11 @@ function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex) {
         const start = allIndices.length;
         appendArray(allIndices, partIndices);
         geometry.addGroup(start, partIndices.length, meshMaterials.length);
-        meshMaterials.push(createVoxelMeshMaterial(part.materialIndex, part.projection, voxelMaterialsByIndex && voxelMaterialsByIndex.get(part.materialIndex)));
-        state.sceneRenderCounts.voxelMeshParts++;
-        state.sceneRenderCounts.voxelMeshTriangles += Math.floor(partIndices.length / 3);
+        meshMaterials.push(options.materialFactory ? options.materialFactory(part) : createVoxelMeshMaterial(part.materialIndex, part.projection, voxelMaterialsByIndex && voxelMaterialsByIndex.get(part.materialIndex)));
+        if (options.countStats !== false) {
+            state.sceneRenderCounts.voxelMeshParts++;
+            state.sceneRenderCounts.voxelMeshTriangles += Math.floor(partIndices.length / 3);
+        }
     }
     geometry.setIndex(allIndices);
     geometry.computeBoundingSphere();
@@ -1177,7 +1217,7 @@ function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex) {
         displayName: chunk.chunkId || "voxel data chunk",
         chunk,
     };
-    state.sceneRenderCounts.voxelMeshVertices += vertexCount;
+    if (options.countStats !== false) state.sceneRenderCounts.voxelMeshVertices += vertexCount;
     return mesh;
 }
 
@@ -1210,10 +1250,10 @@ const VOXEL_CUBE_OFFSETS = [
 ];
 
 function createVoxelCubeScratch() {
-    return Array.from({ length: 8 }, () => ({ position: new THREE.Vector3(), normal: new THREE.Vector3(), value: 0, material: 0 }));
+    return Array.from({ length: 8 }, () => ({ position: new THREE.Vector3(), normal: new THREE.Vector3(), value: 0, material: 0, modified: false }));
 }
 
-function fillVoxelCubeScratch(cube, x, y, z, sx, sy, sz, content, materials, worldOrigin, lodScale, viewTransform) {
+function fillVoxelCubeScratch(cube, x, y, z, sx, sy, sz, content, materials, modified, worldOrigin, lodScale, viewTransform) {
     for (let i = 0; i < VOXEL_CUBE_OFFSETS.length; i++) {
         const offset = VOXEL_CUBE_OFFSETS[i];
         const px = x + offset[0];
@@ -1224,6 +1264,7 @@ function fillVoxelCubeScratch(cube, x, y, z, sx, sy, sz, content, materials, wor
         setVoxelSampleNormal(cube[i].normal, px, py, pz, sx, sy, sz, content).transformDirection(viewTransform);
         cube[i].value = num(content[index], 0);
         cube[i].material = num(materials[index], 0);
+        cube[i].modified = !!(modified && modified[index]);
     }
 }
 
@@ -1244,14 +1285,16 @@ function sampleVoxelContent(content, x, y, z, sx, sy, sz) {
     return num(content[px + sx * (py + sy * pz)], 0);
 }
 
-function polygonizeVoxelCube(cube, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds) {
+function polygonizeVoxelCube(cube, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds, modifiedOnly) {
     for (const tetra of VOXEL_TETRAHEDRA) {
         const vertices = tetra.map(index => cube[index]);
-        polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds);
+        polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds, modifiedOnly);
     }
 }
 
-function polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds) {
+function polygonizeVoxelTetra(vertices, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, clipBounds, modifiedOnly) {
+    if (modifiedOnly && !vertices.some(vertex => vertex.modified)) return;
+
     const inside = [];
     const outside = [];
     for (const vertex of vertices) {
