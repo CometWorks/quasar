@@ -308,11 +308,26 @@ public class ViewerBlockInstance
 
     public List<ViewerBlockSubpart> Subparts { get; set; } = new();
 
+    public List<ViewerEmissivePart> EmissiveParts { get; set; } = new();
+
     public List<ViewerMaterialTextureChange> SkinTextureChanges { get; set; } = new();
 
     public List<ViewerLcdSurface> LcdSurfaces { get; set; } = new();
 
     public List<string> LcdMaterialsToHideWhenOffline { get; set; } = new();
+}
+
+public class ViewerEmissivePart
+{
+    public string EntityId { get; set; } = string.Empty;
+
+    public string MaterialName { get; set; } = string.Empty;
+
+    public ViewerColor Color { get; set; } = new();
+
+    public float Emissivity { get; set; }
+
+    public string Source { get; set; } = string.Empty;
 }
 
 public class ViewerLcdSurface
@@ -428,6 +443,8 @@ public class ViewerBlockModelPart
 
 public class ViewerBlockSubpart
 {
+    public string EntityId { get; set; } = string.Empty;
+
     public string Name { get; set; } = string.Empty;
 
     public string ModelAssetId { get; set; } = string.Empty;

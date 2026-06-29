@@ -1805,7 +1805,7 @@ function createBlockMeshes(block, definition, renderContext, clip = null) {
     }
 
     for (const subpart of block.subparts || []) {
-        meshes.push(...createModelMeshes(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix), null, renderContext, clip));
+        meshes.push(...createModelMeshes(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix), null, renderContext, clip, subpart.entityId));
     }
 
     return meshes;
@@ -1839,7 +1839,7 @@ function composeModelInstanceMatrix(block, definition) {
     return matrix;
 }
 
-function createModelMeshes(assetId, block, matrix, patternOffset = null, renderContext = createRenderContext(textureStatsToken), clip = null) {
+function createModelMeshes(assetId, block, matrix, patternOffset = null, renderContext = createRenderContext(textureStatsToken), clip = null, entityId = "") {
     const resolved = assetId ? state.modelResolution.get(assetId) : null;
     const model = resolved && resolved.status === "parsed" ? resolved.model : null;
     if (!model) return [];
@@ -1850,7 +1850,7 @@ function createModelMeshes(assetId, block, matrix, patternOffset = null, renderC
         if (isOfflineHiddenLcdMaterial(block, group.materialName)) continue;
         if (isResetLcdModelMaterialHidden(block, group.materialName)) continue;
         if (isLcdModelFallbackMaterialHidden(block, group.materialName)) continue;
-        const material = sharedModelMaterial(model, group, block, renderContext);
+        const material = sharedModelMaterial(model, group, block, renderContext, entityId);
         if (!material) continue;
         const layer = modelMaterialRenderLayer(material);
         let entries = groupsByLayer.get(layer);
@@ -2187,17 +2187,19 @@ function patternUvOffset(patternOffset) {
     };
 }
 
-function sharedModelMaterial(model, group, block, renderContext) {
+function sharedModelMaterial(model, group, block, renderContext, entityId = "") {
     const technique = String(group.technique || "MESH").toUpperCase();
     const lcdSurface = lcdSurfaceForMaterial(block, group.materialName);
     if (lcdSurface && lcdReplacementMode(lcdSurface) !== "model") return sharedLcdMaterial(model, group, block, lcdSurface, renderContext, technique);
 
+    const emissivePart = emissivePartForMaterial(block, group.materialName, entityId || block.id);
+    const emissiveKey = emissivePart ? `${colorKey(emissivePart.color)}:${Number(emissivePart.emissivity) || 0}` : "none";
     const skin = materialSkinOverride(block, group.materialName);
     const transparentMaterial = transparentMaterialForGroup(group, technique);
     const renderMode = modelMaterialRenderMode(technique);
     const textures = materialTexturesForGroup(group, skin, transparentMaterial);
     const colorMaskable = isModelMaterialColorMaskable(group, technique, textures);
-    const key = `${model.rootId || ""}|${model.logicalPath}|${group.materialIndex}|${group.materialName}|${group.technique}|${stableTextureKey(textures)}|glass=${transparentMaterialKey(transparentMaterial)}|metalnessColorable=${skin && skin.metalnessColorable ? 1 : 0}`;
+    const key = `${model.rootId || ""}|${model.logicalPath}|${group.materialIndex}|${group.materialName}|${group.technique}|${stableTextureKey(textures)}|glass=${transparentMaterialKey(transparentMaterial)}|metalnessColorable=${skin && skin.metalnessColorable ? 1 : 0}|emissive=${emissiveKey}`;
     if (renderContext.materials.has(key)) return renderContext.materials.get(key);
 
     const transparentParameters = transparentMaterial ? spaceEngineersTransparentMaterialParameters(transparentMaterial, technique) : null;
@@ -2221,12 +2223,30 @@ function sharedModelMaterial(model, group, block, renderContext) {
         material.polygonOffsetUnits = -1;
     }
     if (transparent) material.forceSinglePass = true;
+    if (emissivePart) {
+        const emissiveColor = normalizedColor(emissivePart.color || { r: 0, g: 0, b: 0, a: 255 });
+        material.emissive = new THREE.Color(emissiveColor.r / 255, emissiveColor.g / 255, emissiveColor.b / 255);
+        material.emissiveIntensity = Math.max(0, Number(emissivePart.emissivity) || 0);
+    }
     material.userData.renderCacheKey = key;
     material.userData.seRenderMode = modelMaterialRenderModeName(renderMode);
     applySpaceEngineersColorMasking(material, skin && skin.metalnessColorable, colorMaskable, transparentParameters);
     applyModelTextures(material, model, { ...group, textures }, technique, renderMode, renderContext.textureToken, colorMaskable);
     renderContext.materials.set(key, material);
     return material;
+}
+
+function emissivePartForMaterial(block, materialName, entityId = "") {
+    const key = String(materialName || "").trim().toLowerCase();
+    if (!key) return null;
+
+    const wantedEntity = String(entityId || block?.id || "");
+    for (const part of block.emissiveParts || []) {
+        if (String(part.materialName || "").trim().toLowerCase() !== key) continue;
+        if (part.entityId && wantedEntity && String(part.entityId) !== wantedEntity) continue;
+        return part;
+    }
+    return null;
 }
 
 function sharedLcdMaterial(model, group, block, lcdSurface, renderContext, technique) {

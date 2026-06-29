@@ -18,6 +18,7 @@ namespace Quasar.Agent
             var options = AgentOptions.FromEnvironment();
             AgentProfiler.Configure(options);
             AgentProfilerPatches.Apply(options);
+            EmissivePartCapturePatches.Apply();
             _bridge = new GameBridge(gameServer);
 
             // Start capturing plugin log lines before the connection loop so any
@@ -45,6 +46,7 @@ namespace Quasar.Agent
             _outbox?.Dispose();
             _outbox = null;
             _bridge = null;
+            EmissivePartCapturePatches.Dispose();
             AgentProfilerPatches.Dispose();
         }
 

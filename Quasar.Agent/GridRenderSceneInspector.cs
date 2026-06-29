@@ -1837,10 +1837,76 @@ namespace Quasar.Agent
             AddGeneratedBlockModelParts(grid, block, dto, catalog, warnings);
             AddBlockDeformations(grid, block, dto, warnings);
             AddRuntimeSubparts(grid, block, dto, catalog, warnings);
+            RefreshEmissiveParts(block, warnings);
+            AddEmissiveParts(block, dto);
             AddSkinTextureChanges(block, dto);
             AddLcdMaterialsToHideWhenOffline(block, dto);
             AddLcdSurfaces(block, dto, catalog, warnings);
             return dto;
+        }
+
+        private static void RefreshEmissiveParts(MySlimBlock block, List<string> warnings)
+        {
+            var fatBlock = block.FatBlock;
+            if (fatBlock == null)
+                return;
+
+            RegisterEmissiveRenderObjectIds(fatBlock);
+            try
+            {
+                fatBlock.CheckEmissiveState(force: true);
+                InvokeNoArgVisualRefresh(fatBlock, "UpdateEmissivity");
+                InvokeNoArgVisualRefresh(fatBlock, "UpdateVisual");
+            }
+            catch (Exception exception)
+            {
+                warnings.Add("Failed to refresh emissive state for block " + block.Position + ": " + exception.Message);
+            }
+        }
+
+        private static void RegisterEmissiveRenderObjectIds(MyEntity entity)
+        {
+            EmissivePartCaptureCache.RegisterRenderObjectIds(entity);
+            if (entity?.Subparts == null)
+                return;
+
+            foreach (var subpart in entity.Subparts.Values)
+            {
+                if (subpart != null)
+                    RegisterEmissiveRenderObjectIds(subpart);
+            }
+        }
+
+        private static void InvokeNoArgVisualRefresh(MyCubeBlock block, string methodName)
+        {
+            var method = block.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+            method?.Invoke(block, Array.Empty<object>());
+        }
+
+        private static void AddEmissiveParts(MySlimBlock block, ViewerBlockInstance dto)
+        {
+            var fatBlock = block.FatBlock;
+            if (fatBlock == null)
+                return;
+
+            AddEmissivePartsForEntity(fatBlock, dto);
+            foreach (var subpart in dto.Subparts)
+            {
+                if (long.TryParse(subpart.EntityId, out var entityId))
+                    AddEmissivePartsForEntity(entityId, dto);
+            }
+        }
+
+        private static void AddEmissivePartsForEntity(MyEntity entity, ViewerBlockInstance dto)
+        {
+            foreach (var part in EmissivePartCaptureCache.ForEntity(entity))
+                dto.EmissiveParts.Add(ToDto(part));
+        }
+
+        private static void AddEmissivePartsForEntity(long entityId, ViewerBlockInstance dto)
+        {
+            foreach (var part in EmissivePartCaptureCache.ForEntityId(entityId))
+                dto.EmissiveParts.Add(ToDto(part));
         }
 
         private static void AddLcdMaterialsToHideWhenOffline(MySlimBlock block, ViewerBlockInstance dto)
@@ -2271,6 +2337,7 @@ namespace Quasar.Agent
                             var localMatrix = subpart.PositionComp.WorldMatrixRef * gridWorldInverse;
                             var subpartDto = new ViewerBlockSubpart
                             {
+                                EntityId = subpart.EntityId.ToString(),
                                 Name = subpartPath,
                                 ModelAssetId = modelAssetId,
                                 LocalMatrix = ToDto(localMatrix),
@@ -2531,6 +2598,18 @@ namespace Quasar.Agent
         private static ViewerColor ToDto(Color value)
         {
             return new ViewerColor { R = value.R, G = value.G, B = value.B, A = value.A };
+        }
+
+        private static ViewerEmissivePart ToDto(CapturedEmissivePart value)
+        {
+            return new ViewerEmissivePart
+            {
+                EntityId = value.EntityId.ToString(),
+                MaterialName = value.MaterialName ?? string.Empty,
+                Color = ToDto(value.Color),
+                Emissivity = value.Emissivity,
+                Source = value.Source ?? string.Empty,
+            };
         }
 
         private static ViewerVector3D ToDto(Vector3D value)
