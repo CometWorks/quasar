@@ -99,6 +99,9 @@ async function parseResolvedModelUncached(resolved, file, stack) {
 
         const normals = tags.has("Normals") ? reader.readNormals(tags.get("Normals"), positions.length / 3) : null;
         const uvs = tags.has("TexCoords0") ? reader.readTexCoords(tags.get("TexCoords0"), positions.length / 3) : null;
+        const boneMapping = tags.has("BoneMapping") ? reader.readVector3IArray(tags.get("BoneMapping")) : null;
+        const blendIndices = tags.has("BlendIndices") ? reader.readVector4IArray(tags.get("BlendIndices"), positions.length / 3) : null;
+        const blendWeights = tags.has("BlendWeights") ? reader.readVector4Array(tags.get("BlendWeights"), positions.length / 3) : null;
         if (uvs && patternScale !== 1) scaleTexCoords(uvs, patternScale);
         const parts = tags.has("MeshParts") ? reader.readMeshParts(tags.get("MeshParts")) : [];
         if (!parts.length) throw new Error("missing MeshParts tag");
@@ -139,6 +142,9 @@ async function parseResolvedModelUncached(resolved, file, stack) {
             groups,
             vertexCount: positions.length / 3,
             triangleCount: Math.floor(indexCount / 3),
+            boneMapping,
+            blendIndices,
+            blendWeights,
         };
         return model;
     } finally {
@@ -277,6 +283,43 @@ class MwmReader {
         return parts;
     }
 
+    readVector3IArray(offset) {
+        this.seekTag(offset);
+        const count = this.readInt32();
+        const values = new Int32Array(count * 3);
+        for (let i = 0; i < count; i++) {
+            const target = i * 3;
+            values[target] = this.readInt32();
+            values[target + 1] = this.readInt32();
+            values[target + 2] = this.readInt32();
+        }
+        return values;
+    }
+
+    readVector4IArray(offset, expectedCount) {
+        this.seekTag(offset);
+        const count = this.readInt32();
+        if (count !== expectedCount) return null;
+        const values = new Uint8Array(count * 4);
+        for (let i = 0; i < count; i++) {
+            const target = i * 4;
+            values[target] = clampByte(this.readInt32());
+            values[target + 1] = clampByte(this.readInt32());
+            values[target + 2] = clampByte(this.readInt32());
+            values[target + 3] = clampByte(this.readInt32());
+        }
+        return values;
+    }
+
+    readVector4Array(offset, expectedCount) {
+        this.seekTag(offset);
+        const count = this.readInt32();
+        if (count !== expectedCount) return null;
+        const values = new Float32Array(count * 4);
+        for (let i = 0; i < values.length; i++) values[i] = this.readFloat32();
+        return values;
+    }
+
     readMaterial() {
         const materialName = this.readString() || "";
         const textures = {};
@@ -391,6 +434,10 @@ class MwmReader {
     ensure(byteCount) {
         if (this.offset + byteCount > this.view.byteLength) throw new Error("unexpected end of MWM data");
     }
+}
+
+function clampByte(value) {
+    return Math.min(255, Math.max(0, Number(value) || 0));
 }
 
 function unpackHalf(value) {

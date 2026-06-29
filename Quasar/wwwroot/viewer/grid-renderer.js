@@ -1820,6 +1820,7 @@ function isParsedModelAsset(assetId) {
 }
 
 function composeModelInstanceMatrix(block, definition) {
+    if (block.currentModelLocalMatrix) return matrixDtoToThree(block.currentModelLocalMatrix);
     if (block.rotation) return matrixDtoToThree(block.rotation);
 
     const matrix = new THREE.Matrix4().compose(
@@ -1859,14 +1860,18 @@ function createModelMeshes(assetId, block, matrix, patternOffset = null, renderC
     for (const [layer, entries] of groupsByLayer) {
         const groups = entries.map(entry => entry.group);
         const materials = entries.map(entry => entry.material);
-        const geometry = clip
-            ? clippedModelGeometry(model, patternOffset, groups, matrix, clip)
-            : sharedModelGeometry(model, patternOffset, renderContext, groups, layer);
+        const deformations = clip ? null : blockDeformationMap(block);
+        const canDeform = deformations && model.boneMapping && model.blendIndices && model.blendWeights;
+        const geometry = canDeform
+            ? deformedModelGeometry(model, patternOffset, groups, matrix, deformations, block)
+            : clip
+                ? clippedModelGeometry(model, patternOffset, groups, matrix, clip)
+                : sharedModelGeometry(model, patternOffset, renderContext, groups, layer);
         if (!geometry) continue;
         renderables.push({
             geometry,
             materials,
-            matrix: clip ? new THREE.Matrix4() : matrix,
+            matrix: (clip || canDeform) ? new THREE.Matrix4() : matrix,
             block,
             colorMask: colorMaskForBlock(block),
             standalone: !!clip,
@@ -1875,6 +1880,80 @@ function createModelMeshes(assetId, block, matrix, patternOffset = null, renderC
     }
     return renderables;
 }
+
+function blockDeformationMap(block) {
+    const points = block && block.deformations;
+    if (!Array.isArray(points) || !points.length) return null;
+    const map = new Map();
+    for (const point of points) {
+        const position = point && point.bonePosition;
+        const offset = point && point.offset;
+        if (!position || !offset) continue;
+        map.set(vector3IKey(position), vec3(offset));
+    }
+    return map.size ? map : null;
+}
+
+function deformedModelGeometry(model, patternOffset, groups, matrix, deformations, block) {
+    const positions = new Float32Array(model.positions.length);
+    const normals = model.normals ? new Float32Array(model.normals) : null;
+    const fromGridToModel = matrix.clone().invert();
+    const vertex = new THREE.Vector3();
+    const weighted = new THREE.Vector3();
+    for (let i = 0; i < model.vertexCount; i++) {
+        const positionIndex = i * 3;
+        vertex.set(model.positions[positionIndex], model.positions[positionIndex + 1], model.positions[positionIndex + 2]).applyMatrix4(matrix);
+        weighted.set(0, 0, 0);
+        for (let j = 0; j < 4; j++) {
+            const boneIndex = model.blendIndices[i * 4 + j];
+            const weight = model.blendWeights[i * 4 + j];
+            if (!weight) continue;
+            const boneOffset = deformations.get(modelBonePositionKey(model, boneIndex, matrix, block));
+            if (boneOffset) weighted.addScaledVector(boneOffset, weight);
+        }
+        vertex.add(weighted).applyMatrix4(fromGridToModel);
+        positions[positionIndex] = vertex.x;
+        positions[positionIndex + 1] = vertex.y;
+        positions[positionIndex + 2] = vertex.z;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    if (normals) geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+    if (model.uvs) {
+        const uvs = transformModelUvs(model.uvs, patternOffset);
+        geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+        geometry.setAttribute("uv2", new THREE.BufferAttribute(uvs, 2));
+    }
+    geometry.setIndex(new THREE.BufferAttribute(model.indices, 1));
+    for (let i = 0; i < groups.length; i++) geometry.addGroup(groups[i].start, groups[i].count, i);
+    if (!normals) geometry.computeVertexNormals();
+    geometry.applyMatrix4(matrix);
+    geometry.computeBoundingSphere();
+    geometry.userData.renderCacheKey = `deformed:${model.rootId || ""}:${model.geometryLogicalPath || model.logicalPath}:${Math.random()}`;
+    return geometry;
+}
+
+function modelBonePositionKey(model, boneIndex, matrix, block) {
+    const mappingIndex = boneIndex * 3;
+    const local = new THREE.Vector3(
+        model.boneMapping[mappingIndex] - 1,
+        model.boneMapping[mappingIndex + 1] - 1,
+        model.boneMapping[mappingIndex + 2] - 1);
+    const orientation = matrix.clone();
+    orientation.setPosition(0, 0, 0);
+    local.applyMatrix4(orientation).round().addScalar(1);
+    const cell = block && block.cell || { x: 0, y: 0, z: 0 };
+    const x = Number(cell.x) || 0;
+    const y = Number(cell.y) || 0;
+    const z = Number(cell.z) || 0;
+    return `${x * 2 + local.x}|${y * 2 + local.y}|${z * 2 + local.z}`;
+}
+
+function vector3IKey(value) {
+    return `${Number(value.x) || 0}|${Number(value.y) || 0}|${Number(value.z) || 0}`;
+}
+
 
 function modelMaterialRenderLayer(material) {
     const mode = material.userData.seRenderMode;

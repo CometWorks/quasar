@@ -300,6 +300,10 @@ public class ViewerBlockInstance
 
     public string CurrentModelAssetId { get; set; } = string.Empty;
 
+    public ViewerMatrix CurrentModelLocalMatrix { get; set; } = ViewerMatrix.Identity();
+
+    public List<ViewerBlockDeformationPoint> Deformations { get; set; } = new();
+
     public List<ViewerBlockModelPart> ModelParts { get; set; } = new();
 
     public List<ViewerBlockSubpart> Subparts { get; set; } = new();
@@ -402,6 +406,13 @@ public class ViewerLcdSprite
     public float RotationOrScale { get; set; }
 
     public int Index { get; set; }
+}
+
+public class ViewerBlockDeformationPoint
+{
+    public ViewerVector3I BonePosition { get; set; } = new();
+
+    public ViewerVector3 Offset { get; set; } = new();
 }
 
 public class ViewerBlockModelPart

@@ -51,6 +51,8 @@ namespace Quasar.Agent
         private const int MaxContextGrids = 64;
         private const int MaxContextBlocks = 20000;
         private const int MaxContextGridBlocks = 8000;
+        private static readonly FieldInfo CubeGridSkeletonField = typeof(MyCubeGrid).GetField("Skeleton", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo GridSkeletonTryGetBoneMethod = CubeGridSkeletonField?.FieldType.GetMethod("TryGetBone", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, new[] { typeof(Vector3I).MakeByRefType(), typeof(Vector3).MakeByRefType() }, null);
 
         public static EntityRenderScene Build(long entityId, string gameVersion, string pluginVersion, bool includeVoxels = false, bool includeContext = false)
         {
@@ -1795,9 +1797,12 @@ namespace Quasar.Agent
         {
             block.GetLocalMatrix(out var localMatrix);
             var currentModelAssetId = string.Empty;
+            var currentModelLocalMatrix = localMatrix;
             try
             {
-                var currentModel = block.CalculateCurrentModel(out var _);
+                var currentModel = block.CalculateCurrentModel(out var currentModelOrientation);
+                currentModelOrientation.Translation = localMatrix.Translation;
+                currentModelLocalMatrix = currentModelOrientation;
                 currentModelAssetId = catalog.RegisterModel(currentModel, block.BlockDefinition.Context) ?? string.Empty;
             }
             catch (Exception exception)
@@ -1826,9 +1831,11 @@ namespace Quasar.Agent
                 AccumulatedDamage = block.AccumulatedDamage,
                 MaxIntegrity = block.MaxIntegrity,
                 CurrentModelAssetId = currentModelAssetId,
+                CurrentModelLocalMatrix = ToDto(currentModelLocalMatrix),
             };
 
             AddGeneratedBlockModelParts(grid, block, dto, catalog, warnings);
+            AddBlockDeformations(grid, block, dto, warnings);
             AddRuntimeSubparts(grid, block, dto, catalog, warnings);
             AddSkinTextureChanges(block, dto);
             AddLcdMaterialsToHideWhenOffline(block, dto);
@@ -2109,6 +2116,8 @@ namespace Quasar.Agent
         {
             if (block.BlockDefinition.CubeDefinition == null)
                 return;
+            if (!block.ShowParts)
+                return;
 
             var cubePartModels = new List<string>();
             var cubePartMatrices = new List<MatrixD>();
@@ -2147,6 +2156,55 @@ namespace Quasar.Agent
             catch (Exception exception)
             {
                 warnings.Add("Failed to resolve generated model parts for block " + block.Position + ": " + exception.Message);
+            }
+        }
+
+        private static void AddBlockDeformations(
+            MyCubeGrid grid,
+            MySlimBlock block,
+            ViewerBlockInstance dto,
+            List<string> warnings)
+        {
+            if (block.CurrentDamage <= 0f && block.AccumulatedDamage <= 0f)
+                return;
+            if (CubeGridSkeletonField == null || GridSkeletonTryGetBoneMethod == null)
+                return;
+
+            try
+            {
+                var skeleton = CubeGridSkeletonField.GetValue(grid);
+                if (skeleton == null)
+                    return;
+
+                for (var x = block.Min.X; x <= block.Max.X; x++)
+                for (var y = block.Min.Y; y <= block.Max.Y; y++)
+                for (var z = block.Min.Z; z <= block.Max.Z; z++)
+                {
+                    var cube = new Vector3I(x, y, z);
+                    for (var bx = 0; bx <= 2; bx++)
+                    for (var by = 0; by <= 2; by++)
+                    for (var bz = 0; bz <= 2; bz++)
+                    {
+                        var bonePosition = cube * 2 + new Vector3I(bx, by, bz);
+                        var args = new object[] { bonePosition, default(Vector3) };
+                        if (!(bool)GridSkeletonTryGetBoneMethod.Invoke(skeleton, args))
+                            continue;
+
+                        var offset = (Vector3)args[1];
+                        if (offset.LengthSquared() <= 0.000001f)
+                            continue;
+
+                        dto.Deformations.Add(new ViewerBlockDeformationPoint
+                        {
+                            BonePosition = ToDto(bonePosition),
+                            Offset = ToDto(offset),
+                        });
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                warnings.Add("Failed to inspect skeleton deformation for block " + block.Position + ": " + exception.Message);
             }
         }
 
