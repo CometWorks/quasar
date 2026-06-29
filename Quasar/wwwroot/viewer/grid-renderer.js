@@ -34,6 +34,32 @@ export async function renderGridScene(scene) {
     state.lastScene = scene;
     state.stats = {};
     await setSceneModRoots(scene.mods || scene.Mods || []);
+
+    configureRelativeView(scene);
+    configureEnvironment(scene);
+
+    const definitions = new Map((scene.blockDefinitions || []).map(definition => [definition.id, definition]));
+    const modelAssets = new Map((scene.modelAssets || []).map(asset => [asset.assetId, asset]));
+    const renderTextureToken = ++textureStatsToken;
+    state.modelResolution.clear();
+    const resolutionStats = { found: 0, parsed: 0, missing: 0, listed: (scene.modelAssets || []).length };
+    const preloadProgress = createPreloadModelProgress(scene, resolutionStats, modelAssets.size);
+
+    await ensureArmorSkinDefinitionsLoaded();
+    await ensureTransparentMaterialDefinitionsLoaded();
+    if (renderToken !== modelRenderToken) return;
+
+    await resolveReferencedModelsProgressively(scene, modelAssets, resolutionStats, preloadProgress, renderToken);
+    if (renderToken !== modelRenderToken) return;
+
+    await preloadLcdFonts(scene);
+    if (renderToken !== modelRenderToken) return;
+
+    const textureSelections = collectSceneTextureSelections(scene, definitions);
+    const textureStats = initializeTextureStats(textureSelectionsToAssets(textureSelections));
+    const preloadedTextures = await preloadTextureSelections(textureSelections, renderTextureToken);
+    if (renderToken !== modelRenderToken) return;
+
     if (state.gridGroup) {
         state.scene.remove(state.gridGroup);
         disposeObjectTree(state.gridGroup);
@@ -49,12 +75,6 @@ export async function renderGridScene(scene) {
         state.voxelGroup = null;
         state.voxelMeshes = [];
     }
-
-    configureRelativeView(scene);
-    configureEnvironment(scene);
-
-    const definitions = new Map((scene.blockDefinitions || []).map(definition => [definition.id, definition]));
-    const modelAssets = new Map((scene.modelAssets || []).map(asset => [asset.assetId, asset]));
 
     const group = new THREE.Group();
     group.name = "QuasarGrids";
@@ -78,19 +98,15 @@ export async function renderGridScene(scene) {
     renderLogisticsOverlay(scene, gridGroups, definitions);
     buildGridLightGroups(scene, gridGroups);
 
-    const renderTextureToken = ++textureStatsToken;
-    state.modelResolution.clear();
-    const textureStats = initializeTextureStats(collectReferencedTextureAssets(scene));
-    const resolutionStats = { found: 0, parsed: 0, missing: 0, listed: (scene.modelAssets || []).length };
-    const progress = createProgressiveModelRender(scene, definitions, gridGroups, renderTextureToken, renderToken);
-
-    renderVoxelBodies(scene.voxels || [], scene.voxelDeformations || [], scene.voxelMaterials || []);
+    renderVoxelBodies(scene.voxels || [], scene.voxelDeformations || [], scene.voxelMaterials || [], preloadedTextures, renderTextureToken);
     renderDamagedOverlay(scene, gridGroups, definitions, scene.voxelDamageDeformations || []);
+    const progress = createProgressiveModelRender(scene, definitions, gridGroups, renderTextureToken, renderToken, preloadedTextures);
     progress.rebuild();
+    updateModelStats(resolutionStats, progress.lastRenderStats, modelAssets.size);
     updateSceneBounds(false);
     updateSunLightPosition();
     fitCameraToScene();
-    updateModelStats(resolutionStats, progress.lastRenderStats, modelAssets.size);
+    updateSummaryModelStats(resolutionStats);
     updateTextureStats();
     state.stats["Voxel bodies"] = (scene.voxels || []).length;
     state.stats["Voxel proxies"] = state.sceneRenderCounts.voxelProxies;
@@ -108,20 +124,10 @@ export async function renderGridScene(scene) {
     state.stats["LCD surfaces"] = countLcdSurfaces(scene);
     updateGridLightStats(collectSceneLightSources(scene));
     renderSummary(scene, resolutionStats, textureStats);
-
-    await ensureArmorSkinDefinitionsLoaded();
-    await ensureTransparentMaterialDefinitionsLoaded();
-    if (renderToken !== modelRenderToken) return;
-
-    await resolveReferencedModelsProgressively(scene, modelAssets, resolutionStats, progress, renderToken);
-    if (renderToken !== modelRenderToken) return;
-    progress.rebuild();
-    updateModelStats(resolutionStats, progress.lastRenderStats, modelAssets.size);
-    updateSummaryModelStats(resolutionStats);
     updateTimingStats();
 }
 
-function createProgressiveModelRender(scene, definitions, gridGroups, textureToken, renderToken) {
+function createProgressiveModelRender(scene, definitions, gridGroups, textureToken, renderToken, preloadedTextures = null) {
     let modelLayer = null;
     let rebuildQueued = false;
     let rebuildTimer = 0;
@@ -176,7 +182,7 @@ function createProgressiveModelRender(scene, definitions, gridGroups, textureTok
             }
             rebuildQueued = false;
             completedSinceLastRebuild = 0;
-            const renderContext = createRenderContext(textureToken);
+            const renderContext = createRenderContext(textureToken, preloadedTextures);
             const nextLayer = buildModelLayer(scene, definitions, renderContext, gridGroups);
             const previousLayer = modelLayer;
             modelLayer = nextLayer.layer;
@@ -203,6 +209,16 @@ function createProgressiveModelRender(scene, definitions, gridGroups, textureTok
         },
     };
     return progress;
+}
+
+function createPreloadModelProgress(scene, resolutionStats, listed) {
+    const emptyRenderStats = { modelMeshes: 0, proxyMeshes: 0, proxyBatches: 0, modelBatches: 0, sharedGeometries: 0, sharedMaterials: 0 };
+    return {
+        lastRenderStats: emptyRenderStats,
+        scheduleRebuild() {
+            updateModelStats(resolutionStats, emptyRenderStats, listed);
+        },
+    };
 }
 
 function progressiveRebuildModelStep(scene, totalModels) {
@@ -346,9 +362,10 @@ function buildModelLayer(scene, definitions, renderContext, gridGroups) {
     };
 }
 
-function createRenderContext(textureToken) {
+function createRenderContext(textureToken, preloadedTextures = null) {
     return {
         textureToken,
+        preloadedTextures,
         geometries: new Map(),
         materials: new Map(),
         batches: new Map(),
@@ -1152,7 +1169,7 @@ function gridLocalBounds(scene) {
     return hasBounds ? bounds : null;
 }
 
-function renderVoxelBodies(voxels, voxelChunks, voxelMaterials) {
+function renderVoxelBodies(voxels, voxelChunks, voxelMaterials, preloadedTextures = null, textureToken = textureStatsToken) {
     state.sceneRenderCounts.voxelProxies = 0;
     state.sceneRenderCounts.voxelMeshChunks = 0;
     state.sceneRenderCounts.voxelMeshParts = 0;
@@ -1174,7 +1191,7 @@ function renderVoxelBodies(voxels, voxelChunks, voxelMaterials) {
     let failedVoxelChunks = 0;
     for (const chunk of voxelChunks) {
         const voxel = voxelBodiesById.get(String(chunk.voxelBodyId || ""));
-        const mesh = createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex);
+        const mesh = createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex, { preloadedTextures, textureToken });
         if (!mesh) {
             failedVoxelChunks++;
             if (failedVoxelChunks <= 5) log(`Voxel chunk ${chunk.chunkId || "chunk"} for ${chunk.voxelBodyId || "unknown"} produced no mesh: ${describeVoxelDataChunk(chunk, voxel)}.`, true);
@@ -1260,7 +1277,7 @@ function createVoxelDataChunkMesh(chunk, voxel, voxelMaterialsByIndex, options =
         const start = allIndices.length;
         appendArray(allIndices, partIndices);
         geometry.addGroup(start, partIndices.length, meshMaterials.length);
-        meshMaterials.push(options.materialFactory ? options.materialFactory(part) : createVoxelMeshMaterial(part.materialIndex, part.projection, voxelMaterialsByIndex && voxelMaterialsByIndex.get(part.materialIndex)));
+        meshMaterials.push(options.materialFactory ? options.materialFactory(part) : createVoxelMeshMaterial(part.materialIndex, part.projection, voxelMaterialsByIndex && voxelMaterialsByIndex.get(part.materialIndex), options.preloadedTextures, options.textureToken));
         if (options.countStats !== false) {
             state.sceneRenderCounts.voxelMeshParts++;
             state.sceneRenderCounts.voxelMeshTriangles += Math.floor(partIndices.length / 3);
@@ -1694,7 +1711,7 @@ function dominantVoxelMaterial(vertices) {
     return bestMaterial;
 }
 
-function createVoxelMeshMaterial(materialIndex, projection, definition) {
+function createVoxelMeshMaterial(materialIndex, projection, definition, preloadedTextures = null, textureToken = textureStatsToken) {
     const color = colorFromHash(`voxel:${materialIndex}`, 0x5b6f54);
     const material = new THREE.MeshStandardMaterial({
         color,
@@ -1704,11 +1721,11 @@ function createVoxelMeshMaterial(materialIndex, projection, definition) {
         side: THREE.DoubleSide,
     });
     applySpaceEngineersColorMasking(material, false, false);
-    applyVoxelTexturesAsync(material, materialIndex, projection, definition);
+    applyVoxelTextures(material, materialIndex, projection, definition, preloadedTextures, textureToken);
     return material;
 }
 
-function applyVoxelTexturesAsync(material, materialIndex, projection, definition) {
+function applyVoxelTextures(material, materialIndex, projection, definition, preloadedTextures = null, textureToken = textureStatsToken) {
     const useYTexture = projection === "xz";
     const colorTexture = normalizeLogicalTexturePath(definition && (useYTexture
         ? definition.colorMetalY || definition.colorMetalXZnY
@@ -1718,31 +1735,37 @@ function applyVoxelTexturesAsync(material, materialIndex, projection, definition
         : definition.normalGlossXZnY || definition.normalGlossY));
 
     if (colorTexture) {
-        loadTexture(colorTexture, "ColorMetalTexture")
-            .then(texture => {
-                if (!texture) return;
+        applyTrackedTexture(
+            { slot: "ColorMetalTexture", path: colorTexture },
+            textureToken,
+            {},
+            preloadedTextures,
+            texture => {
                 material.map = texture;
                 material.color.set(0xffffff);
                 setSpaceEngineersColorMetalTexture(material, true);
                 material.needsUpdate = true;
                 state.stats["Voxel material textures loaded"] = (state.stats["Voxel material textures loaded"] || 0) + 1;
-            })
-            .catch(error => {
+            },
+            error => {
                 if (error && !error.isMissingLocalTexture) log(`Failed to load voxel material ${materialIndex} color texture ${colorTexture}: ${error.message}`, true);
             });
     }
 
     if (normalTexture) {
-        loadTexture(normalTexture, "NormalGlossTexture")
-            .then(texture => {
-                if (!texture) return;
+        applyTrackedTexture(
+            { slot: "NormalGlossTexture", path: normalTexture },
+            textureToken,
+            {},
+            preloadedTextures,
+            texture => {
                 material.normalMap = texture;
                 material.normalScale.set(-1, 1);
                 setSpaceEngineersNormalGlossTexture(material, true);
                 material.needsUpdate = true;
                 state.stats["Voxel material textures loaded"] = (state.stats["Voxel material textures loaded"] || 0) + 1;
-            })
-            .catch(error => {
+            },
+            error => {
                 if (error && !error.isMissingLocalTexture) log(`Failed to load voxel material ${materialIndex} normal/gloss texture ${normalTexture}: ${error.message}`, true);
             });
     }
@@ -2231,7 +2254,7 @@ function sharedModelMaterial(model, group, block, renderContext, entityId = "") 
     material.userData.renderCacheKey = key;
     material.userData.seRenderMode = modelMaterialRenderModeName(renderMode);
     applySpaceEngineersColorMasking(material, skin && skin.metalnessColorable, colorMaskable, transparentParameters);
-    applyModelTextures(material, model, { ...group, textures }, technique, renderMode, renderContext.textureToken, colorMaskable);
+    applyModelTextures(material, model, { ...group, textures, preloadedTextures: renderContext.preloadedTextures }, technique, renderMode, renderContext.textureToken, colorMaskable);
     renderContext.materials.set(key, material);
     return material;
 }
@@ -2270,7 +2293,7 @@ function sharedLcdMaterial(model, group, block, lcdSurface, renderContext, techn
     });
     material.userData.renderCacheKey = key;
     material.userData.seRenderMode = "lcd";
-    applyLcdSurfaceTexture(material, lcdSurface, renderContext.textureToken);
+    applyLcdSurfaceTexture(material, lcdSurface, renderContext.textureToken, renderContext.preloadedTextures);
     renderContext.materials.set(key, material);
     return material;
 }
@@ -2364,18 +2387,18 @@ function colorKey(color) {
     return `${color.r ?? color.R ?? 0},${color.g ?? color.G ?? 0},${color.b ?? color.B ?? 0},${color.a ?? color.A ?? 255}`;
 }
 
-function applyLcdSurfaceTexture(material, surface, textureToken) {
+function applyLcdSurfaceTexture(material, surface, textureToken, preloadedTextures = null) {
     const directPath = lcdDirectPlaceholderPath(surface) || lcdDirectTexturePath(surface);
     if (directPath) {
-        loadTrackedTexture({ slot: "LcdTexture", path: directPath }, textureToken).then(texture => {
+        applyTrackedTexture({ slot: "LcdTexture", path: directPath }, textureToken, {}, preloadedTextures, texture => {
             material.map = texture;
             material.emissiveMap = texture;
             material.needsUpdate = true;
-        }).catch(error => log(`LCD texture fallback retained for ${directPath}: ${error.message}`, true));
+        }, error => log(`LCD texture fallback retained for ${directPath}: ${error.message}`, true));
         return;
     }
 
-    const canvasTexture = createLcdCanvasTexture(surface, textureToken, material);
+    const canvasTexture = createLcdCanvasTexture(surface, textureToken, material, preloadedTextures);
     material.map = canvasTexture;
     material.emissiveMap = canvasTexture;
     material.needsUpdate = true;
@@ -2411,7 +2434,7 @@ function currentLcdImage(surface) {
     return images[index];
 }
 
-function createLcdCanvasTexture(surface, textureToken, material) {
+function createLcdCanvasTexture(surface, textureToken, material, preloadedTextures = null) {
     const canvas = document.createElement("canvas");
     canvas.width = clamp(Math.round(Number(surface.textureWidth) || 512), 16, 2048);
     canvas.height = clamp(Math.round(Number(surface.textureHeight) || 512), 16, 2048);
@@ -2425,7 +2448,7 @@ function createLcdCanvasTexture(surface, textureToken, material) {
 
     const context = { canvas: layoutCanvas, outputCanvas: canvas, ctx: layoutCanvas.getContext("2d"), texture, material, surface, images: new Map() };
     renderLcdCanvas(context);
-    loadLcdCanvasImages(context, textureToken);
+    loadLcdCanvasImages(context, textureToken, preloadedTextures);
     loadLcdCanvasFonts(context);
     return texture;
 }
@@ -2441,14 +2464,14 @@ function lcdLayoutCanvas(surface, textureCanvas) {
     return layoutCanvas;
 }
 
-function loadLcdCanvasImages(context, textureToken) {
+function loadLcdCanvasImages(context, textureToken, preloadedTextures = null) {
     for (const path of lcdCanvasTexturePaths(context.surface)) {
-        loadTrackedTexture({ slot: "LcdTexture", path, logLabel: context.surface.__quasarLcdDebugLabel, logStage: "canvas-image" }, textureToken).then(texture => {
+        applyTrackedTexture({ slot: "LcdTexture", path, logLabel: context.surface.__quasarLcdDebugLabel, logStage: "canvas-image" }, textureToken, {}, preloadedTextures, texture => {
             context.images.set(path, textureToCanvas(texture, 0, 0, { premultipliedSpriteAlpha: true }));
             renderLcdCanvas(context);
             context.texture.needsUpdate = true;
             context.material.needsUpdate = true;
-        }).catch(error => log(`LCD canvas texture skipped for ${path}: ${error.message}`, true));
+        }, error => log(`LCD canvas texture skipped for ${path}: ${error.message}`, true));
     }
 }
 
@@ -3026,33 +3049,34 @@ function stableTextureKey(textures) {
 
 function applyModelTextures(material, model, group, technique, renderMode, textureToken, colorMaskable = true) {
     const textureOptions = { rootId: model.rootId || "" };
+    const preloadedTextures = group.preloadedTextures || null;
     const usesTransparentMaterialTexture = technique.includes("GLASS") || !!group.textures?.GlassTexture || !!group.textures?.TransparentTexture;
     const base = textureSelection(group.textures, usesTransparentMaterialTexture
         ? ["GlassTexture", "TransparentTexture", "ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]
         : ["ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]);
     if (base) {
-        loadTrackedTexture(base, textureToken, textureOptions).then(texture => {
+        applyTrackedTexture(base, textureToken, textureOptions, preloadedTextures, texture => {
             material.map = texture;
             material.color.copy(material.userData.seTransparentMaterialColor || new THREE.Color(0xffffff));
             setSpaceEngineersColorMetalTexture(material, colorMetalTextureSelectionHasMetalness(base));
             material.needsUpdate = true;
-        }).catch(error => log(`Texture fallback retained for ${base.path}: ${error.message}`, true));
+        }, error => log(`Texture fallback retained for ${base.path}: ${error.message}`, true));
     }
 
     const alphaMask = (renderMode.cutout || renderMode.decal) ? alphaMaskTextureSelection(group.textures) : null;
     if (alphaMask) {
-        loadTrackedTexture(alphaMask, textureToken, textureOptions).then(texture => {
+        applyTrackedTexture(alphaMask, textureToken, textureOptions, preloadedTextures, texture => {
             material.alphaMap = texture;
             setSpaceEngineersAlphaMaskTexture(material, texture);
             material.needsUpdate = true;
-        }).catch(error => log(`Alpha-mask texture fallback retained for ${alphaMask.path}: ${error.message}`, true));
+        }, error => log(`Alpha-mask texture fallback retained for ${alphaMask.path}: ${error.message}`, true));
     }
 
     const colorMask = colorMaskable ? colorMaskTextureSelection(group.textures) : null;
     if (colorMask) {
-        loadTrackedTexture(colorMask, textureToken, textureOptions).then(texture => {
+        applyTrackedTexture(colorMask, textureToken, textureOptions, preloadedTextures, texture => {
             setSpaceEngineersColorMaskTexture(material, texture);
-        }).catch(error => log(`Paint mask texture fallback retained for ${colorMask.path}: ${error.message}`, true));
+        }, error => log(`Paint mask texture fallback retained for ${colorMask.path}: ${error.message}`, true));
     }
 
     const normalSlots = usesTransparentMaterialTexture
@@ -3060,7 +3084,7 @@ function applyModelTextures(material, model, group, technique, renderMode, textu
         : ["NormalGlossTexture", "NormalTexture", "NormalMapTexture"];
     const normal = textureSelection(group.textures, normalSlots);
     if (normal) {
-        loadTrackedTexture(normal, textureToken, textureOptions).then(texture => {
+        applyTrackedTexture(normal, textureToken, textureOptions, preloadedTextures, texture => {
             if (normal.slot === "GlassGlossTexture") {
                 material.roughnessMap = texture;
                 setSpaceEngineersTransparentGlossTexture(material, true);
@@ -3070,7 +3094,7 @@ function applyModelTextures(material, model, group, technique, renderMode, textu
                 setSpaceEngineersNormalGlossTexture(material, true);
             }
             material.needsUpdate = true;
-        }).catch(error => log(`Normal texture fallback retained for ${normal.path}: ${error.message}`, true));
+        }, error => log(`Normal texture fallback retained for ${normal.path}: ${error.message}`, true));
     }
 }
 
@@ -3112,6 +3136,26 @@ function loadTrackedTexture(selection, textureToken, options = {}) {
         recordTextureLoadStatus(key, error && error.isMissingLocalTexture ? "missing" : "failed", textureToken);
         throw error;
     });
+}
+
+function applyTrackedTexture(selection, textureToken, options = {}, preloadedTextures = null, apply, onError) {
+    const cached = preloadedTextures && preloadedTextures.get(preloadedTextureKey(selection, options));
+    if (cached) {
+        apply(cached);
+        return;
+    }
+
+    loadTrackedTexture(selection, textureToken, options)
+        .then(texture => {
+            if (texture) apply(texture);
+        })
+        .catch(error => {
+            if (onError) onError(error);
+        });
+}
+
+function preloadedTextureKey(selection, options = {}) {
+    return `${options.rootId || ""}|${String(selection && selection.path || "").trim().replaceAll("\\", "/").toLowerCase()}|${String(selection && selection.slot || "").toLowerCase()}`;
 }
 
 function colorMetalTextureSelectionHasMetalness(selection) {
@@ -3664,6 +3708,134 @@ function collectReferencedTextureAssets(scene) {
         }
     }
     return assets;
+}
+
+function collectSceneTextureSelections(scene, definitions) {
+    const selections = new Map();
+    const add = (selection, options = {}) => addTextureSelection(selections, selection, options);
+
+    for (const asset of scene.textureAssets || []) {
+        add({ slot: asset.usage || asset.Usage || "metadata", path: asset.logicalPath }, { rootId: asset.rootId || asset.RootId || "" });
+    }
+
+    for (const material of scene.voxelMaterials || []) {
+        for (const path of [material.colorMetalY, material.colorMetalXZnY]) add({ slot: "ColorMetalTexture", path });
+        for (const path of [material.normalGlossY, material.normalGlossXZnY]) add({ slot: "NormalGlossTexture", path });
+    }
+
+    for (const block of scene.blockInstances || []) {
+        const definition = definitions && definitions.get(block.blockTypeId);
+        for (const item of blockModelTextureSources(block, definition)) {
+            const model = parsedModelForAssetId(item.assetId);
+            if (!model) continue;
+
+            for (const group of model.groups || []) {
+                if (isOfflineHiddenLcdMaterial(block, group.materialName)) continue;
+                if (isResetLcdModelMaterialHidden(block, group.materialName)) continue;
+                if (isLcdModelFallbackMaterialHidden(block, group.materialName)) continue;
+
+                const lcdSurface = lcdSurfaceForMaterial(block, group.materialName);
+                if (lcdSurface && lcdReplacementMode(lcdSurface) !== "model") {
+                    addLcdTextureSelections(add, lcdSurface);
+                    continue;
+                }
+
+                const technique = String(group.technique || "MESH").toUpperCase();
+                const skin = materialSkinOverride(block, group.materialName);
+                const transparentMaterial = transparentMaterialForGroup(group, technique);
+                const renderMode = modelMaterialRenderMode(technique);
+                const textures = materialTexturesForGroup(group, skin, transparentMaterial);
+                addModelMaterialTextureSelections(add, textures, technique, renderMode, isModelMaterialColorMaskable(group, technique, textures), model.rootId || "");
+            }
+        }
+    }
+
+    return selections;
+}
+
+function blockModelTextureSources(block, definition) {
+    const sources = [];
+    if (block.modelParts && block.modelParts.length) {
+        for (const part of block.modelParts) sources.push({ assetId: part.modelAssetId });
+    } else {
+        sources.push({ assetId: block.currentModelAssetId || definition && definition.modelAssetId || "" });
+    }
+    for (const subpart of block.subparts || []) sources.push({ assetId: subpart.modelAssetId });
+    return sources;
+}
+
+function parsedModelForAssetId(assetId) {
+    const resolved = assetId ? state.modelResolution.get(assetId) : null;
+    return resolved && resolved.status === "parsed" ? resolved.model : null;
+}
+
+function addLcdTextureSelections(add, surface) {
+    const directPath = lcdDirectPlaceholderPath(surface) || lcdDirectTexturePath(surface);
+    if (directPath) {
+        add({ slot: "LcdTexture", path: directPath });
+        return;
+    }
+    for (const path of lcdCanvasTexturePaths(surface)) add({ slot: "LcdTexture", path });
+}
+
+function addModelMaterialTextureSelections(add, textures, technique, renderMode, colorMaskable, rootId) {
+    const usesTransparentMaterialTexture = technique.includes("GLASS") || !!textures?.GlassTexture || !!textures?.TransparentTexture;
+    const base = textureSelection(textures, usesTransparentMaterialTexture
+        ? ["GlassTexture", "TransparentTexture", "ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]
+        : ["ColorMetalTexture", "DiffuseTexture", "BaseColorTexture"]);
+    if (base) add(base, { rootId });
+
+    const alphaMask = (renderMode.cutout || renderMode.decal) ? alphaMaskTextureSelection(textures) : null;
+    if (alphaMask) add(alphaMask, { rootId });
+
+    const colorMask = colorMaskable ? colorMaskTextureSelection(textures) : null;
+    if (colorMask) add(colorMask, { rootId });
+
+    const normal = textureSelection(textures, usesTransparentMaterialTexture
+        ? ["GlassGlossTexture", "NormalGlossTexture", "NormalTexture", "NormalMapTexture"]
+        : ["NormalGlossTexture", "NormalTexture", "NormalMapTexture"]);
+    if (normal) add(normal, { rootId });
+}
+
+function addTextureSelection(selections, selection, options = {}) {
+    if (!selection || !selection.path) return;
+    const normalized = { slot: selection.slot || "Texture", path: String(selection.path || "").trim().replaceAll("\\", "/") };
+    if (!normalized.path) return;
+    const normalizedOptions = { rootId: options.rootId || "" };
+    const key = preloadedTextureKey(normalized, normalizedOptions);
+    if (!selections.has(key)) selections.set(key, { selection: normalized, options: normalizedOptions });
+}
+
+function textureSelectionsToAssets(selections) {
+    const assets = new Map();
+    for (const { selection, options } of selections.values()) addTextureAsset(assets, selection.path, selection.slot, options.rootId || "");
+    return assets;
+}
+
+async function preloadTextureSelections(selections, textureToken) {
+    const textures = new Map();
+    await Promise.all([...selections.values()].map(async item => {
+        try {
+            const texture = await loadTrackedTexture(item.selection, textureToken, item.options);
+            if (texture) textures.set(preloadedTextureKey(item.selection, item.options), texture);
+        } catch (error) {
+            if (error && !error.isMissingLocalTexture) log(`Texture preload skipped for ${item.selection.path}: ${error.message}`, true);
+        }
+    }));
+    return textures;
+}
+
+async function preloadLcdFonts(scene) {
+    const fonts = new Set();
+    for (const block of scene.blockInstances || []) {
+        for (const surface of block.lcdSurfaces || []) {
+            if (String(surface.text || "")) fonts.add(supportedLcdFontId(surface.font));
+            for (const sprite of surface.sprites || []) {
+                if (String(sprite.type || "").toUpperCase() === "TEXT" && String(sprite.data || "")) fonts.add(supportedLcdFontId(sprite.fontId));
+            }
+        }
+    }
+    await Promise.all([...fonts].map(font => loadLcdBitmapFont(font).catch(error => log(`LCD font fallback retained for ${font}: ${error.message}`, true))));
 }
 
 function countLcdSurfaces(scene) {
