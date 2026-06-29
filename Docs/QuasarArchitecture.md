@@ -400,7 +400,12 @@ Normal console output should be minimal:
 - clickable URL
 - fatal error if the supervisor terminates unexpectedly
 
-The console should not continuously mirror normal ASP.NET request/application noise during routine operation.
+The worker mirrors Quasar web UI logs at the configured minimum level to stdout.
+Bootstrap always captures that worker stdout/stderr and writes it to Bootstrap's
+own console. On Linux this reaches the systemd journal; on Windows it reaches the
+Bootstrap process console, which is useful for diagnosing UI startup and render
+errors. The default minimum level is `Warn`, so routine ASP.NET request noise is
+not mirrored during normal operation.
 
 ### File logging
 
@@ -428,7 +433,7 @@ In unattended background mode:
 
 - no browser auto-open
 - no interactive console expectations
-- logs go to configured log files and platform host logging as appropriate
+- logs go to configured log files and Bootstrap's host console
 
 ## Browser Launch Policy
 

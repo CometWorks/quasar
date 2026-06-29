@@ -60,9 +60,9 @@ public static class QuasarLoggingConfigurator
         configuration.AddRule(minimumLevel, NLog.LogLevel.Fatal, fileTarget);
         configuration.LoggingRules.Add(new LoggingRule("Quasar.Services.Discord.*", minimumLevel, NLog.LogLevel.Fatal, discordFileTarget));
 
-        // The bootstrap launches the worker with QUASAR_CONSOLE_LOGGING=true when the user
-        // started Quasar from an interactive console. Mirror NLog output to stdout so the
-        // launcher can pipe it back through to that terminal.
+        // Bootstrap launches the worker with QUASAR_CONSOLE_LOGGING=true and drains
+        // stdout/stderr so worker warnings and errors reach the Bootstrap host console
+        // (systemd journal on Linux, the Bootstrap process console on Windows).
         if (IsConsoleLoggingRequested())
         {
             var consoleTarget = new ConsoleTarget("quasar-console")

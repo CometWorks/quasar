@@ -92,6 +92,11 @@ On startup, Bootstrap also migrates a legacy default data root at
 `~/.config/Quasar` into the install root unless `QUASAR_DATA_DIR` points to a
 custom directory.
 
+Bootstrap always captures the managed web UI worker's stdout/stderr and mirrors
+it to its own console. For systemd installs, Quasar web UI warnings and errors
+therefore appear in the service journal as well as in the configured Quasar log
+files.
+
 ## UI Worker Updates
 
 The running Quasar UI checks GitHub releases every 15 minutes by default. The

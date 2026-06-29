@@ -68,6 +68,9 @@ The Scheduled Task runs Bootstrap as `Quasar.exe serve --quiet --service` from
 the install directory (the extracted installer root by default). Bootstrap is
 the direct task action — no `cmd.exe` wrapper — so Task Scheduler's job object
 covers the Bootstrap process itself, and stopping the task terminates it cleanly.
+Bootstrap always captures the managed web UI worker's stdout/stderr and mirrors
+it to the Bootstrap process console, so Quasar web UI warnings and errors are
+available from the launcher side in addition to the configured Quasar log files.
 
 If Bootstrap has no usable `Updates/active-release.json` and no packaged
 `WebService/Quasar.exe`, it downloads the latest Windows web asset from GitHub and

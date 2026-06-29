@@ -1903,8 +1903,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             WorkingDirectory = workerWorkingDirectory,
             UseShellExecute = false,
             CreateNoWindow = true,
-            RedirectStandardOutput = _foregroundOptions.IsForeground,
-            RedirectStandardError = _foregroundOptions.IsForeground,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
 
         startInfo.Environment["QUASAR_OPEN_BROWSER_ON_START"] = "false";
@@ -1914,8 +1914,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         startInfo.Environment["QUASAR_INSTALL_DIR"] = AppContext.BaseDirectory;
         startInfo.Environment["QUASAR_DATA_DIR"] = MagnetarPaths.GetQuasarDirectory();
         startInfo.Environment["QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN"] = _options.PreserveServersOnShutdown ? "true" : "false";
-        if (_foregroundOptions.IsForeground)
-            startInfo.Environment["QUASAR_CONSOLE_LOGGING"] = "true";
+        startInfo.Environment["QUASAR_CONSOLE_LOGGING"] = "true";
 
         Process process;
         try
@@ -1933,11 +1932,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         process.EnableRaisingEvents = true;
         process.Exited += (_, _) => HandleWorkerExited(worker);
 
-        if (_foregroundOptions.IsForeground)
-        {
-            _ = PumpWorkerStreamAsync(process.StandardOutput, Console.Out);
-            _ = PumpWorkerStreamAsync(process.StandardError, Console.Error);
-        }
+        _ = PumpWorkerStreamAsync(process.StandardOutput, Console.Out);
+        _ = PumpWorkerStreamAsync(process.StandardError, Console.Error);
 
         var healthy = await WaitForWorkerHealthyAsync(worker, cancellationToken);
         if (healthy)
