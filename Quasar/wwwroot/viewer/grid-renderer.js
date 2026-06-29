@@ -64,15 +64,6 @@ export async function renderGridScene(scene) {
     state.scene.add(group);
     const gridGroups = buildGridGroups(scene, group);
     state.currentGridSize = floorGridMajorStep(scene);
-    renderLogisticsOverlay(scene, gridGroups, definitions);
-    buildGridLightGroups(scene, gridGroups);
-
-    const renderTextureToken = ++textureStatsToken;
-    state.modelResolution.clear();
-    const textureStats = initializeTextureStats(collectReferencedTextureAssets(scene));
-    const resolutionStats = { found: 0, parsed: 0, missing: 0, listed: (scene.modelAssets || []).length };
-    const progress = createProgressiveModelRender(scene, definitions, gridGroups, renderTextureToken, renderToken);
-
     state.contextBounds = contextRelativeBounds(scene);
     state.contextGridIds = new Set(sceneGrids(scene).filter(grid => grid && grid.isContext).map(grid => String(grid.id || "")));
     state.primaryGridId = primaryGrid(scene)?.id || "";
@@ -84,6 +75,15 @@ export async function renderGridScene(scene) {
     }
     state.currentBounds = bounds;
     state.currentFloorGridAlignment = floorGridAlignment(scene);
+    renderLogisticsOverlay(scene, gridGroups, definitions);
+    buildGridLightGroups(scene, gridGroups);
+
+    const renderTextureToken = ++textureStatsToken;
+    state.modelResolution.clear();
+    const textureStats = initializeTextureStats(collectReferencedTextureAssets(scene));
+    const resolutionStats = { found: 0, parsed: 0, missing: 0, listed: (scene.modelAssets || []).length };
+    const progress = createProgressiveModelRender(scene, definitions, gridGroups, renderTextureToken, renderToken);
+
     renderVoxelBodies(scene.voxels || [], scene.voxelDeformations || [], scene.voxelMaterials || []);
     renderDamagedOverlay(scene, gridGroups, definitions, scene.voxelDamageDeformations || []);
     progress.rebuild();
@@ -432,10 +432,12 @@ function renderDamagedOverlay(scene, gridGroups, definitions, damagedVoxelChunks
         const grid = gridById(scene, String(gridId || "")) || primaryGrid(scene) || scene.grid || {};
         return grid.gridSize || scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
     };
+    const clipBounds = contextBlockClipBounds(scene);
+    const gridClip = gridId => contextGridClip(scene, gridId, clipBounds);
 
     for (const block of damagedBlocks) {
         const definition = definitions && definitions.get(block.blockTypeId);
-        const masks = createDamagedBlockMasks(block, definition, maskRenderContext, gridSize(block.gridId));
+        const masks = createDamagedBlockMasks(block, definition, maskRenderContext, gridSize(block.gridId), gridClip(block.gridId));
         for (const mask of masks) gridOverlay(block.gridId).add(mask);
     }
 
@@ -449,30 +451,32 @@ function renderDamagedOverlay(scene, gridGroups, definitions, damagedVoxelChunks
     for (const mask of createDamagedVoxelMasks(damagedVoxelChunks, voxelBodiesById)) damagedVoxelGroup.add(mask);
 }
 
-function createDamagedBlockMasks(block, definition, renderContext, gridSize) {
+function createDamagedBlockMasks(block, definition, renderContext, gridSize, clip = null) {
     if (!block) return [];
     const ratio = damageRatio(block);
     const material = sharedDamagedMaskMaterial(ratio);
     const masks = [];
     if (block.modelParts && block.modelParts.length) {
         for (const part of block.modelParts) {
-            masks.push(...createDamagedModelMaskMeshes(part.modelAssetId, block, matrixDtoToThree(part.localMatrix), part.patternOffset, material, renderContext));
+            masks.push(...createDamagedModelMaskMeshes(part.modelAssetId, block, matrixDtoToThree(part.localMatrix), part.patternOffset, material, renderContext, clip));
         }
     } else {
         const assetId = block.currentModelAssetId || (definition && definition.modelAssetId) || "";
-        masks.push(...createDamagedModelMaskMeshes(assetId, block, composeModelInstanceMatrix(block, definition), null, material, renderContext));
+        masks.push(...createDamagedModelMaskMeshes(assetId, block, composeModelInstanceMatrix(block, definition), null, material, renderContext, clip));
     }
 
     for (const subpart of block.subparts || []) {
-        masks.push(...createDamagedModelMaskMeshes(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix), null, material, renderContext));
+        masks.push(...createDamagedModelMaskMeshes(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix), null, material, renderContext, clip));
     }
-    return masks.length ? masks : createDamagedFallbackMask(block, material, gridSize);
+    return masks.length ? masks : createDamagedFallbackMask(block, material, gridSize, clip);
 }
 
-function createDamagedFallbackMask(block, material, gridSize) {
+function createDamagedFallbackMask(block, material, gridSize, clip = null) {
     const box = blockBox(block, gridSize || LARGE_GRID_CUBE_SIZE);
     if (box.isEmpty()) return [];
-    const mesh = createBoxMesh(box, material);
+    const geometry = clip ? clippedBoxGeometry(box, clip) : null;
+    if (clip && !geometry) return [];
+    const mesh = geometry ? new THREE.Mesh(geometry, material) : createBoxMesh(box, material);
     mesh.name = `DamagedBlockFallbackMask:${block.id || "block"}`;
     mesh.renderOrder = 29;
     mesh.frustumCulled = false;
@@ -484,7 +488,7 @@ function createDamagedFallbackMask(block, material, gridSize) {
     return [mesh];
 }
 
-function createDamagedModelMaskMeshes(assetId, block, matrix, patternOffset, material, renderContext) {
+function createDamagedModelMaskMeshes(assetId, block, matrix, patternOffset, material, renderContext, clip = null) {
     const resolved = assetId ? state.modelResolution.get(assetId) : null;
     const model = resolved && resolved.status === "parsed" ? resolved.model : null;
     if (!model) return [];
@@ -497,11 +501,14 @@ function createDamagedModelMaskMeshes(assetId, block, matrix, patternOffset, mat
     });
     if (!groups.length) return [];
 
-    const geometry = sharedModelGeometry(model, patternOffset, renderContext, groups, "damaged-mask");
+    const geometry = clip
+        ? clippedModelGeometry(model, patternOffset, groups, matrix, clip)
+        : sharedModelGeometry(model, patternOffset, renderContext, groups, "damaged-mask");
+    if (!geometry) return [];
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `DamagedBlockMask:${block.id || "block"}`;
     mesh.matrixAutoUpdate = false;
-    mesh.matrix.copy(matrix);
+    mesh.matrix.copy(clip ? new THREE.Matrix4() : matrix);
     mesh.renderOrder = 29;
     mesh.frustumCulled = false;
     mesh.castShadow = false;
@@ -645,12 +652,14 @@ function renderLogisticsOverlay(scene, gridGroups, definitions) {
         const grid = gridById(scene, String(gridId || "")) || primaryGrid(scene) || scene.grid || {};
         return grid.gridSize || scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
     };
+    const clipBounds = contextBlockClipBounds(scene);
+    const gridClip = gridId => contextGridClip(scene, gridId, clipBounds);
 
     for (const edge of edges) {
         const fromNode = nodeById.get(String(edge && edge.fromNodeId || ""));
         const toNode = nodeById.get(String(edge && edge.toNodeId || ""));
         const gridId = edge && edge.gridId || fromNode && fromNode.gridId || "";
-        const lines = createLogisticsEdge(edge, logisticsGridSize(gridId), fromNode, toNode);
+        const lines = createLogisticsEdge(edge, logisticsGridSize(gridId), fromNode, toNode, gridClip(gridId));
         for (const line of lines) gridOverlay(gridId).add(line);
     }
 
@@ -658,26 +667,34 @@ function renderLogisticsOverlay(scene, gridGroups, definitions) {
         const block = blockById.get(String(node.blockId || node.id || ""));
         const definition = block && definitions && definitions.get(block.blockTypeId);
         const gridId = node.gridId || block && block.gridId || "";
-        const masks = createLogisticsNodeMasks(node, block, definition, maskRenderContext, logisticsGridSize(gridId));
+        const masks = createLogisticsNodeMasks(node, block, definition, maskRenderContext, logisticsGridSize(gridId), gridClip(gridId));
         for (const mask of masks) gridOverlay(gridId).add(mask);
     }
 }
 
-function createLogisticsEdge(edge, gridSize, fromNode, toNode) {
+function createLogisticsEdge(edge, gridSize, fromNode, toNode, clip = null) {
     if (!edge) return [];
     const points = logisticsEdgePoints(edge);
     if (points.length < 2) return [];
 
     if (edge.isWorking === false && !edge.isDangling && fromNode && toNode) {
         const split = splitPolylineAtRatio(points, 0.5);
-        return [
-            createLogisticsLine(edge, split.before, gridSize, num(fromNode.systemId, edge.systemId), "from"),
-            createLogisticsLine(edge, split.after, gridSize, num(toNode.systemId, edge.systemId), "to"),
-        ].filter(Boolean);
+        return createLogisticsLines(edge, split.before, gridSize, num(fromNode.systemId, edge.systemId), "from", clip)
+            .concat(createLogisticsLines(edge, split.after, gridSize, num(toNode.systemId, edge.systemId), "to", clip));
     }
 
-    const line = createLogisticsLine(edge, points, gridSize, num(edge.systemId, -1), "edge");
-    return line ? [line] : [];
+    return createLogisticsLines(edge, points, gridSize, num(edge.systemId, -1), "edge", clip);
+}
+
+function createLogisticsLines(edge, points, gridSize, systemId, segmentName, clip = null) {
+    const segments = clip ? clipPolylineToFloor(points, clip) : [points];
+    const lines = [];
+    for (let i = 0; i < segments.length; i++) {
+        const suffix = segments.length > 1 ? `${segmentName || "edge"}:${i + 1}` : segmentName;
+        const line = createLogisticsLine(edge, segments[i], gridSize, systemId, suffix);
+        if (line) lines.push(line);
+    }
+    return lines;
 }
 
 function createLogisticsLine(edge, points, gridSize, systemId, segmentName) {
@@ -758,7 +775,7 @@ function totalPolylineLengthSquared(points) {
     return total;
 }
 
-function createLogisticsNodeMasks(node, block, definition, renderContext, gridSize) {
+function createLogisticsNodeMasks(node, block, definition, renderContext, gridSize, clip = null) {
     if (!node || !block) return [];
     const role = String(node.role || "other").toLowerCase();
     const color = logisticsRoleColor(role, node.systemId);
@@ -767,23 +784,25 @@ function createLogisticsNodeMasks(node, block, definition, renderContext, gridSi
     const masks = [];
     if (block.modelParts && block.modelParts.length) {
         for (const part of block.modelParts) {
-            masks.push(...createLogisticsModelMaskMeshes(part.modelAssetId, block, node, matrixDtoToThree(part.localMatrix), part.patternOffset, material, renderContext));
+            masks.push(...createLogisticsModelMaskMeshes(part.modelAssetId, block, node, matrixDtoToThree(part.localMatrix), part.patternOffset, material, renderContext, clip));
         }
     } else {
         const assetId = block.currentModelAssetId || (definition && definition.modelAssetId) || "";
-        masks.push(...createLogisticsModelMaskMeshes(assetId, block, node, composeModelInstanceMatrix(block, definition), null, material, renderContext));
+        masks.push(...createLogisticsModelMaskMeshes(assetId, block, node, composeModelInstanceMatrix(block, definition), null, material, renderContext, clip));
     }
 
     for (const subpart of block.subparts || []) {
-        masks.push(...createLogisticsModelMaskMeshes(subpart.modelAssetId, block, node, matrixDtoToThree(subpart.localMatrix), null, material, renderContext));
+        masks.push(...createLogisticsModelMaskMeshes(subpart.modelAssetId, block, node, matrixDtoToThree(subpart.localMatrix), null, material, renderContext, clip));
     }
-    return masks.length ? masks : createLogisticsFallbackMask(node, block, material, gridSize);
+    return masks.length ? masks : createLogisticsFallbackMask(node, block, material, gridSize, clip);
 }
 
-function createLogisticsFallbackMask(node, block, material, gridSize) {
+function createLogisticsFallbackMask(node, block, material, gridSize, clip = null) {
     const box = blockBox(block, gridSize || LARGE_GRID_CUBE_SIZE);
     if (box.isEmpty()) return [];
-    const mesh = createBoxMesh(box, material);
+    const geometry = clip ? clippedBoxGeometry(box, clip) : null;
+    if (clip && !geometry) return [];
+    const mesh = geometry ? new THREE.Mesh(geometry, material) : createBoxMesh(box, material);
     mesh.name = `LogisticsNodeFallbackMask:${node.id || block.id || "node"}`;
     mesh.renderOrder = 27;
     mesh.frustumCulled = false;
@@ -809,7 +828,7 @@ function sharedLogisticsMaskMaterial(color, opacity, renderContext) {
     return material;
 }
 
-function createLogisticsModelMaskMeshes(assetId, block, node, matrix, patternOffset, material, renderContext) {
+function createLogisticsModelMaskMeshes(assetId, block, node, matrix, patternOffset, material, renderContext, clip = null) {
     const resolved = assetId ? state.modelResolution.get(assetId) : null;
     const model = resolved && resolved.status === "parsed" ? resolved.model : null;
     if (!model) return [];
@@ -822,11 +841,14 @@ function createLogisticsModelMaskMeshes(assetId, block, node, matrix, patternOff
     });
     if (!groups.length) return [];
 
-    const geometry = sharedModelGeometry(model, patternOffset, renderContext, groups, "logistics-mask");
+    const geometry = clip
+        ? clippedModelGeometry(model, patternOffset, groups, matrix, clip)
+        : sharedModelGeometry(model, patternOffset, renderContext, groups, "logistics-mask");
+    if (!geometry) return [];
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `LogisticsNodeMask:${node.id || block.id || "node"}`;
     mesh.matrixAutoUpdate = false;
-    mesh.matrix.copy(matrix);
+    mesh.matrix.copy(clip ? new THREE.Matrix4() : matrix);
     mesh.renderOrder = 28;
     mesh.frustumCulled = false;
     mesh.castShadow = false;
@@ -1514,6 +1536,75 @@ function voxelFloorClipBounds() {
 function contextBlockClipBounds(scene) {
     if (!scene || !(scene.context && scene.context.enabled)) return null;
     return floorClipBounds({ allowStandaloneVoxel: false });
+}
+
+function contextGridClip(scene, gridId, bounds = contextBlockClipBounds(scene)) {
+    if (!bounds) return null;
+    const grid = gridById(scene, String(gridId || "")) || primaryGrid(scene) || scene.grid || {};
+    if (!grid.isContext) return null;
+    const gridMatrix = gridRelativeMatrix(grid);
+    return { bounds, gridMatrix, inverseGridMatrix: gridMatrix.clone().invert() };
+}
+
+function clipPolylineToFloor(points, clip) {
+    if (!clip || !clip.bounds || !points || points.length < 2) return points && points.length ? [points] : [];
+    const segments = [];
+    let current = [];
+    for (let i = 1; i < points.length; i++) {
+        const clipped = clipSegmentToFloor(points[i - 1], points[i], clip);
+        if (!clipped) {
+            if (current.length) {
+                segments.push(current);
+                current = [];
+            }
+            continue;
+        }
+
+        if (!current.length) current = [clipped[0], clipped[1]];
+        else if (current[current.length - 1].distanceToSquared(clipped[0]) < 0.000001) current.push(clipped[1]);
+        else {
+            segments.push(current);
+            current = [clipped[0], clipped[1]];
+        }
+    }
+    if (current.length) segments.push(current);
+    return segments.filter(segment => segment.length >= 2 && totalPolylineLengthSquared(segment) >= 0.0001);
+}
+
+function clipSegmentToFloor(a, b, clip) {
+    const start = a.clone().applyMatrix4(clip.gridMatrix);
+    const end = b.clone().applyMatrix4(clip.gridMatrix);
+    const clipped = clipSegmentViewToRectXZ(start, end, clip.bounds);
+    if (!clipped) return null;
+    return clipped.map(point => point.applyMatrix4(clip.inverseGridMatrix));
+}
+
+function clipSegmentViewToRectXZ(a, b, bounds) {
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    let t0 = 0;
+    let t1 = 1;
+    const edges = [
+        [-dx, a.x - bounds.minX],
+        [dx, bounds.maxX - a.x],
+        [-dz, a.z - bounds.minZ],
+        [dz, bounds.maxZ - a.z],
+    ];
+
+    for (const [p, q] of edges) {
+        if (Math.abs(p) < 0.000001) {
+            if (q < -0.000001) return null;
+            continue;
+        }
+        const r = q / p;
+        if (p < 0) t0 = Math.max(t0, r);
+        else t1 = Math.min(t1, r);
+        if (t0 - t1 > 0.000001) return null;
+    }
+
+    const start = new THREE.Vector3().lerpVectors(a, b, clamp(t0, 0, 1));
+    const end = new THREE.Vector3().lerpVectors(a, b, clamp(t1, 0, 1));
+    return start.distanceToSquared(end) >= 0.000001 ? [start, end] : null;
 }
 
 function floorClipBounds(options = {}) {
