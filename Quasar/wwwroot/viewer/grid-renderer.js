@@ -460,6 +460,7 @@ function createLogisticsEdge(edge, gridSize) {
     line.frustumCulled = false;
     line.userData.logisticsEdge = edge;
     line.userData.logisticsSystemId = num(edge.systemId, -1);
+    line.userData.logisticsGridId = String(edge.gridId || "");
     material.userData.logisticsBaseOpacity = opacity;
     if (edge.isSmallRestricted) line.computeLineDistances();
     return line;
@@ -516,6 +517,7 @@ function createLogisticsFallbackMask(node, block, material, gridSize) {
     mesh.userData.block = block;
     mesh.userData.logisticsNode = node;
     mesh.userData.logisticsSystemId = num(node.systemId, -1);
+    mesh.userData.logisticsGridId = String(node.gridId || block.gridId || "");
     return [mesh];
 }
 
@@ -557,6 +559,7 @@ function createLogisticsModelMaskMeshes(assetId, block, node, matrix, patternOff
     mesh.userData.block = block;
     mesh.userData.logisticsNode = node;
     mesh.userData.logisticsSystemId = num(node.systemId, -1);
+    mesh.userData.logisticsGridId = String(node.gridId || block.gridId || "");
     return [mesh];
 }
 

@@ -549,7 +549,7 @@ function onPointerMove(event) {
     const logisticsHit = hits.find(item => logisticsFromIntersection(item));
     if (logisticsHit) {
         const logistics = logisticsFromIntersection(logisticsHit);
-        updateLogisticsFocus(logisticsSystemId(logistics));
+        updateLogisticsFocus(logisticsFocus(logistics));
         els.hoverReadout.textContent = describeLogistics(logistics);
         return;
     }
@@ -599,22 +599,41 @@ function describeLogistics(item) {
     return `Logistics ${value.role || "node"} | system ${value.systemId ?? "?"} | ${value.blockTypeId || value.blockId || "no block"}${value.isWorking === false ? " | offline" : ""}`;
 }
 
-function logisticsSystemId(item) {
+function logisticsFocus(item) {
     if (!item || !item.value) return null;
-    if (item.kind === "node" && !(Number(item.value.conveyorPortCount) > 0)) return null;
+    if (item.kind === "node" && !(Number(item.value.conveyorPortCount) > 0)) {
+        const gridId = String(item.value.gridId || "");
+        return gridId ? { kind: "conveyorless-grid", gridId, key: `conveyorless-grid:${gridId}` } : null;
+    }
     const id = Number(item.value.systemId);
-    return Number.isFinite(id) && id >= 0 ? id : null;
+    return Number.isFinite(id) && id >= 0 ? { kind: "system", systemId: id, key: `system:${id}` } : null;
 }
 
-function updateLogisticsFocus(systemId) {
-    if (!state.logisticsGroup || state.logisticsGroup.userData.focusedSystemId === systemId) return;
-    state.logisticsGroup.userData.focusedSystemId = systemId;
+function updateLogisticsFocus(focus) {
+    const focusKey = focus && focus.key || "";
+    if (!state.logisticsGroup || state.logisticsGroup.userData.focusKey === focusKey) return;
+    state.logisticsGroup.userData.focusKey = focusKey;
     state.logisticsGroup.traverse(object => {
-        const objectSystemId = Number(object.userData && object.userData.logisticsSystemId);
-        const focused = systemId != null && Number.isFinite(objectSystemId) && objectSystemId === systemId;
-        const factor = systemId == null ? 0.72 : focused ? 1 : 0.16;
+        const focused = isLogisticsFocusMatch(object, focus);
+        const factor = !focus ? 0.72 : focused ? 1 : 0.16;
         applyLogisticsOpacityFactor(object.material, factor);
     });
+}
+
+function isLogisticsFocusMatch(object, focus) {
+    if (!focus) return false;
+    const userData = object.userData || {};
+    if (focus.kind === "system") {
+        const objectSystemId = Number(userData.logisticsSystemId);
+        return Number.isFinite(objectSystemId) && objectSystemId === focus.systemId;
+    }
+    if (focus.kind === "conveyorless-grid") {
+        const node = userData.logisticsNode;
+        return !!node
+            && !(Number(node.conveyorPortCount) > 0)
+            && String(userData.logisticsGridId || node.gridId || "") === focus.gridId;
+    }
+    return false;
 }
 
 function applyLogisticsOpacityFactor(material, factor) {
