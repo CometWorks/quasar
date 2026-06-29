@@ -1671,6 +1671,7 @@ namespace Quasar.Agent
                 SkinSubtypeId = block.SkinSubtypeId.String ?? string.Empty,
                 BuildLevel = block.BuildLevelRatio,
                 Integrity = block.Integrity,
+                AccumulatedDamage = block.AccumulatedDamage,
                 MaxIntegrity = block.MaxIntegrity,
                 CurrentModelAssetId = currentModelAssetId,
             };

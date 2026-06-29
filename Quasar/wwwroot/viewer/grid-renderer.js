@@ -377,7 +377,7 @@ function renderDamagedOverlay(scene, gridGroups, definitions) {
         state.damagedGroup = null;
     }
 
-    const damagedBlocks = (scene.blockInstances || []).filter(block => damageRatio(block) > 0);
+    const damagedBlocks = (scene.blockInstances || []).filter(block => isProjectorDamagedBlock(block));
     const group = new THREE.Group();
     group.name = "QuasarDamagedOverlay";
     group.visible = !!(els.showDamaged && els.showDamaged.checked);
@@ -417,7 +417,6 @@ function renderDamagedOverlay(scene, gridGroups, definitions) {
 function createDamagedBlockMasks(block, definition, renderContext, gridSize) {
     if (!block) return [];
     const ratio = damageRatio(block);
-    if (ratio <= 0) return [];
     const material = sharedDamagedMaskMaterial(ratio);
     const masks = [];
     if (block.modelParts && block.modelParts.length) {
@@ -499,7 +498,29 @@ function damageRatio(block) {
     if (max <= 0) return 0;
     const buildIntegrity = clamp01(num(block && block.buildLevel, 1)) * max;
     const integrity = num(block && block.integrity, buildIntegrity);
-    return clamp01((buildIntegrity - integrity) / max);
+    const currentDamage = Math.max(0, buildIntegrity - integrity);
+    const accumulatedDamage = Math.max(0, num(block && block.accumulatedDamage, 0));
+    const unfinishedDamage = isProjectorUnfinishedBlock(block) ? Math.max(0, max - buildIntegrity) : 0;
+    return clamp01(Math.max(currentDamage, accumulatedDamage, unfinishedDamage) / max);
+}
+
+function isProjectorDamagedBlock(block) {
+    return isProjectorUnfinishedBlock(block)
+        || num(block && block.accumulatedDamage, 0) > 0
+        || currentDamage(block) > 0;
+}
+
+function isProjectorUnfinishedBlock(block) {
+    const buildLevel = num(block && block.buildLevel, 1);
+    return buildLevel > 0 && buildLevel < 1;
+}
+
+function currentDamage(block) {
+    const max = num(block && block.maxIntegrity, 0);
+    if (max <= 0) return 0;
+    const buildIntegrity = clamp01(num(block && block.buildLevel, 1)) * max;
+    const integrity = num(block && block.integrity, buildIntegrity);
+    return Math.max(0, buildIntegrity - integrity);
 }
 
 function clamp01(value) {

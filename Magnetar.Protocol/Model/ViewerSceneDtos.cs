@@ -288,6 +288,8 @@ public class ViewerBlockInstance
 
     public float Integrity { get; set; }
 
+    public float AccumulatedDamage { get; set; }
+
     public float MaxIntegrity { get; set; }
 
     public long OwnerIdentityId { get; set; }

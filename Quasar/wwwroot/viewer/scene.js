@@ -580,7 +580,7 @@ function damagedBlockFromIntersection(hit) {
         object = object.parent;
     }
     const block = blockFromIntersection(hit);
-    return damageRatio(block) > 0 ? block : null;
+    return isProjectorDamagedBlock(block) ? block : null;
 }
 
 function blockFromIntersection(hit) {
@@ -618,7 +618,32 @@ function damageRatio(block) {
     const buildIntegrity = clamp((Number.isFinite(buildLevel) ? buildLevel : 1) * max, 0, max);
     const integrity = Number(block && block.integrity);
     const current = Number.isFinite(integrity) ? integrity : buildIntegrity;
-    return clamp((buildIntegrity - current) / max, 0, 1);
+    const currentDamage = Math.max(0, buildIntegrity - current);
+    const accumulatedDamage = Math.max(0, Number(block && block.accumulatedDamage) || 0);
+    const unfinishedDamage = isProjectorUnfinishedBlock(block) ? Math.max(0, max - buildIntegrity) : 0;
+    return clamp(Math.max(currentDamage, accumulatedDamage, unfinishedDamage) / max, 0, 1);
+}
+
+function isProjectorDamagedBlock(block) {
+    return isProjectorUnfinishedBlock(block)
+        || (Number(block && block.accumulatedDamage) || 0) > 0
+        || currentDamage(block) > 0;
+}
+
+function isProjectorUnfinishedBlock(block) {
+    const buildLevel = Number(block && block.buildLevel);
+    const level = Number.isFinite(buildLevel) ? buildLevel : 1;
+    return level > 0 && level < 1;
+}
+
+function currentDamage(block) {
+    const max = Number(block && block.maxIntegrity) || 0;
+    if (max <= 0) return 0;
+    const buildLevel = Number(block && block.buildLevel);
+    const buildIntegrity = clamp((Number.isFinite(buildLevel) ? buildLevel : 1) * max, 0, max);
+    const integrity = Number(block && block.integrity);
+    const current = Number.isFinite(integrity) ? integrity : buildIntegrity;
+    return Math.max(0, buildIntegrity - current);
 }
 
 function describeVoxel(voxel) {
