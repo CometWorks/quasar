@@ -3703,6 +3703,7 @@ async function resolveReferencedModelsProgressively(scene, modelAssets, stats, p
         const result = await resolveModelAsset(asset);
         if (renderToken !== modelRenderToken) return;
         completed++;
+        if (reportProgress) reportProgress("Loading models", `Resolved ${completed.toLocaleString()} of ${modelAssets.size.toLocaleString()} model assets...`, completed, Math.max(1, modelAssets.size));
 
         state.modelResolution.set(asset.assetId, result);
         if (result.status === "missing") {
@@ -3715,7 +3716,6 @@ async function resolveReferencedModelsProgressively(scene, modelAssets, stats, p
         }
 
         updateModelStats(stats, progress.lastRenderStats, modelAssets.size);
-        if (reportProgress) reportProgress("Loading models", `Resolved ${completed.toLocaleString()} of ${modelAssets.size.toLocaleString()} model assets...`, completed, Math.max(1, modelAssets.size));
         progress.scheduleRebuild();
     });
     return stats;
