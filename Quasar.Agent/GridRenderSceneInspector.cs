@@ -1562,6 +1562,7 @@ namespace Quasar.Agent
                         var fromIndex = hasEndpointA ? 0 : 1;
                         var toIndex = hasEndpointA ? 1 : 0;
                         var sourceNode = hasEndpointA ? fromNode : toNode;
+                        var targetEndpoint = hasEndpointA ? endpointB : endpointA;
                         var targetNode = hasEndpointA && hasEndpointB ? toNode : null;
                         var from = LogisticsLinePosition(grid, line, fromIndex, sourceNode);
                         var to = LogisticsLineEndpointPosition(grid, line, toIndex, from);
@@ -1575,7 +1576,7 @@ namespace Quasar.Agent
                             ToNodeId = targetNode?.Id ?? string.Empty,
                             LineType = isSmall ? "small" : line.Type == MyObjectBuilder_ConveyorLine.LineType.LARGE_LINE ? "large" : "unknown",
                             IsSmallRestricted = isSmall,
-                            IsDangling = targetNode == null,
+                            IsDangling = targetEndpoint == null,
                             IsWorking = line.IsWorking,
                             From = ToDto(from),
                             To = ToDto(to),
