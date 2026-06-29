@@ -82,10 +82,11 @@ namespace Quasar.Agent
             var clippedGridCount = 0;
             var logisticsGrids = new List<MyCubeGrid>();
 
-            foreach (var sceneGrid in ContextGrids(grid, contextClip, scene.Warnings))
+            foreach (var sceneGridCandidate in ContextGrids(grid, contextClip, scene.Warnings))
             {
+                var sceneGrid = sceneGridCandidate.Grid;
                 var isPrimary = sceneGrid.EntityId == grid.EntityId;
-                if (!isPrimary && includeContext)
+                if (!isPrimary && includeContext && !sceneGridCandidate.ForceFullGrid)
                 {
                     if (scene.Grids.Count >= MaxContextGrids)
                     {
@@ -100,7 +101,7 @@ namespace Quasar.Agent
                     }
                 }
 
-                var result = AddGridToScene(scene, sceneGrid, isPrimary, includeContext, contextAabb, contextClip, definitions, chunks, catalog, ref contextBlocks);
+                var result = AddGridToScene(scene, sceneGrid, isPrimary, includeContext, sceneGridCandidate.ForceFullGrid, contextAabb, contextClip, definitions, chunks, catalog, ref contextBlocks);
                 if (result.Grid.IsClippedToContext)
                     clippedGridCount++;
                 scene.Grids.Add(result.Grid);
@@ -222,6 +223,7 @@ namespace Quasar.Agent
             MyCubeGrid grid,
             bool isPrimary,
             bool includeContext,
+            bool forceFullGrid,
             BoundingBoxD? contextAabb,
             ContextFloorClip contextClip,
             Dictionary<string, ViewerBlockDefinition> definitions,
@@ -238,7 +240,7 @@ namespace Quasar.Agent
                 if (block == null || block.BlockDefinition == null)
                     continue;
 
-                var includeBlock = isPrimary || contextClip == null || BlockIntersectsContext(grid, block, contextClip);
+                var includeBlock = isPrimary || forceFullGrid || contextClip == null || BlockIntersectsContext(grid, block, contextClip);
                 if (!includeBlock)
                 {
                     skipped++;
@@ -286,7 +288,7 @@ namespace Quasar.Agent
             }
 
             gridDto.BlockCount = included;
-            if (!isPrimary && includeContext && contextAabb.HasValue && contextClip != null)
+            if (!isPrimary && includeContext && !forceFullGrid && contextAabb.HasValue && contextClip != null)
             {
                 gridDto.IsClippedToContext = skipped > 0 || !GridInsideContext(grid, contextClip);
                 if (gridDto.IsClippedToContext)
@@ -353,31 +355,72 @@ namespace Quasar.Agent
             return LocalAabbToWorldAabb(localMin, localMax, contextClip.Primary.WorldMatrix);
         }
 
-        private static IEnumerable<MyCubeGrid> ContextGrids(MyCubeGrid primary, ContextFloorClip contextClip, List<string> warnings)
+        private static IEnumerable<SceneGridCandidate> ContextGrids(MyCubeGrid primary, ContextFloorClip contextClip, List<string> warnings)
         {
-            yield return primary;
-            if (contextClip == null)
-                yield break;
+            var visible = new Dictionary<long, SceneGridCandidate>();
+            AddSceneGridCandidate(visible, primary, forceFullGrid: true);
 
-            IEnumerable<MyCubeGrid> candidates;
+            if (contextClip != null)
+            {
+                IEnumerable<MyCubeGrid> candidates;
+                try
+                {
+                    candidates = MyEntities.GetEntities().OfType<MyCubeGrid>().ToList();
+                }
+                catch (Exception exception)
+                {
+                    warnings.Add("Failed to enumerate context grids: " + exception.Message);
+                    candidates = Enumerable.Empty<MyCubeGrid>();
+                }
+
+                foreach (var grid in candidates.Where(candidate => IsUsableContextGrid(candidate) && candidate.EntityId != primary.EntityId))
+                {
+                    if (GridIntersectsContext(grid, contextClip))
+                        AddSceneGridCandidate(visible, grid, forceFullGrid: false);
+                }
+            }
+
+            foreach (var grid in visible.Values.Select(candidate => candidate.Grid).ToList())
+            {
+                foreach (var connectedGrid in MechanicalConnectedGrids(grid, warnings))
+                    AddSceneGridCandidate(visible, connectedGrid, forceFullGrid: true);
+            }
+
+            return visible.Values
+                .OrderBy(candidate => candidate.Grid.EntityId == primary.EntityId ? 0 : 1)
+                .ThenBy(candidate => FirstNonEmpty(candidate.Grid.DisplayName, candidate.Grid.Name, "Grid " + candidate.Grid.EntityId), StringComparer.OrdinalIgnoreCase)
+                .ThenBy(candidate => candidate.Grid.EntityId);
+        }
+
+        private static void AddSceneGridCandidate(Dictionary<long, SceneGridCandidate> visible, MyCubeGrid grid, bool forceFullGrid)
+        {
+            if (!IsUsableContextGrid(grid))
+                return;
+
+            if (visible.TryGetValue(grid.EntityId, out var existing))
+                existing.ForceFullGrid |= forceFullGrid;
+            else
+                visible.Add(grid.EntityId, new SceneGridCandidate { Grid = grid, ForceFullGrid = forceFullGrid });
+        }
+
+        private static IEnumerable<MyCubeGrid> MechanicalConnectedGrids(MyCubeGrid grid, List<string> warnings)
+        {
             try
             {
-                candidates = MyEntities.GetEntities().OfType<MyCubeGrid>().ToList();
+                return grid.GetConnectedGrids(VRage.Game.ModAPI.GridLinkTypeEnum.Mechanical)
+                    .Where(IsUsableContextGrid)
+                    .ToList();
             }
             catch (Exception exception)
             {
-                warnings.Add("Failed to enumerate context grids: " + exception.Message);
-                yield break;
+                warnings.Add("Failed to enumerate mechanical subgrids for " + FirstNonEmpty(grid.DisplayName, grid.Name, "Grid " + grid.EntityId) + ": " + exception.Message);
+                return Enumerable.Empty<MyCubeGrid>();
             }
+        }
 
-            foreach (var grid in candidates
-                          .Where(candidate => candidate != null && candidate.EntityId != primary.EntityId && !candidate.MarkedForClose && !candidate.Closed)
-                          .OrderBy(candidate => FirstNonEmpty(candidate.DisplayName, candidate.Name, "Grid " + candidate.EntityId), StringComparer.OrdinalIgnoreCase)
-                          .ThenBy(candidate => candidate.EntityId))
-            {
-                if (GridIntersectsContext(grid, contextClip))
-                    yield return grid;
-            }
+        private static bool IsUsableContextGrid(MyCubeGrid grid)
+        {
+            return grid != null && !grid.MarkedForClose && !grid.Closed;
         }
 
         private static bool GridIntersectsContext(MyCubeGrid grid, ContextFloorClip contextClip)
@@ -2827,6 +2870,13 @@ namespace Quasar.Agent
             public int IncludedBlockCount { get; set; }
 
             public int SkippedBlockCount { get; set; }
+        }
+
+        private sealed class SceneGridCandidate
+        {
+            public MyCubeGrid Grid { get; set; }
+
+            public bool ForceFullGrid { get; set; }
         }
 
         private sealed class ContextFloorClip
