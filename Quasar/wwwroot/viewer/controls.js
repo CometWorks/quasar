@@ -27,7 +27,18 @@ export function wireControls(actions) {
         updateLighting();
     });
     els.showLogistics.addEventListener("change", () => {
+        if (els.showLogistics.checked && els.showDamaged) {
+            els.showDamaged.checked = false;
+            if (state.damagedGroup) state.damagedGroup.visible = false;
+        }
         if (state.logisticsGroup) state.logisticsGroup.visible = els.showLogistics.checked;
+    });
+    els.showDamaged.addEventListener("change", () => {
+        if (els.showDamaged.checked && els.showLogistics) {
+            els.showLogistics.checked = false;
+            if (state.logisticsGroup) state.logisticsGroup.visible = false;
+        }
+        if (state.damagedGroup) state.damagedGroup.visible = els.showDamaged.checked;
     });
     window.addEventListener("keydown", event => {
         if (state.cameraMode === "fly" && !isTextEntryTarget(event.target) && isFlyKey(event.code)) {

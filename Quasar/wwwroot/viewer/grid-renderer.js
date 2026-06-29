@@ -40,6 +40,7 @@ export async function renderGridScene(scene) {
         state.gridLightGroup = null;
         state.gridLights = [];
         state.logisticsGroup = null;
+        state.damagedGroup = null;
     }
     if (state.voxelGroup) {
         state.scene.remove(state.voxelGroup);
@@ -63,6 +64,7 @@ export async function renderGridScene(scene) {
     const gridGroups = buildGridGroups(scene, group);
     state.currentGridSize = floorGridMajorStep(scene);
     renderLogisticsOverlay(scene, gridGroups, definitions);
+    renderDamagedOverlay(scene, gridGroups, definitions);
     buildGridLightGroups(scene, gridGroups);
 
     const renderTextureToken = ++textureStatsToken;
@@ -190,6 +192,7 @@ function createProgressiveModelRender(scene, definitions, gridGroups, textureTok
                 }
             }
             renderLogisticsOverlay(scene, gridGroups, definitions);
+            renderDamagedOverlay(scene, gridGroups, definitions);
             progress.lastRenderStats = nextLayer.stats;
             state.sceneRenderCounts.modelMeshes = nextLayer.stats.modelMeshes;
             state.sceneRenderCounts.proxyMeshes = nextLayer.stats.proxyMeshes;
@@ -365,6 +368,143 @@ function buildGridGroups(scene, root) {
         groups.set(gridId, group);
     }
     return groups;
+}
+
+function renderDamagedOverlay(scene, gridGroups, definitions) {
+    if (state.damagedGroup) {
+        if (state.damagedGroup.parent) state.damagedGroup.parent.remove(state.damagedGroup);
+        disposeObjectTree(state.damagedGroup);
+        state.damagedGroup = null;
+    }
+
+    const damagedBlocks = (scene.blockInstances || []).filter(block => damageRatio(block) > 0);
+    const group = new THREE.Group();
+    group.name = "QuasarDamagedOverlay";
+    group.visible = !!(els.showDamaged && els.showDamaged.checked);
+    state.damagedGroup = group;
+    state.gridGroup.add(group);
+    state.stats["Damaged blocks"] = damagedBlocks.length;
+    if (!damagedBlocks.length) return;
+
+    const maskRenderContext = createRenderContext(textureStatsToken);
+    const overlayByGridId = new Map();
+    const gridOverlay = gridId => {
+        const key = String(gridId || primaryGrid(scene)?.id || scene.grid?.id || "");
+        let overlay = overlayByGridId.get(key);
+        if (!overlay) {
+            const grid = gridById(scene, key) || primaryGrid(scene) || scene.grid || {};
+            overlay = new THREE.Group();
+            overlay.name = `DamagedGrid:${key || "primary"}`;
+            overlay.matrixAutoUpdate = false;
+            overlay.matrix.copy(gridRelativeMatrix(grid));
+            group.add(overlay);
+            overlayByGridId.set(key, overlay);
+        }
+        return overlay;
+    };
+    const gridSize = gridId => {
+        const grid = gridById(scene, String(gridId || "")) || primaryGrid(scene) || scene.grid || {};
+        return grid.gridSize || scene.grid && scene.grid.gridSize || LARGE_GRID_CUBE_SIZE;
+    };
+
+    for (const block of damagedBlocks) {
+        const definition = definitions && definitions.get(block.blockTypeId);
+        const masks = createDamagedBlockMasks(block, definition, maskRenderContext, gridSize(block.gridId));
+        for (const mask of masks) gridOverlay(block.gridId).add(mask);
+    }
+}
+
+function createDamagedBlockMasks(block, definition, renderContext, gridSize) {
+    if (!block) return [];
+    const ratio = damageRatio(block);
+    if (ratio <= 0) return [];
+    const material = sharedDamagedMaskMaterial(ratio);
+    const masks = [];
+    if (block.modelParts && block.modelParts.length) {
+        for (const part of block.modelParts) {
+            masks.push(...createDamagedModelMaskMeshes(part.modelAssetId, block, matrixDtoToThree(part.localMatrix), part.patternOffset, material, renderContext));
+        }
+    } else {
+        const assetId = block.currentModelAssetId || (definition && definition.modelAssetId) || "";
+        masks.push(...createDamagedModelMaskMeshes(assetId, block, composeModelInstanceMatrix(block, definition), null, material, renderContext));
+    }
+
+    for (const subpart of block.subparts || []) {
+        masks.push(...createDamagedModelMaskMeshes(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix), null, material, renderContext));
+    }
+    return masks.length ? masks : createDamagedFallbackMask(block, material, gridSize);
+}
+
+function createDamagedFallbackMask(block, material, gridSize) {
+    const box = blockBox(block, gridSize || LARGE_GRID_CUBE_SIZE);
+    if (box.isEmpty()) return [];
+    const mesh = createBoxMesh(box, material);
+    mesh.name = `DamagedBlockFallbackMask:${block.id || "block"}`;
+    mesh.renderOrder = 29;
+    mesh.frustumCulled = false;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.userData.block = block;
+    mesh.userData.damagedBlock = block;
+    mesh.userData.damagedGridId = String(block.gridId || "");
+    return [mesh];
+}
+
+function createDamagedModelMaskMeshes(assetId, block, matrix, patternOffset, material, renderContext) {
+    const resolved = assetId ? state.modelResolution.get(assetId) : null;
+    const model = resolved && resolved.status === "parsed" ? resolved.model : null;
+    if (!model) return [];
+
+    const groups = model.groups.filter(group => {
+        if (isOfflineHiddenLcdMaterial(block, group.materialName)) return false;
+        if (isResetLcdModelMaterialHidden(block, group.materialName)) return false;
+        if (isLcdModelFallbackMaterialHidden(block, group.materialName)) return false;
+        return true;
+    });
+    if (!groups.length) return [];
+
+    const geometry = sharedModelGeometry(model, patternOffset, renderContext, groups, "damaged-mask");
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `DamagedBlockMask:${block.id || "block"}`;
+    mesh.matrixAutoUpdate = false;
+    mesh.matrix.copy(matrix);
+    mesh.renderOrder = 29;
+    mesh.frustumCulled = false;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.userData.block = block;
+    mesh.userData.damagedBlock = block;
+    mesh.userData.damagedGridId = String(block.gridId || "");
+    return [mesh];
+}
+
+function sharedDamagedMaskMaterial(ratio) {
+    const clamped = clamp01(ratio);
+    const color = new THREE.Color(0xff7a45).lerp(new THREE.Color(0xff0000), clamped);
+    const opacity = 0.18 + clamped * 0.44;
+    const material = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: opacity * 0.72,
+        depthTest: false,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+    });
+    material.userData.damagedBaseOpacity = opacity;
+    return material;
+}
+
+function damageRatio(block) {
+    const max = num(block && block.maxIntegrity, 0);
+    if (max <= 0) return 0;
+    const buildIntegrity = clamp01(num(block && block.buildLevel, 1)) * max;
+    const integrity = num(block && block.integrity, buildIntegrity);
+    return clamp01((buildIntegrity - integrity) / max);
+}
+
+function clamp01(value) {
+    if (!Number.isFinite(value)) return 0;
+    return Math.min(1, Math.max(0, value));
 }
 
 function renderLogisticsOverlay(scene, gridGroups, definitions) {
