@@ -35,6 +35,10 @@ The solution file is `Quasar.sln`.
   cached path to the build through `DS64`. On a cache miss it downloads the
   Windows depot with SteamCMD and retries the install to work around transient
   missing-configuration failures.
+- Building `Quasar/Quasar.csproj` also requires Node.js/npm. The project runs
+  `npm ci --ignore-scripts` from `Quasar/package-lock.json` and stages the full
+  pinned `three` `0.180.0` and `@zip.js/zip.js` `2.7.72` packages into
+  `wwwroot/vendor` for the standalone grid viewer.
 
 ## Managed runtime selection
 

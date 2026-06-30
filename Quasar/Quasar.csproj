@@ -26,6 +26,38 @@
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <_ViewerPackageJson>$(MSBuildProjectDirectory)\package.json</_ViewerPackageJson>
+    <_ViewerPackageLock>$(MSBuildProjectDirectory)\package-lock.json</_ViewerPackageLock>
+    <_ViewerNodeModulesStamp>$(MSBuildProjectDirectory)\node_modules\.package-lock.json</_ViewerNodeModulesStamp>
+    <_ViewerVendorDir>$(MSBuildProjectDirectory)\wwwroot\vendor\</_ViewerVendorDir>
+  </PropertyGroup>
+
+  <Target Name="RestoreViewerNpmPackages"
+          Inputs="$(_ViewerPackageJson);$(_ViewerPackageLock)"
+          Outputs="$(_ViewerNodeModulesStamp)">
+    <Message Importance="High" Text="Restoring grid viewer npm packages from package-lock.json." />
+    <Exec Command="npm ci --ignore-scripts" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+  <Target Name="StageViewerNpmPackages"
+          BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="RestoreViewerNpmPackages">
+    <ItemGroup>
+      <_ViewerThreePackageFiles Include="$(MSBuildProjectDirectory)\node_modules\three\**\*" />
+      <_ViewerZipPackageFiles Include="$(MSBuildProjectDirectory)\node_modules\@zip.js\zip.js\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_ViewerThreePackageFiles)"
+          DestinationFiles="@(_ViewerThreePackageFiles->'$(_ViewerVendorDir)three\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_ViewerZipPackageFiles)"
+          DestinationFiles="@(_ViewerZipPackageFiles->'$(_ViewerVendorDir)zip.js\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <Content Include="wwwroot\vendor\**\*" Exclude="@(Content)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
   <!-- Build Quasar.Agent and stage its plugin DLLs into an Agent/ subfolder of both
        the Build output and the Publish output. The runtime preparer copies these
        into each server's Magnetar Local plugin folder. -->

@@ -47,6 +47,8 @@ Voxel data payloads are sampled by the running server from live voxel storage an
 
 The browser asks the user to select their local Space Engineers `Content` folder. The folder should contain `Data`, `Models`, and `Textures` directories.
 
+The viewer's JavaScript runtime dependencies are served from Quasar's own `/vendor` static assets instead of a public CDN. The static assets are staged at build time from exact npm packages pinned in `Quasar/package-lock.json`: `three` `0.180.0` and `@zip.js/zip.js` `2.7.72`. This keeps startup independent of external CDN availability, proxy behavior, and third-party MIME headers while avoiding hand-copied partial packages.
+
 On Chromium browsers, the viewer uses the File System Access API (`showDirectoryPicker`) and keeps the selected folder handle in browser storage when supported, so the viewer can reuse it on later visits after permission is granted. On Firefox, which does not support `showDirectoryPicker`, the viewer falls back to a browser folder input (`webkitdirectory`) and builds an in-memory view of the selected files. Firefox users must select the Content folder again after a page reload.
 
 The viewer resolves logical model, texture, and SBC data paths case-insensitively where the selected browser file API permits it.
