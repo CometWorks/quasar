@@ -138,8 +138,6 @@ namespace Quasar.Agent
                     PrimaryGridId = grid.EntityId.ToString(),
                     WorldAabb = ToDto(contextAabb.Value),
                     RelativeAabb = ToDto(contextRelativeAabb.Value),
-                    ClipWorldAabb = ToDto(contextClipAabb ?? contextAabb.Value),
-                    ClipRelativeAabb = ToDto(contextClip != null ? ContextClipRelativeAabb(contextClip) : contextRelativeAabb.Value),
                     GridCount = scene.Grids.Count,
                     ClippedGridCount = clippedGridCount,
                     VoxelBodyCount = scene.Voxels.Count,
@@ -352,13 +350,6 @@ namespace Quasar.Agent
             var selected = new BoundingBoxD(grid.PositionComp.LocalAABB.Min, grid.PositionComp.LocalAABB.Max);
             var center = selected.Center;
             return new BoundingBoxD(contextLocalAabb.Min - center, contextLocalAabb.Max - center);
-        }
-
-        private static BoundingBoxD ContextClipRelativeAabb(ContextClipVolume contextClip)
-        {
-            return new BoundingBoxD(
-                new Vector3D(contextClip.MinX, contextClip.MinY, contextClip.MinZ),
-                new Vector3D(contextClip.MaxX, contextClip.MaxY, contextClip.MaxZ));
         }
 
         private static BoundingBoxD ContextClipWorldAabb(ContextClipVolume contextClip)

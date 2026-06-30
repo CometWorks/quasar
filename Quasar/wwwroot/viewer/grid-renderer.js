@@ -97,6 +97,7 @@ export async function renderGridScene(scene, options = {}) {
     state.scene.add(group);
     const gridGroups = buildGridGroups(scene, group);
     state.currentGridSize = floorGridMajorStep(scene);
+    state.currentFloorGridAlignment = floorGridAlignment(scene);
     state.contextBounds = contextRelativeBounds(scene);
     state.contextClipBounds = contextClipRelativeBounds(scene);
     state.contextGridIds = new Set(sceneGrids(scene).filter(grid => grid && grid.isContext).map(grid => String(grid.id || "")));
@@ -108,7 +109,6 @@ export async function renderGridScene(scene, options = {}) {
         if (voxelBounds) bounds.copy(voxelBounds);
     }
     state.currentBounds = bounds;
-    state.currentFloorGridAlignment = floorGridAlignment(scene);
 
     reportProgress("Rendering scene", "Preparing overlays and voxel terrain...");
     await nextAnimationFrame();
@@ -1001,10 +1001,12 @@ function contextRelativeBounds(scene) {
 function contextClipRelativeBounds(scene) {
     const context = scene.context || {};
     if (!context.enabled) return null;
-    const clipBounds = boundsToBox3(context.clipRelativeAabb);
-    if (clipBounds && !clipBounds.isEmpty()) return clipBounds;
     const relativeBounds = contextRelativeBounds(scene);
-    return relativeBounds && !relativeBounds.isEmpty() ? relativeBounds.clone() : null;
+    if (!relativeBounds || relativeBounds.isEmpty()) return null;
+    const layout = floorGridLayout(relativeBounds, floorGridMajorStep(scene), floorGridAlignment(scene));
+    return new THREE.Box3(
+        new THREE.Vector3(layout.offsetX + layout.startXCell * layout.minorStep, relativeBounds.min.y, layout.offsetZ + layout.startZCell * layout.minorStep),
+        new THREE.Vector3(layout.offsetX + layout.endXCell * layout.minorStep, relativeBounds.max.y, layout.offsetZ + layout.endZCell * layout.minorStep));
 }
 
 function formatBox3(bounds) {
