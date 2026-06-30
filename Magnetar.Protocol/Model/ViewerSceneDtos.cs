@@ -158,6 +158,10 @@ public class ViewerSceneContext
 
     public ViewerBounds RelativeAabb { get; set; } = new();
 
+    public ViewerBounds ClipWorldAabb { get; set; } = new();
+
+    public ViewerBounds ClipRelativeAabb { get; set; } = new();
+
     public int GridCount { get; set; }
 
     public int ClippedGridCount { get; set; }

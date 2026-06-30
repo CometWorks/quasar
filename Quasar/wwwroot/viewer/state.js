@@ -25,6 +25,7 @@ export const state = {
     voxelSupport: { present: false, enabled: false },
     contextSupport: { present: false, enabled: false },
     contextBounds: null,
+    contextClipBounds: null,
     contextGridIds: new Set(),
     primaryGridId: "",
     raycaster: null,

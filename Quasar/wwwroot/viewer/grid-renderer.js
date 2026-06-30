@@ -98,6 +98,7 @@ export async function renderGridScene(scene, options = {}) {
     const gridGroups = buildGridGroups(scene, group);
     state.currentGridSize = floorGridMajorStep(scene);
     state.contextBounds = contextRelativeBounds(scene);
+    state.contextClipBounds = contextClipRelativeBounds(scene);
     state.contextGridIds = new Set(sceneGrids(scene).filter(grid => grid && grid.isContext).map(grid => String(grid.id || "")));
     state.primaryGridId = primaryGrid(scene)?.id || "";
     state.primaryFloorBounds = primaryGridRelativeBounds(scene);
@@ -150,6 +151,7 @@ export async function renderGridScene(scene, options = {}) {
     state.stats["Context grids"] = scene.context && scene.context.enabled ? num(scene.context.gridCount, gridGroups.size) : 0;
     state.stats["Context clipped grids"] = scene.context && scene.context.enabled ? num(scene.context.clippedGridCount, 0) : 0;
     state.stats["Context blocks"] = state.contextGridIds.size ? (scene.blockInstances || []).filter(block => state.contextGridIds.has(String(block.gridId || ""))).length : 0;
+    state.stats["Context clip bounds"] = state.contextClipBounds ? formatBox3(state.contextClipBounds) : "n/a";
     state.stats["Context voxels"] = scene.context && scene.context.enabled ? num(scene.context.voxelBodyCount, (scene.voxels || []).length) : 0;
     state.stats["Scene mods"] = state.modRoots.size;
     state.stats["LCD surfaces"] = countLcdSurfaces(scene);
@@ -367,7 +369,7 @@ function buildModelLayer(scene, definitions, renderContext, gridGroups) {
         for (const block of blocks) {
             const definition = definitions.get(block.blockTypeId);
             const box = blockBox(block, grid.gridSize || LARGE_GRID_CUBE_SIZE);
-            const clipRelation = blockClip ? boxFloorClipRelation(box, blockClip.gridMatrix, blockClip.bounds) : "inside";
+            const clipRelation = blockClip ? boxClipVolumeRelation(box, blockClip.gridMatrix, blockClip.bounds) : "inside";
             if (clipRelation === "outside") continue;
 
             const effectiveClip = clipRelation === "partial" ? blockClip : null;
@@ -765,7 +767,7 @@ function createLogisticsEdge(edge, gridSize, fromNode, toNode, clip = null) {
 }
 
 function createLogisticsLines(edge, points, gridSize, systemId, segmentName, clip = null) {
-    const segments = clip ? clipPolylineToFloor(points, clip) : [points];
+    const segments = clip ? clipPolylineToVolume(points, clip) : [points];
     const lines = [];
     for (let i = 0; i < segments.length; i++) {
         const suffix = segments.length > 1 ? `${segmentName || "edge"}:${i + 1}` : segmentName;
@@ -994,6 +996,20 @@ function contextRelativeBounds(scene) {
     const worldBounds = boundsToBox3(context.worldAabb);
     if (!worldBounds || worldBounds.isEmpty()) return null;
     return transformBounds(worldBounds, state.viewTransform || new THREE.Matrix4());
+}
+
+function contextClipRelativeBounds(scene) {
+    const context = scene.context || {};
+    if (!context.enabled) return null;
+    const clipBounds = boundsToBox3(context.clipRelativeAabb);
+    if (clipBounds && !clipBounds.isEmpty()) return clipBounds;
+    const relativeBounds = contextRelativeBounds(scene);
+    return relativeBounds && !relativeBounds.isEmpty() ? relativeBounds.clone() : null;
+}
+
+function formatBox3(bounds) {
+    if (!bounds || bounds.isEmpty()) return "n/a";
+    return `X ${bounds.min.x.toFixed(2)}..${bounds.max.x.toFixed(2)}, Y ${bounds.min.y.toFixed(2)}..${bounds.max.y.toFixed(2)}, Z ${bounds.min.z.toFixed(2)}..${bounds.max.z.toFixed(2)}`;
 }
 
 function primaryGridRelativeBounds(scene) {
@@ -1473,7 +1489,7 @@ function createVoxelSurfaceVertex(aPosition, bPosition, aNormal, bNormal, t) {
 
 function addVoxelTriangle(a, b, c, material, positions, normals, uvs, indicesByVoxelPart, voxelMaterialsByIndex, reverse, clipBounds) {
     const polygon = reverse ? [a, c, b] : [a, b, c];
-    const clipped = orientVoxelPolygon(clipVoxelPolygonToFloor(polygon, clipBounds));
+    const clipped = orientVoxelPolygon(clipVoxelPolygonToVolume(polygon, clipBounds));
     if (clipped.length < 3) return;
 
     const projection = voxelUvProjection(clipped);
@@ -1574,14 +1590,16 @@ function voxelProjectionSortOrder(projection) {
     return 2;
 }
 
-function clipVoxelPolygonToFloor(polygon, bounds) {
-    return clipPolygonToFloor(polygon, bounds, intersectVoxelClipEdge);
+function clipVoxelPolygonToVolume(polygon, bounds) {
+    return clipPolygonToVolume(polygon, bounds, intersectVoxelClipEdge);
 }
 
-function clipPolygonToFloor(polygon, bounds, intersect) {
+function clipPolygonToVolume(polygon, bounds, intersect) {
     if (!bounds) return polygon;
     let clipped = clipPolygonAxis(polygon, "x", bounds.minX, true, intersect);
     clipped = clipPolygonAxis(clipped, "x", bounds.maxX, false, intersect);
+    clipped = clipPolygonAxis(clipped, "y", bounds.minY, true, intersect);
+    clipped = clipPolygonAxis(clipped, "y", bounds.maxY, false, intersect);
     clipped = clipPolygonAxis(clipped, "z", bounds.minZ, true, intersect);
     return clipPolygonAxis(clipped, "z", bounds.maxZ, false, intersect);
 }
@@ -1608,12 +1626,13 @@ function intersectVoxelClipEdge(a, b, axis, limit) {
 }
 
 function voxelFloorClipBounds() {
-    return floorClipBounds({ allowStandaloneVoxel: false });
+    return boundsToClipVolume(state.contextClipBounds) || floorClipBounds({ allowStandaloneVoxel: false });
 }
 
 function contextBlockClipBounds(scene) {
     if (!scene || !(scene.context && scene.context.enabled)) return null;
-    return floorClipBounds({ allowStandaloneVoxel: false });
+    const clipBounds = boundsToClipVolume(contextClipRelativeBounds(scene));
+    return clipBounds || floorClipBounds({ allowStandaloneVoxel: false });
 }
 
 function contextGridClip(scene, gridId, bounds = contextBlockClipBounds(scene)) {
@@ -1628,16 +1647,16 @@ function contextBlockClipForBlock(scene, gridId, block, gridSize, bounds = conte
     if (!block) return { clip: null, relation: "inside" };
     const clip = contextGridClip(scene, gridId, bounds);
     if (!clip) return { clip: null, relation: "inside" };
-    const relation = boxFloorClipRelation(blockBox(block, gridSize || LARGE_GRID_CUBE_SIZE), clip.gridMatrix, clip.bounds);
+    const relation = boxClipVolumeRelation(blockBox(block, gridSize || LARGE_GRID_CUBE_SIZE), clip.gridMatrix, clip.bounds);
     return { clip: relation === "partial" ? clip : null, relation };
 }
 
-function clipPolylineToFloor(points, clip) {
+function clipPolylineToVolume(points, clip) {
     if (!clip || !clip.bounds || !points || points.length < 2) return points && points.length ? [points] : [];
     const segments = [];
     let current = [];
     for (let i = 1; i < points.length; i++) {
-        const clipped = clipSegmentToFloor(points[i - 1], points[i], clip);
+        const clipped = clipSegmentToVolume(points[i - 1], points[i], clip);
         if (!clipped) {
             if (current.length) {
                 segments.push(current);
@@ -1657,22 +1676,25 @@ function clipPolylineToFloor(points, clip) {
     return segments.filter(segment => segment.length >= 2 && totalPolylineLengthSquared(segment) >= 0.0001);
 }
 
-function clipSegmentToFloor(a, b, clip) {
+function clipSegmentToVolume(a, b, clip) {
     const start = a.clone().applyMatrix4(clip.gridMatrix);
     const end = b.clone().applyMatrix4(clip.gridMatrix);
-    const clipped = clipSegmentViewToRectXZ(start, end, clip.bounds);
+    const clipped = clipSegmentViewToVolume(start, end, clip.bounds);
     if (!clipped) return null;
     return clipped.map(point => point.applyMatrix4(clip.inverseGridMatrix));
 }
 
-function clipSegmentViewToRectXZ(a, b, bounds) {
+function clipSegmentViewToVolume(a, b, bounds) {
     const dx = b.x - a.x;
+    const dy = b.y - a.y;
     const dz = b.z - a.z;
     let t0 = 0;
     let t1 = 1;
     const edges = [
         [-dx, a.x - bounds.minX],
         [dx, bounds.maxX - a.x],
+        [-dy, a.y - bounds.minY],
+        [dy, bounds.maxY - a.y],
         [-dz, a.z - bounds.minZ],
         [dz, bounds.maxZ - a.z],
     ];
@@ -1706,27 +1728,45 @@ function floorClipBounds(options = {}) {
     return {
         minX: layout.offsetX + layout.startXCell * layout.minorStep,
         maxX: layout.offsetX + layout.endXCell * layout.minorStep,
+        minY: bounds.min.y,
+        maxY: bounds.max.y,
         minZ: layout.offsetZ + layout.startZCell * layout.minorStep,
         maxZ: layout.offsetZ + layout.endZCell * layout.minorStep,
     };
 }
 
-function boxFloorClipRelation(box, gridMatrix, bounds) {
+function boundsToClipVolume(bounds) {
+    if (!bounds || bounds.isEmpty()) return null;
+    return {
+        minX: bounds.min.x,
+        maxX: bounds.max.x,
+        minY: bounds.min.y,
+        maxY: bounds.max.y,
+        minZ: bounds.min.z,
+        maxZ: bounds.max.z,
+    };
+}
+
+function boxClipVolumeRelation(box, gridMatrix, bounds) {
     if (!bounds || !box || box.isEmpty()) return "inside";
     const points = boxCorners(box).map(point => point.applyMatrix4(gridMatrix));
     let insideCount = 0;
     let minX = Infinity;
     let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
     let minZ = Infinity;
     let maxZ = -Infinity;
     for (const point of points) {
         minX = Math.min(minX, point.x);
         maxX = Math.max(maxX, point.x);
+        minY = Math.min(minY, point.y);
+        maxY = Math.max(maxY, point.y);
         minZ = Math.min(minZ, point.z);
         maxZ = Math.max(maxZ, point.z);
-        if (point.x >= bounds.minX && point.x <= bounds.maxX && point.z >= bounds.minZ && point.z <= bounds.maxZ) insideCount++;
+        if (point.x >= bounds.minX && point.x <= bounds.maxX && point.y >= bounds.minY && point.y <= bounds.maxY && point.z >= bounds.minZ && point.z <= bounds.maxZ) insideCount++;
     }
-    if (maxX < bounds.minX || minX > bounds.maxX || maxZ < bounds.minZ || minZ > bounds.maxZ) return "outside";
+    if (maxX < bounds.minX || minX > bounds.maxX || maxY < bounds.minY || minY > bounds.maxY || maxZ < bounds.minZ || minZ > bounds.maxZ) return "outside";
     return insideCount === points.length ? "inside" : "partial";
 }
 
@@ -2160,7 +2200,7 @@ function clippedModelGeometry(model, patternOffset, groups, matrix, clip) {
         const end = group.start + group.count;
         for (let i = group.start; i + 2 < end; i += 3) {
             const polygon = [0, 1, 2].map(offset => modelClipVertex(model, transformedUvs, model.indices[i + offset], toView));
-            const clipped = clipPolygonToFloor(polygon, clip.bounds, interpolateModelClipVertex);
+            const clipped = clipPolygonToVolume(polygon, clip.bounds, interpolateModelClipVertex);
             if (clipped.length < 3) continue;
             const base = positions.length / 3;
             for (const vertex of clipped) appendModelClipVertex(vertex, fromViewToGrid, positions, normals, uvs);
@@ -3556,7 +3596,7 @@ function clippedBoxGeometry(box, clip) {
 
     for (const face of faces) {
         const viewPolygon = face.map(index => corners[index].clone().applyMatrix4(clip.gridMatrix));
-        const clipped = clipPolygonToFloor(viewPolygon, clip.bounds, interpolatePlainClipVertex);
+        const clipped = clipPolygonToVolume(viewPolygon, clip.bounds, interpolatePlainClipVertex);
         if (clipped.length < 3) continue;
         const base = positions.length / 3;
         const localPolygon = clipped.map(vertex => vertex.clone().applyMatrix4(clip.inverseGridMatrix));

@@ -76,9 +76,10 @@ namespace Quasar.Agent
             var chunks = new Dictionary<string, ChunkBuilder>(StringComparer.Ordinal);
             var contextLocalAabb = includeContext ? ContextLocalAabb(grid) : (BoundingBoxD?)null;
             var contextRelativeAabb = contextLocalAabb.HasValue ? ContextRelativeAabb(grid, contextLocalAabb.Value) : (BoundingBoxD?)null;
-            var contextClip = contextRelativeAabb.HasValue ? BuildContextFloorClip(grid, contextRelativeAabb.Value) : null;
+            var contextClip = contextRelativeAabb.HasValue ? BuildContextClipVolume(grid, contextRelativeAabb.Value) : null;
             var contextAabb = contextLocalAabb.HasValue ? LocalAabbToWorldAabb(contextLocalAabb.Value.Min, contextLocalAabb.Value.Max, grid.WorldMatrix) : (BoundingBoxD?)null;
-            var contextVoxelAabb = contextClip != null && contextRelativeAabb.HasValue ? ContextFloorWorldAabb(contextClip, contextRelativeAabb.Value) : contextAabb;
+            var contextClipAabb = contextClip != null ? ContextClipWorldAabb(contextClip) : (BoundingBoxD?)null;
+            var contextVoxelAabb = contextClipAabb ?? contextAabb;
             var contextBlocks = 0;
             var clippedGridCount = 0;
             var logisticsGrids = new List<MyCubeGrid>();
@@ -137,6 +138,8 @@ namespace Quasar.Agent
                     PrimaryGridId = grid.EntityId.ToString(),
                     WorldAabb = ToDto(contextAabb.Value),
                     RelativeAabb = ToDto(contextRelativeAabb.Value),
+                    ClipWorldAabb = ToDto(contextClipAabb ?? contextAabb.Value),
+                    ClipRelativeAabb = ToDto(contextClip != null ? ContextClipRelativeAabb(contextClip) : contextRelativeAabb.Value),
                     GridCount = scene.Grids.Count,
                     ClippedGridCount = clippedGridCount,
                     VoxelBodyCount = scene.Voxels.Count,
@@ -226,7 +229,7 @@ namespace Quasar.Agent
             bool includeContext,
             bool forceFullGrid,
             BoundingBoxD? contextAabb,
-            ContextFloorClip contextClip,
+            ContextClipVolume contextClip,
             Dictionary<string, ViewerBlockDefinition> definitions,
             Dictionary<string, ChunkBuilder> chunks,
             MetadataAssetCatalog catalog,
@@ -316,7 +319,7 @@ namespace Quasar.Agent
             return new BoundingBoxD(center - contextHalfExtents, center + contextHalfExtents);
         }
 
-        private static ContextFloorClip BuildContextFloorClip(MyCubeGrid grid, BoundingBoxD contextRelativeAabb)
+        private static ContextClipVolume BuildContextClipVolume(MyCubeGrid grid, BoundingBoxD contextRelativeAabb)
         {
             Vector3I minCell;
             Vector3I maxCell;
@@ -331,12 +334,14 @@ namespace Quasar.Agent
             var startZCell = (int)Math.Floor((contextRelativeAabb.Min.Z - padding - offsetZ) / SmallGridCubeSize);
             var endZCell = (int)Math.Ceiling((contextRelativeAabb.Max.Z + padding - offsetZ) / SmallGridCubeSize);
 
-            return new ContextFloorClip
+            return new ContextClipVolume
             {
                 Primary = grid,
                 CenterLocal = new BoundingBoxD(grid.PositionComp.LocalAABB.Min, grid.PositionComp.LocalAABB.Max).Center,
                 MinX = offsetX + startXCell * SmallGridCubeSize,
                 MaxX = offsetX + endXCell * SmallGridCubeSize,
+                MinY = contextRelativeAabb.Min.Y,
+                MaxY = contextRelativeAabb.Max.Y,
                 MinZ = offsetZ + startZCell * SmallGridCubeSize,
                 MaxZ = offsetZ + endZCell * SmallGridCubeSize,
             };
@@ -349,14 +354,21 @@ namespace Quasar.Agent
             return new BoundingBoxD(contextLocalAabb.Min - center, contextLocalAabb.Max - center);
         }
 
-        private static BoundingBoxD ContextFloorWorldAabb(ContextFloorClip contextClip, BoundingBoxD contextRelativeAabb)
+        private static BoundingBoxD ContextClipRelativeAabb(ContextClipVolume contextClip)
         {
-            var localMin = contextClip.CenterLocal + new Vector3D(contextClip.MinX, contextRelativeAabb.Min.Y, contextClip.MinZ);
-            var localMax = contextClip.CenterLocal + new Vector3D(contextClip.MaxX, contextRelativeAabb.Max.Y, contextClip.MaxZ);
+            return new BoundingBoxD(
+                new Vector3D(contextClip.MinX, contextClip.MinY, contextClip.MinZ),
+                new Vector3D(contextClip.MaxX, contextClip.MaxY, contextClip.MaxZ));
+        }
+
+        private static BoundingBoxD ContextClipWorldAabb(ContextClipVolume contextClip)
+        {
+            var localMin = contextClip.CenterLocal + new Vector3D(contextClip.MinX, contextClip.MinY, contextClip.MinZ);
+            var localMax = contextClip.CenterLocal + new Vector3D(contextClip.MaxX, contextClip.MaxY, contextClip.MaxZ);
             return LocalAabbToWorldAabb(localMin, localMax, contextClip.Primary.WorldMatrix);
         }
 
-        private static IEnumerable<SceneGridCandidate> ContextGrids(MyCubeGrid primary, ContextFloorClip contextClip, List<string> warnings)
+        private static IEnumerable<SceneGridCandidate> ContextGrids(MyCubeGrid primary, ContextClipVolume contextClip, List<string> warnings)
         {
             var visible = new Dictionary<long, SceneGridCandidate>();
             AddSceneGridCandidate(visible, primary, forceFullGrid: true);
@@ -424,7 +436,7 @@ namespace Quasar.Agent
             return grid != null && !grid.MarkedForClose && !grid.Closed;
         }
 
-        private static bool GridIntersectsContext(MyCubeGrid grid, ContextFloorClip contextClip)
+        private static bool GridIntersectsContext(MyCubeGrid grid, ContextClipVolume contextClip)
         {
             if (grid.PositionComp == null)
                 return false;
@@ -432,12 +444,12 @@ namespace Quasar.Agent
             return ProjectedWorldAabbIntersectsContext(grid.PositionComp.WorldAABB, contextClip);
         }
 
-        private static bool GridInsideContext(MyCubeGrid grid, ContextFloorClip contextClip)
+        private static bool GridInsideContext(MyCubeGrid grid, ContextClipVolume contextClip)
         {
             return grid.PositionComp != null && ProjectedWorldAabbInsideContext(grid.PositionComp.WorldAABB, contextClip);
         }
 
-        private static bool BlockIntersectsContext(MyCubeGrid grid, MySlimBlock block, ContextFloorClip contextClip)
+        private static bool BlockIntersectsContext(MyCubeGrid grid, MySlimBlock block, ContextClipVolume contextClip)
         {
             return ProjectedLocalAabbIntersectsContext(grid, BlockLocalAabb(grid, block), contextClip);
         }
@@ -451,29 +463,25 @@ namespace Quasar.Agent
             return new BoundingBoxD(localMin, localMax);
         }
 
-        private static bool ProjectedLocalAabbIntersectsContext(MyCubeGrid grid, BoundingBoxD localAabb, ContextFloorClip contextClip)
+        private static bool ProjectedLocalAabbIntersectsContext(MyCubeGrid grid, BoundingBoxD localAabb, ContextClipVolume contextClip)
         {
             var projected = ProjectLocalAabbToContext(grid, localAabb, contextClip);
-            return projected.HasValue && RectIntersectsContext(projected.Value, contextClip);
+            return projected.HasValue && AabbIntersectsContext(projected.Value, contextClip);
         }
 
-        private static bool ProjectedWorldAabbIntersectsContext(BoundingBoxD worldAabb, ContextFloorClip contextClip)
+        private static bool ProjectedWorldAabbIntersectsContext(BoundingBoxD worldAabb, ContextClipVolume contextClip)
         {
             var projected = ProjectWorldAabbToContext(worldAabb, contextClip);
-            return projected.HasValue && RectIntersectsContext(projected.Value, contextClip);
+            return projected.HasValue && AabbIntersectsContext(projected.Value, contextClip);
         }
 
-        private static bool ProjectedWorldAabbInsideContext(BoundingBoxD worldAabb, ContextFloorClip contextClip)
+        private static bool ProjectedWorldAabbInsideContext(BoundingBoxD worldAabb, ContextClipVolume contextClip)
         {
             var projected = ProjectWorldAabbToContext(worldAabb, contextClip);
-            return projected.HasValue
-                   && projected.Value.Min.X >= contextClip.MinX
-                   && projected.Value.Max.X <= contextClip.MaxX
-                   && projected.Value.Min.Z >= contextClip.MinZ
-                   && projected.Value.Max.Z <= contextClip.MaxZ;
+            return projected.HasValue && AabbInsideContext(projected.Value, contextClip);
         }
 
-        private static BoundingBoxD? ProjectLocalAabbToContext(MyCubeGrid grid, BoundingBoxD localAabb, ContextFloorClip contextClip)
+        private static BoundingBoxD? ProjectLocalAabbToContext(MyCubeGrid grid, BoundingBoxD localAabb, ContextClipVolume contextClip)
         {
             if (grid == null || contextClip == null || contextClip.Primary == null)
                 return null;
@@ -490,7 +498,7 @@ namespace Quasar.Agent
             return projected;
         }
 
-        private static BoundingBoxD? ProjectWorldAabbToContext(BoundingBoxD worldAabb, ContextFloorClip contextClip)
+        private static BoundingBoxD? ProjectWorldAabbToContext(BoundingBoxD worldAabb, ContextClipVolume contextClip)
         {
             if (contextClip == null || contextClip.Primary == null)
                 return null;
@@ -506,12 +514,24 @@ namespace Quasar.Agent
             return projected;
         }
 
-        private static bool RectIntersectsContext(BoundingBoxD projected, ContextFloorClip contextClip)
+        private static bool AabbIntersectsContext(BoundingBoxD projected, ContextClipVolume contextClip)
         {
             return projected.Max.X >= contextClip.MinX
                    && projected.Min.X <= contextClip.MaxX
+                   && projected.Max.Y >= contextClip.MinY
+                   && projected.Min.Y <= contextClip.MaxY
                    && projected.Max.Z >= contextClip.MinZ
                    && projected.Min.Z <= contextClip.MaxZ;
+        }
+
+        private static bool AabbInsideContext(BoundingBoxD projected, ContextClipVolume contextClip)
+        {
+            return projected.Min.X >= contextClip.MinX
+                   && projected.Max.X <= contextClip.MaxX
+                   && projected.Min.Y >= contextClip.MinY
+                   && projected.Max.Y <= contextClip.MaxY
+                   && projected.Min.Z >= contextClip.MinZ
+                   && projected.Max.Z <= contextClip.MaxZ;
         }
 
         private static BoundingBoxD BlockWorldAabb(MyCubeGrid grid, MySlimBlock block)
@@ -765,7 +785,7 @@ namespace Quasar.Agent
             };
         }
 
-        private static List<ViewerVoxelBody> LoadedVoxels(BoundingBoxD? worldAabb = null, ContextFloorClip contextClip = null)
+        private static List<ViewerVoxelBody> LoadedVoxels(BoundingBoxD? worldAabb = null, ContextClipVolume contextClip = null)
         {
             var session = MySession.Static;
             if (session?.VoxelMaps?.Instances == null)
@@ -2933,7 +2953,7 @@ namespace Quasar.Agent
             public bool ForceFullGrid { get; set; }
         }
 
-        private sealed class ContextFloorClip
+        private sealed class ContextClipVolume
         {
             public MyCubeGrid Primary { get; set; }
 
@@ -2942,6 +2962,10 @@ namespace Quasar.Agent
             public double MinX { get; set; }
 
             public double MaxX { get; set; }
+
+            public double MinY { get; set; }
+
+            public double MaxY { get; set; }
 
             public double MinZ { get; set; }
 
