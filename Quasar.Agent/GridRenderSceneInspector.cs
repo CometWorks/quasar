@@ -12,6 +12,7 @@ using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.EntityComponents;
+using Sandbox.Game.GameSystems;
 using Sandbox.Game.GameSystems.Conveyors;
 using Sandbox.Game.World;
 using SpaceEngineers.Game.Entities.Blocks;
@@ -1587,39 +1588,30 @@ namespace Quasar.Agent
         private static ViewerGridLogistics BuildLogistics(IEnumerable<MyCubeGrid> grids, List<ViewerBlockInstance> instances, List<string> warnings)
         {
             var logistics = new ViewerGridLogistics();
-            var nextSystemId = 0;
-            foreach (var grid in grids.Where(candidate => candidate != null && !candidate.MarkedForClose && !candidate.Closed))
-            {
-                var gridLogistics = BuildGridLogistics(grid, instances, warnings);
-                foreach (var node in gridLogistics.Nodes)
-                {
-                    if (node.SystemId >= 0)
-                        node.SystemId += nextSystemId;
-                    logistics.Nodes.Add(node);
-                }
+            var usableGrids = grids
+                .Where(candidate => candidate != null && !candidate.MarkedForClose && !candidate.Closed)
+                .GroupBy(candidate => candidate.EntityId)
+                .Select(group => group.First())
+                .ToList();
+            var nodesByEndpoint = new Dictionary<IMyConveyorEndpoint, ViewerLogisticsNode>();
+            foreach (var grid in usableGrids)
+                AddGridLogisticsNodes(logistics, grid, instances, nodesByEndpoint, warnings);
 
-                foreach (var edge in gridLogistics.Edges)
-                {
-                    if (edge.SystemId >= 0)
-                        edge.SystemId += nextSystemId;
-                    logistics.Edges.Add(edge);
-                }
+            var seenLines = new HashSet<MyConveyorLine>();
+            foreach (var grid in usableGrids)
+                AddGridLogisticsEdges(logistics, grid, nodesByEndpoint, seenLines, warnings);
 
-                foreach (var system in gridLogistics.Systems)
-                {
-                    system.Id += nextSystemId;
-                    logistics.Systems.Add(system);
-                }
-
-                nextSystemId = logistics.Systems.Count == 0 ? nextSystemId : logistics.Systems.Max(system => system.Id) + 1;
-            }
-
+            AssignLogisticsSystems(logistics, ReachableLogisticsLinks(nodesByEndpoint, warnings));
             return logistics;
         }
 
-        private static ViewerGridLogistics BuildGridLogistics(MyCubeGrid grid, List<ViewerBlockInstance> instances, List<string> warnings)
+        private static void AddGridLogisticsNodes(
+            ViewerGridLogistics logistics,
+            MyCubeGrid grid,
+            List<ViewerBlockInstance> instances,
+            Dictionary<IMyConveyorEndpoint, ViewerLogisticsNode> nodesByEndpoint,
+            List<string> warnings)
         {
-            var logistics = new ViewerGridLogistics();
             var gridId = grid.EntityId.ToString();
             var instancesByBlockId = instances
                 .Where(instance => string.Equals(instance.GridId, gridId, StringComparison.Ordinal))
@@ -1629,11 +1621,9 @@ namespace Quasar.Agent
             foreach (var instance in instances.Where(instance => string.Equals(instance.GridId, gridId, StringComparison.Ordinal)))
                 instancesByCell[new Vector3I(instance.Cell.X, instance.Cell.Y, instance.Cell.Z)] = instance;
 
-            var nodesByEndpoint = new Dictionary<IMyConveyorEndpoint, ViewerLogisticsNode>();
-            var nodesByBlockId = new Dictionary<string, ViewerLogisticsNode>(StringComparer.Ordinal);
             var endpointBlocks = grid.GridSystems?.ConveyorSystem?.ConveyorEndpointBlocks;
             if (endpointBlocks == null)
-                return logistics;
+                return;
 
             try
             {
@@ -1667,10 +1657,28 @@ namespace Quasar.Agent
 
                     logistics.Nodes.Add(node);
                     nodesByEndpoint[endpoint] = node;
-                    nodesByBlockId[node.BlockId] = node;
                 }
+            }
+            catch (Exception exception)
+            {
+                warnings.Add("Failed to inspect grid logistics nodes: " + exception.Message);
+            }
+        }
 
-                var seenLines = new HashSet<MyConveyorLine>();
+        private static void AddGridLogisticsEdges(
+            ViewerGridLogistics logistics,
+            MyCubeGrid grid,
+            Dictionary<IMyConveyorEndpoint, ViewerLogisticsNode> nodesByEndpoint,
+            HashSet<MyConveyorLine> seenLines,
+            List<string> warnings)
+        {
+            var gridId = grid.EntityId.ToString();
+            var endpointBlocks = grid.GridSystems?.ConveyorSystem?.ConveyorEndpointBlocks;
+            if (endpointBlocks == null)
+                return;
+
+            try
+            {
                 foreach (var endpointBlock in endpointBlocks.Value)
                 {
                     var endpoint = endpointBlock?.ConveyorEndpoint;
@@ -1717,15 +1725,49 @@ namespace Quasar.Agent
                         });
                     }
                 }
-
-                AssignLogisticsSystems(logistics);
             }
             catch (Exception exception)
             {
-                warnings.Add("Failed to inspect grid logistics: " + exception.Message);
+                warnings.Add("Failed to inspect grid logistics edges: " + exception.Message);
+            }
+        }
+
+        private static List<KeyValuePair<string, string>> ReachableLogisticsLinks(Dictionary<IMyConveyorEndpoint, ViewerLogisticsNode> nodesByEndpoint, List<string> warnings)
+        {
+            var links = new List<KeyValuePair<string, string>>();
+            var endpoints = nodesByEndpoint.Keys.ToList();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var reachable = new List<IMyConveyorEndpoint>();
+            foreach (var endpoint in endpoints)
+            {
+                if (endpoint == null || !nodesByEndpoint.TryGetValue(endpoint, out var sourceNode))
+                    continue;
+
+                reachable.Clear();
+                try
+                {
+                    MyGridConveyorSystem.FindReachable(endpoint, reachable, candidate => candidate != null && nodesByEndpoint.ContainsKey(candidate));
+                }
+                catch (Exception exception)
+                {
+                    warnings.Add("Failed to inspect logistics conveyor reachability: " + exception.Message);
+                    continue;
+                }
+
+                foreach (var target in reachable)
+                {
+                    if (target == null || !nodesByEndpoint.TryGetValue(target, out var targetNode) || string.Equals(sourceNode.Id, targetNode.Id, StringComparison.Ordinal))
+                        continue;
+
+                    var first = string.CompareOrdinal(sourceNode.Id, targetNode.Id) <= 0 ? sourceNode.Id : targetNode.Id;
+                    var second = string.Equals(first, sourceNode.Id, StringComparison.Ordinal) ? targetNode.Id : sourceNode.Id;
+                    var key = first + "\n" + second;
+                    if (seen.Add(key))
+                        links.Add(new KeyValuePair<string, string>(first, second));
+                }
             }
 
-            return logistics;
+            return links;
         }
 
         private static string LogisticsRole(MyCubeBlock block, MyCubeBlockDefinition definition)
@@ -1856,7 +1898,7 @@ namespace Quasar.Agent
                 (node.Min.Z + node.Max.Z) * 0.5f * gridSize);
         }
 
-        private static void AssignLogisticsSystems(ViewerGridLogistics logistics)
+        private static void AssignLogisticsSystems(ViewerGridLogistics logistics, IEnumerable<KeyValuePair<string, string>> extraLinks)
         {
             var nodes = logistics.Nodes.ToDictionary(node => node.Id, node => node, StringComparer.Ordinal);
             var adjacency = nodes.Keys.ToDictionary(id => id, _ => new List<string>(), StringComparer.Ordinal);
@@ -1870,6 +1912,18 @@ namespace Quasar.Agent
 
                 adjacency[edge.FromNodeId].Add(edge.ToNodeId);
                 adjacency[edge.ToNodeId].Add(edge.FromNodeId);
+            }
+
+            if (extraLinks != null)
+            {
+                foreach (var link in extraLinks)
+                {
+                    if (!adjacency.ContainsKey(link.Key) || !adjacency.ContainsKey(link.Value))
+                        continue;
+
+                    adjacency[link.Key].Add(link.Value);
+                    adjacency[link.Value].Add(link.Key);
+                }
             }
 
             var visited = new HashSet<string>(StringComparer.Ordinal);
