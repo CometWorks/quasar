@@ -234,6 +234,7 @@ namespace Quasar.Agent
             ref int contextBlocks)
         {
             var gridDto = ToGrid(grid, isPrimary, includeContext && !isPrimary);
+            var occupancy = BuildBlockOccupancy(grid);
             var included = 0;
             var skipped = 0;
             var includedBounds = BoundingBoxD.CreateInvalid();
@@ -282,7 +283,7 @@ namespace Quasar.Agent
                 var blockWorldAabb = BlockWorldAabb(grid, block);
                 includedBounds.Include(blockWorldAabb.Min);
                 includedBounds.Include(blockWorldAabb.Max);
-                var blockInstance = ToBlockInstance(grid, block, definitionId, chunkId, catalog, scene.Warnings);
+                var blockInstance = ToBlockInstance(grid, block, definitionId, chunkId, occupancy, catalog, scene.Warnings);
                 scene.BlockInstances.Add(blockInstance);
                 AddLightSources(grid, block, scene.LightSources, scene.Warnings);
                 AddSubpartLightSources(blockInstance, scene.LightSources);
@@ -1997,6 +1998,7 @@ namespace Quasar.Agent
             MySlimBlock block,
             string definitionId,
             string chunkId,
+            Dictionary<Vector3I, MySlimBlock> occupancy,
             MetadataAssetCatalog catalog,
             List<string> warnings)
         {
@@ -2039,7 +2041,7 @@ namespace Quasar.Agent
                 CurrentModelLocalMatrix = ToDto(currentModelLocalMatrix),
             };
 
-            AddGeneratedBlockModelParts(grid, block, dto, catalog, warnings);
+            AddGeneratedBlockModelParts(grid, block, dto, occupancy, catalog, warnings);
             AddBlockDeformations(grid, block, dto, warnings);
             AddRuntimeSubparts(grid, block, dto, catalog, warnings);
             RefreshEmissiveParts(block, warnings);
@@ -2378,10 +2380,50 @@ namespace Quasar.Agent
             return string.IsNullOrWhiteSpace(path) ? string.Empty : path.Trim().Replace('\\', '/');
         }
 
+        private static Dictionary<Vector3I, MySlimBlock> BuildBlockOccupancy(MyCubeGrid grid)
+        {
+            var occupancy = new Dictionary<Vector3I, MySlimBlock>(Vector3I.Comparer);
+            foreach (var block in grid.CubeBlocks)
+            {
+                if (block == null || block.BlockDefinition == null)
+                    continue;
+
+                for (var x = block.Min.X; x <= block.Max.X; x++)
+                for (var y = block.Min.Y; y <= block.Max.Y; y++)
+                for (var z = block.Min.Z; z <= block.Max.Z; z++)
+                    occupancy[new Vector3I(x, y, z)] = block;
+            }
+
+            return occupancy;
+        }
+
+        private static bool ShouldCullGeneratedModelPart(
+            MySlimBlock block,
+            Vector3 normal,
+            Dictionary<Vector3I, MySlimBlock> occupancy)
+        {
+            if (block.BlockDefinition == null || block.BlockDefinition.Size != Vector3I.One || block.Min != block.Max)
+                return false;
+
+            var faceBit = FaceBitFromNormal(normal);
+            if (!faceBit.HasValue || BlockHasDeformation(block))
+                return false;
+
+            var adjacentCell = block.Position + FaceNormal(faceBit.Value);
+            if (!occupancy.TryGetValue(adjacentCell, out var neighbour) || neighbour == null || neighbour == block)
+                return false;
+            if (BlockHasDeformation(neighbour))
+                return false;
+
+            var neighbourMask = OpaqueFaceMaskAtCell(neighbour, adjacentCell);
+            return (neighbourMask & (1 << OppositeFaceBit(faceBit.Value))) != 0;
+        }
+
         private static void AddGeneratedBlockModelParts(
             MyCubeGrid grid,
             MySlimBlock block,
             ViewerBlockInstance dto,
+            Dictionary<Vector3I, MySlimBlock> occupancy,
             MetadataAssetCatalog catalog,
             List<string> warnings)
         {
@@ -2411,6 +2453,9 @@ namespace Quasar.Agent
 
                 for (var i = 0; i < cubePartModels.Count; i++)
                 {
+                    if (ShouldCullGeneratedModelPart(block, cubePartNormals[i], occupancy))
+                        continue;
+
                     var modelAssetId = catalog.RegisterModel(cubePartModels[i], block.BlockDefinition.Context);
                     if (string.IsNullOrEmpty(modelAssetId))
                         continue;
@@ -2732,6 +2777,88 @@ namespace Quasar.Agent
             AddOpaqueFaceBit(faces, new Vector3I(0, 0, 1), 4, ref mask);
             AddOpaqueFaceBit(faces, new Vector3I(0, 0, -1), 5, ref mask);
             return mask;
+        }
+
+        private static int OpaqueFaceMaskAtCell(MySlimBlock block, Vector3I gridCell)
+        {
+            var definition = block.BlockDefinition;
+            if (definition == null || IsTransparentDefinition(definition))
+                return 0;
+
+            if (definition.Size == Vector3I.One &&
+                block.Position == gridCell &&
+                definition.BlockTopology.ToString().Equals("Cube", StringComparison.OrdinalIgnoreCase))
+                return OpaqueFaceMask(definition);
+
+            if (!CellInsideBlock(block, gridCell) || definition.IsCubePressurized == null)
+                return 0;
+
+            block.Orientation.GetMatrix(out Matrix orientation);
+            orientation.TransposeRotationInPlace();
+            var localCell = Vector3I.Round(Vector3.Transform(gridCell - block.Position, orientation) + definition.Center);
+            if (!definition.IsCubePressurized.TryGetValue(localCell, out var faces))
+                return 0;
+
+            var mask = 0;
+            for (var bit = 0; bit < 6; bit++)
+            {
+                var localNormal = Vector3I.Round(Vector3.Transform(FaceNormal(bit), orientation));
+                AddOpaqueFaceBit(faces, localNormal, bit, ref mask);
+            }
+
+            return mask;
+        }
+
+        private static bool CellInsideBlock(MySlimBlock block, Vector3I cell)
+        {
+            return cell.X >= block.Min.X && cell.X <= block.Max.X &&
+                   cell.Y >= block.Min.Y && cell.Y <= block.Max.Y &&
+                   cell.Z >= block.Min.Z && cell.Z <= block.Max.Z;
+        }
+
+        private static bool BlockHasDeformation(MySlimBlock block)
+        {
+            return block.CurrentDamage > 0f || block.AccumulatedDamage > 0f;
+        }
+
+        private static Vector3I FaceNormal(int bit)
+        {
+            switch (bit)
+            {
+                case 0: return new Vector3I(1, 0, 0);
+                case 1: return new Vector3I(-1, 0, 0);
+                case 2: return new Vector3I(0, 1, 0);
+                case 3: return new Vector3I(0, -1, 0);
+                case 4: return new Vector3I(0, 0, 1);
+                case 5: return new Vector3I(0, 0, -1);
+                default: return Vector3I.Zero;
+            }
+        }
+
+        private static int OppositeFaceBit(int bit)
+        {
+            switch (bit)
+            {
+                case 0: return 1;
+                case 1: return 0;
+                case 2: return 3;
+                case 3: return 2;
+                case 4: return 5;
+                case 5: return 4;
+                default: return -1;
+            }
+        }
+
+        private static int? FaceBitFromNormal(Vector3 normal)
+        {
+            var rounded = Vector3I.Round(normal);
+            if (rounded == new Vector3I(1, 0, 0)) return 0;
+            if (rounded == new Vector3I(-1, 0, 0)) return 1;
+            if (rounded == new Vector3I(0, 1, 0)) return 2;
+            if (rounded == new Vector3I(0, -1, 0)) return 3;
+            if (rounded == new Vector3I(0, 0, 1)) return 4;
+            if (rounded == new Vector3I(0, 0, -1)) return 5;
+            return null;
         }
 
         private static void AddOpaqueFaceBit(
