@@ -439,6 +439,10 @@ function createRenderContext(textureToken, preloadedTextures = null) {
     };
 }
 
+function createOverlayMaskRenderContext() {
+    return { ...createRenderContext(textureStatsToken), lodDistanceBias: MODEL_LOD_DISTANCE_BIAS, useThreeLod: true };
+}
+
 function configureRelativeView(scene) {
     const anchorGrid = primaryGrid(scene) || scene.grid || {};
     const worldMatrix = matrixDtoToThree(anchorGrid.worldMatrix);
@@ -496,7 +500,7 @@ function renderDamagedOverlay(scene, gridGroups, definitions, damagedVoxelChunks
     state.stats["Damaged voxel chunks"] = damagedVoxelChunks.length;
     if (!damagedBlocks.length && !damagedVoxelChunks.length) return;
 
-    const maskRenderContext = createRenderContext(textureStatsToken);
+    const maskRenderContext = createOverlayMaskRenderContext();
     const overlayByGridId = new Map();
     const gridOverlay = gridId => {
         const key = String(gridId || primaryGrid(scene)?.id || scene.grid?.id || "");
@@ -576,37 +580,41 @@ function createDamagedFallbackMask(block, material, gridSize, clip = null) {
 
 function createDamagedModelMaskMeshes(assetId, block, matrix, patternOffset, material, renderContext, clip = null) {
     const resolved = assetId ? state.modelResolution.get(assetId) : null;
-    const model = resolved && resolved.status === "parsed" ? resolved.model : null;
-    if (!model) return [];
+    const baseModel = resolved && resolved.status === "parsed" ? resolved.model : null;
+    if (!baseModel) return [];
 
-    const groups = model.groups.filter(group => {
-        if (isOfflineHiddenLcdMaterial(block, group.materialName)) return false;
-        if (isResetLcdModelMaterialHidden(block, group.materialName)) return false;
-        if (isLcdModelFallbackMaterialHidden(block, group.materialName)) return false;
-        return true;
-    });
-    if (!groups.length) return [];
+    const variants = renderContext.useThreeLod && !clip
+        ? modelLodVariants(baseModel, renderContext.lodDistanceBias || 1)
+        : [selectModelLod(baseModel, matrix, renderContext, clip)];
+    const masks = [];
+    for (const selection of variants) {
+        const model = selection.model;
+        if (!model) continue;
+        const groups = visibleModelGroups(model, block);
+        if (!groups.length) continue;
 
-    const deformations = clip ? null : blockDeformationMap(block);
-    const canDeform = deformations && model.boneMapping && model.blendIndices && model.blendWeights;
-    const geometry = canDeform
-        ? deformedModelGeometry(model, patternOffset, groups, matrix, deformations, block)
-        : clip
-            ? clippedModelGeometry(model, patternOffset, groups, matrix, clip)
-            : sharedModelGeometry(model, patternOffset, renderContext, groups, "damaged-mask");
-    if (!geometry) return [];
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = `DamagedBlockMask:${block.id || "block"}`;
-    mesh.matrixAutoUpdate = false;
-    mesh.matrix.copy((clip || canDeform) ? new THREE.Matrix4() : matrix);
-    mesh.renderOrder = 29;
-    mesh.frustumCulled = false;
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
-    mesh.userData.block = block;
-    mesh.userData.damagedBlock = block;
-    mesh.userData.damagedGridId = String(block.gridId || "");
-    return [mesh];
+        const deformations = clip ? null : blockDeformationMap(block);
+        const canDeform = deformations && model.boneMapping && model.blendIndices && model.blendWeights;
+        const geometry = canDeform
+            ? deformedModelGeometry(model, patternOffset, groups, matrix, deformations, block)
+            : clip
+                ? clippedModelGeometry(model, patternOffset, groups, matrix, clip)
+                : sharedModelGeometry(model, patternOffset, renderContext, groups, `damaged-mask-lod${selection.level || 0}`);
+        if (!geometry) continue;
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.name = `DamagedBlockMask:${block.id || "block"}:LOD${selection.level || 0}`;
+        mesh.matrixAutoUpdate = false;
+        mesh.matrix.copy((clip || canDeform) ? new THREE.Matrix4() : matrix);
+        mesh.renderOrder = 29;
+        mesh.frustumCulled = false;
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+        mesh.userData.block = block;
+        mesh.userData.damagedBlock = block;
+        mesh.userData.damagedGridId = String(block.gridId || "");
+        masks.push({ mesh, selection });
+    }
+    return overlayLodMeshes(masks, `DamagedBlockMaskLOD:${block.id || "block"}`);
 }
 
 function createDamagedVoxelMasks(chunks, voxelBodiesById) {
@@ -721,7 +729,7 @@ function renderLogisticsOverlay(scene, gridGroups, definitions) {
 
     const nodeById = new Map(nodes.map(node => [String(node.id || ""), node]));
     const blockById = new Map((scene.blockInstances || []).map(block => [String(block.id || ""), block]));
-    const maskRenderContext = createRenderContext(textureStatsToken);
+    const maskRenderContext = createOverlayMaskRenderContext();
     const overlayByGridId = new Map();
     const gridOverlay = gridId => {
         const key = String(gridId || primaryGrid(scene)?.id || scene.grid?.id || "");
@@ -923,34 +931,79 @@ function sharedLogisticsMaskMaterial(color, opacity, renderContext) {
 
 function createLogisticsModelMaskMeshes(assetId, block, node, matrix, patternOffset, material, renderContext, clip = null) {
     const resolved = assetId ? state.modelResolution.get(assetId) : null;
-    const model = resolved && resolved.status === "parsed" ? resolved.model : null;
-    if (!model) return [];
+    const baseModel = resolved && resolved.status === "parsed" ? resolved.model : null;
+    if (!baseModel) return [];
 
-    const groups = model.groups.filter(group => {
+    const variants = renderContext.useThreeLod && !clip
+        ? modelLodVariants(baseModel, renderContext.lodDistanceBias || 1)
+        : [selectModelLod(baseModel, matrix, renderContext, clip)];
+    const masks = [];
+    for (const selection of variants) {
+        const model = selection.model;
+        if (!model) continue;
+        const groups = visibleModelGroups(model, block);
+        if (!groups.length) continue;
+
+        const geometry = clip
+            ? clippedModelGeometry(model, patternOffset, groups, matrix, clip)
+            : sharedModelGeometry(model, patternOffset, renderContext, groups, `logistics-mask-lod${selection.level || 0}`);
+        if (!geometry) continue;
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.name = `LogisticsNodeMask:${node.id || block.id || "node"}:LOD${selection.level || 0}`;
+        mesh.matrixAutoUpdate = false;
+        mesh.matrix.copy(clip ? new THREE.Matrix4() : matrix);
+        mesh.renderOrder = 28;
+        mesh.frustumCulled = false;
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+        mesh.userData.block = block;
+        mesh.userData.logisticsNode = node;
+        mesh.userData.logisticsSystemId = num(node.systemId, -1);
+        mesh.userData.logisticsGridId = String(node.gridId || block.gridId || "");
+        masks.push({ mesh, selection });
+    }
+    return overlayLodMeshes(masks, `LogisticsNodeMaskLOD:${node.id || block.id || "node"}`);
+}
+
+function visibleModelGroups(model, block) {
+    return (model && model.groups || []).filter(group => {
         if (isOfflineHiddenLcdMaterial(block, group.materialName)) return false;
         if (isResetLcdModelMaterialHidden(block, group.materialName)) return false;
         if (isLcdModelFallbackMaterialHidden(block, group.materialName)) return false;
         return true;
     });
-    if (!groups.length) return [];
+}
 
-    const geometry = clip
-        ? clippedModelGeometry(model, patternOffset, groups, matrix, clip)
-        : sharedModelGeometry(model, patternOffset, renderContext, groups, "logistics-mask");
-    if (!geometry) return [];
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = `LogisticsNodeMask:${node.id || block.id || "node"}`;
-    mesh.matrixAutoUpdate = false;
-    mesh.matrix.copy(clip ? new THREE.Matrix4() : matrix);
-    mesh.renderOrder = 28;
-    mesh.frustumCulled = false;
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
-    mesh.userData.block = block;
-    mesh.userData.logisticsNode = node;
-    mesh.userData.logisticsSystemId = num(node.systemId, -1);
-    mesh.userData.logisticsGridId = String(node.gridId || block.gridId || "");
-    return [mesh];
+function overlayLodMeshes(entries, name) {
+    const validEntries = (entries || []).filter(entry => entry && entry.mesh);
+    if (validEntries.length <= 1 || !validEntries.some(entry => entry.selection && entry.selection.hasAuthoredLod)) {
+        return validEntries.map(entry => entry.mesh);
+    }
+
+    const groupsByLevel = new Map();
+    const distancesByLevel = new Map([[0, 0]]);
+    for (const entry of validEntries) {
+        const selection = entry.selection || {};
+        const level = Number(selection.level) || 0;
+        let levelGroup = groupsByLevel.get(level);
+        if (!levelGroup) {
+            levelGroup = new THREE.Group();
+            levelGroup.name = `${name}:LOD${level}`;
+            levelGroup.matrixAutoUpdate = false;
+            groupsByLevel.set(level, levelGroup);
+        }
+        if (level > 0) distancesByLevel.set(level, selection.distance || 0);
+        levelGroup.add(entry.mesh);
+    }
+
+    const lod = new THREE.LOD();
+    lod.name = name;
+    lod.matrixAutoUpdate = false;
+    lod.autoUpdate = true;
+    for (const level of [...groupsByLevel.keys()].sort((a, b) => a - b)) {
+        lod.addLevel(groupsByLevel.get(level), distancesByLevel.get(level) || 0, MODEL_LOD_HYSTERESIS_RATIO);
+    }
+    return lod.levels.length ? [lod] : [];
 }
 
 function logisticsRoleColor(role, systemId) {
