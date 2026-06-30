@@ -4,7 +4,7 @@ import { configureContextControl, configureVoxelControl, wireControls } from "./
 import { fetchEntityScene, parseContextFlag, parseVoxelFlag } from "./quasar-api.js";
 import { pickContentFolder, pickModsFolder, restoreContentFolder, restoreModsFolder } from "./content-folder.js";
 import { renderGridScene } from "./grid-renderer.js";
-import { downloadLog, log } from "./logging.js";
+import { downloadLog, exportStatistics, log } from "./logging.js";
 
 document.addEventListener("DOMContentLoaded", start);
 window.addEventListener("pagehide", disposeViewer, { once: true });
@@ -19,6 +19,7 @@ async function start() {
     state.contextSupport = parseContextFlag();
     initScene();
     wireControls({ reloadScene, pickContent: selectContentFolder, pickMods: selectModsFolder });
+    els.exportStats.addEventListener("click", exportStatistics);
     els.downloadLog.addEventListener("click", downloadLog);
     animate();
 

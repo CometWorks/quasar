@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Entry point for the standalone grid/asteroid viewer page. It initializes DOM references, parsed voxel and context URL support state, Three.js scene state, control wiring, page-hide teardown, independent persisted Content and Mods folder restoration, scene reloads with a viewport loading/progress overlay, high-level fetch timing for the stats panel, and scene-loaded logging that can identify grid or voxel-only snapshots.
+Entry point for the standalone grid/asteroid viewer page. It initializes DOM references, parsed voxel and context URL support state, Three.js scene state, control wiring including log/statistics downloads, page-hide teardown, independent persisted Content and Mods folder restoration, scene reloads with a viewport loading/progress overlay, high-level fetch timing for the stats panel, and scene-loaded logging that can identify grid or voxel-only snapshots.
 
 ## Structure
 
@@ -23,4 +23,4 @@ The page lifecycle handlers dispose the viewer on `pagehide` so cached WebGL tex
 - [`Quasar/wwwroot/viewer/quasar-api.js`](quasar-api.js.md) for scene HTTP fetches.
 - [`Quasar/wwwroot/viewer/content-folder.js`](content-folder.js.md) for local asset folder selection/restoration.
 - [`Quasar/wwwroot/viewer/grid-renderer.js`](grid-renderer.js.md) for scene rendering.
-- [`Quasar/wwwroot/viewer/logging.js`](logging.js.md) for status/warning output.
+- [`Quasar/wwwroot/viewer/logging.js`](logging.js.md) for status/warning output and local text downloads.
