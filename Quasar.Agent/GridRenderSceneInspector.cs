@@ -1590,7 +1590,7 @@ namespace Quasar.Agent
                 LocalAabbMin = ToDto(new Vector3(-definition.Size.X, -definition.Size.Y, -definition.Size.Z) * 0.5f),
                 LocalAabbMax = ToDto(new Vector3(definition.Size.X, definition.Size.Y, definition.Size.Z) * 0.5f),
                 VisibilityClass = VisibilityClass(definition),
-                OpaqueFaceMask = OpaqueFaceMask(definition),
+                OpaqueFaceMask = OpaqueGeneratedCubeFaceMask(definition),
             };
 
             if (definition.BuildProgressModels != null)
@@ -2427,7 +2427,10 @@ namespace Quasar.Agent
             if (BlockHasDeformation(neighbour))
                 return false;
 
-            var neighbourMask = OpaqueFaceMaskAtCell(neighbour, adjacentCell);
+            if (!neighbour.ShowParts)
+                return false;
+
+            var neighbourMask = OpaqueGeneratedCubeFaceMaskAtCell(neighbour, adjacentCell);
             return (neighbourMask & (1 << OppositeFaceBit(faceBit.Value))) != 0;
         }
 
@@ -2772,67 +2775,59 @@ namespace Quasar.Agent
             if (IsTransparentDefinition(definition))
                 return "transparent";
 
-            if (OpaqueFaceMask(definition) == 63)
+            if (OpaqueGeneratedCubeFaceMask(definition) == 63)
                 return "opaque-full-cell";
 
             return "opaque-partial";
         }
 
-        private static int OpaqueFaceMask(MyCubeBlockDefinition definition)
+        private static int OpaqueGeneratedCubeFaceMask(MyCubeBlockDefinition definition)
         {
             if (IsTransparentDefinition(definition) ||
                 !definition.BlockTopology.ToString().Equals("Cube", StringComparison.OrdinalIgnoreCase) ||
-                definition.Size != Vector3I.One)
-                return 0;
-
-            if (definition.IsCubePressurized == null || !definition.IsCubePressurized.TryGetValue(Vector3I.Zero, out var faces))
-                return 0;
-
-            var mask = 0;
-            AddOpaqueFaceBit(faces, new Vector3I(1, 0, 0), 0, ref mask);
-            AddOpaqueFaceBit(faces, new Vector3I(-1, 0, 0), 1, ref mask);
-            AddOpaqueFaceBit(faces, new Vector3I(0, 1, 0), 2, ref mask);
-            AddOpaqueFaceBit(faces, new Vector3I(0, -1, 0), 3, ref mask);
-            AddOpaqueFaceBit(faces, new Vector3I(0, 0, 1), 4, ref mask);
-            AddOpaqueFaceBit(faces, new Vector3I(0, 0, -1), 5, ref mask);
-            return mask;
-        }
-
-        private static int OpaqueFaceMaskAtCell(MySlimBlock block, Vector3I gridCell)
-        {
-            var definition = block.BlockDefinition;
-            if (definition == null || IsTransparentDefinition(definition))
-                return 0;
-
-            if (definition.Size == Vector3I.One &&
-                block.Position == gridCell &&
-                definition.BlockTopology.ToString().Equals("Cube", StringComparison.OrdinalIgnoreCase))
-                return OpaqueFaceMask(definition);
-
-            if (!CellInsideBlock(block, gridCell) || definition.IsCubePressurized == null)
-                return 0;
-
-            block.Orientation.GetMatrix(out Matrix orientation);
-            orientation.TransposeRotationInPlace();
-            var localCell = Vector3I.Round(Vector3.Transform(gridCell - block.Position, orientation) + definition.Center);
-            if (!definition.IsCubePressurized.TryGetValue(localCell, out var faces))
+                definition.Size != Vector3I.One ||
+                definition.CubeDefinition == null)
                 return 0;
 
             var mask = 0;
-            for (var bit = 0; bit < 6; bit++)
+            foreach (var tile in MyCubeGridDefinitions.GetCubeTiles(definition))
             {
-                var localNormal = Vector3I.Round(Vector3.Transform(FaceNormal(bit), orientation));
-                AddOpaqueFaceBit(faces, localNormal, bit, ref mask);
+                if (!tile.FullQuad || tile.IsEmpty)
+                    continue;
+
+                var faceBit = FaceBitFromNormal(tile.Normal);
+                if (faceBit.HasValue)
+                    mask |= 1 << faceBit.Value;
             }
 
             return mask;
         }
 
-        private static bool CellInsideBlock(MySlimBlock block, Vector3I cell)
+        private static int OpaqueGeneratedCubeFaceMaskAtCell(MySlimBlock block, Vector3I gridCell)
         {
-            return cell.X >= block.Min.X && cell.X <= block.Max.X &&
-                   cell.Y >= block.Min.Y && cell.Y <= block.Max.Y &&
-                   cell.Z >= block.Min.Z && cell.Z <= block.Max.Z;
+            var definition = block.BlockDefinition;
+            if (definition == null)
+                return 0;
+
+            if (definition.Size != Vector3I.One ||
+                block.Position != gridCell ||
+                !definition.BlockTopology.ToString().Equals("Cube", StringComparison.OrdinalIgnoreCase))
+                return 0;
+
+            block.Orientation.GetMatrix(out Matrix orientation);
+            var mask = 0;
+            foreach (var tile in MyCubeGridDefinitions.GetCubeTiles(definition))
+            {
+                if (!tile.FullQuad || tile.IsEmpty)
+                    continue;
+
+                var normal = Vector3.TransformNormal(tile.Normal, orientation);
+                var faceBit = FaceBitFromNormal(normal);
+                if (faceBit.HasValue)
+                    mask |= 1 << faceBit.Value;
+            }
+
+            return mask;
         }
 
         private static bool BlockHasDeformation(MySlimBlock block)
@@ -2878,16 +2873,6 @@ namespace Quasar.Agent
             if (rounded == new Vector3I(0, 0, 1)) return 4;
             if (rounded == new Vector3I(0, 0, -1)) return 5;
             return null;
-        }
-
-        private static void AddOpaqueFaceBit(
-            Dictionary<Vector3I, MyCubeBlockDefinition.MyCubePressurizationMark> faces,
-            Vector3I normal,
-            int bit,
-            ref int mask)
-        {
-            if (faces.TryGetValue(normal, out var mark) && mark == MyCubeBlockDefinition.MyCubePressurizationMark.PressurizedAlways)
-                mask |= 1 << bit;
         }
 
         private static bool IsTransparentDefinition(MyCubeBlockDefinition definition)
