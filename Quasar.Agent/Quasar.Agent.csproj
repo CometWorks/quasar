@@ -46,6 +46,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Sandbox.Game" HintPath="$(DS64)\Sandbox.Game.dll" Private="False" />
+    <Reference Include="Sandbox.Common" HintPath="$(DS64)\Sandbox.Common.dll" Private="False" />
     <Reference Include="SpaceEngineersDedicated" HintPath="$(DS64)\SpaceEngineersDedicated.exe" Private="False" />
     <Reference Include="SpaceEngineers.Game" HintPath="$(DS64)\SpaceEngineers.Game.dll" Private="False" />
     <Reference Include="VRage" HintPath="$(DS64)\VRage.dll" Private="False" />
@@ -53,6 +54,7 @@
     <Reference Include="VRage.Game" HintPath="$(DS64)\VRage.Game.dll" Private="False" />
     <Reference Include="VRage.Library" HintPath="$(DS64)\VRage.Library.dll" Private="False" />
     <Reference Include="VRage.Math" HintPath="$(DS64)\VRage.Math.dll" Private="False" />
+    <Reference Include="VRage.Render" HintPath="$(DS64)\VRage.Render.dll" Private="False" />
     <!-- Magnetar PluginSdk: provides ServerControl lifecycle events the agent
          subscribes to. Provided by the Magnetar host at runtime, so not copied. -->
     <Reference Include="PluginSdk" HintPath="$(MagnetarBin)\PluginSdk.dll" Private="False" />

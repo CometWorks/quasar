@@ -1,0 +1,4 @@
+[submodule "Viewer"]
+	path = Viewer
+	url = https://github.com/CometWorks/viewer.git
+	branch = main

@@ -191,6 +191,9 @@ namespace Quasar.Agent
 
         private static EntitySummary MapVoxel(MyVoxelBase voxel)
         {
+            if (voxel.GetType().Name == "MyVoxelPhysics")
+                return null;
+
             var summary = NewSummary(voxel, "Voxel");
             summary.DisplayName = FirstNonEmpty(voxel.StorageName, $"Voxel {voxel.EntityId}");
             summary.SubType = voxel.GetType().Name.IndexOf("Planet", StringComparison.OrdinalIgnoreCase) >= 0

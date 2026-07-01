@@ -26,6 +26,51 @@
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <_ViewerRoot>$(MSBuildThisFileDirectory)..\Viewer\</_ViewerRoot>
+    <_ViewerSourceDir>$(_ViewerRoot)src\</_ViewerSourceDir>
+    <_ViewerPackageJson>$(_ViewerRoot)package.json</_ViewerPackageJson>
+    <_ViewerPackageLock>$(_ViewerRoot)package-lock.json</_ViewerPackageLock>
+    <_ViewerNodeModulesDir>$(_ViewerRoot)node_modules\</_ViewerNodeModulesDir>
+    <_ViewerNodeModulesStamp>$(_ViewerNodeModulesDir).package-lock.json</_ViewerNodeModulesStamp>
+    <_ViewerStaticDir>$(MSBuildProjectDirectory)\wwwroot\viewer\</_ViewerStaticDir>
+    <_ViewerVendorDir>$(MSBuildProjectDirectory)\wwwroot\vendor\</_ViewerVendorDir>
+  </PropertyGroup>
+
+  <Target Name="RestoreViewerNpmPackages"
+          Inputs="$(_ViewerPackageJson);$(_ViewerPackageLock)"
+          Outputs="$(_ViewerNodeModulesStamp)">
+    <Error Condition="!Exists('$(_ViewerPackageJson)') or !Exists('$(_ViewerPackageLock)') or !Exists('$(_ViewerSourceDir)')"
+           Text="Viewer submodule is not initialized. Run git submodule update --init Viewer." />
+    <Message Importance="High" Text="Restoring grid viewer npm packages from Viewer/package-lock.json." />
+    <Exec Command="npm ci --ignore-scripts" WorkingDirectory="$(_ViewerRoot)" />
+  </Target>
+
+  <Target Name="StageViewerAssets"
+          BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="RestoreViewerNpmPackages">
+    <ItemGroup>
+      <_ViewerSourceFiles Include="$(_ViewerSourceDir)**\*" />
+      <_ViewerThreePackageFiles Include="$(_ViewerNodeModulesDir)three\**\*" />
+      <_ViewerZipPackageFiles Include="$(_ViewerNodeModulesDir)@zip.js\zip.js\**\*" />
+    </ItemGroup>
+    <RemoveDir Directories="$(_ViewerStaticDir)" />
+    <MakeDir Directories="$(_ViewerStaticDir);$(_ViewerVendorDir)" />
+    <Copy SourceFiles="@(_ViewerSourceFiles)"
+          DestinationFiles="@(_ViewerSourceFiles->'$(_ViewerStaticDir)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_ViewerThreePackageFiles)"
+          DestinationFiles="@(_ViewerThreePackageFiles->'$(_ViewerVendorDir)three\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_ViewerZipPackageFiles)"
+          DestinationFiles="@(_ViewerZipPackageFiles->'$(_ViewerVendorDir)zip.js\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <Content Include="wwwroot\viewer\**\*" Exclude="@(Content)" CopyToPublishDirectory="PreserveNewest" />
+      <Content Include="wwwroot\vendor\**\*" Exclude="@(Content)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
   <!-- Build Quasar.Agent and stage its plugin DLLs into an Agent/ subfolder of both
        the Build output and the Publish output. The runtime preparer copies these
        into each server's Magnetar Local plugin folder. -->

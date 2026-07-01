@@ -1,0 +1,43 @@
+.quasar-viewer-dialog-title {
+    min-width: 0;
+}
+
+.quasar-viewer-title-text {
+    min-width: 0;
+}
+
+.quasar-viewer-subtitle {
+    display: block;
+    max-width: min(72rem, 78vw);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.quasar-viewer-frame-host {
+    height: calc(100dvh - 8rem);
+    min-height: 24rem;
+    overflow: hidden;
+    background: #05080c;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 4px;
+}
+
+.quasar-viewer-frame {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #05080c;
+}
+
+@media (max-width: 600px) {
+    .quasar-viewer-subtitle {
+        max-width: 58vw;
+    }
+
+    .quasar-viewer-frame-host {
+        height: calc(100dvh - 7.5rem);
+        min-height: 18rem;
+    }
+}
