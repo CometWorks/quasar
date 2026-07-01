@@ -1,7 +1,0 @@
-{
-  "private": true,
-  "dependencies": {
-    "@zip.js/zip.js": "2.7.72",
-    "three": "0.180.0"
-  }
-}

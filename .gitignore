@@ -61,6 +61,11 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 
+# Quasar viewer submodule build outputs
+Quasar/wwwroot/viewer/
+Quasar/wwwroot/vendor/
+Viewer/node_modules/
+
 # StyleCop
 StyleCopReport.xml
 

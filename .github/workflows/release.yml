@@ -7,12 +7,15 @@ on:
       - main
     paths:
       - ".github/workflows/release.yml"
+      - ".gitmodules"
       - "Directory.Build.props"
       - "Magnetar.Protocol/**"
       - "Quasar/**"
       - "Quasar.Agent/**"
       - "Quasar.Bootstrap/**"
       - "Quasar.sln"
+      - "Viewer"
+      - "Viewer/**"
       - "install.sh"
       - "uninstall.sh"
       - "scripts/install.ps1"
@@ -28,12 +31,15 @@ on:
       - main
     paths:
       - ".github/workflows/release.yml"
+      - ".gitmodules"
       - "Directory.Build.props"
       - "Magnetar.Protocol/**"
       - "Quasar/**"
       - "Quasar.Agent/**"
       - "Quasar.Bootstrap/**"
       - "Quasar.sln"
+      - "Viewer"
+      - "Viewer/**"
       - "install.sh"
       - "uninstall.sh"
       - "scripts/install.ps1"
@@ -69,6 +75,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: true
 
       - name: Resolve Quasar release metadata
         id: release
@@ -159,6 +166,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: true
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -317,6 +325,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: true
 
       - uses: actions/setup-dotnet@v4
         with:

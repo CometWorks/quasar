@@ -15,6 +15,10 @@ utilities. For the runtime design see [Architecture](QuasarArchitecture.md).
 - `Magnetar.Protocol`
   Shared transport and discovery contracts currently used by Quasar and
   Quasar.Agent.
+- `Viewer`
+  Browser-side grid and asteroid viewer submodule. Quasar copies `Viewer/src`
+  into `Quasar/wwwroot/viewer` during build and stages its pinned npm
+  dependencies into `Quasar/wwwroot/vendor`.
 
 The solution file is `Quasar.sln`.
 
@@ -45,9 +49,14 @@ The solution file is `Quasar.sln`.
   Windows depot with SteamCMD and retries the install to work around transient
   missing-configuration failures.
 - Building `Quasar/Quasar.csproj` also requires Node.js/npm. The project runs
-  `npm ci --ignore-scripts` from `Quasar/package-lock.json` and stages the full
+  `npm ci --ignore-scripts` from `Viewer/package-lock.json` and stages the full
   pinned `three` `0.180.0` and `@zip.js/zip.js` `2.7.72` packages into
   `wwwroot/vendor` for the standalone grid viewer.
+- The viewer is a Git submodule pinned under `Viewer/`, tracking
+  `https://github.com/CometWorks/viewer.git` on `main`. After a fresh clone, run
+  `git submodule update --init Viewer` if the directory is empty. To pick up the
+  latest viewer release, run `git submodule update --remote Viewer`, then commit
+  the updated `Viewer` gitlink in Quasar; the release workflow watches that path.
 
 ## Managed runtime selection
 
