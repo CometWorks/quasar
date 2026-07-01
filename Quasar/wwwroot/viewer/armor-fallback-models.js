@@ -5,7 +5,7 @@ const ARMOR_FALLBACK_MODELS = {
     half_wedge: mirrorZModel("Low triangular-prism armor slope.", [[-.5, -.5, -.5], [.5, -.5, -.5], [-.5, -.5, .5], [.5, -.5, .5], [-.5, 0, .5], [.5, 0, .5]], [[0, 1, 3], [0, 3, 2], [2, 3, 5], [2, 5, 4], [0, 2, 4], [0, 4, 1], [1, 4, 5], [1, 5, 3]]),
     tetra_corner: mirrorXModel("Triangular armor corner.", [[-.5, -.5, -.5], [.5, -.5, -.5], [-.5, -.5, .5], [-.5, .5, -.5]], [[0, 1, 2], [0, 3, 1], [0, 2, 3], [1, 3, 2]]),
     sloped_corner: model("Square-base sloped armor corner.", [[-.5, -.5, -.5], [.5, -.5, -.5], [.5, -.5, .5], [-.5, -.5, .5], [-.5, .5, -.5]], [[0, 1, 2], [0, 2, 3], [0, 4, 1], [0, 3, 4], [1, 4, 2], [2, 4, 3]]),
-    cut_corner: model("Armor cube with one corner cut away.", [[.5, -.5, -.5], [-.5, .5, -.5], [-.5, -.5, .5], [.5, .5, -.5], [.5, -.5, .5], [-.5, .5, .5], [.5, .5, .5]], [[0, 1, 2], [0, 3, 1], [0, 4, 6], [0, 6, 3], [1, 3, 6], [1, 6, 5], [2, 5, 6], [2, 6, 4], [0, 2, 4], [1, 5, 2], [3, 6, 4]]),
+    cut_corner: model("Armor cube with local Right/Bottom/Front corner cut away.", [[-.5, -.5, -.5], [-.5, .5, -.5], [.5, .5, -.5], [-.5, -.5, .5], [.5, -.5, .5], [-.5, .5, .5], [.5, .5, .5]], [[0, 3, 5], [0, 5, 1], [2, 6, 4], [0, 4, 3], [1, 5, 6], [1, 6, 2], [0, 1, 2], [3, 4, 6], [3, 6, 5], [0, 2, 4]]),
     thin_side_panel: boxModel("Thin armor panel on one block side.", .4, .5, -.5, .5),
     thin_center_panel: boxModel("Thin centered armor panel.", -.05, .05, -.5, .5),
     thin_half_panel: boxModel("Thin side armor panel occupying half block height.", .4, .5, -.5, 0),

@@ -4053,6 +4053,8 @@ function createProxyBatchGeometry(fallback) {
         }
     }
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.deleteAttribute("normal");
+    geometry.deleteAttribute("uv");
     geometry.setIndex(null);
     geometry.clearGroups();
     geometry.computeVertexNormals();
