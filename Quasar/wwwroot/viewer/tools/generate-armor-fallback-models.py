@@ -137,6 +137,7 @@ def convex_hull_model(points: list[list[float]]) -> tuple[list[list[float]], lis
         return vertices, []
     hull = ConvexHull(vertices)
     triangles = sorted(sorted_triangle(simplex) for simplex in hull.simplices.tolist())
+    triangles = orient_triangles_outward(vertices, triangles)
     return vertices, triangles
 
 
@@ -168,10 +169,29 @@ def read_mwm_model(path: Path, grid_size: float, content: Path) -> dict:
         if len(set(out)) == 3:
             out_triangles.append(out)
     out_vertices = [list(point) for point in remap.keys()]
-    if len(out_vertices) > 40:
-        out_vertices = [[coarse_quantize(c) for c in point] for point in out_vertices]
-        out_vertices, out_triangles = convex_hull_model(out_vertices)
+    out_triangles = orient_triangles_outward(out_vertices, out_triangles)
     return {"vertices": out_vertices, "triangles": out_triangles}
+
+
+def orient_triangles_outward(vertices: list[list[float]], triangles: list[list[int]]) -> list[list[int]]:
+    if not vertices:
+        return triangles
+
+    center = [sum(point[axis] for point in vertices) / len(vertices) for axis in range(3)]
+    oriented = []
+    for triangle in triangles:
+        a, b, c = (vertices[index] for index in triangle)
+        ab = [b[axis] - a[axis] for axis in range(3)]
+        ac = [c[axis] - a[axis] for axis in range(3)]
+        normal = [
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        ]
+        centroid = [(a[axis] + b[axis] + c[axis]) / 3 for axis in range(3)]
+        outward = sum(normal[axis] * (centroid[axis] - center[axis]) for axis in range(3))
+        oriented.append([triangle[0], triangle[2], triangle[1]] if outward < 0 else triangle)
+    return oriented
 
 
 def read_vertices_at(stream, offset: int, grid_size: float) -> list[tuple[float, float, float]]:
@@ -180,8 +200,8 @@ def read_vertices_at(stream, offset: int, grid_size: float) -> list[tuple[float,
     count = read_i32(stream)
     vertices = []
     for _ in range(count):
-        x, y, z, _ = struct.unpack("<eeee", stream.read(8))
-        vertices.append((quantize(x / grid_size), quantize(y / grid_size), quantize(z / grid_size)))
+        x, y, z, scale = struct.unpack("<eeee", stream.read(8))
+        vertices.append((quantize(x * scale / grid_size), quantize(y * scale / grid_size), quantize(z * scale / grid_size)))
     return vertices
 
 
@@ -266,13 +286,6 @@ def quantize(value: float) -> float:
     if abs(value) <= EDGE_QUANTUM:
         return round(value, 4)
     value = round(value / SILHOUETTE_QUANTUM) * SILHOUETTE_QUANTUM
-    return 0 if abs(value) < 0.00001 else round(value, 4)
-
-
-def coarse_quantize(value: float) -> float:
-    if abs(abs(value) - 0.5) <= EDGE_QUANTUM or abs(value) <= EDGE_QUANTUM:
-        return round(value, 4)
-    value = round(value / 0.5) * 0.5
     return 0 if abs(value) < 0.00001 else round(value, 4)
 
 
