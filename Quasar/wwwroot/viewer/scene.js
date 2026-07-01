@@ -425,11 +425,12 @@ export function updateLighting() {
 
 export function updateSunLightPosition() {
     if (!state.sunLight) return;
-    const bounds = (state.contextBounds && selectedGridContentBounds()) || sceneContentBounds() || state.currentBounds;
-    const target = bounds ? bounds.getCenter(new THREE.Vector3()) : new THREE.Vector3();
+    const targetBounds = (state.contextBounds && selectedGridContentBounds()) || sceneContentBounds() || state.currentBounds;
+    const shadowBounds = sunShadowBounds(targetBounds);
+    const target = targetBounds ? targetBounds.getCenter(new THREE.Vector3()) : new THREE.Vector3();
     const direction = currentRelativeSunDirection();
-    const markerDistance = bounds ? sunMarkerDistance(bounds) : 90;
-    const lightDistance = bounds ? sunDirectionalLightDistance(bounds) : 1000;
+    const markerDistance = targetBounds ? sunMarkerDistance(targetBounds) : 90;
+    const lightDistance = shadowBounds ? sunDirectionalLightDistance(shadowBounds, target) : 1000;
     const markerPosition = target.clone().addScaledVector(direction, markerDistance);
     const lightPosition = target.clone().addScaledVector(direction, lightDistance);
 
@@ -438,7 +439,7 @@ export function updateSunLightPosition() {
         state.sunLightTarget.position.copy(target);
         state.sunLightTarget.updateMatrixWorld();
     }
-    configureSunShadow(bounds, lightPosition, target);
+    configureSunShadow(shadowBounds, lightPosition, target);
     state.sunLight.updateMatrixWorld();
     updateSunMarker(markerPosition, target);
 }
@@ -582,9 +583,22 @@ function sunMarkerDistance(bounds) {
     return Math.max(size.x, size.y, size.z, state.currentGridSize * 8, 10);
 }
 
-function sunDirectionalLightDistance(bounds) {
+function sunDirectionalLightDistance(bounds, target) {
     const size = bounds.getSize(new THREE.Vector3());
-    return Math.max(size.length() * 2, 200);
+    const radius = target ? Math.max(...boxCorners(bounds).map(point => point.distanceTo(target))) : size.length();
+    return Math.max(size.length() * 2, radius * 2, 200);
+}
+
+function sunShadowBounds(targetBounds) {
+    const floorBounds = floorGridShadowBounds();
+    return unionBounds(targetBounds, floorBounds) || targetBounds;
+}
+
+function floorGridShadowBounds() {
+    const layout = state.floorGrid && state.floorGrid.userData && state.floorGrid.userData.layout;
+    if (!layout) return null;
+    const bounds = clippingBoxBounds(layout);
+    return bounds && !bounds.isEmpty() ? bounds : null;
 }
 
 function configureSunShadow(bounds, lightPosition, target) {

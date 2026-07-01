@@ -3,7 +3,7 @@
 **Module:** Quasar.Host  **Kind:** JS  **Tier:** 3
 
 ## Summary
-Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid/asteroid viewer. It owns renderer setup, shadow-map configuration, orbit/free-fly camera behavior, scene-bound floor grid and default-hidden clipping wireframe generation after content is loaded, relative-space bounds tracking, context-mode selected-grid camera/sun anchoring with expanded context floor footprint, ambient/sun/grid lighting application, separate default-hidden sun marker helper visibility, object and viewer teardown disposal, viewport resizing, block/voxel/logistics/damage hover readouts, logistics hover focus, same-grid damaged-block hover focus, same-body voxel damage hover focus, optional FPS overlay updates, and per-frame stats rendering.
+Three.js scene, camera, lighting, controls, animation, interaction, and render-stat runtime for the standalone grid/asteroid viewer. It owns renderer setup, shadow-map configuration, orbit/free-fly camera behavior, scene-bound floor grid and default-hidden clipping wireframe generation after content is loaded, relative-space bounds tracking, context-mode selected-grid camera/sun-target anchoring with expanded context floor and shadow footprint, ambient/sun/grid lighting application, separate default-hidden sun marker helper visibility, object and viewer teardown disposal, viewport resizing, block/voxel/logistics/damage hover readouts, logistics hover focus, same-grid damaged-block hover focus, same-body voxel damage hover focus, optional FPS overlay updates, and per-frame stats rendering.
 
 ## Structure
 
@@ -22,7 +22,7 @@ Key exports:
 | `fitCameraToScene()` | Frames the active grid bounds and updates camera clipping planes/orbit target. |
 | `updateSceneBounds(refit = false)` | Recomputes displayed relative-space bounds and refreshes the floor grid and sun marker placement. |
 | `updateLighting()` | Applies the lighting toggle state to ambient fill, the directional sun, and grid light group, and independently applies the separate sun marker toggle to the marker and ray. |
-| `updateSunLightPosition()` | Positions the directional sun, target, marker, ray indicator, and fitted orthographic shadow camera in relative-grid space. |
+| `updateSunLightPosition()` | Positions the directional sun, selected-grid target, marker, ray indicator, and floor/clipping-footprint fitted orthographic shadow camera in relative-grid space. |
 | `disposeObjectTree(root)` | Disposes geometries, materials, and non-cached material-owned textures below a scene object. |
 | `collectObjectTreeTextures(root, textures = new Set())` | Collects material and shader-uniform textures referenced below a scene object for cache pruning. |
 | `setCameraMode(mode)` | Switches between orbit and free-fly camera modes. |
