@@ -483,7 +483,7 @@ function buildModelLayer(scene, definitions, renderContext, gridGroups) {
                 }
 
                 if (clipRelation === "partial") {
-                    const proxy = createClippedBlockProxy(block, box, blockClip);
+                    const proxy = createClippedBlockProxy(block, definition, box, blockClip);
                     if (proxy) {
                         gridLayer.add(proxy.solid, proxy.border);
                         proxyMeshes++;
@@ -494,7 +494,7 @@ function buildModelLayer(scene, definitions, renderContext, gridGroups) {
                     if (deformedProxy) {
                         gridLayer.add(deformedProxy.solid, deformedProxy.border);
                     } else {
-                        queueBlockProxy(proxyBatches, block, box, fallback);
+                        queueBlockProxy(proxyBatches, block, definition, box, fallback);
                     }
                     proxyMeshes++;
                 }
@@ -3977,9 +3977,9 @@ function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
 }
 
-function queueBlockProxy(proxyBatches, block, box, fallback = null) {
+function queueBlockProxy(proxyBatches, block, definition, box, fallback = null) {
     if (fallback && fallback.isBoxPlaceholder) fallback = null;
-    const opacity = 1;
+    const opacity = fallbackProxyOpacity(definition);
     const fallbackKey = fallback ? fallback.description : "box";
     const key = `${opacity}|${fallbackKey}`;
     let batch = proxyBatches.get(key);
@@ -4003,16 +4003,29 @@ function queueBlockProxy(proxyBatches, block, box, fallback = null) {
     batch.instances.push(instance);
 }
 
-function createClippedBlockProxy(block, box, clip) {
+function fallbackProxyOpacity(definition) {
+    return isWindowDefinition(definition) ? 0.38 : 1;
+}
+
+function isWindowDefinition(definition) {
+    if (!definition) return false;
+    return [definition.id, definition.displayName]
+        .filter(value => value !== undefined && value !== null)
+        .join(" ")
+        .match(/window/i) !== null;
+}
+
+function createClippedBlockProxy(block, definition, box, clip) {
     const geometry = clippedBoxGeometry(box, clip);
     if (!geometry) return null;
+    const opacity = fallbackProxyOpacity(definition);
 
     const material = new THREE.MeshStandardMaterial({
         color: displayColorForBlock(block),
         roughness: 0.78,
         metalness: 0.12,
-        transparent: false,
-        opacity: 1,
+        transparent: opacity < 1,
+        opacity,
     });
     const solid = new THREE.Mesh(geometry, material);
     solid.name = `ClippedProxy:${block && block.id || "block"}`;
