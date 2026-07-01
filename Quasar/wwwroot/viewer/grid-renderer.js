@@ -482,18 +482,14 @@ function buildModelLayer(scene, definitions, renderContext, gridGroups) {
                     continue;
                 }
 
-                const armorFallback = !effectiveClip ? createArmorFallbackRenderable(block, definition, gridRenderContext) : null;
-                if (armorFallback) {
-                    queueModelBatch(armorFallback, gridRenderContext);
-                    modelMeshes++;
-                } else if (clipRelation === "partial") {
+                if (clipRelation === "partial") {
                     const proxy = createClippedBlockProxy(block, box, blockClip);
                     if (proxy) {
                         gridLayer.add(proxy.solid, proxy.border);
                         proxyMeshes++;
                     }
                 } else {
-                    queueBlockProxy(proxyBatches, block, box);
+                    queueBlockProxy(proxyBatches, block, box, armorFallbackModelForDefinition(definition));
                     proxyMeshes++;
                 }
             }
@@ -2104,65 +2100,6 @@ function createBlockMeshes(block, definition, renderContext, clip = null) {
     }
 
     return meshes;
-}
-
-function createArmorFallbackRenderable(block, definition, renderContext) {
-    const fallback = armorFallbackModelForDefinition(definition);
-    if (!fallback) return null;
-    const gridSize = renderContext && renderContext.grid && renderContext.grid.gridSize || LARGE_GRID_CUBE_SIZE;
-    const geometry = sharedArmorFallbackGeometry(fallback, definition, gridSize, renderContext);
-    const material = sharedArmorFallbackMaterial(renderContext);
-    return {
-        geometry,
-        materials: [material],
-        matrix: composeModelInstanceMatrix(block, definition),
-        block,
-        colorMask: colorMaskForBlock(block),
-        patternOffset: null,
-        standalone: false,
-        lodLevel: 0,
-        lodDistance: 0,
-        lodDistanceSignature: "",
-        hasAuthoredLod: false,
-        source: renderContext.source || "primary",
-        batchKey: `${geometry.userData.renderCacheKey}|${material.userData.renderCacheKey}`,
-    };
-}
-
-function sharedArmorFallbackGeometry(fallback, definition, gridSize, renderContext) {
-    const size = definition && definition.size || { x: 1, y: 1, z: 1 };
-    const sx = Math.max(0.05, (Number(size.x) || 1) * gridSize);
-    const sy = Math.max(0.05, (Number(size.y) || 1) * gridSize);
-    const sz = Math.max(0.05, (Number(size.z) || 1) * gridSize);
-    const key = `armor-fallback:${fallback.description}:${sx}:${sy}:${sz}`;
-    if (renderContext.geometries.has(key)) return renderContext.geometries.get(key);
-
-    const positions = [];
-    for (const vertex of fallback.vertices) positions.push(vertex[0] * sx, vertex[1] * sy, vertex[2] * sz);
-    const indices = fallback.triangles.flat();
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setIndex(indices);
-    geometry.addGroup(0, indices.length, 0);
-    geometry.computeVertexNormals();
-    geometry.computeBoundingSphere();
-    geometry.userData.renderCacheKey = key;
-    renderContext.geometries.set(key, geometry);
-    return geometry;
-}
-
-function sharedArmorFallbackMaterial(renderContext) {
-    const key = "armor-fallback-material";
-    if (renderContext.materials.has(key)) return renderContext.materials.get(key);
-    const material = new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        roughness: 0.78,
-        metalness: 0.12,
-    });
-    material.userData.renderCacheKey = key;
-    material.userData.seRenderMode = "base";
-    renderContext.materials.set(key, material);
-    return material;
 }
 
 function blockHasResolvedModel(block, definition) {
@@ -3978,12 +3915,14 @@ function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
 }
 
-function queueBlockProxy(proxyBatches, block, box) {
+function queueBlockProxy(proxyBatches, block, box, fallback = null) {
+    if (fallback && fallback.isBoxPlaceholder) fallback = null;
     const opacity = 1;
-    const key = String(opacity);
+    const fallbackKey = fallback ? fallback.description : "box";
+    const key = `${opacity}|${fallbackKey}`;
     let batch = proxyBatches.get(key);
     if (!batch) {
-        batch = { opacity, instances: [] };
+        batch = { opacity, fallback, instances: [] };
         proxyBatches.set(key, batch);
     }
 
@@ -4073,11 +4012,11 @@ function polygonLocalNormal(polygon) {
 
 function flushProxyBatches(layer, proxyBatches) {
     if (!proxyBatches.size) return;
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
     const matrix = new THREE.Matrix4();
     const rotation = new THREE.Quaternion();
 
     for (const batch of proxyBatches.values()) {
+        const geometry = createProxyBatchGeometry(batch.fallback);
         const solid = createProxyBatchMesh(geometry, batch);
         const border = createProxyBorderBatch(batch);
         layer.add(solid, border);
@@ -4095,6 +4034,24 @@ function flushProxyBatches(layer, proxyBatches) {
         if (typeof solid.computeBoundingBox === "function") solid.computeBoundingBox();
         if (typeof solid.computeBoundingSphere === "function") solid.computeBoundingSphere();
     }
+}
+
+function createProxyBatchGeometry(fallback) {
+    if (!fallback || fallback.isBoxPlaceholder) return new THREE.BoxGeometry(1, 1, 1);
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const positions = [];
+    for (const triangle of fallback.triangles || []) {
+        for (const index of triangle) {
+            const vertex = fallback.vertices[index];
+            if (vertex) positions.push(vertex[0], vertex[1], vertex[2]);
+        }
+    }
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setIndex(null);
+    geometry.clearGroups();
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+    return geometry;
 }
 
 function createProxyBatchMesh(geometry, batch) {
@@ -4130,7 +4087,9 @@ function createClippedProxyBorder(geometry, color, id) {
 }
 
 function createProxyBorderBatch(batch) {
-    const geometry = createProxyBorderGeometry(batch.instances);
+    const geometry = batch.fallback
+        ? createFallbackProxyBorderGeometry(batch.instances, batch.fallback)
+        : createProxyBorderGeometry(batch.instances);
     const material = new THREE.LineBasicMaterial({
         vertexColors: true,
         transparent: true,
@@ -4142,6 +4101,76 @@ function createProxyBorderBatch(batch) {
     border.matrixAutoUpdate = false;
     border.renderOrder = 1;
     return border;
+}
+
+function createFallbackProxyBorderGeometry(instances, fallback) {
+    const vertices = fallback.vertices || [];
+    const edges = fallbackProxyEdges(fallback);
+    const positions = new Float32Array(instances.length * edges.length * 2 * 3);
+    const colors = new Float32Array(instances.length * edges.length * 2 * 3);
+    let offset = 0;
+    let colorOffset = 0;
+    for (const instance of instances) {
+        const color = borderColorForBlock(instance.color);
+        for (const edge of edges) {
+            const a = vertices[edge[0]];
+            const b = vertices[edge[1]];
+            offset = writeFallbackProxyBorderVertex(positions, offset, a, instance.center, instance.size);
+            offset = writeFallbackProxyBorderVertex(positions, offset, b, instance.center, instance.size);
+            for (let i = 0; i < 2; i++) {
+                colors[colorOffset++] = color.r;
+                colors[colorOffset++] = color.g;
+                colors[colorOffset++] = color.b;
+            }
+        }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geometry.computeBoundingSphere();
+    return geometry;
+}
+
+function fallbackProxyEdges(fallback) {
+    const vertices = fallback.vertices || [];
+    const edges = new Map();
+    for (const triangle of fallback.triangles || []) {
+        const normal = fallbackTriangleNormal(vertices, triangle);
+        addFallbackProxyEdge(edges, triangle[0], triangle[1], normal);
+        addFallbackProxyEdge(edges, triangle[1], triangle[2], normal);
+        addFallbackProxyEdge(edges, triangle[2], triangle[0], normal);
+    }
+    return [...edges.entries()]
+        .filter(([, normals]) => normals.length === 1 || normals.some(normal => Math.abs(normal.dot(normals[0])) < 0.999))
+        .map(([key]) => key.split("|").map(Number));
+}
+
+function addFallbackProxyEdge(edges, a, b, normal) {
+    const x = Math.min(a, b);
+    const y = Math.max(a, b);
+    const key = `${x}|${y}`;
+    const normals = edges.get(key) || [];
+    normals.push(normal);
+    edges.set(key, normals);
+}
+
+function fallbackTriangleNormal(vertices, triangle) {
+    const a = vertices[triangle[0]];
+    const b = vertices[triangle[1]];
+    const c = vertices[triangle[2]];
+    if (!a || !b || !c) return new THREE.Vector3(0, 1, 0);
+    const ab = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    const ac = new THREE.Vector3(c[0] - a[0], c[1] - a[1], c[2] - a[2]);
+    const normal = ab.cross(ac);
+    return normal.lengthSq() > 0.000001 ? normal.normalize() : new THREE.Vector3(0, 1, 0);
+}
+
+function writeFallbackProxyBorderVertex(positions, offset, vertex, center, size) {
+    positions[offset++] = center.x + vertex[0] * size.x;
+    positions[offset++] = center.y + vertex[1] * size.y;
+    positions[offset++] = center.z + vertex[2] * size.z;
+    return offset;
 }
 
 function createProxyBorderGeometry(instances) {

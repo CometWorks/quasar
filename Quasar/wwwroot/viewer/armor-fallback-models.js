@@ -65,7 +65,7 @@ function definitionSubtypeId(definition) {
 }
 
 function model(description, vertices, triangles) {
-    return { description, vertices, triangles };
+    return { description, vertices, triangles, isBoxPlaceholder: description === "Full armor cube." };
 }
 
 function boxModel(description, x0, x1, y0, y1) {
