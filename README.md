@@ -30,7 +30,7 @@ from the terminal, and install it as a background service.
 | [Quick Start](Docs/QuickStart.md) | Download, run from the terminal, and install as a background service (systemd / Scheduled Task). |
 | [Architecture](Docs/QuasarArchitecture.md) | Supervisor design, runtime ownership, process supervision, configuration model, and self-update. |
 | [Configuration](Docs/Configuration.md) | Web UI host/port (how to change the listening port) and browser auto-open behavior. |
-| [Grid/Asteroid Viewer](https://github.com/CometWorks/viewer/blob/main/Docs/GridViewer.md) | Metadata-only grid and asteroid viewer, local Space Engineers `Content` folder requirement, and fallback behavior. |
+| [Grid/Asteroid Viewer](https://github.com/CometWorks/viewer/blob/main/Docs/GridViewer.md) | Fullscreen metadata-only entity viewer, local Space Engineers `Content` folder requirement, and fallback behavior. |
 | [Building & Development](Docs/BuildingAndDevelopment.md) | Project layout, build setup, managed-runtime selection, and developer utilities. |
 | [Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) | systemd install, release assets, and the auto-updater flow. |
 | [Windows Deployment & Updates](Docs/WindowsDeploymentAndUpdates.md) | Scheduled Task install, release assets, and the auto-updater flow. |

@@ -5,7 +5,6 @@
 @inject EntityService EntityService
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
-@inject NavigationManager Navigation
 
 <PageTitle>Entities</PageTitle>
 
@@ -171,7 +170,7 @@ else
                                            Color="Color.Primary"
                                            Size="Size.Small"
                                            Disabled="@(!CanViewEntity(context))"
-                                           OnClick="@(() => OpenViewer(context))" />
+                                           OnClick="@(() => OpenViewerAsync(context))" />
                         </MudTooltip>
                     </span>
                     <MudText Typo="Typo.body2" Class="mono">@context.EntityId</MudText>
@@ -571,15 +570,43 @@ else
                        && string.Equals(entity.SubType, "Asteroid", StringComparison.OrdinalIgnoreCase)));
     }
 
-    private void OpenViewer(EntitySummary entity)
+    private async Task OpenViewerAsync(EntitySummary entity)
     {
         var agent = GetSelectedAgent();
         if (agent is null || !CanViewEntity(entity))
             return;
 
-        var agentId = Uri.EscapeDataString(agent.AgentId);
-        var contextFlag = string.Equals(entity.TypeTag, "Grid", StringComparison.OrdinalIgnoreCase) ? "&context=1" : string.Empty;
-        Navigation.NavigateTo($"/viewer/entity?agentId={agentId}&entityId={entity.EntityId}&voxels=1{contextFlag}", forceLoad: true);
+        var title = string.IsNullOrWhiteSpace(entity.DisplayName)
+            ? $"Entity {entity.EntityId}"
+            : entity.DisplayName;
+        var subtitle = $"{ResolveServerName(agent)} - {entity.TypeTag} #{entity.EntityId}";
+        var parameters = new DialogParameters
+        {
+            [nameof(EntityViewerDialog.ViewerUrl)] = BuildViewerUrl(agent, entity),
+            [nameof(EntityViewerDialog.Title)] = title,
+            [nameof(EntityViewerDialog.Subtitle)] = subtitle,
+        };
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            FullScreen = true,
+        };
+
+        await DialogService.ShowAsync<EntityViewerDialog>(title, parameters, options);
+    }
+
+    private static string BuildViewerUrl(AgentRuntimeState agent, EntitySummary entity)
+    {
+        var parts = new List<string>
+        {
+            $"agentId={Uri.EscapeDataString(agent.AgentId)}",
+            $"entityId={entity.EntityId.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
+            "voxels=1",
+        };
+        if (string.Equals(entity.TypeTag, "Grid", StringComparison.OrdinalIgnoreCase))
+            parts.Add("context=1");
+
+        return "/viewer/entity?" + string.Join("&", parts);
     }
 
     private bool MatchesSearch(EntitySummary entity)

@@ -51,7 +51,7 @@ The solution file is `Quasar.sln`.
 - Building `Quasar/Quasar.csproj` also requires Node.js/npm. The project runs
   `npm ci --ignore-scripts` from `Viewer/package-lock.json` and stages the full
   pinned `three` `0.180.0` and `@zip.js/zip.js` `2.7.72` packages into
-  `wwwroot/vendor` for the standalone grid viewer.
+  `wwwroot/vendor` for the fullscreen entity viewer.
 - The viewer is a Git submodule pinned under `Viewer/`, tracking
   `https://github.com/CometWorks/viewer.git` on `main`. After a fresh clone, run
   `git submodule update --init Viewer` if the directory is empty. To pick up the
