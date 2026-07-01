@@ -1,3 +1,0 @@
-# Quasar/wwwroot/viewer/index.html
-
-Static shell for the Quasar grid viewer. It loads the viewer CSS and ES modules, maps `three`, `three/addons/`, and `zip.js` to local `/vendor` static assets staged from exact npm packages, provides controls for scene reload, local Space Engineers `Content` and Mods folder selection, hidden folder file input fallbacks for browsers without `showDirectoryPicker`, render toggles including `Show lighting`, default-off `Show Sun Marker`, default-off `Show Clipping`, `Show logistics`, `Show damaged`, and default-off `Show FPS`, stats with export, warning logs with download, a viewport loading overlay/progress bar, FPS overlay, hover readout, and the full-window Three.js viewport.

@@ -1,11 +1,14 @@
 <Project>
   <PropertyGroup>
-    <!-- Single source of truth for the assembly version across all projects.
+    <!-- Default assembly version for Quasar worker/bootstrap/shared projects.
          Release packaging overrides these via -p:Version=/-p:AssemblyVersion=/etc.
-         on the dotnet publish command line; this is the local/dev default. -->
-    <Version>0.1.2</Version>
-    <AssemblyVersion>0.1.2</AssemblyVersion>
-    <FileVersion>0.1.2</FileVersion>
+         on the dotnet publish command line; this is the local/dev default.
+         Quasar.Agent and Magnetar.Protocol disable generated version attributes
+         because SHA-256, not release metadata, is the deploy drift signal for
+         the in-server DLLs. -->
+    <Version>1.0.1</Version>
+    <AssemblyVersion>$(Version)</AssemblyVersion>
+    <FileVersion>$(Version)</FileVersion>
 
     <!-- Shared application-data root used by Magnetar and Quasar -->
     <Magnetar Condition="'$(Magnetar)' == '' AND $([MSBuild]::IsOSPlatform('Windows'))">$(APPDATA)\Magnetar</Magnetar>

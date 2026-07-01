@@ -18,30 +18,36 @@ public sealed class DedicatedServerRuntimePreparer
     private static readonly Regex Ds64OptionPattern = new(@"(?<!\S)-ds64(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex NoSplashPattern = new(@"(?<!\S)-nosplash(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex DaemonPattern = new(@"(?<!\S)-daemon(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex NoImplicitModPattern = new(@"(?<!\S)-noimplicitmod(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex ConsentOptionPattern = new(@"(?<!\S)-(?:no)?consent(?!\S)|(?<!\S)-withdraw-consent(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex GitHubTokenOptionPattern = new(@"(?<!\S)-github-token(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly XNamespace XsiNamespace = "http://www.w3.org/2001/XMLSchema-instance";
     private static readonly XNamespace XsdNamespace = "http://www.w3.org/2001/XMLSchema";
 
     private readonly ILogger<DedicatedServerRuntimePreparer> _logger;
     private readonly WebServiceOptions _options;
+    private readonly DataHandlingConsentCatalog _dataHandlingConsent;
     private readonly QuasarConfigProfileCatalog _configProfiles;
-    private readonly QuasarWorldTemplateCatalog _worldTemplates;
     private readonly QuasarPluginCatalogService _pluginCatalog;
     private readonly QuasarDevFolderCatalog _devFolderCatalog;
+    private readonly GitHubUpdateCredentialsCatalog _githubCredentials;
 
     public DedicatedServerRuntimePreparer(
         ILogger<DedicatedServerRuntimePreparer> logger,
         WebServiceOptions options,
+        DataHandlingConsentCatalog dataHandlingConsent,
         QuasarConfigProfileCatalog configProfiles,
-        QuasarWorldTemplateCatalog worldTemplates,
         QuasarPluginCatalogService pluginCatalog,
-        QuasarDevFolderCatalog devFolderCatalog)
+        QuasarDevFolderCatalog devFolderCatalog,
+        GitHubUpdateCredentialsCatalog githubCredentials)
     {
         _logger = logger;
         _options = options;
+        _dataHandlingConsent = dataHandlingConsent;
         _configProfiles = configProfiles;
-        _worldTemplates = worldTemplates;
         _pluginCatalog = pluginCatalog;
         _devFolderCatalog = devFolderCatalog;
+        _githubCredentials = githubCredentials;
     }
 
     public async Task<PreparedDedicatedServerLaunch> PrepareAsync(
@@ -54,7 +60,7 @@ public sealed class DedicatedServerRuntimePreparer
         var dedicatedServerAppDataPath = RequirePath(definition.DedicatedServerAppDataPath, "DedicatedServerAppDataPath");
         var magnetarAppDataPath = RequirePath(definition.MagnetarAppDataPath, "MagnetarAppDataPath");
         var configProfile = ResolveConfigProfile(definition);
-        var worldPath = await ResolveOrSeedWorldPathAsync(definition, cancellationToken);
+        var worldPath = ResolveConfiguredWorldPath(definition);
         var runtimeConfigPath = Path.Combine(dedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg");
         var lastSessionPath = Path.Combine(dedicatedServerAppDataPath, "Saves", "LastSession.sbl");
 
@@ -74,7 +80,9 @@ public sealed class DedicatedServerRuntimePreparer
             dedicatedServer64Path,
             worldPath,
             runtimeConfigPath,
-            _options);
+            _options,
+            _dataHandlingConsent.GetSettings().ConsentGranted,
+            _githubCredentials.GetCredentials().Token);
 
         return new PreparedDedicatedServerLaunch(
             dedicatedServerAppDataPath,
@@ -84,6 +92,23 @@ public sealed class DedicatedServerRuntimePreparer
             runtimeConfigPath,
             lastSessionPath,
             arguments);
+    }
+
+    public AgentDeploymentComparison GetAgentDeploymentComparison(DedicatedServerDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+
+        var sourceDirectory = LocateAgentSourceDirectory();
+        var bundledPath = sourceDirectory is null ? string.Empty : Path.Combine(sourceDirectory, AgentPluginFileName);
+        var deployedPath = string.IsNullOrWhiteSpace(definition.MagnetarAppDataPath)
+            ? string.Empty
+            : Path.Combine(definition.MagnetarAppDataPath, "Local", AgentPluginFileName);
+
+        return new AgentDeploymentComparison(
+            bundledPath,
+            TryComputeSha256Hex(bundledPath),
+            deployedPath,
+            TryComputeSha256Hex(deployedPath));
     }
 
     private async Task PrepareRuntimeConfigAsync(
@@ -474,6 +499,22 @@ public sealed class DedicatedServerRuntimePreparer
         return Convert.ToHexString(hash);
     }
 
+    private static string TryComputeSha256Hex(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return string.Empty;
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            return Convert.ToHexString(SHA256.HashData(stream));
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
     private static string? LocateAgentSourceDirectory()
     {
         var stagedDirectory = Path.Combine(AppContext.BaseDirectory, "Agent");
@@ -637,7 +678,9 @@ public sealed class DedicatedServerRuntimePreparer
         string dedicatedServer64Path,
         string worldPath,
         string runtimeConfigPath,
-        WebServiceOptions options)
+        WebServiceOptions options,
+        bool? dataHandlingConsent,
+        string gitHubToken)
     {
         var baseArguments = ExpandLaunchArguments(
             definition,
@@ -651,17 +694,24 @@ public sealed class DedicatedServerRuntimePreparer
             throw new InvalidOperationException("Launch arguments cannot include -ignorelastsession for Quasar-managed servers.");
 
         var sanitizedArguments = StripManagedArguments(baseArguments);
-        var additions = new[]
+        var additions = new List<string>
         {
             "-noconsole",
             // Detach Magnetar from Quasar's session (Linux setsid / Windows FreeConsole),
-            // in place so the PID and stdout/stderr pipes stay valid. This keeps managed
+            // in place so the PID and stdout pipe stay valid. This keeps managed
             // servers alive when Quasar stops and shields them from terminal-driven signals.
             "-daemon",
-            $"-path {QuoteArgument(dedicatedServerAppDataPath)}",
-            $"-config {QuoteArgument(magnetarAppDataPath)}",
-            $"-ds64 {QuoteArgument(dedicatedServer64Path)}",
         };
+
+        if (definition.DisableImplicitMagnetarModLoad)
+            additions.Add("-noimplicitmod");
+
+        additions.Add($"-path {QuoteArgument(dedicatedServerAppDataPath)}");
+        additions.Add($"-config {QuoteArgument(magnetarAppDataPath)}");
+        additions.Add($"-ds64 {QuoteArgument(dedicatedServer64Path)}");
+        additions.Add(dataHandlingConsent == true ? "-consent" : "-noconsent");
+        if (!string.IsNullOrWhiteSpace(gitHubToken))
+            additions.Add($"-github-token {QuoteArgument(gitHubToken.Trim())}");
 
         if (string.IsNullOrWhiteSpace(sanitizedArguments))
             return string.Join(" ", additions);
@@ -703,59 +753,25 @@ public sealed class DedicatedServerRuntimePreparer
         sanitized = Ds64OptionPattern.Replace(sanitized, string.Empty);
         sanitized = NoSplashPattern.Replace(sanitized, string.Empty);
         sanitized = DaemonPattern.Replace(sanitized, string.Empty);
+        sanitized = NoImplicitModPattern.Replace(sanitized, string.Empty);
+        sanitized = ConsentOptionPattern.Replace(sanitized, string.Empty);
+        sanitized = GitHubTokenOptionPattern.Replace(sanitized, string.Empty);
         sanitized = Regex.Replace(sanitized, @"\s{2,}", " ");
         return sanitized.Trim();
     }
 
-    private async Task<string> ResolveOrSeedWorldPathAsync(
-        DedicatedServerDefinition definition,
-        CancellationToken cancellationToken)
+    private static string ResolveConfiguredWorldPath(DedicatedServerDefinition definition)
     {
-        var worldPath = RequirePath(definition.WorldPath, "WorldPath");
-
-        // World already exists — validate and use it.
-        if (Directory.Exists(worldPath) && File.Exists(Path.Combine(worldPath, "Sandbox.sbc")))
-            return ResolveWorldPath(worldPath);
-
-        // World doesn't exist yet — seed from template if one is set.
-        if (!string.IsNullOrWhiteSpace(definition.WorldTemplateId))
+        var savesPath = RequirePath(definition.WorldPath, "Saves path");
+        var saveName = RequirePath(definition.WorldSaveName, "World save");
+        if (Path.IsPathRooted(saveName) ||
+            saveName.Contains(Path.DirectorySeparatorChar) ||
+            saveName.Contains(Path.AltDirectorySeparatorChar))
         {
-            var template = _worldTemplates.GetTemplate(definition.WorldTemplateId)
-                ?? throw new InvalidOperationException($"Unknown world template '{definition.WorldTemplateId}' for server '{definition.UniqueName}'.");
-
-            await SeedWorldFromTemplateAsync(definition.WorldTemplateId, worldPath, cancellationToken);
-            _logger.LogInformation(
-                "Seeded world for server {UniqueName} from template '{TemplateName}' at {WorldPath}.",
-                definition.UniqueName, template.Name, worldPath);
-            return worldPath;
+            throw new InvalidOperationException($"World save name '{saveName}' must be a folder name, not a path.");
         }
 
-        // No template — fall through to standard validation (throws if missing).
-        return ResolveWorldPath(worldPath);
-    }
-
-    private async Task SeedWorldFromTemplateAsync(
-        string worldTemplateId,
-        string destWorldPath,
-        CancellationToken cancellationToken)
-    {
-        var sourceDir = _worldTemplates.GetWorldDirectory(worldTemplateId);
-
-        if (!Directory.Exists(sourceDir))
-            throw new InvalidOperationException($"World template '{worldTemplateId}' has no stored world files at '{sourceDir}'.");
-
-        if (!File.Exists(Path.Combine(sourceDir, "Sandbox.sbc")))
-            throw new InvalidOperationException($"World template '{worldTemplateId}' is missing Sandbox.sbc.");
-
-        Directory.CreateDirectory(destWorldPath);
-        foreach (var sourceFile in Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var relative = Path.GetRelativePath(sourceDir, sourceFile);
-            var destFile = Path.Combine(destWorldPath, relative);
-            Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
-            File.Copy(sourceFile, destFile, overwrite: false);
-        }
+        return ResolveWorldPath(Path.Combine(savesPath, saveName));
     }
 
     private static string ResolveWorldPath(string worldPath)
@@ -887,3 +903,18 @@ public sealed record PreparedDedicatedServerLaunch(
     string RuntimeConfigPath,
     string LastSessionPath,
     string Arguments);
+
+public sealed record AgentDeploymentComparison(
+    string BundledPath,
+    string BundledSha256,
+    string DeployedPath,
+    string DeployedSha256)
+{
+    public bool CanCompare =>
+        !string.IsNullOrWhiteSpace(BundledSha256) &&
+        !string.IsNullOrWhiteSpace(DeployedSha256);
+
+    public bool HasMismatch =>
+        !string.IsNullOrWhiteSpace(BundledSha256) &&
+        !string.Equals(BundledSha256, DeployedSha256, StringComparison.OrdinalIgnoreCase);
+}

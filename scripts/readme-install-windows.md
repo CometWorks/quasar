@@ -1,13 +1,13 @@
 ## Install and run on Windows (x64)
 
 You downloaded **`quasar-installer-windows.zip`**. It contains one
-`quasar-installer-windows\` folder with the Quasar launcher (`Quasar.exe`), the
+`Quasar\` folder with the Quasar launcher (`Quasar.exe`), the
 `install.ps1` / `uninstall.ps1` scripts, and a default `appsettings.json`. The
 steps below assume you have extracted the zip, for example:
 
 ```powershell
 Expand-Archive quasar-installer-windows.zip -DestinationPath C:\quasar
-cd C:\quasar\quasar-installer-windows
+cd C:\quasar\Quasar
 ```
 
 ### Run in the foreground
@@ -31,11 +31,11 @@ Run from an **elevated PowerShell** (Administrator):
 .\install.ps1 -Start
 ```
 
-This installs Quasar to `%ProgramFiles%\Quasar` and registers a **Scheduled
-Task** named `Quasar` that starts the launcher at boot and restarts it on
-failure. The web UI is then served at <http://localhost:8080>. Pass
-`-User <account>` to run as a specific service account instead of the current
-user.
+This installs Quasar in the extracted folder, keeps Quasar state in the same
+folder by default, and registers a **Scheduled Task** named `Quasar` that starts
+the launcher at boot and restarts it on failure. The web UI is then served at
+<http://localhost:8080>. Pass `-InstallDir <dir>` to copy it elsewhere, or
+`-User <account>` to run as a specific service account instead of the current user.
 
 Manage the task:
 
@@ -48,7 +48,6 @@ Stop-ScheduledTask  -TaskName Quasar
 ### Uninstall
 
 ```powershell
-cd "$env:ProgramFiles\Quasar"
 .\uninstall.ps1         # stop and remove the Scheduled Task
 .\uninstall.ps1 -Purge  # also delete the install directory
 ```

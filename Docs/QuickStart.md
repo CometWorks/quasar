@@ -13,7 +13,7 @@ Grab the latest release from GitHub. Each release contains platform archives:
 
 ```bash
 tar -xzf quasar-installer-linux.tar.gz
-cd quasar-installer-linux
+cd Quasar
 ./Quasar serve
 ```
 
@@ -21,7 +21,7 @@ cd quasar-installer-linux
 
 ```cmd
 Expand-Archive quasar-installer-windows.zip -DestinationPath C:\quasar
-cd C:\quasar\quasar-installer-windows
+cd C:\quasar\Quasar
 Quasar.exe serve
 ```
 
@@ -42,14 +42,19 @@ commands needed before installing the .NET packages.
 **Linux — systemd**
 
 ```bash
-tar -xzf quasar-installer-linux.tar.gz -C /tmp
-/tmp/quasar-installer-linux/install.sh --start        # installs to ~/.local/share/Quasar and starts quasar.service
+mkdir -p ~/.local/share/Quasar
+tar -xzf quasar-installer-linux.tar.gz -C ~/.local/share/Quasar --strip-components=1
+~/.local/share/Quasar/install.sh --start        # installs in place and starts quasar.service
 ```
 
-The Linux installer defaults to a user systemd service, stores Bootstrap under
-`~/.local/share/Quasar`, creates `~/.config/Quasar`, and writes that data path to
-the unit as `QUASAR_DATA_DIR`. Pass `--system` with `sudo` for a machine-wide
-service, or `--data-dir <dir>` to store Quasar state elsewhere.
+The Linux installer defaults to a user systemd service, uses the extracted
+folder as the install and data root, and writes that path to the unit as
+`QUASAR_DATA_DIR`. Pass `--system` with `sudo` for a machine-wide service,
+`--install-dir <dir>` to copy Quasar elsewhere, or `--data-dir <dir>` to store
+Quasar state elsewhere.
+When Quasar is running from the installed user service, the UI **Shutdown
+Quasar** action requests `systemctl --user stop quasar.service` and leaves
+managed servers detached by default.
 
 Manage the service with the usual systemd commands:
 
@@ -63,7 +68,7 @@ To remove:
 
 ```bash
 ~/.local/share/Quasar/uninstall.sh          # stop and remove the user service
-~/.local/share/Quasar/uninstall.sh --purge  # also delete ~/.local/share/Quasar
+~/.local/share/Quasar/uninstall.sh --purge  # also delete the install folder
 ```
 
 The uninstall script stops `quasar.service` before removing it.
@@ -76,18 +81,19 @@ For release assets, auto-update behaviour, and advanced configuration see
 Run from an **elevated PowerShell**:
 
 ```powershell
-Expand-Archive quasar-installer-windows.zip -DestinationPath "$env:ProgramFiles\QuasarSetup"
-cd "$env:ProgramFiles\QuasarSetup\quasar-installer-windows"
-.\install.ps1 -Start   # installs to %ProgramFiles%\Quasar and starts the task
+Expand-Archive quasar-installer-windows.zip -DestinationPath C:\quasar
+cd C:\quasar\Quasar
+.\install.ps1 -Start   # installs in place and starts the task
 ```
 
-The task starts at boot, restarts on failure, and runs as `SYSTEM` by default.
-Pass `-User <account>` to run as a specific service account instead.
+The task starts at boot, restarts on failure, and runs as the installing user by
+default. Quasar state is stored in the same folder by default. Pass
+`-InstallDir <dir>` to copy Quasar elsewhere, or `-User <account>` to run as a
+specific service account instead.
 
 To remove:
 
 ```powershell
-cd "$env:ProgramFiles\Quasar"
 .\uninstall.ps1         # stop and remove the task
 .\uninstall.ps1 -Purge  # also delete the install directory
 ```

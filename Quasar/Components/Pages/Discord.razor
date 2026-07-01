@@ -86,147 +86,154 @@
                 <MudExpansionPanels MultiExpansion="true" Elevation="0" Outlined="true" Dense="true">
                     @foreach (var definition in ServerDefinitions)
                     {
-                        var serverOptions = GetServerOptions(definition.UniqueName);
+                        <MudExpansionPanel Text="@GetServerName(definition.UniqueName)"
+                                           Expanded="@IsServerPanelExpanded(definition.UniqueName)"
+                                           ExpandedChanged="@(expanded => SetServerPanelExpanded(definition.UniqueName, expanded))"
+                                           KeepContentAlive="false"
+                                           @key="definition.UniqueName">
+                            @if (IsServerPanelExpanded(definition.UniqueName))
+                            {
+                                var serverOptions = GetServerOptions(definition.UniqueName);
 
-                        <MudExpansionPanel Text="@GetServerName(definition.UniqueName)" @key="definition.UniqueName">
-                            <MudStack Spacing="2" Class="pt-2">
-                                <MudText Typo="Typo.caption" Class="mono">@definition.UniqueName</MudText>
+                                <MudStack Spacing="2" Class="pt-2">
+                                    <MudText Typo="Typo.caption" Class="mono">@definition.UniqueName</MudText>
 
-                                <MudTextField @bind-Value="serverOptions.CommandPrefix"
-                                              Label="Command prefix"
-                                              Variant="Variant.Outlined" />
-                                <MudNumericField T="ulong?"
-                                                 @bind-Value="serverOptions.CommandChannelId"
-                                                 Label="Command channel ID"
-                                                 Variant="Variant.Outlined"
-                                                 Min="0" />
-                                <MudNumericField T="ulong?"
-                                                 @bind-Value="serverOptions.ChatRelayChannelId"
-                                                 Label="Chat relay channel ID"
-                                                 Variant="Variant.Outlined"
-                                                 Min="0" />
-                                <MudNumericField T="ulong?"
-                                                 @bind-Value="serverOptions.LogChannelId"
-                                                 Label="Log channel ID"
-                                                 Variant="Variant.Outlined"
-                                                 Min="0" />
-                                <MudNumericField T="ulong?"
-                                                 @bind-Value="serverOptions.AnalyticsChannelId"
-                                                 Label="Analytics channel ID"
-                                                 Variant="Variant.Outlined"
-                                                 Min="0" />
-                                <MudNumericField T="ulong?"
-                                                 @bind-Value="serverOptions.DeathChannelId"
-                                                 Label="Death messages channel ID"
-                                                 Variant="Variant.Outlined"
-                                                 Min="0" />
-                                <MudNumericField T="ulong?"
-                                                 @bind-Value="serverOptions.SimSpeedAlertChannelId"
-                                                 Label="SimSpeed alert channel ID"
-                                                 Variant="Variant.Outlined"
-                                                 Min="0" />
-                                <MudNumericField T="int"
-                                                 @bind-Value="serverOptions.LogExportIntervalMinutes"
-                                                 Label="Log export interval (minutes)"
-                                                 Variant="Variant.Outlined"
-                                                 Min="1" />
-                                <MudNumericField T="int"
-                                                 @bind-Value="serverOptions.AnalyticsExportIntervalMinutes"
-                                                 Label="Analytics export interval (minutes)"
-                                                 Variant="Variant.Outlined"
-                                                 Min="1" />
+                                    <MudTextField @bind-Value="serverOptions.CommandPrefix"
+                                                  Label="Command prefix"
+                                                  Variant="Variant.Outlined" />
+                                    <MudNumericField T="ulong?"
+                                                     @bind-Value="serverOptions.CommandChannelId"
+                                                     Label="Command channel ID"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0" />
+                                    <MudNumericField T="ulong?"
+                                                     @bind-Value="serverOptions.ChatRelayChannelId"
+                                                     Label="Chat relay channel ID"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0" />
+                                    <MudNumericField T="ulong?"
+                                                     @bind-Value="serverOptions.LogChannelId"
+                                                     Label="Log channel ID"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0" />
+                                    <MudNumericField T="ulong?"
+                                                     @bind-Value="serverOptions.AnalyticsChannelId"
+                                                     Label="Analytics channel ID"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0" />
+                                    <MudNumericField T="ulong?"
+                                                     @bind-Value="serverOptions.DeathChannelId"
+                                                     Label="Death messages channel ID"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0" />
+                                    <MudNumericField T="ulong?"
+                                                     @bind-Value="serverOptions.SimSpeedAlertChannelId"
+                                                     Label="SimSpeed alert channel ID"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0" />
+                                    <MudNumericField T="int"
+                                                     @bind-Value="serverOptions.LogExportIntervalMinutes"
+                                                     Label="Log export interval (minutes)"
+                                                     Variant="Variant.Outlined"
+                                                     Min="1" />
+                                    <MudNumericField T="int"
+                                                     @bind-Value="serverOptions.AnalyticsExportIntervalMinutes"
+                                                     Label="Analytics export interval (minutes)"
+                                                     Variant="Variant.Outlined"
+                                                     Min="1" />
 
-                                <MudCheckBox T="bool" @bind-Value="serverOptions.EnableChatRelay" Label="Enable chat relay" />
-                                <MudCheckBox T="bool" @bind-Value="serverOptions.EnableLogExport" Label="Enable log export" />
-                                <MudCheckBox T="bool" @bind-Value="serverOptions.EnableAnalyticsExport" Label="Enable analytics export" />
-                                <MudCheckBox T="bool" @bind-Value="serverOptions.EnableDeathMessages" Label="Enable death messages" />
-                                <MudTextField @bind-Value="serverOptions.DeathMessageEmotes"
-                                              Label="Death emotes (comma-separated)"
-                                              Variant="Variant.Outlined" />
+                                    <MudCheckBox T="bool" @bind-Value="serverOptions.EnableChatRelay" Label="Enable chat relay" />
+                                    <MudCheckBox T="bool" @bind-Value="serverOptions.EnableLogExport" Label="Enable log export" />
+                                    <MudCheckBox T="bool" @bind-Value="serverOptions.EnableAnalyticsExport" Label="Enable analytics export" />
+                                    <MudCheckBox T="bool" @bind-Value="serverOptions.EnableDeathMessages" Label="Enable death messages" />
+                                    <MudTextField @bind-Value="serverOptions.DeathMessageEmotes"
+                                                  Label="Death emotes (comma-separated)"
+                                                  Variant="Variant.Outlined" />
 
-                                <MudDivider Class="my-1" />
-                                <MudText Typo="Typo.subtitle1">SimSpeed Rules</MudText>
-                                <MudGrid>
-                                    <MudItem xs="12" md="4">
-                                        <MudCheckBox T="bool" @bind-Value="serverOptions.EnableSimSpeedAlerts" Label="Enable simspeed alerts" />
-                                    </MudItem>
-                                    <MudItem xs="12" md="4">
-                                        <MudCheckBox T="bool" @bind-Value="serverOptions.EnableSimSpeedSharpDropAlerts" Label="Sharp drop rule" Disabled="@(!serverOptions.EnableSimSpeedAlerts)" />
-                                    </MudItem>
-                                    <MudItem xs="12" md="4">
-                                        <MudCheckBox T="bool" @bind-Value="serverOptions.EnableSimSpeedSustainedAlerts" Label="Sustained loss rule" Disabled="@(!serverOptions.EnableSimSpeedAlerts)" />
-                                    </MudItem>
-                                    <MudItem xs="12" sm="6" lg="4">
-                                        <MudNumericField T="float"
-                                                         @bind-Value="serverOptions.SimSpeedSharpDropPreviousMinimum"
-                                                         Label="Sharp previous minimum"
-                                                         Variant="Variant.Outlined"
-                                                         Min="@SimSpeedMin"
-                                                         Max="@SimSpeedMax"
-                                                         Step="@SimSpeedStep"
-                                                         Format="0.###"
-                                                         Disabled="@(!serverOptions.EnableSimSpeedAlerts || !serverOptions.EnableSimSpeedSharpDropAlerts)" />
-                                    </MudItem>
-                                    <MudItem xs="12" sm="6" lg="4">
-                                        <MudNumericField T="float"
-                                                         @bind-Value="serverOptions.SimSpeedSharpDropThreshold"
-                                                         Label="Sharp current threshold"
-                                                         Variant="Variant.Outlined"
-                                                         Min="@SimSpeedMin"
-                                                         Max="@SimSpeedMax"
-                                                         Step="@SimSpeedStep"
-                                                         Format="0.###"
-                                                         Disabled="@(!serverOptions.EnableSimSpeedAlerts || !serverOptions.EnableSimSpeedSharpDropAlerts)" />
-                                    </MudItem>
-                                    <MudItem xs="12" sm="6" lg="4">
-                                        <MudNumericField T="float"
-                                                         @bind-Value="serverOptions.SimSpeedSharpDropDelta"
-                                                         Label="Sharp drop delta"
-                                                         Variant="Variant.Outlined"
-                                                         Min="@SimSpeedMin"
-                                                         Max="@SimSpeedMax"
-                                                         Step="@SimSpeedStep"
-                                                         Format="0.###"
-                                                         Disabled="@(!serverOptions.EnableSimSpeedAlerts || !serverOptions.EnableSimSpeedSharpDropAlerts)" />
-                                    </MudItem>
-                                    <MudItem xs="12" sm="6" lg="4">
-                                        <MudNumericField T="int"
-                                                         @bind-Value="serverOptions.SimSpeedSharpDropCooldownSeconds"
-                                                         Label="Sharp cooldown (seconds)"
-                                                         Variant="Variant.Outlined"
-                                                         Min="0" />
-                                    </MudItem>
-                                    <MudItem xs="12" sm="6" lg="4">
-                                        <MudNumericField T="float"
-                                                         @bind-Value="serverOptions.SimSpeedSustainedThreshold"
-                                                         Label="Sustained threshold"
-                                                         Variant="Variant.Outlined"
-                                                         Min="@SimSpeedMin"
-                                                         Max="@SimSpeedMax"
-                                                         Step="@SimSpeedStep"
-                                                         Format="0.###"
-                                                         Disabled="@(!serverOptions.EnableSimSpeedAlerts || !serverOptions.EnableSimSpeedSustainedAlerts)" />
-                                    </MudItem>
-                                    <MudItem xs="12" sm="6" lg="4">
-                                        <MudNumericField T="int"
-                                                         @bind-Value="serverOptions.SimSpeedSustainedSeconds"
-                                                         Label="Sustained window (seconds)"
-                                                         Variant="Variant.Outlined"
-                                                         Min="5" />
-                                    </MudItem>
-                                    <MudItem xs="12" sm="6" lg="4">
-                                        <MudNumericField T="int"
-                                                         @bind-Value="serverOptions.SimSpeedSustainedCooldownSeconds"
-                                                         Label="Sustained cooldown (seconds)"
-                                                         Variant="Variant.Outlined"
-                                                         Min="0" />
-                                    </MudItem>
-                                </MudGrid>
+                                    <MudDivider Class="my-1" />
+                                    <MudText Typo="Typo.subtitle1">SimSpeed Rules</MudText>
+                                    <MudGrid>
+                                        <MudItem xs="12" md="4">
+                                            <MudCheckBox T="bool" @bind-Value="serverOptions.EnableSimSpeedAlerts" Label="Enable simspeed alerts" />
+                                        </MudItem>
+                                        <MudItem xs="12" md="4">
+                                            <MudCheckBox T="bool" @bind-Value="serverOptions.EnableSimSpeedSharpDropAlerts" Label="Sharp drop rule" Disabled="@(!serverOptions.EnableSimSpeedAlerts)" />
+                                        </MudItem>
+                                        <MudItem xs="12" md="4">
+                                            <MudCheckBox T="bool" @bind-Value="serverOptions.EnableSimSpeedSustainedAlerts" Label="Sustained loss rule" Disabled="@(!serverOptions.EnableSimSpeedAlerts)" />
+                                        </MudItem>
+                                        <MudItem xs="12" sm="6" lg="4">
+                                            <MudNumericField T="float"
+                                                             @bind-Value="serverOptions.SimSpeedSharpDropPreviousMinimum"
+                                                             Label="Sharp previous minimum"
+                                                             Variant="Variant.Outlined"
+                                                             Min="@SimSpeedMin"
+                                                             Max="@SimSpeedMax"
+                                                             Step="@SimSpeedStep"
+                                                             Format="0.###"
+                                                             Disabled="@(!serverOptions.EnableSimSpeedAlerts || !serverOptions.EnableSimSpeedSharpDropAlerts)" />
+                                        </MudItem>
+                                        <MudItem xs="12" sm="6" lg="4">
+                                            <MudNumericField T="float"
+                                                             @bind-Value="serverOptions.SimSpeedSharpDropThreshold"
+                                                             Label="Sharp current threshold"
+                                                             Variant="Variant.Outlined"
+                                                             Min="@SimSpeedMin"
+                                                             Max="@SimSpeedMax"
+                                                             Step="@SimSpeedStep"
+                                                             Format="0.###"
+                                                             Disabled="@(!serverOptions.EnableSimSpeedAlerts || !serverOptions.EnableSimSpeedSharpDropAlerts)" />
+                                        </MudItem>
+                                        <MudItem xs="12" sm="6" lg="4">
+                                            <MudNumericField T="float"
+                                                             @bind-Value="serverOptions.SimSpeedSharpDropDelta"
+                                                             Label="Sharp drop delta"
+                                                             Variant="Variant.Outlined"
+                                                             Min="@SimSpeedMin"
+                                                             Max="@SimSpeedMax"
+                                                             Step="@SimSpeedStep"
+                                                             Format="0.###"
+                                                             Disabled="@(!serverOptions.EnableSimSpeedAlerts || !serverOptions.EnableSimSpeedSharpDropAlerts)" />
+                                        </MudItem>
+                                        <MudItem xs="12" sm="6" lg="4">
+                                            <MudNumericField T="int"
+                                                             @bind-Value="serverOptions.SimSpeedSharpDropCooldownSeconds"
+                                                             Label="Sharp cooldown (seconds)"
+                                                             Variant="Variant.Outlined"
+                                                             Min="0" />
+                                        </MudItem>
+                                        <MudItem xs="12" sm="6" lg="4">
+                                            <MudNumericField T="float"
+                                                             @bind-Value="serverOptions.SimSpeedSustainedThreshold"
+                                                             Label="Sustained threshold"
+                                                             Variant="Variant.Outlined"
+                                                             Min="@SimSpeedMin"
+                                                             Max="@SimSpeedMax"
+                                                             Step="@SimSpeedStep"
+                                                             Format="0.###"
+                                                             Disabled="@(!serverOptions.EnableSimSpeedAlerts || !serverOptions.EnableSimSpeedSustainedAlerts)" />
+                                        </MudItem>
+                                        <MudItem xs="12" sm="6" lg="4">
+                                            <MudNumericField T="int"
+                                                             @bind-Value="serverOptions.SimSpeedSustainedSeconds"
+                                                             Label="Sustained window (seconds)"
+                                                             Variant="Variant.Outlined"
+                                                             Min="5" />
+                                        </MudItem>
+                                        <MudItem xs="12" sm="6" lg="4">
+                                            <MudNumericField T="int"
+                                                             @bind-Value="serverOptions.SimSpeedSustainedCooldownSeconds"
+                                                             Label="Sustained cooldown (seconds)"
+                                                             Variant="Variant.Outlined"
+                                                             Min="0" />
+                                        </MudItem>
+                                    </MudGrid>
 
-                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SaveServerAsync(definition.UniqueName))">
-                                    Save Server
-                                </MudButton>
-                            </MudStack>
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SaveServerAsync(definition.UniqueName))">
+                                        Save Server
+                                    </MudButton>
+                                </MudStack>
+                            }
                         </MudExpansionPanel>
                     }
                 </MudExpansionPanels>
@@ -236,10 +243,6 @@
 </MudGrid>
 
 <MudPaper Class="pa-4 mt-4">
-    @{
-        var deathTemplateCategories = GetDeathMessageCategories();
-        var deathTemplateCount = deathTemplateCategories.Sum(category => CountDeathMessageLines(category.EditorText));
-    }
     <MudStack Spacing="2">
         <MudText Typo="Typo.h6">Death Message Templates</MudText>
         <MudText Typo="Typo.body2">
@@ -258,7 +261,9 @@
         </MudStack>
 
         <MudExpansionPanels MultiExpansion="true" Elevation="0" Outlined="true" Dense="true">
-            <MudExpansionPanel>
+            <MudExpansionPanel Expanded="@_deathTemplatesExpanded"
+                               ExpandedChanged="SetDeathTemplatesExpanded"
+                               KeepContentAlive="false">
                 <TitleContent>
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
                         <MudStack Spacing="0">
@@ -268,41 +273,46 @@
                             </MudText>
                         </MudStack>
                         <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                            <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@deathTemplateCategories.Count categories</MudChip>
-                            <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@deathTemplateCount lines</MudChip>
+                            <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@DeathTemplateCategoryCount categories</MudChip>
+                            <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@DeathTemplateLineCount lines</MudChip>
                         </MudStack>
                     </MudStack>
                 </TitleContent>
                 <ChildContent>
-                    <MudGrid Class="mt-2">
-                        @foreach (var category in deathTemplateCategories)
-                        {
-                            <MudItem xs="12" md="6">
-                                <MudPaper Class="pa-3" Outlined="true" @key="category.Key">
-                                    <MudStack Spacing="2">
-                                        <MudStack Row="true" AlignItems="AlignItems.Start" Justify="Justify.SpaceBetween">
-                                            <MudStack Spacing="0">
-                                                <MudText Typo="Typo.subtitle1">@category.Title</MudText>
-                                                <MudText Typo="Typo.caption">@category.Description</MudText>
-                                            </MudStack>
-                                            <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@CountDeathMessageLines(category.EditorText)</MudChip>
-                                        </MudStack>
+                    @if (_deathTemplatesExpanded)
+                    {
+                        var deathTemplateCategories = GetDeathMessageCategories();
 
-                                        <MudTextField T="string"
-                                                      Value="@category.EditorText"
-                                                      ValueChanged="@(value => SetDeathMessageEditorText(category.Key, value ?? string.Empty))"
-                                                      Label="@($"{category.Title} templates")"
-                                                      Variant="Variant.Outlined"
-                                                      Lines="6"
-                                                      Sizing="InputSizing.Auto"
-                                                      MaxLines="10000"
-                                                      Immediate="true"
-                                                      HelperText="One non-empty line per message template." />
-                                    </MudStack>
-                                </MudPaper>
-                            </MudItem>
-                        }
-                    </MudGrid>
+                        <MudGrid Class="mt-2">
+                            @foreach (var category in deathTemplateCategories)
+                            {
+                                <MudItem xs="12" md="6">
+                                    <MudPaper Class="pa-3" Outlined="true" @key="category.Key">
+                                        <MudStack Spacing="2">
+                                            <MudStack Row="true" AlignItems="AlignItems.Start" Justify="Justify.SpaceBetween">
+                                                <MudStack Spacing="0">
+                                                    <MudText Typo="Typo.subtitle1">@category.Title</MudText>
+                                                    <MudText Typo="Typo.caption">@category.Description</MudText>
+                                                </MudStack>
+                                                <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@CountDeathMessageLines(category.EditorText)</MudChip>
+                                            </MudStack>
+
+                                            <MudTextField T="string"
+                                                          Value="@category.EditorText"
+                                                          ValueChanged="@(value => SetDeathMessageEditorText(category.Key, value ?? string.Empty))"
+                                                          Label="@($"{category.Title} templates")"
+                                                          Variant="Variant.Outlined"
+                                                          Lines="6"
+                                                          Sizing="InputSizing.Auto"
+                                                          MaxLines="10000"
+                                                          Immediate="true"
+                                                          HelperText="One non-empty line per message template." />
+                                        </MudStack>
+                                    </MudPaper>
+                                </MudItem>
+                            }
+                        </MudGrid>
+                    }
                 </ChildContent>
             </MudExpansionPanel>
         </MudExpansionPanels>
@@ -317,10 +327,24 @@
 
     private DiscordOptions _options = new();
     private DeathMessagesConfig _deathMessageConfig = DeathMessagesConfig.CreateDefault();
+    private readonly HashSet<string> _expandedServerPanels = new(StringComparer.OrdinalIgnoreCase);
+    private bool _deathTemplatesExpanded;
 
     private IReadOnlyList<DedicatedServerDefinition> ServerDefinitions => ServerCatalog.GetServers();
 
     private DiscordBotStatusSnapshot BotStatus => DiscordBotService.GetStatus();
+
+    private const int DeathTemplateCategoryCount = 8;
+
+    private int DeathTemplateLineCount =>
+        _deathMessageConfig.SuicideMessages.Count +
+        _deathMessageConfig.PvPMessages.Count +
+        _deathMessageConfig.TurretMessages.Count +
+        _deathMessageConfig.GridMessages.Count +
+        _deathMessageConfig.OxygenMessages.Count +
+        _deathMessageConfig.PressureMessages.Count +
+        _deathMessageConfig.CollisionMessages.Count +
+        _deathMessageConfig.AccidentMessages.Count;
 
     protected override void OnInitialized()
     {
@@ -363,6 +387,25 @@
             return;
 
         await SaveAsync($"Discord settings saved for {GetServerName(uniqueName)}.");
+    }
+
+    private bool IsServerPanelExpanded(string uniqueName) =>
+        _expandedServerPanels.Contains(uniqueName);
+
+    private void SetServerPanelExpanded(string uniqueName, bool expanded)
+    {
+        if (expanded)
+        {
+            _expandedServerPanels.Add(uniqueName);
+            return;
+        }
+
+        _expandedServerPanels.Remove(uniqueName);
+    }
+
+    private void SetDeathTemplatesExpanded(bool expanded)
+    {
+        _deathTemplatesExpanded = expanded;
     }
 
     private async Task SaveAsync(string successMessage)

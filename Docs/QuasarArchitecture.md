@@ -7,12 +7,13 @@ This document is the implementation reference for the supervisor-based managemen
 > provisioning, backups, and more) are drawn as Mermaid + PNG state diagrams in
 > the [State Machine Diagrams](StateMachines/Index.md) section.
 
-It captures the agreed hybrid flow:
+It captures the current supervisor flow:
 
 - `Quasar` is the primary long-running supervisor
 - `Quasar.Agent` runs inside each Dedicated Server
 - agents attach to an already-running supervisor over raw WebSockets
-- if `Quasar` is missing, the agent may trigger bootstrap/setup
+- if `Quasar` is missing, the agent waits and retries; it does not start Quasar,
+  Bootstrap, or the UI
 - the agent must not become the long-running owner of the web host
 
 ## Naming
@@ -28,7 +29,7 @@ It captures the agreed hybrid flow:
 
 - `Quasar.Bootstrap`
   - lightweight installer / ensure-running helper
-  - can be invoked manually or from `Quasar.Agent`
+  - can be invoked manually or by the installed service/launcher flow
   - responsible for setting up or starting `Quasar`
 
 - `Quasar.Agent`
@@ -66,7 +67,7 @@ That means `Quasar` is responsible for:
 - reports state
 - receives commands
 - executes game-thread actions
-- assists with bootstrap when the supervisor is missing
+- reconnects when the supervisor is temporarily unreachable
 
 ## Target Workflow
 
@@ -82,17 +83,16 @@ Primary workflow:
 8. `Quasar` keeps DS servers running and restarts them as configured
 9. user can return later via bookmark or the printed URL
 
-Hybrid bootstrap workflow:
+Detached agent reconnect workflow:
 
 1. a DS server starts with `Quasar.Agent`
 2. agent tries to discover `Quasar`
-3. if missing, agent may invoke `Quasar.Bootstrap`
-4. `Quasar.Bootstrap` ensures `Quasar` is installed and running
-5. agent retries discovery and then attaches normally
+3. if missing or unhealthy, agent waits for the configured reconnect delay
+4. agent retries discovery and then attaches normally once Quasar is healthy
 
 Important boundary:
 
-- the agent may trigger bootstrap
+- the agent must not trigger bootstrap, start the UI, or own supervisor startup
 - the agent must not directly become the long-running host owner
 - the long-running owner remains `Quasar`
 
@@ -147,7 +147,7 @@ Required separation per server:
 - Magnetar app-data directory
 - world/save directory
 - plugin/configuration surface
-- Quasar-captured server logs
+- DS-owned log files and Magnetar-owned `info_*.log`
 
 Quasar should treat these as explicit server properties rather than assuming one shared machine-global app-data location.
 
@@ -256,24 +256,26 @@ Theme preference should be stored in browser local storage using the `Blazor.Loc
 
 ## Discovery and Bootstrap
 
-Supervisor discovery should use a local manifest plus health probe.
+Supervisor discovery should use the explicit launch-provided base URL, a local
+manifest, and health probes.
 
 Expected local mechanism:
 
+- `QUASAR_BASE_URL` from managed-server launch environment
 - runtime manifest file
-- local health check
+- `/api/health` check for every candidate URL
 - process identity / server metadata
 
-Bootstrap/setup should be handled by `Quasar.Bootstrap`.
+Bootstrap/setup should be handled by `Quasar.Bootstrap` or the installed
+service/launcher flow, not by `Quasar.Agent`.
 
 Expected behavior:
 
 - detect missing supervisor
 - install or locate supervisor binaries if needed
 - start supervisor in the correct mode
-- return enough information for the agent to retry attachment
-
-The current direct agent-side process spawn is only an implementation stepping stone and should be replaced by bootstrap-assisted supervisor setup.
+- return enough information for the agent to retry attachment after Quasar is
+  healthy
 
 ## Process Supervision
 
@@ -294,7 +296,7 @@ It needs:
 - restart policy
 - restart backoff
 - last exit code / last crash reason
-- captured stdout/stderr or redirected server logs
+- DS-owned log files plus Magnetar-owned `info_*.log`
 
 Quasar tracks two related but separate pieces of server state:
 
@@ -328,7 +330,8 @@ Quasar should behave like infrastructure/configuration management:
 - if goal state is `On` and the server crashes, Quasar restarts it according to policy
 - if goal state is `On` and the server is unhealthy, Quasar evaluates the health policy and recovers it automatically where configured
 - if goal state is `Off` and the server is running, Quasar stops it
-- if an admin stops the server from in-game (the Magnetar `!quit`/`!stop` command), the agent reports the shutdown intent and Quasar sets goal state to `Off`, so the server stays stopped instead of being treated as a crash and restarted
+- if an admin stops the server from in-game with Quasar Agent `!stop` or `!quit`, the agent reports `AdminStop` and Quasar sets goal state to `Off`, so the server stays stopped instead of being treated as a crash and restarted; `!stop` saves first, while `!quit` exits immediately without saving
+- if an admin restarts the server from in-game with Quasar Agent `!restart [seconds]`, the agent broadcasts a chat countdown (10 seconds by default, up to 3600 seconds; longer delays use periodic checkpoint announcements plus the final 10 seconds), then reports `AdminRestart`; Quasar keeps goal state `On`, records process state `Restarting`, and relaunches the server after the save-and-quit exit instead of waiting for a reconnect that will never arrive
 - operator actions should usually mutate goal state first, then let reconciliation perform the transition
 
 This should be treated more like Terraform or other IaC reconciliation than like a passive dashboard.
@@ -397,7 +400,12 @@ Normal console output should be minimal:
 - clickable URL
 - fatal error if the supervisor terminates unexpectedly
 
-The console should not continuously mirror normal ASP.NET request/application noise during routine operation.
+The worker mirrors Quasar web UI logs at the configured minimum level to stdout.
+Bootstrap always captures that worker stdout/stderr and writes it to Bootstrap's
+own console. On Linux this reaches the systemd journal; on Windows it reaches the
+Bootstrap process console, which is useful for diagnosing UI startup and render
+errors. The default minimum level is `Warn`, so routine ASP.NET request noise is
+not mirrored during normal operation.
 
 ### File logging
 
@@ -413,7 +421,11 @@ Requirements:
 Suggested layout:
 
 - `logs/quasar/`
-- `logs/magnetars/{uniqueName}/`
+
+Per-server Space Engineers Dedicated Server logs stay in that server's DS
+app-data directory. Per-server Magnetar diagnostics and PluginSdk stdout sink
+lines formatted by Quasar.Agent stay in that server's Magnetar app-data
+timestamped `info_*.log` files.
 
 ### Service mode behavior
 
@@ -421,7 +433,7 @@ In unattended background mode:
 
 - no browser auto-open
 - no interactive console expectations
-- logs go to configured log files and platform host logging as appropriate
+- logs go to configured log files and Bootstrap's host console
 
 ## Browser Launch Policy
 
@@ -467,8 +479,8 @@ Required model:
 Expected layout:
 
 - active runtime under a versioned release directory
-- active managed web releases under `~/.config/Quasar/ManagedRuntime/WebService/<version>/`
-- transient staged payloads under `~/.config/Quasar/Updates/Staged/`
+- active managed web releases under `<install-root>/ManagedRuntime/WebService/<version>/`
+- transient staged payloads under `<install-root>/Updates/Staged/`
 - stable release pointer / manifest for the currently active version
 - release identity from `AssemblyInformationalVersion` and the active-release
   pointer, not from numeric `AssemblyVersion`
@@ -482,8 +494,14 @@ Linux-first cutover ownership:
   and writes `Updates/active-release.json`
 - Bootstrap observes the pointer change, drains the old worker, then starts the managed worker
 - the browser and `Quasar.Agent` reconnect after the short listener gap
+- retiring workers only delete the discovery manifest if the on-disk worker id
+  and process id still match themselves, so an old worker cannot remove the new
+  worker's manifest during cutover
 - Bootstrap self-update drains only when the primary release asset is actually
   newer than the running launcher's normalized release identity
+- `/settings/updates` can also write `Updates/bootstrap-update-request.json`
+  with the detected version and asset to ask Bootstrap to run the self-update
+  path for that requested launcher release immediately
 
 This implies a two-layer deployment:
 
@@ -501,9 +519,17 @@ stable proxy/front door and run workers on internal ports.
 Practical guarantee:
 
 - browser sessions may briefly reconnect
-- `Quasar.Agent` sockets may briefly reconnect
+- `Quasar.Agent` sockets may briefly reconnect; the supervisor waits for the
+  first telemetry snapshot under startup grace before applying the normal
+  heartbeat timeout
 - the supervisor must preserve enough state that reconnect is operationally seamless
 - managed DS processes continue running independently during the rollover
+- already-running DS processes keep their loaded `Quasar.Agent` assembly until
+  that server process exits; after reconnect, the supervisor compares the
+  bundled `Agent/Quasar.Agent.dll` hash with the deployed Magnetar local DLL
+  hash and warns on drift, but leaves the restart/manual stop-start decision to
+  the operator. The normal launch-preparation path copies and loads the current
+  deployable agent on the next manual restart.
 
 ### Linux update flow
 
@@ -523,6 +549,30 @@ Practical guarantee:
    worker, drains the old worker without stopping managed servers, and starts the
    managed worker on the same port
 9. browsers and agents reconnect
+
+Bootstrap updates normally activate from Bootstrap's own update monitor. When
+the Updates page has detected a newer launcher asset and the worker is running
+under Bootstrap, an admin can force activation from the UI. The worker writes a
+request file under `Updates/` containing the detected version and asset;
+Bootstrap consumes it with a watcher and runs the same checksum-verified
+self-update path for that requested release immediately.
+Bootstrap also owns default data-root migration: if no custom `QUASAR_DATA_DIR`
+is set, or it still points at the legacy default AppData path, Bootstrap moves
+the legacy root into the launcher install root and passes that root to the
+worker.
+
+The Updates page also shows installed managed-runtime versions independently of
+Quasar self-update state: Quasar UI/Bootstrap, Magnetar, and the Space Engineers
+Dedicated Server can all be inspected there. The DS version is resolved from the
+server's `SpaceEngineers.Game.dll` `SE_VERSION` metadata first, with
+non-placeholder file versions only as fallbacks. Quasar release checks run on
+the configured update interval (15 minutes by default) and can be triggered by
+the Quasar check button. Managed Magnetar is checked on startup and every hour
+after startup, with a separate manual Magnetar check button. The managed
+Dedicated Server is checked during startup readiness and can be forced through
+its own manual check button; the action runs SteamCMD `app_update 298740 validate`.
+Quasar owns the SteamCMD process tree for these checks and terminates it if the
+worker is stopping or the check is otherwise cancelled.
 
 ### Future proxy update flow
 
@@ -717,7 +767,7 @@ Required for the first meaningful delivery:
 - per-server config history
 - Blazor Server UI for management
 - NLog-based file logging with minimal console output
-- bootstrap/setup path from the agent side via `Quasar.Bootstrap`
+- bootstrap/setup path owned outside the agent via `Quasar.Bootstrap`
 - neutral light/dark UI theme with persisted preference
 - config editing migrated out of Python
 
@@ -780,8 +830,8 @@ The protocol and IDs should remain compatible with those later additions.
 
 ### Stage 6: Agent bootstrap correction
 
-- replace direct agent-side host spawn with `Quasar.Bootstrap`
-- keep agent-side ensure-running flow
+- remove agent-side host/bootstrap spawning
+- keep agent-side discovery and reconnect flow
 - preserve raw WebSocket attachment behavior
 
 ### Stage 7: Config migration
@@ -833,23 +883,43 @@ As of this document:
 - atomic config history/versioning groundwork exists for server definitions
 - first desired goal-state reconciliation exists
 - first process supervision exists for start/stop/restart and per-server logs
+- the server console dialog can view the most recent Dedicated Server log and
+  Magnetar `info_*.log`, or a selected older file. It auto-refreshes every 5
+  seconds only while the most recent tail view is active, using append-only
+  reads from the last loaded file offset instead of re-reading the full log on
+  each refresh. Selecting an older file disables refresh for that tab. Server
+  settings include DS log retention, defaulting to 5 newest
+  `SpaceEngineersDedicated*.log` files, with oldest files pruned on start and
+  stop.
+- plugin logs now relay through the Quasar Agent outbox over the existing
+  WebSocket; entries from the `Magnetar` logger are dropped before control-plane
+  transport and are also rejected by the in-memory plugin log stream. The
+  agent still writes plugin output into the active per-server Magnetar
+  `info_*.log`, but formats the PluginSdk JSON sink lines as normal text log
+  lines first.
 - first health-monitoring and auto-recovery pass exists for agent attach grace, heartbeat freshness, simulation-frame progress scoring aligned with the DS watcher, and uptime-based warning/recycle policy
 - initial runtime launch preparation now exists for isolated app-data roots, runtime config sync, `LastSession.sbl`, and enforced headless launch shaping
+- server definitions store a saves root (`WorldPath`) plus selected save folder (`WorldSaveName`). Older definitions whose `WorldPath` pointed at a concrete save are migrated automatically by moving the final path segment into `WorldSaveName`. The server editor requires a selected save before save/start, lists existing saves from the saves root, and has an always-available Create From Template dialog that can create/import a world template before copying it into a new save.
 - neutral light/dark theming exists with local-storage persistence
-- config editing is now migrated out of Python into Quasar-managed JSON profiles and rendered runtime artifacts. Profiles cover Quasar root settings, server password (rendered to DS-compatible hash/salt), and DS-visible SE session settings including block type world limits; on server start Quasar writes session settings and mods into the world's authoritative `Sandbox_config.sbc` as well as the runtime DS config.
+- config editing is now migrated out of Python into Quasar-managed JSON profiles and rendered runtime artifacts. Profiles cover Quasar root settings, server password (rendered to DS-compatible hash/salt), and DS-visible SE session settings including block type world limits; on server start Quasar writes session settings and mods into the world's authoritative `Sandbox_config.sbc` as well as the runtime DS config. World-template import flows can also read a template's current `Sandbox_config.sbc` and create a config profile from its session settings and mods.
 - file watching/reload now exists for manual edits to Quasar-managed server/profile JSON
-- backup/restore now exists as versioned ZIP archives for Quasar configuration, server runtime state, and world-only data. Configuration backups cover servers, config profiles, world-template definitions, branding, and singleton settings files, with manual download/upload and semantic-version compatibility checks. The Backup page lists every configured server with per-row Back up server / Restore server / Back up world / Restore world actions; restore buttons use the latest matching stored archive for that server and backup kind. Automatic backup rules are configured separately for Quasar config, server backups, and world backups, each with its own schedule and retention. Server backups include server definition plus non-cache Dedicated Server and Magnetar app data; world backups restore world files while keeping existing config, using the latest Space Engineers `Backup` snapshot when present so backups can be taken while servers run.
+- backup/restore now exists as versioned ZIP archives for Quasar configuration, server runtime state, and world-only data. Configuration backups cover servers, config profiles, world-template definitions, branding, and singleton settings files, with manual download/upload and semantic-version compatibility checks. The Backup page lists every configured server with per-row Back up server / Restore server / Back up world / Restore world actions; restore buttons use the latest matching stored archive for that server and backup kind. Automatic backup rules are configured separately for Quasar config, server backups, and world backups, each with its own schedule and retention. Quasar config backups include Quasar-managed catalog/config files only; server backups include the server definition plus non-cache Dedicated Server and Magnetar app data but not world saves; world backups include world save files and keep existing server/world config, using the latest Space Engineers `Backup` snapshot when present so backups can be taken while servers run. Restored server definitions from config or server backups are forced to `Off` goal state so restore cannot trigger a failed start loop before matching world files are restored.
 - per-server CPU affinity pinning now exists (cpuset strings applied via `taskset` on Linux and `Process.ProcessorAffinity` on Windows), enforced by the supervisor on process start and reconcile alongside process priority; Linux priority elevation can use the optional setuid `/usr/local/bin/quasar-renice` helper instead of granting `CAP_SYS_NICE` to the whole Quasar service
 - per-server managed .NET runtime selection now exists on Windows, where Quasar installs both Magnetar builds side-by-side (`MagnetarInterim.exe` on .NET 10, the default, and `MagnetarLegacy.exe` on .NET Framework 4.8) and the runtime resolver launches the build chosen by `DedicatedServerDefinition.ManagedRuntime`; non-Windows hosts always run the .NET 10 build
 - runtime config preparation now derives a unique `SteamPort` (`ServerPort + 1000`) and `RemoteApiPort` (`ServerPort + 2000`) per server so multiple servers co-hosted on one machine never collide on the SE defaults (8766 / 8080)
 - server naming across the UI now consistently prefers the operator-configured `DedicatedServerDefinition.DisplayName` over the agent's in-game `ConfigDedicated.ServerName` (the analytics filters/legends, Discord per-server panels, the entities/plugins server selectors, the players list, and the plugin log panel all resolve names this way, falling back to the live agent name and then the unique name)
 - the Entities page now links grid rows to a metadata-only browser grid viewer. The viewer scene API asks the connected `Quasar.Agent` for a game-thread snapshot over the existing command/result WebSocket path and returns logical model/texture names, block placement, transforms, color/build state, generated cube-part references, runtime subpart references, and warnings. Quasar does not serve `.mwm` files, texture files, or extracted mesh geometry; the browser must use a user-selected local Space Engineers `Content` folder. The browser parses local `.mwm` render mesh tags, follows `GeometryDataAsset` indirection, and falls back to proxy geometry when assets are missing or parsing fails.
+- Dashboard server view selection now persists in browser local storage while still accepting `?view=list` / `?view=cards` overrides; card and list layouts use the same catalog order by unique name. Dashboard cards expose the assigned config profile as an actionable chip, the server port as a direct-connect copy chip (`host:port`), and the same create-server entry point the list layout already had.
+- Quasar Agent now owns in-game `!stop`, `!restart [seconds]`, and `!quit` semantics for managed servers: `!stop` saves and turns the Quasar goal Off, `!restart` broadcasts a restart countdown (default 10 seconds), saves, and lets Quasar track/relaunch the Restarting state, and `!quit` exits without saving while turning the goal Off.
+- the Chat page now treats text beginning with `!` as command text automatically, showing up to 30 live command suggestions from the selected agent with a disabled `...` overflow marker when more matches exist, without a separate command-mode toggle.
+- startup version logging now records Quasar worker version in the Quasar log and Magnetar/Quasar.Agent version details in the Magnetar-side log path.
+- the Updates page now always surfaces installed managed Magnetar and Space Engineers Dedicated Server versions/paths beside Quasar version data, and exposes separate manual update checks for Magnetar and DS. Magnetar checks continue hourly after startup; DS checks run at startup and on explicit request.
 - the Analytics dashboard renders metrics as client-side uPlot canvas charts: the browser fetches compact, timeline-aligned series from a JSON HTTP endpoint (`/api/analytics/series`, backed by `AnalyticsSeriesService`, which selects the RRD consolidation tier by span — raw ≤2h, 1-minute ≤24h, 1-hour beyond — and drops empty buckets); profiler game-loop timing buckets (frame, update, physics, scripts, network, other) and extensive profiler top grids/entity types are surfaced as additional chart panels through the same endpoint via `ProfilerAnalyticsMetrics` and `ProfilerEntryAnalyticsMetrics`; the same page edits each server/agent profiler mode with user-facing labels ("Simple, low overhead" for `SafeContinuous`, "Extensive, deep detail" for `DeepContinuous`) and pushes live changes through `ServerCommandType.SetProfilerMode`; the previous inline `ProfilerSummaryCard` tables and the `blocks`/`floating-objects` scalar metrics have been removed
 - deep per-server profiler telemetry now exists: `Quasar.Agent` runs a continuous in-process profiler with `SafeContinuous` enabled by default, with per-server persisted `AgentProfilerMode` values and a global `Quasar:AgentProfilerMode` / `QUASAR_AGENT_PROFILER_MODE` fallback for older definitions. Safe mode uses Harmony prefix/postfix timing only for named high-level paths: frame/update, programmable-block script, physics, replication/network/session, GPS, and block-limit work. It deliberately avoids broad entity update method patching and detailed network-event hooks so the always-on default stays low overhead. Deep mode adds detailed network-event method hooks plus Magnetar-compatible Harmony IL call-site transpilers for `MySession.Update` / `UpdateComponents`, session component calls, replication simulation, entity update dispatch, parallel waits/callbacks, and Havok physics stepping internals. Runtime mode changes reconfigure Harmony patches so Safe, Deep, and Off can be selected without restarting the server. Hot-path measurements use numeric call-site ids and rolling accumulators, split main-thread vs off-thread time, and publish one-second windows with bounded top-lists for grids, scripts, entity types, system methods, physics detail, and network/replication/session work where the active patch depth can observe them. Patch failures are logged and the agent keeps the remaining profiler surface; entity call-site misses stay at high-level timing rather than adding broad method wrapping. Each `ProfilerSnapshot` rides the regular agent snapshot, is validated, and is kept in a small recent in-memory `ProfilerStoreService` ring (~720 samples per server, about 12 minutes at one snapshot per second), then surfaced on the Analytics page as game-loop timing and top grid/entity-type chart panels
 - Discord per-server options now include chat relay and simspeed alert rules. Discord-to-game chat is injected as `[Discord] <username>: <message>` so in-game readers see the Discord sender, and `DiscordChatRelayService` suppresses the matching game-history echo before it can post back to Discord as the server/bot author. `DiscordSimSpeedAlertService` evaluates fresh raw metric samples for connected/running agents on the registry change path, sending alerts through the configured simspeed channel or the server's analytics channel. Baseline rules detect sharp sample-to-sample drops across every unseen raw sample pair and sustained low average simspeed, and the Discord page exposes thresholds, windows, cooldowns, and per-rule enable switches. `DiscordBotService` also publishes aggregate managed-server state through Discord presence: the bot status reflects unhealthy/faulted vs active vs idle server instances, and its activity text shows active/total servers, player count, and issue/warning counts.
-- a unified GitHub-release-based update/publish pipeline now exists covering both Linux and Windows in a single combined release (`.github/workflows/release.yml`): each build produces `quasar-installer-linux.tar.gz` / `quasar-web-linux-x64.tar.gz` (Linux) and `quasar-installer-windows.zip` / `quasar-web-win-x64.zip` (Windows) under one tag; tag pushes and `main` publish full releases while pull requests publish draft prereleases; installer archives contain a single top-level `quasar-installer-*` directory for clean manual extraction; the release carries one combined `SHA256SUMS` covering every archive; release identity is normalized from `AssemblyInformationalVersion` and the active-release pointer (not numeric `AssemblyVersion`); four-part build tags such as `0.1.2.37` are canonical and numeric prerelease aliases such as `0.1.2-37` normalize to them; every downloaded asset is verified against `SHA256SUMS`; the UI stages web updates and queues them for explicit activation from `/settings/updates`; Bootstrap self-upgrades from the launcher stream only when an actually-newer asset appears (see [Linux Deployment and Updates](LinuxDeploymentAndUpdates.md) and [Windows Deployment and Updates](WindowsDeploymentAndUpdates.md))
-- `Quasar.Bootstrap` runs as the stable launcher that owns the public port on both Linux (systemd service) and Windows (Scheduled Task): it activates web releases through the `Updates/active-release.json` pointer after staged payloads are promoted into `ManagedRuntime/WebService/<version>/`, and performs worker cutover by draining the old worker and starting the managed one on the same port — a launcher, not yet a reverse proxy — so the public endpoint stays stable across the short listener gap while managed Magnetar servers keep running; it consumes a worker-written shutdown request so the UI can shut down Quasar while preserving detached servers; on Linux the launcher exits with code 75 so systemd restarts it for self-upgrade; on Windows the launcher spawns a detached replacement `Quasar.exe serve --quiet` and exits 0, with the Scheduled Task restart-on-failure as the safety net
-- Windows deployment exists via `install.ps1`/`uninstall.ps1`: `install.ps1` publishes to `%ProgramFiles%\Quasar` and registers a Scheduled Task (`Quasar`) that starts at boot and restarts the launcher on failure; the task runs with `QUASAR_MODE=Service` and `QUASAR_OPEN_BROWSER_ON_START=false` mirroring the Linux systemd environment
+- a unified GitHub-release-based update/publish pipeline now exists covering both Linux and Windows in a single combined release (`.github/workflows/release.yml`): each build produces `quasar-installer-linux.tar.gz` / `quasar-web-linux-x64.tar.gz` (Linux) and `quasar-installer-windows.zip` / `quasar-web-win-x64.zip` (Windows) under one tag; tag pushes and `main` publish full releases while pull requests publish draft prereleases; installer archives contain a single top-level `Quasar` directory for clean manual extraction; the release carries one combined `SHA256SUMS` covering every archive; release identity is normalized from `AssemblyInformationalVersion` and the active-release pointer (not numeric `AssemblyVersion`); four-part build tags such as `1.0.0.37` are canonical and numeric prerelease aliases such as `1.0.0-37` normalize to them; every downloaded asset is verified against `SHA256SUMS`; the UI stages web updates and queues them for explicit activation from `/settings/updates`; Bootstrap self-upgrades from the launcher stream only when an actually-newer asset appears (see [Linux Deployment and Updates](LinuxDeploymentAndUpdates.md) and [Windows Deployment and Updates](WindowsDeploymentAndUpdates.md))
+- `Quasar.Bootstrap` runs as the stable launcher that owns the public port on both Linux (systemd service) and Windows (Scheduled Task): it activates web releases through the `Updates/active-release.json` pointer after staged payloads are promoted into `ManagedRuntime/WebService/<version>/`, and performs worker cutover by draining the old worker and starting the managed one on the same port — a launcher, not yet a reverse proxy — so the public endpoint stays stable across the short listener gap while managed Magnetar servers keep running; on Linux, the UI shutdown action prefers `systemctl --user stop quasar.service` / `systemctl stop quasar.service` when the installed unit is detectable, falling back to the worker-written shutdown request that makes Bootstrap exit without respawning; on Linux the launcher exits with code 75 so systemd restarts it for self-upgrade; on Windows the launcher spawns a detached replacement `Quasar.exe serve --quiet` and exits 0, with the Scheduled Task restart-on-failure as the safety net
+- Windows deployment exists via `install.ps1`/`uninstall.ps1`: extracted release installs default to the installer root, source installs default to `%ProgramFiles%\Quasar`, and the installer registers a Scheduled Task (`Quasar`) that starts at boot and restarts the launcher on failure; the task runs Bootstrap directly with `serve --quiet --service`
 - staged relaunch now persists supervisor runtime state so managed DS processes survive worker turnover
 - obsolete `webui/` is removed from the repository
 - per-server isolated app-data path handling groundwork exists

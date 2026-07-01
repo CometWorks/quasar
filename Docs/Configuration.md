@@ -20,6 +20,54 @@ SteamCMD's `linux64` native runtime directory so Quasar can pass it through
 before it is marked failed; the Dashboard then shows a retry button on the
 Dedicated Server row.
 
+## Magnetar data handling consent
+
+Magnetar's anonymous plugin-usage statistics are opt-in. Quasar stores the
+operator's decision in `data-handling-consent.json` under the Quasar data
+directory and passes that decision to every managed Magnetar start:
+
+- `YES` -> Quasar appends `-consent`
+- `NO` -> Quasar appends `-noconsent`
+- no stored decision -> Quasar appends `-noconsent`
+
+The Dashboard shows a top-of-page YES/NO consent prompt until a decision is
+stored. The same decision can be changed later from **Settings -> Security**.
+Changes apply to the next server start or restart; running servers keep their
+current Magnetar consent state.
+
+Magnetar sends only the enabled plugin IDs plus a random local instance ID when
+consent is granted. It does not send a Steam ID, account, world, or server
+content.
+
+## Implicit Magnetar mod
+
+Each server definition defaults **Disable implicit Magnetar mod load** to off.
+With the default setting, Quasar omits Magnetar's `-noimplicitmod` launch flag
+so Magnetar loads `MagnetarMod` normally.
+
+Turn this on only from the server editor's **Runtime** section. The UI asks for
+confirmation because enabling it passes `-noimplicitmod` on the next server
+start, which disables `MagnetarMod` and breaks the mission screen popup used by
+server-side plugins. Magnetar already does this automatically when cross-play is
+enabled. Turning it back off removes the flag from future starts.
+
+## Dedicated Server log retention
+
+Each server has a **Space Engineers DS logs to keep** setting in the server
+editor's **Runtime** section. It defaults to `5`.
+
+Quasar prunes `SpaceEngineersDedicated*.log` files from that server's Dedicated
+Server app-data directory on server start and stop, keeping the newest files and
+deleting older ones. Magnetar diagnostics are written in the server's Magnetar
+app-data directory as timestamped `info_*.log` files, with `info.current`
+pointing at the active file. PluginSdk stdout sink lines captured by
+Quasar.Agent are also appended to that active Magnetar log as normal text log
+lines for the specific instance.
+
+The server console dialog can view **Most recent** or a specific older DS /
+Magnetar log file. Auto-refresh and the Refresh button are active only for
+**Most recent**; selecting an older file keeps that snapshot fixed for review.
+
 ## Where configuration is read from
 
 Both the **Bootstrap launcher** (`Quasar`/`Quasar.exe`) and the replaceable **web
@@ -29,11 +77,14 @@ worker** read JSON config from these locations, later ones overriding earlier:
    preserve this file during Bootstrap self-updates. UI-worker activation updates
    it from the staged, resolved `appsettings.json` so Bootstrap and the managed
    worker keep the same base settings.
-2. The Quasar **data directory** `appsettings.json` — the recommended place for
-   persistent local overrides because it is never touched by updates:
-   - Windows: `%APPDATA%\Quasar\appsettings.json`
-   - Linux: `~/.config/Quasar/appsettings.json` by default for `install.sh`
-     systemd installs (or `$QUASAR_DATA_DIR/appsettings.json`)
+2. The Quasar **data directory** `appsettings.json`. Bootstrap uses the install
+   root as the default data directory, so this is normally the same file as item
+   1. Set `QUASAR_DATA_DIR` (or `--data-dir <dir>` on Linux installs) to keep
+   persistent local overrides in a separate directory.
+
+When Bootstrap starts without a custom `QUASAR_DATA_DIR`, it migrates legacy
+default data roots (`~/.config/Quasar` on Linux/macOS,
+`%APPDATA%\Quasar` on Windows) into the install root.
 
 The shipped defaults are defined in [`Quasar/appsettings.json`](../Quasar/appsettings.json).
 
@@ -57,6 +108,36 @@ The diagnostic entry is written to the normal Quasar logs at warning level and
 includes the executable path, arguments, working directory, and environment
 variables such as `LD_LIBRARY_PATH`. Use it only while troubleshooting because
 environment variables can contain secrets.
+
+## Backup storage folder
+
+Stored Quasar, server, and world backups are written to `Quasar:BackupDirectory`.
+Change it from **Backup → Stored backups**, or edit `appsettings.json` directly.
+Quasar config backups contain Quasar-managed configuration/catalog files only;
+server backups contain one server definition plus non-cache Dedicated Server and
+Magnetar app data; world backups contain world save files. Restored server
+definitions are written with `Off` goal state so they do not auto-start before
+matching world files are restored.
+Leave it empty to use the default `Backups` folder under the Quasar data
+directory. Set it to an absolute path to place backups on another disk or a
+mounted network share:
+
+```json
+{
+  "Quasar": {
+    "BackupDirectory": "/mnt/quasar-backups"
+  }
+}
+```
+
+Relative paths are resolved under the Quasar data directory. If the folder is on
+a network share, make sure it is mounted before Quasar starts and that the
+Quasar service account can create, list, read, and delete files in it. Changes
+from the Backup page apply to new stored-backup operations immediately; direct
+file edits need a Quasar restart. Existing backup ZIPs are not moved
+automatically; move them manually if they should appear in the new folder. When
+`QUASAR_BACKUP_DIR` is set, it takes precedence and the Backup page shows the
+active folder as read-only.
 
 ## Agent profiler mode
 

@@ -47,6 +47,25 @@ world) has its own schedule and retention.
 
 ---
 
+## Backup scopes and restore behavior
+
+- `Configuration` backups contain Quasar-managed catalog and settings files:
+  server definitions, config profiles, world-template definitions, branding,
+  Discord, players, security/RBAC and other singleton settings. They do not
+  include Dedicated Server app data, Magnetar app data or world save files.
+- `Server` backups contain one server definition plus that server's non-cache
+  Dedicated Server and Magnetar app data. They do not include world save files.
+- `World` backups contain world save files for one server. They use the latest
+  valid Space Engineers `Backup` snapshot when one exists and leave the current
+  server/world config in place on restore.
+
+Restored server definitions are always written with `GoalState = Off` and
+`AutoStart = false`, both for server backups and configuration backups that
+contain server definitions. This prevents restore from re-starting a server
+before its matching world files have been restored.
+
+---
+
 ## Restore compatibility
 
 Restore is gated by a semantic-version check

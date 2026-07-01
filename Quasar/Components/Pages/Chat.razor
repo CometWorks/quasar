@@ -11,7 +11,7 @@
 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-2">
     <div>
         <MudText Typo="Typo.h5" Class="mb-2">Chat</MudText>
-        <MudText Typo="Typo.body2">Select a server, watch live chat, send messages, and run chat-command text through the agent.</MudText>
+        <MudText Typo="Typo.body2">Select a server, watch live chat, send messages, and run !commands through the agent.</MudText>
     </div>
     <MudChip T="string" Variant="Variant.Outlined">@($"{ConnectedAgents.Count} connected")</MudChip>
 </MudStack>
@@ -35,10 +35,10 @@
                 <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" OnClick="@(() => SendAgentCommandAsync(ServerCommandType.Refresh))" Disabled="@(!CanSendAgentCommand)">
                     Refresh
                 </MudButton>
-                <MudButton Variant="Variant.Outlined" Color="Color.Info" StartIcon="@Icons.Material.Filled.Save" OnClick="@(() => SendAgentCommandAsync(ServerCommandType.SaveWorld))" Disabled="@(!CanSendAgentCommand)">
+                <MudButton Variant="Variant.Outlined" Color="Color.Info" StartIcon="@Icons.Material.Filled.Save" OnClick="@(() => SendAgentCommandAsync(ServerCommandType.SaveWorld))" Disabled="@(!CanSaveSelected)">
                     Save
                 </MudButton>
-                <MudButton Variant="Variant.Outlined" Color="Color.Warning" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="RestartSelectedServerAsync" Disabled="@(!HasSelectedDefinition)">
+                <MudButton Variant="Variant.Outlined" Color="Color.Warning" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="RestartSelectedServerAsync" Disabled="@(!CanRestartSelected)">
                     Restart
                 </MudButton>
             </MudStack>
@@ -85,24 +85,31 @@
         </div>
 
         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="2">
-            <MudSwitch T="bool" @bind-Value="_commandMode" Label="Command mode" Color="Color.Primary" Class="mt-2" />
-            <MudTextField @bind-Value="_inputText"
-                          Label="@(_commandMode ? "Command text" : "Chat message")"
-                          Variant="Variant.Outlined"
-                          FullWidth="true"
-                          Immediate="true"
-                          Lines="@(_commandMode ? 1 : 2)"
-                          HelperText="@(_commandMode ? "Type the full chat command, including prefix." : "Broadcasts to selected server chat.")"
-                          OnKeyDown="HandleInputKeyDownAsync"
-                          Disabled="@(!CanSendAgentCommand)" />
+            <MudAutocomplete T="string"
+                             @bind-Value="_inputText"
+                             SearchFunc="SearchCommandSuggestionsAsync"
+                             Label="@InputLabel"
+                             Variant="Variant.Outlined"
+                             FullWidth="true"
+                             Immediate="true"
+                             Lines="2"
+                             CoerceText="true"
+                             CoerceValue="true"
+                             ResetValueOnEmptyText="false"
+                             MinCharacters="1"
+                             MaxItems="@MaximumCommandSuggestionItems"
+                             ItemDisabledFunc="@IsCommandOverflowSuggestion"
+                             HelperText="@InputHelperText"
+                             OnKeyDown="HandleInputKeyDownAsync"
+                             Disabled="@(!CanSendAgentCommand)" />
             <MudButton Variant="Variant.Filled"
-                       Color="@(_commandMode ? Color.Warning : Color.Success)"
-                       StartIcon="@(_commandMode ? Icons.Material.Filled.Terminal : Icons.Material.Filled.Send)"
+                       Color="@(IsCommandInput ? Color.Warning : Color.Success)"
+                       StartIcon="@(IsCommandInput ? Icons.Material.Filled.Terminal : Icons.Material.Filled.Send)"
                        Class="mt-3"
                        Style="height: 40px;"
                        OnClick="SendInputAsync"
                        Disabled="@(!CanSendAgentCommand || string.IsNullOrWhiteSpace(_inputText))">
-                @(_commandMode ? "Run" : "Send")
+                @(IsCommandInput ? "Run" : "Send")
             </MudButton>
         </MudStack>
 
@@ -122,10 +129,12 @@
 
 @code
 {
+    private const int MaximumCommandSuggestionItems = 30;
+    private const string CommandSuggestionOverflowText = "...";
+
     private readonly string _chatScrollContainerId = $"admin-chat-{Guid.NewGuid():N}";
     private string _selectedUniqueName = string.Empty;
     private string _inputText = string.Empty;
-    private bool _commandMode;
     private long _lastRenderedLatestMessageTicks;
     private bool _scrollPending;
 
@@ -147,10 +156,29 @@
         .OrderBy(message => message.TimestampTicksUtc)
         .ToList() ?? [];
 
+    private IReadOnlyList<ChatCommandSnapshot> SelectedCommandSuggestions => SelectedAgent?.Snapshot?.ChatCommands ?? [];
+
+    private DedicatedServerRuntimeSnapshot? SelectedRuntime => Supervisor.GetSnapshots()
+        .FirstOrDefault(snapshot => string.Equals(snapshot.UniqueName, _selectedUniqueName, StringComparison.OrdinalIgnoreCase));
+
     private bool HasSelectedDefinition => ServerDefinitions.Any(server =>
         string.Equals(server.UniqueName, _selectedUniqueName, StringComparison.OrdinalIgnoreCase));
 
     private bool CanSendAgentCommand => SelectedAgent?.IsConnected == true;
+
+    private bool CanSaveSelected => CanSendAgentCommand && !IsSelectedUnstable;
+
+    private bool CanRestartSelected => HasSelectedDefinition && !IsSelectedUnstable;
+
+    private bool IsSelectedUnstable => IsUnstable(SelectedRuntime?.State ?? DedicatedServerProcessState.Stopped);
+
+    private bool IsCommandInput => IsCommandText(_inputText);
+
+    private string InputLabel => IsCommandInput ? "Command text" : "Chat message";
+
+    private string InputHelperText => IsCommandInput
+        ? "Select a suggestion or type the full command."
+        : "Broadcasts to selected server chat. Start with ! for commands.";
 
     protected override void OnInitialized()
     {
@@ -200,6 +228,29 @@
             await SendInputAsync();
     }
 
+    private Task<IEnumerable<string>> SearchCommandSuggestionsAsync(string? value, CancellationToken cancellationToken)
+    {
+        if (!IsCommandText(value))
+            return Task.FromResult(Enumerable.Empty<string>());
+
+        var query = NormalizeCommandQuery(value);
+        var suggestions = SelectedCommandSuggestions
+            .Where(command => MatchesCommandSuggestion(command, query))
+            .OrderBy(command => command.Text, StringComparer.OrdinalIgnoreCase)
+            .Select(command => command.Text)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(MaximumCommandSuggestionItems + 1)
+            .ToList();
+
+        if (suggestions.Count > MaximumCommandSuggestionItems)
+        {
+            suggestions.RemoveRange(MaximumCommandSuggestionItems - 1, suggestions.Count - (MaximumCommandSuggestionItems - 1));
+            suggestions.Add(CommandSuggestionOverflowText);
+        }
+
+        return Task.FromResult<IEnumerable<string>>(suggestions);
+    }
+
     private async Task SendInputAsync()
     {
         var text = _inputText.Trim();
@@ -243,6 +294,12 @@
     {
         if (string.IsNullOrWhiteSpace(_selectedUniqueName))
             return;
+
+        if (IsSelectedUnstable)
+        {
+            Snackbar.Add("Server is already starting, stopping, or restarting.", Severity.Warning);
+            return;
+        }
 
         try
         {
@@ -348,6 +405,39 @@
             ServerCommandType.SaveWorld => "Save requested.",
             _ => $"{commandType} requested.",
         };
+    }
+
+    private static bool IsUnstable(DedicatedServerProcessState state)
+    {
+        return state is DedicatedServerProcessState.Starting
+            or DedicatedServerProcessState.Stopping
+            or DedicatedServerProcessState.Restarting;
+    }
+
+    private static string NormalizeCommandQuery(string? value)
+    {
+        var query = value?.Trim() ?? string.Empty;
+        return query.StartsWith('!') ? query[1..] : query;
+    }
+
+    private static bool IsCommandText(string? value)
+    {
+        return value?.TrimStart().StartsWith('!') == true;
+    }
+
+    private static bool IsCommandOverflowSuggestion(string suggestion)
+    {
+        return string.Equals(suggestion, CommandSuggestionOverflowText, StringComparison.Ordinal);
+    }
+
+    private static bool MatchesCommandSuggestion(ChatCommandSnapshot command, string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return true;
+
+        return command.Text.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+               command.Syntax.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+               command.Description.Contains(query, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed record ServerOption(string UniqueName, string DisplayName);

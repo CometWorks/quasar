@@ -1,0 +1,614 @@
+{
+  "node_count": 4357,
+  "raw_edge_count": 8884,
+  "non_object_edges": 0,
+  "missing_endpoint_edges": 0,
+  "dangling_endpoint_edges": 205,
+  "self_loop_edges": 5,
+  "valid_candidate_edges": 8679,
+  "exact_duplicate_edges": 46,
+  "directed_unique_endpoint_pairs": 6964,
+  "directed_same_endpoint_collapsed_edges": 1715,
+  "undirected_unique_endpoint_pairs": 6891,
+  "undirected_same_endpoint_collapsed_edges": 1788,
+  "same_endpoint_group_count": 453,
+  "relation_variant_groups": 2,
+  "source_file_variant_groups": 0,
+  "source_location_variant_groups": 371,
+  "context_variant_groups": 46,
+  "post_build_graph_type": "Graph",
+  "post_build_node_count": 4357,
+  "post_build_edge_count": 6891,
+  "post_build_error": "",
+  "producer_suppression": {
+    "path": "/home/owendb/.local/lib/python3.14/site-packages/graphify/extract.py",
+    "total_sites": 53,
+    "sites": [
+      {
+        "line": 1404,
+        "name": "seen_dyn_pairs",
+        "tuple_arity": 0,
+        "sample": "seen_dyn_pairs: set) -> bool:"
+      },
+      {
+        "line": 2384,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 2547,
+        "name": "seen_swift_base",
+        "tuple_arity": 0,
+        "sample": "seen_swift_base = False"
+      },
+      {
+        "line": 2582,
+        "name": "seen_swift_base",
+        "tuple_arity": 0,
+        "sample": "seen_swift_base = True"
+      },
+      {
+        "line": 3442,
+        "name": "seen_call_pairs",
+        "tuple_arity": 2,
+        "sample": "seen_call_pairs: set[tuple[str, str]] = set()"
+      },
+      {
+        "line": 3443,
+        "name": "seen_dyn_import_pairs",
+        "tuple_arity": 2,
+        "sample": "seen_dyn_import_pairs: set[tuple[str, str]] = set()"
+      },
+      {
+        "line": 3444,
+        "name": "seen_static_ref_pairs",
+        "tuple_arity": 3,
+        "sample": "seen_static_ref_pairs: set[tuple[str, str, str]] = set()"
+      },
+      {
+        "line": 3445,
+        "name": "seen_helper_ref_pairs",
+        "tuple_arity": 3,
+        "sample": "seen_helper_ref_pairs: set[tuple[str, str, str]] = set()"
+      },
+      {
+        "line": 3446,
+        "name": "seen_bind_pairs",
+        "tuple_arity": 3,
+        "sample": "seen_bind_pairs: set[tuple[str, str, str]] = set()"
+      },
+      {
+        "line": 3780,
+        "name": "seen_listen_pairs",
+        "tuple_arity": 2,
+        "sample": "seen_listen_pairs: set[tuple[str, str]] = set()"
+      },
+      {
+        "line": 3862,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 4271,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 4395,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 5224,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str],"
+      },
+      {
+        "line": 5339,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 5471,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = {file_nid}"
+      },
+      {
+        "line": 5511,
+        "name": "seen_refs",
+        "tuple_arity": 0,
+        "sample": "seen_refs: set[str] = set()"
+      },
+      {
+        "line": 5650,
+        "name": "seen_tbls",
+        "tuple_arity": 0,
+        "sample": "seen_tbls: set[str] = set()"
+      },
+      {
+        "line": 5745,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 6034,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 6289,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 6533,
+        "name": "seen_call_pairs",
+        "tuple_arity": 2,
+        "sample": "seen_call_pairs: set[tuple[str, str]] = set()"
+      },
+      {
+        "line": 6630,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 6832,
+        "name": "seen_call_pairs",
+        "tuple_arity": 2,
+        "sample": "seen_call_pairs: set[tuple[str, str]] = set()"
+      },
+      {
+        "line": 6927,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 7164,
+        "name": "seen_call_pairs",
+        "tuple_arity": 2,
+        "sample": "seen_call_pairs: set[tuple[str, str]] = set()"
+      },
+      {
+        "line": 7267,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 8777,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 8829,
+        "name": "seen_pairs",
+        "tuple_arity": 2,
+        "sample": "seen_pairs: set[tuple[str, str]] = set()"
+      },
+      {
+        "line": 9218,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 9401,
+        "name": "seen_calls",
+        "tuple_arity": 2,
+        "sample": "seen_calls: set[tuple[str, str]] = set()"
+      },
+      {
+        "line": 9519,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 9846,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 9847,
+        "name": "seen_call_pairs",
+        "tuple_arity": 2,
+        "sample": "seen_call_pairs: set[tuple[str, str]] = set()"
+      },
+      {
+        "line": 10024,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 10172,
+        "name": "seen_call_pairs",
+        "tuple_arity": 2,
+        "sample": "seen_call_pairs: set[tuple[str, str]] = set()"
+      },
+      {
+        "line": 10247,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 10248,
+        "name": "seen_edge_pairs",
+        "tuple_arity": 3,
+        "sample": "seen_edge_pairs: set[tuple[str, str, str]] = set()"
+      },
+      {
+        "line": 10347,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 10348,
+        "name": "seen_edge_pairs",
+        "tuple_arity": 3,
+        "sample": "seen_edge_pairs: set[tuple[str, str, str]] = set()"
+      },
+      {
+        "line": 10467,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 10561,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 10777,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 10871,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 10950,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 11126,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 11274,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 11425,
+        "name": "seen_call_pairs",
+        "tuple_arity": 2,
+        "sample": "seen_call_pairs: set[tuple[str, str]] = set()"
+      },
+      {
+        "line": 11641,
+        "name": "seen_targets",
+        "tuple_arity": 0,
+        "sample": "seen_targets: set[str] = set()"
+      },
+      {
+        "line": 11799,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = {file_nid}"
+      },
+      {
+        "line": 11800,
+        "name": "seen_edges",
+        "tuple_arity": 3,
+        "sample": "seen_edges: set[tuple[str, str, str]] = set()"
+      },
+      {
+        "line": 11848,
+        "name": "seen_self",
+        "tuple_arity": 0,
+        "sample": "seen_self = False"
+      },
+      {
+        "line": 11851,
+        "name": "seen_self",
+        "tuple_arity": 0,
+        "sample": "seen_self = True"
+      }
+    ],
+    "error": ""
+  },
+  "examples": [
+    {
+      "source": "pages_home",
+      "target": "quasar_components_pages_home_razor_mudstack",
+      "edge_count": 49,
+      "relations": [
+        "calls"
+      ],
+      "source_files": [
+        "Quasar/Components/Pages/Home.razor"
+      ],
+      "source_locations": [
+        "L110",
+        "L122",
+        "L134",
+        "L144",
+        "L145",
+        "L146",
+        "L147",
+        "L165",
+        "L177",
+        "L189",
+        "L199",
+        "L20",
+        "L200",
+        "L201",
+        "L202",
+        "L21",
+        "L220",
+        "L232",
+        "L236",
+        "L240",
+        "L256",
+        "L257",
+        "L258",
+        "L259",
+        "L281",
+        "L30",
+        "L313",
+        "L314",
+        "L315",
+        "L316",
+        "L342",
+        "L346",
+        "L350",
+        "L368",
+        "L380",
+        "L399",
+        "L400",
+        "L401",
+        "L414",
+        "L427",
+        "L475",
+        "L477",
+        "L50",
+        "L67",
+        "L68",
+        "L89",
+        "L90",
+        "L91",
+        "L92"
+      ],
+      "contexts": [
+        ""
+      ]
+    },
+    {
+      "source": "pages_servereditordialog",
+      "target": "quasar_components_pages_servereditordialog_razor_muditem",
+      "edge_count": 37,
+      "relations": [
+        "calls"
+      ],
+      "source_files": [
+        "Quasar/Components/Pages/ServerEditorDialog.razor"
+      ],
+      "source_locations": [
+        "L106",
+        "L131",
+        "L17",
+        "L185",
+        "L188",
+        "L191",
+        "L194",
+        "L202",
+        "L225",
+        "L228",
+        "L231",
+        "L234",
+        "L237",
+        "L240",
+        "L243",
+        "L246",
+        "L258",
+        "L282",
+        "L294",
+        "L306",
+        "L31",
+        "L316",
+        "L325",
+        "L333",
+        "L349",
+        "L378",
+        "L385",
+        "L392",
+        "L399",
+        "L406",
+        "L415",
+        "L433",
+        "L46",
+        "L54",
+        "L62",
+        "L75",
+        "L81"
+      ],
+      "contexts": [
+        ""
+      ]
+    },
+    {
+      "source": "pages_home",
+      "target": "quasar_components_pages_home_razor_mudtext",
+      "edge_count": 35,
+      "relations": [
+        "calls"
+      ],
+      "source_files": [
+        "Quasar/Components/Pages/Home.razor"
+      ],
+      "source_locations": [
+        "L148",
+        "L153",
+        "L203",
+        "L208",
+        "L22",
+        "L23",
+        "L237",
+        "L238",
+        "L26",
+        "L260",
+        "L265",
+        "L317",
+        "L322",
+        "L347",
+        "L348",
+        "L381",
+        "L402",
+        "L403",
+        "L415",
+        "L416",
+        "L428",
+        "L451",
+        "L452",
+        "L457",
+        "L458",
+        "L463",
+        "L464",
+        "L469",
+        "L470",
+        "L476",
+        "L70",
+        "L71",
+        "L83",
+        "L93",
+        "L98"
+      ],
+      "contexts": [
+        ""
+      ]
+    },
+    {
+      "source": "pages_configs",
+      "target": "quasar_components_pages_configs_razor_mudtext",
+      "edge_count": 33,
+      "relations": [
+        "calls"
+      ],
+      "source_files": [
+        "Quasar/Components/Pages/Configs.razor"
+      ],
+      "source_locations": [
+        "L133",
+        "L197",
+        "L198",
+        "L23",
+        "L24",
+        "L257",
+        "L274",
+        "L275",
+        "L326",
+        "L327",
+        "L383",
+        "L407",
+        "L435",
+        "L436",
+        "L439",
+        "L479",
+        "L532",
+        "L533",
+        "L536",
+        "L540",
+        "L545",
+        "L602",
+        "L637",
+        "L640",
+        "L674",
+        "L70",
+        "L71",
+        "L748",
+        "L749",
+        "L752",
+        "L810",
+        "L825",
+        "L826"
+      ],
+      "contexts": [
+        ""
+      ]
+    },
+    {
+      "source": "pages_configs",
+      "target": "quasar_components_pages_configs_razor_mudstack",
+      "edge_count": 30,
+      "relations": [
+        "calls"
+      ],
+      "source_files": [
+        "Quasar/Components/Pages/Configs.razor"
+      ],
+      "source_locations": [
+        "L110",
+        "L121",
+        "L138",
+        "L164",
+        "L195",
+        "L196",
+        "L204",
+        "L21",
+        "L272",
+        "L273",
+        "L281",
+        "L324",
+        "L325",
+        "L333",
+        "L406",
+        "L412",
+        "L434",
+        "L478",
+        "L484",
+        "L531",
+        "L58",
+        "L581",
+        "L601",
+        "L607",
+        "L67",
+        "L673",
+        "L679",
+        "L69",
+        "L747",
+        "L824"
+      ],
+      "contexts": [
+        ""
+      ]
+    }
+  ]
+}

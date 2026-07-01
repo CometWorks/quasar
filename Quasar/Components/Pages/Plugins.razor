@@ -3,47 +3,10 @@
 @inject AgentRegistry Registry
 @inject DedicatedServerCatalog ServerCatalog
 @inject PluginConfigService ConfigService
-@inject QuasarPluginCatalogService PluginCatalog
 
 <PageTitle>Plugins</PageTitle>
 
-<MudText Typo="Typo.h5" Class="mb-2">Plugin inventory</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Plugin inventory across all connected servers.</MudText>
-<MudPaper Class="server-card">
-    <MudTable T="PluginRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="PluginRows" RowsPerPage="100">
-        <HeaderContent>
-            <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.DisplayName)">Plugin</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.Version)">Version</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.ServerName)">Server</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.HostName)">Host</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<PluginRow, object>(x => x.IsLoaded)">Status</MudTableSortLabel></MudTh>
-            <MudTh Style="width:48px;"></MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd DataLabel="Plugin">@context.DisplayName</MudTd>
-            <MudTd DataLabel="Version">@context.Version</MudTd>
-            <MudTd DataLabel="Server">@context.ServerName</MudTd>
-            <MudTd DataLabel="Host">@context.HostName</MudTd>
-            <MudTd DataLabel="Status">@(context.IsLoaded ? "loaded" : "declared")</MudTd>
-            <MudTd Style="text-align:right;">
-                @if (!string.IsNullOrWhiteSpace(context.SourceUrl))
-                {
-                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@context.SourceUrl" Target="_blank" Size="Size.Small" title="Open GitHub repository" />
-                }
-            </MudTd>
-        </RowTemplate>
-        <NoRecordsContent>
-            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
-                No plugin inventory yet.
-            </MudAlert>
-        </NoRecordsContent>
-        <PagerContent>
-            <MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" />
-        </PagerContent>
-    </MudTable>
-</MudPaper>
-
-<MudText Typo="Typo.h5" Class="mt-8 mb-2">Plugin configuration</MudText>
+<MudText Typo="Typo.h5" Class="mb-2">Plugin configuration</MudText>
 <MudText Typo="Typo.body2" Class="mb-4 mud-text-secondary">
     Live configuration for plugins that expose a Quasar config provider.
 </MudText>
@@ -112,22 +75,6 @@ else
     // open panel's editor is constructed, and opening one collapses any other.
     private string? _expandedConfigPluginId;
 
-    private IReadOnlyList<PluginRow> PluginRows => Registry
-        .GetAgents()
-        .SelectMany(agent => (agent.Snapshot?.Plugins ?? new List<PluginRuntimeInfo>())
-            .Select(plugin => new PluginRow
-            {
-                DisplayName = plugin.DisplayName,
-                Version = plugin.Version,
-                ServerName = ResolveServerName(agent),
-                HostName = agent.HostDisplayName,
-                IsLoaded = plugin.IsLoaded,
-                SourceUrl = GetPluginSourceUrl(plugin),
-            }))
-        .OrderBy(row => row.DisplayName, StringComparer.OrdinalIgnoreCase)
-        .ThenBy(row => row.ServerName, StringComparer.OrdinalIgnoreCase)
-        .ToList();
-
     private List<AgentRuntimeState> ConfigAgents => Registry
         .GetAgents()
         .Where(agent => agent.IsConnected && ConfigService.HasConfigs(agent.AgentId))
@@ -138,21 +85,6 @@ else
         Registry.Changed += HandleRegistryChanged;
         ServerCatalog.Changed += HandleRegistryChanged;
         ConfigService.Changed += HandleRegistryChanged;
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!firstRender || PluginCatalog.GetEntries().Count > 0)
-            return;
-
-        try
-        {
-            await PluginCatalog.RefreshAsync();
-            await InvokeAsync(StateHasChanged);
-        }
-        catch
-        {
-        }
     }
 
     public void Dispose()
@@ -204,37 +136,5 @@ else
             _expandedConfigPluginId = pluginId;
         else if (_expandedConfigPluginId == pluginId)
             _expandedConfigPluginId = null;
-    }
-
-    private string GetPluginSourceUrl(PluginRuntimeInfo plugin)
-    {
-        var catalogEntry = PluginCatalog.GetEntries().FirstOrDefault(entry =>
-            IsPluginMatch(entry, plugin.PluginId) ||
-            IsPluginMatch(entry, plugin.DisplayName) ||
-            IsPluginMatch(entry, System.IO.Path.GetFileNameWithoutExtension(plugin.PluginId)));
-
-        return catalogEntry is null
-            ? string.Empty
-            : QuasarPluginCatalogService.GetRepositoryUrl(catalogEntry.SourceRepo);
-    }
-
-    private static bool IsPluginMatch(QuasarPluginCatalogEntry entry, string value) =>
-        !string.IsNullOrWhiteSpace(value) &&
-        (string.Equals(entry.PluginId, value, StringComparison.OrdinalIgnoreCase) ||
-         string.Equals(entry.FriendlyName, value, StringComparison.OrdinalIgnoreCase));
-
-    private sealed class PluginRow
-    {
-        public string DisplayName { get; set; } = string.Empty;
-
-        public string Version { get; set; } = string.Empty;
-
-        public string ServerName { get; set; } = string.Empty;
-
-        public string HostName { get; set; } = string.Empty;
-
-        public bool IsLoaded { get; set; }
-
-        public string SourceUrl { get; set; } = string.Empty;
     }
 }

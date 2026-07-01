@@ -37,6 +37,14 @@
                     Create Profile
                 </MudButton>
 
+                <MudButton
+                    Variant="Variant.Outlined"
+                    Color="Color.Secondary"
+                    StartIcon="@Icons.Material.Filled.Restore"
+                    OnClick="RestoreDefaultProfilesAsync">
+                    Restore Default Profiles
+                </MudButton>
+
                 <MudDivider />
 
                 @if (Templates.Count == 0)
@@ -65,17 +73,21 @@
                                             </MudText>
                                         </MudStack>
                                     </MudButton>
-                                    <MudIconButton
-                                        Icon="@Icons.Material.Filled.ContentCopy"
-                                        Color="Color.Default"
-                                        Size="Size.Small"
-                                        OnClick="@(() => CloneProfileAsync(template.ConfigProfileId))" />
-                                    <MudIconButton
-                                        Icon="@Icons.Material.Filled.DeleteOutline"
-                                        Color="Color.Error"
-                                        Size="Size.Small"
-                                        Class="config-profile-delete"
-                                        OnClick="@(() => DeleteProfileAsync(template.ConfigProfileId))" />
+                                    <MudTooltip Text="Clone profile">
+                                        <MudIconButton
+                                            Icon="@Icons.Material.Filled.ContentCopy"
+                                            Color="Color.Default"
+                                            Size="Size.Small"
+                                            OnClick="@(() => CloneProfileAsync(template.ConfigProfileId))" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="Delete profile">
+                                        <MudIconButton
+                                            Icon="@Icons.Material.Filled.DeleteOutline"
+                                            Color="Color.Error"
+                                            Size="Size.Small"
+                                            Class="config-profile-delete"
+                                            OnClick="@(() => DeleteProfileAsync(template.ConfigProfileId))" />
+                                    </MudTooltip>
                                 </MudStack>
                             </MudPaper>
                         }
@@ -126,6 +138,21 @@
                     <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-4">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveTemplateAsync">Save Profile</MudButton>
                         <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="ResetEditorAsync">Reset</MudButton>
+                        <MudButton
+                            Variant="Variant.Outlined"
+                            Color="Color.Warning"
+                            StartIcon="@Icons.Material.Filled.DeleteSweep"
+                            OnClick="ClearCurrentProfileModsAsync"
+                            Disabled="@(_editor.Mods.Count == 0)">
+                            Clear Mods
+                        </MudButton>
+                        <MudButton
+                            Variant="Variant.Outlined"
+                            Color="Color.Secondary"
+                            StartIcon="@Icons.Material.Filled.ContentCopy"
+                            OnClick="CloneCurrentProfileForCrossplayAsync">
+                            Clone for Crossplay
+                        </MudButton>
                     </MudStack>
                 </MudPaper>
 
@@ -397,7 +424,7 @@
                                         <HeaderContent>
                                             <MudTh>Name</MudTh>
                                             <MudTh>Debug build</MudTh>
-                                            <MudTh Style="width:96px;"></MudTh>
+                                            <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
                                         </HeaderContent>
                                         <RowTemplate>
                                             @{
@@ -423,13 +450,17 @@
                                                                  Label="Debug" />
                                                 }
                                             </MudTd>
-                                            <MudTd>
+                                            <MudTd DataLabel="" Class="quasar-actions-column">
                                                 <div class="plugin-actions">
                                                     @if (!string.IsNullOrWhiteSpace(GetPluginSourceUrl(context)))
                                                     {
-                                                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetPluginSourceUrl(context)" Target="_blank" Size="Size.Small" title="Open GitHub repository" />
+                                                        <MudTooltip Text="Open GitHub repository">
+                                                            <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetPluginSourceUrl(context)" Target="_blank" Size="Size.Small" />
+                                                        </MudTooltip>
                                                     }
-                                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePluginAsync(context.PluginId))" Size="Size.Small" title="Remove plugin" />
+                                                    <MudTooltip Text="Remove plugin">
+                                                        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePluginAsync(context.PluginId))" Size="Size.Small" />
+                                                    </MudTooltip>
                                                 </div>
                                             </MudTd>
                                         </RowTemplate>
@@ -486,16 +517,16 @@
                                         <MudTable T="QuasarPluginCatalogEntry" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredCatalogEntries">
                                             <HeaderContent>
                                                 <MudTh>Use</MudTh>
-                                                <MudTh>Name</MudTh>
                                                 <MudTh>Author</MudTh>
+                                                <MudTh>Name</MudTh>
                                                 <MudTh>Description</MudTh>
-                                                <MudTh Style="width:48px;"></MudTh>
-                                                <MudTh Style="width:48px;"></MudTh>
+                                                <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
                                             </HeaderContent>
                                             <RowTemplate>
                                                 <MudTd DataLabel="Use">
                                                     <MudCheckBox @key="context.PluginId" T="bool" Value="IsPluginSelected(context.PluginId)" ValueChanged="@(value => SetPluginSelection(context, value))" />
                                                 </MudTd>
+                                                <MudTd DataLabel="Author">@context.Author</MudTd>
                                                 <MudTd DataLabel="Name">
                                                     <MudStack Spacing="0">
                                                         <MudText Typo="Typo.subtitle2">@context.FriendlyName</MudText>
@@ -510,27 +541,29 @@
                                                         }
                                                     </MudStack>
                                                 </MudTd>
-                                                <MudTd DataLabel="Author">@context.Author</MudTd>
                                                 <MudTd DataLabel="Description">
                                                     <MudText Typo="Typo.body2" Class="plugin-description-line">@GetPluginTooltipText(context)</MudText>
                                                 </MudTd>
-                                                <MudTd Style="text-align:right;">
-                                                    @if (ShouldShowPluginDescriptionDialog(context))
-                                                    {
-                                                        <MudIconButton
-                                                            Icon="@Icons.Material.Filled.MoreHoriz"
-                                                            Color="Color.Default"
-                                                            Size="Size.Small"
-                                                            Class="plugin-description-more"
-                                                            OnClick="@(() => ShowPluginDescriptionAsync(context))"
-                                                            title="Show full description" />
-                                                    }
-                                                </MudTd>
-                                                <MudTd Style="text-align:right;">
-                                                    @if (!string.IsNullOrWhiteSpace(GetPluginSourceUrl(context)))
-                                                    {
-                                                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetPluginSourceUrl(context)" Target="_blank" Size="Size.Small" title="Open GitHub repository" />
-                                                    }
+                                                <MudTd DataLabel="" Class="quasar-actions-column">
+                                                    <div class="plugin-actions">
+                                                        @if (ShouldShowPluginDescriptionDialog(context))
+                                                        {
+                                                            <MudTooltip Text="Show full description">
+                                                                <MudIconButton
+                                                                    Icon="@Icons.Material.Filled.MoreHoriz"
+                                                                    Color="Color.Default"
+                                                                    Size="Size.Small"
+                                                                    Class="plugin-description-more"
+                                                                    OnClick="@(() => ShowPluginDescriptionAsync(context))" />
+                                                            </MudTooltip>
+                                                        }
+                                                        @if (!string.IsNullOrWhiteSpace(GetPluginSourceUrl(context)))
+                                                        {
+                                                            <MudTooltip Text="Open GitHub repository">
+                                                                <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetPluginSourceUrl(context)" Target="_blank" Size="Size.Small" />
+                                                            </MudTooltip>
+                                                        }
+                                                    </div>
                                                 </MudTd>
                                             </RowTemplate>
                                             <NoRecordsContent>
@@ -558,7 +591,7 @@
                         }
                     </MudTabPanel>
 
-                    <MudTabPanel Text="Mods">
+                    <MudTabPanel Text="Mods" Disabled="@IsModsTabLocked" ToolTip="@ModsTabTooltip">
                         @if (IsConfigTabActive(ModsTabIndex))
                         {
                         <MudPaper Class="server-card pa-4" Square="true">
@@ -615,13 +648,15 @@
                                     <HeaderContent>
                                         <MudTh>Name</MudTh>
                                         <MudTh>Workshop ID</MudTh>
-                                        <MudTh></MudTh>
+                                        <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
                                     </HeaderContent>
                                     <RowTemplate>
                                         <MudTd DataLabel="Name">@context.DisplayName</MudTd>
                                         <MudTd DataLabel="Workshop ID" Class="mono">@context.WorkshopId</MudTd>
-                                        <MudTd Style="text-align:right;">
-                                            <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveModAsync(context.WorkshopId))" />
+                                        <MudTd DataLabel="" Class="quasar-actions-column">
+                                            <MudTooltip Text="Remove mod">
+                                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveModAsync(context.WorkshopId))" />
+                                            </MudTooltip>
                                         </MudTd>
                                     </RowTemplate>
                                     <NoRecordsContent>
@@ -686,11 +721,11 @@
                                 {
                                     <MudTable T="QuasarWorkshopSearchResult" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_workshopResults" Class="mb-4">
                                         <HeaderContent>
-                                            <MudTh Style="width:56px;">Use</MudTh>
-                                            <MudTh Style="width:96px;"></MudTh>
-                                            <MudTh>Workshop mod</MudTh>
+                                            <MudTh>Use</MudTh>
+                                            <MudTh>Preview</MudTh>
                                             <MudTh>Tags</MudTh>
-                                            <MudTh></MudTh>
+                                            <MudTh>Workshop mod</MudTh>
+                                            <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
                                         </HeaderContent>
                                         <RowTemplate>
                                             <MudTd DataLabel="Use">
@@ -707,6 +742,7 @@
                                                     </MudLink>
                                                 }
                                             </MudTd>
+                                            <MudTd DataLabel="Tags">@GetWorkshopTagText(context)</MudTd>
                                             <MudTd DataLabel="Workshop mod">
                                                 <MudStack Spacing="0">
                                                     <MudText Typo="Typo.subtitle2">@context.Title</MudText>
@@ -717,9 +753,10 @@
                                                     }
                                                 </MudStack>
                                             </MudTd>
-                                            <MudTd DataLabel="Tags">@GetWorkshopTagText(context)</MudTd>
-                                            <MudTd Style="text-align:right;">
-                                                <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetWorkshopUrl(context.WorkshopId)" Target="_blank" />
+                                            <MudTd DataLabel="" Class="quasar-actions-column">
+                                                <MudTooltip Text="Open Steam Workshop page">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetWorkshopUrl(context.WorkshopId)" Target="_blank" />
+                                                </MudTooltip>
                                             </MudTd>
                                         </RowTemplate>
                                     </MudTable>
@@ -776,12 +813,13 @@
 
                         <MudTable T="QuasarDevFolderSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="GlobalDevFolders">
                             <HeaderContent>
+                                <MudTh>Manifest</MudTh>
                                 <MudTh>Name</MudTh>
                                 <MudTh>Folder</MudTh>
-                                <MudTh>Manifest</MudTh>
-                                <MudTh></MudTh>
+                                <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
                             </HeaderContent>
                             <RowTemplate>
+                                <MudTd DataLabel="Manifest" Class="mono">@context.DataFile</MudTd>
                                 <MudTd DataLabel="Name">
                                     <MudStack AlignItems="AlignItems.Start" Spacing="0">
                                         <MudText Typo="Typo.subtitle2">@context.Name</MudText>
@@ -791,9 +829,10 @@
                                 <MudTd DataLabel="Folder">
                                     <CopyablePath Value="@context.FolderPath" TextClass="" />
                                 </MudTd>
-                                <MudTd DataLabel="Manifest" Class="mono">@context.DataFile</MudTd>
-                                <MudTd Style="text-align:right;">
-                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveDevFolder(context))" />
+                                <MudTd DataLabel="" Class="quasar-actions-column">
+                                    <MudTooltip Text="Remove dev folder">
+                                        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveDevFolder(context))" />
+                                    </MudTooltip>
                                 </MudTd>
                             </RowTemplate>
                             <NoRecordsContent>
@@ -836,6 +875,7 @@
     private const int ModsTabIndex = 2;
     private const int PluginDescriptionFallbackMaxLength = 50;
     private const string ConfigOptionTooltipStyle = "white-space: pre-line; max-width: 34rem; text-align: left; line-height: 1.35; font-size: 0.78rem;";
+    private const string CrossplayModsDisabledWarning = "Mods are disabled while Cross Platform is enabled. Turn off Cross Platform to add or edit mods.";
     private int _activeConfigTabIndex = WorldTabIndex;
     private string _selectedProfileId = string.Empty;
     private QuasarConfigProfile? _editor;
@@ -923,6 +963,12 @@
 
     private bool HasHiddenCatalogEntries => CatalogEntries.Any(entry => entry.Hidden);
 
+    private bool IsModsTabLocked => _editor?.RootSettings.CrossPlatform == true;
+
+    private string? ModsTabTooltip => IsModsTabLocked
+        ? CrossplayModsDisabledWarning
+        : null;
+
     private static bool IsCatalogEntryVisible(QuasarPluginCatalogEntry entry) => !entry.Hidden;
 
     private List<QuasarPluginSelection> FilteredPlugins => (_editor?.Plugins ?? [])
@@ -952,7 +998,7 @@
     protected override void OnInitialized()
     {
         ConfigProfiles.Changed += HandleProfilesChanged;
-        DevFolderCatalog.Changed += HandleProfilesChanged;
+        DevFolderCatalog.Changed += HandleDevFoldersChanged;
         ServerCatalog.Changed += HandleServersChanged;
         WorkshopCredentials.Changed += HandleWorkshopCredentialsChanged;
         SelectProfile(GetInitialProfileId());
@@ -961,7 +1007,7 @@
     public void Dispose()
     {
         ConfigProfiles.Changed -= HandleProfilesChanged;
-        DevFolderCatalog.Changed -= HandleProfilesChanged;
+        DevFolderCatalog.Changed -= HandleDevFoldersChanged;
         ServerCatalog.Changed -= HandleServersChanged;
         WorkshopCredentials.Changed -= HandleWorkshopCredentialsChanged;
     }
@@ -1025,6 +1071,80 @@
         Snackbar.Add("Config profile cloned.", Severity.Success);
     }
 
+    private async Task RestoreDefaultProfilesAsync()
+    {
+        if (!await ConfirmPendingChangesBeforeLeavingAsync())
+            return;
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Restore default profiles?",
+            "Survival (default) and Creative (default) will be recreated or reset to Quasar defaults. Custom profiles will not be changed.",
+            yesText: "Restore Defaults",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        var selectedProfileId = FirstExistingProfileId(_selectedProfileId) ?? "survival-default";
+        _selectedProfileId = selectedProfileId;
+        await ConfigProfiles.RestoreDefaultProfilesAsync();
+
+        SelectProfile(FirstExistingProfileId(selectedProfileId)
+                      ?? FirstExistingProfileId("survival-default")
+                      ?? Templates.FirstOrDefault()?.ConfigProfileId
+                      ?? string.Empty);
+        Snackbar.Add("Default config profiles restored.", Severity.Success);
+    }
+
+    private async Task ClearCurrentProfileModsAsync()
+    {
+        if (_editor is null)
+            return;
+
+        if (_editor.Mods.Count == 0)
+        {
+            Snackbar.Add("No mods selected.", Severity.Info);
+            return;
+        }
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Clear all mods?",
+            $"{_editor.Mods.Count} mod(s) will be removed from the pending config profile changes. Save the profile to persist this change.",
+            yesText: "Clear Mods",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        _editor.Mods = [];
+        _deadModCleanupSummary = string.Empty;
+        _deadModCleanupRemoved = [];
+        Snackbar.Add("All mods cleared. Save profile to persist.", Severity.Success);
+    }
+
+    private async Task CloneCurrentProfileForCrossplayAsync()
+    {
+        if (_editor is null)
+            return;
+
+        var sourceName = string.IsNullOrWhiteSpace(_editor.Name)
+            ? "current profile"
+            : _editor.Name.Trim();
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Clone profile for crossplay?",
+            $"A new profile will be created from '{sourceName}' with EOS networking, Cross Platform enabled, Experimental Mode disabled, and all mods removed. The current profile will not be changed.",
+            yesText: "Clone",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        var clone = CreateCrossplayClone(_editor);
+        await ConfigProfiles.UpsertAsync(clone);
+        SelectProfile(clone.ConfigProfileId);
+        Snackbar.Add("Crossplay config profile cloned.", Severity.Success);
+    }
+
     private async Task DeleteProfileAsync(string configProfileId)
     {
         var assignedServers = GetAssignedServers(configProfileId);
@@ -1071,13 +1191,13 @@
         if (string.Equals(_selectedProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))
             return;
 
-        if (!await ConfirmPendingChangesBeforeSwitchAsync())
+        if (!await ConfirmPendingChangesBeforeLeavingAsync())
             return;
 
         SelectProfile(configProfileId);
     }
 
-    private async Task<bool> ConfirmPendingChangesBeforeSwitchAsync()
+    public async Task<bool> ConfirmPendingChangesBeforeLeavingAsync()
     {
         if (!HasPendingChanges())
             return true;
@@ -1112,6 +1232,7 @@
         _deadModCleanupRemoved = [];
         _hasExplicitCategoryExpansion = true;
         _expandedCategoryKey = null;
+        EnsureActiveConfigTabAllowed();
     }
 
     private string GetInitialProfileId()
@@ -1140,6 +1261,20 @@
         var clone = JsonSerializer.Deserialize<QuasarConfigProfile>(JsonSerializer.Serialize(profile)) ?? new QuasarConfigProfile();
         clone.UpdatedAtUtc = default;
         return JsonSerializer.Serialize(clone);
+    }
+
+    private static QuasarConfigProfile CreateCrossplayClone(QuasarConfigProfile source)
+    {
+        var clone = JsonSerializer.Deserialize<QuasarConfigProfile>(JsonSerializer.Serialize(source)) ?? new QuasarConfigProfile();
+        clone.ConfigProfileId = string.Empty;
+        clone.Name = $"{(string.IsNullOrWhiteSpace(source.Name) ? "Profile" : source.Name.Trim())} (Crossplay)";
+        clone.RootSettings ??= new QuasarWorldRootSettings();
+        clone.SessionSettings ??= new QuasarSessionSettings();
+        clone.RootSettings.NetworkType = QuasarNetworkType.EOS;
+        clone.RootSettings.CrossPlatform = true;
+        clone.SessionSettings.ExperimentalMode = false;
+        clone.Mods = [];
+        return clone;
     }
 
     private async Task RefreshPluginCatalogAsync(bool showSuccessMessage = true)
@@ -1253,6 +1388,12 @@
     }
 
     private bool IsConfigTabActive(int tabIndex) => _activeConfigTabIndex == tabIndex;
+
+    private void EnsureActiveConfigTabAllowed()
+    {
+        if (IsModsTabLocked && _activeConfigTabIndex == ModsTabIndex)
+            _activeConfigTabIndex = WorldTabIndex;
+    }
 
     private string? GetExpandedCategoryKey()
     {
@@ -1456,6 +1597,7 @@
             converted = Convert.ChangeType(value, property.PropertyType, System.Globalization.CultureInfo.InvariantCulture);
 
         property.SetValue(target, converted);
+        EnsureActiveConfigTabAllowed();
     }
 
     private object? GetOptionTarget(QuasarConfigOptionDefinition option)
@@ -2266,6 +2408,11 @@
             SelectProfile(selected);
             StateHasChanged();
         });
+    }
+
+    private void HandleDevFoldersChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private void HandleServersChanged()

@@ -1,8 +1,7 @@
 # Building and Development
 
 How to build Quasar from source, the project layout, and local development
-utilities. For the runtime design see [Architecture](QuasarArchitecture.md); for
-the full per-file reference see the generated [code handbook](Reference/TOC.md).
+utilities. For the runtime design see [Architecture](QuasarArchitecture.md).
 
 ## Projects
 
@@ -23,6 +22,16 @@ The solution file is `Quasar.sln`.
 
 - `Quasar.Agent` depends on a local `DS64` path for Space Engineers Dedicated
   Server assemblies.
+- `Quasar.Agent` must not use Magnetar or Quasar release version stamping.
+  Release-specific assembly/file/informational version attributes are disabled
+  for the agent because they would change `Quasar.Agent.dll` bytes even when the
+  agent code did not change. `Magnetar.Protocol` is also version-neutral because
+  its assembly identity is recorded in the agent DLL reference metadata. Agent
+  deploy drift is detected by comparing the bundled deployable
+  `Agent/Quasar.Agent.dll` SHA-256 hash with the deployed Magnetar local-agent
+  DLL hash. Running servers are not restarted
+  automatically; reconciliation warns when a manual restart is needed to load a
+  newly bundled agent.
 - On Windows the solution builds out-of-the-box: `Directory.Build.props`
   auto-resolves `DS64` from the Steam registry `InstallLocation` (falling back to
   the default `C:\Program Files (x86)\Steam\...\DedicatedServer64` library) and
@@ -99,6 +108,18 @@ python3 scripts/generate-analytics-data.py
 Optional `--server <name>` to target one server, `--days <n>`, `--seed <n>`,
 `--raw-hours <hours>`, `--raw-interval <seconds>`. Uses `QUASAR_DATA_DIR`
 automatically if set, otherwise defaults to the local Quasar data root.
+
+When refreshing the local graphify graph, prune generic framework plumbing after
+`.graphify_extract.json` is produced and before graph build/report generation:
+
+```bash
+python3 scripts/graphify-prune-plumbing.py
+```
+
+This removes low-signal C#/.NET primitives such as `Task`,
+`CancellationToken`, `string`, and collection types from the graph extraction,
+so clustering and god-node reports focus on Quasar concepts instead of async and
+framework plumbing.
 
 Managed agents collect continuous profiler telemetry for Analytics. The default
 agent profiler mode is `SafeContinuous` ("Simple, low overhead" in the UI),

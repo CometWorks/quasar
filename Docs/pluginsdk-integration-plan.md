@@ -157,23 +157,12 @@ Extend `/Quasar/Pages/Plugins/` (or relevant existing page) with a tab per plugi
 
 ---
 
-## Step 6 — Logging (QuasarLogSink) — implemented via stdout capture
+## Step 6 — Logging (QuasarLogSink) — implemented via agent relay
 
 `QuasarLogSink` already exists in PluginSdk and outputs one structured JSON line
-per entry. The plan's original sketch (an agent-side `ILogSink` bridge forwarding
-over `WireMessageKind`) does **not** fit the live code:
-
-- Each plugin builds its **own** `Logger` + sink via
-  `LogEnvironment.CreateDefaultSink()`; there is no shared/global sink registry
-  an external component could hook to intercept other plugins' entries.
-- `Quasar.Agent` does **not** reference `PluginSdk`, so it cannot construct or
-  inject an `ILogSink` anyway.
-- The SDK itself documents the intended transport: `QuasarLogSink` "lines are
-  written to standard output (which the agent captures from the managed
-  process)."
-
-So Step 6 is implemented entirely on the **Quasar supervisor** side — no SDK,
-agent, or wire-protocol changes:
+per entry. Quasar now relays those entries over the existing agent WebSocket so
+managed servers can keep streaming plugin logs after Quasar restarts and
+reconnects to a detached Magnetar daemon:
 
 1. **Activate the sink.** `DedicatedServerSupervisor.StartProcessAsync` sets the
    `QUASAR_AGENT` env var (= the server unique name) on the DS child process.
@@ -181,22 +170,37 @@ agent, or wire-protocol changes:
    every SDK-using plugin selects `QuasarLogSink` and emits JSON on stdout.
    (Note: while managed by Quasar, plugin logs route to stdout instead of the
    game `MyLog` — this is the SDK's intended behavior.)
-2. **Parse it.** The supervisor already redirects + pumps the child's stdout. The
-   stdout pump (`PumpStandardOutputAsync`) now also calls
-   `PluginLogStream.TryParseSinkLine`, which cheaply pre-filters then parses each
-   `{timestamp,level,plugin,thread,message,data?,exception?}` line into a
-   `PluginLogEntry`. Raw lines still go to `stdout.log` as before; non-JSON game
-   output is untouched.
-3. **Stream it.** `PluginLogStream` (new singleton) keeps a bounded per-server
-   ring buffer and raises `Changed`.
-4. **Display it.** `PluginLogPanel.razor` (new component, on the Plugins page)
+2. **Buffer and persist it in-process.** `Quasar.Agent.PluginLogOutbox`
+   subscribes to `LogEnvironment.LineEmitted`, appends a human-readable copy to
+   the active server Magnetar app-data `info_*.log`, keeps the raw JSON line in
+   a bounded retry buffer, and
+   drops entries whose structured `plugin` field is `Magnetar` before any batch
+   is sent to the control plane.
+3. **Relay it.** `AgentConnection` drains the outbox into `PluginLogBatch`
+   messages on the existing WebSocket. Failed sends are requeued and retried on
+   the next connection.
+4. **Parse it.** `AgentSocketHandler` resolves the server unique name from the
+   agent connection, calls `PluginLogStream.TryParseSinkLine`, and appends valid
+   `{timestamp,level,plugin,thread,message,data?,exception?}` entries.
+   `PluginLogStream` also rejects/hides `Magnetar` entries defensively.
+5. **Keep readable logs in the instance log.** `DedicatedServerSupervisor.PumpStandardOutputAsync`
+   drains stdout so the managed process cannot block and still ignores
+   PluginSdk JSON lines for ordinary server-output handling. The agent-side
+   outbox formats those plugin stdout sink lines before writing to the server's
+   active Magnetar app-data `info_*.log`, so instance-local diagnostics stay readable
+   and include plugin output even when
+   the live Quasar panel receives the same entries through the WebSocket relay.
+6. **Display it.** `PluginLogPanel.razor` (new component, on the Plugins page)
    subscribes to `PluginLogStream.Changed` and renders recent entries
    (time / level / server / plugin / message + exception) in a `MudTable`.
 
 **Files:** `Quasar/Services/PluginSdk/PluginLogEntry.cs` (new),
 `Quasar/Services/PluginSdk/PluginLogStream.cs` (new),
 `Quasar/Components/PluginLogPanel.razor` (new),
-`Quasar/Services/DedicatedServerSupervisor.cs` (env var + stdout parse + DI),
+`Quasar.Agent/PluginLogOutbox.cs` (capture + `Magnetar` suppression),
+`Quasar.Agent/AgentConnection.cs` (batch relay),
+`Quasar/Services/AgentSocketHandler.cs` (ingest),
+`Quasar/Services/DedicatedServerSupervisor.cs` (env var + stdout capture),
 `Quasar/Program.cs` (register `PluginLogStream`),
 `Quasar/Components/Pages/Plugins.razor` (embed panel).
 

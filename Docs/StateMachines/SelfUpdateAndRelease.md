@@ -85,12 +85,25 @@ stateDiagram-v2
 | `Draining` | Pointer change detected; the launcher posts `/api/internal/drain` (authenticated with the per-session launcher token) and waits for graceful exit. |
 | `Retired` / `ForceKilled` | Old worker exited within the grace window, or was killed after timeout. |
 | `Restarting` | Worker exited unexpectedly (not a launcher request); relaunched with `force`. |
-| `SelfUpgrade` | A newer Bootstrap asset was applied: Linux exits **75** so systemd restarts it; Windows spawns a detached `Quasar.exe serve --quiet` replacement and exits **0**. |
+| `SelfUpgrade` | A newer Bootstrap asset was applied by the periodic monitor or by a consumed `Updates/bootstrap-update-request.json` request from the Updates page; forced requests target the detected version and platform asset. Linux exits **75** so systemd restarts it; Windows spawns a detached `Quasar.exe serve --quiet` replacement and exits **0**. |
 
 The pointer is `Updates/active-release.json`
 ([`QuasarActiveReleasePointer`](../../Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs)),
 written by the worker's `Activating` step and observed via a `FileSystemWatcher`
 (debounced ~250ms).
+
+Each worker writes the shared supervisor discovery manifest on startup and only
+deletes it on shutdown when the on-disk worker id and process id still match that
+same worker. During cutover this prevents the retiring worker from deleting the
+new worker's manifest after agents have started reconnecting.
+
+Managed DS processes are not stopped during worker cutover, so their loaded
+`Quasar.Agent` assembly can remain older than the newly active web release. On a
+later server Restart action, `DedicatedServerSupervisor.RestartServerAsync`
+compares the attached agent's hello version with the bundled
+`Agent/Quasar.Agent.dll`; a mismatch is handled by the normal full stop/start
+path, which runs launch preparation and injects the current agent before the
+process starts again.
 
 ---
 

@@ -4,7 +4,7 @@ namespace Quasar.Models;
 
 public sealed class DedicatedServerDefinition
 {
-    public const int DefaultDsLogFilesToKeep = 10;
+    public const int DefaultDsLogFilesToKeep = 5;
     public const int MinimumDsLogFilesToKeep = 1;
     public const int MaximumDsLogFilesToKeep = 1000;
     public const int DefaultMaxRestartAttempts = 3;
@@ -39,6 +39,8 @@ public sealed class DedicatedServerDefinition
 
     public string WorldPath { get; set; } = string.Empty;
 
+    public string WorldSaveName { get; set; } = string.Empty;
+
     public string ConfigFilePath { get; set; } = string.Empty;
 
     public string ConfigProfileId { get; set; } = string.Empty;
@@ -46,6 +48,8 @@ public sealed class DedicatedServerDefinition
     public string WorldTemplateId { get; set; } = string.Empty;
 
     public string LaunchArguments { get; set; } = string.Empty;
+
+    public bool DisableImplicitMagnetarModLoad { get; set; }
 
     public bool LogLaunchEnvironment { get; set; }
 
@@ -119,10 +123,12 @@ public sealed class DedicatedServerDefinition
             DedicatedServerAppDataPath = DedicatedServerAppDataPath,
             MagnetarAppDataPath = MagnetarAppDataPath,
             WorldPath = WorldPath,
+            WorldSaveName = WorldSaveName,
             ConfigFilePath = ConfigFilePath,
             ConfigProfileId = ConfigProfileId,
             WorldTemplateId = WorldTemplateId,
             LaunchArguments = LaunchArguments,
+            DisableImplicitMagnetarModLoad = DisableImplicitMagnetarModLoad,
             LogLaunchEnvironment = LogLaunchEnvironment,
             AgentProfilerMode = AgentProfilerMode,
             DsLogFilesToKeep = DsLogFilesToKeep,
@@ -150,5 +156,13 @@ public sealed class DedicatedServerDefinition
             CpuAffinity = CpuAffinity,
             UpdatedAtUtc = UpdatedAtUtc,
         };
+    }
+
+    public string GetWorldSavePath()
+    {
+        if (string.IsNullOrWhiteSpace(WorldPath) || string.IsNullOrWhiteSpace(WorldSaveName))
+            return string.Empty;
+
+        return Path.Combine(WorldPath.Trim(), WorldSaveName.Trim());
     }
 }

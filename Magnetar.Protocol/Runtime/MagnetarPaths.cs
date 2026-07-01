@@ -6,8 +6,10 @@ namespace Magnetar.Protocol.Runtime;
 public static class MagnetarPaths
 {
     // -------------------------------------------------------------------------
-    // Root — everything lives under ~/.config/Quasar (Linux / macOS) or
-    //        %APPDATA%\Quasar (Windows).  Override with QUASAR_DATA_DIR.
+    // Root — everything lives under QUASAR_DATA_DIR when set. Bootstrap sets it
+    // to the launcher install root for packaged installs after migrating legacy
+    // ~/.config/Quasar (Linux/macOS) or %APPDATA%\Quasar (Windows) data.
+    // Without Bootstrap, fall back to the OS application-data directory.
     // -------------------------------------------------------------------------
 
     public static string GetQuasarDirectory()
@@ -43,29 +45,38 @@ public static class MagnetarPaths
     public static string GetQuasarLogDirectory() =>
         Path.Combine(GetQuasarDirectory(), "Logs");
 
-    public static string GetQuasarServerLogDirectory(string uniqueName) =>
-        Path.Combine(GetQuasarLogDirectory(), "Magnetars", SanitizePathSegment(uniqueName));
-
     public static string GetQuasarSupervisorStatePath() =>
         Path.Combine(GetQuasarDirectory(), "supervisor-state.json");
 
     public static string GetQuasarKnownPlayersPath() =>
         Path.Combine(GetQuasarDirectory(), "known-players.json");
 
+    public static string GetQuasarKnownPlayerSettingsPath() =>
+        Path.Combine(GetQuasarDirectory(), "known-player-settings.json");
+
     public static string GetQuasarDiscordOptionsPath() =>
         Path.Combine(GetQuasarDirectory(), "discord.json");
+
+    public static string GetQuasarDataHandlingConsentPath() =>
+        Path.Combine(GetQuasarDirectory(), "data-handling-consent.json");
 
     public static string GetQuasarBrandingPath() =>
         Path.Combine(GetQuasarDirectory(), "branding.json");
 
+    public static string GetQuasarBrandingDirectory() =>
+        Path.Combine(GetQuasarDirectory(), "Branding");
+
     public static string GetQuasarBrandingDirectory(string webRootPath) =>
-        Path.Combine(webRootPath, "branding");
+        GetQuasarBrandingDirectory();
 
     public static string GetQuasarDeathMessagesPath() =>
         Path.Combine(GetQuasarDirectory(), "death-messages.json");
 
     public static string GetQuasarWorkshopOptionsPath() =>
         Path.Combine(GetQuasarDirectory(), "steam-workshop.json");
+
+    public static string GetQuasarGitHubUpdateCredentialsPath() =>
+        Path.Combine(GetQuasarDirectory(), "github-updates.json");
 
     public static string GetQuasarDataProtectionKeyringDirectory() =>
         Path.Combine(GetQuasarDirectory(), "DataProtection-Keys");
@@ -78,7 +89,7 @@ public static class MagnetarPaths
         Path.Combine(GetQuasarDirectory(), "Backups");
 
     // -------------------------------------------------------------------------
-    // Magnetar server data  (~/.config/Quasar/Magnetars/<unique-name>/)
+    // Magnetar server data  (<quasar-root>/Magnetars/<unique-name>/)
     // -------------------------------------------------------------------------
 
     /// <summary>Directory that contains one sub-folder per Magnetar server.</summary>
@@ -112,7 +123,7 @@ public static class MagnetarPaths
         Path.Combine(GetQuasarServerDirectory(uniqueName), "analytics.jsonl");
 
     // -------------------------------------------------------------------------
-    // World templates  (~/.config/Quasar/WorldTemplates/<id>/)
+    // World templates  (<quasar-root>/WorldTemplates/<id>/)
     // -------------------------------------------------------------------------
 
     public static string GetQuasarWorldTemplatesDirectory() =>
@@ -148,6 +159,9 @@ public static class MagnetarPaths
 
     public static string GetQuasarAppSettingsBasePath() =>
         Path.Combine(GetQuasarUpdatesDirectory(), "appsettings.base.json");
+
+    public static string GetQuasarBootstrapUpdateRequestPath() =>
+        Path.Combine(GetQuasarUpdatesDirectory(), "bootstrap-update-request.json");
 
     // -------------------------------------------------------------------------
     // Managed runtime (auto-downloaded Magnetar + DS install)

@@ -2,16 +2,14 @@
     <TitleContent>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
             <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" OnClick="Cancel" title="Discard changes" />
-            <MudText Typo="Typo.h6">@(_isEditing ? "Edit Server" : "Create Server")</MudText>
+            <MudText Typo="Typo.h6">@DialogTitle</MudText>
         </MudStack>
     </TitleContent>
     <DialogContent>
         <div class="server-editor-dialog-content">
         <MudForm @ref="_form" @bind-IsValid="_formIsValid">
         <MudStack Spacing="3">
-            <MudText Typo="Typo.body2">
-                Define the full Quasar-managed server here. Create and edit use the same workflow so paths, launch settings, and health policy stay in one place.
-            </MudText>
+            <MudText Typo="Typo.body2">@DialogDescription</MudText>
 
             <section>
                 <MudText Typo="Typo.subtitle2" Class="mb-2">Identity</MudText>
@@ -25,6 +23,7 @@
                             Variant="Variant.Outlined"
                             Immediate="true"
                             AutoFocus="@(!_isEditing)"
+                            OnBlur="HandleDisplayNameBlur"
                             Required="true"
                             RequiredError="Display name required."
                             HelperText="Friendly name shown in lists and dashboards." />
@@ -105,28 +104,29 @@
                         </MudStack>
                     </MudItem>
                     <MudItem xs="12" md="6">
-                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="1">
+                        <MudStack Spacing="1">
                             <MudSelect T="string"
-                                       @bind-Value="_editor.WorldTemplateId"
-                                       Label="World template"
+                                       Value="_editor.WorldSaveName"
+                                       ValueChanged="HandleWorldSaveChanged"
+                                       Label="World save"
                                        Variant="Variant.Outlined"
                                        Required="true"
-                                       RequiredError="World template required."
-                                       Validation="@(new Func<string, string?>(ValidateWorldTemplateField))"
-                                       HelperText="Template world will be copied to server world path on first launch if world directory does not already exist.">
-                                @foreach (var template in WorldTemplates.GetTemplates())
+                                       RequiredError="World save required."
+                                       Validation="@(new Func<string, string?>(ValidateWorldSaveField))"
+                                       HelperText="Save folder loaded by Magnetar. Create one from a template or copy a Space Engineers save into the saves path.">
+                                @foreach (var save in AvailableWorldSaves)
                                 {
-                                    <MudSelectItem T="string" Value="@template.WorldTemplateId">@template.Name</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@save.Name">@save.DisplayName</MudSelectItem>
                                 }
                             </MudSelect>
-                            @if (string.IsNullOrWhiteSpace(_editor.WorldTemplateId))
-                            {
-                                <MudTooltip Text="Import world template without leaving this dialog">
-                                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenImportWorldTemplateDialogAsync">
-                                        New Template
-                                    </MudButton>
-                                </MudTooltip>
-                            }
+                            <div>
+                                <MudButton Variant="Variant.Outlined"
+                                           Color="Color.Primary"
+                                           StartIcon="@Icons.Material.Filled.Add"
+                                           OnClick="OpenCreateWorldSaveFromTemplateDialogAsync">
+                                    Create From Template
+                                </MudButton>
+                            </div>
                         </MudStack>
                     </MudItem>
                     <MudItem xs="12" md="6">
@@ -145,22 +145,22 @@
                     </MudItem>
                 </MudGrid>
 
-                @if (TemplateModsMissingFromProfile.Count > 0)
+                @if (SelectedWorldModsMissingFromProfile.Count > 0)
                 {
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
-                        <MudText Typo="Typo.subtitle2">World template has @TemplateModsMissingFromProfile.Count mod(s) not in the selected config profile.</MudText>
+                        <MudText Typo="Typo.subtitle2">Selected world has @SelectedWorldModsMissingFromProfile.Count mod(s) not in the selected config profile.</MudText>
                         <MudText Typo="Typo.body2" Class="mt-1">
                             Quasar writes the profile's mods into the world's <code>Sandbox_config.sbc</code> on every start, which will drop these mods from the world.
                         </MudText>
                         <MudText Typo="Typo.caption" Class="mt-1">
-                            Missing: @string.Join(", ", TemplateModsMissingFromProfile.Take(8).Select(mod => mod.DisplayName))@(TemplateModsMissingFromProfile.Count > 8 ? $", +{TemplateModsMissingFromProfile.Count - 8} more" : string.Empty)
+                            Missing: @string.Join(", ", SelectedWorldModsMissingFromProfile.Take(8).Select(mod => mod.DisplayName))@(SelectedWorldModsMissingFromProfile.Count > 8 ? $", +{SelectedWorldModsMissingFromProfile.Count - 8} more" : string.Empty)
                         </MudText>
                         <div class="mt-2">
                             <MudButton Variant="Variant.Outlined"
                                        Color="Color.Warning"
                                        Size="Size.Small"
                                        StartIcon="@Icons.Material.Filled.PlaylistAdd"
-                                       OnClick="MergeSelectedWorldTemplateModsIntoProfileAsync">
+                                       OnClick="MergeSelectedWorldSaveModsIntoProfileAsync">
                                 Merge Into @SelectedProfileName
                             </MudButton>
                         </div>
@@ -317,11 +317,11 @@
                                 <MudItem xs="12" md="6">
                                     <MudNumericField T="int"
                                                      @bind-Value="_editor.DsLogFilesToKeep"
-                                                     Label="DS logs to keep"
+                                                     Label="Space Engineers DS logs to keep"
                                                      Variant="Variant.Outlined"
                                                      Min="DedicatedServerDefinition.MinimumDsLogFilesToKeep"
                                                      Max="DedicatedServerDefinition.MaximumDsLogFilesToKeep"
-                                                     HelperText="Includes the current stdout/stderr slot. Quasar rotates at server start and prunes old archives on stop." />
+                                                     HelperText="Keeps the newest SpaceEngineersDedicated*.log files in the DS app-data folder; older files are deleted on start and stop." />
                                 </MudItem>
                                 <MudItem xs="12" md="6">
                                     <MudCheckBox @bind-Value="_editor.LogLaunchEnvironment"
@@ -329,6 +329,22 @@
                                                  Color="Color.Warning" />
                                     <MudText Typo="Typo.caption" Color="Color.Warning">
                                         Writes Magnetar launch command, working directory, and environment variables to Quasar logs on next start. May expose secrets.
+                                    </MudText>
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <div class="server-editor-controlled-checkbox" style="@DisableImplicitMagnetarModLoadColorStyle">
+                                        <MudTooltip Text="@DisableImplicitMagnetarModLoadWarning">
+                                            <MudCheckBox T="bool"
+                                                         Value="_editor.DisableImplicitMagnetarModLoad"
+                                                         ReadOnly="true"
+                                                         StopClickPropagation="true"
+                                                         @onclick="ToggleDisableImplicitMagnetarModLoadAsync"
+                                                         Label="Disable implicit Magnetar mod load"
+                                                         Color="@DisableImplicitMagnetarModLoadColor" />
+                                        </MudTooltip>
+                                    </div>
+                                    <MudText Typo="Typo.caption" Color="Color.Warning">
+                                        @DisableImplicitMagnetarModLoadHint
                                     </MudText>
                                 </MudItem>
                                 <MudItem xs="12">
@@ -339,7 +355,7 @@
                                         Lines="3"
                                         Sizing="InputSizing.Auto"
                                         MaxLines="10000"
-                                        HelperText="Tokens: {uniqueName} {configPath} {quasarBaseUrl} {hostId} {dsAppDataPath} {magnetarAppDataPath} {ds64Path} {worldPath}. Quasar enforces -noconsole, -path, -config, and -ds64 for managed servers." />
+                                        HelperText="Tokens: {uniqueName} {configPath} {quasarBaseUrl} {hostId} {dsAppDataPath} {magnetarAppDataPath} {ds64Path} {worldPath}. Quasar owns -noconsole, -daemon, -noimplicitmod, -path, -config, and -ds64 for managed servers." />
                                 </MudItem>
                             </MudGrid>
                         </ChildContent>
@@ -390,10 +406,13 @@
                                 </MudItem>
                                 <MudItem xs="12" md="6">
                                     <MudTextField
-                                        @bind-Value="_editor.WorldPath"
-                                        Label="World path"
+                                        T="string"
+                                        Value="_editor.WorldPath"
+                                        ValueChanged="HandleSavesPathChanged"
+                                        Label="Saves path"
                                         Variant="Variant.Outlined"
-                                        HelperText="@($"Must be an existing SE save folder containing Sandbox.sbc. Default (auto-created on first DS boot): {GetDefaultWorldPath()}")" />
+                                        Immediate="true"
+                                        HelperText="@($"Folder containing SE save folders. Default: {GetDefaultSavesPath()}")" />
                                 </MudItem>
                                 <MudItem xs="12" md="6">
                                     <MudTextField
@@ -413,7 +432,7 @@
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">@(_isEditing ? "Save Changes" : "Create Server")</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">@PrimaryActionText</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -448,16 +467,28 @@
     public bool IsEditing { get; set; }
 
     [Parameter]
+    public bool IsClone { get; set; }
+
+    [Parameter]
     public bool UniqueNameLocked { get; set; }
+
+    private const string DisableImplicitMagnetarModLoadWarning = "Turning this on passes -noimplicitmod at startup, disables MagnetarMod, and breaks the mission screen popup used by server-side plugins. This is already done automatically by Magnetar when cross-play is enabled.";
+    private const string DisableImplicitMagnetarModLoadHint = "This mod load disabling is already done automatically by Magnetar when cross-play is enabled.";
+    private const Color DisableImplicitMagnetarModLoadColor = Color.Warning;
+    private static string DisableImplicitMagnetarModLoadColorStyle => BuildControlledCheckboxColorStyle(DisableImplicitMagnetarModLoadColor);
 
     private static readonly System.Text.RegularExpressions.Regex UniqueNameRegex = new("^[a-zA-Z0-9_-]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private DedicatedServerDefinition _editor = new();
     private bool _isEditing;
+    private bool _isClone;
     private bool _restartPolicyExpanded;
     private bool _healthPolicyExpanded;
     private bool _runtimeExpanded;
     private bool _pathsExpanded;
+    private bool _disableImplicitMagnetarModLoadDialogOpen;
+    private bool _creatingWorldSave;
+    private IReadOnlyList<WorldSaveOption> _availableWorldSaves = Array.Empty<WorldSaveOption>();
     private static readonly DedicatedServerProcessPriority[] ProcessPriorities =
     [
         DedicatedServerProcessPriority.Low,
@@ -469,14 +500,30 @@
 
     private static bool IsWindowsHost => OperatingSystem.IsWindows();
 
+    private static string BuildControlledCheckboxColorStyle(Color color)
+    {
+        var token = color switch
+        {
+            Color.Primary => "primary",
+            Color.Secondary => "secondary",
+            Color.Tertiary => "tertiary",
+            Color.Info => "info",
+            Color.Success => "success",
+            Color.Warning => "warning",
+            Color.Error => "error",
+            Color.Dark => "dark",
+            Color.Surface => "surface",
+            _ => "warning",
+        };
+
+        return $"--server-editor-controlled-checkbox-color: var(--mud-palette-{token});";
+    }
+
     protected override void OnInitialized()
     {
         _editor = Definition.Clone();
         _isEditing = IsEditing;
-        _restartPolicyExpanded = _isEditing;
-        _healthPolicyExpanded = _isEditing;
-        _runtimeExpanded = _isEditing;
-        _pathsExpanded = _isEditing;
+        _isClone = IsClone && !_isEditing;
 
         // Only Windows offers the .NET Framework 4.8 (Legacy) build; everywhere else .NET 10
         // is the sole runtime, so pin the selection to keep the disabled selector coherent.
@@ -486,8 +533,28 @@
         if (string.IsNullOrWhiteSpace(_editor.DisplayName) && !string.IsNullOrWhiteSpace(_editor.UniqueName))
             _editor.DisplayName = _editor.UniqueName;
 
+        NormalizeWorldPathForEditor();
+        RefreshAvailableWorldSaves();
         _identifierManuallyEdited = _isEditing || !string.IsNullOrWhiteSpace(_editor.UniqueName);
     }
+
+    private string DialogTitle => _isEditing
+        ? "Edit Server"
+        : _isClone
+            ? "Clone Server"
+            : "Create Server";
+
+    private string DialogDescription => _isEditing
+        ? "Update this Quasar-managed server definition. Stop the server before changing identity or deleting world state."
+        : _isClone
+            ? "Review the cloned server definition. Pick or create the target save now; after this dialog you can copy the source world state into it."
+            : "Define a new Quasar-managed server. Paths, launch settings, health policy, config profile, and selected world save stay in one definition.";
+
+    private string PrimaryActionText => _isEditing
+        ? "Save Changes"
+        : _isClone
+            ? "Clone Server"
+            : "Create Server";
 
     private void HandleDisplayNameChanged(string value)
     {
@@ -497,17 +564,108 @@
             return;
 
         _editor.UniqueName = ServerCatalog.GenerateUniqueServerName(_editor.DisplayName);
+        RefreshAvailableWorldSaves();
+    }
+
+    private void HandleDisplayNameBlur(FocusEventArgs _)
+    {
+        var displayName = NormalizeWhitespace(_editor.DisplayName);
+        if (string.IsNullOrEmpty(displayName))
+            return;
+
+        if (string.IsNullOrWhiteSpace(_editor.InGameServerName))
+            _editor.InGameServerName = displayName;
+
+        if (string.IsNullOrWhiteSpace(_editor.InGameWorldName))
+            _editor.InGameWorldName = displayName;
     }
 
     private void HandleIdentifierChanged(string value)
     {
         _editor.UniqueName = value ?? string.Empty;
         _identifierManuallyEdited = true;
+        RefreshAvailableWorldSaves();
     }
 
     private void HandlePortChanged(int value)
     {
         _editor.ServerPort = value;
+    }
+
+    private IReadOnlyList<WorldSaveOption> AvailableWorldSaves => _availableWorldSaves;
+
+    private void HandleWorldSaveChanged(string value)
+    {
+        _editor.WorldSaveName = value ?? string.Empty;
+    }
+
+    private void HandleSavesPathChanged(string value)
+    {
+        _editor.WorldPath = value ?? string.Empty;
+        RefreshAvailableWorldSaves();
+    }
+
+    private void RefreshAvailableWorldSaves()
+    {
+        var savesPath = GetEffectiveSavesPath();
+        var selected = _editor.WorldSaveName?.Trim() ?? string.Empty;
+        var saves = new List<WorldSaveOption>();
+
+        try
+        {
+            if (Directory.Exists(savesPath))
+            {
+                foreach (var directory in Directory.EnumerateDirectories(savesPath))
+                {
+                    var name = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                    if (string.IsNullOrWhiteSpace(name) ||
+                        !File.Exists(Path.Combine(directory, "Sandbox.sbc")))
+                    {
+                        continue;
+                    }
+
+                    saves.Add(new WorldSaveOption(name, name));
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        if (!string.IsNullOrWhiteSpace(selected) &&
+            saves.All(save => !string.Equals(save.Name, selected, StringComparison.OrdinalIgnoreCase)))
+        {
+            var selectedPath = Path.Combine(savesPath, selected);
+            var exists = Directory.Exists(selectedPath);
+            var hasSandbox = File.Exists(Path.Combine(selectedPath, "Sandbox.sbc"));
+            var suffix = hasSandbox ? string.Empty : exists ? " (missing Sandbox.sbc)" : " (missing)";
+            saves.Add(new WorldSaveOption(selected, selected + suffix));
+        }
+
+        _availableWorldSaves = saves
+            .OrderBy(save => save.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void NormalizeWorldPathForEditor()
+    {
+        if (!string.IsNullOrWhiteSpace(_editor.WorldSaveName))
+            return;
+
+        var worldPath = _editor.WorldPath?.Trim();
+        if (string.IsNullOrWhiteSpace(worldPath) ||
+            !File.Exists(Path.Combine(worldPath, "Sandbox.sbc")))
+        {
+            return;
+        }
+
+        var saveName = Path.GetFileName(worldPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var savesPath = Directory.GetParent(worldPath)?.FullName;
+        if (string.IsNullOrWhiteSpace(saveName) || string.IsNullOrWhiteSpace(savesPath))
+            return;
+
+        _editor.WorldPath = savesPath;
+        _editor.WorldSaveName = saveName;
     }
 
     private decimal MinimumSimulationRateEditorValue =>
@@ -577,6 +735,37 @@
         MudDialog.Cancel();
     }
 
+    private async Task ToggleDisableImplicitMagnetarModLoadAsync()
+    {
+        if (_disableImplicitMagnetarModLoadDialogOpen)
+            return;
+
+        if (_editor.DisableImplicitMagnetarModLoad)
+        {
+            _editor.DisableImplicitMagnetarModLoad = false;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        _disableImplicitMagnetarModLoadDialogOpen = true;
+        try
+        {
+            var confirmed = await DialogService.ShowMessageBoxAsync(
+                "Disable implicit Magnetar mod load",
+                DisableImplicitMagnetarModLoadWarning,
+                yesText: "Disable",
+                cancelText: "Keep Loading");
+
+            if (confirmed == true)
+                _editor.DisableImplicitMagnetarModLoad = true;
+        }
+        finally
+        {
+            _disableImplicitMagnetarModLoadDialogOpen = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
     private async Task SaveAsync()
     {
         await _form!.ValidateAsync();
@@ -587,6 +776,8 @@
         updated.DisplayName = NormalizeWhitespace(updated.DisplayName);
         updated.InGameServerName = NormalizeWhitespace(updated.InGameServerName);
         updated.InGameWorldName = NormalizeWhitespace(updated.InGameWorldName);
+        updated.WorldPath = GetEffectiveSavesPath();
+        updated.WorldSaveName = NormalizeWhitespace(updated.WorldSaveName);
         MudDialog.Close(DialogResult.Ok(updated));
     }
 
@@ -610,45 +801,81 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task OpenImportWorldTemplateDialogAsync()
+    private async Task OpenCreateWorldSaveFromTemplateDialogAsync()
     {
-        var dialog = await DialogService.ShowAsync<WorldTemplateQuickImportDialog>(
-            "Import World Template",
+        var dialog = await DialogService.ShowAsync<CreateWorldSaveFromTemplateDialog>(
+            "Create World Save",
             new DialogParameters
             {
-                [nameof(WorldTemplateQuickImportDialog.InitialConfigProfileId)] = _editor.ConfigProfileId,
+                [nameof(CreateWorldSaveFromTemplateDialog.InitialConfigProfileId)] = _editor.ConfigProfileId,
             },
             new DialogOptions
             {
                 CloseOnEscapeKey = true,
                 FullWidth = true,
-                MaxWidth = MaxWidth.Medium,
+                MaxWidth = MaxWidth.Small,
             });
 
         var result = await dialog.Result;
-        if (result is null || result.Canceled)
+        if (result is null || result.Canceled ||
+            result.Data is not CreateWorldSaveFromTemplateDialog.CreateWorldSaveFromTemplateRequest request)
             return;
 
-        string? configProfileId = null;
-        QuasarWorldTemplate? template = null;
-        if (result.Data is WorldTemplateQuickImportDialog.WorldTemplateQuickImportResult importResult)
+        await CreateWorldSaveFromTemplateAsync(request.WorldTemplateId, request.ConfigProfileId);
+    }
+
+    private async Task CreateWorldSaveFromTemplateAsync(string worldTemplateId, string? configProfileId = null)
+    {
+        if (_creatingWorldSave)
+            return;
+
+        if (string.IsNullOrWhiteSpace(_editor.UniqueName))
         {
-            template = importResult.Template;
-            configProfileId = importResult.ConfigProfileId;
-        }
-        else if (result.Data is QuasarWorldTemplate legacyTemplate)
-        {
-            template = legacyTemplate;
+            Snackbar.Add("Identifier required before creating a world save.", Severity.Warning);
+            return;
         }
 
+        var template = WorldTemplates.GetTemplate(worldTemplateId);
         if (template is null)
+        {
+            Snackbar.Add("World template not found.", Severity.Error);
             return;
+        }
 
-        _editor.WorldTemplateId = template.WorldTemplateId;
-        if (!string.IsNullOrWhiteSpace(configProfileId))
-            _editor.ConfigProfileId = configProfileId;
+        var sourcePath = WorldTemplates.GetWorldDirectory(worldTemplateId);
+        if (!Directory.Exists(sourcePath) || !File.Exists(Path.Combine(sourcePath, "Sandbox.sbc")))
+        {
+            Snackbar.Add($"World template '{template.Name}' has no stored world files.", Severity.Error);
+            return;
+        }
 
-        await InvokeAsync(StateHasChanged);
+        var savesPath = GetEffectiveSavesPath();
+        var saveName = CreateUniqueSaveName(template.Name);
+        var targetPath = Path.Combine(savesPath, saveName);
+
+        _creatingWorldSave = true;
+        try
+        {
+            Directory.CreateDirectory(savesPath);
+            await Task.Run(() => CopyWorldDirectory(sourcePath, targetPath));
+            _editor.WorldPath = savesPath;
+            _editor.WorldSaveName = saveName;
+            _editor.WorldTemplateId = template.WorldTemplateId;
+            if (!string.IsNullOrWhiteSpace(configProfileId))
+                _editor.ConfigProfileId = configProfileId;
+
+            RefreshAvailableWorldSaves();
+            Snackbar.Add($"World save '{saveName}' created.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed to create world save: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _creatingWorldSave = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private Task HandleRestartPolicyExpandedChanged(bool expanded)
@@ -675,18 +902,91 @@
         return Task.CompletedTask;
     }
 
-    private string GetDefaultWorldPath()
+    private string GetSelectedWorldSavePath()
+    {
+        var saveName = _editor.WorldSaveName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(saveName))
+            return string.Empty;
+
+        return Path.Combine(GetEffectiveSavesPath(), saveName);
+    }
+
+    private string GetEffectiveSavesPath()
+    {
+        return string.IsNullOrWhiteSpace(_editor.WorldPath)
+            ? GetDefaultSavesPath()
+            : _editor.WorldPath.Trim();
+    }
+
+    private string GetDefaultSavesPath()
     {
         var dsPath = string.IsNullOrWhiteSpace(_editor.DedicatedServerAppDataPath)
             ? GetDefaultDedicatedServerAppDataPath()
             : _editor.DedicatedServerAppDataPath;
 
-        var worldName = GetUniqueNamePreview();
+        return Path.Combine(dsPath, "Saves");
+    }
 
+    private string CreateUniqueSaveName(string templateName)
+    {
+        var baseName = SanitizeSaveName(templateName);
+        if (string.IsNullOrWhiteSpace(baseName))
+            baseName = SanitizeSaveName(GetUniqueNamePreview());
+        if (string.IsNullOrWhiteSpace(baseName) || baseName == "<unique-name>")
+            baseName = "World";
+
+        var savesPath = GetEffectiveSavesPath();
+        var candidate = baseName;
+        var suffix = 2;
+        while (Directory.Exists(Path.Combine(savesPath, candidate)))
+            candidate = $"{baseName} {suffix++}";
+
+        return candidate;
+    }
+
+    private static string SanitizeSaveName(string value)
+    {
+        var sanitized = NormalizeWhitespace(value);
         foreach (var ch in Path.GetInvalidFileNameChars())
-            worldName = worldName.Replace(ch, '-');
+            sanitized = sanitized.Replace(ch, '-');
 
-        return Path.Combine(dsPath, "Saves", worldName);
+        sanitized = sanitized
+            .Replace(Path.DirectorySeparatorChar, '-')
+            .Replace(Path.AltDirectorySeparatorChar, '-')
+            .Trim();
+
+        return sanitized;
+    }
+
+    private static void CopyWorldDirectory(string sourceDirectory, string targetDirectory)
+    {
+        Directory.CreateDirectory(targetDirectory);
+
+        foreach (var directory in Directory.EnumerateDirectories(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(sourceDirectory, directory);
+            if (IsBackupRelativePath(relative))
+                continue;
+
+            Directory.CreateDirectory(Path.Combine(targetDirectory, relative));
+        }
+
+        foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(sourceDirectory, file);
+            if (IsBackupRelativePath(relative))
+                continue;
+
+            var destination = Path.Combine(targetDirectory, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(file, destination, overwrite: false);
+        }
+    }
+
+    private static bool IsBackupRelativePath(string relativePath)
+    {
+        var firstSegment = relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
+        return string.Equals(firstSegment, "Backup", StringComparison.OrdinalIgnoreCase);
     }
 
     private string GetDefaultConfigFilePath()
@@ -765,8 +1065,28 @@
     private static string? ValidateCpuAffinityField(string? value) =>
         CpuAffinitySpec.TryParse(value, Environment.ProcessorCount, out _, out var error) ? null : error;
 
-    private static string? ValidateWorldTemplateField(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? "World template required." : null;
+    private string? ValidateWorldSaveField(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "World save required.";
+
+        var saveName = value.Trim();
+        if (Path.IsPathRooted(saveName) ||
+            saveName.Contains(Path.DirectorySeparatorChar) ||
+            saveName.Contains(Path.AltDirectorySeparatorChar) ||
+            saveName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            return "World save must be a folder name, not a path.";
+        }
+
+        var worldPath = Path.Combine(GetEffectiveSavesPath(), saveName);
+        if (!Directory.Exists(worldPath))
+            return "Selected world save not found. Create it from a template first.";
+
+        return File.Exists(Path.Combine(worldPath, "Sandbox.sbc"))
+            ? null
+            : "Selected world save is missing Sandbox.sbc.";
+    }
 
     private static string? ValidateConfigProfileField(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "Config profile required." : null;
@@ -776,11 +1096,11 @@
             ? string.Empty
             : ConfigProfiles.GetProfile(_editor.ConfigProfileId)?.Name ?? string.Empty;
 
-    private IReadOnlyList<QuasarModSelection> TemplateModsMissingFromProfile
+    private IReadOnlyList<QuasarModSelection> SelectedWorldModsMissingFromProfile
     {
         get
         {
-            if (string.IsNullOrWhiteSpace(_editor.WorldTemplateId) ||
+            if (string.IsNullOrWhiteSpace(_editor.WorldSaveName) ||
                 string.IsNullOrWhiteSpace(_editor.ConfigProfileId))
             {
                 return Array.Empty<QuasarModSelection>();
@@ -790,31 +1110,33 @@
             if (profile is null)
                 return Array.Empty<QuasarModSelection>();
 
-            var sandboxConfigPath = Path.Combine(
-                WorldTemplates.GetWorldDirectory(_editor.WorldTemplateId),
-                WorldSandboxConfigEditor.SandboxConfigFileName);
+            var worldPath = GetSelectedWorldSavePath();
+            if (string.IsNullOrWhiteSpace(worldPath))
+                return Array.Empty<QuasarModSelection>();
 
-            IReadOnlyList<QuasarModSelection> templateMods;
+            var sandboxConfigPath = Path.Combine(worldPath, WorldSandboxConfigEditor.SandboxConfigFileName);
+
+            IReadOnlyList<QuasarModSelection> worldMods;
             try
             {
-                templateMods = WorldSandboxConfigEditor.ReadMods(sandboxConfigPath);
+                worldMods = WorldSandboxConfigEditor.ReadMods(sandboxConfigPath);
             }
             catch
             {
                 return Array.Empty<QuasarModSelection>();
             }
 
-            if (templateMods.Count == 0)
+            if (worldMods.Count == 0)
                 return Array.Empty<QuasarModSelection>();
 
             var profileIds = profile.Mods.Select(mod => mod.WorkshopId).ToHashSet();
-            return templateMods
+            return worldMods
                 .Where(mod => !profileIds.Contains(mod.WorkshopId))
                 .ToArray();
         }
     }
 
-    private async Task MergeSelectedWorldTemplateModsIntoProfileAsync()
+    private async Task MergeSelectedWorldSaveModsIntoProfileAsync()
     {
         if (string.IsNullOrWhiteSpace(_editor.ConfigProfileId))
             return;
@@ -823,10 +1145,10 @@
         if (profile is null)
             return;
 
-        var missingMods = TemplateModsMissingFromProfile;
+        var missingMods = SelectedWorldModsMissingFromProfile;
         if (missingMods.Count == 0)
         {
-            Snackbar.Add("Selected profile already has all template mods.", Severity.Info);
+            Snackbar.Add("Selected profile already has all world mods.", Severity.Info);
             return;
         }
 
@@ -857,4 +1179,6 @@
 
     private static string NormalizeWhitespace(string? value) =>
         System.Text.RegularExpressions.Regex.Replace(value?.Trim() ?? string.Empty, @"\s+", " ");
+
+    private sealed record WorldSaveOption(string Name, string DisplayName);
 }

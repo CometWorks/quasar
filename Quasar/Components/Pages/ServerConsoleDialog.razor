@@ -7,9 +7,25 @@
         <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" TabPanelsClass="pt-3" @bind-ActivePanelIndex="_activeTabIndex">
             <MudTabPanel Text="Server log" Icon="@Icons.Material.Filled.Terminal">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
-                    <MudStack Spacing="0">
-                        <MudText Typo="Typo.body2" Class="mud-text-secondary">@ServerLogStatusText()</MudText>
-                        <CopyablePath Value="@_serverLogPath" />
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="quasar-log-selector-row">
+                        <MudSelect T="string"
+                                   Label="Log file"
+                                   Value="_serverLogSelection"
+                                   ValueChanged="HandleServerLogSelectionChanged"
+                                   Variant="Variant.Outlined"
+                                   Margin="Margin.Dense"
+                                   Dense="true"
+                                   Class="quasar-log-file-select">
+                            <MudSelectItem T="string" Value="@LatestLogSelection">Most recent</MudSelectItem>
+                            @foreach (var option in _serverLogOptions)
+                            {
+                                <MudSelectItem T="string" Value="@option.FileName">@option.Label</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudStack Spacing="0">
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">@ServerLogStatusText()</MudText>
+                            <CopyablePath Value="@_serverLogPath" />
+                        </MudStack>
                     </MudStack>
                     <MudStack Row="true" Spacing="1">
                         <MudTooltip Text="Download full server log">
@@ -22,7 +38,7 @@
                             <MudIcon Icon="@Icons.Material.Filled.Keyboard" Size="Size.Small" Color="Color.Default" />
                         </MudTooltip>
                         <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Search" OnClick="ShowServerLogExceptionsAsync">Exceptions</MudButton>
-                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshServerLogAsync">Refresh</MudButton>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshServerLogAsync" Disabled="@(!CanRefreshServerLog)">Refresh</MudButton>
                     </MudStack>
                 </MudStack>
 
@@ -47,21 +63,37 @@
                 }
             </MudTabPanel>
 
-            <MudTabPanel Text="Magnetar info.log" Icon="@Icons.Material.Filled.Description">
+            <MudTabPanel Text="Magnetar info log" Icon="@Icons.Material.Filled.Description">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
-                    <MudStack Spacing="0">
-                        <MudText Typo="Typo.body2" Class="mud-text-secondary">@InfoLogStatusText()</MudText>
-                        <CopyablePath Value="@_infoLogPath" />
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="quasar-log-selector-row">
+                        <MudSelect T="string"
+                                   Label="Log file"
+                                   Value="_infoLogSelection"
+                                   ValueChanged="HandleInfoLogSelectionChanged"
+                                   Variant="Variant.Outlined"
+                                   Margin="Margin.Dense"
+                                   Dense="true"
+                                   Class="quasar-log-file-select">
+                            <MudSelectItem T="string" Value="@LatestLogSelection">Most recent</MudSelectItem>
+                            @foreach (var option in _infoLogOptions)
+                            {
+                                <MudSelectItem T="string" Value="@option.FileName">@option.Label</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudStack Spacing="0">
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">@InfoLogStatusText()</MudText>
+                            <CopyablePath Value="@_infoLogPath" />
+                        </MudStack>
                     </MudStack>
                     <MudStack Row="true" Spacing="1">
-                        <MudTooltip Text="Download info.log">
+                        <MudTooltip Text="Download info log">
                             <MudIconButton Icon="@Icons.Material.Filled.Download"
                                            OnClick="DownloadInfoLogAsync"
                                            Disabled="@(!_infoLogLoaded || _infoLogMissing)"
                                            Size="Size.Small" />
                         </MudTooltip>
                         <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Search" OnClick="ShowInfoLogExceptionsAsync">Exceptions</MudButton>
-                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInfoLogAsync">Refresh</MudButton>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInfoLogAsync" Disabled="@(!CanRefreshInfoLog)">Refresh</MudButton>
                     </MudStack>
                 </MudStack>
 
@@ -124,6 +156,26 @@
         color: var(--mud-palette-text-primary);
     }
 
+    .quasar-log-selector-row {
+        min-width: 0;
+    }
+
+    .quasar-log-file-select {
+        width: min(34vw, 360px);
+        min-width: 260px;
+    }
+
+    @@media (max-width: 720px) {
+        .quasar-log-selector-row {
+            flex-wrap: wrap;
+        }
+
+        .quasar-log-file-select {
+            width: 100%;
+            min-width: 0;
+        }
+    }
+
 </style>
 
 @code
@@ -137,6 +189,8 @@
     private const int InfoLogExceptionMatchLimit = 10;
     private const int ServerLogTabIndex = 0;
     private const int InfoLogTabIndex = 1;
+    private const string LatestLogSelection = "__latest__";
+    private static readonly TimeSpan LogAutoRefreshInterval = TimeSpan.FromSeconds(5);
 
     [CascadingParameter]
     private IMudDialogInstance MudDialog { get; set; } = default!;
@@ -151,6 +205,8 @@
     private int _renderedTabIndex = -1;
     private IReadOnlyList<string> _serverLogLines = Array.Empty<string>();
     private string _serverLogPath = string.Empty;
+    private string _serverLogSelection = LatestLogSelection;
+    private IReadOnlyList<LogFileOption> _serverLogOptions = Array.Empty<LogFileOption>();
     private int _serverLogLineCount;
     private bool _serverLogTruncated;
     private bool _serverLogMissing;
@@ -159,26 +215,79 @@
     private bool _serverLogScrollPending;
     private bool _serverLogRolloverBusy;
     private int _serverLogWindowStart;
+    private long _serverLogReadOffset;
     private string _serverLogMode = "tail";
     private bool _serverLogInteropDirty = true;
     private bool _serverLogInteropAttached;
     private DotNetObjectReference<ServerConsoleDialog>? _serverLogInteropRef;
     private string _infoLogContent = string.Empty;
     private string _infoLogPath = string.Empty;
+    private string _infoLogSelection = LatestLogSelection;
+    private IReadOnlyList<LogFileOption> _infoLogOptions = Array.Empty<LogFileOption>();
     private int _infoLogLineCount;
     private bool _infoLogTruncated;
     private bool _infoLogMissing;
     private string? _infoLogError;
     private bool _infoLogLoaded;
     private bool _infoLogScrollPending;
+    private long _infoLogReadOffset;
     private string _infoLogMode = "tail";
-    private string ServerLogDownloadHref => $"/api/servers/{Uri.EscapeDataString(UniqueName)}/logs/server/download";
-    private string InfoLogDownloadHref => $"/api/servers/{Uri.EscapeDataString(UniqueName)}/logs/magnetar/download";
+    private CancellationTokenSource? _autoRefreshCts;
+    private Task? _autoRefreshTask;
+    private string ServerLogDownloadHref => BuildLogDownloadHref("server", _serverLogSelection);
+    private string InfoLogDownloadHref => BuildLogDownloadHref("magnetar", _infoLogSelection);
+    private bool IsWatchingLatestServerLog => IsLatestLogSelection(_serverLogSelection);
+    private bool IsWatchingLatestInfoLog => IsLatestLogSelection(_infoLogSelection);
+    private bool CanRefreshServerLog => IsWatchingLatestServerLog;
+    private bool CanRefreshInfoLog => IsWatchingLatestInfoLog;
 
     protected override void OnInitialized()
     {
-        _serverLogPath = ResolveLatestServerLogPath();
-        _infoLogPath = ResolveInfoLogPath();
+        _serverLogPath = ResolveSelectedServerLogPath();
+        _infoLogPath = ResolveSelectedInfoLogPath();
+        StartAutoRefreshLoop();
+    }
+
+    private void StartAutoRefreshLoop()
+    {
+        _autoRefreshCts = new CancellationTokenSource();
+        _autoRefreshTask = Task.Run(() => AutoRefreshLoopAsync(_autoRefreshCts.Token));
+    }
+
+    private async Task AutoRefreshLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(LogAutoRefreshInterval);
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await InvokeAsync(() => RefreshActiveLogTailAsync(cancellationToken));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private async Task RefreshActiveLogTailAsync(CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        if (_activeTabIndex == ServerLogTabIndex && _serverLogLoaded && IsWatchingLatestServerLog)
+        {
+            await RefreshServerLogTailAsync(reloadOnReset: true);
+            return;
+        }
+
+        if (_activeTabIndex == InfoLogTabIndex && _infoLogLoaded && IsWatchingLatestInfoLog)
+            await RefreshInfoLogTailAsync(reloadOnReset: true);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -235,8 +344,29 @@
         }
     }
 
+    private async Task<bool> IsScrolledNearBottomAsync(string containerId)
+    {
+        try
+        {
+            return await JS.InvokeAsync<bool>("quasarConfigs.isScrolledNearBottom", containerId, 48);
+        }
+        catch (JSDisconnectedException)
+        {
+            return true;
+        }
+    }
+
     private async Task RefreshServerLogAsync()
     {
+        if (!IsWatchingLatestServerLog)
+            return;
+
+        if (_serverLogLoaded && _serverLogMode == "tail")
+        {
+            await RefreshServerLogTailAsync(reloadOnReset: true);
+            return;
+        }
+
         await LoadServerLogAsync();
     }
 
@@ -248,6 +378,14 @@
         await JS.InvokeVoidAsync("quasarConfigs.downloadFile", ServerLogDownloadHref, fileName);
     }
 
+    private async Task HandleServerLogSelectionChanged(string value)
+    {
+        _serverLogSelection = NormalizeLogSelection(value);
+        _serverLogLoaded = false;
+        _serverLogMode = "tail";
+        await LoadServerLogAsync();
+    }
+
     private async Task ShowServerLogExceptionsAsync()
     {
         await LoadServerLogExceptionsAsync();
@@ -255,7 +393,7 @@
 
     private async Task LoadServerLogAsync()
     {
-        _serverLogPath = ResolveLatestServerLogPath();
+        _serverLogPath = ResolveSelectedServerLogPath();
 
         try
         {
@@ -268,6 +406,7 @@
                 _serverLogError = null;
                 _serverLogMode = "tail";
                 _serverLogWindowStart = 0;
+                _serverLogReadOffset = 0;
             }
             else
             {
@@ -275,6 +414,7 @@
                 _serverLogLines = window.Lines;
                 _serverLogLineCount = window.TotalLineCount;
                 _serverLogWindowStart = window.StartLine;
+                _serverLogReadOffset = window.FileLength;
                 _serverLogTruncated = false;
                 _serverLogMissing = false;
                 _serverLogError = null;
@@ -290,12 +430,92 @@
             _serverLogMissing = false;
             _serverLogMode = "tail";
             _serverLogWindowStart = 0;
+            _serverLogReadOffset = 0;
         }
 
         _serverLogLoaded = true;
         _serverLogScrollPending = true;
         _serverLogInteropDirty = true;
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshServerLogTailAsync(bool reloadOnReset)
+    {
+        if (_serverLogMode != "tail" || !IsWatchingLatestServerLog)
+            return;
+
+        var latestPath = ResolveSelectedServerLogPath();
+        if (!string.Equals(latestPath, _serverLogPath, StringComparison.OrdinalIgnoreCase))
+        {
+            if (reloadOnReset)
+                await LoadServerLogAsync();
+            return;
+        }
+
+        if (!File.Exists(_serverLogPath))
+        {
+            if (reloadOnReset)
+                await LoadServerLogAsync();
+            return;
+        }
+
+        if (_serverLogMissing)
+        {
+            if (reloadOnReset)
+                await LoadServerLogAsync();
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(_serverLogError))
+        {
+            if (reloadOnReset)
+                await LoadServerLogAsync();
+            return;
+        }
+
+        if (_serverLogRolloverBusy)
+            return;
+
+        // When viewing an older window, do not mutate the DOM every tick. Moving
+        // to newer lines will read the requested window and refresh counts.
+        if (CanLoadNewerServerLogLines)
+            return;
+
+        try
+        {
+            var update = await ReadAppendedLinesAsync(_serverLogPath, _serverLogReadOffset);
+            if (update.Reset)
+            {
+                if (reloadOnReset)
+                    await LoadServerLogAsync();
+                return;
+            }
+
+            _serverLogReadOffset = update.FileLength;
+            if (update.Lines.Count == 0)
+                return;
+
+            var shouldScroll = await IsScrolledNearBottomAsync(_scrollContainerId);
+            var lines = _serverLogLines
+                .Concat(update.Lines)
+                .TakeLast(ServerLogWindowLines)
+                .ToArray();
+
+            _serverLogLineCount += update.Lines.Count;
+            _serverLogLines = lines;
+            _serverLogWindowStart = Math.Max(0, _serverLogLineCount - _serverLogLines.Count);
+            _serverLogMissing = false;
+            _serverLogError = null;
+            _serverLogInteropDirty = true;
+            _serverLogScrollPending = shouldScroll;
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception exception)
+        {
+            _serverLogError = exception.Message;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     [JSInvokable]
@@ -346,6 +566,7 @@
             _serverLogLines = window.Lines;
             _serverLogLineCount = window.TotalLineCount;
             _serverLogWindowStart = window.StartLine;
+            _serverLogReadOffset = window.FileLength;
             _serverLogInteropDirty = true;
         }
         finally
@@ -359,7 +580,7 @@
 
     private async Task LoadServerLogExceptionsAsync()
     {
-        _serverLogPath = ResolveLatestServerLogPath();
+        _serverLogPath = ResolveSelectedServerLogPath();
 
         try
         {
@@ -375,9 +596,10 @@
             }
             else
             {
-                var (text, truncated) = await ReadTailAsync(_serverLogPath, InfoLogExceptionSearchBytes);
-                SetServerLogTextWindow(ExtractExceptionBlocks(text, truncated, "server log"));
-                _serverLogTruncated = truncated;
+                var tail = await ReadTailAsync(_serverLogPath, InfoLogExceptionSearchBytes);
+                SetServerLogTextWindow(ExtractExceptionBlocks(tail.Text, tail.Truncated, "server log"));
+                _serverLogTruncated = tail.Truncated;
+                _serverLogReadOffset = tail.FileLength;
                 _serverLogMissing = false;
                 _serverLogError = null;
                 _serverLogMode = "exceptions";
@@ -402,12 +624,32 @@
 
     private async Task RefreshInfoLogAsync()
     {
+        if (!IsWatchingLatestInfoLog)
+            return;
+
+        if (_infoLogLoaded && _infoLogMode == "tail")
+        {
+            await RefreshInfoLogTailAsync(reloadOnReset: true);
+            return;
+        }
+
         await LoadInfoLogAsync();
     }
 
     private async Task DownloadInfoLogAsync()
     {
-        await JS.InvokeVoidAsync("quasarConfigs.downloadFile", InfoLogDownloadHref, "info.log");
+        var fileName = string.IsNullOrWhiteSpace(_infoLogPath)
+            ? "info.log"
+            : Path.GetFileName(_infoLogPath);
+        await JS.InvokeVoidAsync("quasarConfigs.downloadFile", InfoLogDownloadHref, fileName);
+    }
+
+    private async Task HandleInfoLogSelectionChanged(string value)
+    {
+        _infoLogSelection = NormalizeLogSelection(value);
+        _infoLogLoaded = false;
+        _infoLogMode = "tail";
+        await LoadInfoLogAsync();
     }
 
     private async Task ShowInfoLogExceptionsAsync()
@@ -417,7 +659,7 @@
 
     private async Task LoadInfoLogAsync()
     {
-        _infoLogPath = ResolveInfoLogPath();
+        _infoLogPath = ResolveSelectedInfoLogPath();
 
         try
         {
@@ -429,13 +671,13 @@
                 _infoLogTruncated = false;
                 _infoLogError = null;
                 _infoLogMode = "tail";
+                _infoLogReadOffset = 0;
             }
             else
             {
-                var (text, truncated) = await ReadTailAsync(_infoLogPath, InfoLogTailBytes);
-                _infoLogContent = text;
-                _infoLogTruncated = truncated;
-                _infoLogLineCount = CountLines(text);
+                var tail = await ReadTailAsync(_infoLogPath, InfoLogTailBytes);
+                SetInfoLogTailContent(tail.Text, tail.Truncated);
+                _infoLogReadOffset = tail.FileLength;
                 _infoLogMissing = false;
                 _infoLogError = null;
                 _infoLogMode = "tail";
@@ -449,6 +691,7 @@
             _infoLogTruncated = false;
             _infoLogMissing = false;
             _infoLogMode = "tail";
+            _infoLogReadOffset = 0;
         }
 
         _infoLogLoaded = true;
@@ -456,9 +699,72 @@
         await InvokeAsync(StateHasChanged);
     }
 
+    private async Task RefreshInfoLogTailAsync(bool reloadOnReset)
+    {
+        if (_infoLogMode != "tail" || !IsWatchingLatestInfoLog)
+            return;
+
+        var latestPath = ResolveSelectedInfoLogPath();
+        if (!string.Equals(latestPath, _infoLogPath, StringComparison.OrdinalIgnoreCase))
+        {
+            if (reloadOnReset)
+                await LoadInfoLogAsync();
+            return;
+        }
+
+        if (!File.Exists(_infoLogPath))
+        {
+            if (reloadOnReset)
+                await LoadInfoLogAsync();
+            return;
+        }
+
+        if (_infoLogMissing)
+        {
+            if (reloadOnReset)
+                await LoadInfoLogAsync();
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(_infoLogError))
+        {
+            if (reloadOnReset)
+                await LoadInfoLogAsync();
+            return;
+        }
+
+        try
+        {
+            var update = await ReadAppendedTextAsync(_infoLogPath, _infoLogReadOffset);
+            if (update.Reset)
+            {
+                if (reloadOnReset)
+                    await LoadInfoLogAsync();
+                return;
+            }
+
+            _infoLogReadOffset = update.FileLength;
+            if (string.IsNullOrEmpty(update.Text))
+                return;
+
+            var shouldScroll = await IsScrolledNearBottomAsync(_infoLogScrollContainerId);
+            SetInfoLogTailContent(_infoLogContent + update.Text, _infoLogTruncated);
+            _infoLogMissing = false;
+            _infoLogError = null;
+            _infoLogScrollPending = shouldScroll;
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception exception)
+        {
+            _infoLogError = exception.Message;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
     private async Task LoadInfoLogExceptionsAsync()
     {
-        _infoLogPath = ResolveInfoLogPath();
+        _infoLogPath = ResolveSelectedInfoLogPath();
 
         try
         {
@@ -473,9 +779,10 @@
             }
             else
             {
-                var (text, truncated) = await ReadTailAsync(_infoLogPath, InfoLogExceptionSearchBytes);
-                _infoLogContent = ExtractExceptionBlocks(text, truncated, "info.log");
-                _infoLogTruncated = truncated;
+                var tail = await ReadTailAsync(_infoLogPath, InfoLogExceptionSearchBytes);
+                _infoLogContent = ExtractExceptionBlocks(tail.Text, tail.Truncated, "info log");
+                _infoLogTruncated = tail.Truncated;
+                _infoLogReadOffset = tail.FileLength;
                 _infoLogLineCount = CountLines(_infoLogContent);
                 _infoLogMissing = false;
                 _infoLogError = null;
@@ -508,7 +815,29 @@
             .ToArray();
     }
 
-    private static async Task<(string Text, bool Truncated)> ReadTailAsync(string path, int maxBytes)
+    private void SetInfoLogTailContent(string text, bool alreadyTruncated)
+    {
+        _infoLogContent = TrimInfoLogTailContent(text, out var truncated);
+        _infoLogTruncated = alreadyTruncated || truncated;
+        _infoLogLineCount = CountLines(_infoLogContent);
+    }
+
+    private static string TrimInfoLogTailContent(string text, out bool truncated)
+    {
+        truncated = false;
+        if (text.Length <= InfoLogTailBytes)
+            return text;
+
+        truncated = true;
+        var start = text.Length - InfoLogTailBytes;
+        var nextLine = text.IndexOf('\n', start);
+        if (nextLine >= 0 && nextLine + 1 < text.Length)
+            start = nextLine + 1;
+
+        return text[start..];
+    }
+
+    private static async Task<LogTailSnapshot> ReadTailAsync(string path, int maxBytes)
     {
         await using var stream = new FileStream(
             path,
@@ -516,8 +845,9 @@
             FileAccess.Read,
             FileShare.ReadWrite | FileShare.Delete);
 
+        var fileLength = stream.Length;
         var truncated = false;
-        if (stream.Length > maxBytes)
+        if (fileLength > maxBytes)
         {
             stream.Seek(-maxBytes, SeekOrigin.End);
             truncated = true;
@@ -531,7 +861,53 @@
         }
 
         var text = await reader.ReadToEndAsync();
-        return (text, truncated);
+        return new LogTailSnapshot(text, truncated, fileLength);
+    }
+
+    private static async Task<ServerLogAppend> ReadAppendedLinesAsync(string path, long startOffset)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+
+        var fileLength = stream.Length;
+        if (startOffset > fileLength)
+            return new ServerLogAppend(Array.Empty<string>(), fileLength, Reset: true);
+
+        if (startOffset == fileLength)
+            return new ServerLogAppend(Array.Empty<string>(), fileLength, Reset: false);
+
+        stream.Seek(Math.Max(0, startOffset), SeekOrigin.Begin);
+        using var reader = new StreamReader(stream);
+
+        var lines = new List<string>();
+        string? line;
+        while ((line = await reader.ReadLineAsync()) is not null)
+            lines.Add(line);
+
+        return new ServerLogAppend(lines, fileLength, Reset: false);
+    }
+
+    private static async Task<LogTextAppend> ReadAppendedTextAsync(string path, long startOffset)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+
+        var fileLength = stream.Length;
+        if (startOffset > fileLength)
+            return new LogTextAppend(string.Empty, fileLength, Reset: true);
+
+        if (startOffset == fileLength)
+            return new LogTextAppend(string.Empty, fileLength, Reset: false);
+
+        stream.Seek(Math.Max(0, startOffset), SeekOrigin.Begin);
+        using var reader = new StreamReader(stream);
+        return new LogTextAppend(await reader.ReadToEndAsync(), fileLength, Reset: false);
     }
 
     private static async Task<ServerLogLineWindow> ReadLatestLineWindowAsync(string path, int maxLines)
@@ -554,7 +930,7 @@
                 lines.Dequeue();
         }
 
-        return new ServerLogLineWindow(lines.ToArray(), Math.Max(0, totalLines - lines.Count), totalLines);
+        return new ServerLogLineWindow(lines.ToArray(), Math.Max(0, totalLines - lines.Count), totalLines, stream.Length);
     }
 
     private static async Task<ServerLogLineWindow> ReadLineWindowAsync(string path, int startLine, int maxLines)
@@ -586,7 +962,7 @@
             currentLine++;
         }
 
-        return new ServerLogLineWindow(lines, startLine, currentLine);
+        return new ServerLogLineWindow(lines, startLine, currentLine, stream.Length);
     }
 
     private static int CountLines(string text)
@@ -618,11 +994,15 @@
     private string InfoLogStatusText()
     {
         if (_infoLogMissing)
-            return "info.log not found — Magnetar has not produced one yet for this server.";
+            return "Magnetar info log not found yet.";
 
-        return _infoLogMode == "exceptions"
-            ? $"{_infoLogLineCount} line(s) from latest exception excerpts{(_infoLogTruncated ? " (searched latest log tail)" : string.Empty)}"
+        var status = _infoLogMode == "exceptions"
+            ? $"{_infoLogLineCount} line(s) from exception excerpts{(_infoLogTruncated ? " (searched log tail)" : string.Empty)}"
             : $"{_infoLogLineCount} line(s){(_infoLogTruncated ? " (tail only)" : string.Empty)}";
+
+        return IsWatchingLatestInfoLog
+            ? status
+            : $"Viewing archived file; refresh disabled. {status}";
     }
 
     private string ServerLogStatusText()
@@ -631,13 +1011,23 @@
             return "Dedicated Server log not found yet.";
 
         if (_serverLogMode == "exceptions")
-            return $"{_serverLogLineCount} line(s) from latest exception excerpts{(_serverLogTruncated ? " (searched latest log tail)" : string.Empty)}";
+        {
+            var exceptionStatus = $"{_serverLogLineCount} line(s) from exception excerpts{(_serverLogTruncated ? " (searched log tail)" : string.Empty)}";
+            return IsWatchingLatestServerLog
+                ? exceptionStatus
+                : $"Viewing archived file; refresh disabled. {exceptionStatus}";
+        }
 
         if (_serverLogLineCount == 0)
-            return "0 line(s)";
+            return IsWatchingLatestServerLog
+                ? "0 line(s)"
+                : "Viewing archived file; refresh disabled. 0 line(s)";
 
         var endLine = _serverLogWindowStart + _serverLogLines.Count;
-        return $"Showing {_serverLogWindowStart + 1}-{endLine} of {_serverLogLineCount} line(s)";
+        var status = $"Showing {_serverLogWindowStart + 1}-{endLine} of {_serverLogLineCount} line(s)";
+        return IsWatchingLatestServerLog
+            ? status
+            : $"Viewing archived file; refresh disabled. {status}";
     }
 
     private async Task AttachServerLogInteropAsync()
@@ -700,40 +1090,133 @@
             ScrollRatio = scrollRatio,
         };
 
-    private string ResolveLatestServerLogPath()
+    private string ResolveSelectedServerLogPath()
+    {
+        var appDataPath = ResolveDedicatedServerAppDataPath();
+        _serverLogOptions = EnumerateLogFiles(appDataPath, "SpaceEngineersDedicated*.log");
+        return ResolveSelectedLogPath(
+            appDataPath,
+            _serverLogOptions,
+            _serverLogSelection,
+            "SpaceEngineersDedicated*.log");
+    }
+
+    private string ResolveSelectedInfoLogPath()
+    {
+        var appDataPath = ResolveMagnetarAppDataPath();
+        _infoLogOptions = EnumerateLogFiles(appDataPath, "info*.log");
+        return ResolveSelectedLogPath(
+            appDataPath,
+            _infoLogOptions,
+            _infoLogSelection,
+            "info*.log");
+    }
+
+    private string ResolveDedicatedServerAppDataPath()
     {
         var configuredPath = ServerCatalog.GetServer(UniqueName)?.DedicatedServerAppDataPath;
-        var appDataPath = string.IsNullOrWhiteSpace(configuredPath)
+        return string.IsNullOrWhiteSpace(configuredPath)
             ? MagnetarPaths.GetQuasarServerDedicatedServerAppDataDirectory(UniqueName)
             : configuredPath.Trim();
+    }
 
+    private string ResolveMagnetarAppDataPath()
+    {
+        var configuredPath = ServerCatalog.GetServer(UniqueName)?.MagnetarAppDataPath;
+        return string.IsNullOrWhiteSpace(configuredPath)
+            ? MagnetarPaths.GetQuasarServerMagnetarAppDataDirectory(UniqueName)
+            : configuredPath.Trim();
+    }
+
+    private static IReadOnlyList<LogFileOption> EnumerateLogFiles(string appDataPath, string searchPattern)
+    {
         try
         {
-            if (Directory.Exists(appDataPath))
-            {
-                var latest = Directory.EnumerateFiles(appDataPath, "SpaceEngineersDedicated*.log", SearchOption.TopDirectoryOnly)
-                    .OrderByDescending(File.GetLastWriteTimeUtc)
-                    .FirstOrDefault();
-                if (!string.IsNullOrWhiteSpace(latest))
-                    return latest;
-            }
+            if (!Directory.Exists(appDataPath))
+                return Array.Empty<LogFileOption>();
+
+            return Directory.EnumerateFiles(appDataPath, searchPattern, SearchOption.TopDirectoryOnly)
+                .Select(path =>
+                {
+                    var file = new FileInfo(path);
+                    return new LogFileOption(
+                        file.FullName,
+                        file.Name,
+                        FormatLogFileOption(file),
+                        file.LastWriteTimeUtc);
+                })
+                .OrderByDescending(option => option.LastWriteTimeUtc)
+                .ThenByDescending(option => option.FileName, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
         }
         catch
         {
-            // Fall through to the expected log pattern so the UI can show a missing-log state.
+            return Array.Empty<LogFileOption>();
         }
-
-        return Path.Combine(appDataPath, "SpaceEngineersDedicated*.log");
     }
 
-    private string ResolveInfoLogPath()
+    private static string ResolveSelectedLogPath(
+        string appDataPath,
+        IReadOnlyList<LogFileOption> options,
+        string selection,
+        string missingPattern)
     {
-        var configuredPath = ServerCatalog.GetServer(UniqueName)?.MagnetarAppDataPath;
-        var appDataPath = string.IsNullOrWhiteSpace(configuredPath)
-            ? MagnetarPaths.GetQuasarServerMagnetarAppDataDirectory(UniqueName)
-            : configuredPath.Trim();
+        if (IsLatestLogSelection(selection))
+            return options.FirstOrDefault()?.Path ?? Path.Combine(appDataPath, missingPattern);
 
-        return Path.Combine(appDataPath, "info.log");
+        var selected = options.FirstOrDefault(option =>
+            string.Equals(option.FileName, selection, StringComparison.OrdinalIgnoreCase));
+        if (selected is not null)
+            return selected.Path;
+
+        return IsSafeLogFileName(selection)
+            ? Path.Combine(appDataPath, selection)
+            : Path.Combine(appDataPath, missingPattern);
+    }
+
+    private static string NormalizeLogSelection(string value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? LatestLogSelection
+            : value;
+    }
+
+    private static bool IsLatestLogSelection(string selection) =>
+        string.Equals(selection, LatestLogSelection, StringComparison.Ordinal);
+
+    private static bool IsSafeLogFileName(string fileName)
+    {
+        return !string.IsNullOrWhiteSpace(fileName) &&
+               string.Equals(fileName, Path.GetFileName(fileName), StringComparison.Ordinal) &&
+               fileName.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+    }
+
+    private string BuildLogDownloadHref(string logKind, string selection)
+    {
+        var href = $"/api/servers/{Uri.EscapeDataString(UniqueName)}/logs/{logKind}/download";
+        return IsLatestLogSelection(selection)
+            ? href
+            : $"{href}?name={Uri.EscapeDataString(selection)}";
+    }
+
+    private static string FormatLogFileOption(FileInfo file)
+    {
+        var localTime = file.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss");
+        return $"{file.Name} ({localTime}, {FormatByteCount(file.Length)})";
+    }
+
+    private static string FormatByteCount(long bytes)
+    {
+        const double KiB = 1024;
+        const double MiB = KiB * 1024;
+
+        if (bytes >= MiB)
+            return $"{bytes / MiB:0.0} MiB";
+
+        if (bytes >= KiB)
+            return $"{bytes / KiB:0.0} KiB";
+
+        return $"{bytes} B";
     }
 
     private static string ExtractExceptionBlocks(string text, bool truncated, string logName)
@@ -791,11 +1274,49 @@
 
     public async ValueTask DisposeAsync()
     {
+        _autoRefreshCts?.Cancel();
+        if (_autoRefreshTask is not null)
+        {
+            try
+            {
+                await _autoRefreshTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        _autoRefreshCts?.Dispose();
         await DetachServerLogInteropAsync();
         _serverLogInteropRef?.Dispose();
     }
 
-    private sealed record ServerLogLineWindow(IReadOnlyList<string> Lines, int StartLine, int TotalLineCount);
+    private sealed record ServerLogLineWindow(
+        IReadOnlyList<string> Lines,
+        int StartLine,
+        int TotalLineCount,
+        long FileLength);
+
+    private sealed record ServerLogAppend(
+        IReadOnlyList<string> Lines,
+        long FileLength,
+        bool Reset);
+
+    private sealed record LogTextAppend(
+        string Text,
+        long FileLength,
+        bool Reset);
+
+    private sealed record LogTailSnapshot(
+        string Text,
+        bool Truncated,
+        long FileLength);
+
+    private sealed record LogFileOption(
+        string Path,
+        string FileName,
+        string Label,
+        DateTime LastWriteTimeUtc);
 
     public sealed class ServerLogWindowMoveResult
     {

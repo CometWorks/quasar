@@ -7,11 +7,11 @@ ARTIFACT_DIR="$REPO_DIR/artifacts/linux"
 CONFIGURATION="${CONFIGURATION:-Release}"
 RUNTIME="${RUNTIME:-linux-x64}"
 VERSION="${VERSION:-}"
-ASSEMBLY_FILE_VERSION="0.1.1"
+ASSEMBLY_FILE_VERSION="1.0.0"
 NUGET_VERSION="$VERSION"
 WEB_ARCHIVE_NAME="quasar-web-linux-x64.tar.gz"
 INSTALLER_ARCHIVE_NAME="quasar-installer-linux.tar.gz"
-INSTALLER_ROOT_NAME="quasar-installer-linux"
+INSTALLER_ROOT_NAME="Quasar"
 
 normalize_version_component() {
     local value="${1:-0}"
@@ -30,7 +30,7 @@ normalize_nuget_version() {
     version="${version%%+*}"
 
     if [[ -z "$version" ]]; then
-        echo "0.1.1"
+        echo "1.0.0"
         return
     fi
 
@@ -51,7 +51,7 @@ normalize_nuget_version() {
     if [[ -z "$suffix" ]]; then
         suffix="local"
     fi
-    echo "0.1.1-${suffix}"
+    echo "1.0.0-${suffix}"
 }
 
 # Builds the launcher archive's README from the repo README plus the Linux
@@ -68,7 +68,7 @@ normalize_nuget_version() {
 #      beside the README, so relative links would dangle when opened from it.
 build_packaged_readme() {
     local source="$1" snippet="$2" dest="$3"
-    local repo_slug="${GITHUB_REPOSITORY:-viktor-ferenczi/Quasar}"
+    local repo_slug="${GITHUB_REPOSITORY:-CometWorks/quasar}"
     local owner="${repo_slug%%/*}"
     local repo="${repo_slug##*/}"
     local base_url="https://github.com/$owner/$repo/blob/main/Docs/"

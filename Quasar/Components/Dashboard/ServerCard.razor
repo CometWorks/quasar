@@ -1,3 +1,9 @@
+@inject ServerManagementActions ServerActions
+@inject QuasarConfigProfileCatalog ConfigProfiles
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
 <MudCard Class="server-card">
     <MudCardHeader>
         <CardHeaderContent>
@@ -9,12 +15,44 @@
                     </MudChip>
                 </MudStack>
                 <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                    <MudTooltip Text="Open console output">
+                        <MudIconButton Icon="@Icons.Material.Filled.Terminal"
+                                       Color="Color.Default"
+                                       Size="Size.Small"
+                                       OnClick="OpenConsoleAsync" />
+                    </MudTooltip>
+                    <MudTooltip Text="Clone server">
+                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
+                                       Color="Color.Default"
+                                       Size="Size.Small"
+                                       OnClick="CloneAsync" />
+                    </MudTooltip>
+                    <MudTooltip Text="Create world template">
+                        <MudIconButton Icon="@Icons.Material.Filled.Public"
+                                       Color="Color.Default"
+                                       Size="Size.Small"
+                                       Disabled="@(!CanCreateTemplate)"
+                                       OnClick="CreateTemplateAsync" />
+                    </MudTooltip>
+                    <MudTooltip Text="Edit server">
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                       Color="Color.Default"
+                                       Size="Size.Small"
+                                       OnClick="EditAsync" />
+                    </MudTooltip>
+                    <MudTooltip Text="Delete server">
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                       Color="Color.Error"
+                                       Size="Size.Small"
+                                       Disabled="@IsProcessActive"
+                                       OnClick="DeleteAsync" />
+                    </MudTooltip>
                     @if (CanStart)
                     {
                         <MudButton Variant="Variant.Filled"
                                    Color="Color.Success"
                                    Size="Size.Small"
-                                   Disabled="@LaunchBlocked"
+                                   Disabled="@IsStartDisabled"
                                    StartIcon="@Icons.Material.Filled.PlayArrow"
                                    OnClick="StartAsync">
                             Start
@@ -22,12 +60,6 @@
                     }
                     @if (CanRestart)
                     {
-                        <MudTooltip Text="Open server logs">
-                            <MudIconButton Icon="@Icons.Material.Filled.Terminal"
-                                           Color="Color.Default"
-                                           Size="Size.Small"
-                                           OnClick="OpenLogsAsync" />
-                        </MudTooltip>
                         <MudButton Variant="Variant.Outlined"
                                    Color="Color.Primary"
                                    Size="Size.Small"
@@ -69,6 +101,34 @@
                 {
                     <MudText Typo="Typo.caption">@Runtime.HealthSummary</MudText>
                 }
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-1">
+                    <MudTooltip Text="@GetDirectConnectTooltip()">
+                        <MudChip T="string"
+                                 Variant="Variant.Outlined"
+                                 Icon="@Icons.Material.Filled.ContentCopy"
+                                 OnClick="CopyDirectConnectAsync">
+                            Port @Server.ServerPort
+                        </MudChip>
+                    </MudTooltip>
+                    @if (CanOpenConfigProfile)
+                    {
+                        <MudTooltip Text="Open config profile">
+                            <MudChip T="string"
+                                     Variant="Variant.Outlined"
+                                     Color="Color.Primary"
+                                     Icon="@Icons.Material.Filled.Tune"
+                                     OnClick="OpenConfigProfileAsync">
+                                Config @GetConfigProfileName()
+                            </MudChip>
+                        </MudTooltip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Tune">
+                            Config @GetConfigProfileName()
+                        </MudChip>
+                    }
+                </MudStack>
             </MudStack>
         </CardHeaderContent>
     </MudCardHeader>
@@ -105,7 +165,7 @@
     public EventCallback<string> RestartRequested { get; set; }
 
     [Parameter]
-    public EventCallback<string> OpenLogsRequested { get; set; }
+    public EventCallback<string> ConfigProfileSelected { get; set; }
 
     private DedicatedServerProcessState ProcessState => Runtime?.State ?? DedicatedServerProcessState.Stopped;
 
@@ -118,13 +178,21 @@
         or DedicatedServerProcessState.Crashed
         or DedicatedServerProcessState.Faulted;
 
-    private bool CanStop => ProcessState is DedicatedServerProcessState.Starting
-        or DedicatedServerProcessState.Running;
+    private bool IsStartDisabled =>
+        LaunchBlocked || string.IsNullOrWhiteSpace(Server.WorldSaveName);
+
+    private bool CanStop => ProcessState == DedicatedServerProcessState.Running;
 
     private bool CanKillStarting => ProcessState is DedicatedServerProcessState.Starting
         or DedicatedServerProcessState.Restarting;
 
     private bool CanRestart => ProcessState == DedicatedServerProcessState.Running;
+
+    private bool CanCreateTemplate => ServerActions.CanCreateWorldTemplate(Server);
+
+    private bool CanOpenConfigProfile =>
+        !string.IsNullOrWhiteSpace(Server.ConfigProfileId) &&
+        ConfigProfiles.GetProfile(Server.ConfigProfileId) is not null;
 
     private Task StartAsync() => StartRequested.InvokeAsync(Server.UniqueName);
 
@@ -134,7 +202,32 @@
 
     private Task RestartAsync() => RestartRequested.InvokeAsync(Server.UniqueName);
 
-    private Task OpenLogsAsync() => OpenLogsRequested.InvokeAsync(Server.UniqueName);
+    private Task OpenConsoleAsync() => ServerActions.OpenConsoleDialogAsync(Server.UniqueName);
+
+    private Task CloneAsync() => ServerActions.OpenCloneDialogAsync(Server);
+
+    private Task CreateTemplateAsync() => ServerActions.CreateWorldTemplateAsync(Server);
+
+    private Task EditAsync() => ServerActions.OpenEditDialogAsync(Server);
+
+    private Task DeleteAsync() => ServerActions.DeleteAsync(Server.UniqueName);
+
+    private async Task OpenConfigProfileAsync()
+    {
+        if (!CanOpenConfigProfile)
+            return;
+
+        await ConfigProfileSelected.InvokeAsync(Server.ConfigProfileId);
+    }
+
+    private async Task CopyDirectConnectAsync()
+    {
+        var address = GetDirectConnectAddress();
+        var ok = await JS.InvokeAsync<bool>("quasarConfigs.copyText", address);
+        Snackbar.Add(
+            ok ? $"Copied {address} to clipboard." : "Copy failed - select and copy the port manually.",
+            ok ? Severity.Info : Severity.Warning);
+    }
 
     private string GetDisplayName()
     {
@@ -163,10 +256,56 @@
             return Agent.WorldDisplayName;
         }
 
-        if (!string.IsNullOrWhiteSpace(Server.WorldPath))
-            return Path.GetFileName(Server.WorldPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (!string.IsNullOrWhiteSpace(Server.WorldSaveName))
+            return Server.WorldSaveName.Trim();
 
         return "World pending";
+    }
+
+    private string GetConfigProfileName()
+    {
+        if (string.IsNullOrWhiteSpace(Server.ConfigProfileId))
+            return "-";
+
+        return ConfigProfiles.GetProfile(Server.ConfigProfileId)?.Name ?? $"Missing: {Server.ConfigProfileId}";
+    }
+
+    private string GetDirectConnectTooltip() => $"Copy direct connect address {GetDirectConnectAddress()}";
+
+    private string GetDirectConnectAddress()
+    {
+        var fallbackHost = Navigation.ToAbsoluteUri(Navigation.BaseUri).Host;
+        var host = ResolveDirectConnectHost(Server.ServerIP, fallbackHost);
+        if (host.Contains(':', StringComparison.Ordinal) &&
+            !host.StartsWith("[", StringComparison.Ordinal) &&
+            !host.EndsWith("]", StringComparison.Ordinal))
+        {
+            host = $"[{host}]";
+        }
+
+        return $"{host}:{Server.ServerPort}";
+    }
+
+    private static string ResolveDirectConnectHost(string? configuredHost, string fallbackHost)
+    {
+        var host = configuredHost?.Trim() ?? string.Empty;
+        if (IsAnyAddress(host))
+            host = fallbackHost?.Trim() ?? string.Empty;
+
+        if (IsAnyAddress(host) || string.IsNullOrWhiteSpace(host))
+            return "127.0.0.1";
+
+        return host;
+    }
+
+    private static bool IsAnyAddress(string value)
+    {
+        var normalized = value.Trim().Trim('[', ']');
+        return string.IsNullOrWhiteSpace(normalized) ||
+               string.Equals(normalized, "0.0.0.0", StringComparison.Ordinal) ||
+               string.Equals(normalized, "::", StringComparison.Ordinal) ||
+               string.Equals(normalized, "*", StringComparison.Ordinal) ||
+               string.Equals(normalized, "+", StringComparison.Ordinal);
     }
 
     private string GetStatusLabel()

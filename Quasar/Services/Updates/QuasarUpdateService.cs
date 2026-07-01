@@ -1,5 +1,7 @@
 using System.Formats.Tar;
 using System.IO.Compression;
+using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -13,6 +15,7 @@ public sealed class QuasarUpdateService : BackgroundService
 {
     private const string AppSettingsFileName = "appsettings.json";
     private const string AppSettingsReleaseBaseFileName = ".quasar-appsettings-release-base.json";
+    private static readonly TimeSpan GitHubTokenExpiryWarningWindow = TimeSpan.FromDays(14);
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -22,21 +25,27 @@ public sealed class QuasarUpdateService : BackgroundService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly QuasarUpdateOptions _options;
     private readonly WebServiceOptions _webOptions;
+    private readonly GitHubUpdateCredentialsCatalog _githubCredentials;
     private readonly ILogger<QuasarUpdateService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _sync = new();
     private QuasarUpdateSnapshot _snapshot;
+    private DateTimeOffset? _githubTokenExpiresAtUtc;
+    private bool _githubTokenRejected;
 
     public QuasarUpdateService(
         IHttpClientFactory httpClientFactory,
         QuasarUpdateOptions options,
         WebServiceOptions webOptions,
+        GitHubUpdateCredentialsCatalog githubCredentials,
         ILogger<QuasarUpdateService> logger)
     {
         _httpClientFactory = httpClientFactory;
         _options = options;
         _webOptions = webOptions;
+        _githubCredentials = githubCredentials;
         _logger = logger;
+        _githubCredentials.Changed += OnGitHubCredentialsChanged;
         _snapshot = new QuasarUpdateSnapshot
         {
             Enabled = options.Enabled,
@@ -45,12 +54,19 @@ public sealed class QuasarUpdateService : BackgroundService
             CurrentBootstrapVersion = webOptions.BootstrapVersion,
             IncludePrerelease = options.IncludePrerelease,
             AutoStageWebUpdates = options.AutoStageWebUpdates,
+            GitHubTokenConfigured = githubCredentials.HasToken,
             Status = QuasarUpdateStatus.Idle,
             Message = options.Enabled
                 ? "Update checks pending."
                 : "Update checks disabled.",
             LastChangedUtc = DateTimeOffset.UtcNow,
         };
+    }
+
+    public override void Dispose()
+    {
+        _githubCredentials.Changed -= OnGitHubCredentialsChanged;
+        base.Dispose();
     }
 
     public event Action? Changed;
@@ -246,11 +262,10 @@ public sealed class QuasarUpdateService : BackgroundService
             Directory.CreateDirectory(cacheDirectory);
             var archivePath = Path.Combine(cacheDirectory, candidate.AssetName);
 
-            using var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromMinutes(10);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("Quasar");
+            using var client = CreateGitHubClient(TimeSpan.FromMinutes(10));
             using (var response = await client.GetAsync(candidate.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
             {
+                ObserveGitHubTokenExpiration(response);
                 response.EnsureSuccessStatusCode();
                 await using var archive = File.Create(archivePath);
                 await response.Content.CopyToAsync(archive, cancellationToken).ConfigureAwait(false);
@@ -379,6 +394,9 @@ public sealed class QuasarUpdateService : BackgroundService
 
     public Task ActivateStagedWebUpdateAsync(CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(_webOptions.LauncherToken))
+            throw new InvalidOperationException("Quasar is not running under Bootstrap, so staged UI updates cannot be activated from the UI.");
+
         var candidate = GetSnapshot().Web;
         if (candidate is null || !candidate.IsStaged || string.IsNullOrWhiteSpace(candidate.StagedDirectory))
             throw new InvalidOperationException("No staged Quasar UI update is ready to activate.");
@@ -416,6 +434,35 @@ public sealed class QuasarUpdateService : BackgroundService
         File.WriteAllText(path, JsonSerializer.Serialize(pointer, JsonOptions));
         CleanupStagedUpdates(activeDirectory);
         return Task.CompletedTask;
+    }
+
+    public async Task RequestBootstrapUpdateActivationAsync(CancellationToken cancellationToken = default)
+    {
+        var bootstrap = GetSnapshot().Bootstrap;
+        if (bootstrap is null || !bootstrap.IsNewer)
+            throw new InvalidOperationException("No Bootstrap update is available to activate.");
+
+        if (string.IsNullOrWhiteSpace(_webOptions.LauncherToken))
+            throw new InvalidOperationException("Quasar is not running under Bootstrap, so the launcher cannot be updated from the UI.");
+
+        var path = MagnetarPaths.GetQuasarBootstrapUpdateRequestPath();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        var request = new JsonObject
+        {
+            ["requestedAtUtc"] = DateTimeOffset.UtcNow.ToString("O"),
+            ["version"] = bootstrap.Version,
+            ["assetName"] = bootstrap.AssetName,
+            ["workerVersion"] = _webOptions.Version,
+        };
+
+        await AtomicFileWriter.WriteTextAsync(path, request.ToJsonString(JsonOptions), cancellationToken).ConfigureAwait(false);
+
+        SetSnapshot(_snapshot with
+        {
+            Status = QuasarUpdateStatus.Activating,
+            Message = $"Bootstrap {bootstrap.Version} activation requested. Quasar will restart shortly.",
+        });
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -459,12 +506,14 @@ public sealed class QuasarUpdateService : BackgroundService
 
     private async Task<IReadOnlyList<GitHubRelease>> GetReleasesAsync(CancellationToken cancellationToken)
     {
-        using var client = _httpClientFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(30);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("Quasar");
+        using var client = CreateGitHubClient(TimeSpan.FromSeconds(30));
 
         var url = $"https://api.github.com/repos/{_options.Owner}/{_options.Repository}/releases?per_page=100";
         using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
+        ObserveGitHubTokenExpiration(response);
+        if (response.StatusCode == HttpStatusCode.Unauthorized && _githubCredentials.HasToken)
+            _githubTokenRejected = true;
+
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
@@ -900,10 +949,11 @@ public sealed class QuasarUpdateService : BackgroundService
         if (string.IsNullOrWhiteSpace(candidate.ChecksumDownloadUrl))
             return string.Empty;
 
-        using var client = _httpClientFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(30);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("Quasar");
-        var text = await client.GetStringAsync(candidate.ChecksumDownloadUrl, cancellationToken).ConfigureAwait(false);
+        using var client = CreateGitHubClient(TimeSpan.FromSeconds(30));
+        using var response = await client.GetAsync(candidate.ChecksumDownloadUrl, cancellationToken).ConfigureAwait(false);
+        ObserveGitHubTokenExpiration(response);
+        response.EnsureSuccessStatusCode();
+        var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         var checksums = ParseSha256Sums(text);
         return GetChecksum(checksums, candidate.AssetName);
     }
@@ -1076,8 +1126,76 @@ public sealed class QuasarUpdateService : BackgroundService
         }
     }
 
+    private HttpClient CreateGitHubClient(TimeSpan timeout)
+    {
+        var client = _httpClientFactory.CreateClient();
+        client.Timeout = timeout;
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("Quasar");
+
+        var token = _githubCredentials.GetCredentials().Token;
+        if (!string.IsNullOrWhiteSpace(token))
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        return client;
+    }
+
+    private void ObserveGitHubTokenExpiration(HttpResponseMessage response)
+    {
+        if (!_githubCredentials.HasToken)
+            return;
+
+        _githubTokenRejected = response.StatusCode == HttpStatusCode.Unauthorized;
+        if (!response.Headers.TryGetValues("GitHub-Authentication-Token-Expiration", out var values))
+            return;
+
+        var value = values.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(value) || !DateTimeOffset.TryParse(value, out var expiresAtUtc))
+            return;
+
+        _githubTokenExpiresAtUtc = expiresAtUtc.ToUniversalTime();
+    }
+
+    private void OnGitHubCredentialsChanged()
+    {
+        _githubTokenExpiresAtUtc = null;
+        _githubTokenRejected = false;
+        SetSnapshot(_snapshot with
+        {
+            Message = _githubCredentials.HasToken
+                ? "GitHub update token saved."
+                : "GitHub update token cleared.",
+            Status = QuasarUpdateStatus.Idle,
+        });
+    }
+
+    private GitHubTokenState GetGitHubTokenState()
+    {
+        var configured = _githubCredentials.HasToken;
+        if (!configured)
+            return new GitHubTokenState(false, null, false, false, string.Empty);
+
+        if (_githubTokenRejected)
+            return new GitHubTokenState(true, _githubTokenExpiresAtUtc, true, false,
+                "GitHub update token was rejected. It may be expired or revoked. Save a new token.");
+
+        if (_githubTokenExpiresAtUtc is not { } expiresAtUtc)
+            return new GitHubTokenState(true, null, false, false, string.Empty);
+
+        var now = DateTimeOffset.UtcNow;
+        if (expiresAtUtc <= now)
+            return new GitHubTokenState(true, expiresAtUtc, true, false,
+                $"GitHub update token expired on {expiresAtUtc.ToLocalTime():yyyy-MM-dd}. Save a new token.");
+
+        if (expiresAtUtc - now <= GitHubTokenExpiryWarningWindow)
+            return new GitHubTokenState(true, expiresAtUtc, false, true,
+                $"GitHub update token expires on {expiresAtUtc.ToLocalTime():yyyy-MM-dd}. Renew it before update checks start failing.");
+
+        return new GitHubTokenState(true, expiresAtUtc, false, false, string.Empty);
+    }
+
     private void SetSnapshot(QuasarUpdateSnapshot snapshot)
     {
+        var gitHubToken = GetGitHubTokenState();
         lock (_sync)
         {
             _snapshot = snapshot with
@@ -1088,12 +1206,24 @@ public sealed class QuasarUpdateService : BackgroundService
                 CurrentBootstrapVersion = _webOptions.BootstrapVersion,
                 IncludePrerelease = _options.IncludePrerelease,
                 AutoStageWebUpdates = _options.AutoStageWebUpdates,
+                GitHubTokenConfigured = gitHubToken.Configured,
+                GitHubTokenExpiresAtUtc = gitHubToken.ExpiresAtUtc,
+                GitHubTokenExpired = gitHubToken.Expired,
+                GitHubTokenExpiringSoon = gitHubToken.ExpiringSoon,
+                GitHubTokenWarning = gitHubToken.Warning,
                 LastChangedUtc = DateTimeOffset.UtcNow,
             };
         }
 
         Changed?.Invoke();
     }
+
+    private sealed record GitHubTokenState(
+        bool Configured,
+        DateTimeOffset? ExpiresAtUtc,
+        bool Expired,
+        bool ExpiringSoon,
+        string Warning);
 
     private sealed record AppSettingsResolution(bool HasConflict, string Message, string Path)
     {

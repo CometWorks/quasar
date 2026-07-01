@@ -1,6 +1,7 @@
 @page "/world-templates"
 @implements IDisposable
 @inject QuasarWorldTemplateCatalog WorldTemplateCatalog
+@inject QuasarConfigProfileCatalog ConfigProfiles
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject WorldTemplateImportLocationService ImportLocations
@@ -9,111 +10,127 @@
 
 <MudGrid>
     <MudItem xs="12" xl="5">
-        <MudPaper Class="pa-4 summary-card">
-            <MudText Typo="Typo.h6" GutterBottom="true">Import World Template</MudText>
-
-            <MudStack Spacing="2">
-                <MudTextField @bind-Value="_name" Label="Template name" Variant="Variant.Outlined" />
-                <MudTextField @bind-Value="_description" Label="Description" Variant="Variant.Outlined" Lines="3" Sizing="InputSizing.Auto" MaxLines="10000" />
-                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Start">
-                    <MudTextField
-                        @bind-Value="_sourcePath"
-                        Label="Source world path"
-                        Variant="Variant.Outlined"
-                        Class="flex-grow-1"
-                        HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc. Quasar copies all files into managed storage." />
-                    <MudButton Variant="Variant.Outlined"
-                               Color="Color.Default"
-                               StartIcon="@Icons.Material.Filled.FolderOpen"
-                               Class="world-template-browse-button"
-                               OnClick="OpenFolderPickerAsync">
-                        Browse
-                    </MudButton>
-                </MudStack>
-
-                <MudStack Row="true" Spacing="1">
-                    <MudButton
-                        Variant="Variant.Filled"
-                        Color="Color.Primary"
-                        OnClick="ImportAsync"
-                        Disabled="_importing">
-                        @(_importing ? "Importing…" : "Import")
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ResetForm">Clear</MudButton>
-                </MudStack>
-            </MudStack>
-
-            <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="mt-4">
-                <MudExpansionPanel KeepContentAlive="false">
-                    <TitleContent>
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                            <MudText Typo="Typo.subtitle2">Installed Space Engineers templates</MudText>
-                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_installedTemplates.Count</MudChip>
-                        </MudStack>
-                    </TitleContent>
-                    <ChildContent>
-                        <MudStack Spacing="2" Class="mt-2">
+        <MudTabs Elevation="0"
+                 Rounded="true"
+                 Outlined="true"
+                 ApplyEffectsToContainer="true"
+                 KeepPanelsAlive="false"
+                 TabPanelsClass="pa-4">
+            <MudTabPanel Text="Predefined worlds" Icon="@Icons.Material.Filled.Public">
+                <MudStack Spacing="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                        <div>
+                            <MudText Typo="Typo.h6">Predefined Worlds</MudText>
                             <MudText Typo="Typo.body2">
                                 Add a template from Dedicated Server content without entering a name or path.
                             </MudText>
-                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-                                <MudTextField
-                                    @bind-Value="_installedTemplateSearch"
-                                    Label="Search installed templates"
-                                    Variant="Variant.Outlined"
-                                    Immediate="true"
-                                    Adornment="Adornment.Start"
-                                    AdornmentIcon="@Icons.Material.Filled.Search"
-                                    Class="flex-grow-1" />
-                                <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInstalledTemplates">
-                                    Refresh
-                                </MudButton>
-                            </MudStack>
+                        </div>
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_installedTemplates.Count</MudChip>
+                    </MudStack>
 
-                            @if (_installedTemplates.Count == 0)
-                            {
-                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                                    No installed Dedicated Server world or scenario templates found.
-                                </MudAlert>
-                            }
-                            else
-                            {
-                                <MudTable T="InstalledWorldTemplateSource" Dense="true" Hover="true" Items="FilteredInstalledTemplates" Breakpoint="Breakpoint.Sm">
-                                    <HeaderContent>
-                                        <MudTh>Name</MudTh>
-                                        <MudTh>Source</MudTh>
-                                        <MudTh></MudTh>
-                                    </HeaderContent>
-                                    <RowTemplate>
-                                        <MudTd DataLabel="Name">@context.DisplayName</MudTd>
-                                        <MudTd DataLabel="Source">
-                                            <MudStack Spacing="0">
-                                                <MudText Typo="Typo.caption">@context.Category</MudText>
-                                                <MudText Typo="Typo.caption" Class="mono">@context.SourcePath</MudText>
-                                            </MudStack>
-                                        </MudTd>
-                                        <MudTd Style="text-align:right;">
-                                            <MudButton Variant="Variant.Outlined"
+                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                        <MudTextField
+                            @bind-Value="_installedTemplateSearch"
+                            Label="Search installed templates"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            Adornment="Adornment.Start"
+                            AdornmentIcon="@Icons.Material.Filled.Search"
+                            Class="flex-grow-1" />
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInstalledTemplates">
+                            Refresh
+                        </MudButton>
+                    </MudStack>
+
+                    @if (_installedTemplates.Count == 0)
+                    {
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                            No installed Dedicated Server world or scenario templates found.
+                        </MudAlert>
+                    }
+                    else
+                    {
+                        <MudTable T="InstalledWorldTemplateSource" Dense="true" Hover="true" Items="FilteredInstalledTemplates" Breakpoint="Breakpoint.Sm" Class="installed-world-template-table">
+                            <ColGroup>
+                                <col class="installed-world-template-name-column" />
+                                <col class="installed-world-template-source-column" />
+                                <col class="installed-world-template-action-column" />
+                            </ColGroup>
+                            <HeaderContent>
+                                <MudTh Class="installed-world-template-name-cell">Name</MudTh>
+                                <MudTh Class="installed-world-template-source-cell">Source</MudTh>
+                                <MudTh Class="installed-world-template-action-cell quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Name" Class="installed-world-template-name-cell">
+                                    <MudText Typo="Typo.body2" Class="installed-world-template-name-text">@context.DisplayName</MudText>
+                                </MudTd>
+                                <MudTd DataLabel="Source" Class="installed-world-template-source-cell">
+                                    <MudStack Spacing="0" Class="installed-world-template-source-stack">
+                                        <MudText Typo="Typo.caption" Class="installed-world-template-source-text">@context.Category</MudText>
+                                        <MudText Typo="Typo.caption" Class="mono installed-world-template-source-text">@context.SourceDisplayPath</MudText>
+                                    </MudStack>
+                                </MudTd>
+                                <MudTd DataLabel="" Class="installed-world-template-action-cell quasar-actions-column">
+                                    <MudTooltip Text="Add template">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Add"
                                                        Color="Color.Primary"
                                                        Size="Size.Small"
                                                        Disabled="_importing"
-                                                       OnClick="@(() => ImportInstalledTemplateAsync(context))">
-                                                Add
-                                            </MudButton>
-                                        </MudTd>
-                                    </RowTemplate>
-                                    <NoRecordsContent>
-                                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
-                                            No installed templates match current search.
-                                        </MudAlert>
-                                    </NoRecordsContent>
-                                </MudTable>
-                            }
-                        </MudStack>
-                    </ChildContent>
-                </MudExpansionPanel>
-            </MudExpansionPanels>
-        </MudPaper>
+                                                       OnClick="@(() => ImportInstalledTemplateAsync(context))" />
+                                    </MudTooltip>
+                                </MudTd>
+                            </RowTemplate>
+                            <NoRecordsContent>
+                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                    No installed templates match current search.
+                                </MudAlert>
+                            </NoRecordsContent>
+                        </MudTable>
+                    }
+                </MudStack>
+            </MudTabPanel>
+
+            <MudTabPanel Text="Custom import" Icon="@Icons.Material.Filled.FolderOpen">
+                <MudStack Spacing="2">
+                    <div>
+                        <MudText Typo="Typo.h6">Custom World Import</MudText>
+                        <MudText Typo="Typo.body2">
+                            Import an existing Space Engineers save folder from the server filesystem.
+                        </MudText>
+                    </div>
+
+                    <MudTextField @bind-Value="_name" Label="Template name" Variant="Variant.Outlined" />
+                    <MudTextField @bind-Value="_description" Label="Description" Variant="Variant.Outlined" Lines="3" Sizing="InputSizing.Auto" MaxLines="10000" />
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Start">
+                        <MudTextField
+                            @bind-Value="_sourcePath"
+                            Label="Source world path"
+                            Variant="Variant.Outlined"
+                            Class="flex-grow-1"
+                            HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc. Quasar copies all files into managed storage." />
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Default"
+                                   StartIcon="@Icons.Material.Filled.FolderOpen"
+                                   Class="world-template-browse-button"
+                                   OnClick="OpenFolderPickerAsync">
+                            Browse
+                        </MudButton>
+                    </MudStack>
+
+                    <MudStack Row="true" Spacing="1">
+                        <MudButton
+                            Variant="Variant.Filled"
+                            Color="Color.Primary"
+                            OnClick="ImportAsync"
+                            Disabled="_importing">
+                            @(_importing ? "Importing…" : "Import")
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ResetForm">Clear</MudButton>
+                    </MudStack>
+                </MudStack>
+            </MudTabPanel>
+        </MudTabs>
     </MudItem>
 
     <MudItem xs="12" xl="7">
@@ -121,7 +138,7 @@
             <MudText Typo="Typo.h6" GutterBottom="true">World Templates</MudText>
             
             <div>
-                <MudText Typo="Typo.body2" Class="mb-4">Reusable world templates. Import an existing Space Engineers save folder and select it when creating a server. Quasar copies template world data into the server on first launch.</MudText>
+                <MudText Typo="Typo.body2" Class="mb-4">Reusable world templates. Import an existing Space Engineers save folder, then create server saves from templates in the server editor.</MudText>
             </div>
 
             @if (Templates.Count == 0)
@@ -134,15 +151,13 @@
             {
                 <MudTable T="WorldTemplateRow" Dense="true" Hover="true" Items="Templates">
                     <HeaderContent>
-                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.Name)">Name</MudTableSortLabel></MudTh>
-                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.Description)">Description</MudTableSortLabel></MudTh>
                         <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.FileSizeMb)">Size</MudTableSortLabel></MudTh>
                         <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.UpdatedAtUtc)">Updated</MudTableSortLabel></MudTh>
-                        <MudTh></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.Name)">Name</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplateRow, object>(x => x.Template.Description)">Description</MudTableSortLabel></MudTh>
+                        <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd DataLabel="Name">@context.Template.Name</MudTd>
-                        <MudTd DataLabel="Description">@context.Template.Description</MudTd>
                         <MudTd DataLabel="Size">
                             @if (context.WorldExists)
                             {
@@ -154,9 +169,31 @@
                             }
                         </MudTd>
                         <MudTd DataLabel="Updated">@context.Template.UpdatedAtUtc.LocalDateTime.ToString("g")</MudTd>
-                        <MudTd Style="text-align: right;">
-                            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => CloneAsync(context))" Disabled="@(!context.WorldExists || _importing)">Clone</MudButton>
-                            <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context.Template))">Delete</MudButton>
+                        <MudTd DataLabel="Name">@context.Template.Name</MudTd>
+                        <MudTd DataLabel="Description">@context.Template.Description</MudTd>
+                        <MudTd DataLabel="" Class="quasar-actions-column">
+                            <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
+                                <MudTooltip Text="Create config profile from world settings">
+                                    <MudIconButton Icon="@Icons.Material.Filled.SettingsApplications"
+                                                   Color="Color.Primary"
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => CreateConfigProfileFromTemplateAsync(context))"
+                                                   Disabled="@(!context.WorldExists || _importing)" />
+                                </MudTooltip>
+                                <MudTooltip Text="Clone template">
+                                    <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
+                                                   Color="Color.Default"
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => CloneAsync(context))"
+                                                   Disabled="@(!context.WorldExists || _importing)" />
+                                </MudTooltip>
+                                <MudTooltip Text="Delete template">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                   Color="Color.Error"
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => DeleteAsync(context.Template))" />
+                                </MudTooltip>
+                            </MudStack>
                         </MudTd>
                     </RowTemplate>
                 </MudTable>
@@ -222,12 +259,17 @@
             return;
         }
 
+        var profilePrompt = await PromptForConfigProfileAsync(_name.Trim(), _sourcePath.Trim(), allowSkip: true);
+        if (profilePrompt.Canceled)
+            return;
+
         _importing = true;
         try
         {
             await WorldTemplateCatalog.ImportAsync(_name, _description, _sourcePath);
             Snackbar.Add($"World template '{_name}' imported.", Severity.Success);
             ResetForm();
+            await CreateConfigProfileAsync(profilePrompt.Profile);
         }
         catch (Exception ex)
         {
@@ -261,11 +303,16 @@
 
     private async Task ImportInstalledTemplateAsync(InstalledWorldTemplateSource source)
     {
+        var profilePrompt = await PromptForConfigProfileAsync(source.DisplayName, source.SourcePath, allowSkip: true);
+        if (profilePrompt.Canceled)
+            return;
+
         _importing = true;
         try
         {
             var template = await WorldTemplateCatalog.ImportAsync(source.DisplayName, source.Description, source.SourcePath);
             Snackbar.Add($"World template '{template.Name}' added.", Severity.Success);
+            await CreateConfigProfileAsync(profilePrompt.Profile);
         }
         catch (Exception ex)
         {
@@ -275,6 +322,88 @@
         {
             _importing = false;
         }
+    }
+
+    private async Task CreateConfigProfileFromTemplateAsync(WorldTemplateRow row)
+    {
+        if (!row.WorldExists)
+            return;
+
+        var sourceDir = WorldTemplateCatalog.GetWorldDirectory(row.Template.WorldTemplateId);
+        var profilePrompt = await PromptForConfigProfileAsync(row.Template.Name, sourceDir, allowSkip: false);
+        if (profilePrompt.Canceled || profilePrompt.Profile is null)
+            return;
+
+        _importing = true;
+        try
+        {
+            await CreateConfigProfileAsync(profilePrompt.Profile);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _importing = false;
+        }
+    }
+
+    private async Task<(bool Canceled, QuasarConfigProfile? Profile)> PromptForConfigProfileAsync(
+        string worldName,
+        string worldPath,
+        bool allowSkip)
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(WorldTemplateConfigProfileDialog.WorldName)] = worldName,
+            [nameof(WorldTemplateConfigProfileDialog.WorldPath)] = worldPath,
+            [nameof(WorldTemplateConfigProfileDialog.AllowSkip)] = allowSkip,
+        };
+
+        var dialog = await DialogService.ShowAsync<WorldTemplateConfigProfileDialog>(
+            "Config Profile From World",
+            parameters,
+            new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true });
+
+        var result = await dialog.Result;
+        if (result is null || result.Canceled)
+            return (true, null);
+
+        if (result.Data is WorldTemplateConfigProfileDialog.WorldTemplateConfigProfileDialogResult profileResult)
+            return (false, profileResult.Profile);
+
+        return (false, null);
+    }
+
+    private async Task<string?> CreateConfigProfileAsync(QuasarConfigProfile? profile)
+    {
+        if (profile is null)
+            return null;
+
+        await ConfigProfiles.UpsertAsync(profile);
+        Snackbar.Add($"Config profile '{profile.Name}' created from world settings.", Severity.Success);
+        await OpenConfigProfileEditorAsync(profile.ConfigProfileId);
+        return profile.ConfigProfileId;
+    }
+
+    private async Task OpenConfigProfileEditorAsync(string configProfileId)
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(ConfigsPageDialog.InitialProfileId)] = configProfileId,
+        };
+
+        var dialog = await DialogService.ShowAsync<ConfigsPageDialog>(
+            "Config Profiles",
+            parameters,
+            new DialogOptions
+            {
+                CloseOnEscapeKey = true,
+                FullScreen = true,
+            });
+
+        await dialog.Result;
     }
 
     private async Task OpenFolderPickerAsync()
@@ -334,6 +463,7 @@
 
         return Contains(template.DisplayName, search) ||
                Contains(template.Category, search) ||
+               Contains(template.SourceDisplayPath, search) ||
                Contains(template.SourcePath, search);
     }
 

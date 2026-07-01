@@ -1,6 +1,0 @@
-# Magnetar.Protocol/Model/ViewerSceneDtos.cs
-
-**Module:** Magnetar.Protocol  **Kind:** class  **Tier:** 1
-
-## Summary
-Shared DTOs for the Quasar grid viewer scene contract. `EntityRenderSceneRequest` carries the target entity ID plus optional voxel-data and context-mode inclusion flags for `ServerCommandType.GetEntityRenderScene`; `EntityRenderScene` and related `Viewer*` classes describe primary/context grid identity, ownership metadata for blocks/chunks/lights, logical context bounds, explicit context clip-prism bounds, context counters, block placement, transforms, scene environment, build/integrity/accumulated-damage metadata, current-model orientation matrices, compact damaged-block skeleton deformation points, selected-grid logistics nodes/edges/systems, active mod asset roots, captured block and subpart light sources, status-emissive material overrides, logical model/texture references with optional mod root hints, generated model parts, runtime subparts with entity IDs, LCD metadata, voxel body metadata, bounded voxel content/material chunks, separate voxel damage chunks, bounds, chunks, and warnings without including raw assets, inventory contents, server local mod paths, or server-rendered LCD texture bytes.

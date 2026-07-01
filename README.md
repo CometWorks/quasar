@@ -9,12 +9,12 @@ auto-updating them through goal-state reconciliation — while an in-process plu
 It runs on **Linux** (systemd service) and **Windows** (Scheduled Task), in
 foreground console or unattended background mode.
 
-Each server uses the **[Magnetar](https://github.com/viktor-ferenczi/Magnetar)** plugin loader and launcher.
+Each server uses the **[Magnetar](https://github.com/CometWorks/magnetar)** plugin loader and launcher.
 Quasar deploys an agent plugin which connects back to Quasar.
 
 Quasar downloads Magnetar and the Dedicated Server builds automatically and caches it locally until there is an update.
 
-You can register new plugins by making PRs to the [MagnetarHub](https://github.com/viktor-ferenczi/MagnetarHub).
+You can register new plugins by making PRs to the [MagnetarHub](https://github.com/CometWorks/magnetar-hub).
 
 <!-- BEGIN packaged install instructions -->
 ## Getting started
@@ -35,7 +35,3 @@ from the terminal, and install it as a background service.
 | [Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) | systemd install, release assets, and the auto-updater flow. |
 | [Windows Deployment & Updates](Docs/WindowsDeploymentAndUpdates.md) | Scheduled Task install, release assets, and the auto-updater flow. |
 | [State Machine Diagrams](Docs/StateMachines/Index.md) | Object states and state machines (server lifecycle, agent connection, self-update, runtime provisioning, backups, …) as Mermaid + PNG. |
-
-For the full per-file and per-module code reference, see the generated
-[code handbook (`Docs/Reference/TOC.md`)](Docs/Reference/TOC.md) — auto-generated
-and maintained from source, with a flat [Index](Docs/Reference/Index.md).

@@ -117,10 +117,12 @@ public sealed class AgentSocketHandler
 
             case WireMessageKind.PluginConfigSnapshot when message.PluginConfigSnapshot is not null:
                 _pluginConfigService.IngestSnapshot(message.PluginConfigSnapshot);
+                _registry.TouchConnection(connectionId);
                 break;
 
             case WireMessageKind.PluginLogs when message.PluginLogs is not null:
                 IngestPluginLogs(message.PluginLogs, connectionId);
+                _registry.TouchConnection(connectionId);
                 break;
 
             case WireMessageKind.AdminStop:
@@ -146,6 +148,26 @@ public sealed class AgentSocketHandler
                 {
                     _logger.LogWarning(
                         "Received admin-stop signal for unknown connection {ConnectionId}.",
+                        connectionId);
+                }
+
+                break;
+
+            case WireMessageKind.AdminRestart:
+                if (_registry.TryGetUniqueName(connectionId, out var restartedUniqueName))
+                {
+                    _logger.LogInformation(
+                        "Admin restarted server {UniqueName} in-game; keeping goal state On and tracking restart.",
+                        restartedUniqueName);
+
+                    await _supervisor.BeginAdminRestartAsync(
+                        restartedUniqueName,
+                        _lifetime.ApplicationStopping);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Received admin-restart signal for unknown connection {ConnectionId}.",
                         connectionId);
                 }
 

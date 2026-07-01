@@ -4,8 +4,11 @@
 @inject QuasarUpdateService UpdateService
 @inject QuasarUpdateOptions Options
 @inject WebServiceOptions WebOptions
+@inject GitHubUpdateCredentialsCatalog GitHubCredentials
+@inject ManagedRuntimeWarmupService RuntimeWarmup
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject IJSRuntime JS
 
 <PageTitle>Updates</PageTitle>
 
@@ -18,7 +21,7 @@
                    StartIcon="@Icons.Material.Filled.Upgrade"
                    Disabled="_busy"
                    OnClick="CheckNowAsync">
-            Check now
+            Check Quasar
         </MudButton>
     </MudStack>
 
@@ -135,11 +138,15 @@
                             <MudButton Variant="Variant.Filled"
                                        Color="Color.Warning"
                                        StartIcon="@Icons.Material.Filled.RestartAlt"
-                                       Disabled="_busy || _snapshot.Web is null || !_snapshot.Web.IsStaged || _snapshot.Web.IsCurrent"
+                                       Disabled="@(!CanActivateWebUpdate)"
                                        OnClick="ActivateAsync">
                                 Activate
                             </MudButton>
                         </MudStack>
+                        @if (_snapshot.Web is { IsStaged: true, IsCurrent: false } && !IsUnderBootstrap)
+                        {
+                            <MudText Typo="Typo.caption">Quasar is not running under Bootstrap, so this update cannot be activated from the UI.</MudText>
+                        }
                     }
                 </MudStack>
             </MudPaper>
@@ -150,7 +157,7 @@
                 <MudStack Spacing="3">
                     <MudText Typo="Typo.h6">Bootstrap</MudText>
                     <MudText Typo="Typo.body2">
-                        Bootstrap updates are installed automatically by the launcher when a newer primary Quasar release is available.
+                        Bootstrap updates are installed automatically by the launcher when a newer primary Quasar release is available. Force activation asks the launcher to run that update now.
                     </MudText>
                     <MudText Typo="Typo.body2">
                         Current version: <strong>@FormatBootstrapVersion()</strong>
@@ -171,10 +178,78 @@
                             <RowTemplate>
                                 <MudTd DataLabel="Version">@context.Version</MudTd>
                                 <MudTd DataLabel="Asset">@context.AssetName</MudTd>
-                                <MudTd DataLabel="Action">Automatic launcher restart</MudTd>
+                                <MudTd DataLabel="Action">Ready for launcher restart</MudTd>
                             </RowTemplate>
                         </MudTable>
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Warning"
+                                   StartIcon="@Icons.Material.Filled.RestartAlt"
+                                   Disabled="@(!CanForceActivateBootstrap)"
+                                   OnClick="ForceActivateBootstrapAsync">
+                            Force activate
+                        </MudButton>
+                        @if (!IsUnderBootstrap)
+                        {
+                            <MudText Typo="Typo.caption">Quasar is not running under Bootstrap, so this update cannot be activated from the UI.</MudText>
+                        }
                     }
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12">
+            <MudPaper Class="pa-4">
+                <MudStack Spacing="3">
+                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+                        <div>
+                            <MudText Typo="Typo.h6">Managed Runtime</MudText>
+                            <MudText Typo="Typo.body2">
+                                Magnetar checks run every @ManagedRuntimeWarmupService.MagnetarUpdateCheckPeriod.TotalMinutes.ToString("0") min. Dedicated Server checks run at startup and when requested here.
+                            </MudText>
+                        </div>
+                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Refresh"
+                                       Disabled="_runtimeBusy"
+                                       OnClick="CheckMagnetarNowAsync">
+                                Check Magnetar
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Refresh"
+                                       Disabled="_runtimeBusy"
+                                       OnClick="CheckDedicatedServerNowAsync">
+                                Check Dedicated Server
+                            </MudButton>
+                        </MudStack>
+                    </MudStack>
+
+                    <MudTable Items="@ManagedRuntimeRows" Dense="true" Hover="true">
+                        <HeaderContent>
+                            <MudTh>Component</MudTh>
+                            <MudTh>Installed version</MudTh>
+                            <MudTh>Status</MudTh>
+                            <MudTh>Path</MudTh>
+                            <MudTh>Last check</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Component">@context.DisplayName</MudTd>
+                            <MudTd DataLabel="Installed version">@FormatRuntimeVersion(context)</MudTd>
+                            <MudTd DataLabel="Status">@context.Message</MudTd>
+                            <MudTd DataLabel="Path">
+                                @if (!string.IsNullOrWhiteSpace(context.Path))
+                                {
+                                    <CopyablePath Value="@context.Path" Inline="true" TextClass="" />
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.body2">-</MudText>
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="Last check">@FormatTimestamp(context.LastCheckedUtc)</MudTd>
+                        </RowTemplate>
+                    </MudTable>
                 </MudStack>
             </MudPaper>
         </MudItem>
@@ -192,6 +267,78 @@
                     <MudText Typo="Typo.body2">
                         Release stream: @(_includePrerelease ? "stable and prerelease" : "stable only")
                     </MudText>
+                    <MudDivider />
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudText Typo="Typo.subtitle1">GitHub token</MudText>
+                            <MudChip T="string"
+                                     Size="Size.Small"
+                                     Variant="Variant.Outlined"
+                                     Color="@GetGitHubTokenChipColor()"
+                                     Icon="@GetGitHubTokenChipIcon()">
+                                @FormatGitHubTokenStatus()
+                            </MudChip>
+                        </MudStack>
+                        @if (!string.IsNullOrWhiteSpace(_snapshot.GitHubTokenWarning))
+                        {
+                            <MudAlert Severity="@(_snapshot.GitHubTokenExpired ? Severity.Error : Severity.Warning)" Variant="Variant.Outlined" Dense="true">
+                                @_snapshot.GitHubTokenWarning
+                            </MudAlert>
+                        }
+                        <MudText Typo="Typo.body2">
+                            Add a GitHub personal access token so Quasar update checks use your account rate limit instead of the shared public IP limit.
+                        </MudText>
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                            <MudStack Spacing="1">
+                                <MudText Typo="Typo.body2">
+                                    Create a classic personal access token without any permissions:
+                                </MudText>
+                                <ol class="mud-typography mud-typography-body2 ma-0 pl-4">
+                                    <li>Open GitHub's classic token creation page.</li>
+                                    <li>Set Note to Quasar update checks and set an expiration you can renew before it ends.</li>
+                                    <li>Do not select any scopes or permissions. Public release checks only need authentication for rate limiting.</li>
+                                    <li>Generate the token, copy it once, paste it here, save it, then press Check Quasar.</li>
+                                </ol>
+                                <MudLink Href="https://github.com/settings/tokens/new"
+                                         Target="_blank"
+                                         Underline="Underline.Always"
+                                         Color="Color.Primary"
+                                         Typo="Typo.subtitle2">
+                                    Open GitHub classic token page
+                                </MudLink>
+                            </MudStack>
+                        </MudAlert>
+                        <MudText Typo="Typo.caption">
+                            Stored encrypted in @System.IO.Path.GetFileName(MagnetarPaths.GetQuasarGitHubUpdateCredentialsPath()) with the same local Data Protection keyring used for the Steam Workshop API key.
+                        </MudText>
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+                            <MudTextField
+                                @bind-Value="_githubToken"
+                                Label="GitHub token"
+                                Variant="Variant.Outlined"
+                                InputType="InputType.Password"
+                                Immediate="true"
+                                Adornment="Adornment.Start"
+                                AdornmentIcon="@Icons.Material.Filled.Key"
+                                Disabled="_busy"
+                                Class="configs-search-field" />
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Save"
+                                       Disabled="_busy || string.IsNullOrWhiteSpace(_githubToken)"
+                                       OnClick="SaveGitHubTokenAsync">
+                                Save token
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Default"
+                                       StartIcon="@Icons.Material.Filled.DeleteOutline"
+                                       Disabled="_busy || !_snapshot.GitHubTokenConfigured"
+                                       OnClick="ClearGitHubTokenAsync">
+                                Clear
+                            </MudButton>
+                        </MudStack>
+                    </MudStack>
+                    <MudDivider />
                     <MudSwitch T="bool"
                                Value="_includePrerelease"
                                ValueChanged="HandleIncludePrereleaseChanged"
@@ -226,19 +373,25 @@
 
 @code {
     private QuasarUpdateSnapshot _snapshot = new();
+    private ManagedRuntimeWarmupSnapshot _runtimeSnapshot = ManagedRuntimeWarmupSnapshot.CreateInitial();
     private bool _busy;
+    private bool _runtimeBusy;
     private bool _includePrerelease;
     private bool _autoStageWebUpdates = true;
+    private bool _bootstrapActivationRequested;
     private string _selectedWebVersion = string.Empty;
     private string _appSettingsConflictText = string.Empty;
+    private string _githubToken = string.Empty;
 
     protected override void OnInitialized()
     {
         _snapshot = UpdateService.GetSnapshot();
+        _runtimeSnapshot = RuntimeWarmup.GetSnapshot();
         _includePrerelease = Options.IncludePrerelease;
         _autoStageWebUpdates = Options.AutoStageWebUpdates;
         _selectedWebVersion = _snapshot.SelectedWebVersion;
         UpdateService.Changed += OnUpdatesChanged;
+        RuntimeWarmup.Changed += OnRuntimeWarmupChanged;
         if (_snapshot.AppSettingsConflict)
             _ = LoadAppSettingsConflictAsync();
     }
@@ -246,6 +399,7 @@
     public void Dispose()
     {
         UpdateService.Changed -= OnUpdatesChanged;
+        RuntimeWarmup.Changed -= OnRuntimeWarmupChanged;
     }
 
     private void OnUpdatesChanged() => _ = InvokeAsync(() =>
@@ -256,9 +410,22 @@
         _selectedWebVersion = _snapshot.SelectedWebVersion;
         if (!_snapshot.AppSettingsConflict)
             _appSettingsConflictText = string.Empty;
+        if (_snapshot.Bootstrap is null)
+            _bootstrapActivationRequested = false;
         StateHasChanged();
         if (_snapshot.AppSettingsConflict)
             _ = LoadAppSettingsConflictAsync();
+    });
+
+    private IReadOnlyList<ManagedRuntimeComponentSnapshot> ManagedRuntimeRows => _runtimeSnapshot.Components
+        .Where(component => component.Component is ManagedRuntimeInstallComponent.Magnetar
+            or ManagedRuntimeInstallComponent.DedicatedServer)
+        .ToList();
+
+    private void OnRuntimeWarmupChanged() => _ = InvokeAsync(() =>
+    {
+        _runtimeSnapshot = RuntimeWarmup.GetSnapshot();
+        StateHasChanged();
     });
 
     private async Task CheckNowAsync()
@@ -298,10 +465,89 @@
 
     private async Task ActivateAsync()
     {
-        await RunBusyAsync(
-            () => UpdateService.ActivateStagedWebUpdateAsync(),
-            "Quasar UI update activation requested. The page will reconnect shortly.",
-            "Failed activating update");
+        if (!CanActivateWebUpdate)
+        {
+            if (!IsUnderBootstrap)
+                Snackbar.Add("Quasar is not running under Bootstrap, so this update cannot be activated from the UI.", Severity.Warning);
+
+            return;
+        }
+
+        var targetVersion = _snapshot.Web?.Version ?? string.Empty;
+        _busy = true;
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/settings/updates", new
+            {
+                expectedVersion = targetVersion,
+                initialDelayMs = 500,
+            });
+            await UpdateService.ActivateStagedWebUpdateAsync();
+            _snapshot = UpdateService.GetSnapshot();
+            Snackbar.Add("Quasar UI update activation requested. The page will reconnect shortly.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed activating update: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ForceActivateBootstrapAsync()
+    {
+        var bootstrap = _snapshot.Bootstrap;
+        if (bootstrap is null)
+            return;
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Force Bootstrap update?",
+            $"Bootstrap {bootstrap.Version} will be downloaded, verified, installed, and the Quasar launcher will restart. Running Space Engineers servers stay running.",
+            yesText: "Force activate",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        _busy = true;
+        _bootstrapActivationRequested = true;
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/settings/updates", new
+            {
+                requireUnhealthy = true,
+            });
+            await UpdateService.RequestBootstrapUpdateActivationAsync();
+            _snapshot = UpdateService.GetSnapshot();
+            Snackbar.Add("Bootstrap update activation requested. Quasar will restart shortly.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            _bootstrapActivationRequested = false;
+            Snackbar.Add($"Failed requesting Bootstrap update: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CheckMagnetarNowAsync()
+    {
+        await RunRuntimeBusyAsync(
+            () => RuntimeWarmup.CheckMagnetarNowAsync(),
+            "Magnetar update check complete.",
+            "Magnetar update check failed");
+    }
+
+    private async Task CheckDedicatedServerNowAsync()
+    {
+        await RunRuntimeBusyAsync(
+            () => RuntimeWarmup.CheckDedicatedServerNowAsync(),
+            "Dedicated Server update check complete.",
+            "Dedicated Server update check failed");
     }
 
     private async Task HandleSelectedWebVersionChanged(string? version)
@@ -431,6 +677,63 @@
             "Failed forcing release appsettings.json");
     }
 
+    private async Task SaveGitHubTokenAsync()
+    {
+        var token = _githubToken.Trim();
+        if (string.IsNullOrWhiteSpace(token))
+            return;
+
+        _busy = true;
+        try
+        {
+            await GitHubCredentials.SaveAsync(new GitHubUpdateCredentials
+            {
+                Token = token,
+            });
+
+            _githubToken = string.Empty;
+            _snapshot = UpdateService.GetSnapshot();
+            Snackbar.Add("GitHub update token saved.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed saving GitHub token: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ClearGitHubTokenAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Clear GitHub token?",
+            "Quasar update checks will go back to unauthenticated GitHub API rate limits.",
+            yesText: "Clear token",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        _busy = true;
+        try
+        {
+            await GitHubCredentials.ClearAsync();
+            _githubToken = string.Empty;
+            _snapshot = UpdateService.GetSnapshot();
+            Snackbar.Add("GitHub update token cleared.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed clearing GitHub token: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
     private async Task RunBusyAsync(Func<Task> action, string successMessage, string failurePrefix)
     {
         _busy = true;
@@ -450,6 +753,25 @@
         }
     }
 
+    private async Task RunRuntimeBusyAsync(Func<Task> action, string successMessage, string failurePrefix)
+    {
+        _runtimeBusy = true;
+        try
+        {
+            await action();
+            _runtimeSnapshot = RuntimeWarmup.GetSnapshot();
+            Snackbar.Add(successMessage, Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"{failurePrefix}: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _runtimeBusy = false;
+        }
+    }
+
     private Severity GetStatusSeverity() => _snapshot.Status switch
     {
         _ when _snapshot.AppSettingsConflict => Severity.Warning,
@@ -462,10 +784,72 @@
     private static string FormatTimestamp(DateTimeOffset? timestamp) =>
         timestamp is null ? "never" : timestamp.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
 
+    private static string FormatRuntimeVersion(ManagedRuntimeComponentSnapshot component)
+    {
+        if (!string.IsNullOrWhiteSpace(component.Version))
+            return component.Version;
+
+        return string.IsNullOrWhiteSpace(component.Path) ? "not installed" : "installed (version unknown)";
+    }
+
     private string FormatBootstrapVersion() =>
         string.IsNullOrWhiteSpace(_snapshot.CurrentBootstrapVersion)
             ? "not managed by Bootstrap"
             : _snapshot.CurrentBootstrapVersion;
+
+    private string FormatGitHubTokenStatus()
+    {
+        if (!_snapshot.GitHubTokenConfigured)
+            return "not set";
+
+        if (_snapshot.GitHubTokenExpired && _snapshot.GitHubTokenExpiresAtUtc is null)
+            return "rejected";
+
+        if (_snapshot.GitHubTokenExpired)
+            return "expired";
+
+        if (_snapshot.GitHubTokenExpiringSoon)
+            return "expires soon";
+
+        if (_snapshot.GitHubTokenExpiresAtUtc is { } expiresAtUtc)
+            return $"expires {expiresAtUtc.ToLocalTime():yyyy-MM-dd}";
+
+        return "set";
+    }
+
+    private Color GetGitHubTokenChipColor()
+    {
+        if (!_snapshot.GitHubTokenConfigured)
+            return Color.Warning;
+
+        if (_snapshot.GitHubTokenExpired)
+            return Color.Error;
+
+        return _snapshot.GitHubTokenExpiringSoon ? Color.Warning : Color.Success;
+    }
+
+    private string GetGitHubTokenChipIcon()
+    {
+        if (!_snapshot.GitHubTokenConfigured)
+            return Icons.Material.Filled.KeyOff;
+
+        return _snapshot.GitHubTokenExpired || _snapshot.GitHubTokenExpiringSoon
+            ? Icons.Material.Filled.Warning
+            : Icons.Material.Filled.Key;
+    }
+
+    private bool IsUnderBootstrap => !string.IsNullOrWhiteSpace(WebOptions.LauncherToken);
+
+    private bool CanForceActivateBootstrap =>
+        !_busy &&
+        !_bootstrapActivationRequested &&
+        IsUnderBootstrap &&
+        _snapshot.Bootstrap is { IsNewer: true };
+
+    private bool CanActivateWebUpdate =>
+        !_busy &&
+        IsUnderBootstrap &&
+        _snapshot.Web is { IsStaged: true, IsCurrent: false };
 
     private static string FormatWebReleaseOption(QuasarUpdateCandidate release)
     {

@@ -9,7 +9,7 @@ namespace Quasar.Services.Backup;
 /// <summary>An in-memory backup archive ready to stream to the browser.</summary>
 public sealed record QuasarBackupArchive(byte[] Content, string FileName);
 
-/// <summary>A backup ZIP found in the Backups directory.</summary>
+/// <summary>A backup ZIP found in the configured backup directory.</summary>
 public sealed record QuasarBackupFileInfo(
     string Name,
     long SizeBytes,
@@ -59,6 +59,8 @@ public sealed class QuasarBackupService
     private static readonly string[] SingletonConfigFiles =
     [
         "known-players.json",
+        "known-player-settings.json",
+        "data-handling-consent.json",
         "discord.json",
         "death-messages.json",
         "branding.json",
@@ -92,10 +94,11 @@ public sealed class QuasarBackupService
 
     public event Action? Changed;
 
+    public string BackupDirectory => _options.BackupDirectory;
+
     public QuasarBackupService(
         ILogger<QuasarBackupService> logger,
         WebServiceOptions options,
-        IWebHostEnvironment environment,
         KnownPlayerCatalog knownPlayers,
         QuasarDevFolderCatalog devFolders,
         DedicatedServerCatalog servers,
@@ -110,10 +113,7 @@ public sealed class QuasarBackupService
         _supervisor = supervisor;
         _restoreCoordinator = restoreCoordinator;
 
-        var webRootPath = string.IsNullOrWhiteSpace(environment.WebRootPath)
-            ? Path.Combine(environment.ContentRootPath, "wwwroot")
-            : environment.WebRootPath;
-        _brandingAssetsDirectory = MagnetarPaths.GetQuasarBrandingDirectory(webRootPath);
+        _brandingAssetsDirectory = MagnetarPaths.GetQuasarBrandingDirectory();
     }
 
     /// <summary>Builds a backup archive in memory with a timestamped download name.</summary>
@@ -123,11 +123,11 @@ public sealed class QuasarBackupService
         return new QuasarBackupArchive(content, BuildFileName(timestamp, automatic: false));
     }
 
-    /// <summary>Writes a backup ZIP into the Backups directory (used by the scheduler).</summary>
+    /// <summary>Writes a backup ZIP into the configured backup directory (used by the scheduler).</summary>
     public async Task<string> WriteBackupFileAsync(DateTimeOffset timestamp, bool automatic, CancellationToken cancellationToken = default)
     {
         var content = BuildArchiveBytes(timestamp);
-        var backupsDirectory = MagnetarPaths.GetQuasarBackupsDirectory();
+        var backupsDirectory = BackupDirectory;
         Directory.CreateDirectory(backupsDirectory);
 
         var path = CreateUniqueBackupPath(backupsDirectory, BuildFileName(timestamp, automatic));
@@ -182,7 +182,7 @@ public sealed class QuasarBackupService
     /// <summary>Deletes oldest automatic backups beyond <paramref name="retentionCount"/> for one backup kind.</summary>
     public int PruneAutomaticBackups(QuasarBackupKind kind, int retentionCount, string? serverUniqueName = null)
     {
-        var backupsDirectory = MagnetarPaths.GetQuasarBackupsDirectory();
+        var backupsDirectory = BackupDirectory;
         if (!Directory.Exists(backupsDirectory))
             return 0;
 
@@ -218,10 +218,10 @@ public sealed class QuasarBackupService
         return deleted;
     }
 
-    /// <summary>Ensures the Backups directory exists and deletes temporary files left by interrupted ZIP writes.</summary>
+    /// <summary>Ensures the configured backup directory exists and deletes temporary files left by interrupted ZIP writes.</summary>
     public int CleanupIncompleteBackupFiles()
     {
-        var backupsDirectory = MagnetarPaths.GetQuasarBackupsDirectory();
+        var backupsDirectory = BackupDirectory;
         try
         {
             Directory.CreateDirectory(backupsDirectory);
@@ -254,7 +254,7 @@ public sealed class QuasarBackupService
 
     public IReadOnlyList<QuasarBackupFileInfo> ListBackups()
     {
-        var backupsDirectory = MagnetarPaths.GetQuasarBackupsDirectory();
+        var backupsDirectory = BackupDirectory;
         if (!Directory.Exists(backupsDirectory))
             return [];
 
@@ -278,7 +278,7 @@ public sealed class QuasarBackupService
             .ToList();
     }
 
-    /// <summary>Resolves a backup file name to a full path inside the Backups directory, or null if invalid.</summary>
+    /// <summary>Resolves a backup file name to a full path inside the configured backup directory, or null if invalid.</summary>
     public string? ResolveBackupPath(string fileName)
     {
         if (string.IsNullOrWhiteSpace(fileName))
@@ -291,9 +291,9 @@ public sealed class QuasarBackupService
         if (!fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
             return null;
 
-        var backupsDirectory = MagnetarPaths.GetQuasarBackupsDirectory();
+        var backupsDirectory = BackupDirectory;
         var fullPath = Path.GetFullPath(Path.Combine(backupsDirectory, fileName));
-        if (!fullPath.StartsWith(EnsureTrailingSeparator(Path.GetFullPath(backupsDirectory)), StringComparison.Ordinal))
+        if (!IsPathWithinRoot(fullPath, Path.GetFullPath(backupsDirectory)))
             return null;
 
         return File.Exists(fullPath) ? fullPath : null;
@@ -415,7 +415,16 @@ public sealed class QuasarBackupService
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            entry.ExtractToFile(target, overwrite: true);
+            if (IsConfigurationServerDefinitionEntry(entry.FullName))
+            {
+                if (!TryRestoreServerDefinitionEntry(entry, target, cancellationToken))
+                    continue;
+            }
+            else
+            {
+                entry.ExtractToFile(target, overwrite: true);
+            }
+
             restored++;
         }
 
@@ -500,13 +509,15 @@ public sealed class QuasarBackupService
         WriteEntry(archive, ServerDefinitionEntryName, JsonSerializer.SerializeToUtf8Bytes(definition, JsonOptions));
 
         var dedicatedServerAppDataRoot = Path.GetFullPath(definition.DedicatedServerAppDataPath);
-        var worldRoot = Path.GetFullPath(definition.WorldPath);
+        var savesRoot = string.IsNullOrWhiteSpace(definition.WorldPath)
+            ? string.Empty
+            : Path.GetFullPath(definition.WorldPath);
         AddDirectory(
             archive,
             DedicatedServerPrefix,
             definition.DedicatedServerAppDataPath,
             cancellationToken,
-            sourcePath => IsExcludedDedicatedServerBackupPath(dedicatedServerAppDataRoot, worldRoot, sourcePath));
+            sourcePath => IsExcludedDedicatedServerBackupPath(dedicatedServerAppDataRoot, savesRoot, sourcePath));
         AddDirectory(
             archive,
             MagnetarPrefix,
@@ -523,12 +534,13 @@ public sealed class QuasarBackupService
         bool includeWorldConfig,
         CancellationToken cancellationToken)
     {
+        var worldPath = RequireWorldSavePath(definition);
         WriteServerManifest(archive, definition, timestamp, QuasarBackupKind.World);
         WriteEntry(archive, ServerDefinitionEntryName, JsonSerializer.SerializeToUtf8Bytes(definition, JsonOptions));
         AddDirectory(
             archive,
             WorldPrefix,
-            ResolveWorldSnapshotSource(definition.WorldPath),
+            ResolveWorldSnapshotSource(worldPath),
             cancellationToken,
             includeWorldConfig ? null : IsWorldConfigPath);
     }
@@ -538,7 +550,7 @@ public sealed class QuasarBackupService
         Action<ZipArchive> buildArchive,
         CancellationToken cancellationToken)
     {
-        var backupsDirectory = MagnetarPaths.GetQuasarBackupsDirectory();
+        var backupsDirectory = BackupDirectory;
         Directory.CreateDirectory(backupsDirectory);
 
         var path = CreateUniqueBackupPath(backupsDirectory, fileName);
@@ -710,8 +722,12 @@ public sealed class QuasarBackupService
             }
 
             string? destination = null;
+            var restoreServerDefinition = false;
             if (string.Equals(entry.FullName, ServerDefinitionEntryName, StringComparison.Ordinal))
+            {
                 destination = MagnetarPaths.GetQuasarServerDefinitionPath(target.UniqueName);
+                restoreServerDefinition = true;
+            }
             else if (entry.FullName.StartsWith(DedicatedServerPrefix, StringComparison.Ordinal))
                 destination = ResolvePrefixedExtractionTarget(entry.FullName, DedicatedServerPrefix, target.DedicatedServerAppDataPath);
             else if (entry.FullName.StartsWith(DedicatedConfigPrefix, StringComparison.Ordinal))
@@ -723,7 +739,7 @@ public sealed class QuasarBackupService
                 if (!includeWorldConfig && IsWorldConfigEntry(entry.FullName[WorldPrefix.Length..]))
                     continue;
 
-                destination = ResolvePrefixedExtractionTarget(entry.FullName, WorldPrefix, target.WorldPath);
+                destination = ResolvePrefixedExtractionTarget(entry.FullName, WorldPrefix, RequireWorldSavePath(target));
             }
 
             if (destination is null)
@@ -733,11 +749,48 @@ public sealed class QuasarBackupService
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-            entry.ExtractToFile(destination, overwrite: true);
+            if (restoreServerDefinition)
+            {
+                if (!TryRestoreServerDefinitionEntry(entry, destination, cancellationToken))
+                    continue;
+            }
+            else
+            {
+                entry.ExtractToFile(destination, overwrite: true);
+            }
+
             restored++;
         }
 
         return restored;
+    }
+
+    private bool TryRestoreServerDefinitionEntry(
+        ZipArchiveEntry entry,
+        string destination,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var stream = entry.Open();
+            var definition = JsonSerializer.Deserialize<DedicatedServerDefinition>(stream, JsonOptions);
+            if (definition is null)
+            {
+                _logger.LogWarning("Skipping empty server definition backup entry {Entry}.", entry.FullName);
+                return false;
+            }
+
+            definition.GoalState = DedicatedServerGoalState.Off;
+            definition.AutoStart = false;
+            File.WriteAllBytes(destination, JsonSerializer.SerializeToUtf8Bytes(definition, JsonOptions));
+            return true;
+        }
+        catch (JsonException exception)
+        {
+            _logger.LogWarning(exception, "Skipping invalid server definition backup entry {Entry}.", entry.FullName);
+            return false;
+        }
     }
 
     private int RestoreWorldEntries(
@@ -747,6 +800,7 @@ public sealed class QuasarBackupService
         CancellationToken cancellationToken)
     {
         var restored = 0;
+        var targetWorldPath = RequireWorldSavePath(target);
         foreach (var entry in archive.Entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -757,7 +811,7 @@ public sealed class QuasarBackupService
             if (!includeWorldConfig && IsWorldConfigEntry(relative))
                 continue;
 
-            var destination = ResolvePrefixedExtractionTarget(entry.FullName, WorldPrefix, target.WorldPath);
+            var destination = ResolvePrefixedExtractionTarget(entry.FullName, WorldPrefix, targetWorldPath);
             if (destination is null)
                 continue;
 
@@ -794,11 +848,18 @@ public sealed class QuasarBackupService
 
         var fullTarget = Path.GetFullPath(Path.Combine(baseDirectory, relative));
 
-        // Zip-slip guard: the resolved path must stay inside its base directory.
-        if (!fullTarget.StartsWith(EnsureTrailingSeparator(baseDirectory), StringComparison.Ordinal))
-            return null;
+        return IsPathWithinRoot(fullTarget, Path.GetFullPath(baseDirectory)) ? fullTarget : null;
+    }
 
-        return fullTarget;
+    private static bool IsConfigurationServerDefinitionEntry(string entryName)
+    {
+        if (!entryName.StartsWith(DataPrefix, StringComparison.Ordinal))
+            return false;
+
+        var relative = entryName[DataPrefix.Length..];
+        var normalized = ToEntryPath(relative);
+        return StartsWithEntrySegment(normalized, "Magnetars") &&
+            string.Equals(Path.GetFileName(normalized), "server.json", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? ResolvePrefixedExtractionTarget(string entryName, string prefix, string baseDirectory)
@@ -933,7 +994,7 @@ public sealed class QuasarBackupService
         string sourcePath)
     {
         var fullPath = Path.GetFullPath(sourcePath);
-        if (IsPathWithinRoot(fullPath, worldRoot))
+        if (!string.IsNullOrWhiteSpace(worldRoot) && IsPathWithinRoot(fullPath, worldRoot))
             return true;
 
         var relativePath = ToEntryPath(Path.GetRelativePath(dedicatedServerAppDataRoot, fullPath));
@@ -993,6 +1054,15 @@ public sealed class QuasarBackupService
             .FirstOrDefault();
 
         return latestBackup ?? worldPath;
+    }
+
+    private static string RequireWorldSavePath(DedicatedServerDefinition definition)
+    {
+        var worldPath = definition.GetWorldSavePath();
+        if (string.IsNullOrWhiteSpace(worldPath))
+            throw new InvalidOperationException($"Server '{definition.UniqueName}' has no world save selected.");
+
+        return worldPath;
     }
 
     private static void AddFile(ZipArchive archive, string entryName, string sourcePath)

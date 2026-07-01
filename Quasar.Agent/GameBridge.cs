@@ -14,8 +14,11 @@ using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Transport;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
+using PluginSdk;
+using PluginSdk.Commands;
 using PluginSdk.Config;
 using Sandbox;
+using Sandbox.Engine.Networking;
 using Sandbox.Engine.Multiplayer;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Gui;
@@ -29,7 +32,7 @@ using VRage.Voxels;
 
 namespace Quasar.Agent
 {
-    public class GameBridge
+    public class GameBridge : IDisposable
     {
         private static readonly TimeSpan SnapshotInterval = TimeSpan.FromSeconds(1);
         private const string ServerChatAuthorName = "Server";
@@ -58,6 +61,12 @@ namespace Quasar.Agent
         private readonly string _pluginVersion;
         private readonly ConcurrentQueue<DeathEventSnapshot> _deathQueue = new ConcurrentQueue<DeathEventSnapshot>();
         private readonly SemaphoreSlim _viewerSceneBuildGate = new SemaphoreSlim(1, 1);
+        private readonly object _saveSync = new object();
+        private string _worldSavePath = string.Empty;
+        private bool _worldSaveStateLoaded;
+        private bool _lastSaveInProgress;
+        private DateTimeOffset? _lastWorldSaveUtc;
+        private long? _lastWorldSaveElapsedGameTicks;
         private long _lastWorkingSetBytes;
         private TimeSpan _lastProcessCpuTime;
         private DateTime _lastProcessCpuSampleUtc = DateTime.MinValue;
@@ -83,7 +92,20 @@ namespace Quasar.Agent
             _uniqueName = (Environment.GetEnvironmentVariable("QUASAR_UNIQUE_NAME")
                     ?? $"unmanaged-{_hostId}-{_processId}")
                 .Trim();
-            _pluginVersion = typeof(AdminPlugin).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+            _pluginVersion = GetAgentVersion();
+            MySession.OnSaved += OnWorldSaved;
+        }
+
+        public void Dispose()
+        {
+            MySession.OnSaved -= OnWorldSaved;
+        }
+
+        private static string GetAgentVersion()
+        {
+            var assembly = typeof(AdminPlugin).Assembly;
+            return assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                ?? string.Empty;
         }
 
         public void Update()
@@ -128,7 +150,7 @@ namespace Quasar.Agent
                 if (command.CommandType == ServerCommandType.StopServer)
                 {
                     _quasarRequestedStop = true;
-                    MySandboxGame.ExitThreadSafe();
+                    ServerControl.SaveAndQuit();
                     return Task.FromResult(CreateResult(command, true, "Server shutdown requested."));
                 }
 
@@ -301,8 +323,11 @@ namespace Quasar.Agent
                 ProfilerMode = AgentProfiler.Mode.ToString(),
                 Profiler = AgentProfiler.GetLatestSnapshot(),
                 Players = GetPlayers(session),
+                HiddenPlayerSteamIds = GetHiddenPlayerSteamIds(session),
+                HiddenPlayerIdentityIds = GetHiddenPlayerIdentityIds(session),
                 KickedPlayers = GetKickedPlayers(session),
                 RecentChat = GetRecentChat(),
+                ChatCommands = GetChatCommands(),
                 RecentDeaths = GetRecentDeaths(),
                 Plugins = GetPlugins(),
             };
@@ -658,6 +683,8 @@ namespace Quasar.Agent
             else
                 usedPcu = session.GlobalBlockLimits?.PCUBuilt ?? 0;
 
+            var isSaveInProgress = session.IsSaveInProgress || MyAsyncSaving.InProgress;
+            var worldSaveTelemetry = GetWorldSaveTelemetry(session, isSaveInProgress);
             int? activeGridCount = null;
             int? activeEntityCount = null;
             int? totalBlockCount = null;
@@ -702,7 +729,9 @@ namespace Quasar.Agent
                 SimSpeed = Sync.ServerSimulationRatio,
                 SimCpuLoadPercent = (float)Math.Round(Sync.ServerCPULoad, 1),
                 ServerCpuLoadPercent = processCpuLoadPercent,
-                IsSaveInProgress = session.IsSaveInProgress || MyAsyncSaving.InProgress,
+                IsSaveInProgress = isSaveInProgress,
+                LastWorldSaveUtc = worldSaveTelemetry.LastWorldSaveUtc,
+                UnsavedGameTimeSeconds = worldSaveTelemetry.UnsavedGameTimeSeconds,
                 UsedPcu = usedPcu > 0 ? usedPcu : gridPcu,
                 TotalPcu = session.Settings.TotalPCU,
                 MemoryWorkingSetMb = _lastWorkingSetBytes >> 20,
@@ -714,6 +743,154 @@ namespace Quasar.Agent
                 ModsLoaded = session.Mods?.Count ?? 0,
                 PluginsLoaded = GetPlugins().Count,
             };
+        }
+
+        private void OnWorldSaved(bool success, string sessionPath)
+        {
+            if (!success)
+                return;
+
+            var session = MySession.Static;
+            var normalizedPath = NormalizeSessionPath(!string.IsNullOrWhiteSpace(sessionPath)
+                ? sessionPath
+                : session?.CurrentPath);
+            long? elapsedGameTicks = session == null ? (long?)null : session.ElapsedGameTime.Ticks;
+
+            lock (_saveSync)
+            {
+                _worldSavePath = normalizedPath;
+                _worldSaveStateLoaded = true;
+                _lastWorldSaveUtc = DateTimeOffset.UtcNow;
+                _lastWorldSaveElapsedGameTicks = elapsedGameTicks;
+            }
+        }
+
+        private WorldSaveTelemetry GetWorldSaveTelemetry(MySession session, bool isSaveInProgress)
+        {
+            var sessionPath = NormalizeSessionPath(session?.CurrentPath);
+            ObserveSaveProgress(sessionPath, isSaveInProgress);
+            EnsureWorldSaveStateLoaded(sessionPath);
+
+            DateTimeOffset? lastWorldSaveUtc;
+            long? lastWorldSaveElapsedGameTicks;
+            lock (_saveSync)
+            {
+                lastWorldSaveUtc = _lastWorldSaveUtc;
+                lastWorldSaveElapsedGameTicks = _lastWorldSaveElapsedGameTicks;
+            }
+
+            long? unsavedGameTimeSeconds = null;
+            if (session != null && lastWorldSaveElapsedGameTicks.HasValue)
+            {
+                var unsavedTicks = session.ElapsedGameTime.Ticks - lastWorldSaveElapsedGameTicks.Value;
+                unsavedGameTimeSeconds = Math.Max(0, unsavedTicks / TimeSpan.TicksPerSecond);
+            }
+
+            return new WorldSaveTelemetry
+            {
+                LastWorldSaveUtc = lastWorldSaveUtc,
+                UnsavedGameTimeSeconds = unsavedGameTimeSeconds,
+            };
+        }
+
+        private void ObserveSaveProgress(string sessionPath, bool isSaveInProgress)
+        {
+            lock (_saveSync)
+            {
+                if (_lastSaveInProgress && !isSaveInProgress && !string.IsNullOrWhiteSpace(sessionPath))
+                {
+                    _worldSaveStateLoaded = false;
+                    _lastWorldSaveUtc = null;
+                    _lastWorldSaveElapsedGameTicks = null;
+                }
+
+                _lastSaveInProgress = isSaveInProgress;
+            }
+        }
+
+        private void EnsureWorldSaveStateLoaded(string sessionPath)
+        {
+            var shouldLoad = false;
+            lock (_saveSync)
+            {
+                if (!string.Equals(_worldSavePath, sessionPath, StringComparison.Ordinal))
+                {
+                    _worldSavePath = sessionPath;
+                    _worldSaveStateLoaded = false;
+                    _lastWorldSaveUtc = null;
+                    _lastWorldSaveElapsedGameTicks = null;
+                }
+
+                shouldLoad = !_worldSaveStateLoaded && !string.IsNullOrWhiteSpace(sessionPath);
+            }
+
+            if (!shouldLoad)
+                return;
+
+            var checkpoint = TryLoadWorldSaveCheckpoint(sessionPath);
+            lock (_saveSync)
+            {
+                if (!string.Equals(_worldSavePath, sessionPath, StringComparison.Ordinal))
+                    return;
+
+                _worldSaveStateLoaded = true;
+                _lastWorldSaveUtc = checkpoint?.LastWorldSaveUtc;
+                _lastWorldSaveElapsedGameTicks = checkpoint?.LastWorldSaveElapsedGameTicks;
+            }
+        }
+
+        private static WorldSaveCheckpoint TryLoadWorldSaveCheckpoint(string sessionPath)
+        {
+            try
+            {
+                var checkpoint = MyLocalCache.LoadCheckpoint(sessionPath, out _);
+                var lastWorldSaveUtc = NormalizeSaveTime(checkpoint?.LastSaveTime ?? default);
+
+                return new WorldSaveCheckpoint
+                {
+                    LastWorldSaveUtc = lastWorldSaveUtc,
+                    LastWorldSaveElapsedGameTicks = lastWorldSaveUtc.HasValue
+                        ? checkpoint?.ElapsedGameTime
+                        : null,
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static DateTimeOffset? NormalizeSaveTime(DateTime saveTime)
+        {
+            if (saveTime == default)
+                return null;
+
+            if (saveTime.Kind == DateTimeKind.Unspecified)
+                saveTime = DateTime.SpecifyKind(saveTime, DateTimeKind.Local);
+
+            return new DateTimeOffset(saveTime).ToUniversalTime();
+        }
+
+        private static string NormalizeSessionPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return string.Empty;
+
+            var trimmed = path.Trim();
+            if (trimmed.EndsWith(".sbc", StringComparison.OrdinalIgnoreCase))
+                trimmed = Path.GetDirectoryName(trimmed) ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(trimmed))
+                return string.Empty;
+
+            try
+            {
+                return Path.GetFullPath(trimmed);
+            }
+            catch
+            {
+                return trimmed;
+            }
         }
 
         private float GetProcessCpuLoadPercent(Process process)
@@ -754,19 +931,23 @@ namespace Quasar.Agent
             {
                 foreach (var player in session.Players.GetOnlinePlayers())
                 {
+                    if (!IsHumanPlayer(session, player))
+                        continue;
+
                     var steamId = (long)player.Id.SteamId;
+                    var identityId = player.Identity?.IdentityId ?? 0;
 
                     result.Add(new PlayerSnapshot
                     {
                         SteamId = steamId,
-                        IdentityId = player.Identity?.IdentityId ?? 0,
+                        IdentityId = identityId,
                         SerialId = player.Id.SerialId,
                         DisplayName = player.DisplayName ?? string.Empty,
                         PlatformDisplayName = player.PlatformDisplayName ?? string.Empty,
                         PlatformIcon = player.PlatformIcon ?? string.Empty,
                         GameAcronym = player.GameAcronym ?? string.Empty,
                         ServiceName = GetPlayerServiceName(player.Id.SteamId),
-                        FactionTag = GetPlayerFaction(session, player.Identity?.IdentityId ?? 0),
+                        FactionTag = GetPlayerFaction(session, identityId),
                         PromoteLevel = session.GetUserPromoteLevel(player.Id.SteamId).ToString(),
                         IsAdmin = session.IsUserAdmin(player.Id.SteamId),
                         PingMs = 0,
@@ -778,6 +959,53 @@ namespace Quasar.Agent
             }
 
             return result;
+        }
+
+        private static bool IsHumanPlayer(MySession session, MyPlayer player)
+        {
+            if (player == null || player.Id.SteamId == 0 || player.IsBot)
+                return false;
+
+            var identityId = player.Identity?.IdentityId ?? 0;
+            return !IsNpcIdentity(session, identityId);
+        }
+
+        private static bool IsNpcIdentity(MySession session, long identityId)
+        {
+            return identityId != 0 &&
+                   session?.Players != null &&
+                   session.Players.IdentityIsNpc(identityId);
+        }
+
+        private static List<long> GetHiddenPlayerSteamIds(MySession session) =>
+            GetHiddenPlayerIds(session, player => (long)player.Id.SteamId, id => id > 0);
+
+        private static List<long> GetHiddenPlayerIdentityIds(MySession session) =>
+            GetHiddenPlayerIds(session, player => player.Identity?.IdentityId ?? 0, id => id != 0);
+
+        private static List<long> GetHiddenPlayerIds(MySession session, Func<MyPlayer, long> selectId, Predicate<long> shouldInclude)
+        {
+            var result = new HashSet<long>();
+            if (session == null || !session.Ready)
+                return result.ToList();
+
+            try
+            {
+                foreach (var player in session.Players.GetOnlinePlayers())
+                {
+                    if (IsHumanPlayer(session, player))
+                        continue;
+
+                    var id = selectId(player);
+                    if (shouldInclude(id))
+                        result.Add(id);
+                }
+            }
+            catch
+            {
+            }
+
+            return result.ToList();
         }
 
         // Mirrors the game's own kick-cooldown bookkeeping (see MyKickedPlayersController in
@@ -893,6 +1121,130 @@ namespace Quasar.Agent
                     Version = string.Empty,
                     IsLoaded = false,
                 });
+            }
+
+            return result;
+        }
+
+        private List<ChatCommandSnapshot> GetChatCommands()
+        {
+            var result = new List<ChatCommandSnapshot>();
+
+            try
+            {
+                object registrar = ServerCommands.Registrar;
+                if (registrar == null)
+                    return result;
+
+                object registry = GetFieldValue(registrar, "registry");
+                if (registry == null)
+                    return result;
+
+                foreach (object root in EnumerateCommandRoots(registry))
+                {
+                    var prefix = GetStringProperty(root, "Prefix");
+                    var title = GetStringProperty(root, "Title");
+                    var ownerId = GetStringProperty(root, "OwnerId");
+
+                    AddChatCommandSnapshot(result, GetPropertyValue(root, "Default"), prefix, title, ownerId);
+
+                    var enumerateCommands = root.GetType().GetMethod(
+                        "EnumerateCommands",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (enumerateCommands?.Invoke(root, null) is IEnumerable commands)
+                    {
+                        foreach (object command in commands)
+                            AddChatCommandSnapshot(result, command, prefix, title, ownerId);
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return result
+                .Where(command => !string.IsNullOrWhiteSpace(command.Text))
+                .GroupBy(command => command.Text, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .OrderBy(command => command.Text, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static IEnumerable<object> EnumerateCommandRoots(object registry)
+        {
+            object roots = GetFieldValue(registry, "roots");
+            if (roots is IDictionary dictionary)
+            {
+                foreach (object value in dictionary.Values)
+                    yield return value;
+            }
+        }
+
+        private static void AddChatCommandSnapshot(
+            List<ChatCommandSnapshot> result,
+            object command,
+            string fallbackPrefix,
+            string title,
+            string fallbackOwnerId)
+        {
+            if (command == null)
+                return;
+
+            var prefix = GetStringProperty(command, "Prefix");
+            if (string.IsNullOrWhiteSpace(prefix))
+                prefix = fallbackPrefix;
+
+            if (string.IsNullOrWhiteSpace(prefix))
+                return;
+
+            var segments = GetStringListProperty(command, "Path");
+            var path = string.Join(" ", segments);
+            var text = "!" + prefix + (path.Length == 0 ? string.Empty : " " + path);
+
+            result.Add(new ChatCommandSnapshot
+            {
+                Text = text,
+                Syntax = GetStringProperty(command, "Syntax"),
+                Prefix = prefix,
+                Path = path,
+                Description = GetStringProperty(command, "Description"),
+                HelpText = GetStringProperty(command, "HelpText"),
+                Title = title,
+                OwnerId = FirstNonEmpty(GetStringProperty(command, "OwnerId"), fallbackOwnerId),
+                MinimumPromoteLevel = GetPropertyValue(command, "MinPromoteLevel")?.ToString() ?? string.Empty,
+                PathSegments = segments,
+            });
+        }
+
+        private static object GetFieldValue(object instance, string fieldName)
+        {
+            return instance.GetType()
+                .GetField(fieldName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                ?.GetValue(instance);
+        }
+
+        private static object GetPropertyValue(object instance, string propertyName)
+        {
+            return instance.GetType()
+                .GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                ?.GetValue(instance, null);
+        }
+
+        private static string GetStringProperty(object instance, string propertyName)
+        {
+            return GetPropertyValue(instance, propertyName) as string ?? string.Empty;
+        }
+
+        private static List<string> GetStringListProperty(object instance, string propertyName)
+        {
+            var result = new List<string>();
+            if (GetPropertyValue(instance, propertyName) is not IEnumerable values)
+                return result;
+
+            foreach (object value in values)
+            {
+                if (value is string text && !string.IsNullOrWhiteSpace(text))
+                    result.Add(text);
             }
 
             return result;
@@ -1095,13 +1447,13 @@ namespace Quasar.Agent
                     return SendChat(command);
 
                 case ServerCommandType.SaveWorld:
-                    SaveWorldIfReady();
-                    return CreateResult(command, true, "World save requested.");
+                    return SaveWorldIfReady()
+                        ? CreateResult(command, true, "World saved.")
+                        : CreateResult(command, false, "Session not ready.");
 
                 case ServerCommandType.StopServer:
                     _quasarRequestedStop = true;
-                    SaveWorldIfReady();
-                    MySandboxGame.ExitThreadSafe();
+                    ServerControl.SaveAndQuit();
                     return CreateResult(command, true, "World save and server shutdown requested.");
 
                 case ServerCommandType.SetProfilerMode:
@@ -1167,13 +1519,13 @@ namespace Quasar.Agent
             return CreateResult(command, true, $"Profiler mode set to {mode}.", mode.ToString());
         }
 
-        private static void SaveWorldIfReady()
+        private static bool SaveWorldIfReady()
         {
             var session = MySession.Static;
             if (session == null || !session.Ready)
-                return;
+                return false;
 
-            session.Save(null);
+            return ServerControl.SaveWorld();
         }
 
         private ServerCommandResult SendChat(ServerCommandEnvelope command)
@@ -1238,7 +1590,7 @@ namespace Quasar.Agent
         {
             try
             {
-                return session?.Players?.GetOnlinePlayers()?.Count ?? 0;
+                return session?.Players?.GetOnlinePlayers()?.Count(player => IsHumanPlayer(session, player)) ?? 0;
             }
             catch
             {
@@ -1317,6 +1669,20 @@ namespace Quasar.Agent
             return session?.Name
                    ?? MySandboxGame.ConfigDedicated?.WorldName
                    ?? "Unknown World";
+        }
+
+        private sealed class WorldSaveCheckpoint
+        {
+            public DateTimeOffset? LastWorldSaveUtc { get; set; }
+
+            public long? LastWorldSaveElapsedGameTicks { get; set; }
+        }
+
+        private sealed class WorldSaveTelemetry
+        {
+            public DateTimeOffset? LastWorldSaveUtc { get; set; }
+
+            public long? UnsavedGameTimeSeconds { get; set; }
         }
 
         private static ServerCommandResult CreateResult(ServerCommandEnvelope command, bool success, string message, string payload = null)

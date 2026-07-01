@@ -1,7 +1,13 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text;
 using System.Threading;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using PluginSdk.Logging;
 
 namespace Quasar.Agent
@@ -24,8 +30,14 @@ namespace Quasar.Agent
         // bound, and so a single wire message stays a reasonable size.
         private const int MaxBufferedLines = 10000;
         private const int MaxBatchLines = 500;
+        private const string SuppressedPluginName = "Magnetar";
+        private const string CurrentInfoLogMarkerFileName = "info.current";
+        private const string LegacyInfoLogFileName = "info.log";
 
         private readonly ConcurrentQueue<string> _queue = new ConcurrentQueue<string>();
+        private readonly object _fileSync = new object();
+        private string _infoLogPath;
+        private bool _fileWriteDisabled;
         private int _count;
         private int _subscribed;
 
@@ -51,6 +63,11 @@ namespace Quasar.Agent
             if (string.IsNullOrEmpty(line))
                 return;
 
+            AppendToMagnetarInfoLog(line);
+
+            if (IsSuppressedPluginLog(line))
+                return;
+
             _queue.Enqueue(line);
 
             // Trim from the front if we are over the cap (drop oldest first).
@@ -58,6 +75,210 @@ namespace Quasar.Agent
                 _queue.TryDequeue(out _))
             {
                 Interlocked.Decrement(ref _count);
+            }
+        }
+
+        private void AppendToMagnetarInfoLog(string line)
+        {
+            if (_fileWriteDisabled)
+                return;
+
+            var path = ResolveInfoLogPath();
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            try
+            {
+                lock (_fileSync)
+                {
+                    var directory = Path.GetDirectoryName(path);
+                    if (!string.IsNullOrWhiteSpace(directory))
+                        Directory.CreateDirectory(directory);
+
+                    using (var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
+                    using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+                    {
+                        writer.WriteLine(FormatForMagnetarInfoLog(line));
+                    }
+                }
+            }
+            catch
+            {
+                _fileWriteDisabled = true;
+            }
+        }
+
+        private string ResolveInfoLogPath()
+        {
+            if (_infoLogPath != null && (string.IsNullOrEmpty(_infoLogPath) || File.Exists(_infoLogPath)))
+                return _infoLogPath;
+
+            var appDataPath = Environment.GetEnvironmentVariable("QUASAR_MAGNETAR_APPDATA_PATH");
+            if (string.IsNullOrWhiteSpace(appDataPath))
+            {
+                _infoLogPath = string.Empty;
+                return _infoLogPath;
+            }
+
+            _infoLogPath = ResolveCurrentInfoLogPath(appDataPath.Trim());
+            return _infoLogPath;
+        }
+
+        private static string ResolveCurrentInfoLogPath(string appDataPath)
+        {
+            var markerPath = Path.Combine(appDataPath, CurrentInfoLogMarkerFileName);
+            try
+            {
+                var fileName = File.ReadAllText(markerPath).Trim();
+                if (IsInfoLogFileName(fileName))
+                    return Path.Combine(appDataPath, fileName);
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                if (Directory.Exists(appDataPath))
+                {
+                    var latest = Directory.EnumerateFiles(appDataPath, "info*.log", SearchOption.TopDirectoryOnly)
+                        .OrderByDescending(File.GetLastWriteTimeUtc)
+                        .FirstOrDefault();
+                    if (!string.IsNullOrWhiteSpace(latest))
+                        return latest;
+                }
+            }
+            catch
+            {
+            }
+
+            return Path.Combine(appDataPath, LegacyInfoLogFileName);
+        }
+
+        private static bool IsInfoLogFileName(string fileName)
+        {
+            return !string.IsNullOrWhiteSpace(fileName) &&
+                   string.Equals(fileName, Path.GetFileName(fileName), StringComparison.Ordinal) &&
+                   fileName.StartsWith("info_", StringComparison.OrdinalIgnoreCase) &&
+                   fileName.EndsWith(".log", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string FormatForMagnetarInfoLog(string line)
+        {
+            var trimmed = line.TrimStart();
+            if (trimmed.Length == 0 ||
+                trimmed[0] != '{' ||
+                trimmed.IndexOf("\"plugin\"", StringComparison.Ordinal) < 0)
+            {
+                return line;
+            }
+
+            try
+            {
+                var root = JObject.Parse(trimmed);
+                var timestamp = FormatTimestamp(root["timestamp"]);
+                var level = root.Value<string>("level");
+                var plugin = root.Value<string>("plugin");
+                var thread = root.Value<string>("thread");
+                var message = root.Value<string>("message") ?? string.Empty;
+                var data = FormatData(root["data"]);
+                var exception = root.Value<string>("exception");
+
+                var builder = new StringBuilder();
+                if (!string.IsNullOrWhiteSpace(timestamp))
+                    builder.Append(timestamp).Append(' ');
+
+                if (!string.IsNullOrWhiteSpace(level))
+                    builder.Append(level).Append(": ");
+
+                if (!string.IsNullOrWhiteSpace(plugin))
+                    builder.Append('[').Append(plugin).Append("] ");
+
+                if (!string.IsNullOrWhiteSpace(thread))
+                    builder.Append("[thread ").Append(thread).Append("] ");
+
+                builder.Append(message);
+
+                if (!string.IsNullOrWhiteSpace(data))
+                    builder.Append(' ').Append(data);
+
+                if (!string.IsNullOrWhiteSpace(exception))
+                    builder.AppendLine().Append(exception);
+
+                return builder.Length == 0 ? line : builder.ToString();
+            }
+            catch (Exception)
+            {
+                return line;
+            }
+        }
+
+        private static string FormatTimestamp(JToken token)
+        {
+            if (token == null || token.Type == JTokenType.Null || token.Type == JTokenType.Undefined)
+                return string.Empty;
+
+            DateTimeOffset timestamp;
+            if (token.Type == JTokenType.Date)
+            {
+                var value = token.Value<object>();
+                if (value is DateTimeOffset offset)
+                {
+                    timestamp = offset;
+                }
+                else if (value is DateTime dateTime)
+                {
+                    timestamp = dateTime.Kind == DateTimeKind.Unspecified
+                        ? new DateTimeOffset(DateTime.SpecifyKind(dateTime, DateTimeKind.Utc))
+                        : new DateTimeOffset(dateTime.ToUniversalTime());
+                }
+                else
+                {
+                    return string.Empty;
+                }
+            }
+            else if (!DateTimeOffset.TryParse(
+                token.Value<string>(),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out timestamp))
+            {
+                return string.Empty;
+            }
+
+            return timestamp
+                .ToUniversalTime()
+                .ToString("yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture);
+        }
+
+        private static string FormatData(JToken token)
+        {
+            if (token == null || token.Type == JTokenType.Null || token.Type == JTokenType.Undefined)
+                return string.Empty;
+
+            return token.Type == JTokenType.String
+                ? token.Value<string>()
+                : token.ToString(Formatting.None);
+        }
+
+        private static bool IsSuppressedPluginLog(string line)
+        {
+            var trimmed = line.TrimStart();
+            if (trimmed.Length == 0 ||
+                trimmed[0] != '{' ||
+                trimmed.IndexOf("\"plugin\"", StringComparison.Ordinal) < 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                var plugin = JObject.Parse(trimmed).Value<string>("plugin");
+                return string.Equals(plugin, SuppressedPluginName, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (JsonException)
+            {
+                return false;
             }
         }
 

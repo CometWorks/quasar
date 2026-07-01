@@ -154,8 +154,170 @@ h1:focus {
     background: var(--mud-palette-action-default-hover);
 }
 
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected),
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) > .mud-table-cell,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) > td {
+    --quasar-table-hover-background: var(--quasar-hover-list-background, var(--mud-palette-secondary));
+    --quasar-table-hover-text: var(--quasar-hover-list-text, var(--mud-palette-secondary-text));
+    --quasar-table-hover-success: color-mix(in srgb, var(--mud-palette-success) 72%, var(--quasar-table-hover-text));
+    --quasar-table-hover-warning: color-mix(in srgb, var(--mud-palette-warning) 72%, var(--quasar-table-hover-text));
+    --quasar-table-hover-error: color-mix(in srgb, var(--mud-palette-error) 72%, var(--quasar-table-hover-text));
+    background-color: var(--quasar-table-hover-background) !important;
+    color: var(--quasar-table-hover-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) *:not(.mud-button-root *) {
+    color: var(--quasar-table-hover-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-outlined,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-outlined {
+    border-color: var(--quasar-table-hover-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-button-text-success,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-button-outlined-success,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-success-text {
+    color: var(--quasar-table-hover-success) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-button-filled-success {
+    color: var(--mud-palette-success-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-button-text-warning,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-button-outlined-warning,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-warning-text {
+    color: var(--quasar-table-hover-warning) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-button-filled-warning {
+    color: var(--mud-palette-warning-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-button-text-error,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-button-outlined-error,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-error-text {
+    color: var(--quasar-table-hover-error) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-button-filled-error {
+    color: var(--mud-palette-error-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-button-outlined-success {
+    border-color: var(--quasar-table-hover-success) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-button-outlined-warning {
+    border-color: var(--quasar-table-hover-warning) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-button-root.mud-button-outlined-error {
+    border-color: var(--quasar-table-hover-error) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-outlined.mud-chip-color-success,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-text.mud-chip-color-success,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-outlined.mud-chip-color-success *,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-text.mud-chip-color-success * {
+    color: var(--quasar-table-hover-success) !important;
+    border-color: var(--quasar-table-hover-success) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-outlined.mud-chip-color-warning,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-text.mud-chip-color-warning,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-outlined.mud-chip-color-warning *,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-text.mud-chip-color-warning * {
+    color: var(--quasar-table-hover-warning) !important;
+    border-color: var(--quasar-table-hover-warning) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-outlined.mud-chip-color-error,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-text.mud-chip-color-error,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-outlined.mud-chip-color-error *,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-text.mud-chip-color-error * {
+    color: var(--quasar-table-hover-error) !important;
+    border-color: var(--quasar-table-hover-error) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-filled.mud-chip-color-success,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-filled.mud-chip-color-success * {
+    color: var(--mud-palette-success-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-filled.mud-chip-color-warning,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-filled.mud-chip-color-warning * {
+    color: var(--mud-palette-warning-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-filled.mud-chip-color-error,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-filled.mud-chip-color-error * {
+    color: var(--mud-palette-error-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) svg:not(.mud-button-root svg),
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) svg:not(.mud-button-root svg) path {
+    fill: currentColor !important;
+    stroke: currentColor !important;
+}
+
+.entity-row-selectable {
+    cursor: pointer;
+}
+
 .world-template-browse-button {
     margin-top: 1rem;
+}
+
+.installed-world-template-table {
+    min-width: 0;
+}
+
+.installed-world-template-table .mud-table-root,
+.installed-world-template-table table {
+    width: 100%;
+    table-layout: fixed;
+}
+
+.installed-world-template-name-column {
+    width: 32%;
+}
+
+.installed-world-template-action-column {
+    width: 3.25rem;
+}
+
+.installed-world-template-name-cell {
+    width: 32%;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.installed-world-template-source-cell {
+    min-width: 0;
+    max-width: 0;
+    overflow: hidden;
+}
+
+.installed-world-template-action-cell {
+    width: 3.25rem !important;
+    min-width: 3.25rem;
+    max-width: 3.25rem;
+    overflow: visible;
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+}
+
+.installed-world-template-name-text,
+.installed-world-template-source-stack,
+.installed-world-template-source-text {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .chat-list {
@@ -207,6 +369,33 @@ h1:focus {
     opacity: 0.5;
 }
 
+.quasar-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.quasar-actions-column {
+    width: 1%;
+    text-align: right;
+    white-space: nowrap;
+}
+
+td.quasar-actions-column > * {
+    margin-left: auto;
+}
+
+td.quasar-actions-column > .mud-stack,
+td.quasar-actions-column > .plugin-actions {
+    justify-content: flex-end;
+}
+
 .copyable-path {
     min-width: 0;
 }
@@ -227,6 +416,33 @@ h1:focus {
 .copyable-path-button {
     margin-left: 2px;
     vertical-align: middle;
+}
+
+.appearance-color-field {
+    --appearance-color-field-color: transparent;
+    --appearance-color-field-text: #111827;
+    padding: 0.5rem;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: var(--mud-default-borderradius);
+    color: var(--appearance-color-field-text);
+    background-image:
+        linear-gradient(var(--appearance-color-field-color), var(--appearance-color-field-color)),
+        repeating-conic-gradient(rgba(0, 0, 0, 0.12) 0% 25%, rgba(255, 255, 255, 0.36) 0% 50%);
+    background-position: 0 0, 0 0;
+    background-size: auto, 1rem 1rem;
+}
+
+.appearance-color-field .mud-input-control {
+    margin-top: 0;
+}
+
+.appearance-color-field .mud-input-control,
+.appearance-color-field .mud-input,
+.appearance-color-field .mud-input-label,
+.appearance-color-field .mud-input-adornment,
+.appearance-color-field .mud-icon-root,
+.appearance-color-field input {
+    color: var(--appearance-color-field-text) !important;
 }
 
 .branding-logo-preview {
@@ -283,6 +499,14 @@ h1:focus {
 
 .server-card .mud-table-container {
     border-radius: inherit;
+}
+
+.servers-list-table .mud-table-container {
+    overflow-x: auto;
+}
+
+.servers-list-table .mud-table-root {
+    min-width: 72rem;
 }
 
 .players-list-card,

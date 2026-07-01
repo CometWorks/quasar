@@ -8,7 +8,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$InstallDir = "$env:ProgramFiles\Quasar",
+    [string]$InstallDir,
     [string]$TaskName = 'Quasar',
     [string]$Configuration = 'Release',
     [string]$Runtime = 'win-x64',
@@ -75,11 +75,21 @@ if (-not $principalCheck.IsInRole([System.Security.Principal.WindowsBuiltInRole]
 
 $localExe = Join-Path $ScriptDir 'Quasar.exe'
 $bootstrapProject = Join-Path $RepoDir 'Quasar.Bootstrap\Quasar.Bootstrap.csproj'
+$packagedInstall = (Test-Path -LiteralPath $localExe) -and -not (Test-Path -LiteralPath $bootstrapProject)
 
 $skipBuild = $NoBuild.IsPresent
-if (-not $skipBuild -and (Test-Path -LiteralPath $localExe) -and -not (Test-Path -LiteralPath $bootstrapProject)) {
+if (-not $skipBuild -and $packagedInstall) {
     # Running next to an extracted release zip: install those binaries directly.
     $skipBuild = $true
+}
+
+if ([string]::IsNullOrWhiteSpace($InstallDir)) {
+    if ($packagedInstall) {
+        $InstallDir = $ScriptDir
+    }
+    else {
+        $InstallDir = "$env:ProgramFiles\Quasar"
+    }
 }
 
 function Normalize-VersionComponent {
@@ -95,14 +105,14 @@ function Normalize-NugetVersion {
     $version = $Raw -replace '^v', ''
     $plus = $version.IndexOf('+')
     if ($plus -ge 0) { $version = $version.Substring(0, $plus) }
-    if ([string]::IsNullOrWhiteSpace($version)) { return '0.1.0' }
+    if ([string]::IsNullOrWhiteSpace($version)) { return '1.0.0' }
     if ($version -match '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$') { return $version }
 
     $suffix = $version -replace '[^0-9A-Za-z.-]', '-'
     $suffix = $suffix -replace '^\.', ''
     $suffix = $suffix -replace '^-', ''
     if ([string]::IsNullOrWhiteSpace($suffix)) { $suffix = 'local' }
-    return "0.1.0-$suffix"
+    return "1.0.0-$suffix"
 }
 
 function Build-AssemblyFileVersion {
@@ -112,7 +122,7 @@ function Build-AssemblyFileVersion {
     if ($dash -ge 0) { $rawVersion = $rawVersion.Substring(0, $dash) }
     $plus = $rawVersion.IndexOf('+')
     if ($plus -ge 0) { $rawVersion = $rawVersion.Substring(0, $plus) }
-    if ($rawVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$') { return '0.1.0' }
+    if ($rawVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$') { return '1.0.0' }
 
     $parts = $rawVersion.Split('.')
     return "$(Normalize-VersionComponent $parts[0]).$(Normalize-VersionComponent $parts[1]).$(Normalize-VersionComponent $parts[2])"
@@ -148,7 +158,7 @@ function Resolve-BuildVersion {
         return $short.Output
     }
 
-    return '0.1.0-local'
+    return '1.0.0-local'
 }
 
 # Stage everything into a temp directory first so an in-place install (InstallDir
@@ -195,7 +205,6 @@ try {
 
     Write-Host "Installing Quasar to $InstallDir..."
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    Get-ChildItem -LiteralPath $InstallDir -Force | Remove-Item -Recurse -Force
     Get-ChildItem -LiteralPath $staging -Force |
         ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $InstallDir $_.Name) -Recurse -Force }
 }
@@ -287,6 +296,7 @@ Installed Quasar.
 
 Scheduled task: $TaskName
 Install dir:    $InstallDir
+Data dir:       $InstallDir
 Run as:         $runAs
 Web UI:         $uiUrl
 
@@ -301,5 +311,5 @@ Manage the task:
   Stop-ScheduledTask  -TaskName '$TaskName'
 
 Documentation:
-  https://github.com/viktor-ferenczi/Quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md
+  https://github.com/CometWorks/quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md
 "@

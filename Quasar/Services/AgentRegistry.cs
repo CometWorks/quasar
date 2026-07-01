@@ -103,6 +103,22 @@ public sealed class AgentRegistry
         NotifyChanged();
     }
 
+    public void TouchConnection(string connectionId)
+    {
+        if (string.IsNullOrWhiteSpace(connectionId))
+            return;
+
+        lock (_sync)
+        {
+            foreach (var state in _agents.Values.Where(state =>
+                         state.IsConnected &&
+                         string.Equals(state.ConnectionId, connectionId, StringComparison.OrdinalIgnoreCase)))
+            {
+                state.LastSeenUtc = DateTimeOffset.UtcNow;
+            }
+        }
+    }
+
     public void UpdateCommandResult(ServerCommandResult result)
     {
         ServerCommandEnvelope? command = null;

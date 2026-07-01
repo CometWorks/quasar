@@ -8,7 +8,7 @@ web UI worker.
 `scripts/package-linux-release.sh` produces:
 
 - `quasar-installer-linux.tar.gz`
-  - top-level `quasar-installer-linux/` directory
+  - top-level `Quasar/` directory
   - `Quasar` Bootstrap launcher
   - `install.sh`
   - `uninstall.sh`
@@ -30,15 +30,19 @@ by name, so all platforms share the same release.
 For assembly/file metadata, the script always emits a valid `major.minor.build`
 version even when the base version is build-number style. The public update
 identity is `AssemblyInformationalVersion`, which keeps prerelease labels such
-as `0.1.0-main.7`; Quasar uses that value, plus the active-release pointer, for
+as `1.0.0-main.7`; Quasar uses that value, plus the active-release pointer, for
 update comparisons instead of `AssemblyVersion`.
 For NuGet/package metadata, non-tag/short-hash values are mapped to a safe
-`0.1.0-<hash>` semver pre-release form so restore/publish do not fail. The
+`1.0.0-<hash>` semver pre-release form so restore/publish do not fail. The
 packaging script copies the published web worker, overlays the complete source
 `Quasar/wwwroot/` tree, and fails if the web payload is missing the worker,
 generated Blazor runtime, or generated MudBlazor assets. The full `wwwroot`
 overlay keeps manually managed scripts, CSS, and library files in the release
 archive even when publish output shape changes.
+The bundled `Quasar.Agent.dll` is not release-version stamped. Agent deploy
+drift is detected by comparing the bundled DLL SHA-256 hash with the deployed
+Magnetar local-agent DLL hash, so version-only release changes do not force an
+agent restart warning.
 The workflow caches only the `DedicatedServer64/` reference library set by the
 Space Engineers Dedicated Server public build id, so unchanged DS builds restore
 without re-downloading the multi-GB depot content.
@@ -49,9 +53,9 @@ The release workflow is `.github/workflows/release.yml`. Each build publishes a
 single release/tag carrying both the Linux and Windows archives:
 
 - tag push `v<version>` → full release tagged `v<version>`
-- push to `main` → full release tagged `v0.1.0-main.<run-number>`
-- pull request → draft prerelease tagged `pr-<number>/v0.1.0-pr.<number>.<run-number>`
-- manual run (`workflow_dispatch`) → draft prerelease tagged `v0.1.0-manual.<run-number>`
+- push to `main` → full release tagged `v1.0.0-main.<run-number>`
+- pull request → draft prerelease tagged `pr-<number>/v1.0.0-pr.<number>.<run-number>`
+- manual run (`workflow_dispatch`) → draft prerelease tagged `v1.0.0-manual.<run-number>`
 
 The updater extracts the version from the tag with
 `QuasarReleaseVersion.Normalize`, so the tag prefix does not matter. Assembly/file
@@ -59,9 +63,11 @@ metadata is normalized to `major.minor.build`.
 
 ## First Start
 
-The default systemd user service runs Bootstrap from
-`~/.local/share/Quasar/Quasar serve --quiet` and sets `QUASAR_DATA_DIR` to the
-user's Quasar data directory. A machine-wide service is still available with
+The default systemd user service runs Bootstrap from the extracted install root
+and sets `QUASAR_DATA_DIR` to that same directory. It also sets
+`QUASAR_SYSTEMD_SERVICE` and `QUASAR_SYSTEMD_SCOPE` so the web UI's **Shutdown
+Quasar** action can request `systemctl --user stop quasar.service` instead of
+only exiting the launcher. A machine-wide service is still available with
 `install.sh --system`.
 
 If Bootstrap has no usable `Updates/active-release.json` and no packaged
@@ -69,7 +75,7 @@ If Bootstrap has no usable `Updates/active-release.json` and no packaged
 extracts it under:
 
 ```text
-~/.config/Quasar/ManagedRuntime/WebService/<version>
+<install-root>/ManagedRuntime/WebService/<version>
 ```
 
 Then it writes `Updates/active-release.json` pointing at the managed active
@@ -82,6 +88,14 @@ pointer that targets a random external build directory. Only packaged
 configured `QUASAR_WEB_EXE` / `QUASAR_WEB_DLL` workers are trusted. If Bootstrap
 finds an older active pointer that still targets `Updates/Staged/<version>`, it
 migrates that release into `ManagedRuntime/WebService/<version>` before launch.
+On startup, Bootstrap also migrates a legacy default data root at
+`~/.config/Quasar` into the install root unless `QUASAR_DATA_DIR` points to a
+custom directory.
+
+Bootstrap always captures the managed web UI worker's stdout/stderr and mirrors
+it to its own console. For systemd installs, Quasar web UI warnings and errors
+therefore appear in the service journal as well as in the configured Quasar log
+files.
 
 ## UI Worker Updates
 
@@ -97,23 +111,50 @@ a matching `SHA256SUMS` entry for the downloaded asset.
 Staging also resolves `appsettings.json`. Quasar uses the stored release base in
 the data directory (`$QUASAR_DATA_DIR/Updates/appsettings.base.json`) as the
 merge base, applies local values from the install directory
-(`~/.local/share/Quasar` by default), and writes the resolved file into the staged worker. If the merge
+(`<install-root>` by default), and writes the resolved file into the staged worker. If the merge
 conflicts, auto-staging stops with a warning and `/settings/updates` shows a
 git-style conflict editor. Resolve and save the JSON there, or choose **Force
 release defaults** to stage the release file without local appsettings values.
 
-Activation is explicit. The UI copies the staged payload into
+Activation is explicit and requires the worker to be running under Bootstrap.
+The UI copies the staged payload into
 `ManagedRuntime/WebService/<version>`, writes the active-release pointer to that
 managed worker, updates the install-directory `appsettings.json` from the
 resolved staged file, and clears old staged payloads. Bootstrap copies that
 install-directory file into the managed worker before launch, observes the
 pointer change, drains the old worker, starts the managed worker on the same
-public port, and leaves managed Magnetar servers running. After a successful
-cutover, Bootstrap prunes inactive managed web-release directories.
+public port, and leaves managed Magnetar servers running. The browser polls
+`/api/health` until the activated UI version is serving, then reloads the
+Updates page. After a successful cutover, Bootstrap prunes inactive managed
+web-release directories.
 
 This intentionally accepts a short web/agent disconnect. `Quasar.Agent`
 reconnects, and managed Magnetar processes stay alive because Quasar launches
-them detached with `-daemon`.
+them detached with `-daemon`. Reconnect is startup-pending until the first
+telemetry snapshot arrives, so health recovery uses the startup grace instead of
+the shorter heartbeat timeout during rollover. Running DS processes keep the
+agent assembly they already loaded until that server process is stopped. On
+worker startup and each reconcile after reconnect, the supervisor compares the
+bundled `Agent/Quasar.Agent.dll` hash with the deployed Magnetar local DLL hash. When
+they differ, Quasar warns that a manual server restart is required. It does not
+auto-schedule that restart; the operator-triggered stop/start path runs launch
+preparation and injects the bundled deployable DLL before relaunch.
+
+## Managed Runtime Update Checks
+
+The Updates page always shows the currently installed Quasar, Bootstrap,
+Magnetar, and Space Engineers Dedicated Server versions when Quasar can resolve
+them from release metadata, Dedicated Server `SE_VERSION` assembly metadata, or
+non-placeholder executable file versions. It also shows the managed runtime
+install paths and the most recent managed-runtime check time.
+
+Quasar UI worker and Bootstrap checks use the Quasar release checker interval
+(15 minutes by default) and the page's **Check Quasar** button. Managed Magnetar
+checks run during startup readiness and then every hour while Quasar is running;
+the page's **Check Magnetar** button runs the same check immediately. Managed DS
+checks run during startup readiness; **Check Dedicated Server** runs SteamCMD
+`app_update 298740 validate` immediately so an operator does not need to wait
+for a restart to verify or refresh the DS install.
 
 ## Bootstrap Updates
 
@@ -121,13 +162,21 @@ Bootstrap checks the primary Quasar release stream every 15 minutes by default.
 When it finds an actually newer `quasar-installer-linux.tar.gz` asset (semver
 core and prerelease compared against the running launcher's release identity), it
 verifies the release's `SHA256SUMS` entry, extracts the archive, strips the
-single top-level installer directory, replaces the installed launcher files,
+single top-level `Quasar` directory, replaces the installed launcher files,
 drains the UI worker, and exits with a failure code so systemd restarts the
 updated launcher. Existing `appsettings.json` is preserved.
 Bootstrap must not drain the worker for a release whose normalized version is
 the same as the running launcher; it also skips drain/restart if the downloaded
 launcher is byte-identical to the installed launcher, which prevents a repeated
 self-update loop when a source-built launcher reports stale version metadata.
+
+If `/settings/updates` has already detected a Bootstrap update and Quasar is
+running under Bootstrap, the **Force activate** button writes a
+`Updates/bootstrap-update-request.json` request containing the detected
+version and platform asset. Bootstrap watches for that file, consumes it, and
+runs the same verified self-update path for that requested release immediately
+instead of waiting for the next 15-minute monitor tick. Managed Magnetar servers
+stay running; the web UI reconnects after the launcher restarts.
 
 ## Install
 
@@ -147,22 +196,28 @@ first adds Microsoft's Debian 13 package feed with
 selected .NET package.
 
 ```bash
-tar -xzf quasar-installer-linux.tar.gz -C /tmp
-/tmp/quasar-installer-linux/install.sh          # publish to ~/.local/share/Quasar and install user quasar.service
-/tmp/quasar-installer-linux/install.sh --start  # also start the user service immediately
+mkdir -p ~/.local/share/Quasar
+tar -xzf quasar-installer-linux.tar.gz -C ~/.local/share/Quasar --strip-components=1
+~/.local/share/Quasar/install.sh          # install user quasar.service
+~/.local/share/Quasar/install.sh --start  # also start the user service immediately
 ```
 
-`install.sh` publishes Quasar to `~/.local/share/Quasar`, creates the Quasar
-data directory at `~/.config/Quasar` by default, and installs a user
-`quasar.service`. Use `--system` with `sudo` for a machine-wide service, or
-`--data-dir <dir>` to place Quasar state elsewhere. The generated service sets
-`HOME` and `QUASAR_DATA_DIR` explicitly so Bootstrap and the worker never fall
-back to the install directory for update/runtime state. The installer enables
-the service but does not start or restart it unless `--start` is passed; start it
-later with `systemctl --user restart quasar.service`. When installing from
-source instead of an extracted release archive, the installer stamps the launcher
-with `VERSION`, an exact git tag, or a short commit-derived prerelease identity
-so Bootstrap update comparisons do not fall back to plain `0.1.0`.
+For extracted release installers, `install.sh` uses the script directory as the
+default install directory and the default Quasar data directory. Source installs
+keep using `~/.local/share/Quasar` as the default install root, with state stored
+there as well. Use `--system` with `sudo` for a machine-wide service,
+`--install-dir <dir>` to copy Quasar elsewhere, or `--data-dir <dir>` to place
+Quasar state elsewhere. The generated service sets `HOME` and `QUASAR_DATA_DIR`
+explicitly so Bootstrap and the worker agree on the update/runtime state root.
+It also records the unit name/scope in `QUASAR_SYSTEMD_SERVICE` and
+`QUASAR_SYSTEMD_SCOPE`; with those set, the UI shutdown button asks systemd to
+stop the installed unit. The
+installer enables the service but does not start or restart it unless `--start`
+is passed; start it later with `systemctl --user restart quasar.service`. When
+installing from source instead of an extracted release archive, the installer
+stamps the launcher with `VERSION`, an exact git tag, or a short commit-derived
+prerelease identity so Bootstrap update comparisons do not fall back to plain
+`1.0.0`.
 
 If a previous `/opt/quasar` system install exists, the new user-mode installer
 installs the new Bootstrap and user service first, then calls the old
@@ -174,7 +229,7 @@ the whole Quasar service. The installer can build and install a narrow setuid
 root helper when the feature is needed:
 
 ```bash
-/tmp/quasar-installer-linux/install.sh --install-renice-helper --no-build --no-enable
+/tmp/Quasar/install.sh --install-renice-helper --no-build --no-enable
 ```
 
 The helper is installed as `/usr/local/bin/quasar-renice`, accepts only Quasar's
@@ -184,7 +239,7 @@ names before calling `setpriority`.
 
 ```bash
 ~/.local/share/Quasar/uninstall.sh           # remove the user systemd service
-~/.local/share/Quasar/uninstall.sh --purge   # also remove ~/.local/share/Quasar
+~/.local/share/Quasar/uninstall.sh --purge   # also remove the install/data root
 ```
 
 `uninstall.sh` runs `systemctl stop quasar.service` before disabling and removing
@@ -199,15 +254,15 @@ For the web UI host/port (including how to change the listening port, default
 
 Update defaults live in `Quasar:Updates`. Packaged defaults come from the install
 directory, and operator overrides can live in the Quasar data directory
-(`~/.config/Quasar/appsettings.json` by default for Linux systemd installs, or
+(`<install-root>/appsettings.json` by default for Linux systemd installs, or
 `QUASAR_DATA_DIR/appsettings.json` when overridden). The worker and Bootstrap
 both read that data-directory file on startup.
 
 ```json
 {
   "Enabled": true,
-  "Owner": "viktor-ferenczi",
-  "Repository": "Quasar",
+  "Owner": "CometWorks",
+  "Repository": "quasar",
   "IncludePrerelease": false,
   "AutoStageWebUpdates": true,
   "CheckIntervalSeconds": 900,
@@ -234,6 +289,38 @@ become selectable. Bootstrap also honors the same setting after its next restart
 The page also exposes an automatic-staging checkbox backed by
 `Quasar:Updates:AutoStageWebUpdates`; disabling it keeps new UI versions queued
 until the operator chooses a version and presses Stage.
+
+## GitHub Token for Update Checks
+
+Quasar can check GitHub releases without a token, but hosts on shared servers,
+NAT gateways, and public cloud IP ranges can hit GitHub's unauthenticated rate
+limit. The Updates page lets an admin save a GitHub token for release checks.
+It is stored in `github-updates.json` under the Quasar data directory with the
+same Data Protection encryption model and owner-only Unix permissions used for
+the Steam Workshop API key.
+
+Use a classic personal access token without any permissions:
+
+1. Open GitHub's classic token creation page:
+   <https://github.com/settings/tokens/new>.
+2. Set Note to something recognizable, such as `Quasar update checks`.
+3. Set Expiration to a date you can renew before it ends.
+4. Do not select any scopes or permissions. Quasar reads public release metadata
+   and public release assets; the token is only needed so GitHub treats the
+   requests as authenticated for rate limiting.
+5. Generate the token, copy it once, paste it into Settings, Updates, GitHub
+   token, then press Save token.
+6. Press Check Quasar to verify the token and update status.
+
+GitHub documents that unauthenticated REST API requests are rate limited by IP,
+while authenticated requests use the authenticated user's primary rate limit:
+<https://docs.github.com/rest/using-the-rest-api/rate-limits-for-the-rest-api>.
+
+When GitHub reports a token expiration, Quasar records it in memory. If the
+token is expired, expiring soon, or rejected during an update check, the Updates
+page shows a warning and the notification icon in the app bar gets a warning
+badge. Save a fresh token before the old one expires to keep automatic checks
+working.
 
 **Warning:** prerelease updates are for testing only and should not be used by
 regular users. They may be unstable, may require manual recovery, and may update

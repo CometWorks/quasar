@@ -21,10 +21,10 @@ $ArtifactDir = Join-Path $RepoDir 'artifacts\windows'
 $Configuration = if ($env:CONFIGURATION) { $env:CONFIGURATION } else { 'Release' }
 $Runtime = if ($env:RUNTIME) { $env:RUNTIME } else { 'win-x64' }
 $Version = if ($env:VERSION) { $env:VERSION } else { '' }
-$DefaultAssemblyFileVersion = '0.1.1'
+$DefaultAssemblyFileVersion = '1.0.0'
 $WebArchiveName = 'quasar-web-win-x64.zip'
 $InstallerArchiveName = 'quasar-installer-windows.zip'
-$InstallerRootName = 'quasar-installer-windows'
+$InstallerRootName = 'Quasar'
 
 function Normalize-VersionComponent {
     param([string]$Value)
@@ -41,7 +41,7 @@ function Normalize-NugetVersion {
     $plus = $v.IndexOf('+')
     if ($plus -ge 0) { $v = $v.Substring(0, $plus) }
 
-    if ([string]::IsNullOrEmpty($v)) { return '0.1.1' }
+    if ([string]::IsNullOrEmpty($v)) { return '1.0.0' }
 
     if ($v -match '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$') { return $v }
 
@@ -54,7 +54,7 @@ function Normalize-NugetVersion {
     $suffix = $suffix -replace '^\.', ''
     $suffix = $suffix -replace '^-', ''
     if ([string]::IsNullOrEmpty($suffix)) { $suffix = 'local' }
-    return "0.1.1-$suffix"
+    return "1.0.0-$suffix"
 }
 
 function Build-AssemblyFileVersion {
@@ -137,8 +137,8 @@ function Copy-Tree {
 #      relative links would dangle when opened from the unpacked archive.
 function Build-PackagedReadme {
     param([string]$Source, [string]$Snippet, [string]$Destination)
-    $owner = if ($env:GITHUB_REPOSITORY) { ($env:GITHUB_REPOSITORY -split '/')[0] } else { 'viktor-ferenczi' }
-    $repo = if ($env:GITHUB_REPOSITORY) { ($env:GITHUB_REPOSITORY -split '/')[1] } else { 'Quasar' }
+    $owner = if ($env:GITHUB_REPOSITORY) { ($env:GITHUB_REPOSITORY -split '/')[0] } else { 'CometWorks' }
+    $repo = if ($env:GITHUB_REPOSITORY) { ($env:GITHUB_REPOSITORY -split '/')[1] } else { 'quasar' }
     # Pin doc links to main: docs on main are always current and always resolve,
     # unlike a tag/PR-merge ref that may predate a doc or not be a valid blob path.
     $baseUrl = "https://github.com/$owner/$repo/blob/main/Docs/"

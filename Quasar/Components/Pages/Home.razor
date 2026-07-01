@@ -6,22 +6,54 @@
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarWorldTemplateCatalog WorldTemplates
 @inject ManagedRuntimeWarmupService RuntimeWarmup
+@inject DataHandlingConsentCatalog DataHandlingConsent
+@inject ServerManagementActions ServerActions
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@inject ILocalStorageService LocalStorage
 
-<PageTitle>Dashboard</PageTitle>
+<PageTitle>@(IsListView ? "Servers" : "Dashboard")</PageTitle>
 
-<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-2">
-    <div>
-        <MudText Typo="Typo.h5" Class="mb-2">Dashboard</MudText>        
-    </div>
-    @if (!ShowSetupWizard)
-    {
+@if (ShowDataHandlingConsentPrompt)
+{
+    <MudPaper Class="pa-4 summary-card mb-4">
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+            <MudStack Spacing="1" Class="setup-wizard-copy">
+                <MudText Typo="Typo.subtitle1">Data Handling Consent</MudText>
+                <MudText Typo="Typo.body2">
+                    Allow Magnetar to send anonymous plugin usage statistics? It sends enabled plugin IDs with a random local instance ID, not Steam ID, account, world, or server content.
+                </MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    If no decision is stored, Quasar starts Magnetar with no consent.
+                </MudText>
+            </MudStack>
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Success"
+                           StartIcon="@Icons.Material.Filled.Check"
+                           OnClick="@(() => SaveDataHandlingConsentAsync(true))">
+                    YES
+                </MudButton>
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Warning"
+                           StartIcon="@Icons.Material.Filled.Close"
+                           OnClick="@(() => SaveDataHandlingConsentAsync(false))">
+                    NO
+                </MudButton>
+            </MudStack>
+        </MudStack>
+    </MudPaper>
+}
+
+@if (!ShowSetupWizard)
+{
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Spacing="2" Class="mb-2">
         <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="ShowSetupWizardAgain">
             Restart Setup Wizard
         </MudButton>
-    }
-</MudStack>
+    </MudStack>
+}
 
 @if (Supervisor.HealthMonitoringDisabled)
 {
@@ -122,11 +154,11 @@
                                 <MudText Typo="Typo.body2">
                                     @if (WorldTemplateCount > 0)
                                     {
-                                        @($"{WorldTemplateCount} world template(s) ready to seed server worlds on first launch.")
+                                    @($"{WorldTemplateCount} world template(s) ready for creating server saves.")
                                     }
                                     else
                                     {
-                                        @("Optional helper. Import a world template if first launch should seed the server world folder automatically.")
+                                        @("Optional helper. Import a world template to create server saves from it.")
                                     }
                                 </MudText>
                             </MudStack>
@@ -263,7 +295,7 @@
                                     {
                                         <MudButton Variant="Variant.Filled"
                                                    Color="Color.Primary"
-                                                   Disabled="@IsLaunchBlocked"
+                                                   Disabled="@(IsLaunchBlocked || string.IsNullOrWhiteSpace(server.WorldSaveName))"
                                                    StartIcon="@Icons.Material.Filled.PlayArrow"
                                                    OnClick="@(() => StartAsync(server.UniqueName))">
                                             Start @server.UniqueName
@@ -343,14 +375,26 @@
     </MudPaper>
 }
 
-@if (ProblemBanner is not null)
+@if (ProblemBanner is { } problemBanner)
 {
-    <MudAlert Severity="@ProblemBanner.Value.Severity" Variant="Variant.Filled" Class="mb-4">
-        @ProblemBanner.Value.Message
+    <MudAlert Severity="@problemBanner.Severity" Variant="Variant.Filled" Class="mb-4">
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+            <MudText Typo="Typo.body2">@problemBanner.Message</MudText>
+            @if (!string.IsNullOrWhiteSpace(problemBanner.ClearErrorUniqueName))
+            {
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Inherit"
+                           Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.Clear"
+                           OnClick="@(() => ClearErrorStatusAsync(problemBanner.ClearErrorUniqueName))">
+                    Clear Error Status
+                </MudButton>
+            }
+        </MudStack>
     </MudAlert>
 }
 
-@if (RuntimeWarmupSnapshot.State != ManagedRuntimeWarmupState.Complete)
+@if (ShouldShowRuntimeWarmup())
 {
     <MudPaper Class="pa-4 summary-card runtime-status mb-4">
         <MudStack Spacing="2">
@@ -429,7 +473,44 @@
     </MudItem>
 </MudGrid>
 
-@if (Servers.Count == 0)
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-3">
+    <MudText Typo="Typo.h6">Servers</MudText>
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+        @if (IsCardsView)
+        {
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="OpenCreateServerDialogAsync">
+                Create Server
+            </MudButton>
+        }
+        <MudButton Variant="@(IsCardsView ? Variant.Filled : Variant.Outlined)"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Dashboard"
+                   OnClick="@(() => SetServerViewAsync(DashboardServerView.Cards))">
+            Cards
+        </MudButton>
+        <MudButton Variant="@(IsListView ? Variant.Filled : Variant.Outlined)"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.ViewList"
+                   OnClick="@(() => SetServerViewAsync(DashboardServerView.List))">
+            List
+        </MudButton>
+    </MudStack>
+</MudStack>
+
+@* Keep this conditional: the landing page must not build hidden server-list/card DOM. *@
+@if (IsListView)
+{
+    <Servers Embedded="true"
+             HideHeader="true"
+             DisableResponsiveLayout="true"
+             LaunchBlocked="@IsLaunchBlocked"
+             LaunchBlockedMessage="@RuntimeWarmupSnapshot.Message"
+             ConfigProfileSelected="OpenConfigProfileFromServerListAsync" />
+}
+else if (Servers.Count == 0)
 {
     @if (!ShowSetupWizard)
     {
@@ -452,7 +533,7 @@ else
                             StopRequested="StopAsync"
                             KillStartingRequested="KillStartingAsync"
                             RestartRequested="RestartAsync"
-                            OpenLogsRequested="OpenLogsAsync" />
+                            ConfigProfileSelected="OpenConfigProfileFromServerListAsync" />
             </MudItem>
         }
     </MudGrid>
@@ -460,6 +541,17 @@ else
 
 @code
 {
+    private const string ServerViewStorageKey = "quasar.dashboard.serverView";
+
+    private enum DashboardServerView
+    {
+        Cards,
+        List,
+    }
+
+    [SupplyParameterFromQuery(Name = "view")]
+    public string? ServerViewQuery { get; set; }
+
     private IReadOnlyList<AgentRuntimeState> Agents => Registry.GetAgents();
     private IReadOnlyList<DedicatedServerDefinition> Servers => ServerCatalog.GetServers();
     private IReadOnlyList<DedicatedServerRuntimeSnapshot> RuntimeSnapshotList => Supervisor.GetSnapshots();
@@ -473,6 +565,12 @@ else
     private IReadOnlyList<DedicatedServerDefinition> StartableServers => Servers.Where(server => !IsRunning(server.UniqueName)).ToList();
     private IReadOnlyList<DedicatedServerDefinition> LaunchedServers => Servers.Where(server => IsRunning(server.UniqueName)).ToList();
     private bool IsLaunchBlocked => RuntimeWarmupSnapshot.State != ManagedRuntimeWarmupState.Complete;
+    private bool ShowDataHandlingConsentPrompt => DataHandlingConsent.GetSettings().ConsentGranted is null;
+    private DashboardServerView _serverView = DashboardServerView.Cards;
+    private bool _serverViewLoadedFromStorage;
+    private DashboardServerView ServerView => _serverView;
+    private bool IsCardsView => ServerView == DashboardServerView.Cards;
+    private bool IsListView => ServerView == DashboardServerView.List;
 
     private int ConnectedAgentCount => Agents.Count(agent => agent.IsConnected);
 
@@ -498,19 +596,23 @@ else
         snapshot.HealthState == DedicatedServerHealthState.Unhealthy ||
         snapshot.State is DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted);
 
-    private (Severity Severity, string Message)? ProblemBanner
+    private (Severity Severity, string Message, string? ClearErrorUniqueName)? ProblemBanner
     {
         get
         {
-            var error = RuntimeSnapshotList.FirstOrDefault(snapshot =>
-                snapshot.HealthState == DedicatedServerHealthState.Unhealthy ||
+            var stateError = RuntimeSnapshotList.FirstOrDefault(snapshot =>
                 snapshot.State is DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted);
-            if (error is not null)
-                return (Severity.Error, $"{error.UniqueName}: {FirstNonEmpty(error.HealthSummary, error.LastMessage, "Server needs attention.")}");
+            if (stateError is not null)
+                return (Severity.Error, $"{stateError.UniqueName}: {FirstNonEmpty(stateError.HealthSummary, stateError.LastMessage, "Server needs attention.")}", stateError.UniqueName);
+
+            var healthError = RuntimeSnapshotList.FirstOrDefault(snapshot =>
+                snapshot.HealthState == DedicatedServerHealthState.Unhealthy);
+            if (healthError is not null)
+                return (Severity.Error, $"{healthError.UniqueName}: {FirstNonEmpty(healthError.HealthSummary, healthError.LastMessage, "Server needs attention.")}", null);
 
             var warning = RuntimeSnapshotList.FirstOrDefault(snapshot => snapshot.HealthState == DedicatedServerHealthState.Warning);
             if (warning is not null)
-                return (Severity.Warning, $"{warning.UniqueName}: {FirstNonEmpty(warning.HealthSummary, warning.LastMessage, "Health warning.")}");
+                return (Severity.Warning, $"{warning.UniqueName}: {FirstNonEmpty(warning.HealthSummary, warning.LastMessage, "Health warning.")}", null);
 
             return null;
         }
@@ -611,9 +713,43 @@ else
         ConfigProfiles.Changed += HandleRegistryChanged;
         WorldTemplates.Changed += HandleRegistryChanged;
         RuntimeWarmup.Changed += HandleRegistryChanged;
+        DataHandlingConsent.Changed += HandleRegistryChanged;
 
         // Auto-open the first-setup wizard until the first server has been created.
         _setupWizardActive = ConfiguredServerCount == 0;
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (TryParseServerView(ServerViewQuery, out var queryView))
+        {
+            _serverView = queryView;
+            _serverViewLoadedFromStorage = true;
+            _ = SaveServerViewPreferenceAsync(queryView);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _serverViewLoadedFromStorage || TryParseServerView(ServerViewQuery, out _))
+            return;
+
+        _serverViewLoadedFromStorage = true;
+        try
+        {
+            var stored = await LocalStorage.GetItemAsync<string>(ServerViewStorageKey);
+            if (TryParseServerView(stored, out var storedView) && storedView != _serverView)
+            {
+                _serverView = storedView;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
     }
 
     public void Dispose()
@@ -624,6 +760,7 @@ else
         ConfigProfiles.Changed -= HandleRegistryChanged;
         WorldTemplates.Changed -= HandleRegistryChanged;
         RuntimeWarmup.Changed -= HandleRegistryChanged;
+        DataHandlingConsent.Changed -= HandleRegistryChanged;
     }
 
     private void HandleRegistryChanged()
@@ -646,7 +783,7 @@ else
         if (ConfiguredServerCount == 0)
         {
             if (ConfigProfileCount == 0 && WorldTemplateCount == 0)
-                return "Optional: create config profile or import world template here first. Then create first server below.";
+                return "Optional: create config profile or import world template here first. Then create a server and select or create its save.";
 
             return "Next: create first server below. No page switch needed.";
         }
@@ -660,16 +797,78 @@ else
         return "Setup complete. Dashboard now stays focused on live running servers.";
     }
 
+    private async Task SaveDataHandlingConsentAsync(bool consentGranted)
+    {
+        try
+        {
+            await DataHandlingConsent.SaveAsync(consentGranted);
+            Snackbar.Add(consentGranted ? "Data handling consent saved: YES." : "Data handling consent saved: NO.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed saving data handling consent: {exception.Message}", Severity.Error);
+        }
+    }
+
     private Task OpenCreateConfigProfileDialogAsync() =>
         ShowFullScreenPageDialogAsync<ConfigsPageDialog>("Config Profiles");
 
     private Task OpenImportWorldTemplateDialogAsync() =>
         ShowFullScreenPageDialogAsync<WorldTemplatesPageDialog>("World Templates");
 
-    private Task OpenCreateServerDialogAsync() =>
-        ShowFullScreenPageDialogAsync<ServersPageDialog>("Servers");
+    private Task OpenCreateServerDialogAsync() => ServerActions.OpenCreateDialogAsync();
 
-    private async Task ShowFullScreenPageDialogAsync<TDialog>(string title) where TDialog : ComponentBase
+    private Task OpenConfigProfileFromServerListAsync(string configProfileId)
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(ConfigsPageDialog.InitialProfileId)] = configProfileId,
+        };
+
+        return ShowFullScreenPageDialogAsync<ConfigsPageDialog>("Config Profiles", parameters);
+    }
+
+    private async Task SetServerViewAsync(DashboardServerView view)
+    {
+        _serverView = view;
+        await SaveServerViewPreferenceAsync(view);
+        var target = view == DashboardServerView.List ? "/?view=list" : "/";
+        Navigation.NavigateTo(target, replace: true);
+    }
+
+    private async Task SaveServerViewPreferenceAsync(DashboardServerView view)
+    {
+        try
+        {
+            await LocalStorage.SetItemAsync(ServerViewStorageKey, view == DashboardServerView.List ? "list" : "cards");
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private static bool TryParseServerView(string? value, out DashboardServerView view)
+    {
+        if (string.Equals(value, "list", StringComparison.OrdinalIgnoreCase))
+        {
+            view = DashboardServerView.List;
+            return true;
+        }
+
+        if (string.Equals(value, "cards", StringComparison.OrdinalIgnoreCase))
+        {
+            view = DashboardServerView.Cards;
+            return true;
+        }
+
+        view = DashboardServerView.Cards;
+        return false;
+    }
+
+    private async Task ShowFullScreenPageDialogAsync<TDialog>(string title, DialogParameters? parameters = null) where TDialog : ComponentBase
     {
         var options = new DialogOptions
         {
@@ -677,7 +876,7 @@ else
             FullScreen = true,
         };
 
-        var dialog = await DialogService.ShowAsync<TDialog>(title, new DialogParameters(), options);
+        var dialog = await DialogService.ShowAsync<TDialog>(title, parameters ?? new DialogParameters(), options);
         await dialog.Result;
     }
 
@@ -688,6 +887,14 @@ else
             if (IsLaunchBlocked)
             {
                 Snackbar.Add(RuntimeWarmupSnapshot.Message, Severity.Warning);
+                return;
+            }
+
+            var definition = ServerCatalog.GetServer(uniqueName);
+            var worldBlockMessage = GetWorldLaunchBlockMessage(definition);
+            if (worldBlockMessage is not null)
+            {
+                Snackbar.Add(worldBlockMessage, Severity.Warning);
                 return;
             }
 
@@ -708,6 +915,23 @@ else
         return Task.CompletedTask;
     }
 
+    private static string? GetWorldLaunchBlockMessage(DedicatedServerDefinition? definition)
+    {
+        if (definition is null)
+            return "Server definition not found.";
+
+        if (string.IsNullOrWhiteSpace(definition.WorldSaveName))
+            return "Select a world save before starting this server.";
+
+        var worldPath = definition.GetWorldSavePath();
+        if (string.IsNullOrWhiteSpace(worldPath) || !Directory.Exists(worldPath))
+            return $"World save folder not found: {worldPath}";
+
+        return File.Exists(Path.Combine(worldPath, "Sandbox.sbc"))
+            ? null
+            : $"World save '{worldPath}' is missing Sandbox.sbc.";
+    }
+
     private async Task StopAsync(string uniqueName)
     {
         if (!await ConfirmDestructiveActionAsync(
@@ -722,6 +946,23 @@ else
         {
             await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.Off);
             Snackbar.Add($"Stop requested for '{uniqueName}'.", Severity.Warning);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task ClearErrorStatusAsync(string uniqueName)
+    {
+        try
+        {
+            var cleared = await Supervisor.ClearErrorStatusAsync(uniqueName);
+            Snackbar.Add(
+                cleared
+                    ? $"Error status cleared for '{uniqueName}'."
+                    : $"No clearable error status for '{uniqueName}'.",
+                cleared ? Severity.Success : Severity.Info);
         }
         catch (Exception exception)
         {
@@ -774,23 +1015,6 @@ else
         }
     }
 
-    private async Task OpenLogsAsync(string uniqueName)
-    {
-        var parameters = new DialogParameters
-        {
-            [nameof(ServerConsoleDialog.UniqueName)] = uniqueName,
-        };
-
-        var options = new DialogOptions
-        {
-            CloseOnEscapeKey = true,
-            FullWidth = true,
-            MaxWidth = MaxWidth.Large,
-        };
-
-        await DialogService.ShowAsync<ServerConsoleDialog>($"Logs — {uniqueName}", parameters, options);
-    }
-
     private bool IsRunning(string uniqueName)
     {
         var state = GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped;
@@ -838,9 +1062,9 @@ else
             ? "No config profile"
             : ConfigProfiles.GetProfile(server.ConfigProfileId)?.Name ?? $"Missing config: {server.ConfigProfileId}";
 
-        var worldTemplateName = string.IsNullOrWhiteSpace(server.WorldTemplateId)
-            ? "No world template"
-            : WorldTemplates.GetTemplate(server.WorldTemplateId)?.Name ?? $"Missing world: {server.WorldTemplateId}";
+        var worldTemplateName = string.IsNullOrWhiteSpace(server.WorldSaveName)
+            ? "No world save"
+            : $"Save: {server.WorldSaveName}";
 
         return $"{configProfileName} | {worldTemplateName}";
     }
@@ -900,21 +1124,47 @@ else
         return runtime.AgentAttached ? Color.Success : Color.Warning;
     }
 
-    private Color GetRuntimeWarmupColor() => RuntimeWarmupSnapshot.State switch
+    private Color GetRuntimeWarmupColor()
     {
-        ManagedRuntimeWarmupState.Complete => Color.Success,
-        ManagedRuntimeWarmupState.Failed => Color.Error,
-        ManagedRuntimeWarmupState.Running => Color.Info,
-        _ => Color.Default,
-    };
+        var snapshot = RuntimeWarmupSnapshot;
+        if (snapshot.Components.Any(IsRuntimeComponentActive))
+            return Color.Info;
 
-    private string GetRuntimeWarmupLabel() => RuntimeWarmupSnapshot.State switch
+        return snapshot.State switch
+        {
+            ManagedRuntimeWarmupState.Complete => Color.Success,
+            ManagedRuntimeWarmupState.Failed => Color.Error,
+            ManagedRuntimeWarmupState.Running => Color.Info,
+            _ => Color.Default,
+        };
+    }
+
+    private string GetRuntimeWarmupLabel()
     {
-        ManagedRuntimeWarmupState.Complete => "Ready",
-        ManagedRuntimeWarmupState.Failed => "Failed",
-        ManagedRuntimeWarmupState.Running => "Preparing",
-        _ => "Pending",
-    };
+        var snapshot = RuntimeWarmupSnapshot;
+        if (snapshot.Components.Any(IsRuntimeComponentActive))
+            return "Updating";
+
+        return snapshot.State switch
+        {
+            ManagedRuntimeWarmupState.Complete => "Ready",
+            ManagedRuntimeWarmupState.Failed => "Failed",
+            ManagedRuntimeWarmupState.Running => "Preparing",
+            _ => "Pending",
+        };
+    }
+
+    private bool ShouldShowRuntimeWarmup()
+    {
+        var snapshot = RuntimeWarmupSnapshot;
+        return snapshot.State != ManagedRuntimeWarmupState.Complete ||
+               snapshot.Components.Any(IsRuntimeComponentActive);
+    }
+
+    private static bool IsRuntimeComponentActive(ManagedRuntimeComponentSnapshot component) =>
+        component.State is ManagedRuntimeComponentState.Checking
+            or ManagedRuntimeComponentState.Downloading
+            or ManagedRuntimeComponentState.Installing;
 
     private static Color GetRuntimeComponentColor(ManagedRuntimeComponentSnapshot component) => component.State switch
     {
@@ -943,7 +1193,8 @@ else
     };
 
     private static bool CanRetryRuntimeComponent(ManagedRuntimeComponentSnapshot component) =>
-        component.Component == ManagedRuntimeInstallComponent.DedicatedServer &&
+        component.Component is (ManagedRuntimeInstallComponent.DedicatedServer
+            or ManagedRuntimeInstallComponent.Magnetar) &&
         component.State == ManagedRuntimeComponentState.Failed;
 
 }

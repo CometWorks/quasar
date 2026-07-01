@@ -20,9 +20,6 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private static readonly TimeSpan RestartCounterResetWindow = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultGracefulStopTimeout = TimeSpan.FromSeconds(30);
-    private const string StandardOutputLogName = "stdout";
-    private const string StandardErrorLogName = "stderr";
-    private const string ActiveLogExtension = ".log";
     private const string ReniceHelperPath = "/usr/local/bin/quasar-renice";
     private const string RestoreInProgressMessage = "Start deferred: a backup restore is in progress for this server.";
     private const int MaxModDownloadFailures = 20;
@@ -37,7 +34,6 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private readonly ManagedRuntimeWarmupService _runtimeWarmup;
     private readonly WebServiceOptions _options;
     private readonly ILogger<DedicatedServerSupervisor> _logger;
-    private readonly PluginLogStream _pluginLogStream;
     private readonly ServerRestoreCoordinator _restoreCoordinator;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Dictionary<string, ManagedServerState> _states = new(StringComparer.OrdinalIgnoreCase);
@@ -52,7 +48,6 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         ManagedDedicatedServerRuntimeResolver runtimeResolver,
         ManagedRuntimeWarmupService runtimeWarmup,
         WebServiceOptions options,
-        PluginLogStream pluginLogStream,
         ServerRestoreCoordinator restoreCoordinator,
         ILogger<DedicatedServerSupervisor> logger)
     {
@@ -62,7 +57,6 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _runtimeResolver = runtimeResolver;
         _runtimeWarmup = runtimeWarmup;
         _options = options;
-        _pluginLogStream = pluginLogStream;
         _restoreCoordinator = restoreCoordinator;
         _logger = logger;
 
@@ -210,6 +204,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (!_states.TryGetValue(uniqueName, out state))
                 throw new InvalidOperationException($"Unknown Quasar server '{uniqueName}'.");
 
+            if (state.State == DedicatedServerProcessState.Stopping)
+                return;
+
             if (IsProcessActive(state.Process))
                 return;
 
@@ -300,6 +297,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 return;
 
             process = state.Process;
+            if (state.State == DedicatedServerProcessState.Stopping)
+                return;
+
             state.StopRequested = true;
             state.IsRestartPending = false;
             state.StartCancellation?.Cancel();
@@ -430,17 +430,124 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             SetStopped(uniqueName, "Start cancelled.");
     }
 
+    public async Task BeginAdminRestartAsync(string uniqueName, CancellationToken cancellationToken = default)
+    {
+        var definition = _catalog.GetServer(uniqueName);
+        if (definition is null)
+            throw new InvalidOperationException($"Unknown Quasar server '{uniqueName}'.");
+
+        if (definition.GoalState != DedicatedServerGoalState.On || !definition.AutoStart)
+        {
+            definition.GoalState = DedicatedServerGoalState.On;
+            definition.AutoStart = true;
+            await _catalog.UpsertAsync(definition, cancellationToken);
+        }
+
+        var changed = false;
+        var startNow = false;
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out var state))
+                return;
+
+            startNow = !IsProcessActive(state.Process) && !state.StartInProgress;
+            state.Definition.GoalState = DedicatedServerGoalState.On;
+            state.Definition.AutoStart = true;
+            state.StopRequested = false;
+            state.IsRestartPending = true;
+            state.State = DedicatedServerProcessState.Restarting;
+            state.LastMessage = "Restart requested from in-game command.";
+            changed = true;
+        }
+
+        if (changed)
+            NotifyChanged();
+
+        if (startNow)
+            await StartServerAsync(uniqueName, cancellationToken);
+    }
+
     public async Task RestartServerAsync(string uniqueName, CancellationToken cancellationToken = default)
     {
         var definition = _catalog.GetServer(uniqueName);
         if (definition is null)
             throw new InvalidOperationException($"Unknown Quasar server '{uniqueName}'.");
 
+        lock (_sync)
+        {
+            if (_states.TryGetValue(uniqueName, out var state) &&
+                state.State is DedicatedServerProcessState.Starting
+                    or DedicatedServerProcessState.Stopping
+                    or DedicatedServerProcessState.Restarting)
+            {
+                return;
+            }
+        }
+
+        var agentDeployment = _runtimePreparer.GetAgentDeploymentComparison(definition);
+        if (agentDeployment.HasMismatch)
+        {
+            _logger.LogInformation(
+                "Restarting server {UniqueName} with a full stop/start because deployed Quasar.Agent hash differs from the bundled deployable DLL. BundledHash={BundledHash}; DeployedHash={DeployedHash}.",
+                uniqueName,
+                agentDeployment.BundledSha256,
+                string.IsNullOrWhiteSpace(agentDeployment.DeployedSha256) ? "missing" : agentDeployment.DeployedSha256);
+        }
         definition.GoalState = DedicatedServerGoalState.On;
         definition.AutoStart = true;
         await _catalog.UpsertAsync(definition, cancellationToken);
         await StopServerAsync(uniqueName, cancellationToken);
         await StartServerAsync(uniqueName, cancellationToken);
+    }
+
+    public async Task<bool> ClearErrorStatusAsync(string uniqueName, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(uniqueName))
+            return false;
+
+        var definition = _catalog.GetServer(uniqueName);
+        if (definition is null)
+            throw new InvalidOperationException($"Unknown Quasar server '{uniqueName}'.");
+
+        if (definition.GoalState != DedicatedServerGoalState.Off)
+            await _catalog.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.Off, cancellationToken);
+
+        var changed = false;
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out var state))
+                return false;
+
+            if (IsProcessActive(state.Process))
+                return false;
+
+            if (state.State is not (DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted) &&
+                state.HealthState != DedicatedServerHealthState.Unhealthy)
+            {
+                return false;
+            }
+
+            state.Definition.GoalState = DedicatedServerGoalState.Off;
+            state.Process = null;
+            state.ProcessId = null;
+            state.State = DedicatedServerProcessState.Stopped;
+            state.StopRequested = false;
+            state.IsRestartPending = false;
+            state.StartCancellation?.Cancel();
+            state.RestartAttempts = 0;
+            state.AgentAttachRetryAttempts = 0;
+            state.LastExitCode = null;
+            state.StoppedAtUtc = DateTimeOffset.UtcNow;
+            state.LastMessage = "Error status cleared.";
+            state.ModDownloadFailures.Clear();
+            ResetHealthTracking(state);
+            changed = true;
+        }
+
+        if (changed)
+            NotifyChanged();
+
+        return changed;
     }
 
     public void Dispose()
@@ -497,6 +604,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         List<(string UniqueName, ReconcileAction Action, string Reason)> actions = new();
         List<(string UniqueName, DedicatedServerProcessPriority Priority, string Phase)> priorityActions = new();
         List<(string UniqueName, string Affinity, string Phase)> affinityActions = new();
+        List<(string UniqueName, DedicatedServerDefinition Definition)> agentDeploymentChecks = new();
         var agents = BuildAgentLookup();
         var now = DateTimeOffset.UtcNow;
         var healthChanged = false;
@@ -508,6 +616,31 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 var processActive = IsProcessActive(state.Process);
                 var goalState = state.Definition.GoalState;
                 var agent = agents.TryGetValue(state.UniqueName, out var currentAgent) ? currentAgent : null;
+
+                if (!processActive &&
+                    !state.StartInProgress &&
+                    state.State == DedicatedServerProcessState.Stopping)
+                {
+                    state.State = DedicatedServerProcessState.Stopped;
+                    state.StopRequested = false;
+                    state.IsRestartPending = false;
+                    state.LastMessage = "Stopped.";
+                    ResetHealthTracking(state);
+                    healthChanged = true;
+                }
+
+                if (!processActive &&
+                    goalState == DedicatedServerGoalState.Off &&
+                    state.State == DedicatedServerProcessState.Restarting)
+                {
+                    state.State = DedicatedServerProcessState.Stopped;
+                    state.StopRequested = false;
+                    state.IsRestartPending = false;
+                    state.LastMessage = "Restart cancelled.";
+                    ResetHealthTracking(state);
+                    healthChanged = true;
+                }
+
                 var health = EvaluateHealth(
                     state,
                     agent,
@@ -535,6 +668,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     state.LastMessage = "Server online.";
                     state.AgentAttachRetryAttempts = 0;
                     healthChanged = true;
+                }
+
+                if (processActive &&
+                    state.State == DedicatedServerProcessState.Running &&
+                    agent?.IsConnected == true)
+                {
+                    agentDeploymentChecks.Add((state.UniqueName, Clone(state.Definition)));
                 }
 
                 if (processActive &&
@@ -622,6 +762,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         foreach (var (uniqueName, affinity, phase) in affinityActions)
             TryApplyCpuAffinity(uniqueName, affinity, phase);
+
+        foreach (var (uniqueName, definition) in agentDeploymentChecks)
+            WarnIfAgentDeploymentMismatch(uniqueName, definition);
 
         foreach (var (uniqueName, action, reason) in actions)
         {
@@ -778,9 +921,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private async Task StartProcessAsync(ManagedServerState state, CancellationToken cancellationToken)
     {
         var definition = state.Definition;
-        if (string.IsNullOrWhiteSpace(definition.WorldTemplateId))
+        if (string.IsNullOrWhiteSpace(definition.WorldSaveName))
         {
-            SetFaulted(state.UniqueName, "World template required.");
+            SetFaulted(state.UniqueName, "World save required.");
             return;
         }
 
@@ -840,18 +983,21 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
         cancellationToken.ThrowIfCancellationRequested();
 
-        string stdoutPath;
-        string stderrPath;
-        try
+        var compatibilityIssue = WorldStartupCompatibilityGuard.Check(launch.WorldPath);
+        if (compatibilityIssue is not null)
         {
-            (stdoutPath, stderrPath) = PrepareServerLogSlot(state.UniqueName, definition.DsLogFilesToKeep);
-        }
-        catch (Exception exception)
-        {
-            SetFaulted(state.UniqueName, $"Failed preparing DS log files: {exception.Message}");
-            _logger.LogWarning(exception, "Failed preparing DS log files for server {UniqueName}.", state.UniqueName);
+            SetFaulted(state.UniqueName, compatibilityIssue.Message);
+            _logger.LogWarning(
+                "Blocked server {UniqueName} startup because the world is incompatible with disabled oxygen. References: {References}",
+                state.UniqueName,
+                string.Join(", ", compatibilityIssue.References.Select(reference =>
+                    reference.LineNumber is > 0
+                        ? $"{reference.Token} at {reference.RelativePath}:{reference.LineNumber.Value}"
+                        : $"{reference.Token} at {reference.RelativePath}")));
             return;
         }
+
+        PruneDedicatedServerLogFiles(state.UniqueName, launch.DedicatedServerAppDataPath, definition.DsLogFilesToKeep);
         cancellationToken.ThrowIfCancellationRequested();
 
         var process = new Process
@@ -896,8 +1042,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         // Activate the PluginSdk QuasarLogSink inside the dedicated server: any
         // non-empty QUASAR_AGENT value makes plugins emit structured JSON log
-        // lines on standard output (LogEnvironment.IsManagedByQuasar), which the
-        // supervisor parses into the plugin log stream below.
+        // lines through the agent relay (LogEnvironment.IsManagedByQuasar).
         process.StartInfo.Environment["QUASAR_AGENT"] = definition.UniqueName;
 
         process.Exited += async (_, _) => await HandleProcessExitedAsync(state.UniqueName);
@@ -943,8 +1088,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 current.StoppedAtUtc = null;
                 current.LastExitCode = null;
                 current.LastMessage = "Process started; waiting for server online signal.";
-                current.StandardOutputLogPath = stdoutPath;
-                current.StandardErrorLogPath = stderrPath;
+                current.StandardOutputLogPath = string.Empty;
+                current.StandardErrorLogPath = string.Empty;
                 current.IsRestartPending = false;
                 current.StopRequested = false;
                 current.ModDownloadFailures.Clear();
@@ -977,8 +1122,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         TryApplyCpuAffinity(state.UniqueName, definition.CpuAffinity, "startup");
         NotifyChanged();
 
-        _ = PumpStandardOutputAsync(process.StandardOutput, stdoutPath, state.UniqueName, _shutdown.Token);
-        _ = PumpStandardErrorAsync(process.StandardError, stderrPath, state.UniqueName, _shutdown.Token);
+        _ = PumpStandardOutputAsync(process.StandardOutput, state.UniqueName, _shutdown.Token);
+        _ = DrainStandardErrorAsync(process.StandardError, _shutdown.Token);
     }
 
     private static void ConfigureNativeLibrarySearchPath(
@@ -1023,7 +1168,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             Environment.NewLine,
             $"Server={definition.UniqueName}",
             $"FileName={startInfo.FileName}",
-            $"Arguments={startInfo.Arguments}",
+            $"Arguments={RedactLaunchArguments(startInfo.Arguments)}",
             $"WorkingDirectory={startInfo.WorkingDirectory}",
             "Environment:",
             environment);
@@ -1033,6 +1178,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             Environment.NewLine,
             launchEnvironment);
     }
+
+    private static string RedactLaunchArguments(string arguments) =>
+        Regex.Replace(
+            arguments,
+            @"(?<!\S)(-github-token)(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?",
+            "$1 <redacted>",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private void SetRuntimeMessage(string uniqueName, string message)
     {
@@ -1343,6 +1495,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         DedicatedServerDefinition definition;
         int exitCode;
         bool stopRequested;
+        bool restartRequested;
         bool shouldRestart = false;
         int restartDelaySeconds = 0;
         DateTimeOffset now = DateTimeOffset.UtcNow;
@@ -1355,6 +1508,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             definition = Clone(state.Definition);
             exitCode = SafeGetExitCode(state.Process);
             stopRequested = state.StopRequested || _isStopping;
+            restartRequested = state.IsRestartPending && state.State == DedicatedServerProcessState.Restarting;
 
             if (state.StartedAtUtc.HasValue && (now - state.StartedAtUtc.Value) >= RestartCounterResetWindow)
                 state.RestartAttempts = 0;
@@ -1368,6 +1522,17 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             ResetHealthTracking(state);
 
             if (!stopRequested &&
+                restartRequested &&
+                definition.GoalState == DedicatedServerGoalState.On)
+            {
+                state.RestartAttempts = 0;
+                state.IsRestartPending = true;
+                state.State = DedicatedServerProcessState.Restarting;
+                state.LastMessage = $"Restart command exited with code {exitCode}. Starting.";
+                shouldRestart = true;
+                restartDelaySeconds = Math.Max(0, definition.RestartDelaySeconds);
+            }
+            else if (!stopRequested &&
                 definition.GoalState == DedicatedServerGoalState.On &&
                 definition.RestartOnCrash)
             {
@@ -1413,7 +1578,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         NotifyChanged();
         _logger.LogInformation("Server {UniqueName} exited with code {ExitCode}.", uniqueName, exitCode);
-        PruneServerLogFiles(uniqueName, definition.DsLogFilesToKeep);
+        PruneDedicatedServerLogFiles(uniqueName, definition.DedicatedServerAppDataPath, definition.DsLogFilesToKeep);
 
         if (!shouldRestart)
             return;
@@ -1500,8 +1665,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 state.LastExitCode = persistedState.LastExitCode;
                 state.StartedAtUtc = persistedState.StartedAtUtc;
                 state.StoppedAtUtc = persistedState.StoppedAtUtc;
-                state.StandardOutputLogPath = persistedState.StandardOutputLogPath ?? string.Empty;
-                state.StandardErrorLogPath = persistedState.StandardErrorLogPath ?? string.Empty;
+                state.StandardOutputLogPath = string.Empty;
+                state.StandardErrorLogPath = string.Empty;
                 state.LastHealthRecoveryActionUtc = persistedState.LastHealthRecoveryActionUtc;
                 state.StopRequested = false;
                 state.IsRestartPending = false;
@@ -1653,102 +1818,44 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             NotifyChanged();
     }
 
-    private const string MagnetarLogSource = "Magnetar";
-
-    private (string StandardOutputPath, string StandardErrorPath) PrepareServerLogSlot(string uniqueName, int dsLogFilesToKeep)
+    private void PruneDedicatedServerLogFiles(string uniqueName, string appDataPath, int dsLogFilesToKeep)
     {
-        var logDirectory = MagnetarPaths.GetQuasarServerLogDirectory(uniqueName);
-        Directory.CreateDirectory(logDirectory);
+        if (string.IsNullOrWhiteSpace(appDataPath) || !Directory.Exists(appDataPath))
+            return;
 
-        var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture);
-        RotateActiveLogIfPresent(uniqueName, logDirectory, StandardOutputLogName, timestamp);
-        RotateActiveLogIfPresent(uniqueName, logDirectory, StandardErrorLogName, timestamp);
-        PruneServerLogFiles(uniqueName, dsLogFilesToKeep);
-
-        return (
-            Path.Combine(logDirectory, StandardOutputLogName + ActiveLogExtension),
-            Path.Combine(logDirectory, StandardErrorLogName + ActiveLogExtension));
-    }
-
-    private void RotateActiveLogIfPresent(string uniqueName, string logDirectory, string logName, string timestamp)
-    {
-        var activePath = Path.Combine(logDirectory, logName + ActiveLogExtension);
+        List<FileInfo> staleLogs;
         try
         {
-            if (!File.Exists(activePath))
-                return;
-
-            var activeLog = new FileInfo(activePath);
-            if (activeLog.Length == 0)
-            {
-                activeLog.Delete();
-                return;
-            }
-
-            var archivePath = ResolveArchivePath(logDirectory, logName, timestamp);
-            activeLog.MoveTo(archivePath);
+            var keepCount = NormalizeDsLogFilesToKeep(dsLogFilesToKeep);
+            staleLogs = new DirectoryInfo(appDataPath)
+                .EnumerateFiles("SpaceEngineersDedicated*.log", SearchOption.TopDirectoryOnly)
+                .OrderByDescending(file => file.LastWriteTimeUtc)
+                .ThenByDescending(file => file.Name, StringComparer.OrdinalIgnoreCase)
+                .Skip(keepCount)
+                .ToList();
         }
         catch (Exception exception)
         {
             _logger.LogWarning(
                 exception,
-                "Failed rotating {LogName} log for server {UniqueName}; new output will append to the existing active log.",
-                logName,
-                uniqueName);
-        }
-    }
-
-    private static string ResolveArchivePath(string logDirectory, string logName, string timestamp)
-    {
-        var path = Path.Combine(logDirectory, $"{logName}-{timestamp}{ActiveLogExtension}");
-        if (!File.Exists(path))
-            return path;
-
-        for (var suffix = 1; suffix < 1000; suffix++)
-        {
-            path = Path.Combine(logDirectory, $"{logName}-{timestamp}-{suffix}{ActiveLogExtension}");
-            if (!File.Exists(path))
-                return path;
-        }
-
-        return Path.Combine(logDirectory, $"{logName}-{timestamp}-{Guid.NewGuid():N}{ActiveLogExtension}");
-    }
-
-    private void PruneServerLogFiles(string uniqueName, int dsLogFilesToKeep)
-    {
-        var logDirectory = MagnetarPaths.GetQuasarServerLogDirectory(uniqueName);
-        if (!Directory.Exists(logDirectory))
+                "Failed enumerating Dedicated Server logs for server {UniqueName} in {Path}.",
+                uniqueName,
+                appDataPath);
             return;
+        }
 
-        var keepCount = NormalizeDsLogFilesToKeep(dsLogFilesToKeep);
-        var archivedToKeep = Math.Max(0, keepCount - 1);
-        PruneRotatedLogFiles(uniqueName, logDirectory, StandardOutputLogName, archivedToKeep);
-        PruneRotatedLogFiles(uniqueName, logDirectory, StandardErrorLogName, archivedToKeep);
-    }
-
-    private void PruneRotatedLogFiles(string uniqueName, string logDirectory, string logName, int archivedToKeep)
-    {
-        var directory = new DirectoryInfo(logDirectory);
-        var staleArchives = directory
-            .EnumerateFiles($"{logName}-*{ActiveLogExtension}", SearchOption.TopDirectoryOnly)
-            .OrderByDescending(file => file.LastWriteTimeUtc)
-            .ThenByDescending(file => file.Name, StringComparer.OrdinalIgnoreCase)
-            .Skip(archivedToKeep)
-            .ToList();
-
-        foreach (var archive in staleArchives)
+        foreach (var log in staleLogs)
         {
             try
             {
-                archive.Delete();
+                log.Delete();
             }
             catch (Exception exception)
             {
                 _logger.LogWarning(
                     exception,
-                    "Failed deleting old {LogName} log {Path} for server {UniqueName}.",
-                    logName,
-                    archive.FullName,
+                    "Failed deleting old Dedicated Server log {Path} for server {UniqueName}.",
+                    log.FullName,
                     uniqueName);
             }
         }
@@ -1762,61 +1869,57 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         return Math.Min(dsLogFilesToKeep, DedicatedServerDefinition.MaximumDsLogFilesToKeep);
     }
 
-    private async Task PumpStandardOutputAsync(StreamReader reader, string path, string uniqueName, CancellationToken cancellationToken)
+    private async Task PumpStandardOutputAsync(StreamReader reader, string uniqueName, CancellationToken cancellationToken)
     {
-        await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-        await using var writer = new StreamWriter(stream)
+        try
         {
-            AutoFlush = true,
-        };
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var line = await reader.ReadLineAsync(cancellationToken);
+                if (line is null)
+                    break;
 
-        while (!cancellationToken.IsCancellationRequested)
+                // Plugin SDK JSON lines reach the live panel through the agent
+                // path; the agent also writes a formatted copy to Magnetar
+                // info.log. This pump only drains stdout so the process cannot
+                // block and ordinary server output can still feed lightweight
+                // detectors.
+                if (PluginLogStream.TryParseSinkLine(uniqueName, line, out _))
+                {
+                    // Handled by Quasar.Agent.
+                }
+                else if (!string.IsNullOrWhiteSpace(line))
+                {
+                    RecordModDownloadFailure(uniqueName, line);
+                }
+            }
+        }
+        catch (OperationCanceledException)
         {
-            var line = await reader.ReadLineAsync(cancellationToken);
-            if (line is null)
-                break;
-
-            await writer.WriteLineAsync($"{DateTimeOffset.UtcNow:O} {line}");
-
-            // Plugin SDK JSON lines now reach the live panel through the agent's
-            // network relay (see AgentSocketHandler), which survives Quasar
-            // restarts and reconnects to detached server daemons — unlike this
-            // stdout pump, which only exists for a child process we started.
-            // Skip them here to avoid double entries; still surface ordinary
-            // (non-plugin) server output.
-            if (PluginLogStream.TryParseSinkLine(uniqueName, line, out _))
-            {
-                // Handled via the agent relay.
-            }
-            else if (!string.IsNullOrWhiteSpace(line))
-            {
-                RecordModDownloadFailure(uniqueName, line);
-                _pluginLogStream.Append(BuildMagnetarEntry(uniqueName, line, "Info"));
-            }
+        }
+        catch (IOException)
+        {
         }
     }
 
-    private async Task PumpStandardErrorAsync(StreamReader reader, string path, string uniqueName, CancellationToken cancellationToken)
+    private static async Task DrainStandardErrorAsync(StreamReader reader, CancellationToken cancellationToken)
     {
-        await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-        await using var writer = new StreamWriter(stream)
+        try
         {
-            AutoFlush = true,
-        };
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            var line = await reader.ReadLineAsync(cancellationToken);
-            if (line is null)
-                break;
-
-            await writer.WriteLineAsync($"{DateTimeOffset.UtcNow:O} {line}");
-
-            if (!string.IsNullOrWhiteSpace(line))
+            while (!cancellationToken.IsCancellationRequested)
             {
-                RecordModDownloadFailure(uniqueName, line);
-                _pluginLogStream.Append(BuildMagnetarEntry(uniqueName, line, "Error"));
+                if (await reader.ReadLineAsync(cancellationToken) is null)
+                    break;
             }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (IOException)
+        {
+        }
+        catch
+        {
         }
     }
 
@@ -1872,27 +1975,6 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         message = text.Length <= 300 ? text : $"{text[..300]}...";
         return true;
-    }
-
-    private static PluginLogEntry BuildMagnetarEntry(string uniqueName, string line, string level)
-    {
-        var timestamp = DateTimeOffset.UtcNow;
-        var message = line;
-
-        if (TryNormalizePrefixedLogLine(line, out var parsedTimestamp, out var parsedMessage))
-        {
-            timestamp = parsedTimestamp;
-            message = parsedMessage;
-        }
-
-        return new PluginLogEntry
-        {
-            UniqueName = uniqueName,
-            TimestampUtc = timestamp,
-            Level = level,
-            Plugin = MagnetarLogSource,
-            Message = message,
-        };
     }
 
     private static bool TryNormalizePrefixedLogLine(
@@ -1952,6 +2034,55 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 group => group.Key,
                 group => group.OrderByDescending(agent => agent.LastSeenUtc).First(),
                 StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void WarnIfAgentDeploymentMismatch(string uniqueName, DedicatedServerDefinition definition)
+    {
+        var comparison = _runtimePreparer.GetAgentDeploymentComparison(definition);
+        var mismatchKey = comparison.HasMismatch
+            ? $"{comparison.BundledSha256}:{comparison.DeployedSha256}"
+            : string.Empty;
+        var statusMessage = "Bundled Quasar.Agent differs from the deployed Magnetar local DLL; restart this server manually to load the bundled agent.";
+        var shouldLog = false;
+        var changed = false;
+
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out var state))
+                return;
+
+            if (string.IsNullOrWhiteSpace(mismatchKey))
+            {
+                state.LastAgentDeploymentMismatchKey = string.Empty;
+                return;
+            }
+
+            if (!string.Equals(state.LastAgentDeploymentMismatchKey, mismatchKey, StringComparison.Ordinal))
+            {
+                state.LastAgentDeploymentMismatchKey = mismatchKey;
+                shouldLog = true;
+            }
+
+            if (!string.Equals(state.LastMessage, statusMessage, StringComparison.Ordinal))
+            {
+                state.LastMessage = statusMessage;
+                changed = true;
+            }
+        }
+
+        if (shouldLog)
+        {
+            _logger.LogWarning(
+                "Bundled Quasar.Agent differs from deployed Magnetar local DLL for server {UniqueName}. Manual server restart required to load the bundled agent. Bundled={BundledPath} ({BundledHash}); Deployed={DeployedPath} ({DeployedHash}).",
+                uniqueName,
+                comparison.BundledPath,
+                comparison.BundledSha256,
+                string.IsNullOrWhiteSpace(comparison.DeployedPath) ? "(not configured)" : comparison.DeployedPath,
+                string.IsNullOrWhiteSpace(comparison.DeployedSha256) ? "missing" : comparison.DeployedSha256);
+        }
+
+        if (changed)
+            NotifyChanged();
     }
 
     private static ServerHealthAssessment EvaluateHealth(
@@ -2024,6 +2155,25 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             return new ServerHealthAssessment(
                 DedicatedServerHealthState.Unhealthy,
                 "Quasar.Agent did not attach within the configured startup grace period.");
+        }
+
+        if (agent.Snapshot is null)
+        {
+            // Hello only proves the socket opened. Keep startup/adoption grace in
+            // force until the first telemetry snapshot proves the agent can poll
+            // the DS runtime and the supervisor can evaluate normal health.
+            var agentWatch = state.AgentWatchSinceUtc ?? state.StartedAtUtc;
+            var agentWait = agentWatch.HasValue ? now - agentWatch.Value : uptime;
+            if (agentWait < TimeSpan.FromSeconds(state.Definition.AgentStartupGraceSeconds))
+            {
+                return new ServerHealthAssessment(
+                    DedicatedServerHealthState.Warning,
+                    "Waiting for Quasar.Agent telemetry snapshot.");
+            }
+
+            return new ServerHealthAssessment(
+                DedicatedServerHealthState.Unhealthy,
+                "Quasar.Agent did not send a telemetry snapshot within the configured startup grace period.");
         }
 
         var silence = now - agent.LastSeenUtc;
@@ -2137,7 +2287,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             !state.SimulationProgressWindowSeconds.HasValue ||
             !state.SimulationFramesAdvanced.HasValue)
         {
-            return new ServerHealthAssessment(DedicatedServerHealthState.Warning, waitingSummary);
+            var waitingState = string.Equals(
+                waitingSummary,
+                "Collecting simulation progress baseline.",
+                StringComparison.Ordinal)
+                ? DedicatedServerHealthState.Unknown
+                : DedicatedServerHealthState.Warning;
+            return new ServerHealthAssessment(waitingState, waitingSummary);
         }
 
         if (state.SimulationProgressScore.Value < state.Definition.MinimumSimulationProgressScore)
@@ -2419,6 +2575,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             DedicatedServerAppDataPath = definition.DedicatedServerAppDataPath,
             MagnetarAppDataPath = definition.MagnetarAppDataPath,
             WorldPath = definition.WorldPath,
+            WorldSaveName = definition.WorldSaveName,
             ConfigFilePath = definition.ConfigFilePath,
             ConfigProfileId = definition.ConfigProfileId,
             WorldTemplateId = definition.WorldTemplateId,
@@ -2582,6 +2739,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public DateTimeOffset? LastSimulationProgressEvaluatedAtUtc { get; set; }
 
         public string LastHealthySummary { get; set; } = string.Empty;
+
+        public string LastAgentDeploymentMismatchKey { get; set; } = string.Empty;
 
         public List<string> ModDownloadFailures { get; } = [];
     }

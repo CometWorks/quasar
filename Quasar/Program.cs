@@ -143,6 +143,7 @@ public class Program
             builder.Services.AddSingleton(managedRuntimeOptions);
             builder.Services.AddSingleton(updateOptions);
             builder.Services.AddSingleton(authOptions);
+            builder.Services.AddSingleton<DataHandlingConsentCatalog>();
             builder.Services.AddSingleton<RbacConfigCatalog>();
             builder.Services.AddSingleton(analyticsStoreOptions);
             builder.Services.AddSingleton<QuasarRoleMapper>();
@@ -164,6 +165,7 @@ public class Program
             builder.Services.AddSingleton<PluginCatalogRefreshService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PluginCatalogRefreshService>());
             builder.Services.AddSingleton<SteamWorkshopCredentialsCatalog>();
+            builder.Services.AddSingleton<GitHubUpdateCredentialsCatalog>();
             builder.Services.AddSingleton<QuasarWorkshopModResolver>();
             builder.Services.AddSingleton<ManagedDedicatedServerRuntimeResolver>();
             builder.Services.AddSingleton<ManagedRuntimeWarmupService>();
@@ -171,6 +173,7 @@ public class Program
             builder.Services.AddSingleton<DedicatedServerCatalog>();
             builder.Services.AddSingleton<DedicatedServerSupervisor>();
             builder.Services.AddSingleton<DedicatedServerRuntimePreparer>();
+            builder.Services.AddScoped<ServerManagementActions>();
             builder.Services.AddSingleton<FileBrowserService>();
             builder.Services.AddSingleton<WebServiceState>();
             builder.Services.AddSingleton<PluginLogStream>();
@@ -306,11 +309,17 @@ public class Program
                 viewerPage.RequireAuthorization(QuasarPolicyNames.CanView);
             }
 
-            var serverLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/server/download", (string uniqueName, DedicatedServerCatalog catalog) =>
-                DownloadLogFile(ResolveLatestDedicatedServerLogPath(uniqueName, catalog)));
+            var serverLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/server/download", (string uniqueName, HttpContext context, DedicatedServerCatalog catalog) =>
+                DownloadLogFile(ResolveDedicatedServerLogPath(
+                    uniqueName,
+                    catalog,
+                    context.Request.Query["name"].FirstOrDefault())));
 
-            var magnetarLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/magnetar/download", (string uniqueName, DedicatedServerCatalog catalog) =>
-                DownloadLogFile(ResolveMagnetarInfoLogPath(uniqueName, catalog)));
+            var magnetarLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/magnetar/download", (string uniqueName, HttpContext context, DedicatedServerCatalog catalog) =>
+                DownloadLogFile(ResolveMagnetarInfoLogPath(
+                    uniqueName,
+                    catalog,
+                    context.Request.Query["name"].FirstOrDefault())));
 
             var discordLogDownload = app.MapGet("/api/discord/log/download", (WebServiceOptions options) =>
                 DownloadLogFile(QuasarLoggingConfigurator.ResolveDiscordLogPath(options)));
@@ -329,7 +338,7 @@ public class Program
                 return Results.File(archive.Content, "application/zip", archive.FileName);
             });
 
-            // Downloads an existing backup ZIP from the Backups directory by file name.
+            // Downloads an existing backup ZIP from the configured backup directory by file name.
             var backupDownloadByName = app.MapGet("/api/backup/download/{name}", (string name, QuasarBackupService backup) =>
             {
                 var path = backup.ResolveBackupPath(name);
@@ -435,13 +444,9 @@ public class Program
 
             app.MapStaticAssets();
 
-            // Runtime-uploaded branding assets (logos, favicon) live outside the
-            // build-time static-asset manifest, so serve them with the classic
-            // static-file middleware from the physical branding directory.
-            var brandingWebRootPath = string.IsNullOrWhiteSpace(app.Environment.WebRootPath)
-                ? Path.Combine(app.Environment.ContentRootPath, "wwwroot")
-                : app.Environment.WebRootPath;
-            var brandingAssetsDirectory = MagnetarPaths.GetQuasarBrandingDirectory(brandingWebRootPath);
+            // Runtime-uploaded branding assets live in the Quasar data directory
+            // so web-service updates do not replace custom logos or favicons.
+            var brandingAssetsDirectory = MagnetarPaths.GetQuasarBrandingDirectory();
             Directory.CreateDirectory(brandingAssetsDirectory);
             app.UseStaticFiles(new StaticFileOptions
             {
@@ -453,6 +458,13 @@ public class Program
                 .AddInteractiveServerRenderMode();
             if (authOptions.Enabled)
                 razorComponents.RequireAuthorization(QuasarPolicyNames.CanView);
+
+            app.Services.GetRequiredService<ILogger<Program>>().LogInformation(
+                "Quasar {Version} starting. BootstrapVersion={BootstrapVersion}; HostId={HostId}; DataDirectory={DataDirectory}.",
+                webServiceOptions.Version,
+                string.IsNullOrWhiteSpace(webServiceOptions.BootstrapVersion) ? "none" : webServiceOptions.BootstrapVersion,
+                webServiceOptions.HostId,
+                MagnetarPaths.GetQuasarDirectory());
 
             using var gracefulShutdownSignals = RegisterGracefulShutdownSignals(app.Services);
             app.Run();
@@ -659,7 +671,7 @@ public class Program
         return Results.File(stream, "text/plain; charset=utf-8", Path.GetFileName(path));
     }
 
-    private static string? ResolveLatestDedicatedServerLogPath(string uniqueName, DedicatedServerCatalog catalog)
+    private static string? ResolveDedicatedServerLogPath(string uniqueName, DedicatedServerCatalog catalog, string? fileName)
     {
         var server = catalog.GetServer(uniqueName);
         if (server is null)
@@ -672,12 +684,10 @@ public class Program
         if (!Directory.Exists(appDataPath))
             return null;
 
-        return Directory.EnumerateFiles(appDataPath, "SpaceEngineersDedicated*.log", SearchOption.TopDirectoryOnly)
-            .OrderByDescending(File.GetLastWriteTimeUtc)
-            .FirstOrDefault();
+        return ResolveLogPath(appDataPath, "SpaceEngineersDedicated*.log", fileName);
     }
 
-    private static string? ResolveMagnetarInfoLogPath(string uniqueName, DedicatedServerCatalog catalog)
+    private static string? ResolveMagnetarInfoLogPath(string uniqueName, DedicatedServerCatalog catalog, string? fileName)
     {
         var server = catalog.GetServer(uniqueName);
         if (server is null)
@@ -687,7 +697,34 @@ public class Program
             ? MagnetarPaths.GetQuasarServerMagnetarAppDataDirectory(uniqueName)
             : server.MagnetarAppDataPath.Trim();
 
-        return Path.Combine(appDataPath, "info.log");
+        if (!Directory.Exists(appDataPath))
+            return null;
+
+        return ResolveLogPath(appDataPath, "info*.log", fileName);
+    }
+
+    private static string? ResolveLogPath(string directory, string searchPattern, string? fileName)
+    {
+        if (!string.IsNullOrWhiteSpace(fileName))
+        {
+            var trimmedFileName = fileName.Trim();
+            if (!string.Equals(trimmedFileName, Path.GetFileName(trimmedFileName), StringComparison.Ordinal) ||
+                trimmedFileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            {
+                return null;
+            }
+
+            return Directory.EnumerateFiles(directory, searchPattern, SearchOption.TopDirectoryOnly)
+                .FirstOrDefault(path => string.Equals(
+                    Path.GetFileName(path),
+                    trimmedFileName,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+
+        return Directory.EnumerateFiles(directory, searchPattern, SearchOption.TopDirectoryOnly)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .ThenByDescending(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
     }
 
     private sealed class CompositeDisposable(params IDisposable[] disposables) : IDisposable

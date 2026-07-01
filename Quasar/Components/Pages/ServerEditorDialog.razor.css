@@ -23,3 +23,16 @@
     background: rgba(var(--mud-palette-primary-rgb), 0.08);
     box-shadow: inset 0 0 0 1px rgba(var(--mud-palette-primary-rgb), 0.18);
 }
+
+.server-editor-controlled-checkbox ::deep .mud-checkbox.mud-readonly {
+    cursor: pointer;
+}
+
+.server-editor-controlled-checkbox ::deep .mud-checkbox.mud-readonly .mud-button-root,
+.server-editor-controlled-checkbox ::deep .mud-checkbox.mud-readonly .mud-icon-root {
+    color: var(--server-editor-controlled-checkbox-color) !important;
+}
+
+.server-editor-controlled-checkbox ::deep .mud-checkbox.mud-readonly .mud-checkbox-input {
+    cursor: pointer;
+}

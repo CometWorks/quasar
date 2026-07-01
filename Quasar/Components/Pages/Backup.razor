@@ -1,5 +1,6 @@
 @page "/backup"
 @attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
+@using Magnetar.Protocol.Runtime
 @using Quasar.Services.Backup
 @implements IDisposable
 @inject QuasarBackupService BackupService
@@ -117,9 +118,9 @@
                 {
                     <MudTable Items="_servers" Hover="true" Dense="true">
                         <HeaderContent>
-                            <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.DisplayName)">Server</MudTableSortLabel></MudTh>
                             <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.UniqueName)">Unique name</MudTableSortLabel></MudTh>
-                            <MudTh Style="text-align:right">Actions</MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.DisplayName)">Server</MudTableSortLabel></MudTh>
+                            <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             @{
@@ -128,45 +129,37 @@
                                 var serverRunning = IsServerRunning(context.UniqueName);
                                 var restoreBlockedReason = serverRunning ? "Stop the server before restoring." : null;
                             }
-                            <MudTd DataLabel="Server">@context.DisplayName</MudTd>
                             <MudTd DataLabel="Unique name"><code>@context.UniqueName</code></MudTd>
-                            <MudTd Style="text-align:right">
-                                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Justify="Justify.FlexEnd">
-                                    <MudButton Variant="Variant.Filled"
-                                               Color="Color.Primary"
-                                               Size="Size.Small"
-                                               StartIcon="@Icons.Material.Filled.Inventory2"
-                                               OnClick="@(() => MakeServerBackupNowAsync(context.UniqueName))"
-                                               Disabled="_busy">
-                                        Back up server
-                                    </MudButton>
-                                    <MudTooltip Text="@restoreBlockedReason" Disabled="@(!serverRunning)">
-                                        <MudButton Variant="Variant.Outlined"
-                                                   Color="Color.Primary"
-                                                   Size="Size.Small"
-                                                   StartIcon="@Icons.Material.Filled.Restore"
-                                                   OnClick="@(() => RestoreLatestServerBackupAsync(context.UniqueName))"
-                                                   Disabled="@(_busy || serverRunning || latestServerBackup is null)">
-                                            Restore server
-                                        </MudButton>
+                            <MudTd DataLabel="Server">@context.DisplayName</MudTd>
+                            <MudTd DataLabel="" Class="quasar-actions-column">
+                                <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
+                                    <MudTooltip Text="Back up server">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Inventory2"
+                                                       Color="Color.Primary"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => MakeServerBackupNowAsync(context.UniqueName))"
+                                                       Disabled="_busy" />
                                     </MudTooltip>
-                                    <MudButton Variant="Variant.Filled"
-                                               Color="Color.Secondary"
-                                               Size="Size.Small"
-                                               StartIcon="@Icons.Material.Filled.Public"
-                                               OnClick="@(() => MakeWorldBackupNowAsync(context.UniqueName))"
-                                               Disabled="_busy">
-                                        Back up world
-                                    </MudButton>
-                                    <MudTooltip Text="@restoreBlockedReason" Disabled="@(!serverRunning)">
-                                        <MudButton Variant="Variant.Outlined"
-                                                   Color="Color.Secondary"
-                                                   Size="Size.Small"
-                                                   StartIcon="@Icons.Material.Filled.RestorePage"
-                                                   OnClick="@(() => RestoreLatestWorldBackupAsync(context.UniqueName))"
-                                                   Disabled="@(_busy || serverRunning || latestWorldBackup is null)">
-                                            Restore world
-                                        </MudButton>
+                                    <MudTooltip Text="@(serverRunning ? restoreBlockedReason : latestServerBackup is null ? "No server backup available." : "Restore latest server backup")">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Restore"
+                                                       Color="Color.Primary"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => RestoreLatestServerBackupAsync(context.UniqueName))"
+                                                       Disabled="@(_busy || serverRunning || latestServerBackup is null)" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="Back up world">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Public"
+                                                       Color="Color.Secondary"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => MakeWorldBackupNowAsync(context.UniqueName))"
+                                                       Disabled="_busy" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="@(serverRunning ? restoreBlockedReason : latestWorldBackup is null ? "No world backup available." : "Restore latest world backup")">
+                                        <MudIconButton Icon="@Icons.Material.Filled.RestorePage"
+                                                       Color="Color.Secondary"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => RestoreLatestWorldBackupAsync(context.UniqueName))"
+                                                       Disabled="@(_busy || serverRunning || latestWorldBackup is null)" />
                                     </MudTooltip>
                                 </MudStack>
                             </MudTd>
@@ -185,6 +178,11 @@
                 <MudExpansionPanels MultiExpansion="true">
                     <MudExpansionPanel Text="Quasar config" Expanded="@_settings.Configuration.Enabled">
                         <MudStack Spacing="3">
+                            <MudText Typo="Typo.body2">
+                                Backs up Quasar configuration only: server definitions, config profiles, world templates,
+                                Discord, branding, players, security/RBAC and other Quasar catalogs. It does not include
+                                Dedicated Server app data, Magnetar app data or world save files.
+                            </MudText>
                             <MudSwitch @bind-Value="_settings.Configuration.Enabled" Color="Color.Primary" Label="Enable Quasar config backups" />
                             <MudGrid>
                                 <MudItem xs="12" sm="6" md="3">
@@ -226,6 +224,10 @@
 
                     <MudExpansionPanel Text="Servers" Expanded="@_settings.Server.Enabled">
                         <MudStack Spacing="3">
+                            <MudText Typo="Typo.body2">
+                                Backs up each server's Quasar server definition plus non-cache Dedicated Server and
+                                Magnetar app data. It does not include world save files; use world backups for saves.
+                            </MudText>
                             <MudSwitch @bind-Value="_settings.Server.Enabled" Color="Color.Primary" Label="Enable server backups" />
                             <MudGrid>
                                 <MudItem xs="12" sm="6" md="3">
@@ -267,6 +269,11 @@
 
                     <MudExpansionPanel Text="Worlds" Expanded="@_settings.World.Enabled">
                         <MudStack Spacing="3">
+                            <MudText Typo="Typo.body2">
+                                Backs up each server's world save files only. When a Space Engineers <code>Backup</code>
+                                snapshot exists, Quasar uses the latest valid snapshot so running servers can be backed up
+                                without copying the live save folder.
+                            </MudText>
                             <MudSwitch @bind-Value="_settings.World.Enabled" Color="Color.Primary" Label="Enable world backups" />
                             <MudGrid>
                                 <MudItem xs="12" sm="6" md="3">
@@ -325,23 +332,72 @@
         <MudPaper Class="pa-4">
             <MudStack Spacing="2">
                 <MudText Typo="Typo.h6">Stored backups</MudText>
+                <MudText Typo="Typo.body2">
+                    Folder: <CopyablePath Value="@BackupService.BackupDirectory" Inline="true" TextClass="" />
+                </MudText>
+                <MudGrid>
+                    <MudItem xs="12" md="7">
+                        <MudTextField @bind-Value="_backupDirectoryDraft"
+                                      Label="Backup folder"
+                                      Variant="Variant.Outlined"
+                                      Disabled="@BackupDirectoryEditorDisabled"
+                                      HelperText="Leave empty for the default data-dir Backups folder. Relative paths resolve under the Quasar data directory." />
+                    </MudItem>
+                    <MudItem xs="12" md="5" Class="d-flex align-center justify-end">
+                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Justify="Justify.FlexEnd">
+                            <MudButton Variant="Variant.Outlined"
+                                       StartIcon="@Icons.Material.Filled.FolderOpen"
+                                       Disabled="@BackupDirectoryEditorDisabled"
+                                       OnClick="BrowseBackupDirectoryAsync">
+                                Browse
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined"
+                                       StartIcon="@Icons.Material.Filled.RestartAlt"
+                                       Disabled="@BackupDirectoryEditorDisabled"
+                                       OnClick="UseDefaultBackupDirectoryAsync">
+                                Use default
+                            </MudButton>
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Save"
+                                       Disabled="@BackupDirectoryEditorDisabled"
+                                       OnClick="SaveBackupDirectoryAsync">
+                                Save folder
+                            </MudButton>
+                        </MudStack>
+                    </MudItem>
+                </MudGrid>
+                <MudText Typo="Typo.caption">
+                    Setting stored in <CopyablePath Value="@_backupDirectorySettingsPath" Inline="true" TextClass="" />
+                </MudText>
+                @if (_backupDirectoryEnvironmentOverride)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                        QUASAR_BACKUP_DIR is set to <code>@_backupDirectoryEnvironmentValue</code>, so this page cannot override it. Remove the environment variable and restart Quasar to edit the folder here.
+                    </MudAlert>
+                }
                 @if (_backups.Count == 0)
                 {
-                    <MudText Typo="Typo.body2">No backups in the Backups folder yet.</MudText>
+                    <MudText Typo="Typo.body2">No backups in the configured backup folder yet.</MudText>
                 }
                 else
                 {
                     <MudTable Items="_backups" Hover="true" Dense="true">
                         <HeaderContent>
-                            <MudTh Style="width:1px; white-space:nowrap">Actions</MudTh>
-                            <MudTh Style="width:1px; white-space:nowrap"><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="new Func<QuasarBackupFileInfo, object>(x => x.CreatedAtUtc)">Created</MudTableSortLabel></MudTh>
-                            <MudTh Style="width:1px; white-space:nowrap"><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => FormatBackupType(x))">Type</MudTableSortLabel></MudTh>
-                            <MudTh Style="width:1px; white-space:nowrap"><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.ServerDisplayName ?? x.ServerUniqueName ?? string.Empty)">Server</MudTableSortLabel></MudTh>
-                            <MudTh Style="width:1px; white-space:nowrap"><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.SizeBytes)">Size</MudTableSortLabel></MudTh>
-                            <MudTh Style="width:100%"><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.Name)">Name</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="new Func<QuasarBackupFileInfo, object>(x => x.CreatedAtUtc)">Created</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => FormatBackupType(x))">Type</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.ServerDisplayName ?? x.ServerUniqueName ?? string.Empty)">Server</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.SizeBytes)">Size</MudTableSortLabel></MudTh>
+                            <MudTh><MudTableSortLabel SortBy="new Func<QuasarBackupFileInfo, object>(x => x.Name)">Name</MudTableSortLabel></MudTh>
+                            <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd DataLabel="Actions" Style="width:1px; white-space:nowrap">
+                            <MudTd DataLabel="Created">@context.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
+                            <MudTd DataLabel="Type">@FormatBackupType(context)</MudTd>
+                            <MudTd DataLabel="Server">@(context.ServerDisplayName ?? context.ServerUniqueName ?? "-")</MudTd>
+                            <MudTd DataLabel="Size">@FormatSize(context.SizeBytes)</MudTd>
+                            <MudTd DataLabel="Name">@context.Name</MudTd>
+                            <MudTd DataLabel="" Class="quasar-actions-column">
                                 <MudTooltip Text="Download">
                                     <MudIconButton Icon="@Icons.Material.Filled.Download"
                                                    Href="@($"/api/backup/download/{context.Name}")"
@@ -358,11 +414,6 @@
                                                    Disabled="_busy" Size="Size.Small" Color="Color.Error" />
                                 </MudTooltip>
                             </MudTd>
-                            <MudTd DataLabel="Created" Style="width:1px; white-space:nowrap">@context.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
-                            <MudTd DataLabel="Type" Style="width:1px; white-space:nowrap">@FormatBackupType(context)</MudTd>
-                            <MudTd DataLabel="Server" Style="width:1px; white-space:nowrap">@(context.ServerDisplayName ?? context.ServerUniqueName ?? "-")</MudTd>
-                            <MudTd DataLabel="Size" Style="width:1px; white-space:nowrap">@FormatSize(context.SizeBytes)</MudTd>
-                            <MudTd DataLabel="Name" Style="width:100%">@context.Name</MudTd>
                         </RowTemplate>
                     </MudTable>
                 }
@@ -381,16 +432,26 @@
     private IReadOnlyList<QuasarBackupFileInfo> _backups = [];
     private IReadOnlyList<DedicatedServerDefinition> _servers = [];
     private HashSet<string> _runningServers = new(StringComparer.OrdinalIgnoreCase);
+    private string _backupDirectoryDraft = string.Empty;
+    private string _backupDirectorySettingsPath = string.Empty;
+    private bool _backupDirectoryEnvironmentOverride;
+    private string _backupDirectoryEnvironmentValue = string.Empty;
     private QuasarRestoreReport? _lastReport;
     private bool _busy;
+    private bool _savingBackupDirectory;
+
+    private bool BackupDirectoryEditorDisabled =>
+        _busy || _savingBackupDirectory || _backupDirectoryEnvironmentOverride;
 
     protected override void OnInitialized()
     {
         LoadSettingsDraft();
+        LoadBackupDirectoryDraft();
         RefreshServers();
         RefreshBackups();
         RefreshRuntime();
         BackupSettingsService.Changed += OnSettingsChanged;
+        BackupSettingsService.BackupDirectoryChanged += OnBackupDirectoryChanged;
         ServerCatalog.Changed += OnServersChanged;
         BackupService.Changed += OnBackupsChanged;
         Supervisor.Changed += OnRuntimeChanged;
@@ -400,6 +461,7 @@
     public void Dispose()
     {
         BackupSettingsService.Changed -= OnSettingsChanged;
+        BackupSettingsService.BackupDirectoryChanged -= OnBackupDirectoryChanged;
         ServerCatalog.Changed -= OnServersChanged;
         BackupService.Changed -= OnBackupsChanged;
         Supervisor.Changed -= OnRuntimeChanged;
@@ -439,6 +501,15 @@
         _worldTimeOfDay = _settings.World.TimeOfDay.ToTimeSpan();
     }
 
+    private void LoadBackupDirectoryDraft()
+    {
+        var storage = BackupSettingsService.GetBackupDirectorySettings();
+        _backupDirectoryDraft = storage.ConfiguredDirectory;
+        _backupDirectorySettingsPath = storage.AppSettingsPath;
+        _backupDirectoryEnvironmentOverride = storage.EnvironmentOverride;
+        _backupDirectoryEnvironmentValue = storage.EnvironmentDirectory;
+    }
+
     private void RefreshBackups() => _backups = BackupService.ListBackups()
         .OrderByDescending(backup => backup.CreatedAtUtc)
         .ThenBy(backup => backup.Name, StringComparer.OrdinalIgnoreCase)
@@ -454,6 +525,13 @@
 
     private void OnSettingsChanged() => InvokeAsync(() =>
     {
+        RefreshBackups();
+        StateHasChanged();
+    });
+
+    private void OnBackupDirectoryChanged() => InvokeAsync(() =>
+    {
+        LoadBackupDirectoryDraft();
         RefreshBackups();
         StateHasChanged();
     });
@@ -515,6 +593,50 @@
         catch (Exception exception)
         {
             Snackbar.Add($"Failed to queue automatic backup: {exception.Message}", Severity.Error);
+        }
+    }
+
+    private async Task BrowseBackupDirectoryAsync()
+    {
+        var dialog = await DialogService.ShowAsync<FolderPickerDialog>(
+            "Pick backup folder",
+            new DialogParameters
+            {
+                [nameof(FolderPickerDialog.InitialPath)] = GetBackupDirectoryBrowseInitialPath(),
+                [nameof(FolderPickerDialog.DialogTitle)] = "Pick backup folder",
+                [nameof(FolderPickerDialog.RequireWorldFolder)] = false,
+                [nameof(FolderPickerDialog.AdditionalShortcuts)] = GetBackupDirectoryShortcuts(),
+            },
+            new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Medium, FullWidth = true });
+
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string path })
+            _backupDirectoryDraft = path;
+    }
+
+    private async Task UseDefaultBackupDirectoryAsync()
+    {
+        _backupDirectoryDraft = string.Empty;
+        await SaveBackupDirectoryAsync();
+    }
+
+    private async Task SaveBackupDirectoryAsync()
+    {
+        _savingBackupDirectory = true;
+        try
+        {
+            await BackupSettingsService.SaveBackupDirectoryAsync(_backupDirectoryDraft);
+            LoadBackupDirectoryDraft();
+            RefreshBackups();
+            Snackbar.Add("Backup folder saved.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed to save backup folder: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _savingBackupDirectory = false;
         }
     }
 
@@ -645,7 +767,7 @@
     {
         var confirmed = await DialogService.ShowMessageBoxAsync(
             "Restore backup?",
-            "This restores the selected ZIP according to its backup type. Configuration backups merge by ID; server and world backups overwrite files for their target server. Continue?",
+            "This restores the selected ZIP according to its backup type. Configuration backups merge by ID; server backups restore server definition plus non-cache app data; world backups restore save files. Restored server definitions come back stopped. Continue?",
             yesText: "Restore",
             cancelText: "Cancel");
         return confirmed == true;
@@ -656,11 +778,11 @@
         var message = backup.Kind switch
         {
             QuasarBackupKind.Server =>
-                $"This overwrites server files, world files and config for '{backup.ServerDisplayName ?? backup.ServerUniqueName ?? backup.Name}'. Continue?",
+                $"This restores the server definition plus non-cache Dedicated Server and Magnetar app data for '{backup.ServerDisplayName ?? backup.ServerUniqueName ?? backup.Name}'. The server will be restored stopped. Continue?",
             QuasarBackupKind.World =>
-                $"This overwrites world files for '{backup.ServerDisplayName ?? backup.ServerUniqueName ?? backup.Name}' but keeps existing config. Continue?",
+                $"This overwrites world save files for '{backup.ServerDisplayName ?? backup.ServerUniqueName ?? backup.Name}' but keeps existing server and world config. Continue?",
             _ =>
-                "This overwrites Quasar settings that share an ID with the backup. Items with different IDs are kept (merge). Continue?",
+                "This overwrites Quasar settings that share an ID with the backup. Items with different IDs are kept (merge). Restored server definitions come back stopped. Continue?",
         };
 
         var confirmed = await DialogService.ShowMessageBoxAsync(
@@ -669,6 +791,33 @@
             yesText: "Restore",
             cancelText: "Cancel");
         return confirmed == true;
+    }
+
+    private string GetBackupDirectoryBrowseInitialPath()
+    {
+        var candidate = string.IsNullOrWhiteSpace(_backupDirectoryDraft)
+            ? BackupService.BackupDirectory
+            : _backupDirectoryDraft;
+
+        var resolved = WebServiceOptions.ResolveBackupDirectory(candidate);
+        if (Directory.Exists(resolved))
+            return resolved;
+
+        var parent = Directory.GetParent(resolved);
+        return parent is not null && Directory.Exists(parent.FullName)
+            ? parent.FullName
+            : BackupService.BackupDirectory;
+    }
+
+    private static IReadOnlyList<FileBrowserShortcut> GetBackupDirectoryShortcuts()
+    {
+        var shortcuts = new List<FileBrowserShortcut>
+        {
+            new("Default backups", MagnetarPaths.GetQuasarBackupsDirectory()),
+            new("Quasar data", MagnetarPaths.GetQuasarDirectory()),
+        };
+
+        return shortcuts;
     }
 
     private void ReportRestore()

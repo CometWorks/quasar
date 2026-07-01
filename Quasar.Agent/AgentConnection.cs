@@ -120,11 +120,20 @@ namespace Quasar.Agent
                                     Hello = _bridge.GetHello(),
                                 }, cancellationToken).ConfigureAwait(false);
 
-                                await SendPluginConfigsAsync(socket, force: true, cancellationToken).ConfigureAwait(false);
-
+                                // Keep telemetry independent from optional config/log work.
                                 var snapshotTask = SnapshotLoopAsync(socket, cancellationToken);
+                                var pluginConfigTask = Task.Run(
+                                    () => PluginConfigLoopAsync(socket, cancellationToken),
+                                    cancellationToken);
+                                var pluginLogTask = Task.Run(
+                                    () => PluginLogLoopAsync(socket, cancellationToken),
+                                    cancellationToken);
                                 var receiveTask = ReceiveLoopAsync(socket, cancellationToken);
-                                await Task.WhenAny(snapshotTask, receiveTask).ConfigureAwait(false);
+                                await Task.WhenAny(
+                                    snapshotTask,
+                                    pluginConfigTask,
+                                    pluginLogTask,
+                                    receiveTask).ConfigureAwait(false);
                             }
                             finally
                             {
@@ -224,22 +233,38 @@ namespace Quasar.Agent
         /// on the game thread during session unload, while the socket is still
         /// open and before the process exits. Never hangs shutdown.
         /// </summary>
-        public void TrySendAdminStop()
+        public bool TrySendAdminStop()
+        {
+            return TrySendAdminSignal(WireMessageKind.AdminStop, "admin-stop");
+        }
+
+        /// <summary>
+        /// Best-effort signal sent when an admin requested an in-game restart.
+        /// Quasar keeps the goal state On and moves the server into Restarting
+        /// before the process exits.
+        /// </summary>
+        public bool TrySendAdminRestart()
+        {
+            return TrySendAdminSignal(WireMessageKind.AdminRestart, "admin-restart");
+        }
+
+        private bool TrySendAdminSignal(string kind, string label)
         {
             var socket = _socket;
             if (socket == null || socket.State != WebSocketState.Open)
-                return;
+                return false;
 
             try
             {
-                SendAsync(socket, new AgentWireMessage
+                return SendAsync(socket, new AgentWireMessage
                 {
-                    Kind = WireMessageKind.AdminStop,
+                    Kind = kind,
                 }, CancellationToken.None).Wait(TimeSpan.FromSeconds(2));
             }
             catch (Exception exception)
             {
-                Log($"Failed sending admin-stop signal: {exception.Message}");
+                Log($"Failed sending {label} signal: {exception.Message}");
+                return false;
             }
         }
 
@@ -253,8 +278,27 @@ namespace Quasar.Agent
                     Snapshot = _bridge.GetSnapshot(),
                 }, cancellationToken).ConfigureAwait(false);
 
-                await SendPluginConfigsAsync(socket, force: false, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            }
+        }
 
+        private async Task PluginConfigLoopAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+        {
+            var force = true;
+
+            while (socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+            {
+                await SendPluginConfigsAsync(socket, force, cancellationToken).ConfigureAwait(false);
+                force = false;
+
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        private async Task PluginLogLoopAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+        {
+            while (socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+            {
                 await FlushPluginLogsAsync(socket, cancellationToken).ConfigureAwait(false);
 
                 await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);

@@ -2,74 +2,171 @@
     <DialogContent>
         @if (_step == ImportStep.Details)
         {
-        <MudForm @ref="_form" @bind-IsValid="_formIsValid">
-        <MudStack Spacing="3">
-            <MudText Typo="Typo.body2">
-                Import an existing Space Engineers save folder as a reusable world template, then select it in the server editor.
-            </MudText>
+            <MudTabs Elevation="0"
+                     Rounded="true"
+                     Outlined="true"
+                     ApplyEffectsToContainer="true"
+                     KeepPanelsAlive="false"
+                     TabPanelsClass="pa-4"
+                     @bind-ActivePanelIndex="_activeDetailsTabIndex">
+                <MudTabPanel Text="Predefined worlds" Icon="@Icons.Material.Filled.Public">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                            <div>
+                                <MudText Typo="Typo.subtitle1">Predefined Worlds</MudText>
+                                <MudText Typo="Typo.body2">
+                                    Add a template from Dedicated Server content without entering a name or path.
+                                </MudText>
+                            </div>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_installedTemplates.Count</MudChip>
+                        </MudStack>
 
-            <MudTextField
-                @bind-Value="_name"
-                Label="Template name"
-                Variant="Variant.Outlined"
-                Immediate="true"
-                AutoFocus="true"
-                Required="true"
-                RequiredError="Template name required." />
+                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudTextField
+                                @bind-Value="_installedTemplateSearch"
+                                Label="Search installed templates"
+                                Variant="Variant.Outlined"
+                                Immediate="true"
+                                Adornment="Adornment.Start"
+                                AdornmentIcon="@Icons.Material.Filled.Search"
+                                Class="flex-grow-1" />
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInstalledTemplates">
+                                Refresh
+                            </MudButton>
+                        </MudStack>
 
-            <MudTextField
-                @bind-Value="_description"
-                Label="Description"
-                Variant="Variant.Outlined"
-                Immediate="true"
-                Lines="3"
-                Sizing="InputSizing.Auto"
-                MaxLines="10000" />
+                        @if (_installedTemplates.Count == 0)
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                No installed Dedicated Server world or scenario templates found.
+                            </MudAlert>
+                        }
+                        else
+                        {
+                            <MudTable T="InstalledWorldTemplateSource" Dense="true" Hover="true" Items="FilteredInstalledTemplates" Breakpoint="Breakpoint.Sm" Class="installed-world-template-table">
+                                <ColGroup>
+                                    <col class="installed-world-template-name-column" />
+                                    <col class="installed-world-template-source-column" />
+                                    <col class="installed-world-template-action-column" />
+                                </ColGroup>
+                                <HeaderContent>
+                                    <MudTh Class="installed-world-template-name-cell">Name</MudTh>
+                                    <MudTh Class="installed-world-template-source-cell">Source</MudTh>
+                                    <MudTh Class="installed-world-template-action-cell quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd DataLabel="Name" Class="installed-world-template-name-cell">
+                                        <MudText Typo="Typo.body2" Class="installed-world-template-name-text">@context.DisplayName</MudText>
+                                    </MudTd>
+                                    <MudTd DataLabel="Source" Class="installed-world-template-source-cell">
+                                        <MudStack Spacing="0" Class="installed-world-template-source-stack">
+                                            <MudText Typo="Typo.caption" Class="installed-world-template-source-text">@context.Category</MudText>
+                                            <MudText Typo="Typo.caption" Class="mono installed-world-template-source-text">@context.SourceDisplayPath</MudText>
+                                        </MudStack>
+                                    </MudTd>
+                                    <MudTd DataLabel="" Class="installed-world-template-action-cell quasar-actions-column">
+                                        <MudTooltip Text="Add template">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                                           Color="Color.Primary"
+                                                           Size="Size.Small"
+                                                           Disabled="_importing"
+                                                           OnClick="@(() => ImportPredefinedTemplateAsync(context))" />
+                                        </MudTooltip>
+                                    </MudTd>
+                                </RowTemplate>
+                                <NoRecordsContent>
+                                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                        No installed templates match current search.
+                                    </MudAlert>
+                                </NoRecordsContent>
+                            </MudTable>
+                        }
+                    </MudStack>
+                </MudTabPanel>
 
-            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Start">
-                <MudTextField
-                    @bind-Value="_sourcePath"
-                    Label="Source world path"
-                    Variant="Variant.Outlined"
-                    Immediate="true"
-                    Class="flex-grow-1"
-                    Required="true"
-                    RequiredError="Source world path required."
-                    HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc." />
-                <MudButton Variant="Variant.Outlined"
-                           Color="Color.Default"
-                           StartIcon="@Icons.Material.Filled.FolderOpen"
-                           Class="world-template-browse-button"
-                           OnClick="OpenFolderPickerAsync">
-                    Browse
-                </MudButton>
-            </MudStack>
-        </MudStack>
-        </MudForm>
+                <MudTabPanel Text="Custom import" Icon="@Icons.Material.Filled.FolderOpen">
+                    <MudForm @ref="_form" @bind-IsValid="_formIsValid">
+                    <MudStack Spacing="3">
+                        <MudText Typo="Typo.body2">
+                            Import an existing Space Engineers save folder as a reusable world template, then select it in the server editor.
+                        </MudText>
+
+                        <MudTextField
+                            @bind-Value="_name"
+                            Label="Template name"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            AutoFocus="true"
+                            Required="true"
+                            RequiredError="Template name required." />
+
+                        <MudTextField
+                            @bind-Value="_description"
+                            Label="Description"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            Lines="3"
+                            Sizing="InputSizing.Auto"
+                            MaxLines="10000" />
+
+                        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Start">
+                            <MudTextField
+                                @bind-Value="_sourcePath"
+                                Label="Source world path"
+                                Variant="Variant.Outlined"
+                                Immediate="true"
+                                Class="flex-grow-1"
+                                Required="true"
+                                RequiredError="Source world path required."
+                                HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc." />
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Default"
+                                       StartIcon="@Icons.Material.Filled.FolderOpen"
+                                       Class="world-template-browse-button"
+                                       OnClick="OpenFolderPickerAsync">
+                                Browse
+                            </MudButton>
+                        </MudStack>
+                    </MudStack>
+                    </MudForm>
+                </MudTabPanel>
+            </MudTabs>
         }
         else
         {
             <MudStack Spacing="3">
-                <MudText Typo="Typo.subtitle2">Template mods</MudText>
-                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                    Found @_sourceMods.Count mod(s) in the source world's <code>Sandbox_config.sbc</code>. Quasar writes the selected config profile's session settings and mods into the active world on server start.
-                </MudAlert>
+                <MudText Typo="Typo.subtitle2">Template config profile</MudText>
+                @if (!string.IsNullOrWhiteSpace(_sourceProfileLoadError))
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                        Could not read world settings from <code>@WorldSandboxConfigEditor.SandboxConfigFileName</code>. @_sourceProfileLoadError
+                    </MudAlert>
+                }
+                else
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                        Found @_sourceSettingCount session setting(s) and @_sourceMods.Count mod(s) in the source world's <code>@WorldSandboxConfigEditor.SandboxConfigFileName</code>. Quasar writes the selected config profile's session settings and mods into the active world on server start.
+                    </MudAlert>
+                }
 
                 <MudRadioGroup T="WorldImportModAction" @bind-Value="_modAction">
                     <MudStack Spacing="1">
-                        <MudRadio T="WorldImportModAction" Value="WorldImportModAction.CreateProfile" Color="Color.Primary">
-                            Create new config profile from these mods
+                        <MudRadio T="WorldImportModAction"
+                                  Value="WorldImportModAction.CreateProfile"
+                                  Color="Color.Primary"
+                                  Disabled="@(!CanCreateProfileFromSource)">
+                            Create new config profile from world settings
                         </MudRadio>
-                        <MudRadio T="WorldImportModAction" Value="WorldImportModAction.ExistingProfile" Color="Color.Primary" Disabled="@(ConfigProfiles.GetProfiles().Count == 0)">
+                        <MudRadio T="WorldImportModAction" Value="WorldImportModAction.ExistingProfile" Color="Color.Primary" Disabled="@(!CanImportModsIntoExistingProfile)">
                             Import mods into existing config profile
                         </MudRadio>
                         <MudRadio T="WorldImportModAction" Value="WorldImportModAction.None" Color="Color.Primary">
-                            Do nothing with template mods
+                            Import the world template only
                         </MudRadio>
                     </MudStack>
                 </MudRadioGroup>
 
-                @if (_modAction == WorldImportModAction.CreateProfile)
+                @if (_modAction == WorldImportModAction.CreateProfile && CanCreateProfileFromSource)
                 {
                     <MudTextField
                         @bind-Value="_newProfileName"
@@ -103,28 +200,34 @@
                     </MudSelect>
                 }
 
-                <MudTable T="QuasarModSelection" Items="_sourceMods" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
-                    <HeaderContent>
-                        <MudTh>Name</MudTh>
-                        <MudTh>Workshop ID</MudTh>
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd DataLabel="Name">@context.DisplayName</MudTd>
-                        <MudTd DataLabel="Workshop ID" Class="mono">@context.WorkshopId</MudTd>
-                    </RowTemplate>
-                </MudTable>
+                @if (_sourceMods.Count > 0)
+                {
+                    <MudTable T="QuasarModSelection" Items="_sourceMods" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+                        <HeaderContent>
+                            <MudTh>Name</MudTh>
+                            <MudTh>Workshop ID</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+                            <MudTd DataLabel="Workshop ID" Class="mono">@context.WorkshopId</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
             </MudStack>
         }
     </DialogContent>
     <DialogActions>
-        @if (_step == ImportStep.Mods)
+        @if (_step == ImportStep.ConfigProfile)
         {
             <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="BackToDetails" Disabled="@_importing">Back</MudButton>
         }
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel" Disabled="@_importing">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ContinueAsync" Disabled="@_importing">
-            @GetPrimaryButtonText()
-        </MudButton>
+        @if (_step == ImportStep.ConfigProfile || IsCustomImportTabActive)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ContinueAsync" Disabled="@_importing">
+                @GetPrimaryButtonText()
+            </MudButton>
+        }
     </DialogActions>
 </MudDialog>
 
@@ -156,16 +259,36 @@
     private string _name = string.Empty;
     private string _description = string.Empty;
     private string _sourcePath = string.Empty;
+    private string _installedTemplateSearch = string.Empty;
     private string _selectedConfigProfileId = string.Empty;
     private string _newProfileName = string.Empty;
     private string _newProfileDescription = string.Empty;
+    private QuasarConfigProfile? _sourceConfigProfile;
     private List<QuasarModSelection> _sourceMods = [];
+    private int _sourceSettingCount;
+    private string? _sourceProfileLoadError;
+    private IReadOnlyList<InstalledWorldTemplateSource> _installedTemplates = [];
     private ImportStep _step = ImportStep.Details;
+    private int _activeDetailsTabIndex;
     private WorldImportModAction _modAction = WorldImportModAction.CreateProfile;
     private bool _importing;
 
+    private bool IsCustomImportTabActive => _activeDetailsTabIndex == CustomImportTabIndex;
+
+    private bool CanCreateProfileFromSource =>
+        _sourceConfigProfile is not null && string.IsNullOrWhiteSpace(_sourceProfileLoadError);
+
+    private bool CanImportModsIntoExistingProfile =>
+        _sourceMods.Count > 0 && ConfigProfiles.GetProfiles().Count > 0;
+
+    private IReadOnlyList<InstalledWorldTemplateSource> FilteredInstalledTemplates =>
+        _installedTemplates
+            .Where(MatchesInstalledTemplateSearch)
+            .ToList();
+
     protected override void OnInitialized()
     {
+        RefreshInstalledTemplates();
         _selectedConfigProfileId = GetInitialConfigProfileId();
         if (!string.IsNullOrWhiteSpace(_selectedConfigProfileId))
             _modAction = WorldImportModAction.ExistingProfile;
@@ -205,9 +328,15 @@
 
     private async Task ContinueAsync()
     {
-        if (_step == ImportStep.Mods)
+        if (_step == ImportStep.ConfigProfile)
         {
             await ImportAsync();
+            return;
+        }
+
+        if (_form is null)
+        {
+            Snackbar.Add("Choose a predefined world or open Custom import.", Severity.Info);
             return;
         }
 
@@ -215,40 +344,85 @@
         if (!_formIsValid)
             return;
 
-        _sourceMods = LoadSourceMods();
-        if (_sourceMods.Count > 0)
-        {
-            _newProfileName = string.IsNullOrWhiteSpace(_newProfileName)
-                ? $"{_name.Trim()} Config"
-                : _newProfileName;
-            _newProfileDescription = string.IsNullOrWhiteSpace(_newProfileDescription)
-                ? $"Created from imported world template '{_name.Trim()}'."
-                : _newProfileDescription;
-
-            _selectedConfigProfileId = FirstExistingProfileId(_selectedConfigProfileId) ?? ConfigProfiles.GetProfiles().FirstOrDefault()?.ConfigProfileId ?? string.Empty;
-            if (ConfigProfiles.GetProfiles().Count == 0 && _modAction == WorldImportModAction.ExistingProfile)
-                _modAction = WorldImportModAction.CreateProfile;
-
-            _step = ImportStep.Mods;
-            return;
-        }
-
-        await ImportAsync();
+        await ContinueFromDetailsAsync();
     }
+
+    private async Task ImportPredefinedTemplateAsync(InstalledWorldTemplateSource source)
+    {
+        _name = source.DisplayName;
+        _description = source.Description;
+        _sourcePath = source.SourcePath;
+        await ContinueFromDetailsAsync();
+    }
+
+    private async Task ContinueFromDetailsAsync()
+    {
+        LoadSourceConfigProfile();
+
+        _newProfileName = string.IsNullOrWhiteSpace(_newProfileName)
+            ? $"{_name.Trim()} Config"
+            : _newProfileName;
+        _newProfileDescription = string.IsNullOrWhiteSpace(_newProfileDescription)
+            ? $"Created from imported world template '{_name.Trim()}'."
+            : _newProfileDescription;
+
+        _selectedConfigProfileId = FirstExistingProfileId(_selectedConfigProfileId) ?? ConfigProfiles.GetProfiles().FirstOrDefault()?.ConfigProfileId ?? string.Empty;
+        if (_modAction == WorldImportModAction.ExistingProfile && !CanImportModsIntoExistingProfile)
+            _modAction = CanCreateProfileFromSource ? WorldImportModAction.CreateProfile : WorldImportModAction.None;
+        if (_modAction == WorldImportModAction.CreateProfile && !CanCreateProfileFromSource)
+            _modAction = CanImportModsIntoExistingProfile ? WorldImportModAction.ExistingProfile : WorldImportModAction.None;
+
+        _step = ImportStep.ConfigProfile;
+    }
+
+    private void RefreshInstalledTemplates()
+    {
+        _installedTemplates = ImportLocations.GetInstalledWorldTemplates();
+    }
+
+    private bool MatchesInstalledTemplateSearch(InstalledWorldTemplateSource template)
+    {
+        var search = _installedTemplateSearch?.Trim();
+        if (string.IsNullOrWhiteSpace(search))
+            return true;
+
+        return Contains(template.DisplayName, search) ||
+               Contains(template.Category, search) ||
+               Contains(template.SourceDisplayPath, search) ||
+               Contains(template.SourcePath, search);
+    }
+
+    private static bool Contains(string value, string search) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        value.Contains(search, StringComparison.OrdinalIgnoreCase);
 
     private async Task ImportAsync()
     {
-        if (_modAction == WorldImportModAction.CreateProfile && _step == ImportStep.Mods && string.IsNullOrWhiteSpace(_newProfileName))
+        if (_modAction == WorldImportModAction.CreateProfile && _step == ImportStep.ConfigProfile && string.IsNullOrWhiteSpace(_newProfileName))
         {
             Snackbar.Add("Profile name required.", Severity.Warning);
             return;
         }
 
+        if (_modAction == WorldImportModAction.CreateProfile && _step == ImportStep.ConfigProfile && !CanCreateProfileFromSource)
+        {
+            Snackbar.Add("World settings could not be read for a new config profile.", Severity.Warning);
+            return;
+        }
+
         if (_modAction == WorldImportModAction.ExistingProfile &&
-            _step == ImportStep.Mods &&
+            _step == ImportStep.ConfigProfile &&
             string.IsNullOrWhiteSpace(_selectedConfigProfileId))
         {
             Snackbar.Add("Config profile required.", Severity.Warning);
+            return;
+        }
+
+        if (_modAction == WorldImportModAction.ExistingProfile &&
+            _step == ImportStep.ConfigProfile &&
+            _sourceMods.Count == 0)
+        {
+            Snackbar.Add("No template mods to import.", Severity.Warning);
             return;
         }
 
@@ -271,7 +445,7 @@
 
     private async Task<string?> ApplyModActionAsync()
     {
-        if (_step != ImportStep.Mods || _sourceMods.Count == 0 || _modAction == WorldImportModAction.None)
+        if (_step != ImportStep.ConfigProfile || _modAction == WorldImportModAction.None)
             return null;
 
         if (_modAction == WorldImportModAction.ExistingProfile)
@@ -287,14 +461,16 @@
             return profile.ConfigProfileId;
         }
 
-        var newProfile = new QuasarConfigProfile
-        {
-            Name = _newProfileName.Trim(),
-            Description = _newProfileDescription?.Trim() ?? string.Empty,
-            Mods = _sourceMods.ToList(),
-        };
+        if (_sourceConfigProfile is null)
+            return null;
+
+        var newProfile = _sourceConfigProfile;
+        newProfile.ConfigProfileId = string.Empty;
+        newProfile.Name = _newProfileName.Trim();
+        newProfile.Description = _newProfileDescription?.Trim() ?? string.Empty;
 
         await ConfigProfiles.UpsertAsync(newProfile);
+        Snackbar.Add($"Config profile '{newProfile.Name}' created from world settings.", Severity.Success);
         await OpenConfigProfileEditorAsync(newProfile.ConfigProfileId);
         return newProfile.ConfigProfileId;
     }
@@ -318,17 +494,24 @@
         await dialog.Result;
     }
 
-    private List<QuasarModSelection> LoadSourceMods()
+    private void LoadSourceConfigProfile()
     {
+        _sourceConfigProfile = null;
+        _sourceMods = [];
+        _sourceSettingCount = 0;
+        _sourceProfileLoadError = null;
+
         var sandboxConfigPath = Path.Combine(_sourcePath.Trim(), WorldSandboxConfigEditor.SandboxConfigFileName);
         try
         {
-            return WorldSandboxConfigEditor.ReadMods(sandboxConfigPath).ToList();
+            var import = WorldSandboxConfigEditor.ReadConfigProfile(sandboxConfigPath);
+            _sourceConfigProfile = import.Profile;
+            _sourceMods = import.Profile.Mods.ToList();
+            _sourceSettingCount = import.SessionSettingCount;
         }
         catch (Exception exception)
         {
-            Snackbar.Add($"Could not read template mods. Continuing without mod handling. {exception.Message}", Severity.Warning);
-            return [];
+            _sourceProfileLoadError = exception.Message;
         }
     }
 
@@ -347,7 +530,7 @@
     private string GetPrimaryButtonText() =>
         _importing
             ? "Importing..."
-            : _step == ImportStep.Mods
+            : _step == ImportStep.ConfigProfile
                 ? "Import World Template"
                 : "Continue";
 
@@ -381,8 +564,10 @@
     private enum ImportStep
     {
         Details,
-        Mods,
+        ConfigProfile,
     }
+
+    private const int CustomImportTabIndex = 1;
 
     private enum WorldImportModAction
     {

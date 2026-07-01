@@ -12,11 +12,12 @@ usage() {
 Usage: ./uninstall.sh [options]
 
 Stops and removes the Quasar systemd service installed by install.sh.
-Runtime/config data under the Quasar user's home directory is not removed.
+Runtime/config data under the install directory is not removed unless --purge is
+passed.
 
 Options:
   --service-name <name>     systemd service name (default: quasar)
-  --install-dir <dir>       Install directory (default: ~/.local/share/Quasar)
+  --install-dir <dir>       Install directory (default: script directory)
   --user-service            Remove a user systemd service (default)
   --system                  Remove a system service under /etc/systemd/system
   --purge                   Also remove the install directory

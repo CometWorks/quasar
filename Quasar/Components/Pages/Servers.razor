@@ -1,4 +1,3 @@
-@page "/servers"
 @implements IDisposable
 @inject DedicatedServerCatalog ServerCatalog
 @inject DedicatedServerSupervisor Supervisor
@@ -6,14 +5,21 @@
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarWorldTemplateCatalog WorldTemplates
 @inject IDialogService DialogService
-@inject WebServiceOptions Options
+@inject ServerManagementActions ServerActions
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
-<PageTitle>Servers</PageTitle>
+@if (!Embedded)
+{
+    <PageTitle>Servers</PageTitle>
+}
 
-<MudText Typo="Typo.h5" Class="mb-2">Servers</MudText>
-<MudText Typo="Typo.body2">Persistent dedicated servers. Quasar launches, stops, and restarts processes from these definitions, and Quasar.Agent attaches once the server is up for live data. Expand a row to see live agent data: players, chat, plugins, command results.</MudText>
+@if (!HideHeader)
+{
+    <MudText Typo="Typo.h5" Class="mb-2">Servers</MudText>
+    <MudText Typo="Typo.body2">Persistent dedicated servers. Quasar launches, stops, and restarts processes from these definitions, and Quasar.Agent attaches once the server is up for live data. Expand a row to see live agent data: players, chat, and command results.</MudText>
+}
 
 <MudPaper Class="pa-4 server-card mt-2">
     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-4">
@@ -33,57 +39,44 @@
     }
     else
     {
-        <MudTable T="DedicatedServerDefinition" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="ServerDefinitions">
+        <MudTable T="DedicatedServerDefinition" Dense="true" Hover="true" Breakpoint="@ServerTableBreakpoint" Items="ServerDefinitions" Class="servers-list-table">
             <HeaderContent>
-                <MudTh Style="width: 36px;"></MudTh>
+                <MudTh></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetStateText(x.UniqueName))">Status</MudTableSortLabel></MudTh>
-                <MudTh Style="width: 240px;">Actions</MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetDisplayName(x))">Name</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.UniqueName)">Unique name</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.ServerPort)">Port</MudTableSortLabel></MudTh>
-                <MudTh Style="text-align: center;"><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetConfigProfileName(x.ConfigProfileId))">Config</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetConfigProfileName(x.ConfigProfileId))">Config</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetPlayerSortValue(x.UniqueName))">Players</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetProcessSortValue(x.UniqueName))">Process</MudTableSortLabel></MudTh>
                 <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetAttachmentStatus(x.UniqueName))">Agent</MudTableSortLabel></MudTh>
-                <MudTh></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetDisplayName(x))">Name</MudTableSortLabel></MudTh>
+                <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
             </HeaderContent>
             <RowTemplate>
                 <MudTd>
-                    <MudIconButton Size="Size.Small"
-                                   Icon="@(IsExpanded(context.UniqueName) ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
-                                   OnClick="@(() => ToggleExpanded(context.UniqueName))"
-                                   title="Show live data" />
+                    <MudTooltip Text="Show live data">
+                        <MudIconButton Size="Size.Small"
+                                       Icon="@(IsExpanded(context.UniqueName) ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                       OnClick="@(() => ToggleExpanded(context.UniqueName))" />
+                    </MudTooltip>
                 </MudTd>
                 <MudTd DataLabel="Status">
                     <MudChip T="string" Color="@GetStateColor(context.UniqueName)" Variant="Variant.Outlined">
                         @GetStateText(context.UniqueName)
                     </MudChip>
                 </MudTd>
-                <MudTd DataLabel="Actions">
-                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-                        @if (CanStartServer(context.UniqueName))
-                        {
-                            <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Success" StartIcon="@Icons.Material.Filled.PlayArrow" OnClick="@(() => StartAsync(context.UniqueName))">Start</MudButton>
-                        }
-                        @if (CanStopServer(context.UniqueName))
-                        {
-                            <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Error" StartIcon="@Icons.Material.Filled.Stop" OnClick="@(() => StopAsync(context.UniqueName))">Stop</MudButton>
-                        }
-                        @if (CanKillStartingServer(context.UniqueName))
-                        {
-                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error" StartIcon="@Icons.Material.Filled.StopCircle" OnClick="@(() => KillStartingAsync(context.UniqueName))">Kill</MudButton>
-                        }
-                        @if (CanRestartServer(context.UniqueName))
-                        {
-                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Primary" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="@(() => RestartAsync(context.UniqueName))">Restart</MudButton>
-                        }
-                    </MudStack>
+                <MudTd DataLabel="Unique name" Class="mono">@context.UniqueName</MudTd>
+                <MudTd DataLabel="Port" Class="mono">
+                    <MudTooltip Text="@GetDirectConnectTooltip(context)">
+                        <MudLink Typo="Typo.body2"
+                                 Color="Color.Primary"
+                                 Underline="Underline.Hover"
+                                 @onclick="@(() => CopyDirectConnectAsync(context))">
+                            @context.ServerPort
+                        </MudLink>
+                    </MudTooltip>
                 </MudTd>
-                <MudTd DataLabel="Name">
-                    <MudText Typo="Typo.body2">@GetDisplayName(context)</MudText>
-                    <MudText Typo="Typo.caption" Class="mono">@context.UniqueName</MudText>
-                </MudTd>
-                <MudTd DataLabel="Port" Class="mono">@context.ServerPort</MudTd>
-                <MudTd DataLabel="Config" Style="text-align: center;">
+                <MudTd DataLabel="Config">
                     @if (CanOpenConfigProfile(context.ConfigProfileId))
                     {
                         <MudLink Typo="Typo.body2"
@@ -101,22 +94,59 @@
                 <MudTd DataLabel="Players">@GetPlayerCount(context.UniqueName)</MudTd>
                 <MudTd DataLabel="Process" Class="mono">@GetProcessDisplay(context.UniqueName)</MudTd>
                 <MudTd DataLabel="Agent">@GetAttachmentStatus(context.UniqueName)</MudTd>
-                <MudTd Style="text-align: right;">
-                    <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.FlexEnd" Spacing="0">
-                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Terminal" Color="Color.Default" title="Show console output" OnClick="@(() => OpenConsoleDialogAsync(context.UniqueName))" />
-                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => OpenCloneDialogAsync(context))">Clone</MudButton>
-                        <MudButton Variant="Variant.Text" Size="Size.Small" Disabled="@(!CanCreateWorldTemplate(context))" OnClick="@(() => CreateWorldTemplateAsync(context))">Template</MudButton>
-                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => OpenEditDialogAsync(context))">Edit</MudButton>
-                        <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context.UniqueName))">Delete</MudButton>
+                <MudTd DataLabel="Name">
+                    <MudText Typo="Typo.body2">@GetDisplayName(context)</MudText>
+                </MudTd>
+                <MudTd DataLabel="" Class="quasar-actions-column">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0">
+                        @if (CanStartServer(context.UniqueName))
+                        {
+                            <MudTooltip Text="@GetStartTooltip(context)">
+                                <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Color="Color.Success" Size="Size.Small" Disabled="@IsStartDisabled(context)" OnClick="@(() => StartAsync(context.UniqueName))" />
+                            </MudTooltip>
+                        }
+                        @if (CanStopServer(context.UniqueName))
+                        {
+                            <MudTooltip Text="Stop server">
+                                <MudIconButton Icon="@Icons.Material.Filled.Stop" Color="Color.Error" Size="Size.Small" OnClick="@(() => StopAsync(context.UniqueName))" />
+                            </MudTooltip>
+                        }
+                        @if (CanKillStartingServer(context.UniqueName))
+                        {
+                            <MudTooltip Text="Kill starting server">
+                                <MudIconButton Icon="@Icons.Material.Filled.StopCircle" Color="Color.Error" Size="Size.Small" OnClick="@(() => KillStartingAsync(context.UniqueName))" />
+                            </MudTooltip>
+                        }
+                        @if (CanRestartServer(context.UniqueName))
+                        {
+                            <MudTooltip Text="Restart server">
+                                <MudIconButton Icon="@Icons.Material.Filled.RestartAlt" Color="Color.Primary" Size="Size.Small" OnClick="@(() => RestartAsync(context.UniqueName))" />
+                            </MudTooltip>
+                        }
+                        <MudTooltip Text="Show console output">
+                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Terminal" Color="Color.Default" OnClick="@(() => OpenConsoleDialogAsync(context.UniqueName))" />
+                        </MudTooltip>
+                        <MudTooltip Text="Clone server">
+                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.ContentCopy" Color="Color.Default" OnClick="@(() => OpenCloneDialogAsync(context))" />
+                        </MudTooltip>
+                        <MudTooltip Text="Create world template">
+                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Public" Color="Color.Default" Disabled="@(!CanCreateWorldTemplate(context))" OnClick="@(() => CreateWorldTemplateAsync(context))" />
+                        </MudTooltip>
+                        <MudTooltip Text="Edit server">
+                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" Color="Color.Default" OnClick="@(() => OpenEditDialogAsync(context))" />
+                        </MudTooltip>
+                        <MudTooltip Text="Delete server">
+                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteAsync(context.UniqueName))" />
+                        </MudTooltip>
                     </MudStack>
                 </MudTd>
             </RowTemplate>
             <ChildRowContent>
                 @if (IsExpanded(context.UniqueName))
                 {
-                    <MudTr>
+                    <MudTr Class="servers-list-detail-row">
                         <td colspan="10" style="padding: 0.75rem 1rem; background: var(--mud-palette-background);">
-                            <ServerDetailPanel Agent="@GetAgent(context.UniqueName)" />
+                            <ServerDetailPanel Server="@context" Runtime="@GetRuntime(context.UniqueName)" Agent="@GetAgent(context.UniqueName)" />
                         </td>
                     </MudTr>
                 }
@@ -150,8 +180,31 @@
     private readonly HashSet<string> _expanded = new(StringComparer.OrdinalIgnoreCase);
     private bool _creatingWorldTemplate;
 
+    private enum CloneWorldMode
+    {
+        CopyWorld,
+        KeepSelectedWorld,
+    }
+
     [Parameter]
     public EventCallback<string> ConfigProfileSelected { get; set; }
+
+    [Parameter]
+    public bool Embedded { get; set; }
+
+    [Parameter]
+    public bool HideHeader { get; set; }
+
+    [Parameter]
+    public bool DisableResponsiveLayout { get; set; }
+
+    [Parameter]
+    public bool LaunchBlocked { get; set; }
+
+    [Parameter]
+    public string LaunchBlockedMessage { get; set; } = "Managed runtime is still preparing.";
+
+    private Breakpoint ServerTableBreakpoint => DisableResponsiveLayout ? Breakpoint.None : Breakpoint.Md;
 
     private IReadOnlyList<DedicatedServerDefinition> ServerDefinitions => ServerCatalog.GetServers();
 
@@ -214,14 +267,7 @@
         return agent;
     }
 
-    private async Task OpenCreateDialogAsync()
-    {
-        var definition = await ShowEditorDialogAsync(CreateBlank(), isEditing: false);
-        if (definition is null)
-            return;
-
-        await SaveDefinitionAsync(definition, "Server created.");
-    }
+    private Task OpenCreateDialogAsync() => ServerActions.OpenCreateDialogAsync();
 
     private async Task OpenCloneDialogAsync(DedicatedServerDefinition definition)
     {
@@ -229,16 +275,50 @@
         cloned.DisplayName = NormalizeWhitespace($"{GetDisplayName(definition)} Copy");
         cloned.UniqueName = MakeCopyIdentifier(definition.UniqueName);
         cloned.OriginalUniqueName = string.Empty;
-        var created = await ShowEditorDialogAsync(cloned, isEditing: false);
+        cloned.GoalState = DedicatedServerGoalState.Off;
+        cloned.AutoStart = false;
+        cloned.ServerPort = AllocateNextPort();
+        cloned.DedicatedServerAppDataPath = string.Empty;
+        cloned.MagnetarAppDataPath = string.Empty;
+        cloned.WorldPath = string.Empty;
+        cloned.WorldSaveName = string.Empty;
+        cloned.ConfigFilePath = string.Empty;
+
+        var created = await ShowEditorDialogAsync(cloned, isEditing: false, isClone: true);
         if (created is null)
             return;
 
-        await SaveDefinitionAsync(created, "Server cloned.");
+        if (!EnsureCloneUsesIndependentPaths(definition, created))
+            return;
+
+        var cloneWorldMode = await ChooseCloneWorldModeAsync(definition);
+        if (cloneWorldMode is null)
+            return;
+
+        if (!await SaveDefinitionAsync(created, string.Empty))
+            return;
+
+        var saved = ServerCatalog.GetServer(created.UniqueName) ?? created;
+        try
+        {
+            var worldMessage = cloneWorldMode == CloneWorldMode.CopyWorld
+                ? await CopyCloneWorldStateAsync(definition, saved)
+                : KeepCloneWorldState(definition, saved);
+            Snackbar.Add($"Server cloned. {worldMessage}", Severity.Success);
+        }
+        catch (OperationCanceledException exception)
+        {
+            Snackbar.Add($"Server cloned; {exception.Message}", Severity.Info);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Server cloned, but world preparation failed: {exception.Message}", Severity.Error);
+        }
     }
 
     private async Task OpenEditDialogAsync(DedicatedServerDefinition definition)
     {
-        var updated = await ShowEditorDialogAsync(definition, isEditing: true);
+        var updated = await ShowEditorDialogAsync(definition, isEditing: true, isClone: false);
         if (updated is null)
             return;
 
@@ -257,6 +337,15 @@
         }
 
         Navigation.NavigateTo($"/configs?profileId={Uri.EscapeDataString(configProfileId)}");
+    }
+
+    private async Task CopyDirectConnectAsync(DedicatedServerDefinition definition)
+    {
+        var address = GetDirectConnectAddress(definition);
+        var ok = await JS.InvokeAsync<bool>("quasarConfigs.copyText", address);
+        Snackbar.Add(
+            ok ? $"Copied {address} to clipboard." : "Copy failed - select and copy the port manually.",
+            ok ? Severity.Info : Severity.Warning);
     }
 
     private async Task OpenConsoleDialogAsync(string uniqueName)
@@ -284,16 +373,16 @@
             return;
         }
 
-        var worldPath = definition.WorldPath?.Trim() ?? string.Empty;
+        var worldPath = definition.GetWorldSavePath();
         if (string.IsNullOrWhiteSpace(worldPath) || !Directory.Exists(worldPath))
         {
-            Snackbar.Add($"World path not found for '{definition.UniqueName}'.", Severity.Error);
+            Snackbar.Add($"World save not found for '{definition.UniqueName}'.", Severity.Error);
             return;
         }
 
         if (!File.Exists(Path.Combine(worldPath, "Sandbox.sbc")))
         {
-            Snackbar.Add($"World path '{worldPath}' does not contain Sandbox.sbc.", Severity.Error);
+            Snackbar.Add($"World save '{worldPath}' does not contain Sandbox.sbc.", Severity.Error);
             return;
         }
 
@@ -330,12 +419,13 @@
         }
     }
 
-    private async Task<DedicatedServerDefinition?> ShowEditorDialogAsync(DedicatedServerDefinition definition, bool isEditing)
+    private async Task<DedicatedServerDefinition?> ShowEditorDialogAsync(DedicatedServerDefinition definition, bool isEditing, bool isClone)
     {
         var parameters = new DialogParameters
         {
             [nameof(ServerEditorDialog.Definition)] = definition.Clone(),
             [nameof(ServerEditorDialog.IsEditing)] = isEditing,
+            [nameof(ServerEditorDialog.IsClone)] = isClone,
             [nameof(ServerEditorDialog.UniqueNameLocked)] = isEditing && IsRunning(definition.UniqueName),
         };
 
@@ -346,7 +436,12 @@
             MaxWidth = MaxWidth.ExtraLarge,
         };
 
-        var dialog = await DialogService.ShowAsync<ServerEditorDialog>(isEditing ? "Edit Server" : "Create Server", parameters, options);
+        var title = isEditing
+            ? "Edit Server"
+            : isClone
+                ? "Clone Server"
+                : "Create Server";
+        var dialog = await DialogService.ShowAsync<ServerEditorDialog>(title, parameters, options);
         var result = await dialog.Result;
         if (result is null || result.Canceled || result.Data is not DedicatedServerDefinition updated)
             return null;
@@ -354,7 +449,173 @@
         return updated;
     }
 
-    private async Task SaveDefinitionAsync(DedicatedServerDefinition definition, string successMessage)
+    private async Task<CloneWorldMode?> ChooseCloneWorldModeAsync(DedicatedServerDefinition source)
+    {
+        var sourceRunning = IsRunning(source.UniqueName);
+        var message = sourceRunning
+            ? $"Clone '{GetDisplayName(source)}' with its current world state? The source is running, so Quasar will copy from the latest Space Engineers Backup snapshot instead of the live world folder. Choose 'Keep Save' to use the save already selected in the editor."
+            : $"Clone '{GetDisplayName(source)}' with its current world state? Choose 'Keep Save' to use the save already selected in the editor.";
+
+        var result = await DialogService.ShowMessageBoxAsync(
+            "Clone world state?",
+            message,
+            yesText: "Copy World",
+            noText: "Keep Save",
+            cancelText: "Cancel");
+
+        if (result is null)
+            return null;
+
+        return result.Value ? CloneWorldMode.CopyWorld : CloneWorldMode.KeepSelectedWorld;
+    }
+
+    private async Task<string> CopyCloneWorldStateAsync(DedicatedServerDefinition source, DedicatedServerDefinition target)
+    {
+        EnsureCloneStorageIsIndependent(source, target);
+        await ConfirmExistingCloneWorldPathDeleteAsync(target, "copy the source world into the clone");
+
+        var sourceWorldPath = source.GetWorldSavePath();
+        if (string.IsNullOrWhiteSpace(sourceWorldPath) || !Directory.Exists(sourceWorldPath))
+            throw new InvalidOperationException($"Source world save not found for '{source.UniqueName}'.");
+
+        if (IsRunning(source.UniqueName))
+        {
+            var backupPath = FindLatestWorldBackupDirectory(sourceWorldPath);
+            if (backupPath is null)
+                throw new InvalidOperationException($"No Space Engineers Backup snapshot exists under '{Path.Combine(sourceWorldPath, "Backup")}'. Stop the source server or let it create a backup before cloning world state.");
+
+            await CopyWorldDirectoryAsync(backupPath, target.GetWorldSavePath());
+            return $"World copied from latest Backup snapshot '{Path.GetFileName(backupPath)}'.";
+        }
+
+        await CopyStoppedWorldStateAsync(sourceWorldPath, target);
+        return "World copied from the stopped source server.";
+    }
+
+    private string KeepCloneWorldState(DedicatedServerDefinition source, DedicatedServerDefinition target)
+    {
+        EnsureCloneStorageIsIndependent(source, target);
+
+        return "Selected clone world save kept unchanged.";
+    }
+
+    private async Task CopyStoppedWorldStateAsync(string sourceWorldPath, DedicatedServerDefinition target)
+    {
+        if (!File.Exists(Path.Combine(sourceWorldPath, "Sandbox.sbc")))
+            throw new InvalidOperationException($"Source world save '{sourceWorldPath}' does not contain Sandbox.sbc.");
+
+        await CopyWorldDirectoryAsync(sourceWorldPath, target.GetWorldSavePath());
+    }
+
+    private static string? FindLatestWorldBackupDirectory(string worldPath)
+    {
+        var backupDirectory = Path.Combine(worldPath, "Backup");
+        if (!Directory.Exists(backupDirectory))
+            return null;
+
+        return Directory
+            .EnumerateDirectories(backupDirectory)
+            .Where(directory => File.Exists(Path.Combine(directory, "Sandbox.sbc")))
+            .OrderByDescending(Directory.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+    }
+
+    private static Task CopyWorldDirectoryAsync(string sourceWorldPath, string targetWorldPath) =>
+        Task.Run(() =>
+        {
+            if (!string.IsNullOrWhiteSpace(targetWorldPath) && Directory.Exists(targetWorldPath))
+                Directory.Delete(targetWorldPath, recursive: true);
+
+            CopyDirectory(sourceWorldPath, targetWorldPath, ShouldSkipCopiedWorldFile);
+        });
+
+    private async Task ConfirmExistingCloneWorldPathDeleteAsync(DedicatedServerDefinition target, string action)
+    {
+        var targetWorldPath = target.GetWorldSavePath();
+        if (string.IsNullOrWhiteSpace(targetWorldPath) || !Directory.Exists(targetWorldPath))
+            return;
+
+        var confirmed = await ConfirmDestructiveActionAsync(
+            "Delete existing clone world folder?",
+            $"The clone's world save already exists: {targetWorldPath}. Quasar must delete that folder to {action}.",
+            "Delete Folder");
+
+        if (!confirmed)
+            throw new OperationCanceledException("Clone world preparation canceled.");
+    }
+
+    private bool EnsureCloneUsesIndependentPaths(DedicatedServerDefinition source, DedicatedServerDefinition clone)
+    {
+        if (PathsEqual(source.DedicatedServerAppDataPath, clone.DedicatedServerAppDataPath))
+        {
+            Snackbar.Add("Clone DS app-data path matches the source. Clear the path override or choose a different folder.", Severity.Error);
+            return false;
+        }
+
+        if (PathsEqual(source.GetWorldSavePath(), clone.GetWorldSavePath()))
+        {
+            Snackbar.Add("Clone world save path matches the source. Choose a different save.", Severity.Error);
+            return false;
+        }
+
+        if (PathsEqual(source.ConfigFilePath, clone.ConfigFilePath))
+        {
+            Snackbar.Add("Clone rendered config path matches the source. Clear the path override or choose a different file.", Severity.Error);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static void EnsureCloneStorageIsIndependent(DedicatedServerDefinition source, DedicatedServerDefinition target)
+    {
+        if (PathsEqual(source.DedicatedServerAppDataPath, target.DedicatedServerAppDataPath))
+            throw new InvalidOperationException("Clone DS app-data path still matches the source.");
+
+        if (PathsEqual(source.GetWorldSavePath(), target.GetWorldSavePath()))
+            throw new InvalidOperationException("Clone world save path still matches the source.");
+
+        if (PathsEqual(source.ConfigFilePath, target.ConfigFilePath))
+            throw new InvalidOperationException("Clone rendered config path still matches the source.");
+    }
+
+    private static void CopyDirectory(string sourceDirectory, string targetDirectory, Func<string, bool> shouldSkipFile)
+    {
+        Directory.CreateDirectory(targetDirectory);
+
+        foreach (var directory in Directory.EnumerateDirectories(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(sourceDirectory, directory);
+            Directory.CreateDirectory(Path.Combine(targetDirectory, relative));
+        }
+
+        foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            if (shouldSkipFile(file))
+                continue;
+
+            var relative = Path.GetRelativePath(sourceDirectory, file);
+            var destination = Path.Combine(targetDirectory, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(file, destination, overwrite: true);
+        }
+    }
+
+    private static bool ShouldSkipCopiedWorldFile(string path) =>
+        Path.GetFileName(path).StartsWith("Sandbox_config.sbc", StringComparison.OrdinalIgnoreCase);
+
+    private static bool PathsEqual(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
+
+        return string.Equals(
+            Path.GetFullPath(left.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            Path.GetFullPath(right.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
+    private async Task<bool> SaveDefinitionAsync(DedicatedServerDefinition definition, string successMessage)
     {
         var previousUniqueName = definition.OriginalUniqueName;
         if (!string.IsNullOrWhiteSpace(previousUniqueName) &&
@@ -362,17 +623,20 @@
             IsRunning(previousUniqueName))
         {
             Snackbar.Add("Stop the server before renaming it.", Severity.Warning);
-            return;
+            return false;
         }
 
         try
         {
             await ServerCatalog.UpsertAsync(definition);
-            Snackbar.Add(successMessage, Severity.Success);
+            if (!string.IsNullOrWhiteSpace(successMessage))
+                Snackbar.Add(successMessage, Severity.Success);
+            return true;
         }
         catch (Exception exception)
         {
             Snackbar.Add(exception.Message, Severity.Error);
+            return false;
         }
     }
 
@@ -380,6 +644,20 @@
     {
         try
         {
+            if (LaunchBlocked)
+            {
+                Snackbar.Add(LaunchBlockedMessage, Severity.Warning);
+                return;
+            }
+
+            var definition = ServerCatalog.GetServer(uniqueName);
+            var worldBlockMessage = GetWorldLaunchBlockMessage(definition);
+            if (worldBlockMessage is not null)
+            {
+                Snackbar.Add(worldBlockMessage, Severity.Warning);
+                return;
+            }
+
             await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.On, reconcile: false);
             await Supervisor.StartServerAsync(uniqueName);
             Snackbar.Add("Server start requested.", Severity.Success);
@@ -552,6 +830,45 @@
         !string.IsNullOrWhiteSpace(configProfileId) &&
         ConfigProfiles.GetProfile(configProfileId) is not null;
 
+    private string GetDirectConnectTooltip(DedicatedServerDefinition definition) =>
+        $"Copy direct connect address {GetDirectConnectAddress(definition)}";
+
+    private string GetDirectConnectAddress(DedicatedServerDefinition definition)
+    {
+        var fallbackHost = Navigation.ToAbsoluteUri(Navigation.BaseUri).Host;
+        var host = ResolveDirectConnectHost(definition.ServerIP, fallbackHost);
+        if (host.Contains(':', StringComparison.Ordinal) &&
+            !host.StartsWith("[", StringComparison.Ordinal) &&
+            !host.EndsWith("]", StringComparison.Ordinal))
+        {
+            host = $"[{host}]";
+        }
+
+        return $"{host}:{definition.ServerPort}";
+    }
+
+    private static string ResolveDirectConnectHost(string? configuredHost, string fallbackHost)
+    {
+        var host = configuredHost?.Trim() ?? string.Empty;
+        if (IsAnyAddress(host))
+            host = fallbackHost?.Trim() ?? string.Empty;
+
+        if (IsAnyAddress(host) || string.IsNullOrWhiteSpace(host))
+            return "127.0.0.1";
+
+        return host;
+    }
+
+    private static bool IsAnyAddress(string value)
+    {
+        var normalized = value.Trim().Trim('[', ']');
+        return string.IsNullOrWhiteSpace(normalized) ||
+               string.Equals(normalized, "0.0.0.0", StringComparison.Ordinal) ||
+               string.Equals(normalized, "::", StringComparison.Ordinal) ||
+               string.Equals(normalized, "*", StringComparison.Ordinal) ||
+               string.Equals(normalized, "+", StringComparison.Ordinal);
+    }
+
     private string GetStateText(string uniqueName)
     {
         var runtime = GetRuntime(uniqueName);
@@ -590,11 +907,42 @@
             or DedicatedServerProcessState.Faulted;
     }
 
+    private bool IsStartDisabled(DedicatedServerDefinition definition) =>
+        LaunchBlocked || string.IsNullOrWhiteSpace(definition.WorldSaveName);
+
+    private string GetStartTooltip(DedicatedServerDefinition definition)
+    {
+        if (LaunchBlocked)
+            return LaunchBlockedMessage;
+
+        var worldBlockMessage = GetWorldLaunchBlockMessage(definition, checkFiles: false);
+        return worldBlockMessage ?? "Start server";
+    }
+
+    private static string? GetWorldLaunchBlockMessage(DedicatedServerDefinition? definition, bool checkFiles = true)
+    {
+        if (definition is null)
+            return "Server definition not found.";
+
+        if (string.IsNullOrWhiteSpace(definition.WorldSaveName))
+            return "Select a world save before starting this server.";
+
+        if (!checkFiles)
+            return null;
+
+        var worldPath = definition.GetWorldSavePath();
+        if (string.IsNullOrWhiteSpace(worldPath) || !Directory.Exists(worldPath))
+            return $"World save folder not found: {worldPath}";
+
+        return File.Exists(Path.Combine(worldPath, "Sandbox.sbc"))
+            ? null
+            : $"World save '{worldPath}' is missing Sandbox.sbc.";
+    }
+
     private bool CanStopServer(string uniqueName)
     {
         var state = GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped;
-        return state is DedicatedServerProcessState.Starting
-            or DedicatedServerProcessState.Running;
+        return state == DedicatedServerProcessState.Running;
     }
 
     private bool CanKillStartingServer(string uniqueName)
@@ -628,28 +976,6 @@
     private void HandleChanged()
     {
         _ = InvokeAsync(StateHasChanged);
-    }
-
-    private DedicatedServerDefinition CreateBlank()
-    {
-        var healthMonitoringEnabled = !Options.DisableServerHealthMonitoring;
-        return new DedicatedServerDefinition
-        {
-            GoalState = DedicatedServerGoalState.Off,
-            ServerPort = AllocateNextPort(),
-            ServerIP = "0.0.0.0",
-            EnableHealthMonitoring = healthMonitoringEnabled,
-            AutoRestartOnUnhealthy = healthMonitoringEnabled,
-            AgentStartupGraceSeconds = 180,
-            AgentAttachRetryAttempts = DedicatedServerDefinition.DefaultAgentAttachRetryAttempts,
-            AgentAttachRetryDelaySeconds = DedicatedServerDefinition.DefaultAgentAttachRetryDelaySeconds,
-            AgentHeartbeatTimeoutSeconds = 20,
-            SimulationProgressWindowSeconds = 30,
-            MinimumSimulationProgressScore = 0.05f,
-            WarnAfterUptimeHours = 12,
-            RestartDelaySeconds = 5,
-            RestartOnCrash = true,
-        };
     }
 
     private string MakeCopyIdentifier(string uniqueName)

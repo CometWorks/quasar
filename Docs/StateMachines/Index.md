@@ -50,5 +50,4 @@ done
 
 ---
 
-Back to the [Architecture overview](../QuasarArchitecture.md) ·
-[code handbook TOC](../Reference/TOC.md).
+Back to the [Architecture overview](../QuasarArchitecture.md).

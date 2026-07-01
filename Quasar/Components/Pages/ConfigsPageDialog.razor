@@ -6,7 +6,7 @@
         </MudStack>
     </TitleContent>
     <DialogContent>
-        <Configs InitialProfileId="@InitialProfileId" />
+        <Configs @ref="_configs" InitialProfileId="@InitialProfileId" />
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Done</MudButton>
@@ -21,5 +21,13 @@
     [Parameter]
     public string? InitialProfileId { get; set; }
 
-    private void Close() => MudDialog.Close();
+    private Configs? _configs;
+
+    private async Task Close()
+    {
+        if (_configs is not null && !await _configs.ConfirmPendingChangesBeforeLeavingAsync())
+            return;
+
+        MudDialog.Close();
+    }
 }

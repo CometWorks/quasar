@@ -1,6 +1,5 @@
 @inject AgentRegistry Registry
 @inject QuasarConfigProfileCatalog ConfigProfiles
-@inject QuasarPluginCatalogService PluginCatalog
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
@@ -47,34 +46,30 @@
         }
     </MudStack>
 
-    @if (PluginRows.Count > 0)
-    {
-        <MudDivider Class="my-3" />
-        <MudText Typo="Typo.subtitle2" Class="mb-2">Plugins</MudText>
-        <MudTable T="PluginDisplayRow" Dense="true" Items="PluginRows">
-            <HeaderContent>
-                <MudTh>Plugin</MudTh>
-                <MudTh>Version</MudTh>
-                <MudTh>Status</MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd DataLabel="Plugin">@context.DisplayName</MudTd>
-                <MudTd DataLabel="Version">@context.Version</MudTd>
-                <MudTd DataLabel="Status">@context.Status</MudTd>
-            </RowTemplate>
-        </MudTable>
-    }
 }
 else
 {
+    var pluginLoadSummary = GetPluginLoadSummary();
+
     <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-3">
         <MudChip T="string" Variant="Variant.Outlined">Players @Agent.Snapshot.Metrics.PlayersOnline/@GetMaxPlayers()</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">Sim @Agent.Snapshot.Metrics.SimSpeed.ToString("0.00")</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">CPU @Agent.Snapshot.Metrics.ServerCpuLoadPercent.ToString("0.0")%</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">PCU @Agent.Snapshot.Metrics.UsedPcu/@Agent.Snapshot.Metrics.TotalPcu</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">Mods @Agent.Snapshot.Metrics.ModsLoaded</MudChip>
-        <MudChip T="string" Variant="Variant.Outlined">Plugins @Agent.Snapshot.Metrics.PluginsLoaded</MudChip>
+        <MudChip T="string" Variant="Variant.Outlined" Color="@GetPluginLoadColor(pluginLoadSummary)">Plugins @GetPluginLoadText(pluginLoadSummary)</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">Uptime @FormatDuration(Agent.Snapshot.Metrics.UptimeSeconds)</MudChip>
+        @if (GetSaveChipText() is { Length: > 0 } saveChipText)
+        {
+            <MudTooltip Text="@GetSaveTooltipText()">
+                <MudChip T="string"
+                         Variant="Variant.Outlined"
+                         Color="@GetSaveChipColor()"
+                         Icon="@Icons.Material.Filled.Save">
+                    @saveChipText
+                </MudChip>
+            </MudTooltip>
+        }
         @if (!string.IsNullOrWhiteSpace(Server?.CpuAffinity))
         {
             <MudChip T="string" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Memory">Affinity @Server.CpuAffinity</MudChip>
@@ -85,7 +80,7 @@ else
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SendCommandAsync(ServerCommandType.Refresh))" Disabled="@(!Agent.IsConnected)">
             Refresh
         </MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Info" OnClick="@(() => SendCommandAsync(ServerCommandType.SaveWorld))" Disabled="@(!Agent.IsConnected)">
+        <MudButton Variant="Variant.Filled" Color="Color.Info" OnClick="@(() => SendCommandAsync(ServerCommandType.SaveWorld))" Disabled="@(!CanSaveWorld)">
             Save
         </MudButton>
     </MudStack>
@@ -111,18 +106,24 @@ else
     <MudText Typo="Typo.subtitle2" Class="mb-2">Players</MudText>
     <MudTable T="PlayerSnapshot" Dense="true" Hover="true" Items="Agent.Snapshot.Players">
         <HeaderContent>
-            <MudTh>Service</MudTh>
-            <MudTh>Name</MudTh>
             <MudTh>Steam ID</MudTh>
+            <MudTh>Service</MudTh>
             <MudTh>Faction</MudTh>
             <MudTh>Role</MudTh>
             <MudTh>Ping</MudTh>
-            <MudTh></MudTh>
+            <MudTh>Name</MudTh>
+            <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
         </HeaderContent>
         <RowTemplate>
+            <MudTd DataLabel="Steam ID">
+                <MudText Typo="Typo.body2" Class="mono">@context.SteamId</MudText>
+            </MudTd>
             <MudTd DataLabel="Service">
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.ServiceName)</MudChip>
             </MudTd>
+            <MudTd DataLabel="Faction">@context.FactionTag</MudTd>
+            <MudTd DataLabel="Role">@GetRoleLabel(context)</MudTd>
+            <MudTd DataLabel="Ping">@context.PingMs</MudTd>
             <MudTd DataLabel="Name">
                 <MudText Typo="Typo.body2">@TextSanitizer.CleanGameText(context.DisplayName)</MudText>
                 @if (GetPlatformName(context) is { Length: > 0 } platformName)
@@ -130,30 +131,26 @@ else
                     <MudText Typo="Typo.caption">Platform: @platformName</MudText>
                 }
             </MudTd>
-            <MudTd DataLabel="Steam ID">
-                <MudText Typo="Typo.body2" Class="mono">@context.SteamId</MudText>
-            </MudTd>
-            <MudTd DataLabel="Faction">@context.FactionTag</MudTd>
-            <MudTd DataLabel="Role">@GetRoleLabel(context)</MudTd>
-            <MudTd DataLabel="Ping">@context.PingMs</MudTd>
-            <MudTd Style="text-align: right;">
-                <MudMenu Dense="true"
-                         Icon="@Icons.Material.Filled.MoreVert"
-                         OpenChanged="@(open => _menuOpen = open)"
-                         AnchorOrigin="Origin.BottomRight"
-                         TransformOrigin="Origin.TopRight">
-                    <MudMenuItem Disabled="true">Set role</MudMenuItem>
-                    @foreach (var promoteLevel in PromoteLevels)
-                    {
-                        <MudMenuItem Disabled="@IsCurrentPromoteLevel(context, promoteLevel)"
-                                     OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.SetPlayerPromoteLevel, context.SteamId, promoteLevel))">
-                            @promoteLevel
-                        </MudMenuItem>
-                    }
-                    <MudDivider />
-                    <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.KickPlayer, context.SteamId))">Kick</MudMenuItem>
-                    <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.BanPlayer, context.SteamId))">Ban</MudMenuItem>
-                </MudMenu>
+            <MudTd DataLabel="" Class="quasar-actions-column">
+                <MudTooltip Text="Player actions">
+                    <MudMenu Dense="true"
+                             Icon="@Icons.Material.Filled.MoreVert"
+                             OpenChanged="@(open => _menuOpen = open)"
+                             AnchorOrigin="Origin.BottomRight"
+                             TransformOrigin="Origin.TopRight">
+                        <MudMenuItem Disabled="true">Set role</MudMenuItem>
+                        @foreach (var promoteLevel in PromoteLevels)
+                        {
+                            <MudMenuItem Disabled="@IsCurrentPromoteLevel(context, promoteLevel)"
+                                         OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.SetPlayerPromoteLevel, context.SteamId, promoteLevel))">
+                                @promoteLevel
+                            </MudMenuItem>
+                        }
+                        <MudDivider />
+                        <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.KickPlayer, context.SteamId))">Kick</MudMenuItem>
+                        <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.BanPlayer, context.SteamId))">Ban</MudMenuItem>
+                    </MudMenu>
+                </MudTooltip>
             </MudTd>
         </RowTemplate>
     </MudTable>
@@ -173,23 +170,6 @@ else
 
     <MudDivider Class="my-3" />
 
-    @if (PluginRows.Count > 0)
-    {
-        <MudText Typo="Typo.subtitle2" Class="mb-2">Plugins</MudText>
-        <MudTable T="PluginDisplayRow" Dense="true" Items="PluginRows">
-            <HeaderContent>
-                <MudTh>Plugin</MudTh>
-                <MudTh>Version</MudTh>
-                <MudTh>Status</MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd DataLabel="Plugin">@context.DisplayName</MudTd>
-                <MudTd DataLabel="Version">@context.Version</MudTd>
-                <MudTd DataLabel="Status">@context.Status</MudTd>
-            </RowTemplate>
-        </MudTable>
-    }
-
     @if (Agent.CommandResults.Count > 0)
     {
         <MudDivider Class="my-3" />
@@ -206,17 +186,6 @@ else
 @code
 {
     private static readonly string[] PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"];
-    private static readonly string[] HiddenPluginKeys =
-    [
-        "MagnetarInterim",
-        "MagnetarInterim.exe",
-        "LinuxCompat",
-        "DotNetCompat",
-        "Quasar.Agent",
-        "quasar-agent",
-        QuasarPluginCatalogService.LinuxCompatPluginId,
-        QuasarPluginCatalogService.DotNetCompatPluginId,
-    ];
 
     [Parameter]
     public DedicatedServerDefinition? Server { get; set; }
@@ -227,9 +196,15 @@ else
     [Parameter]
     public AgentRuntimeState? Agent { get; set; }
 
-    private IReadOnlyList<PluginDisplayRow> PluginRows => BuildPluginRows();
-
     private string _chatText = string.Empty;
+
+    private DedicatedServerProcessState ProcessState => Runtime?.State ?? DedicatedServerProcessState.Stopped;
+
+    private bool IsUnstable => ProcessState is DedicatedServerProcessState.Starting
+        or DedicatedServerProcessState.Stopping
+        or DedicatedServerProcessState.Restarting;
+
+    private bool CanSaveWorld => Agent?.IsConnected == true && !IsUnstable;
 
     // True while a player's action menu is open. The parent re-renders this panel on every
     // live snapshot; doing so under an open menu would close it, so we hold renders until the
@@ -330,125 +305,171 @@ else
         return $"{duration.Seconds}s";
     }
 
+    private string? GetSaveChipText()
+    {
+        var metrics = Agent?.Snapshot?.Metrics;
+        if (metrics is null)
+            return null;
+
+        if (metrics.IsSaveInProgress)
+            return "Save in progress";
+
+        if (metrics.LastWorldSaveUtc is not { } lastSaveUtc)
+            return null;
+
+        var localTime = lastSaveUtc.ToLocalTime().ToString("HH:mm:ss");
+        if (metrics.UnsavedGameTimeSeconds is long unsavedSeconds && unsavedSeconds > 0)
+            return $"Saved {localTime} · Unsaved {FormatMinuteSecondDuration(unsavedSeconds)}";
+
+        return $"Saved {localTime}";
+    }
+
+    private string GetSaveTooltipText()
+    {
+        var metrics = Agent?.Snapshot?.Metrics;
+        if (metrics is null)
+            return string.Empty;
+
+        if (metrics.IsSaveInProgress)
+            return "World save in progress.";
+
+        if (metrics.LastWorldSaveUtc is not { } lastSaveUtc)
+            return string.Empty;
+
+        var savedAt = lastSaveUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+        if (metrics.UnsavedGameTimeSeconds is long unsavedSeconds)
+        {
+            return $"Latest world save: {savedAt}. Unsaved game progress: {FormatMinuteSecondDuration(unsavedSeconds)}.";
+        }
+
+        return $"Latest world save: {savedAt}.";
+    }
+
+    private Color GetSaveChipColor()
+    {
+        var metrics = Agent?.Snapshot?.Metrics;
+        return metrics?.IsSaveInProgress == true ? Color.Info : Color.Default;
+    }
+
+    private static string FormatMinuteSecondDuration(long totalSeconds)
+    {
+        if (totalSeconds <= 0)
+            return "00:00";
+
+        var minutes = totalSeconds / 60;
+        var seconds = totalSeconds % 60;
+        return $"{minutes:00}:{seconds:00}";
+    }
+
     private int GetMaxPlayers()
     {
-        if (!string.IsNullOrWhiteSpace(Server?.ConfigProfileId))
-        {
-            var configuredMaxPlayers = ConfigProfiles
-                .GetProfile(Server.ConfigProfileId)
-                ?.SessionSettings
-                .MaxPlayers;
+        var configuredMaxPlayers = GetServerConfigProfile()?.SessionSettings.MaxPlayers;
 
-            if (configuredMaxPlayers is > 0)
-                return configuredMaxPlayers.GetValueOrDefault();
-        }
+        if (configuredMaxPlayers is > 0)
+            return configuredMaxPlayers.GetValueOrDefault();
 
         return Agent?.Snapshot?.Metrics.MaxPlayers ?? 0;
     }
 
-    private IReadOnlyList<PluginDisplayRow> BuildPluginRows()
-    {
-        var rows = new Dictionary<string, PluginDisplayRow>(StringComparer.OrdinalIgnoreCase);
-        var catalogEntries = PluginCatalog.GetEntries();
-
-        foreach (var plugin in GetConfiguredPlugins())
-        {
-            if (IsHiddenDashboardPlugin(plugin.PluginId, plugin.DisplayName, catalogEntries))
-                continue;
-
-            rows[plugin.PluginId] = new PluginDisplayRow(
-                plugin.PluginId,
-                plugin.DisplayName,
-                plugin.SelectedVersion,
-                "configured");
-        }
-
-        foreach (var plugin in Agent?.Snapshot?.Plugins ?? [])
-        {
-            var pluginId = string.IsNullOrWhiteSpace(plugin.PluginId)
-                ? plugin.DisplayName
-                : plugin.PluginId;
-            if (string.IsNullOrWhiteSpace(pluginId))
-                continue;
-
-            if (IsHiddenDashboardPlugin(pluginId, plugin.DisplayName, catalogEntries))
-                continue;
-
-            rows[pluginId] = new PluginDisplayRow(
-                pluginId.Trim(),
-                ResolvePluginDisplayName(pluginId, plugin.DisplayName),
-                plugin.Version,
-                plugin.IsLoaded ? "loaded" : "declared");
-        }
-
-        return rows.Values
-            .OrderBy(row => row.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(row => row.PluginId, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    private static bool IsHiddenDashboardPlugin(
-        string pluginId,
-        string displayName,
-        IReadOnlyList<QuasarPluginCatalogEntry> catalogEntries)
-    {
-        if (HiddenPluginKeys.Any(key => MatchesPluginKey(pluginId, key) || MatchesPluginKey(displayName, key)))
-            return true;
-
-        return catalogEntries.Any(entry =>
-            entry.Hidden &&
-            (MatchesPluginKey(pluginId, entry.PluginId) ||
-             MatchesPluginKey(displayName, entry.PluginId) ||
-             MatchesPluginKey(pluginId, entry.FriendlyName) ||
-             MatchesPluginKey(displayName, entry.FriendlyName)));
-    }
-
-    private static bool MatchesPluginKey(string value, string key)
-    {
-        var normalizedValue = NormalizePluginKey(value);
-        var normalizedKey = NormalizePluginKey(key);
-        return normalizedValue.Length > 0 &&
-               normalizedKey.Length > 0 &&
-               string.Equals(normalizedValue, normalizedKey, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string NormalizePluginKey(string value)
-    {
-        var normalized = (value ?? string.Empty).Trim();
-        if (normalized.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
-            normalized.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-        {
-            normalized = Path.GetFileNameWithoutExtension(normalized);
-        }
-
-        return normalized
-            .Replace(" ", string.Empty, StringComparison.Ordinal)
-            .Replace("_", string.Empty, StringComparison.Ordinal)
-            .Replace("-", string.Empty, StringComparison.Ordinal)
-            .Replace(".", string.Empty, StringComparison.Ordinal);
-    }
-
-    private IReadOnlyList<QuasarPluginSelection> GetConfiguredPlugins()
+    private QuasarConfigProfile? GetServerConfigProfile()
     {
         if (string.IsNullOrWhiteSpace(Server?.ConfigProfileId))
-            return [];
+            return null;
 
-        return ConfigProfiles.GetProfile(Server.ConfigProfileId)?.Plugins ?? [];
+        return ConfigProfiles.GetProfile(Server.ConfigProfileId);
     }
 
-    private string ResolvePluginDisplayName(string pluginId, string displayName)
+    private (int Loaded, int? Total) GetPluginLoadSummary()
     {
-        if (!string.IsNullOrWhiteSpace(displayName))
-            return displayName.Trim();
+        var snapshot = Agent?.Snapshot;
+        var profile = GetServerConfigProfile();
+        if (profile is null)
+            return (snapshot?.Metrics.PluginsLoaded ?? 0, null);
 
-        var catalogName = PluginCatalog.GetEntries()
-            .FirstOrDefault(entry => string.Equals(entry.PluginId, pluginId, StringComparison.OrdinalIgnoreCase))
-            ?.FriendlyName;
-        if (!string.IsNullOrWhiteSpace(catalogName))
-            return catalogName.Trim();
+        var configuredPlugins = profile.Plugins
+            .Where(plugin => !string.IsNullOrWhiteSpace(plugin.PluginId))
+            .ToList();
+        var total = configuredPlugins.Count;
+        if (total == 0)
+            return (0, 0);
 
-        return pluginId.Trim();
+        var runtimePlugins = snapshot?.Plugins;
+        if (runtimePlugins is null || runtimePlugins.Count == 0)
+            return (Math.Min(snapshot?.Metrics.PluginsLoaded ?? 0, total), total);
+
+        var loadedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var plugin in runtimePlugins.Where(plugin => plugin.IsLoaded))
+        {
+            AddPluginMatchKeys(loadedKeys, plugin.PluginId);
+            AddPluginMatchKeys(loadedKeys, plugin.DisplayName);
+        }
+
+        var loaded = configuredPlugins.Count(plugin => IsConfiguredPluginLoaded(plugin, loadedKeys));
+        return (loaded, total);
     }
+
+    private static bool IsConfiguredPluginLoaded(QuasarPluginSelection plugin, HashSet<string> loadedKeys)
+    {
+        if (ContainsPluginMatchKey(loadedKeys, plugin.PluginId))
+            return true;
+
+        return ContainsPluginMatchKey(loadedKeys, plugin.DisplayName);
+    }
+
+    private static bool ContainsPluginMatchKey(HashSet<string> keys, string value)
+    {
+        foreach (var key in GetPluginMatchKeys(value))
+        {
+            if (keys.Contains(key))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static void AddPluginMatchKeys(HashSet<string> keys, string value)
+    {
+        foreach (var key in GetPluginMatchKeys(value))
+            keys.Add(key);
+    }
+
+    private static IEnumerable<string> GetPluginMatchKeys(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            yield break;
+
+        var trimmed = value.Trim();
+        yield return trimmed;
+
+        var normalized = trimmed.Replace('\\', '/').TrimEnd('/');
+        var slash = normalized.LastIndexOf('/');
+        var fileName = slash >= 0 ? normalized[(slash + 1)..] : normalized;
+        if (!string.IsNullOrWhiteSpace(fileName))
+        {
+            yield return fileName;
+
+            var extension = Path.GetExtension(fileName);
+            if (!string.IsNullOrEmpty(extension))
+                yield return fileName[..^extension.Length];
+        }
+
+        if (slash > 0)
+        {
+            var parent = normalized[..slash].TrimEnd('/');
+            var parentSlash = parent.LastIndexOf('/');
+            var parentName = parentSlash >= 0 ? parent[(parentSlash + 1)..] : parent;
+            if (!string.IsNullOrWhiteSpace(parentName))
+                yield return parentName;
+        }
+    }
+
+    private static string GetPluginLoadText((int Loaded, int? Total) summary) =>
+        summary.Total is int total ? $"{summary.Loaded}/{total}" : summary.Loaded.ToString();
+
+    private static Color GetPluginLoadColor((int Loaded, int? Total) summary) =>
+        summary.Total is int total && summary.Loaded != total
+            ? Color.Warning
+            : Color.Default;
 
     private static string FormatTimestamp(long ticksUtc)
     {
@@ -500,7 +521,7 @@ else
         if (Runtime?.State == DedicatedServerProcessState.Running && Agent?.Snapshot is null)
             return "Connecting. Waiting for Quasar.Agent to reconnect.";
 
-        return "No live game snapshot. Start the server to see metrics, players, chat, and plugins.";
+        return "No live game snapshot. Start the server to see metrics, players, and chat.";
     }
 
     private static string GetPlatformName(PlayerSnapshot player)
@@ -529,6 +550,4 @@ else
         string.Equals(GetRoleLabel(player), promoteLevel, StringComparison.OrdinalIgnoreCase) ||
         (string.Equals(promoteLevel, "None", StringComparison.OrdinalIgnoreCase) &&
          string.Equals(GetRoleLabel(player), "Player", StringComparison.OrdinalIgnoreCase));
-
-    private sealed record PluginDisplayRow(string PluginId, string DisplayName, string Version, string Status);
 }
