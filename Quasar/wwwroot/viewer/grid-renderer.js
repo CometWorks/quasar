@@ -489,7 +489,13 @@ function buildModelLayer(scene, definitions, renderContext, gridGroups) {
                         proxyMeshes++;
                     }
                 } else {
-                    queueBlockProxy(proxyBatches, block, box, armorFallbackModelForDefinition(definition));
+                    const fallback = armorFallbackModelForDefinition(definition);
+                    const deformedProxy = createDeformedFallbackArmorProxy(block, box, fallback, grid.gridSize || LARGE_GRID_CUBE_SIZE);
+                    if (deformedProxy) {
+                        gridLayer.add(deformedProxy.solid, deformedProxy.border);
+                    } else {
+                        queueBlockProxy(proxyBatches, block, box, fallback);
+                    }
                     proxyMeshes++;
                 }
             }
@@ -652,12 +658,28 @@ function createDamagedBlockMasks(block, definition, renderContext, gridSize, cli
     for (const subpart of block.subparts || []) {
         masks.push(...createDamagedModelMaskMeshes(subpart.modelAssetId, block, matrixDtoToThree(subpart.localMatrix), null, material, renderContext, clip));
     }
-    return masks.length ? masks : createDamagedFallbackMask(block, material, gridSize, clip);
+    return masks.length ? masks : createDamagedFallbackMask(block, definition, material, gridSize, clip);
 }
 
-function createDamagedFallbackMask(block, material, gridSize, clip = null) {
+function createDamagedFallbackMask(block, definition, material, gridSize, clip = null) {
     const box = blockBox(block, gridSize || LARGE_GRID_CUBE_SIZE);
     if (box.isEmpty()) return [];
+    const fallback = armorFallbackModelForDefinition(definition);
+    if (!clip && fallback) {
+        const deformed = createFallbackArmorMesh(block, box, fallback, material, gridSize || LARGE_GRID_CUBE_SIZE, true);
+        if (deformed) {
+            deformed.name = `DamagedBlockFallbackArmorMask:${block.id || "block"}`;
+            deformed.renderOrder = 29;
+            deformed.frustumCulled = false;
+            deformed.castShadow = false;
+            deformed.receiveShadow = false;
+            deformed.userData.block = block;
+            deformed.userData.damagedBlock = block;
+            deformed.userData.damagedGridId = String(block.gridId || "");
+            return [deformed];
+        }
+    }
+
     const geometry = clip ? clippedBoxGeometry(box, clip) : null;
     if (clip && !geometry) return [];
     const mesh = geometry ? new THREE.Mesh(geometry, material) : createBoxMesh(box, material);
@@ -2269,6 +2291,46 @@ function blockDeformationMap(block) {
         map.set(vector3IKey(position), vec3(offset));
     }
     return map.size ? map : null;
+}
+
+function deformationOffsetAtGridPosition(point, deformations, gridSize) {
+    if (!deformations || !Number.isFinite(gridSize) || gridSize <= 0) return null;
+    const bone = new THREE.Vector3(
+        point.x / gridSize * 2 + 1,
+        point.y / gridSize * 2 + 1,
+        point.z / gridSize * 2 + 1);
+    const min = new THREE.Vector3(Math.floor(bone.x), Math.floor(bone.y), Math.floor(bone.z));
+    const max = new THREE.Vector3(Math.ceil(bone.x), Math.ceil(bone.y), Math.ceil(bone.z));
+    const fraction = new THREE.Vector3(bone.x - min.x, bone.y - min.y, bone.z - min.z);
+    const weighted = new THREE.Vector3();
+    let weightTotal = 0;
+    const xs = interpolationAxis(min.x, max.x, fraction.x);
+    const ys = interpolationAxis(min.y, max.y, fraction.y);
+    const zs = interpolationAxis(min.z, max.z, fraction.z);
+    for (const xItem of xs) {
+        for (const yItem of ys) {
+            for (const zItem of zs) {
+                const x = xItem.value;
+                const y = yItem.value;
+                const z = zItem.value;
+                const weight = xItem.weight * yItem.weight * zItem.weight;
+                if (weight <= 0) continue;
+                const offset = deformations.get(`${x}|${y}|${z}`);
+                if (!offset) continue;
+                weighted.addScaledVector(offset, weight);
+                weightTotal += weight;
+            }
+        }
+    }
+    return weightTotal > 0 ? weighted : null;
+}
+
+function interpolationAxis(min, max, fraction) {
+    if (min === max) return [{ value: min, weight: 1 }];
+    return [
+        { value: min, weight: 1 - fraction },
+        { value: max, weight: fraction },
+    ];
 }
 
 function deformedModelGeometry(model, patternOffset, groups, matrix, deformations, block) {
@@ -4249,6 +4311,116 @@ function writeProxyBorder(positions, offset, x0, y0, z0, x1, y1, z1) {
 
 function borderColorForBlock(color) {
     return color.clone().multiplyScalar(0.55);
+}
+
+function createDeformedFallbackArmorProxy(block, box, fallback, gridSize) {
+    if (!fallback) return null;
+    const deformations = blockDeformationMap(block);
+    if (!deformations) return null;
+
+    const material = new THREE.MeshStandardMaterial({
+        color: displayColorForBlock(block),
+        roughness: 0.78,
+        metalness: 0.12,
+        transparent: false,
+        opacity: 1,
+    });
+    const solid = createFallbackArmorMesh(block, box, fallback, material, gridSize, true);
+    if (!solid) return null;
+    solid.name = `DeformedArmorFallbackProxy:${block && block.id || "block"}`;
+    solid.matrixAutoUpdate = false;
+    solid.castShadow = true;
+    solid.receiveShadow = true;
+    solid.userData.block = block;
+
+    const border = createFallbackArmorBorder(block, box, fallback, gridSize, displayColorForBlock(block), true);
+    if (!border) return null;
+    border.name = `DeformedArmorFallbackBorder:${block && block.id || "block"}`;
+    border.matrixAutoUpdate = false;
+    border.renderOrder = 1;
+    return { solid, border };
+}
+
+function createFallbackArmorMesh(block, box, fallback, material, gridSize, deform = false) {
+    const geometry = createFallbackArmorGeometry(block, box, fallback, gridSize, deform);
+    return geometry ? new THREE.Mesh(geometry, material) : null;
+}
+
+function createFallbackArmorGeometry(block, box, fallback, gridSize, deform = false) {
+    const vertices = fallback && fallback.vertices || [];
+    const triangles = fallback && fallback.triangles || [];
+    if (!vertices.length || !triangles.length) return null;
+
+    const matrix = fallbackArmorInstanceMatrix(block, box);
+    const deformations = deform ? blockDeformationMap(block) : null;
+    const positions = [];
+    for (const triangle of triangles) {
+        for (const index of triangle) {
+            const point = fallbackArmorVertexToGrid(vertices[index], matrix, deformations, gridSize);
+            if (!point) return null;
+            positions.push(point.x, point.y, point.z);
+        }
+    }
+
+    if (!positions.length) return null;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+    geometry.userData.renderCacheKey = `fallback-armor:${fallback.description || "armor"}:${deform ? "deformed" : "static"}:${Math.random()}`;
+    return geometry;
+}
+
+function createFallbackArmorBorder(block, box, fallback, gridSize, color, deform = false) {
+    const vertices = fallback && fallback.vertices || [];
+    const edges = fallbackProxyEdges(fallback);
+    if (!vertices.length || !edges.length) return null;
+
+    const matrix = fallbackArmorInstanceMatrix(block, box);
+    const deformations = deform ? blockDeformationMap(block) : null;
+    const positions = [];
+    for (const edge of edges) {
+        for (const index of edge) {
+            const point = fallbackArmorVertexToGrid(vertices[index], matrix, deformations, gridSize);
+            if (!point) return null;
+            positions.push(point.x, point.y, point.z);
+        }
+    }
+
+    const borderColor = borderColorForBlock(color);
+    const colors = new Float32Array((positions.length / 3) * 3);
+    for (let i = 0; i < colors.length; i += 3) {
+        colors[i] = borderColor.r;
+        colors[i + 1] = borderColor.g;
+        colors[i + 2] = borderColor.b;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geometry.computeBoundingSphere();
+    const material = new THREE.LineBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.35,
+        depthWrite: false,
+    });
+    return new THREE.LineSegments(geometry, material);
+}
+
+function fallbackArmorInstanceMatrix(block, box) {
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    size.set(Math.max(size.x, 0.05), Math.max(size.y, 0.05), Math.max(size.z, 0.05));
+    return composeModelInstanceMatrix(block, null).multiply(new THREE.Matrix4().makeScale(size.x, size.y, size.z));
+}
+
+function fallbackArmorVertexToGrid(vertex, matrix, deformations, gridSize) {
+    if (!vertex) return null;
+    const point = new THREE.Vector3(vertex[0], vertex[1], vertex[2]).applyMatrix4(matrix);
+    const offset = deformationOffsetAtGridPosition(point, deformations, gridSize);
+    if (offset) point.add(offset);
+    return point;
 }
 
 async function resolveReferencedModelsProgressively(scene, modelAssets, stats, progress, renderToken, reportProgress = null) {
