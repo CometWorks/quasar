@@ -2765,10 +2765,11 @@ function sharedModelMaterial(model, group, block, renderContext, entityId = "") 
         side: modelMaterialSide(technique, renderMode),
     });
     if (transparentParameters) material.userData.seTransparentMaterialColor = color.clone();
-    if (renderMode.decal) {
+    const depthBias = modelMaterialDepthBias(model, group, renderMode);
+    if (depthBias) {
         material.polygonOffset = true;
-        material.polygonOffsetFactor = -1;
-        material.polygonOffsetUnits = -1;
+        material.polygonOffsetFactor = depthBias.factor;
+        material.polygonOffsetUnits = depthBias.units;
     }
     if (transparent) material.forceSinglePass = true;
     if (emissivePart) {
@@ -3556,6 +3557,21 @@ function modelMaterialRenderModeName(renderMode) {
     if (renderMode.blended) return "blended";
     if (renderMode.decal) return renderMode.cutout ? "decal-cutout" : "decal";
     return renderMode.cutout ? "cutout" : "opaque";
+}
+
+function modelMaterialDepthBias(model, group, renderMode) {
+    if (renderMode.decal) return { factor: -2, units: -2 };
+    if (isSteelCatwalkColorableLodMaterial(model, group)) return { factor: -2, units: -2 };
+    return null;
+}
+
+function isSteelCatwalkColorableLodMaterial(model, group) {
+    const path = String(model && (model.geometryLogicalPath || model.logicalPath) || "").replaceAll("\\", "/").toLowerCase();
+    const material = String(group && group.materialName || "").trim().toLowerCase();
+    const technique = String(group && group.technique || "").trim().toUpperCase();
+    return /(?:^|\/)steelcatwalk(?:_2sides|_corner|_plate)?_lod[23]\.mwm$/.test(path)
+        && material === "paintedmetal_colorable"
+        && technique === "MESH";
 }
 
 function modelMaterialSide(technique, renderMode) {
