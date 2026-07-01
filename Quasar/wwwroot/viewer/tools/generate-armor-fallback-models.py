@@ -22,14 +22,15 @@ SILHOUETTE_QUANTUM = 0.25
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--csv", default="/home/space/Documents/FallbackModels/armor-blocks.csv")
-    parser.add_argument("--content", default="/home/space/.local/share/Steam/steamapps/common/SpaceEngineers/Content")
-    parser.add_argument("--topology-source", default="/home/space/Documents/dotnet-game-local/Sandbox.Game/Sandbox/Game/Entities/Cube/MyBlockVerticesCache.cs")
+    parser.add_argument("--csv", required=True, help="Path to the armor block metadata CSV.")
+    parser.add_argument("--content", required=True, help="Path to the Space Engineers Content directory.")
+    parser.add_argument("--topology-source", required=True, help="Path to Sandbox.Game/.../MyBlockVerticesCache.cs from decompiled game sources.")
+    parser.add_argument("--topology-enum", required=True, help="Path to VRage.Game/.../MyCubeTopology.cs from decompiled game sources.")
     parser.add_argument("--output", default="Quasar/wwwroot/viewer/armor-fallback-models.js")
     args = parser.parse_args()
 
     rows = list(csv.DictReader(open(args.csv, newline="")))
-    topology_vertices = read_topology_vertices(Path(args.topology_source))
+    topology_vertices = read_topology_vertices(Path(args.topology_source), Path(args.topology_enum))
     models: OrderedDict[str, dict] = OrderedDict()
     signatures: dict[str, str] = {}
     subtype_to_key: dict[str, str] = {}
@@ -101,8 +102,7 @@ def round_panel_target_model_key(row: dict[str, str]) -> str | None:
     }[row["modelKey"]]
 
 
-def read_topology_vertices(path: Path) -> dict[str, list[list[float]]]:
-    enum_path = Path("/home/space/Documents/dotnet-game-local/VRage.Game/VRage/Game/MyCubeTopology.cs")
+def read_topology_vertices(path: Path, enum_path: Path) -> dict[str, list[list[float]]]:
     enum_text = enum_path.read_text(encoding="utf-8")
     enum_names = re.findall(r"^\s*([A-Za-z][A-Za-z0-9]*),?\s*$", enum_text, re.MULTILINE)
 
