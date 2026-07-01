@@ -3,6 +3,8 @@ const ARMOR_FALLBACK_MODELS = {
     half_cube: model("Half-height armor cube.", [[-.5, -.5, -.5], [.5, -.5, -.5], [.5, 0, -.5], [-.5, 0, -.5], [-.5, -.5, .5], [.5, -.5, .5], [.5, 0, .5], [-.5, 0, .5]], [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [3, 7, 6], [3, 6, 2], [1, 2, 6], [1, 6, 5], [0, 4, 7], [0, 7, 3]]),
     wedge: mirrorZModel("Triangular-prism armor slope.", [[-.5, -.5, -.5], [.5, -.5, -.5], [-.5, -.5, .5], [.5, -.5, .5], [-.5, .5, .5], [.5, .5, .5]], [[0, 1, 3], [0, 3, 2], [2, 3, 5], [2, 5, 4], [0, 2, 4], [0, 4, 1], [1, 4, 5], [1, 5, 3]]),
     half_wedge: mirrorZModel("Low triangular-prism armor slope.", [[-.5, -.5, -.5], [.5, -.5, -.5], [-.5, -.5, .5], [.5, -.5, .5], [-.5, 0, .5], [.5, 0, .5]], [[0, 1, 3], [0, 3, 2], [2, 3, 5], [2, 5, 4], [0, 2, 4], [0, 4, 1], [1, 4, 5], [1, 5, 3]]),
+    slope2_base: model("2x1 armor slope base half.", [[-.5, -.5, -.5], [.5, -.5, -.5], [-.5, -.5, .5], [.5, -.5, .5], [-.5, .5, -.5], [.5, .5, -.5], [-.5, 0, .5], [.5, 0, .5]], [[0, 4, 5], [0, 5, 1], [2, 3, 7], [2, 7, 6], [0, 1, 3], [0, 3, 2], [4, 6, 7], [4, 7, 5], [0, 2, 6], [0, 6, 4], [1, 5, 7], [1, 7, 3]]),
+    slope2_tip: model("2x1 armor slope tip half.", [[-.5, -.5, -.5], [.5, -.5, -.5], [-.5, -.5, .5], [.5, -.5, .5], [-.5, 0, -.5], [.5, 0, -.5]], [[0, 4, 5], [0, 5, 1], [0, 1, 3], [0, 3, 2], [4, 2, 3], [4, 3, 5], [0, 2, 4], [1, 5, 3]]),
     tetra_corner: mirrorXModel("Triangular armor corner.", [[-.5, -.5, -.5], [.5, -.5, -.5], [-.5, -.5, .5], [-.5, .5, -.5]], [[0, 1, 2], [0, 3, 1], [0, 2, 3], [1, 3, 2]]),
     sloped_corner: model("Square-base sloped armor corner.", [[-.5, -.5, -.5], [.5, -.5, -.5], [.5, -.5, .5], [-.5, -.5, .5], [-.5, .5, -.5]], [[0, 1, 2], [0, 2, 3], [0, 4, 1], [0, 3, 4], [1, 4, 2], [2, 4, 3]]),
     cut_corner: model("Armor cube with local Right/Bottom/Front corner cut away.", [[-.5, -.5, -.5], [-.5, .5, -.5], [.5, .5, -.5], [-.5, -.5, .5], [.5, -.5, .5], [-.5, .5, .5], [.5, .5, .5]], [[0, 3, 5], [0, 5, 1], [2, 6, 4], [0, 4, 3], [1, 5, 6], [1, 6, 2], [0, 1, 2], [3, 4, 6], [3, 6, 5], [0, 2, 4]]),
@@ -31,6 +33,8 @@ export function armorFallbackModelCount() {
 function armorFallbackModelKey(subtype) {
     if (subtype.includes("panel")) return panelFallbackModelKey(subtype);
     if (subtype.includes("inv")) return "cut_corner";
+    if (subtype.includes("slope2base")) return "slope2_base";
+    if (subtype.includes("slope2tip")) return "slope2_tip";
     if (subtype.includes("cornersquare") || subtype.includes("raisedslopedcorner") || subtype.includes("slopedcornerbase") || subtype.includes("halfslopecorner") || subtype.includes("halfslopedcorner") || subtype.includes("squareslopedcornerbase")) return "sloped_corner";
     if (subtype.includes("halfslopearmorblock") || subtype.includes("halfslope") || subtype.includes("halfsloped")) return "half_wedge";
     if (subtype.includes("halfarmorblock")) return "half_cube";
