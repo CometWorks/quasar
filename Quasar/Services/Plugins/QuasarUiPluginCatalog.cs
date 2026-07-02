@@ -62,6 +62,8 @@ public sealed class QuasarUiPluginCatalog
 
     public IReadOnlyList<QuasarExtensionContribution> Extensions { get; }
 
+    public static string SafeModeMarkerPath => GetSafeModeMarkerPath();
+
     public static QuasarUiPluginCatalog Create(IConfiguration configuration, IHostEnvironment environment)
     {
         var safeMode = IsSafeModeEnabled(configuration, out var safeModeReasons);

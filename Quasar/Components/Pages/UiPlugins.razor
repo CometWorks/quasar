@@ -1,0 +1,300 @@
+@page "/settings/ui-plugins"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
+@inject QuasarUiPluginCatalog PluginCatalog
+@inject ISnackbar Snackbar
+
+<PageTitle>UI Plugins</PageTitle>
+
+<MudStack Spacing="3">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+        <MudStack Spacing="1">
+            <MudText Typo="Typo.h5">UI Plugins</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                Loaded Quasar UI plugins, extension points, nav contributions, and safe boot state.
+            </MudText>
+        </MudStack>
+        <MudChip T="string"
+                 Color="@(PluginCatalog.SafeMode ? Color.Warning : Color.Success)"
+                 Variant="Variant.Outlined">
+            @(PluginCatalog.SafeMode ? "Safe boot active" : "Dynamic plugins enabled")
+        </MudChip>
+    </MudStack>
+
+    <MudGrid>
+        <MudItem xs="12" md="3">
+            <MudPaper Class="pa-4" Style="height:100%">
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.subtitle2">Loaded</MudText>
+                    <MudText Typo="Typo.h4">@PluginCatalog.LoadedPlugins.Count</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">UI plugin packages</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudPaper Class="pa-4" Style="height:100%">
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.subtitle2">Load Errors</MudText>
+                    <MudText Typo="Typo.h4">@PluginCatalog.LoadErrors.Count</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Startup failures</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudPaper Class="pa-4" Style="height:100%">
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.subtitle2">Extensions</MudText>
+                    <MudText Typo="Typo.h4">@PluginCatalog.Extensions.Count</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Patch contributions</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudPaper Class="pa-4" Style="height:100%">
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.subtitle2">Nav Items</MudText>
+                    <MudText Typo="Typo.h4">@PluginCatalog.NavItems.Count</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Plugin links</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudPaper Class="pa-4">
+        <MudStack Spacing="3">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                <MudText Typo="Typo.h6">Safe Boot</MudText>
+                <MudStack Row="true" Spacing="1">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Warning"
+                               StartIcon="@Icons.Material.Filled.Shield"
+                               Disabled="@SafeModeMarkerExists"
+                               OnClick="EnableSafeModeMarkerAsync">
+                        Enable marker
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Default"
+                               StartIcon="@Icons.Material.Filled.DeleteOutline"
+                               Disabled="@(!SafeModeMarkerExists)"
+                               OnClick="ClearSafeModeMarker">
+                        Clear marker
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                Safe boot disables dynamic UI plugin assembly loading on the next Quasar worker start. Configuration and environment safe-mode flags must be changed outside this page.
+            </MudAlert>
+
+            <MudText Typo="Typo.caption">
+                Marker file: <CopyablePath Value="@SafeModeMarkerPath" Inline="true" TextClass="" />
+            </MudText>
+
+            @if (PluginCatalog.SafeModeReasons.Count > 0)
+            {
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.subtitle2">Active reasons</MudText>
+                    @foreach (var reason in PluginCatalog.SafeModeReasons)
+                    {
+                        <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">@reason</MudChip>
+                    }
+                </MudStack>
+            }
+        </MudStack>
+    </MudPaper>
+
+    @if (PluginCatalog.LoadErrors.Count > 0)
+    {
+        <MudPaper Class="pa-4">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Load Errors</MudText>
+                @foreach (var error in PluginCatalog.LoadErrors)
+                {
+                    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
+                        @error
+                    </MudAlert>
+                }
+            </MudStack>
+        </MudPaper>
+    }
+
+    <MudPaper Class="pa-4">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">Loaded Plugins</MudText>
+            @if (PluginCatalog.LoadedPlugins.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    No Quasar UI plugins are loaded.
+                </MudAlert>
+            }
+            else
+            {
+                <MudTable T="QuasarLoadedUiPlugin" Items="@PluginCatalog.LoadedPlugins" Dense="true" Hover="true" Breakpoint="Breakpoint.Md">
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>ID</MudTh>
+                        <MudTh>Version</MudTh>
+                        <MudTh>Entry</MudTh>
+                        <MudTh>Static Assets</MudTh>
+                        <MudTh>Directory</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+                        <MudTd DataLabel="ID"><MudText Typo="Typo.body2" Class="mono">@context.Id</MudText></MudTd>
+                        <MudTd DataLabel="Version">@context.Context.Manifest.Version</MudTd>
+                        <MudTd DataLabel="Entry">
+                            <MudText Typo="Typo.body2" Class="mono">@context.Context.Manifest.EntryAssembly</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary mono">@context.Context.Manifest.EntryType</MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Static Assets">
+                            @if (!string.IsNullOrWhiteSpace(context.Context.StaticAssetsDirectory))
+                            {
+                                <MudText Typo="Typo.body2" Class="mono">@GetPluginStaticPath(context)</MudText>
+                                <CopyablePath Value="@context.Context.StaticAssetsDirectory" Inline="true" TextClass="mud-text-secondary mono" />
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.body2" Class="mud-text-secondary">None</MudText>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Directory">
+                            <CopyablePath Value="@context.Context.PluginDirectory" Inline="true" TextClass="mud-text-secondary mono" />
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudStack>
+    </MudPaper>
+
+    <MudPaper Class="pa-4">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">Plugin Nav Items</MudText>
+            @if (PluginCatalog.NavItems.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">No plugin nav items.</MudText>
+            }
+            else
+            {
+                <MudTable T="QuasarNavItem" Items="@PluginCatalog.NavItems" Dense="true" Hover="true">
+                    <HeaderContent>
+                        <MudTh>Text</MudTh>
+                        <MudTh>Href</MudTh>
+                        <MudTh>Zone</MudTh>
+                        <MudTh>Order</MudTh>
+                        <MudTh>Policy</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Text">@context.Text</MudTd>
+                        <MudTd DataLabel="Href"><MudText Typo="Typo.body2" Class="mono">@context.Href</MudText></MudTd>
+                        <MudTd DataLabel="Zone">@context.Zone</MudTd>
+                        <MudTd DataLabel="Order">@context.Order</MudTd>
+                        <MudTd DataLabel="Policy">@FormatOptional(context.Policy)</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudStack>
+    </MudPaper>
+
+    <MudPaper Class="pa-4">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">Extension Contributions</MudText>
+            @if (PluginCatalog.Extensions.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">No extension contributions.</MudText>
+            }
+            else
+            {
+                <MudTable T="QuasarExtensionContribution" Items="@PluginCatalog.Extensions" Dense="true" Hover="true" Breakpoint="Breakpoint.Md">
+                    <HeaderContent>
+                        <MudTh>Target</MudTh>
+                        <MudTh>Mode</MudTh>
+                        <MudTh>Component</MudTh>
+                        <MudTh>Priority</MudTh>
+                        <MudTh>Plugin</MudTh>
+                        <MudTh>Policy</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Target"><MudText Typo="Typo.body2" Class="mono">@context.TargetKey</MudText></MudTd>
+                        <MudTd DataLabel="Mode">@context.Mode</MudTd>
+                        <MudTd DataLabel="Component"><MudText Typo="Typo.body2" Class="mono">@FormatComponent(context.ComponentType)</MudText></MudTd>
+                        <MudTd DataLabel="Priority">@context.Priority</MudTd>
+                        <MudTd DataLabel="Plugin"><MudText Typo="Typo.body2" Class="mono">@context.PluginId</MudText></MudTd>
+                        <MudTd DataLabel="Policy">@FormatOptional(context.Policy)</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudStack>
+    </MudPaper>
+
+    <MudPaper Class="pa-4">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">Razor Assemblies</MudText>
+            @if (PluginCatalog.RazorAssemblies.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">No plugin Razor assemblies.</MudText>
+            }
+            else
+            {
+                <MudTable T="System.Reflection.Assembly" Items="@PluginCatalog.RazorAssemblies" Dense="true" Hover="true">
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Location</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Name">@context.GetName().Name</MudTd>
+                        <MudTd DataLabel="Location">
+                            <CopyablePath Value="@context.Location" Inline="true" TextClass="mud-text-secondary mono" />
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudStack>
+    </MudPaper>
+
+    <QuasarExtensionOutlet
+        TargetKey="@QuasarExtensionTargets.PluginsPage"
+        Parameters="@PluginsPageParameters"
+        DefaultPolicy="@QuasarPolicyNames.CanManageSecurity" />
+</MudStack>
+
+@code
+{
+    private string SafeModeMarkerPath => QuasarUiPluginCatalog.SafeModeMarkerPath;
+
+    private bool SafeModeMarkerExists => File.Exists(SafeModeMarkerPath);
+
+    private IReadOnlyDictionary<string, object?> PluginsPageParameters => new Dictionary<string, object?>
+    {
+        ["UiPlugins"] = PluginCatalog,
+        ["LoadedPlugins"] = PluginCatalog.LoadedPlugins,
+        ["LoadErrors"] = PluginCatalog.LoadErrors,
+    };
+
+    private async Task EnableSafeModeMarkerAsync()
+    {
+        var directory = Path.GetDirectoryName(SafeModeMarkerPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+            Directory.CreateDirectory(directory);
+
+        await File.WriteAllTextAsync(
+            SafeModeMarkerPath,
+            $"Quasar UI plugin safe boot marker created {DateTimeOffset.UtcNow:u}.{Environment.NewLine}");
+        Snackbar.Add("UI plugin safe boot marker created. Restart Quasar to apply it.", Severity.Warning);
+    }
+
+    private void ClearSafeModeMarker()
+    {
+        if (File.Exists(SafeModeMarkerPath))
+            File.Delete(SafeModeMarkerPath);
+
+        Snackbar.Add("UI plugin safe boot marker cleared. Restart Quasar to apply it.", Severity.Info);
+    }
+
+    private static string GetPluginStaticPath(QuasarLoadedUiPlugin plugin) =>
+        $"{QuasarUiPluginCatalog.StaticAssetRequestPathPrefix}/{plugin.Id}/";
+
+    private static string FormatComponent(Type type) =>
+        type.FullName ?? type.Name;
+
+    private static string FormatOptional(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "-" : value;
+}

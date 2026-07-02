@@ -61,7 +61,7 @@ Safe-boot triggers:
 - command line: `--safe-mode`
 - environment variable: `QUASAR_SAFE_MODE=1`
 - environment variable: `QUASAR_DISABLE_UI_PLUGINS=1`
-- data-directory marker file, for example `safe-mode`
+- data-directory marker file: `{Quasar data directory}/ui-plugins.safe-mode`
 - automatic crash-loop fallback after repeated plugin-load failures
 
 Safe-boot behavior:
@@ -71,8 +71,8 @@ Safe-boot behavior:
 - do not register plugin endpoints
 - ignore plugin route/nav/patch contributions
 - keep core Quasar pages available
-- show a visible safe-mode banner
-- expose a recovery page to disable, roll back, or remove plugins
+- show safe-mode status on `/settings/ui-plugins`
+- expose recovery controls for the marker-file safe boot path
 
 Plugin activation should be last-known-good:
 
@@ -166,7 +166,7 @@ integration seam for:
 The catalog also performs first-pass local package discovery and shadow-copy
 loading. It scans plugin package roots for `quasar-plugin.json`, loads the
 declared entry assembly from a cache folder, and exposes any load failures in
-startup logs.
+startup logs and the `/settings/ui-plugins` page.
 
 Configuration/environment knobs:
 
@@ -205,6 +205,7 @@ hosted targets are:
 - `QuasarExtensionTargets.EntityActions`
 - `QuasarExtensionTargets.EntityViewerColumnHeader`
 - `QuasarExtensionTargets.EntityViewerColumnCell`
+- `QuasarExtensionTargets.PluginsPage`
 
 `EntitiesPage` wraps the body of the `/entities` page, so a plugin can render
 before/after it, wrap it with a component that accepts `ChildContent`, or replace
@@ -228,8 +229,12 @@ whole entities page. Their component parameters are intentionally primitive:
 
 This lets viewer plugins add buttons or replace the built-in action buttons
 without taking a dependency on Quasar page internals. `OpenEntityViewer` is an
-`EventCallback` that opens Quasar's current fullscreen viewer dialog, allowing
-the dialog to be reused while Grid Viewer is extracted into its own UI plugin.
+`EventCallback` fallback that opens Quasar's current fullscreen viewer dialog
+when a viewer plugin does not provide its own dialog/static asset route.
+
+`PluginsPage` renders at the bottom of `/settings/ui-plugins`. It receives
+parameters named `UiPlugins`, `LoadedPlugins`, and `LoadErrors` so plugins can
+append diagnostics or management panels without replacing the core status page.
 
 ## Dependency Injection and Plugin State
 
