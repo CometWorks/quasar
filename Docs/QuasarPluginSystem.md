@@ -142,6 +142,7 @@ The first contract surface includes:
 - `QuasarExtensionContribution`
 - `QuasarExtensionTargets`
 - `QuasarPatchMode`
+- `QuasarPolicyNames`
 - `IQuasarCompanionChannel`
 - companion request/response envelopes
 
