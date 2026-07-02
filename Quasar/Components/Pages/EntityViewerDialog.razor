@@ -1,0 +1,53 @@
+<MudDialog>
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="quasar-viewer-dialog-title">
+            <MudIconButton Icon="@Icons.Material.Filled.Close"
+                           Color="Color.Default"
+                           Size="Size.Small"
+                           OnClick="Close"
+                           title="Close viewer" />
+            <MudStack Spacing="0" Class="quasar-viewer-title-text">
+                <MudText Typo="Typo.h6">@Title</MudText>
+                @if (!string.IsNullOrWhiteSpace(Subtitle))
+                {
+                    <MudText Typo="Typo.caption" Class="quasar-viewer-subtitle">@Subtitle</MudText>
+                }
+            </MudStack>
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        @if (string.IsNullOrWhiteSpace(ViewerUrl))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">Viewer URL missing.</MudAlert>
+        }
+        else
+        {
+            <div class="quasar-viewer-frame-host">
+                <iframe class="quasar-viewer-frame"
+                        src="@ViewerUrl"
+                        title="@Title"
+                        allow="fullscreen"></iframe>
+            </div>
+        }
+    </DialogContent>
+</MudDialog>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public string ViewerUrl { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Title { get; set; } = "Entity Viewer";
+
+    [Parameter]
+    public string Subtitle { get; set; } = string.Empty;
+
+    private void Close()
+    {
+        MudDialog.Close();
+    }
+}
