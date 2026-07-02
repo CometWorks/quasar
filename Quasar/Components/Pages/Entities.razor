@@ -174,7 +174,7 @@ else
             <MudTd DataLabel="Position" Class="mono">@FormatPosition(context)</MudTd>
             <MudTd DataLabel="Name">@context.DisplayName</MudTd>
             <MudTd DataLabel="" Class="quasar-actions-column">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="plugin-actions">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="plugin-actions" @onclick:stopPropagation="true">
                     <QuasarExtensionOutlet
                         TargetKey="@QuasarExtensionTargets.EntityActions"
                         Parameters="@CreateEntityActionParameters(context)">
