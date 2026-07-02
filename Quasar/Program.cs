@@ -6,6 +6,7 @@ using Quasar.Services.Auth;
 using Quasar.Services.Backup;
 using Quasar.Services.Discord;
 using Quasar.Services.PluginSdk;
+using Quasar.Services.Plugins;
 using Quasar.Services.Updates;
 using AspNet.Security.OpenId.Steam;
 using Magnetar.Protocol.Runtime;
@@ -39,6 +40,7 @@ public class Program
             var updateOptions = QuasarUpdateOptions.Create(builder.Configuration);
             var authOptions = QuasarAuthOptions.Create(builder.Configuration);
             var analyticsStoreOptions = AnalyticsStoreOptions.Create(builder.Configuration);
+            var uiPluginCatalog = QuasarUiPluginCatalog.Create(builder.Configuration, builder.Environment);
 
             QuasarLoggingConfigurator.Configure(builder, webServiceOptions);
 
@@ -204,6 +206,8 @@ public class Program
             builder.Services.AddSingleton<QuasarBackupService>();
             builder.Services.AddSingleton<AutomaticBackupService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<AutomaticBackupService>());
+            builder.Services.AddSingleton(uiPluginCatalog);
+            uiPluginCatalog.ConfigurePluginServices(builder.Services);
 
             var app = builder.Build();
 
@@ -453,13 +457,30 @@ public class Program
                 FileProvider = new PhysicalFileProvider(brandingAssetsDirectory),
                 RequestPath = "/branding",
             });
+            uiPluginCatalog.UsePluginStaticAssets(app);
+            uiPluginCatalog.ConfigurePluginEndpoints(app);
 
             var razorComponents = app.MapRazorComponents<App>()
-                .AddInteractiveServerRenderMode();
+                .AddInteractiveServerRenderMode()
+                .AddAdditionalAssemblies(uiPluginCatalog.RazorAssemblies.ToArray());
             if (authOptions.Enabled)
                 razorComponents.RequireAuthorization(QuasarPolicyNames.CanView);
 
-            app.Services.GetRequiredService<ILogger<Program>>().LogInformation(
+            var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+            if (uiPluginCatalog.SafeMode)
+            {
+                startupLogger.LogWarning(
+                    "Quasar UI plugin safe mode is enabled. Reasons={Reasons}",
+                    string.Join("; ", uiPluginCatalog.SafeModeReasons));
+            }
+            else
+            {
+                startupLogger.LogInformation(
+                    "Quasar UI plugin catalog initialized. PluginCount={PluginCount}.",
+                    uiPluginCatalog.LoadedPlugins.Count);
+            }
+
+            startupLogger.LogInformation(
                 "Quasar {Version} starting. BootstrapVersion={BootstrapVersion}; HostId={HostId}; DataDirectory={DataDirectory}.",
                 webServiceOptions.Version,
                 string.IsNullOrWhiteSpace(webServiceOptions.BootstrapVersion) ? "none" : webServiceOptions.BootstrapVersion,

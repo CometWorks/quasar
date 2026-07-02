@@ -12,6 +12,10 @@ utilities. For the runtime design see [Architecture](QuasarArchitecture.md).
   Dedicated Server plugin that attaches to Quasar and exposes telemetry/commands.
 - `Quasar.Bootstrap`
   Ensure-running helper used for the Quasar startup/bootstrap flow.
+- `Quasar.Plugin.Abstractions`
+  Public contract assembly for Quasar UI plugins: plugin entry point, manifest
+  model, nav contributions, page/component patch contributions, and the generic
+  companion-channel interface.
 - `Magnetar.Protocol`
   Shared transport and discovery contracts currently used by Quasar and
   Quasar.Agent.
