@@ -1,4 +1,6 @@
-﻿<!DOCTYPE html>
+﻿@inject QuasarUiPluginCatalog UiPlugins
+
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -16,6 +18,10 @@
     <link rel="stylesheet" href="@Assets["lib/uplot/uPlot.min.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["Quasar.styles.css"]" />
+    @foreach (var stylesheetHref in UiPlugins.StylesheetHrefs)
+    {
+        <link rel="stylesheet" href="@stylesheetHref" />
+    }
     <ImportMap />
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>

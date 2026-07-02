@@ -1014,9 +1014,13 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private readonly HttpClient _downloadClient;
     private readonly SemaphoreSlim _activationLock = new(1, 1);
     private readonly object _sync = new();
+    private static readonly TimeSpan WorkerCrashLoopWindow = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan WorkerQuickFailureWindow = TimeSpan.FromMinutes(2);
+    private const int WorkerCrashLoopSafeModeThreshold = 3;
     private readonly string _workerId = Guid.NewGuid().ToString("N");
     private readonly string _launcherToken = Guid.NewGuid().ToString("N");
     private readonly DateTimeOffset _startedAtUtc = DateTimeOffset.UtcNow;
+    private readonly Queue<DateTimeOffset> _workerStartupFailures = new();
     private FileSystemWatcher? _watcher;
     private CancellationTokenSource? _reloadDebounce;
     private CancellationTokenSource? _bootstrapUpdateMonitor;
@@ -1877,7 +1881,10 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
     }
 
-    private async Task<WorkerProcessHandle?> StartWorkerAsync(QuasarActiveReleasePointer pointer, CancellationToken cancellationToken)
+    private async Task<WorkerProcessHandle?> StartWorkerAsync(
+        QuasarActiveReleasePointer pointer,
+        CancellationToken cancellationToken,
+        bool allowSafeModeRetry = true)
     {
         if (string.IsNullOrWhiteSpace(pointer.FileName))
             return null;
@@ -1928,7 +1935,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             return null;
         }
 
-        var worker = new WorkerProcessHandle(process, workerBaseUri, pointer);
+        var worker = new WorkerProcessHandle(process, workerBaseUri, pointer, DateTimeOffset.UtcNow);
         process.EnableRaisingEvents = true;
         process.Exited += (_, _) => HandleWorkerExited(worker);
 
@@ -1937,7 +1944,12 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
         var healthy = await WaitForWorkerHealthyAsync(worker, cancellationToken);
         if (healthy)
+        {
+            ClearWorkerStartupFailures();
             return worker;
+        }
+
+        var safeModeMarkerCreated = RegisterWorkerStartupFailure("worker failed to become healthy");
 
         try
         {
@@ -1950,6 +1962,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
 
         process.Dispose();
+        if (allowSafeModeRetry && safeModeMarkerCreated)
+            return await StartWorkerAsync(pointer, cancellationToken, allowSafeModeRetry: false).ConfigureAwait(false);
+
         return null;
     }
 
@@ -2075,13 +2090,75 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
 
         if (shouldRestart)
+        {
+            if (exitCode != 0 &&
+                DateTimeOffset.UtcNow - worker.StartedAtUtc <= WorkerQuickFailureWindow)
+            {
+                RegisterWorkerStartupFailure($"worker exited with code {exitCode} soon after startup");
+            }
+
             _logger.LogWarning("Quasar worker at {BaseUri} exited with code {ExitCode}. Restarting active release.", worker.BaseUri, exitCode);
+        }
         else
+        {
             _logger.LogInformation("Quasar worker at {BaseUri} exited with code {ExitCode}.", worker.BaseUri, exitCode);
+        }
 
         if (shouldRestart)
             _ = Task.Run(() => ActivateCurrentReleaseAsync(force: true, CancellationToken.None), CancellationToken.None);
     }
+
+    private bool RegisterWorkerStartupFailure(string reason)
+    {
+        var now = DateTimeOffset.UtcNow;
+        int failureCount;
+        lock (_sync)
+        {
+            _workerStartupFailures.Enqueue(now);
+            while (_workerStartupFailures.Count > 0 &&
+                   now - _workerStartupFailures.Peek() > WorkerCrashLoopWindow)
+            {
+                _workerStartupFailures.Dequeue();
+            }
+
+            failureCount = _workerStartupFailures.Count;
+        }
+
+        if (failureCount < WorkerCrashLoopSafeModeThreshold)
+            return false;
+
+        var markerPath = GetUiPluginSafeModeMarkerPath();
+        if (File.Exists(markerPath))
+            return false;
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(markerPath)!);
+            File.WriteAllText(
+                markerPath,
+                $"Bootstrap enabled Quasar UI plugin safe boot at {now:u} after {failureCount} worker startup failures in {WorkerCrashLoopWindow.TotalMinutes:0} minutes. Last failure: {reason}.{Environment.NewLine}");
+            _logger.LogWarning(
+                "Created Quasar UI plugin safe-mode marker at {MarkerPath} after {FailureCount} worker startup failures. LastFailure={Reason}",
+                markerPath,
+                failureCount,
+                reason);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed creating Quasar UI plugin safe-mode marker at {MarkerPath}.", markerPath);
+            return false;
+        }
+    }
+
+    private void ClearWorkerStartupFailures()
+    {
+        lock (_sync)
+            _workerStartupFailures.Clear();
+    }
+
+    private static string GetUiPluginSafeModeMarkerPath() =>
+        Path.Combine(MagnetarPaths.GetQuasarDirectory(), "ui-plugins.safe-mode");
 
     private static int SafeGetExitCode(Process process)
     {
@@ -2572,7 +2649,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         public DateTimeOffset? RequestedAtUtc { get; set; }
     }
 
-    private sealed record WorkerProcessHandle(Process Process, Uri BaseUri, QuasarActiveReleasePointer Release);
+    private sealed record WorkerProcessHandle(Process Process, Uri BaseUri, QuasarActiveReleasePointer Release, DateTimeOffset StartedAtUtc);
 }
 
 internal sealed record LauncherForegroundOptions(bool IsForeground, bool IsService = false);

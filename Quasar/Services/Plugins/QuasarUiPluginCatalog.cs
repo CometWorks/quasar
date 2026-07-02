@@ -10,6 +10,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Quasar.Plugin.Abstractions;
 using Quasar.Plugin.Abstractions.Extensions;
+using Quasar.Plugin.Abstractions.Manifests;
 using Quasar.Plugin.Abstractions.Navigation;
 
 namespace Quasar.Services.Plugins;
@@ -46,6 +47,10 @@ public sealed class QuasarUiPluginCatalog
             .OrderBy(item => item.TargetKey, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.Priority)
             .ToArray();
+        StylesheetHrefs = plugins
+            .SelectMany(GetStylesheetHrefs)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     public bool SafeMode { get; }
@@ -62,6 +67,8 @@ public sealed class QuasarUiPluginCatalog
 
     public IReadOnlyList<QuasarExtensionContribution> Extensions { get; }
 
+    public IReadOnlyList<string> StylesheetHrefs { get; }
+
     public static string SafeModeMarkerPath => GetSafeModeMarkerPath();
 
     public static QuasarUiPluginCatalog Create(IConfiguration configuration, IHostEnvironment environment)
@@ -72,11 +79,17 @@ public sealed class QuasarUiPluginCatalog
 
         var loadErrors = new List<string>();
         var plugins = new List<QuasarLoadedUiPlugin>();
+        var pluginStates = QuasarUiPluginStateStore.LoadSnapshot();
         foreach (var manifestDirectory in DiscoverManifestDirectories(configuration))
         {
             try
             {
-                var loadedPlugin = LoadPlugin(configuration, environment, manifestDirectory);
+                var manifestPath = Path.Combine(manifestDirectory, QuasarPluginPackageManifestReader.ManifestFileName);
+                var manifest = QuasarPluginPackageManifestReader.Read(manifestPath);
+                if (!QuasarUiPluginStateStore.IsEnabled(pluginStates, manifest.Id))
+                    continue;
+
+                var loadedPlugin = LoadPlugin(configuration, environment, manifestDirectory, manifest);
                 plugins.Add(loadedPlugin);
             }
             catch (Exception exception)
@@ -192,10 +205,9 @@ public sealed class QuasarUiPluginCatalog
     private static QuasarLoadedUiPlugin LoadPlugin(
         IConfiguration configuration,
         IHostEnvironment environment,
-        string manifestDirectory)
+        string manifestDirectory,
+        QuasarPluginManifest manifest)
     {
-        var manifestPath = Path.Combine(manifestDirectory, QuasarPluginPackageManifestReader.ManifestFileName);
-        var manifest = QuasarPluginPackageManifestReader.Read(manifestPath);
         var entryAssemblyPath = ResolveEntryAssemblyPath(configuration, environment, manifestDirectory, manifest.EntryAssembly);
         var shadowDirectory = ShadowCopyPlugin(manifest.Id, entryAssemblyPath);
         var shadowEntryAssemblyPath = Path.Combine(shadowDirectory, Path.GetFileName(entryAssemblyPath));
@@ -221,6 +233,43 @@ public sealed class QuasarUiPluginCatalog
         };
 
         return new QuasarLoadedUiPlugin(plugin, context);
+    }
+
+    private static IEnumerable<string> GetStylesheetHrefs(QuasarLoadedUiPlugin plugin)
+    {
+        var staticAssetsDirectory = plugin.Context.StaticAssetsDirectory;
+        foreach (var stylesheet in plugin.Context.Manifest.Stylesheets)
+        {
+            var value = stylesheet?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(value))
+                continue;
+
+            if (Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+                (string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)))
+            {
+                yield return uri.ToString();
+                continue;
+            }
+
+            if (value.StartsWith("/", StringComparison.Ordinal))
+            {
+                yield return value;
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(staticAssetsDirectory))
+                continue;
+
+            var normalized = value.Replace('\\', '/').TrimStart('/');
+            if (normalized.Contains("../", StringComparison.Ordinal) ||
+                string.Equals(normalized, "..", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            yield return $"{StaticAssetRequestPathPrefix}/{plugin.Id}/{normalized}";
+        }
     }
 
     private static string ResolveEntryAssemblyPath(

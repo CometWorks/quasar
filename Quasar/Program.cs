@@ -167,6 +167,10 @@ public class Program
             builder.Services.AddSingleton<QuasarPluginCatalogService>();
             builder.Services.AddSingleton<PluginCatalogRefreshService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PluginCatalogRefreshService>());
+            builder.Services.AddSingleton<QuasarUiPluginStateStore>();
+            builder.Services.AddSingleton<QuasarUiPluginHubCatalogService>();
+            builder.Services.AddSingleton<QuasarUiPluginHubRefreshService>();
+            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUiPluginHubRefreshService>());
             builder.Services.AddSingleton<SteamWorkshopCredentialsCatalog>();
             builder.Services.AddSingleton<GitHubUpdateCredentialsCatalog>();
             builder.Services.AddSingleton<QuasarWorkshopModResolver>();

@@ -16,6 +16,8 @@ public sealed class QuasarPluginManifest
 
     public string? StaticAssets { get; init; }
 
+    public IReadOnlyList<string> Stylesheets { get; init; } = [];
+
     public string? QuasarVersion { get; init; }
 
     public IReadOnlyList<string> CompanionPlugins { get; init; } = [];

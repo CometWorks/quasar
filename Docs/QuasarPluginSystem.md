@@ -62,7 +62,8 @@ Safe-boot triggers:
 - environment variable: `QUASAR_SAFE_MODE=1`
 - environment variable: `QUASAR_DISABLE_UI_PLUGINS=1`
 - data-directory marker file: `{Quasar data directory}/ui-plugins.safe-mode`
-- automatic crash-loop fallback after repeated plugin-load failures
+- automatic Bootstrap fallback after repeated worker startup failures or quick
+  crashes
 
 Safe-boot behavior:
 
@@ -77,11 +78,13 @@ Safe-boot behavior:
 Plugin activation should be last-known-good:
 
 1. User installs/enables/updates a plugin.
-2. Quasar writes the requested plugin state as pending.
+2. Quasar writes enabled/disabled state to
+   `{Quasar data directory}/ui-plugins.state.json`.
 3. Quasar restarts through Bootstrap.
 4. The new worker loads plugins.
 5. After startup and health checks pass, Quasar marks the plugin set active.
-6. If startup fails repeatedly, Bootstrap starts Quasar in safe boot.
+6. If startup fails repeatedly, Bootstrap creates the safe-mode marker and
+   starts Quasar without dynamic UI plugins.
 
 Disabling a plugin is then config-first: mark disabled, restart worker, load a
 fresh process without that plugin.
@@ -102,6 +105,9 @@ Example:
   "entryType": "CometWorks.GridViewer.Quasar.GridViewerQuasarPlugin",
   "projectPath": "src/CometWorks.GridViewer.Quasar/CometWorks.GridViewer.Quasar.csproj",
   "staticAssets": "src/CometWorks.GridViewer/wwwroot",
+  "stylesheets": [
+    "quasar-plugin.css"
+  ],
   "quasarVersion": ">=0.1.0",
   "companionPlugins": [
     "GridBackups"
@@ -111,6 +117,58 @@ Example:
 
 The `quasar-hub` XML manifest remains the public catalog entry. The package
 manifest is the plugin repository's runtime/build descriptor.
+
+## Hub Discovery and Management
+
+Quasar discovers reviewed UI plugin packages from
+`https://github.com/CometWorks/quasar-hub` on the `main` branch. The hub follows
+the MagnetarHub pattern: XML files under `Plugins/` point at individual plugin
+repositories and pinned commits. Quasar only shows entries whose `PluginKind` is
+`QuasarUiPlugin`.
+
+The `/settings/ui-plugins` page now manages the QuasarHub catalog:
+
+- refreshes and caches the catalog in
+  `{Quasar data directory}/Caches/ui-plugin-hub-catalog.json`
+- shows installed, update-available, hidden, and invalid package states
+- enables or disables installed packages for the next restart
+- clones/fetches the plugin repository and checks out the pinned commit
+- builds the declared plugin project with `dotnet build`
+- removes local plugin packages
+- links back to the plugin repository and QuasarHub
+
+Installed UI plugin source packages live under:
+
+```text
+{Quasar data directory}/Plugins/{catalog id}
+```
+
+Installer staging lives under:
+
+```text
+{Quasar data directory}/Caches/ui-plugin-installer
+```
+
+Git source cache lives under:
+
+```text
+{Quasar data directory}/Caches/ui-plugin-sources
+```
+
+Enabled/disabled state lives under:
+
+```text
+{Quasar data directory}/ui-plugins.state.json
+```
+
+The first installer supports root `quasar-plugin.json` package manifests. Build
+configuration comes from `QUASAR_UI_PLUGIN_BUILD_CONFIGURATION`,
+`Quasar:Plugins:BuildConfiguration`, or `Debug` in development and `Release`
+otherwise.
+
+Install, update, and remove operations change files on disk only. The active
+plugin assembly set is still loaded at Quasar worker startup, so each operation
+requires a Quasar restart before it takes effect.
 
 ## Plugin Abstractions
 
@@ -167,6 +225,11 @@ The catalog also performs first-pass local package discovery and shadow-copy
 loading. It scans plugin package roots for `quasar-plugin.json`, loads the
 declared entry assembly from a cache folder, and exposes any load failures in
 startup logs and the `/settings/ui-plugins` page.
+
+The `/settings/ui-plugins` page also shows loaded plugin static asset paths,
+declared stylesheet paths, nav contributions, extension contributions, and
+startup load errors. It can create or clear the safe-boot marker, disable a
+loaded package for the next restart, and manage QuasarHub-installed packages.
 
 Configuration/environment knobs:
 
@@ -447,6 +510,25 @@ The Grid Viewer can keep its JavaScript/Three.js-heavy surface in its own
 repository and serve it from that plugin path. Quasar core should stop copying
 viewer assets into `Quasar/wwwroot` once the plugin model replaces the current
 submodule staging path.
+
+Plugins can also ask Quasar to inject package stylesheets into the host page by
+declaring manifest-relative paths:
+
+```json
+"stylesheets": [
+  "styles.css"
+]
+```
+
+Relative stylesheet paths resolve under `staticAssets` and are emitted as:
+
+```text
+/_quasar/plugins/{pluginId}/{stylesheet}
+```
+
+Absolute `http://`, `https://`, or root-relative paths are allowed for trusted
+plugins. Injected stylesheets load after Quasar core CSS, so plugin CSS must use
+narrow selectors and MudBlazor/Quasar CSS variables instead of global resets.
 
 ## Companion Data Channel
 

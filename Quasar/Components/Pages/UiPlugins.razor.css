@@ -1,0 +1,31 @@
+.ui-plugin-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.25rem;
+}
+
+.ui-plugin-search-field {
+    min-width: min(100%, 18rem);
+    max-width: 28rem;
+}
+
+.ui-plugin-description-line {
+    max-width: 28rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@media (max-width: 960px) {
+    .ui-plugin-actions {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .ui-plugin-description-line {
+        max-width: 100%;
+        white-space: normal;
+    }
+}

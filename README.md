@@ -15,6 +15,7 @@ Quasar deploys an agent plugin which connects back to Quasar.
 Quasar downloads Magnetar and the Dedicated Server builds automatically and caches it locally until there is an update.
 
 You can register new plugins by making PRs to the [MagnetarHub](https://github.com/CometWorks/magnetar-hub).
+Quasar UI plugins are discovered and managed through [QuasarHub](https://github.com/CometWorks/quasar-hub).
 
 <!-- BEGIN packaged install instructions -->
 ## Getting started
