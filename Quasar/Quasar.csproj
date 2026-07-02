@@ -29,7 +29,7 @@
 
   <PropertyGroup>
     <_ViewerRoot>$(MSBuildThisFileDirectory)..\Viewer\</_ViewerRoot>
-    <_ViewerSourceDir>$(_ViewerRoot)src\</_ViewerSourceDir>
+    <_ViewerSourceDir>$(_ViewerRoot)src\CometWorks.GridViewer\wwwroot\</_ViewerSourceDir>
     <_ViewerPackageJson>$(_ViewerRoot)package.json</_ViewerPackageJson>
     <_ViewerPackageLock>$(_ViewerRoot)package-lock.json</_ViewerPackageLock>
     <_ViewerNodeModulesDir>$(_ViewerRoot)node_modules\</_ViewerNodeModulesDir>

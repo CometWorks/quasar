@@ -98,10 +98,10 @@ Example:
   "id": "cometworks.gridviewer",
   "displayName": "Grid Viewer",
   "version": "0.1.0",
-  "entryAssembly": "CometWorks.GridViewer.QuasarPlugin.dll",
-  "entryType": "CometWorks.GridViewer.QuasarPlugin.GridViewerPlugin",
-  "projectPath": "src/CometWorks.GridViewer.QuasarPlugin/CometWorks.GridViewer.QuasarPlugin.csproj",
-  "staticAssets": "wwwroot",
+  "entryAssembly": "CometWorks.GridViewer.Quasar.dll",
+  "entryType": "CometWorks.GridViewer.Quasar.GridViewerQuasarPlugin",
+  "projectPath": "src/CometWorks.GridViewer.Quasar/CometWorks.GridViewer.Quasar.csproj",
+  "staticAssets": "src/CometWorks.GridViewer/wwwroot",
   "quasarVersion": ">=0.1.0",
   "companionPlugins": [
     "GridBackups"

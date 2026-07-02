@@ -20,9 +20,10 @@ utilities. For the runtime design see [Architecture](QuasarArchitecture.md).
   Shared transport and discovery contracts currently used by Quasar and
   Quasar.Agent.
 - `Viewer`
-  Browser-side grid and asteroid viewer submodule. Quasar copies `Viewer/src`
-  into `Quasar/wwwroot/viewer` during build and stages its pinned npm
-  dependencies into `Quasar/wwwroot/vendor`.
+  Browser-side grid and asteroid viewer submodule plus Quasar UI plugin.
+  Quasar copies `Viewer/src/CometWorks.GridViewer/wwwroot` into
+  `Quasar/wwwroot/viewer` during build and stages its pinned npm dependencies
+  into `Quasar/wwwroot/vendor`.
 
 The solution file is `Quasar.sln`.
 
