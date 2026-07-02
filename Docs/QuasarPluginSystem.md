@@ -11,8 +11,8 @@ Quasar core repository while still feeling native inside Quasar.
   independently.
 - Let plugins add nav items, routable Razor pages, dialogs, dashboard panels, and
   entity/server actions.
-- Let plugins replace or wrap selected built-in Quasar pages/components through
-  explicit extension targets.
+- Let plugins replace, wrap, or inline selected built-in Quasar pages,
+  components, and smaller named UI regions through explicit extension targets.
 - Give UI plugins a generic request/event channel to companion Magnetar plugins
   running inside managed Dedicated Servers.
 - Keep the UI visually consistent by making MudBlazor the default component
@@ -356,6 +356,45 @@ Interior extension targets use a component host:
                      DefaultComponent="typeof(EntityActions)" />
 ```
 
+Fine-grained inline regions are also feasible, but only where Quasar core places
+a named outlet. Razor components are compiled, so Quasar should not try to patch
+arbitrary markup or component declarations after compilation. Instead, core
+components can expose stable region keys around small declarations that plugins
+are allowed to extend or replace:
+
+```razor
+<QuasarExtensionOutlet TargetKey="quasar.entities.toolbar-actions"
+                       Parameters="@ToolbarParameters">
+    <MudButton StartIcon="@Icons.Material.Filled.Refresh"
+               OnClick="LoadAsync">
+        Refresh
+    </MudButton>
+</QuasarExtensionOutlet>
+```
+
+Useful inline region shapes:
+
+- toolbar button groups
+- filter controls
+- summary chips
+- row action buttons
+- table columns or cell fragments
+- details tabs
+- empty/error/loading states
+- dialog footers
+
+Each region must document its parameter contract. Small region parameters should
+prefer primitives, immutable DTOs, callbacks, and `RenderFragment` values over
+page-private model types. This keeps plugins decoupled from the internal shape of
+the Razor component.
+
+For declaration replacement, the default declaration becomes the outlet's child
+content. A plugin can use `Before`/`After` to inline adjacent UI, `Wrap` to
+decorate the declaration through `ChildContent`, or `Replace` to suppress the
+default declaration and render its own component. This gives most of the power of
+specific Razor declaration replacement while keeping the patch surface explicit,
+reviewable, and testable.
+
 Conflict rules:
 
 - One `Replace` winner per target.
@@ -364,6 +403,7 @@ Conflict rules:
   replacements with a clear diagnostic.
 - `Before` and `After` contributions are ordered by priority.
 - The plugin manager must show which plugin patches which target.
+- Fine-grained targets follow the same conflict rules as page/component targets.
 
 The first useful targets:
 
@@ -374,6 +414,10 @@ The first useful targets:
 - `quasar.component.entity-actions`
 - `quasar.component.entity-details-tabs`
 - `quasar.component.server-detail-actions`
+- `quasar.entities.toolbar-actions`
+- `quasar.entities.summary-chips`
+- `quasar.entities.table-columns`
+- `quasar.entities.empty-state`
 
 ## Static Assets
 
@@ -494,8 +538,9 @@ the Quasar process. Therefore:
 3. Add plugin Razor assembly registration.
 4. Convert nav to contribution-driven rendering.
 5. Add static asset mounting.
-6. Add `QuasarPageHost` and `QuasarComponentHost`.
-7. Add first patch targets on Entities and Dashboard.
-8. Add generic companion data channel through Quasar.Agent.
-9. Move Grid Viewer into a Quasar UI plugin repository.
-10. Add GridBackups companion handlers for audit/grid/snapshot requests.
+6. Add page/component extension hosts.
+7. Add fine-grained inline region outlets for stable declarations.
+8. Add first patch targets on Entities and Dashboard.
+9. Add generic companion data channel through Quasar.Agent.
+10. Move Grid Viewer into a Quasar UI plugin repository.
+11. Add GridBackups companion handlers for audit/grid/snapshot requests.
