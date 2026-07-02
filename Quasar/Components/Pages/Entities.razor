@@ -3,6 +3,7 @@
 @inject AgentRegistry Registry
 @inject DedicatedServerCatalog ServerCatalog
 @inject EntityService EntityService
+@inject EntityViewerDialogService ViewerDialog
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 
@@ -150,6 +151,9 @@ else
         <HeaderContent>
             <MudTh>Type</MudTh>
             <MudTh>Entity ID</MudTh>
+            <QuasarExtensionOutlet TargetKey="@QuasarExtensionTargets.EntityViewerColumnHeader">
+                <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Viewer</span></MudTh>
+            </QuasarExtensionOutlet>
             <MudTh>Sub-type</MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.BlockCount ?? -1)">Blocks</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.Pcu ?? -1)">PCU</MudTableSortLabel></MudTh>
@@ -166,6 +170,21 @@ else
             <MudTd DataLabel="Entity ID">
                 <MudText Typo="Typo.body2" Class="mono">@context.EntityId</MudText>
             </MudTd>
+            <QuasarExtensionOutlet
+                TargetKey="@QuasarExtensionTargets.EntityViewerColumnCell"
+                Parameters="@CreateEntityExtensionParameters(context)">
+                <MudTd DataLabel="" Class="quasar-actions-column">
+                    <span @onclick:stopPropagation="true">
+                        <MudTooltip Text="Open viewer">
+                            <MudIconButton Icon="@Icons.Material.Filled.Visibility"
+                                           Color="Color.Primary"
+                                           Size="Size.Small"
+                                           Disabled="@(!CanViewEntity(context))"
+                                           OnClick="@(() => OpenViewerAsync(context))" />
+                        </MudTooltip>
+                    </span>
+                </MudTd>
+            </QuasarExtensionOutlet>
             <MudTd DataLabel="Sub-type">@context.SubType</MudTd>
             <MudTd DataLabel="Blocks">@(context.BlockCount?.ToString() ?? "-")</MudTd>
             <MudTd DataLabel="PCU">@(context.Pcu?.ToString() ?? "-")</MudTd>
@@ -177,16 +196,7 @@ else
                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="plugin-actions" @onclick:stopPropagation="true">
                     <QuasarExtensionOutlet
                         TargetKey="@QuasarExtensionTargets.EntityActions"
-                        Parameters="@CreateEntityActionParameters(context)">
-                        <span @onclick:stopPropagation="true">
-                            <MudTooltip Text="Open viewer">
-                                <MudIconButton Icon="@Icons.Material.Filled.Visibility"
-                                               Color="Color.Primary"
-                                               Size="Size.Small"
-                                               Disabled="@(!CanViewEntity(context))"
-                                               OnClick="@(() => OpenViewerAsync(context))" />
-                            </MudTooltip>
-                        </span>
+                        Parameters="@CreateEntityExtensionParameters(context)">
                         <span @onclick:stopPropagation="true">
                             <MudTooltip Text="Delete entity">
                                 <MudIconButton Icon="@Icons.Material.Filled.Delete"
@@ -582,28 +592,13 @@ else
         if (agent is null || !CanViewEntity(entity))
             return;
 
-        var title = string.IsNullOrWhiteSpace(entity.DisplayName)
-            ? $"Entity {entity.EntityId}"
-            : entity.DisplayName;
-        var subtitle = $"{ResolveServerName(agent)} - {entity.TypeTag} #{entity.EntityId}";
-        var parameters = new DialogParameters
-        {
-            [nameof(EntityViewerDialog.ViewerUrl)] = BuildViewerUrl(agent, entity),
-            [nameof(EntityViewerDialog.Title)] = title,
-            [nameof(EntityViewerDialog.Subtitle)] = subtitle,
-        };
-        var options = new DialogOptions
-        {
-            CloseOnEscapeKey = true,
-            FullScreen = true,
-        };
-
-        await DialogService.ShowAsync<EntityViewerDialog>(title, parameters, options);
+        await ViewerDialog.ShowAsync(agent, ResolveServerName(agent), entity);
     }
 
-    private IReadOnlyDictionary<string, object?> CreateEntityActionParameters(EntitySummary entity)
+    private IReadOnlyDictionary<string, object?> CreateEntityExtensionParameters(EntitySummary entity)
     {
         var agent = GetSelectedAgent();
+        var canView = CanViewEntity(entity);
         return new Dictionary<string, object?>
         {
             ["AgentId"] = agent?.AgentId,
@@ -613,22 +608,12 @@ else
             ["EntitySubType"] = entity.SubType,
             ["EntityDisplayName"] = entity.DisplayName,
             ["OwnerSteamId"] = entity.OwnerSteamId,
-            ["CanViewEntity"] = CanViewEntity(entity),
+            ["CanViewEntity"] = canView,
+            ["ViewerUrl"] = agent is not null && canView
+                ? EntityViewerDialogService.BuildViewerUrl(agent.AgentId, entity.EntityId, entity.TypeTag)
+                : null,
+            ["OpenEntityViewer"] = EventCallback.Factory.Create(this, () => OpenViewerAsync(entity)),
         };
-    }
-
-    private static string BuildViewerUrl(AgentRuntimeState agent, EntitySummary entity)
-    {
-        var parts = new List<string>
-        {
-            $"agentId={Uri.EscapeDataString(agent.AgentId)}",
-            $"entityId={entity.EntityId.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
-            "voxels=1",
-        };
-        if (string.Equals(entity.TypeTag, "Grid", StringComparison.OrdinalIgnoreCase))
-            parts.Add("context=1");
-
-        return "/viewer/entity?" + string.Join("&", parts);
     }
 
     private bool MatchesSearch(EntitySummary entity)

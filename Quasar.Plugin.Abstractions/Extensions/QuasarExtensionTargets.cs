@@ -4,6 +4,8 @@ public static class QuasarExtensionTargets
 {
     public const string DashboardPanels = "quasar.dashboard.panels";
     public const string EntityActions = "quasar.component.entity-actions";
+    public const string EntityViewerColumnHeader = "quasar.entities.viewer-column-header";
+    public const string EntityViewerColumnCell = "quasar.entities.viewer-column-cell";
     public const string EntityDetailsTabs = "quasar.component.entity-details-tabs";
     public const string ServerDetailActions = "quasar.component.server-detail-actions";
     public const string EntitiesPage = "quasar.page.entities";

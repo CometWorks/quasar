@@ -159,6 +159,7 @@ public class Program
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<EntityService>();
             builder.Services.AddSingleton<ViewerSceneService>();
+            builder.Services.AddScoped<EntityViewerDialogService>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
             builder.Services.AddSingleton<QuasarWorldTemplateCatalog>();

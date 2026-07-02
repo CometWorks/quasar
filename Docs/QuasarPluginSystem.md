@@ -203,13 +203,17 @@ hosted targets are:
 
 - `QuasarExtensionTargets.EntitiesPage`
 - `QuasarExtensionTargets.EntityActions`
+- `QuasarExtensionTargets.EntityViewerColumnHeader`
+- `QuasarExtensionTargets.EntityViewerColumnCell`
 
 `EntitiesPage` wraps the body of the `/entities` page, so a plugin can render
 before/after it, wrap it with a component that accepts `ChildContent`, or replace
 it entirely. `Wrap` contributions receive `ChildContent`; when a wrapper is not
 authorized, Quasar renders the original child content. `EntityActions` renders
-inside each entity row action cell. Its component parameters are intentionally
-primitive:
+inside each entity row action cell. `EntityViewerColumnHeader` and
+`EntityViewerColumnCell` expose the dedicated viewer button column so a viewer
+plugin can replace only the default viewer button/header instead of replacing the
+whole entities page. Their component parameters are intentionally primitive:
 
 - `AgentId`
 - `ServerName`
@@ -219,9 +223,13 @@ primitive:
 - `EntityDisplayName`
 - `OwnerSteamId`
 - `CanViewEntity`
+- `ViewerUrl`
+- `OpenEntityViewer`
 
 This lets viewer plugins add buttons or replace the built-in action buttons
-without taking a dependency on Quasar page internals.
+without taking a dependency on Quasar page internals. `OpenEntityViewer` is an
+`EventCallback` that opens Quasar's current fullscreen viewer dialog, allowing
+the dialog to be reused while Grid Viewer is extracted into its own UI plugin.
 
 ## Dependency Injection and Plugin State
 
@@ -417,6 +425,8 @@ The first useful targets:
 - `quasar.entities.toolbar-actions`
 - `quasar.entities.summary-chips`
 - `quasar.entities.table-columns`
+- `quasar.entities.viewer-column-header`
+- `quasar.entities.viewer-column-cell`
 - `quasar.entities.empty-state`
 
 ## Static Assets
