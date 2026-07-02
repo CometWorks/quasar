@@ -1,0 +1,83 @@
+@foreach (var contribution in GetContributions(QuasarPatchMode.Before))
+{
+    <QuasarExtensionComponent
+        Contribution="@contribution"
+        Parameters="@Parameters"
+        DefaultPolicy="@DefaultPolicy" />
+}
+
+@if (GetContributions(QuasarPatchMode.Replace).Count > 0)
+{
+    @foreach (var contribution in GetContributions(QuasarPatchMode.Replace))
+    {
+        <QuasarExtensionComponent
+            Contribution="@contribution"
+            Parameters="@Parameters"
+            DefaultPolicy="@DefaultPolicy" />
+    }
+}
+else
+{
+    @BuildWrappedContent()
+}
+
+@foreach (var contribution in GetContributions(QuasarPatchMode.After))
+{
+    <QuasarExtensionComponent
+        Contribution="@contribution"
+        Parameters="@Parameters"
+        DefaultPolicy="@DefaultPolicy" />
+}
+
+@code
+{
+    private static readonly RenderFragment EmptyContent = _ => { };
+
+    [Inject]
+    private QuasarUiPluginCatalog UiPlugins { get; set; } = null!;
+
+    [Parameter]
+    public string TargetKey { get; set; } = string.Empty;
+
+    [Parameter]
+    public IReadOnlyDictionary<string, object?>? Parameters { get; set; }
+
+    [Parameter]
+    public string? DefaultPolicy { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    private IReadOnlyList<QuasarExtensionContribution> MatchingContributions => UiPlugins.Extensions
+        .Where(contribution => string.Equals(contribution.TargetKey, TargetKey, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(contribution => contribution.Priority)
+        .ThenBy(contribution => contribution.PluginId, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    private IReadOnlyList<QuasarExtensionContribution> GetContributions(QuasarPatchMode mode) => MatchingContributions
+        .Where(contribution => contribution.Mode == mode)
+        .ToList();
+
+    private RenderFragment BuildWrappedContent()
+    {
+        var content = ChildContent ?? EmptyContent;
+        var wrappers = GetContributions(QuasarPatchMode.Wrap).Reverse();
+
+        foreach (var contribution in wrappers)
+        {
+            var nextContent = content;
+            content = builder =>
+            {
+                builder.OpenComponent<QuasarExtensionComponent>(0);
+                builder.AddAttribute(1, nameof(QuasarExtensionComponent.Contribution), contribution);
+                builder.AddAttribute(2, nameof(QuasarExtensionComponent.Parameters), Parameters);
+                builder.AddAttribute(3, nameof(QuasarExtensionComponent.DefaultPolicy), DefaultPolicy);
+                builder.AddAttribute(4, nameof(QuasarExtensionComponent.ChildContent), nextContent);
+                builder.AddAttribute(5, nameof(QuasarExtensionComponent.NotAuthorizedContent), nextContent);
+                builder.CloseComponent();
+            };
+        }
+
+        return content;
+    }
+}

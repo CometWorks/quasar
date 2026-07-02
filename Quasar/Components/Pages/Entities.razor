@@ -8,6 +8,7 @@
 
 <PageTitle>Entities</PageTitle>
 
+<QuasarExtensionOutlet TargetKey="@QuasarExtensionTargets.EntitiesPage">
 <MudText Typo="Typo.h5" Class="mb-2">Entities</MudText>
 <MudText Typo="Typo.body2" Class="mb-4">Live world entity list for a connected server. Query grids, characters, floating objects and voxels, then inspect or delete them with full admin control.</MudText>
 
@@ -163,18 +164,7 @@ else
                 <MudChip T="string" Size="Size.Small" Color="@GetTypeColor(context.TypeTag)" Variant="Variant.Outlined">@context.TypeTag</MudChip>
             </MudTd>
             <MudTd DataLabel="Entity ID">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                    <span @onclick:stopPropagation="true">
-                        <MudTooltip Text="Open viewer">
-                            <MudIconButton Icon="@Icons.Material.Filled.Visibility"
-                                           Color="Color.Primary"
-                                           Size="Size.Small"
-                                           Disabled="@(!CanViewEntity(context))"
-                                           OnClick="@(() => OpenViewerAsync(context))" />
-                        </MudTooltip>
-                    </span>
-                    <MudText Typo="Typo.body2" Class="mono">@context.EntityId</MudText>
-                </MudStack>
+                <MudText Typo="Typo.body2" Class="mono">@context.EntityId</MudText>
             </MudTd>
             <MudTd DataLabel="Sub-type">@context.SubType</MudTd>
             <MudTd DataLabel="Blocks">@(context.BlockCount?.ToString() ?? "-")</MudTd>
@@ -184,15 +174,30 @@ else
             <MudTd DataLabel="Position" Class="mono">@FormatPosition(context)</MudTd>
             <MudTd DataLabel="Name">@context.DisplayName</MudTd>
             <MudTd DataLabel="" Class="quasar-actions-column">
-                <span @onclick:stopPropagation="true">
-                    <MudTooltip Text="Delete entity">
-                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                       Color="Color.Error"
-                                       Size="Size.Small"
-                                       Disabled="@(_loading || _deletingSelected)"
-                                       OnClick="@(() => DeleteEntityAsync(context))" />
-                    </MudTooltip>
-                </span>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="plugin-actions">
+                    <QuasarExtensionOutlet
+                        TargetKey="@QuasarExtensionTargets.EntityActions"
+                        Parameters="@CreateEntityActionParameters(context)">
+                        <span @onclick:stopPropagation="true">
+                            <MudTooltip Text="Open viewer">
+                                <MudIconButton Icon="@Icons.Material.Filled.Visibility"
+                                               Color="Color.Primary"
+                                               Size="Size.Small"
+                                               Disabled="@(!CanViewEntity(context))"
+                                               OnClick="@(() => OpenViewerAsync(context))" />
+                            </MudTooltip>
+                        </span>
+                        <span @onclick:stopPropagation="true">
+                            <MudTooltip Text="Delete entity">
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                               Color="Color.Error"
+                                               Size="Size.Small"
+                                               Disabled="@(_loading || _deletingSelected)"
+                                               OnClick="@(() => DeleteEntityAsync(context))" />
+                            </MudTooltip>
+                        </span>
+                    </QuasarExtensionOutlet>
+                </MudStack>
             </MudTd>
         </RowTemplate>
         <PagerContent>
@@ -200,6 +205,7 @@ else
         </PagerContent>
     </MudTable>
 }
+</QuasarExtensionOutlet>
 
 @code
 {
@@ -593,6 +599,22 @@ else
         };
 
         await DialogService.ShowAsync<EntityViewerDialog>(title, parameters, options);
+    }
+
+    private IReadOnlyDictionary<string, object?> CreateEntityActionParameters(EntitySummary entity)
+    {
+        var agent = GetSelectedAgent();
+        return new Dictionary<string, object?>
+        {
+            ["AgentId"] = agent?.AgentId,
+            ["ServerName"] = agent is null ? null : ResolveServerName(agent),
+            ["EntityId"] = entity.EntityId,
+            ["EntityType"] = entity.TypeTag,
+            ["EntitySubType"] = entity.SubType,
+            ["EntityDisplayName"] = entity.DisplayName,
+            ["OwnerSteamId"] = entity.OwnerSteamId,
+            ["CanViewEntity"] = CanViewEntity(entity),
+        };
     }
 
     private static string BuildViewerUrl(AgentRuntimeState agent, EntitySummary entity)

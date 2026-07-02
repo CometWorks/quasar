@@ -197,6 +197,31 @@ Plugin navigation items are rendered by the main Quasar sidebar. Supported zones
 plugin item does not specify its own policy. Navigation policy checks only hide
 links; plugin pages and endpoints must still enforce their own authorization.
 
+Extension contributions are rendered through named outlets. The first active
+hosted targets are:
+
+- `QuasarExtensionTargets.EntitiesPage`
+- `QuasarExtensionTargets.EntityActions`
+
+`EntitiesPage` wraps the body of the `/entities` page, so a plugin can render
+before/after it, wrap it with a component that accepts `ChildContent`, or replace
+it entirely. `Wrap` contributions receive `ChildContent`; when a wrapper is not
+authorized, Quasar renders the original child content. `EntityActions` renders
+inside each entity row action cell. Its component parameters are intentionally
+primitive:
+
+- `AgentId`
+- `ServerName`
+- `EntityId`
+- `EntityType`
+- `EntitySubType`
+- `EntityDisplayName`
+- `OwnerSteamId`
+- `CanViewEntity`
+
+This lets viewer plugins add buttons or replace the built-in action buttons
+without taking a dependency on Quasar page internals.
+
 ## Dependency Injection and Plugin State
 
 Plugins must be able to register their own services during Quasar startup.
