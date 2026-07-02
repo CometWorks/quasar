@@ -480,6 +480,9 @@ public class Program
                     uiPluginCatalog.LoadedPlugins.Count);
             }
 
+            foreach (var loadError in uiPluginCatalog.LoadErrors)
+                startupLogger.LogWarning("Quasar UI plugin load failed: {Error}", loadError);
+
             startupLogger.LogInformation(
                 "Quasar {Version} starting. BootstrapVersion={BootstrapVersion}; HostId={HostId}; DataDirectory={DataDirectory}.",
                 webServiceOptions.Version,

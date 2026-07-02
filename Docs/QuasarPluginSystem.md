@@ -151,8 +151,8 @@ Blazor router and Razor component endpoint builder so plugin pages can be routed
 normally.
 
 The Quasar host has an initial no-op catalog at
-`Quasar.Services.Plugins.QuasarUiPluginCatalog`. It currently provides the
-stable integration seam for:
+`Quasar.Services.Plugins.QuasarUiPluginCatalog`. It provides the stable
+integration seam for:
 
 - safe-mode detection
 - plugin DI registration
@@ -161,8 +161,30 @@ stable integration seam for:
 - router `AdditionalAssemblies`
 - Razor component endpoint `AddAdditionalAssemblies`
 
-Dynamic manifest discovery and assembly loading are the next implementation
-layer on top of this catalog.
+The catalog also performs first-pass local package discovery and shadow-copy
+loading. It scans plugin package roots for `quasar-plugin.json`, loads the
+declared entry assembly from a cache folder, and exposes any load failures in
+startup logs.
+
+Configuration/environment knobs:
+
+- `Quasar:Plugins:Directory`
+- `Quasar:Plugins:BuildConfiguration`
+- `QUASAR_UI_PLUGIN_DIR`
+- `QUASAR_UI_PLUGIN_DIRS`
+- `QUASAR_UI_PLUGIN_BUILD_CONFIGURATION`
+
+Default plugin root:
+
+```text
+{Quasar data directory}/Plugins
+```
+
+Shadow-copy root:
+
+```text
+{Quasar data directory}/Caches/ui-plugins/{pluginId}/{entryAssemblyHash}
+```
 
 ## Dependency Injection and Plugin State
 
