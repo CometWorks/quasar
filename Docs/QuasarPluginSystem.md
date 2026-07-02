@@ -158,6 +158,7 @@ integration seam for:
 - plugin DI registration
 - plugin endpoint registration
 - plugin static asset mounting
+- sidebar navigation rendering
 - router `AdditionalAssemblies`
 - Razor component endpoint `AddAdditionalAssemblies`
 
@@ -185,6 +186,16 @@ Shadow-copy root:
 ```text
 {Quasar data directory}/Caches/ui-plugins/{pluginId}/{entryAssemblyHash}
 ```
+
+Plugin navigation items are rendered by the main Quasar sidebar. Supported zones:
+
+- `QuasarNavZones.Main`
+- `QuasarNavZones.Settings`
+- `QuasarNavZones.Admin`
+
+`QuasarNavZones.Admin` inherits `QuasarPolicyNames.CanManageSecurity` when the
+plugin item does not specify its own policy. Navigation policy checks only hide
+links; plugin pages and endpoints must still enforce their own authorization.
 
 ## Dependency Injection and Plugin State
 

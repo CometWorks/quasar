@@ -1,3 +1,5 @@
+@inject QuasarUiPluginCatalog UiPlugins
+
 <MudStack Class="pa-4" Spacing="3">
     <MudNavMenu Class="magnetar-nav-menu">
         <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">
@@ -27,6 +29,7 @@
         <MudNavLink Href="/discord" Icon="@Icons.Material.Filled.Forum">
             Discord
         </MudNavLink>
+        <PluginNavItems Items="@UiPlugins.NavItems" Zone="@QuasarNavZones.Main" />
     </MudNavMenu>
 
     <MudDivider />
@@ -35,6 +38,7 @@
         <MudNavLink Href="/settings/appearance" Icon="@Icons.Material.Filled.Palette">
             Appearance
         </MudNavLink>
+        <PluginNavItems Items="@UiPlugins.NavItems" Zone="@QuasarNavZones.Settings" />
         <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
             <Authorized>
                 <MudNavLink Href="/settings/security" Icon="@Icons.Material.Filled.Security">
@@ -46,6 +50,10 @@
                 <MudNavLink Href="/settings/updates" Icon="@Icons.Material.Filled.Upgrade">
                     Updates
                 </MudNavLink>
+                <PluginNavItems
+                    Items="@UiPlugins.NavItems"
+                    Zone="@QuasarNavZones.Admin"
+                    DefaultPolicy="@QuasarPolicyNames.CanManageSecurity" />
             </Authorized>
         </AuthorizeView>
     </MudNavMenu>

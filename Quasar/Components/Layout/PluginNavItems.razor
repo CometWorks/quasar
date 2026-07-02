@@ -1,0 +1,43 @@
+@foreach (var navItem in ZoneItems)
+{
+    var policy = ResolvePolicy(navItem);
+
+    if (string.IsNullOrWhiteSpace(policy))
+    {
+        <MudNavLink @key="navItem.Href" Href="@navItem.Href" Icon="@navItem.Icon">
+            @navItem.Text
+        </MudNavLink>
+    }
+    else
+    {
+        <AuthorizeView @key="navItem.Href" Policy="@policy">
+            <Authorized>
+                <MudNavLink Href="@navItem.Href" Icon="@navItem.Icon">
+                    @navItem.Text
+                </MudNavLink>
+            </Authorized>
+        </AuthorizeView>
+    }
+}
+
+@code
+{
+    [Parameter]
+    public IEnumerable<QuasarNavItem> Items { get; set; } = [];
+
+    [Parameter]
+    public string Zone { get; set; } = QuasarNavZones.Main;
+
+    [Parameter]
+    public string? DefaultPolicy { get; set; }
+
+    private IEnumerable<QuasarNavItem> ZoneItems => Items
+        .Where(item => string.Equals(item.Zone, Zone, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(item => item.Order)
+        .ThenBy(item => item.Text, StringComparer.OrdinalIgnoreCase);
+
+    private string? ResolvePolicy(QuasarNavItem item) =>
+        string.IsNullOrWhiteSpace(item.Policy)
+            ? DefaultPolicy
+            : item.Policy;
+}
