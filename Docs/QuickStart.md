@@ -39,12 +39,20 @@ Declining the prompt exits before files or services are changed.
 On Debian 13, the prompt also includes the Microsoft package feed bootstrap
 commands needed before installing the .NET packages.
 
+Packaged installs need only the runtime to run Quasar. QuasarHub UI plugin
+install/update compiles source with `dotnet build`, so install the .NET 10 SDK
+too by accepting the optional prompt or passing `--install-ui-plugin-sdk` when
+you want source-built UI plugins from QuasarHub. On Linux, the UI Plugins page
+can also run the install script's SDK-only path when the SDK is missing.
+
 **Linux — systemd**
 
 ```bash
 mkdir -p ~/.local/share/Quasar
 tar -xzf quasar-installer-linux.tar.gz -C ~/.local/share/Quasar --strip-components=1
 ~/.local/share/Quasar/install.sh --start        # installs in place and starts quasar.service
+# Optional SDK for QuasarHub source-built UI plugin installs:
+# ~/.local/share/Quasar/install.sh --start --install-ui-plugin-sdk
 ```
 
 The Linux installer defaults to a user systemd service, uses the extracted

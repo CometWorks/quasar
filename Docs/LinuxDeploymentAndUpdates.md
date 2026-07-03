@@ -197,6 +197,18 @@ first adds Microsoft's Debian 13 package feed with
 `packages-microsoft-prod.deb`, then runs `apt-get update` and installs the
 selected .NET package.
 
+Packaged installs can run Quasar with only the runtime, but QuasarHub UI plugin
+install/update builds source projects with `dotnet build` and requires the .NET
+10 SDK. `install.sh` offers that SDK as an optional step for package/no-build
+installs; pass `--install-ui-plugin-sdk` to request it explicitly. If the SDK is
+not installed, `/settings/ui-plugins` disables install/update actions and shows
+`.NET SDK required to build UI plugins`. On Linux, that warning can also invoke
+`install.sh --install-ui-plugin-sdk-only --yes` from the UI. The action only
+installs the SDK and exits; it does not rewrite the service or reinstall Quasar.
+It still uses the system package manager, so it can fail under a service account
+unless `sudo -n` can install packages without a password or Quasar is already
+running with sufficient privileges.
+
 ```bash
 mkdir -p ~/.local/share/Quasar
 tar -xzf quasar-installer-linux.tar.gz -C ~/.local/share/Quasar --strip-components=1

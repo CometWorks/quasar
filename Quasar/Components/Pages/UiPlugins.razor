@@ -26,6 +26,11 @@
                      Variant="Variant.Outlined">
                 @(PluginCatalog.SafeMode ? "Safe boot active" : "Dynamic plugins enabled")
             </MudChip>
+            <MudChip T="string"
+                     Color="@GetDotNetSdkChipColor()"
+                     Variant="Variant.Outlined">
+                @GetDotNetSdkChipText()
+            </MudChip>
             <MudButton Variant="Variant.Outlined"
                        Color="Color.Warning"
                        StartIcon="@Icons.Material.Filled.RestartAlt"
@@ -35,6 +40,56 @@
             </MudButton>
         </MudStack>
     </MudStack>
+
+    @if (!CanBuildUiPlugins)
+    {
+        var sdkInstallAvailability = HubCatalog.GetDotNetSdkInstallAvailability();
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+            <MudStack Spacing="2">
+                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+                    <span><strong>.NET SDK required to build UI plugins.</strong> @_dotNetSdkStatus.Message Install the .NET SDK to install or update source-built Quasar UI plugins.</span>
+                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" AlignItems="AlignItems.Center">
+                        <MudTooltip Text="@sdkInstallAvailability.Message" Disabled="@sdkInstallAvailability.CanInstall">
+                            <span>
+                                <MudButton Variant="Variant.Filled"
+                                           Color="Color.Warning"
+                                           Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.Download"
+                                           Disabled="@(!sdkInstallAvailability.CanInstall || DotNetSdkInstallerBusy)"
+                                           OnClick="InstallDotNetSdkAsync">
+                                    @(DotNetSdkInstallerBusy ? "Installing SDK..." : "Install SDK")
+                                </MudButton>
+                            </span>
+                        </MudTooltip>
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Warning"
+                                   Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.Refresh"
+                                   Disabled="@DotNetSdkInstallerBusy"
+                                   OnClick="RefreshDotNetSdkStatus">
+                            Refresh SDK check
+                        </MudButton>
+                    </MudStack>
+                </MudStack>
+                @if (_lastDotNetSdkInstallResult is not null)
+                {
+                    <MudAlert Severity="@(_lastDotNetSdkInstallResult.Succeeded ? Severity.Success : Severity.Error)" Variant="Variant.Outlined" Dense="true">
+                        <MudStack Spacing="1">
+                            <MudText Typo="Typo.body2">@_lastDotNetSdkInstallResult.Message</MudText>
+                            @if (!string.IsNullOrWhiteSpace(_lastDotNetSdkInstallResult.Output))
+                            {
+                                <MudExpansionPanels MultiExpansion="false" Elevation="0" Dense="true">
+                                    <MudExpansionPanel Text="Installer output">
+                                        <MudText Typo="Typo.caption" Class="mono" Style="white-space: pre-wrap; max-height: 18rem; overflow: auto; display: block;">@TrimInstallerOutput(_lastDotNetSdkInstallResult.Output)</MudText>
+                                    </MudExpansionPanel>
+                                </MudExpansionPanels>
+                            }
+                        </MudStack>
+                    </MudAlert>
+                }
+            </MudStack>
+        </MudAlert>
+    }
 
     <MudGrid>
         <MudItem xs="12" md="3">
@@ -189,6 +244,7 @@
                     <RowTemplate>
                         @{
                             var installState = HubCatalog.GetInstallState(context);
+                            var installDisabledReason = GetHubInstallDisabledReason(context);
                         }
                         <MudTd DataLabel="Status">
                             <MudStack Spacing="0">
@@ -231,14 +287,18 @@
                         </MudTd>
                         <MudTd DataLabel="" Class="quasar-actions-column">
                             <div class="ui-plugin-actions">
-                                <MudButton Variant="Variant.Outlined"
-                                           Color="Color.Primary"
-                                           Size="Size.Small"
-                                           StartIcon="@GetHubInstallButtonIcon(context, installState)"
-                                           Disabled="@IsHubInstallDisabled(context)"
-                                           OnClick="@(() => InstallOrUpdateHubPluginAsync(context))">
-                                    @GetHubInstallButtonText(context, installState)
-                                </MudButton>
+                                <MudTooltip Text="@installDisabledReason" Disabled="@string.IsNullOrWhiteSpace(installDisabledReason)">
+                                    <span>
+                                        <MudButton Variant="Variant.Outlined"
+                                                   Color="Color.Primary"
+                                                   Size="Size.Small"
+                                                   StartIcon="@GetHubInstallButtonIcon(context, installState)"
+                                                   Disabled="@IsHubInstallDisabled(context)"
+                                                   OnClick="@(() => InstallOrUpdateHubPluginAsync(context))">
+                                            @GetHubInstallButtonText(context, installState)
+                                        </MudButton>
+                                    </span>
+                                </MudTooltip>
                                 @if (installState.Installed)
                                 {
                                     <MudButton Variant="Variant.Outlined"
@@ -474,7 +534,15 @@
     private string _hubSearch = string.Empty;
     private bool _hubRefreshing;
     private bool _restartRequested;
+    private bool _dotNetSdkInstallerBusy;
     private string _hubBusyCatalogId = string.Empty;
+    private QuasarDotNetSdkInstallResult? _lastDotNetSdkInstallResult;
+    private QuasarDotNetSdkStatus _dotNetSdkStatus = new(
+        Environment.Version.Major,
+        DotNetOnPath: false,
+        RequiredSdkAvailable: false,
+        [],
+        "SDK check pending.");
 
     private string SafeModeMarkerPath => QuasarUiPluginCatalog.SafeModeMarkerPath;
 
@@ -488,6 +556,10 @@
 
     private bool HubOperationInProgress => !string.IsNullOrWhiteSpace(_hubBusyCatalogId);
 
+    private bool CanBuildUiPlugins => _dotNetSdkStatus.CanBuildUiPlugins;
+
+    private bool DotNetSdkInstallerBusy => _dotNetSdkInstallerBusy || HubCatalog.DotNetSdkInstallInProgress;
+
     private IReadOnlyDictionary<string, object?> PluginsPageParameters => new Dictionary<string, object?>
     {
         ["UiPlugins"] = PluginCatalog,
@@ -499,6 +571,7 @@
 
     protected override void OnInitialized()
     {
+        _dotNetSdkStatus = HubCatalog.GetDotNetSdkStatus();
         HubCatalog.Changed += HandleHubCatalogChanged;
         PluginStates.Changed += HandlePluginStatesChanged;
     }
@@ -591,6 +664,9 @@
         if (HubOperationInProgress)
             return;
 
+        if (!EnsureDotNetSdkForPluginBuild())
+            return;
+
         _hubBusyCatalogId = entry.CatalogId;
         try
         {
@@ -604,6 +680,50 @@
         finally
         {
             _hubBusyCatalogId = string.Empty;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task InstallDotNetSdkAsync()
+    {
+        if (DotNetSdkInstallerBusy)
+            return;
+
+        var availability = HubCatalog.GetDotNetSdkInstallAvailability();
+        if (!availability.CanInstall)
+        {
+            Snackbar.Add(availability.Message, Severity.Warning);
+            return;
+        }
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Install .NET SDK?",
+            "Quasar will run install.sh to install the .NET SDK required for source-built UI plugins. This may install system packages and can fail if sudo needs a password.",
+            yesText: "Install SDK",
+            cancelText: "Cancel");
+        if (confirmed != true)
+            return;
+
+        _dotNetSdkInstallerBusy = true;
+        _lastDotNetSdkInstallResult = null;
+        try
+        {
+            var result = await HubCatalog.InstallDotNetSdkAsync();
+            _lastDotNetSdkInstallResult = result;
+            _dotNetSdkStatus = HubCatalog.GetDotNetSdkStatus();
+            Snackbar.Add(result.Message, result.Succeeded ? Severity.Success : Severity.Error);
+        }
+        catch (Exception exception)
+        {
+            _lastDotNetSdkInstallResult = new QuasarDotNetSdkInstallResult(
+                Succeeded: false,
+                exception.Message,
+                string.Empty);
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            _dotNetSdkInstallerBusy = false;
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -710,10 +830,31 @@
         string.Equals(_hubBusyCatalogId, entry.CatalogId, StringComparison.OrdinalIgnoreCase);
 
     private bool IsHubInstallDisabled(QuasarUiPluginHubEntry entry) =>
+        !CanBuildUiPlugins ||
         HubOperationInProgress ||
         _hubRefreshing ||
         string.IsNullOrWhiteSpace(entry.RepoId) ||
         string.IsNullOrWhiteSpace(entry.Commit);
+
+    private string GetHubInstallDisabledReason(QuasarUiPluginHubEntry entry)
+    {
+        if (!CanBuildUiPlugins)
+            return $".NET SDK required to build UI plugins. Install .NET {_dotNetSdkStatus.RequiredMajorVersion} SDK.";
+
+        if (HubOperationInProgress)
+            return "Another QuasarHub operation is running.";
+
+        if (_hubRefreshing)
+            return "QuasarHub catalog refresh is running.";
+
+        if (string.IsNullOrWhiteSpace(entry.RepoId))
+            return "QuasarHub entry has no repository.";
+
+        if (string.IsNullOrWhiteSpace(entry.Commit))
+            return "QuasarHub entry has no pinned commit.";
+
+        return string.Empty;
+    }
 
     private string GetHubInstallButtonText(QuasarUiPluginHubEntry entry, QuasarUiPluginInstallState installState)
     {
@@ -786,6 +927,36 @@
     private static string GetHubEnableButtonIcon(QuasarUiPluginInstallState installState) =>
         installState.Enabled ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility;
 
+    private Color GetDotNetSdkChipColor() =>
+        CanBuildUiPlugins ? Color.Success : Color.Warning;
+
+    private string GetDotNetSdkChipText() =>
+        CanBuildUiPlugins ? $".NET {_dotNetSdkStatus.RequiredMajorVersion} SDK ready" : ".NET SDK missing";
+
+    private void RefreshDotNetSdkStatus()
+    {
+        _dotNetSdkStatus = HubCatalog.RefreshDotNetSdkStatus();
+        Snackbar.Add(_dotNetSdkStatus.Message, CanBuildUiPlugins ? Severity.Success : Severity.Warning);
+    }
+
+    private bool EnsureDotNetSdkForPluginBuild()
+    {
+        _dotNetSdkStatus = HubCatalog.RefreshDotNetSdkStatus();
+        if (CanBuildUiPlugins)
+            return true;
+
+        Snackbar.Add(_dotNetSdkStatus.Message, Severity.Warning);
+        return false;
+    }
+
+    private static string TrimInstallerOutput(string output)
+    {
+        const int maxCharacters = 8000;
+        return output.Length <= maxCharacters
+            ? output
+            : output[^maxCharacters..];
+    }
+
     private static string GetHubDisplayName(QuasarUiPluginHubEntry entry) =>
         string.IsNullOrWhiteSpace(entry.FriendlyName) ? entry.CatalogId : entry.FriendlyName;
 
@@ -839,6 +1010,7 @@
 
     private void HandleHubCatalogChanged()
     {
+        _dotNetSdkStatus = HubCatalog.GetDotNetSdkStatus();
         _ = InvokeAsync(StateHasChanged);
     }
 
