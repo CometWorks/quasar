@@ -70,6 +70,9 @@ The solution file is `Quasar.sln`.
   generated profile beside `Quasar.Agent.dll`. Viewer scene data is requested
   through `IQuasarCompanionChannel` from the viewer's Magnetar companion plugin;
   Quasar core does not carry viewer scene DTOs or a viewer-specific HTTP API.
+  Runtime-only packaged installs can run Quasar, but QuasarHub source-built UI
+  plugin install/update requires a matching .NET SDK on `PATH`; the UI disables
+  those build actions when the SDK preflight fails.
 
 ## Managed runtime selection
 

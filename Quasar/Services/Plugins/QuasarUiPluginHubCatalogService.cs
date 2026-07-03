@@ -18,6 +18,7 @@ public sealed class QuasarUiPluginHubCatalogService
     private const string PluginAbstractionsAssemblyFileName = "Quasar.Plugin.Abstractions.dll";
     private const string MagnetarProtocolAssemblyFileName = "Magnetar.Protocol.dll";
     private const string CompanionOutputRelativeDirectory = ".quasar/companions";
+    private static readonly int RequiredDotNetSdkMajor = Environment.Version.Major;
 
     public const string DefaultHubName = "QuasarHub";
     public const string DefaultHubRepo = "CometWorks/quasar-hub";
@@ -36,6 +37,9 @@ public sealed class QuasarUiPluginHubCatalogService
     private readonly IHostEnvironment _environment;
     private readonly QuasarUiPluginStateStore _pluginStates;
     private readonly QuasarUiPluginCatalog _uiPluginCatalog;
+    private readonly SemaphoreSlim _dotNetSdkInstallLock = new(1, 1);
+    private QuasarDotNetSdkStatus _dotNetSdkStatus;
+    private bool _dotNetSdkInstallInProgress;
     private List<QuasarUiPluginHubEntry> _entries;
 
     public QuasarUiPluginHubCatalogService(
@@ -52,6 +56,7 @@ public sealed class QuasarUiPluginHubCatalogService
         _environment = environment;
         _pluginStates = pluginStates;
         _uiPluginCatalog = uiPluginCatalog;
+        _dotNetSdkStatus = DetectDotNetSdkStatus();
         _entries = LoadCache();
     }
 
@@ -60,6 +65,15 @@ public sealed class QuasarUiPluginHubCatalogService
     public DateTimeOffset? LastRefreshUtc { get; private set; }
 
     public string LastError { get; private set; } = string.Empty;
+
+    public bool DotNetSdkInstallInProgress
+    {
+        get
+        {
+            lock (_sync)
+                return _dotNetSdkInstallInProgress;
+        }
+    }
 
     public IReadOnlyList<QuasarUiPluginHubEntry> GetEntries()
     {
@@ -71,6 +85,130 @@ public sealed class QuasarUiPluginHubCatalogService
                 .ThenBy(entry => entry.FriendlyName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.CatalogId, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+        }
+    }
+
+    public QuasarDotNetSdkStatus GetDotNetSdkStatus()
+    {
+        lock (_sync)
+            return _dotNetSdkStatus;
+    }
+
+    public QuasarDotNetSdkStatus RefreshDotNetSdkStatus()
+    {
+        var status = DetectDotNetSdkStatus();
+        lock (_sync)
+            _dotNetSdkStatus = status;
+
+        Changed?.Invoke();
+        return status;
+    }
+
+    public QuasarDotNetSdkInstallAvailability GetDotNetSdkInstallAvailability()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return new QuasarDotNetSdkInstallAvailability(
+                CanInstall: false,
+                "Automatic SDK install is only available on Linux through install.sh.",
+                string.Empty);
+        }
+
+        var scriptPath = GetInstallScriptPath();
+        if (string.IsNullOrWhiteSpace(scriptPath))
+        {
+            return new QuasarDotNetSdkInstallAvailability(
+                CanInstall: false,
+                "install.sh was not found beside Quasar. Install the .NET SDK manually, then refresh the SDK check.",
+                string.Empty);
+        }
+
+        return new QuasarDotNetSdkInstallAvailability(
+            CanInstall: true,
+            "Run install.sh to install the .NET SDK required for source-built QuasarHub UI plugins.",
+            scriptPath);
+    }
+
+    public async Task<QuasarDotNetSdkInstallResult> InstallDotNetSdkAsync(CancellationToken cancellationToken = default)
+    {
+        var sdkStatus = RefreshDotNetSdkStatus();
+        if (sdkStatus.CanBuildUiPlugins)
+        {
+            return new QuasarDotNetSdkInstallResult(
+                Succeeded: true,
+                sdkStatus.Message,
+                string.Empty);
+        }
+
+        var availability = GetDotNetSdkInstallAvailability();
+        if (!availability.CanInstall)
+        {
+            return new QuasarDotNetSdkInstallResult(
+                Succeeded: false,
+                availability.Message,
+                string.Empty);
+        }
+
+        if (!await _dotNetSdkInstallLock.WaitAsync(0, cancellationToken))
+        {
+            return new QuasarDotNetSdkInstallResult(
+                Succeeded: false,
+                "SDK install is already running.",
+                string.Empty);
+        }
+
+        SetDotNetSdkInstallInProgress(true);
+        try
+        {
+            _logger.LogInformation(
+                "Running {ScriptPath} to install the .NET SDK for QuasarHub UI plugin builds.",
+                availability.InstallScriptPath);
+
+            var scriptDirectory = Path.GetDirectoryName(availability.InstallScriptPath);
+            var startInfo = new ProcessStartInfo("bash")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                WorkingDirectory = string.IsNullOrWhiteSpace(scriptDirectory) ? AppContext.BaseDirectory : scriptDirectory,
+            };
+            startInfo.ArgumentList.Add(availability.InstallScriptPath);
+            startInfo.ArgumentList.Add("--install-ui-plugin-sdk-only");
+            startInfo.ArgumentList.Add("--yes");
+
+            var processResult = await RunProcessCaptureAsync(
+                startInfo,
+                "install.sh --install-ui-plugin-sdk-only",
+                cancellationToken);
+            var refreshedStatus = RefreshDotNetSdkStatus();
+            if (processResult.ExitCode == 0 && refreshedStatus.CanBuildUiPlugins)
+            {
+                return new QuasarDotNetSdkInstallResult(
+                    Succeeded: true,
+                    refreshedStatus.Message,
+                    processResult.Output);
+            }
+
+            var message = processResult.ExitCode == 0
+                ? refreshedStatus.Message
+                : $"SDK install script failed with exit code {processResult.ExitCode}.";
+            return new QuasarDotNetSdkInstallResult(
+                Succeeded: false,
+                message,
+                processResult.Output);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed to run install.sh for .NET SDK installation.");
+            return new QuasarDotNetSdkInstallResult(
+                Succeeded: false,
+                exception.Message,
+                string.Empty);
+        }
+        finally
+        {
+            SetDotNetSdkInstallInProgress(false);
+            _dotNetSdkInstallLock.Release();
         }
     }
 
@@ -209,6 +347,10 @@ public sealed class QuasarUiPluginHubCatalogService
         CancellationToken cancellationToken = default,
         bool enableAfterInstall = true)
     {
+        var sdkStatus = RefreshDotNetSdkStatus();
+        if (!sdkStatus.CanBuildUiPlugins)
+            throw new InvalidOperationException(sdkStatus.Message);
+
         if (string.IsNullOrWhiteSpace(entry.RepoId))
             throw new InvalidOperationException("QuasarHub entry has no repository.");
 
@@ -571,6 +713,24 @@ public sealed class QuasarUiPluginHubCatalogService
         }
     }
 
+    private static async Task<ProcessCaptureResult> RunProcessCaptureAsync(
+        ProcessStartInfo startInfo,
+        string label,
+        CancellationToken cancellationToken)
+    {
+        using var process = Process.Start(startInfo)
+                            ?? throw new InvalidOperationException($"Failed to start {label}.");
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+
+        var stdout = await stdoutTask;
+        var stderr = await stderrTask;
+        var output = string.Join(Environment.NewLine, [stdout.Trim(), stderr.Trim()])
+            .Trim();
+        return new ProcessCaptureResult(process.ExitCode, output);
+    }
+
     private string GetBuildConfiguration() =>
         Environment.GetEnvironmentVariable("QUASAR_UI_PLUGIN_BUILD_CONFIGURATION")
         ?? _configuration["Quasar:Plugins:BuildConfiguration"]
@@ -761,6 +921,121 @@ public sealed class QuasarUiPluginHubCatalogService
         }
     }
 
+    private static QuasarDotNetSdkStatus DetectDotNetSdkStatus()
+    {
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("--list-sdks");
+
+        try
+        {
+            using var process = Process.Start(startInfo);
+            if (process is null)
+                return CreateMissingSdkStatus("Failed to start dotnet --list-sdks.");
+
+            if (!process.WaitForExit(5000))
+            {
+                TryKillProcess(process);
+                return CreateMissingSdkStatus("dotnet --list-sdks did not finish within 5 seconds.");
+            }
+
+            var stdout = process.StandardOutput.ReadToEnd();
+            var stderr = process.StandardError.ReadToEnd();
+            if (process.ExitCode != 0)
+            {
+                var output = string.Join(Environment.NewLine, [stdout.Trim(), stderr.Trim()]).Trim();
+                return CreateMissingSdkStatus(string.IsNullOrWhiteSpace(output)
+                    ? $"dotnet --list-sdks failed with exit code {process.ExitCode}."
+                    : output);
+            }
+
+            var sdkVersions = stdout
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(GetSdkVersion)
+                .Where(version => !string.IsNullOrWhiteSpace(version))
+                .ToArray();
+            var requiredSdk = sdkVersions.FirstOrDefault(version =>
+                version.StartsWith($"{RequiredDotNetSdkMajor}.", StringComparison.OrdinalIgnoreCase));
+
+            if (!string.IsNullOrWhiteSpace(requiredSdk))
+            {
+                return new QuasarDotNetSdkStatus(
+                    RequiredDotNetSdkMajor,
+                    DotNetOnPath: true,
+                    RequiredSdkAvailable: true,
+                    sdkVersions,
+                    $".NET {RequiredDotNetSdkMajor} SDK {requiredSdk} is available for Quasar UI plugin builds.");
+            }
+
+            var installed = sdkVersions.Length == 0 ? "none" : string.Join(", ", sdkVersions);
+            return new QuasarDotNetSdkStatus(
+                RequiredDotNetSdkMajor,
+                DotNetOnPath: true,
+                RequiredSdkAvailable: false,
+                sdkVersions,
+                $".NET {RequiredDotNetSdkMajor} SDK is required to build Quasar UI plugins. Installed SDKs: {installed}.");
+        }
+        catch (Exception exception)
+        {
+            return CreateMissingSdkStatus(
+                $"dotnet command was not found or could not be started. .NET {RequiredDotNetSdkMajor} SDK is required to build Quasar UI plugins. {exception.Message}");
+        }
+    }
+
+    private static QuasarDotNetSdkStatus CreateMissingSdkStatus(string message) =>
+        new(
+            RequiredDotNetSdkMajor,
+            DotNetOnPath: false,
+            RequiredSdkAvailable: false,
+            [],
+            message);
+
+    private void SetDotNetSdkInstallInProgress(bool inProgress)
+    {
+        lock (_sync)
+            _dotNetSdkInstallInProgress = inProgress;
+
+        Changed?.Invoke();
+    }
+
+    private string GetInstallScriptPath()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "install.sh"),
+            Path.Combine(_environment.ContentRootPath, "install.sh"),
+            Path.Combine(_environment.ContentRootPath, "..", "install.sh"),
+            Path.Combine(Directory.GetCurrentDirectory(), "install.sh"),
+        };
+
+        return candidates
+            .Select(Path.GetFullPath)
+            .FirstOrDefault(File.Exists)
+            ?? string.Empty;
+    }
+
+    private static string GetSdkVersion(string sdkLine)
+    {
+        var index = sdkLine.IndexOf(' ', StringComparison.Ordinal);
+        return index < 0 ? sdkLine : sdkLine[..index];
+    }
+
+    private static void TryKillProcess(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: false);
+        }
+        catch
+        {
+        }
+    }
+
     private static string GetPluginRootDirectory() =>
         Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Plugins");
 
@@ -803,6 +1078,28 @@ public sealed class QuasarUiPluginHubCatalogService
 
         public List<QuasarUiPluginHubEntry> Entries { get; set; } = [];
     }
+
+    private sealed record ProcessCaptureResult(int ExitCode, string Output);
+}
+
+public sealed record QuasarDotNetSdkInstallAvailability(
+    bool CanInstall,
+    string Message,
+    string InstallScriptPath);
+
+public sealed record QuasarDotNetSdkInstallResult(
+    bool Succeeded,
+    string Message,
+    string Output);
+
+public sealed record QuasarDotNetSdkStatus(
+    int RequiredMajorVersion,
+    bool DotNetOnPath,
+    bool RequiredSdkAvailable,
+    IReadOnlyList<string> InstalledSdkVersions,
+    string Message)
+{
+    public bool CanBuildUiPlugins => DotNetOnPath && RequiredSdkAvailable;
 }
 
 public sealed class QuasarUiPluginHubEntry

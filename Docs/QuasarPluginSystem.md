@@ -150,6 +150,7 @@ The `/settings/ui-plugins` page now manages the QuasarHub catalog:
 - shows installed, update-available, hidden, and invalid package states
 - enables or disables installed packages for the next restart
 - clones/fetches the plugin repository and checks out the pinned commit
+- checks for the matching .NET SDK before building source packages
 - builds the declared plugin project with `dotnet build`
 - passes `QuasarPluginAbstractionsAssembly` to the build so the plugin compiles
   against the contract DLL loaded by the running Quasar worker
@@ -192,6 +193,16 @@ The installer passes the running worker's physical
 `QuasarPluginAbstractionsAssembly`. Release packaging keeps that DLL beside the
 single-file worker so Bootstrap-managed installs can build UI plugins from
 QuasarHub without needing a NuGet package.
+The web worker must still have a matching .NET SDK on `PATH`; the ASP.NET Core
+runtime is enough to run Quasar, but not enough to compile source-built UI
+plugins. At startup Quasar checks `dotnet --list-sdks`; if the required SDK is
+missing, `/settings/ui-plugins` shows `.NET SDK required to build UI plugins`
+and disables QuasarHub install/update buttons until the SDK is installed and the
+check is refreshed. On Linux, the warning includes an **Install SDK** action that
+runs `install.sh --install-ui-plugin-sdk-only --yes`, captures the installer
+output, refreshes the SDK preflight, and leaves Quasar service files untouched.
+This can still fail if package installation requires an interactive sudo
+password.
 Owned companion build output is written under
 `{installed package}/.quasar/companions/{companion id}`. Quasar passes
 `MagnetarProtocolAssembly` from the running worker or staged `Agent/` directory

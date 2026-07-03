@@ -19,12 +19,19 @@ port is configurable — see [Configuration](Docs/Configuration.md).
 
 ### Install as a background service (systemd)
 
-Install the **.NET 10 runtime** before running `install.sh`.
+Install the **.NET 10 runtime** before running `install.sh`. Packaged Quasar can
+run with the runtime alone, but QuasarHub UI plugin install/update compiles
+source with `dotnet build` and needs the **.NET 10 SDK**. Accept the optional SDK
+prompt or pass `--install-ui-plugin-sdk` if you plan to install source-built UI
+plugins from QuasarHub. If the SDK is still missing later, the UI Plugins page
+can run the install script's SDK-only path from the warning banner.
 
 ```bash
 mkdir -p ~/.local/share/Quasar
 tar -xzf quasar-installer-linux.tar.gz -C ~/.local/share/Quasar --strip-components=1
 ~/.local/share/Quasar/install.sh --start
+# Or install the optional UI plugin build SDK too:
+# ~/.local/share/Quasar/install.sh --start --install-ui-plugin-sdk
 ```
 
 This installs Quasar in the extracted folder, keeps Quasar state in the same
