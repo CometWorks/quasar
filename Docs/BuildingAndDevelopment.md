@@ -9,7 +9,8 @@ utilities. For the runtime design see [Architecture](QuasarArchitecture.md).
   Blazor Server supervisor host, DS process manager, config/runtime preparation,
   and WebSocket endpoint for agents.
 - `Quasar.Agent`
-  Dedicated Server plugin that attaches to Quasar and exposes telemetry/commands.
+  Dedicated Server plugin that attaches to Quasar and exposes telemetry,
+  commands, and generic companion-plugin request dispatch.
 - `Quasar.Bootstrap`
   Ensure-running helper used for the Quasar startup/bootstrap flow.
 - `Quasar.Plugin.Abstractions`
@@ -17,8 +18,8 @@ utilities. For the runtime design see [Architecture](QuasarArchitecture.md).
   model, nav contributions, page/component patch contributions, and the generic
   companion-channel interface.
 - `Magnetar.Protocol`
-  Shared transport and discovery contracts currently used by Quasar and
-  Quasar.Agent.
+  Shared transport, discovery, and Magnetar bridge contracts currently used by
+  Quasar, Quasar.Agent, and companion plugins.
 - Quasar UI plugins
   Optional UI extensions are discovered through QuasarHub and installed into the
   Quasar data directory at runtime. Entity Viewer now lives in the external
@@ -61,6 +62,14 @@ The solution file is `Quasar.sln`.
   static assets from `/_quasar/plugins/{pluginId}/`. Single-file release
   packaging leaves `Quasar.Plugin.Abstractions.dll` beside the worker executable
   so packaged installs have the same physical contract path as source builds.
+  When the UI plugin manifest owns a Magnetar companion project, the installer
+  also builds that project with `MagnetarProtocolAssembly` pointing at Quasar's
+  active protocol assembly and stages the output under
+  `.quasar/companions/{companionId}`. On server prepare, enabled UI plugin
+  companions are copied to the server Magnetar `Local` folder and added to the
+  generated profile beside `Quasar.Agent.dll`. Viewer scene data is requested
+  through `IQuasarCompanionChannel` from the viewer's Magnetar companion plugin;
+  Quasar core does not carry viewer scene DTOs or a viewer-specific HTTP API.
 
 ## Managed runtime selection
 

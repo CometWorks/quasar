@@ -213,6 +213,10 @@
                                 {
                                     <MudText Typo="Typo.caption" Class="mud-text-secondary">Hidden in hub</MudText>
                                 }
+                                @if (context.ImplicitLoading)
+                                {
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Implicit loading</MudText>
+                                }
                             </MudStack>
                         </MudTd>
                         <MudTd DataLabel="Description">
@@ -716,7 +720,12 @@
             return Color.Error;
 
         if (!installState.Installed)
+        {
+            if (entry.ImplicitLoading)
+                return Color.Info;
+
             return entry.Hidden ? Color.Secondary : Color.Default;
+        }
 
         if (!installState.Enabled)
             return Color.Warning;
@@ -732,7 +741,12 @@
             return "Invalid";
 
         if (!installState.Installed)
+        {
+            if (entry.ImplicitLoading)
+                return "Implicit";
+
             return entry.Hidden ? "Hidden" : "Not installed";
+        }
 
         if (!installState.Enabled)
             return "Disabled";

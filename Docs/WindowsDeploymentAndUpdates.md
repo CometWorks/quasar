@@ -23,7 +23,8 @@ Linux packager, under `artifacts/windows/`:
   - `Quasar.Plugin.Abstractions.dll` for Quasar UI plugin adapter builds
   - Blazor/static assets
   - `Agent/Quasar.Agent.dll`
-  - `Agent/Magnetar.Protocol.dll`
+  - `Agent/Magnetar.Protocol.dll` for Quasar.Agent and UI-plugin-owned
+    Magnetar companion builds
 - `SHA256SUMS`
 
 The packager emits a per-OS `SHA256SUMS` for local use, but the published release

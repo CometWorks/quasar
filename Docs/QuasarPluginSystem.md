@@ -110,10 +110,22 @@ Example:
   ],
   "quasarVersion": ">=0.1.0",
   "companionPlugins": [
+    {
+      "id": "cometworks.entityviewer",
+      "projectPath": "src/CometWorks.EntityViewer.Magnetar/CometWorks.EntityViewer.Magnetar.csproj",
+      "entryAssembly": "CometWorks.EntityViewer.Magnetar.dll"
+    },
     "GridBackups"
   ]
 }
 ```
+
+`companionPlugins` accepts either a string id or an object. A string names an
+external Magnetar plugin that the UI plugin can call through the companion
+channel. An object with `projectPath` is owned by the UI plugin package: Quasar
+builds that Magnetar companion project during UI plugin install and deploys it
+automatically to managed servers while the UI plugin is enabled. `entryAssembly`
+is optional; when omitted, Quasar derives `{project file name}.dll`.
 
 The `quasar-hub` XML manifest remains the public catalog entry. The package
 manifest is the plugin repository's runtime/build descriptor.
@@ -132,12 +144,18 @@ The `/settings/ui-plugins` page now manages the QuasarHub catalog:
   `{Quasar data directory}/Caches/ui-plugin-hub-catalog.json`
 - checks QuasarHub on Quasar startup and every 15 minutes so installed package
   update availability stays current
+- automatically installs or updates reviewed hub entries that opt into
+  `ImplicitLoading`; disabled installed plugins stay disabled across implicit
+  updates
 - shows installed, update-available, hidden, and invalid package states
 - enables or disables installed packages for the next restart
 - clones/fetches the plugin repository and checks out the pinned commit
 - builds the declared plugin project with `dotnet build`
 - passes `QuasarPluginAbstractionsAssembly` to the build so the plugin compiles
   against the contract DLL loaded by the running Quasar worker
+- builds any owned Magnetar companion projects declared in `companionPlugins`
+  objects, passing `MagnetarProtocolAssembly` so they compile against the
+  protocol assembly used by Quasar.Agent
 - removes local plugin packages
 - links back to the plugin repository and QuasarHub
 
@@ -174,6 +192,16 @@ The installer passes the running worker's physical
 `QuasarPluginAbstractionsAssembly`. Release packaging keeps that DLL beside the
 single-file worker so Bootstrap-managed installs can build UI plugins from
 QuasarHub without needing a NuGet package.
+Owned companion build output is written under
+`{installed package}/.quasar/companions/{companion id}`. Quasar passes
+`MagnetarProtocolAssembly` from the running worker or staged `Agent/` directory
+and builds companions for `x64`, matching Space Engineers Dedicated Server.
+When a managed server is prepared, enabled UI plugin companions are copied into
+that server's Magnetar `Local` folder and their entry assemblies are added to
+the generated Magnetar `Current.xml` profile. Shared loader/protocol files such
+as `Magnetar.Protocol.dll`, `Quasar.Agent.dll`, `0Harmony.dll`, and
+`PluginSdk.dll` are not copied from companion output; Quasar deploys its own
+agent/protocol files.
 At startup, Quasar resolves plugin dependencies from the plugin's shadow-copied
 build output and records contribution enumeration failures as plugin load errors
 instead of letting one plugin crash the worker during catalog construction.
@@ -181,6 +209,12 @@ instead of letting one plugin crash the worker during catalog construction.
 Install, update, and remove operations change files on disk only. The active
 plugin assembly set is still loaded at Quasar worker startup, so each operation
 requires a Quasar restart before it takes effect.
+
+QuasarHub descriptors can set `<ImplicitLoading>true</ImplicitLoading>` for
+reviewed plugins that should be present by default. Quasar installs or updates
+those entries during hub refresh, except in safe mode. A first implicit install
+is enabled for the next restart; if an already-installed plugin was explicitly
+disabled, implicit updates keep it disabled.
 
 ## Plugin Abstractions
 
@@ -543,7 +577,7 @@ narrow selectors and MudBlazor/Quasar CSS variables instead of global resets.
 ## Companion Data Channel
 
 UI plugins often need live server data from companion Magnetar plugins. Quasar
-should expose a generic channel instead of feature-specific Quasar endpoints.
+exposes a generic channel instead of feature-specific Quasar endpoints.
 
 ```csharp
 public interface IQuasarCompanionChannel
@@ -557,12 +591,12 @@ public interface IQuasarCompanionChannel
 }
 ```
 
-The channel rides on the existing Quasar.Agent WebSocket transport. The agent
-adds generic command envelopes:
-
-- `PluginRequest`
-- `PluginResponse`
-- `PluginEvent`
+The channel rides on the existing Quasar.Agent WebSocket transport. Quasar sends
+`ServerCommandType.PluginRequest` to the selected agent; the command payload is a
+generic `CompanionPluginRequest` with JSON owned by the caller and target
+plugin. The agent dispatches the request to a loaded Magnetar plugin that
+implements `Magnetar.Protocol.Bridge.IQuasarCompanionRequestHandler` and returns
+a `CompanionPluginResponse`.
 
 Envelope fields:
 
@@ -570,10 +604,17 @@ Envelope fields:
 - `operation`
 - `schemaVersion`
 - `correlationId`
-- `payload`
+- `payloadJson`
 
-Quasar performs web auth, rate limits requests, and binds requests to a managed
-server. Companion plugins handle only their own operation names.
+Quasar performs web auth at the UI/plugin endpoint layer and binds requests to a
+connected managed server. Companion plugins handle only their own operation
+names and own the typed request/response DTOs for those operations.
+
+UI-plugin-owned companions are local plugins from Quasar's perspective, not
+MagnetarHub selections. Enabling a UI plugin enables its owned companion for all
+managed servers prepared after the next Quasar restart. Disabling the UI plugin
+removes that companion from subsequently generated Magnetar profiles, although
+old copied DLLs can remain inert in the server's `Local` folder.
 
 ## Entity Viewer and GridBackups
 
@@ -586,6 +627,7 @@ Entity Viewer owns:
 - static viewer assets
 - audit/timeline UI
 - typed request DTOs for viewer-specific operations
+- companion Magnetar plugin handlers for viewer scene capture
 
 GridBackups owns:
 
@@ -596,9 +638,11 @@ GridBackups owns:
 - companion-channel handlers for grid audit, backup list, snapshot metadata, and
   future snapshot content
 
-Entity Viewer should call GridBackups through the companion channel. GridBackups
-should not reference the Entity Viewer UI assembly. If shared DTOs are useful, put
-them in a small contracts assembly that both can reference.
+Entity Viewer should call its Magnetar companion plugin and GridBackups through
+the companion channel. Quasar core does not ship a viewer scene API or
+viewer-specific scene DTOs. GridBackups should not reference the Entity Viewer UI
+assembly. If shared DTOs are useful, put them in a small contracts assembly that
+both can reference.
 
 ## MudBlazor Requirement
 

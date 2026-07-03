@@ -18,7 +18,8 @@ web UI worker.
   - `Quasar.Plugin.Abstractions.dll` for Quasar UI plugin adapter builds
   - Blazor/static assets
   - `Agent/Quasar.Agent.dll`
-  - `Agent/Magnetar.Protocol.dll`
+  - `Agent/Magnetar.Protocol.dll` for Quasar.Agent and UI-plugin-owned
+    Magnetar companion builds
 - `SHA256SUMS`
 
 The unified release workflow (`.github/workflows/release.yml`) builds the Linux

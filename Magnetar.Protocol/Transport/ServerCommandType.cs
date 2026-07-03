@@ -17,5 +17,5 @@ public enum ServerCommandType
     SetPlayerPromoteLevel = 12,
     ClearKickCooldown = 13,
     SetProfilerMode = 14,
-    GetEntityRenderScene = 15,
+    PluginRequest = 15,
 }
