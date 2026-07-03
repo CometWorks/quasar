@@ -1683,10 +1683,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     // unhealthy and restart (kill) it.
                     state.AgentWatchSinceUtc = DateTimeOffset.UtcNow;
                     state.State = persistedState.State is DedicatedServerProcessState.Starting
-                        or DedicatedServerProcessState.Running
-                        or DedicatedServerProcessState.Restarting
-                        or DedicatedServerProcessState.Stopping
-                        ? persistedState.State
+                        ? DedicatedServerProcessState.Starting
                         : DedicatedServerProcessState.Running;
                     state.LastMessage = "Process adopted after Quasar worker turnover.";
                     state.StoppedAtUtc = null;

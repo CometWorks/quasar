@@ -11,6 +11,10 @@ public static class QuasarReleaseVersion
         @"(?<core>\d+(?:\.\d+){1,3})(?:-(?<pre>[0-9A-Za-z][0-9A-Za-z.-]*))?",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex LegacyChannelPrereleasePattern = new(
+        @"^(?:(?<channel>main|manual)\.(?<build>\d+)|pr\.(?<pr>\d+)\.(?<build>\d+))$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
     public static string GetEntryAssemblyVersion()
     {
         var assembly = Assembly.GetEntryAssembly();
@@ -51,6 +55,9 @@ public static class QuasarReleaseVersion
 
         var core = NormalizeCore(match.Groups["core"].Value);
         var prerelease = match.Groups["pre"].Success ? match.Groups["pre"].Value : string.Empty;
+        if (TryNormalizeLegacyChannelPrerelease(core, prerelease, out var channelVersion))
+            return channelVersion;
+
         if (int.TryParse(prerelease, out _))
             return $"{core}.{prerelease}";
 
@@ -64,6 +71,28 @@ public static class QuasarReleaseVersion
             parts = parts.Take(3).ToArray();
 
         return string.Join(".", parts);
+    }
+
+    private static bool TryNormalizeLegacyChannelPrerelease(string core, string prerelease, out string version)
+    {
+        version = string.Empty;
+        if (string.IsNullOrWhiteSpace(prerelease))
+            return false;
+
+        var match = LegacyChannelPrereleasePattern.Match(prerelease);
+        if (!match.Success)
+            return false;
+
+        var build = match.Groups["build"].Value;
+        var normalizedCore = $"{core}.{build}";
+        if (match.Groups["pr"].Success)
+        {
+            version = $"{normalizedCore}-pr.{match.Groups["pr"].Value}";
+            return true;
+        }
+
+        version = $"{normalizedCore}-{match.Groups["channel"].Value.ToLowerInvariant()}";
+        return true;
     }
 
     private static bool TryParse(string value, out ReleaseVersion version)

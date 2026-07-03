@@ -221,7 +221,11 @@ Install, update, and remove operations change files on disk only. The active
 plugin assembly set is still loaded at Quasar worker startup, so each operation
 requires a Quasar restart before it takes effect. When that restart is triggered
 from the UI Plugins page, the browser shows restart progress and polls
-`/api/health` until the replacement worker is ready.
+`/api/health` until the replacement worker is ready. The restart watcher is
+stored in browser session storage, so refreshing the page resumes the same
+progress overlay and health polling. Managed Space Engineers server processes
+stay detached during the Quasar worker restart and are adopted as running by the
+replacement worker when their process id is still alive.
 
 QuasarHub descriptors can set `<ImplicitLoading>true</ImplicitLoading>` for
 reviewed plugins that should be present by default. Quasar installs or updates

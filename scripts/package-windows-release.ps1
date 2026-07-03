@@ -45,6 +45,10 @@ function Normalize-NugetVersion {
 
     if ($v -match '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$') { return $v }
 
+    if ($v -match '^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)-([0-9A-Za-z][0-9A-Za-z.-]*)$') {
+        return "$($Matches[1]).$($Matches[2]).$($Matches[3])-$($Matches[4]).$($Matches[5])"
+    }
+
     if ($v -match '^[0-9]+(\.[0-9]+){3}$') {
         $parts = $v.Split('.')
         return "$($parts[0]).$($parts[1]).$($parts[2])-$($parts[3])"
@@ -185,6 +189,7 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = (Invoke-GitProbe -C $RepoDir rev-parse --short HEAD).Output
 }
 $Version = $Version -replace '^v', ''
+$InformationalVersion = $Version
 $NugetVersion = Normalize-NugetVersion $Version
 $AssemblyFileVersion = Build-AssemblyFileVersion $Version
 
@@ -216,7 +221,7 @@ Write-Host "Publishing Quasar.Bootstrap ($Configuration, $Runtime, version $Nuge
     -p:Version=$NugetVersion `
     -p:AssemblyVersion=$AssemblyFileVersion `
     -p:FileVersion=$AssemblyFileVersion `
-    -p:InformationalVersion=$NugetVersion `
+    -p:InformationalVersion=$InformationalVersion `
     -o $PublishDir `
     -v minimal
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish Quasar.Bootstrap failed with exit code $LASTEXITCODE" }
