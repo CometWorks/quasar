@@ -21,7 +21,7 @@ utilities. For the runtime design see [Architecture](QuasarArchitecture.md).
   Quasar.Agent.
 - Quasar UI plugins
   Optional UI extensions are discovered through QuasarHub and installed into the
-  Quasar data directory at runtime. Grid Viewer now lives in the external
+  Quasar data directory at runtime. Entity Viewer now lives in the external
   `CometWorks/viewer` repository and is installed as a Quasar UI plugin instead
   of being staged from this repository during the core Quasar build.
 
@@ -53,7 +53,7 @@ The solution file is `Quasar.sln`.
   cached path to the build through `DS64`. On a cache miss it downloads the
   Windows depot with SteamCMD and retries the install to work around transient
   missing-configuration failures.
-- Building `Quasar/Quasar.csproj` no longer requires the Grid Viewer source tree
+- Building `Quasar/Quasar.csproj` no longer requires the Entity Viewer source tree
   or its npm packages. The viewer plugin is installed from QuasarHub, where the
   catalog pins a commit in `https://github.com/CometWorks/viewer.git`. The plugin
   installer clones that repository, builds the adapter project against the

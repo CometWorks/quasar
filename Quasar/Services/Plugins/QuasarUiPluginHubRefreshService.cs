@@ -2,8 +2,7 @@ namespace Quasar.Services.Plugins;
 
 public sealed class QuasarUiPluginHubRefreshService : BackgroundService
 {
-    private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(3);
-    private static readonly TimeSpan RefreshInterval = TimeSpan.FromHours(8);
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(15);
 
     private readonly QuasarUiPluginHubCatalogService _catalog;
     private readonly ILogger<QuasarUiPluginHubRefreshService> _logger;
@@ -20,7 +19,6 @@ public sealed class QuasarUiPluginHubRefreshService : BackgroundService
     {
         try
         {
-            await Task.Delay(StartupDelay, stoppingToken);
             await RefreshOnceAsync(stoppingToken);
 
             using var timer = new PeriodicTimer(RefreshInterval);

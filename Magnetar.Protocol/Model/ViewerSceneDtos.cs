@@ -17,7 +17,7 @@ public class EntityRenderSceneRequest
 }
 
 /// <summary>
-/// Metadata-only scene snapshot for the browser grid viewer. This contract must not
+/// Metadata-only scene snapshot for the browser entity viewer. This contract must not
 /// contain model bytes, texture bytes, or extracted mesh geometry.
 /// </summary>
 public class EntityRenderScene
