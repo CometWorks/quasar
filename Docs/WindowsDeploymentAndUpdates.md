@@ -101,8 +101,8 @@ explicit and requires the worker to be running under Bootstrap; the UI copies th
 staged payload into `<install-root>\ManagedRuntime\WebService\<version>`, clears
 stale staged payloads, and Bootstrap drains the old worker, starts the managed
 `Quasar.exe` on the same port, and leaves managed Magnetar servers running. The
-browser polls `/api/health` until the activated UI version is serving, then
-reloads the Updates page.
+browser shows a restart progress overlay, polls `/api/health` until the
+activated UI version is serving, then reloads the Updates page.
 
 Staging also resolves `appsettings.json`. Quasar uses the stored release base in
 the data directory (`<install-root>\Updates\appsettings.base.json` by default) as the
@@ -147,7 +147,8 @@ running under Bootstrap, the **Force activate** button writes a
 and platform asset. Bootstrap watches for that file, consumes it, and runs the
 same verified self-update path for that requested release immediately instead of
 waiting for the next 15-minute monitor tick. Managed Magnetar servers stay
-running; the web UI reconnects after the launcher restarts.
+running; the web UI shows restart progress and reconnects after the launcher
+restarts.
 
 Because there is no systemd on Windows, the launcher restarts itself: after
 applying the update it spawns a detached `Quasar.exe serve --quiet` and exits `0`.

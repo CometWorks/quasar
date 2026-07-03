@@ -157,13 +157,20 @@ h1:focus {
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected),
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) > .mud-table-cell,
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) > td {
-    --quasar-table-hover-background: var(--quasar-hover-list-background, var(--mud-palette-secondary));
+    --quasar-table-selected-background: var(--quasar-hover-list-background, var(--mud-palette-secondary));
+    --quasar-table-hover-background: color-mix(in srgb, var(--quasar-table-selected-background) 84%, #000 16%);
     --quasar-table-hover-text: var(--quasar-hover-list-text, var(--mud-palette-secondary-text));
     --quasar-table-hover-success: color-mix(in srgb, var(--mud-palette-success) 72%, var(--quasar-table-hover-text));
     --quasar-table-hover-warning: color-mix(in srgb, var(--mud-palette-warning) 72%, var(--quasar-table-hover-text));
     --quasar-table-hover-error: color-mix(in srgb, var(--mud-palette-error) 72%, var(--quasar-table-hover-text));
-    background-color: var(--quasar-table-hover-background) !important;
+    background-color: var(--quasar-table-selected-background) !important;
     color: var(--quasar-table-hover-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover > .mud-table-cell,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover > td {
+    background-color: var(--quasar-table-hover-background) !important;
 }
 
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) *:not(.mud-button-root *) {
@@ -484,6 +491,114 @@ td.quasar-actions-column > .plugin-actions {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
+}
+
+.quasar-restart-feedback {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    color: var(--mud-palette-text-primary);
+    background: rgba(0, 0, 0, 0.58);
+}
+
+.quasar-restart-feedback-panel {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 1rem;
+    width: min(100%, 32rem);
+    padding: 1.25rem;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: calc(var(--mud-default-borderradius) + 2px);
+    background: var(--mud-palette-surface);
+    box-shadow: var(--mud-elevation-8);
+}
+
+.quasar-restart-feedback-spinner {
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 3px solid var(--mud-palette-lines-default);
+    border-top-color: var(--mud-palette-primary);
+    border-radius: 50%;
+    animation: quasar-restart-feedback-spin 900ms linear infinite;
+}
+
+.quasar-restart-feedback-content {
+    display: grid;
+    gap: 0.6rem;
+    min-width: 0;
+}
+
+.quasar-restart-feedback-title {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.quasar-restart-feedback-message,
+.quasar-restart-feedback-status,
+.quasar-restart-feedback-step {
+    font-size: 0.875rem;
+    line-height: 1.35;
+}
+
+.quasar-restart-feedback-message,
+.quasar-restart-feedback-step {
+    color: var(--mud-palette-text-secondary);
+}
+
+.quasar-restart-feedback-status {
+    color: var(--mud-palette-text-primary);
+}
+
+.quasar-restart-feedback-steps {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.quasar-restart-feedback-step {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.quasar-restart-feedback-step::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 0.5rem;
+    height: 0.5rem;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+}
+
+.quasar-restart-feedback-step-active {
+    color: var(--mud-palette-primary);
+    font-weight: 600;
+}
+
+.quasar-restart-feedback-step-done::before {
+    background: currentColor;
+}
+
+@keyframes quasar-restart-feedback-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (max-width: 600px) {
+    .quasar-restart-feedback-panel {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .quasar-restart-feedback-spinner {
+        justify-self: start;
+    }
 }
 
 .mud-main-content {

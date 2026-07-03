@@ -125,10 +125,10 @@ managed worker, updates the install-directory `appsettings.json` from the
 resolved staged file, and clears old staged payloads. Bootstrap copies that
 install-directory file into the managed worker before launch, observes the
 pointer change, drains the old worker, starts the managed worker on the same
-public port, and leaves managed Magnetar servers running. The browser polls
-`/api/health` until the activated UI version is serving, then reloads the
-Updates page. After a successful cutover, Bootstrap prunes inactive managed
-web-release directories.
+public port, and leaves managed Magnetar servers running. The browser shows a
+restart progress overlay, polls `/api/health` until the activated UI version is
+serving, then reloads the Updates page. After a successful cutover, Bootstrap
+prunes inactive managed web-release directories.
 
 This intentionally accepts a short web/agent disconnect. `Quasar.Agent`
 reconnects, and managed Magnetar processes stay alive because Quasar launches

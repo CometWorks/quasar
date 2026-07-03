@@ -318,7 +318,18 @@
         // The worker is about to stop, dropping this Blazor circuit, so hand off to a
         // browser-side poller that reloads to the Dashboard once the new worker is
         // healthy. Invoke it before stopping so the call reaches the client in time.
-        await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/");
+        await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/", new
+        {
+            requireUnhealthy = true,
+            showFeedback = true,
+            title = "Restarting Quasar",
+            message = "Stopping the current web worker. The page will reload when Quasar is healthy again.",
+            initialStatus = "Submitting restart request.",
+            waitingForStopMessage = "Waiting for the current worker to stop.",
+            pollingMessage = "Waiting for the restarted worker to pass /api/health.",
+            successMessage = "Quasar is healthy. Reloading Dashboard.",
+            timeoutMessage = "Still waiting for Quasar. Reloading Dashboard now.",
+        });
 
         ShutdownService.RestartWorker();
     }

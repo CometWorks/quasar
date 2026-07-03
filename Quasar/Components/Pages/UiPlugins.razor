@@ -8,6 +8,7 @@
 @inject WebServiceOptions WebOptions
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject IJSRuntime JS
 
 <PageTitle>UI Plugins</PageTitle>
 
@@ -28,7 +29,7 @@
             <MudButton Variant="Variant.Outlined"
                        Color="Color.Warning"
                        StartIcon="@Icons.Material.Filled.RestartAlt"
-                       Disabled="@(!IsRestartAvailable)"
+                       Disabled="@(!IsRestartAvailable || _restartRequested)"
                        OnClick="RestartQuasarAsync">
                 Restart Quasar
             </MudButton>
@@ -472,6 +473,7 @@
 {
     private string _hubSearch = string.Empty;
     private bool _hubRefreshing;
+    private bool _restartRequested;
     private string _hubBusyCatalogId = string.Empty;
 
     private string SafeModeMarkerPath => QuasarUiPluginCatalog.SafeModeMarkerPath;
@@ -535,9 +537,31 @@
             return;
         }
 
-        Snackbar.Add("Restarting Quasar. The page will reconnect when it is back.", Severity.Info);
-        await Task.Yield();
-        ShutdownService.RestartWorker();
+        _restartRequested = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/settings/ui-plugins", new
+            {
+                requireUnhealthy = true,
+                showFeedback = true,
+                title = "Restarting Quasar",
+                message = "Reloading the web worker so UI plugin changes can load.",
+                initialStatus = "Submitting restart request.",
+                waitingForStopMessage = "Waiting for the current worker to stop.",
+                pollingMessage = "Waiting for the restarted worker to pass /api/health.",
+                successMessage = "Quasar is healthy. Reloading UI Plugins.",
+                timeoutMessage = "Still waiting for Quasar. Reloading UI Plugins now.",
+            });
+            Snackbar.Add("Restarting Quasar. The page will reconnect when it is back.", Severity.Info);
+            ShutdownService.RestartWorker();
+        }
+        catch (Exception exception)
+        {
+            _restartRequested = false;
+            Snackbar.Add($"Failed restarting Quasar: {exception.Message}", Severity.Error);
+        }
     }
 
     private async Task RefreshHubCatalogAsync()
