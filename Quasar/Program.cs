@@ -159,7 +159,6 @@ public class Program
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<EntityService>();
             builder.Services.AddSingleton<ViewerSceneService>();
-            builder.Services.AddScoped<EntityViewerDialogService>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
             builder.Services.AddSingleton<QuasarWorldTemplateCatalog>();
@@ -301,22 +300,8 @@ public class Program
                 }
             });
 
-            var viewerPage = app.MapGet("/viewer/entity", (IWebHostEnvironment environment) =>
-            {
-                var webRootPath = string.IsNullOrWhiteSpace(environment.WebRootPath)
-                    ? Path.Combine(environment.ContentRootPath, "wwwroot")
-                    : environment.WebRootPath;
-                var path = Path.Combine(webRootPath, "viewer", "index.html");
-                return File.Exists(path)
-                    ? Results.File(path, "text/html; charset=utf-8")
-                    : Results.NotFound("Viewer assets are not installed.");
-            });
-
             if (authOptions.Enabled)
-            {
                 viewerScene.RequireAuthorization(QuasarPolicyNames.CanView);
-                viewerPage.RequireAuthorization(QuasarPolicyNames.CanView);
-            }
 
             var serverLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/server/download", (string uniqueName, HttpContext context, DedicatedServerCatalog catalog) =>
                 DownloadLogFile(ResolveDedicatedServerLogPath(

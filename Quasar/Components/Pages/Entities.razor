@@ -3,7 +3,6 @@
 @inject AgentRegistry Registry
 @inject DedicatedServerCatalog ServerCatalog
 @inject EntityService EntityService
-@inject EntityViewerDialogService ViewerDialog
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 
@@ -151,9 +150,7 @@ else
         <HeaderContent>
             <MudTh>Type</MudTh>
             <MudTh>Entity ID</MudTh>
-            <QuasarExtensionOutlet TargetKey="@QuasarExtensionTargets.EntityViewerColumnHeader">
-                <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Viewer</span></MudTh>
-            </QuasarExtensionOutlet>
+            <QuasarExtensionOutlet TargetKey="@QuasarExtensionTargets.EntityViewerColumnHeader" />
             <MudTh>Sub-type</MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.BlockCount ?? -1)">Blocks</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.Pcu ?? -1)">PCU</MudTableSortLabel></MudTh>
@@ -172,19 +169,7 @@ else
             </MudTd>
             <QuasarExtensionOutlet
                 TargetKey="@QuasarExtensionTargets.EntityViewerColumnCell"
-                Parameters="@CreateEntityExtensionParameters(context)">
-                <MudTd DataLabel="" Class="quasar-actions-column">
-                    <span @onclick:stopPropagation="true">
-                        <MudTooltip Text="Open viewer">
-                            <MudIconButton Icon="@Icons.Material.Filled.Visibility"
-                                           Color="Color.Primary"
-                                           Size="Size.Small"
-                                           Disabled="@(!CanViewEntity(context))"
-                                           OnClick="@(() => OpenViewerAsync(context))" />
-                        </MudTooltip>
-                    </span>
-                </MudTd>
-            </QuasarExtensionOutlet>
+                Parameters="@CreateEntityExtensionParameters(context)" />
             <MudTd DataLabel="Sub-type">@context.SubType</MudTd>
             <MudTd DataLabel="Blocks">@(context.BlockCount?.ToString() ?? "-")</MudTd>
             <MudTd DataLabel="PCU">@(context.Pcu?.ToString() ?? "-")</MudTd>
@@ -586,15 +571,6 @@ else
                        && string.Equals(entity.SubType, "Asteroid", StringComparison.OrdinalIgnoreCase)));
     }
 
-    private async Task OpenViewerAsync(EntitySummary entity)
-    {
-        var agent = GetSelectedAgent();
-        if (agent is null || !CanViewEntity(entity))
-            return;
-
-        await ViewerDialog.ShowAsync(agent, ResolveServerName(agent), entity);
-    }
-
     private IReadOnlyDictionary<string, object?> CreateEntityExtensionParameters(EntitySummary entity)
     {
         var agent = GetSelectedAgent();
@@ -609,10 +585,6 @@ else
             ["EntityDisplayName"] = entity.DisplayName,
             ["OwnerSteamId"] = entity.OwnerSteamId,
             ["CanViewEntity"] = canView,
-            ["ViewerUrl"] = agent is not null && canView
-                ? EntityViewerDialogService.BuildViewerUrl(agent.AgentId, entity.EntityId, entity.TypeTag)
-                : null,
-            ["OpenEntityViewer"] = EventCallback.Factory.Create(this, () => OpenViewerAsync(entity)),
         };
     }
 

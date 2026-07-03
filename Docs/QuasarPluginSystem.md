@@ -276,8 +276,8 @@ it entirely. `Wrap` contributions receive `ChildContent`; when a wrapper is not
 authorized, Quasar renders the original child content. `EntityActions` renders
 inside each entity row action cell. `EntityViewerColumnHeader` and
 `EntityViewerColumnCell` expose the dedicated viewer button column so a viewer
-plugin can replace only the default viewer button/header instead of replacing the
-whole entities page. Their component parameters are intentionally primitive:
+plugin can add the viewer header/button and fullscreen dialog without replacing
+the whole entities page. Their component parameters are intentionally primitive:
 
 - `AgentId`
 - `ServerName`
@@ -287,13 +287,10 @@ whole entities page. Their component parameters are intentionally primitive:
 - `EntityDisplayName`
 - `OwnerSteamId`
 - `CanViewEntity`
-- `ViewerUrl`
-- `OpenEntityViewer`
 
-This lets viewer plugins add buttons or replace the built-in action buttons
-without taking a dependency on Quasar page internals. `OpenEntityViewer` is an
-`EventCallback` fallback that opens Quasar's current fullscreen viewer dialog
-when a viewer plugin does not provide its own dialog/static asset route.
+This lets viewer plugins render a button and open their own dialog/static asset
+route without taking a dependency on Quasar page internals. Quasar core does not
+ship a fallback browser viewer route.
 
 `PluginsPage` renders at the bottom of `/settings/ui-plugins`. It receives
 parameters named `UiPlugins`, `LoadedPlugins`, and `LoadErrors` so plugins can
@@ -568,11 +565,11 @@ server. Companion plugins handle only their own operation names.
 
 ## Grid Viewer and GridBackups
 
-Grid Viewer should become the first Quasar UI plugin.
+Grid Viewer is the first Quasar UI plugin.
 
 Grid Viewer owns:
 
-- nav/page/dialog contribution
+- entity-list viewer button contribution
 - fullscreen viewer shell
 - static viewer assets
 - audit/timeline UI
@@ -640,5 +637,5 @@ the Quasar process. Therefore:
 7. Add fine-grained inline region outlets for stable declarations.
 8. Add first patch targets on Entities and Dashboard.
 9. Add generic companion data channel through Quasar.Agent.
-10. Move Grid Viewer into a Quasar UI plugin repository.
+10. Use Grid Viewer from its external Quasar UI plugin repository.
 11. Add GridBackups companion handlers for audit/grid/snapshot requests.
