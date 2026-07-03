@@ -481,6 +481,13 @@
             {
                 expectedVersion = targetVersion,
                 initialDelayMs = 500,
+                showFeedback = true,
+                title = "Activating Quasar UI",
+                message = $"Switching to Quasar UI {targetVersion}. The page will reload when the new worker is healthy.",
+                initialStatus = "Preparing worker activation.",
+                pollingMessage = $"Waiting for Quasar UI {targetVersion} to pass /api/health.",
+                successMessage = "New Quasar UI worker is healthy. Reloading Updates.",
+                timeoutMessage = "Still waiting for the new Quasar UI worker. Reloading Updates now.",
             });
             await UpdateService.ActivateStagedWebUpdateAsync();
             _snapshot = UpdateService.GetSnapshot();
@@ -488,6 +495,7 @@
         }
         catch (Exception exception)
         {
+            await TryClearRestartFeedbackAsync();
             Snackbar.Add($"Failed activating update: {exception.Message}", Severity.Error);
         }
         finally
@@ -518,6 +526,14 @@
             await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/settings/updates", new
             {
                 requireUnhealthy = true,
+                showFeedback = true,
+                title = "Activating Bootstrap",
+                message = $"Requesting Bootstrap {bootstrap.Version}. Quasar will reload after the launcher restarts the web worker.",
+                initialStatus = "Writing Bootstrap activation request.",
+                waitingForStopMessage = "Waiting for Bootstrap to restart the current worker.",
+                pollingMessage = "Waiting for Quasar to pass /api/health.",
+                successMessage = "Quasar is healthy. Reloading Updates.",
+                timeoutMessage = "Still waiting for Quasar after Bootstrap activation. Reloading Updates now.",
             });
             await UpdateService.RequestBootstrapUpdateActivationAsync();
             _snapshot = UpdateService.GetSnapshot();
@@ -525,6 +541,7 @@
         }
         catch (Exception exception)
         {
+            await TryClearRestartFeedbackAsync();
             _bootstrapActivationRequested = false;
             Snackbar.Add($"Failed requesting Bootstrap update: {exception.Message}", Severity.Error);
         }
@@ -769,6 +786,17 @@
         finally
         {
             _runtimeBusy = false;
+        }
+    }
+
+    private async Task TryClearRestartFeedbackAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.clearRestartFeedback");
+        }
+        catch
+        {
         }
     }
 

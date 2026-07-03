@@ -208,7 +208,9 @@ instead of letting one plugin crash the worker during catalog construction.
 
 Install, update, and remove operations change files on disk only. The active
 plugin assembly set is still loaded at Quasar worker startup, so each operation
-requires a Quasar restart before it takes effect.
+requires a Quasar restart before it takes effect. When that restart is triggered
+from the UI Plugins page, the browser shows restart progress and polls
+`/api/health` until the replacement worker is ready.
 
 QuasarHub descriptors can set `<ImplicitLoading>true</ImplicitLoading>` for
 reviewed plugins that should be present by default. Quasar installs or updates
