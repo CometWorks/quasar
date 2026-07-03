@@ -38,6 +38,7 @@ namespace Quasar.Agent
             LogStartupVersions();
             AgentProfiler.Configure(options);
             AgentProfilerPatches.Apply(options);
+            EmissivePartCapturePatches.Apply();
             ServerCommands.Register(typeof(AdminPlugin).Assembly, typeof(StopCommand), typeof(RestartCommand), typeof(QuitCommand));
             _bridge = new GameBridge(gameServer);
 
@@ -77,6 +78,7 @@ namespace Quasar.Agent
             _outbox = null;
             _bridge?.Dispose();
             _bridge = null;
+            EmissivePartCapturePatches.Dispose();
             AgentProfilerPatches.Dispose();
         }
 

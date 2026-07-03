@@ -6,6 +6,7 @@ using Quasar.Services.Auth;
 using Quasar.Services.Backup;
 using Quasar.Services.Discord;
 using Quasar.Services.PluginSdk;
+using Quasar.Services.Plugins;
 using Quasar.Services.Updates;
 using AspNet.Security.OpenId.Steam;
 using Magnetar.Protocol.Runtime;
@@ -39,6 +40,7 @@ public class Program
             var updateOptions = QuasarUpdateOptions.Create(builder.Configuration);
             var authOptions = QuasarAuthOptions.Create(builder.Configuration);
             var analyticsStoreOptions = AnalyticsStoreOptions.Create(builder.Configuration);
+            var uiPluginCatalog = QuasarUiPluginCatalog.Create(builder.Configuration, builder.Environment);
 
             QuasarLoggingConfigurator.Configure(builder, webServiceOptions);
 
@@ -156,6 +158,7 @@ public class Program
             builder.Services.AddSingleton<ProfilerStoreService>();
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<EntityService>();
+            builder.Services.AddSingleton<ViewerSceneService>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
             builder.Services.AddSingleton<QuasarWorldTemplateCatalog>();
@@ -163,6 +166,10 @@ public class Program
             builder.Services.AddSingleton<QuasarPluginCatalogService>();
             builder.Services.AddSingleton<PluginCatalogRefreshService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PluginCatalogRefreshService>());
+            builder.Services.AddSingleton<QuasarUiPluginStateStore>();
+            builder.Services.AddSingleton<QuasarUiPluginHubCatalogService>();
+            builder.Services.AddSingleton<QuasarUiPluginHubRefreshService>();
+            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUiPluginHubRefreshService>());
             builder.Services.AddSingleton<SteamWorkshopCredentialsCatalog>();
             builder.Services.AddSingleton<GitHubUpdateCredentialsCatalog>();
             builder.Services.AddSingleton<QuasarWorkshopModResolver>();
@@ -203,6 +210,8 @@ public class Program
             builder.Services.AddSingleton<QuasarBackupService>();
             builder.Services.AddSingleton<AutomaticBackupService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<AutomaticBackupService>());
+            builder.Services.AddSingleton(uiPluginCatalog);
+            uiPluginCatalog.ConfigurePluginServices(builder.Services);
 
             var app = builder.Build();
 
@@ -267,6 +276,32 @@ public class Program
             });
             if (authOptions.Enabled)
                 analyticsSeries.RequireAuthorization(QuasarPolicyNames.CanView);
+
+            var viewerScene = app.MapGet("/api/viewer/entities/{agentId}/{entityId:long}/scene", async (
+                string agentId,
+                long entityId,
+                HttpContext context,
+                ViewerSceneService viewerSceneService,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    var includeVoxels = IsTrueLikeQueryFlag(context.Request.Query["voxels"]);
+                    var includeContext = IsTrueLikeQueryFlag(context.Request.Query["context"]);
+                    return Results.Json(await viewerSceneService.GetEntitySceneAsync(agentId, entityId, includeVoxels, includeContext, cancellationToken));
+                }
+                catch (TimeoutException exception)
+                {
+                    return Results.Problem(exception.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    return Results.Problem(exception.Message, statusCode: StatusCodes.Status400BadRequest);
+                }
+            });
+
+            if (authOptions.Enabled)
+                viewerScene.RequireAuthorization(QuasarPolicyNames.CanView);
 
             var serverLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/server/download", (string uniqueName, HttpContext context, DedicatedServerCatalog catalog) =>
                 DownloadLogFile(ResolveDedicatedServerLogPath(
@@ -412,13 +447,33 @@ public class Program
                 FileProvider = new PhysicalFileProvider(brandingAssetsDirectory),
                 RequestPath = "/branding",
             });
+            uiPluginCatalog.UsePluginStaticAssets(app);
+            uiPluginCatalog.ConfigurePluginEndpoints(app);
 
             var razorComponents = app.MapRazorComponents<App>()
-                .AddInteractiveServerRenderMode();
+                .AddInteractiveServerRenderMode()
+                .AddAdditionalAssemblies(uiPluginCatalog.RazorAssemblies.ToArray());
             if (authOptions.Enabled)
                 razorComponents.RequireAuthorization(QuasarPolicyNames.CanView);
 
-            app.Services.GetRequiredService<ILogger<Program>>().LogInformation(
+            var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+            if (uiPluginCatalog.SafeMode)
+            {
+                startupLogger.LogWarning(
+                    "Quasar UI plugin safe mode is enabled. Reasons={Reasons}",
+                    string.Join("; ", uiPluginCatalog.SafeModeReasons));
+            }
+            else
+            {
+                startupLogger.LogInformation(
+                    "Quasar UI plugin catalog initialized. PluginCount={PluginCount}.",
+                    uiPluginCatalog.LoadedPlugins.Count);
+            }
+
+            foreach (var loadError in uiPluginCatalog.LoadErrors)
+                startupLogger.LogWarning("Quasar UI plugin load failed: {Error}", loadError);
+
+            startupLogger.LogInformation(
                 "Quasar {Version} starting. BootstrapVersion={BootstrapVersion}; HostId={HostId}; DataDirectory={DataDirectory}.",
                 webServiceOptions.Version,
                 string.IsNullOrWhiteSpace(webServiceOptions.BootstrapVersion) ? "none" : webServiceOptions.BootstrapVersion,
@@ -457,6 +512,18 @@ public class Program
         }
 
         return false;
+    }
+
+    private static bool IsTrueLikeQueryFlag(Microsoft.Extensions.Primitives.StringValues values)
+    {
+        if (values.Count == 0)
+            return false;
+
+        var value = values[0];
+        return string.IsNullOrEmpty(value) ||
+               string.Equals(value, "1", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ShouldListenOnAnyInterface(string host)

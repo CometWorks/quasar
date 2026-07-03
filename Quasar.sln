@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Quasar.Agent", "Quasar.Agen
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Quasar.Bootstrap", "Quasar.Bootstrap\Quasar.Bootstrap.csproj", "{9621EFDC-3A4E-4AB2-9DD9-D667D7E1D469}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Quasar.Plugin.Abstractions", "Quasar.Plugin.Abstractions\Quasar.Plugin.Abstractions.csproj", "{15D1060F-E803-4DC2-9860-E970DDEAE53B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -73,6 +75,18 @@ Global
 		{9621EFDC-3A4E-4AB2-9DD9-D667D7E1D469}.Release|x86.ActiveCfg = Release|Any CPU
 		{9621EFDC-3A4E-4AB2-9DD9-D667D7E1D469}.Release|x86.Build.0 = Release|Any CPU
 		{9621EFDC-3A4E-4AB2-9DD9-D667D7E1D469}.Release|x64.Deploy.0 = Release|Any CPU
+		{15D1060F-E803-4DC2-9860-E970DDEAE53B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{15D1060F-E803-4DC2-9860-E970DDEAE53B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{15D1060F-E803-4DC2-9860-E970DDEAE53B}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{15D1060F-E803-4DC2-9860-E970DDEAE53B}.Debug|x64.Build.0 = Debug|Any CPU
+		{15D1060F-E803-4DC2-9860-E970DDEAE53B}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{15D1060F-E803-4DC2-9860-E970DDEAE53B}.Debug|x86.Build.0 = Debug|Any CPU
+		{15D1060F-E803-4DC2-9860-E970DDEAE53B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{15D1060F-E803-4DC2-9860-E970DDEAE53B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{15D1060F-E803-4DC2-9860-E970DDEAE53B}.Release|x64.ActiveCfg = Release|Any CPU
+		{15D1060F-E803-4DC2-9860-E970DDEAE53B}.Release|x64.Build.0 = Release|Any CPU
+		{15D1060F-E803-4DC2-9860-E970DDEAE53B}.Release|x86.ActiveCfg = Release|Any CPU
+		{15D1060F-E803-4DC2-9860-E970DDEAE53B}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

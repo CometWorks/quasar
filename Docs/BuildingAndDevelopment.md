@@ -12,9 +12,18 @@ utilities. For the runtime design see [Architecture](QuasarArchitecture.md).
   Dedicated Server plugin that attaches to Quasar and exposes telemetry/commands.
 - `Quasar.Bootstrap`
   Ensure-running helper used for the Quasar startup/bootstrap flow.
+- `Quasar.Plugin.Abstractions`
+  Public contract assembly for Quasar UI plugins: plugin entry point, manifest
+  model, nav contributions, page/component patch contributions, and the generic
+  companion-channel interface.
 - `Magnetar.Protocol`
   Shared transport and discovery contracts currently used by Quasar and
   Quasar.Agent.
+- Quasar UI plugins
+  Optional UI extensions are discovered through QuasarHub and installed into the
+  Quasar data directory at runtime. Grid Viewer now lives in the external
+  `CometWorks/viewer` repository and is installed as a Quasar UI plugin instead
+  of being staged from this repository during the core Quasar build.
 
 The solution file is `Quasar.sln`.
 
@@ -44,6 +53,14 @@ The solution file is `Quasar.sln`.
   cached path to the build through `DS64`. On a cache miss it downloads the
   Windows depot with SteamCMD and retries the install to work around transient
   missing-configuration failures.
+- Building `Quasar/Quasar.csproj` no longer requires the Grid Viewer source tree
+  or its npm packages. The viewer plugin is installed from QuasarHub, where the
+  catalog pins a commit in `https://github.com/CometWorks/viewer.git`. The plugin
+  installer clones that repository, builds the adapter project against the
+  running Quasar worker's `Quasar.Plugin.Abstractions.dll`, and serves the viewer
+  static assets from `/_quasar/plugins/{pluginId}/`. Single-file release
+  packaging leaves `Quasar.Plugin.Abstractions.dll` beside the worker executable
+  so packaged installs have the same physical contract path as source builds.
 
 ## Managed runtime selection
 

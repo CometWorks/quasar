@@ -8,6 +8,7 @@
 
 <PageTitle>Entities</PageTitle>
 
+<QuasarExtensionOutlet TargetKey="@QuasarExtensionTargets.EntitiesPage">
 <MudText Typo="Typo.h5" Class="mb-2">Entities</MudText>
 <MudText Typo="Typo.body2" Class="mb-4">Live world entity list for a connected server. Query grids, characters, floating objects and voxels, then inspect or delete them with full admin control.</MudText>
 
@@ -149,6 +150,7 @@ else
         <HeaderContent>
             <MudTh>Type</MudTh>
             <MudTh>Entity ID</MudTh>
+            <QuasarExtensionOutlet TargetKey="@QuasarExtensionTargets.EntityViewerColumnHeader" />
             <MudTh>Sub-type</MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.BlockCount ?? -1)">Blocks</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.Pcu ?? -1)">PCU</MudTableSortLabel></MudTh>
@@ -162,7 +164,12 @@ else
             <MudTd DataLabel="Type">
                 <MudChip T="string" Size="Size.Small" Color="@GetTypeColor(context.TypeTag)" Variant="Variant.Outlined">@context.TypeTag</MudChip>
             </MudTd>
-            <MudTd DataLabel="Entity ID" Class="mono">@context.EntityId</MudTd>
+            <MudTd DataLabel="Entity ID">
+                <MudText Typo="Typo.body2" Class="mono">@context.EntityId</MudText>
+            </MudTd>
+            <QuasarExtensionOutlet
+                TargetKey="@QuasarExtensionTargets.EntityViewerColumnCell"
+                Parameters="@CreateEntityExtensionParameters(context)" />
             <MudTd DataLabel="Sub-type">@context.SubType</MudTd>
             <MudTd DataLabel="Blocks">@(context.BlockCount?.ToString() ?? "-")</MudTd>
             <MudTd DataLabel="PCU">@(context.Pcu?.ToString() ?? "-")</MudTd>
@@ -171,15 +178,21 @@ else
             <MudTd DataLabel="Position" Class="mono">@FormatPosition(context)</MudTd>
             <MudTd DataLabel="Name">@context.DisplayName</MudTd>
             <MudTd DataLabel="" Class="quasar-actions-column">
-                <span @onclick:stopPropagation="true">
-                    <MudTooltip Text="Delete entity">
-                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                       Color="Color.Error"
-                                       Size="Size.Small"
-                                       Disabled="@(_loading || _deletingSelected)"
-                                       OnClick="@(() => DeleteEntityAsync(context))" />
-                    </MudTooltip>
-                </span>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="plugin-actions" @onclick:stopPropagation="true">
+                    <QuasarExtensionOutlet
+                        TargetKey="@QuasarExtensionTargets.EntityActions"
+                        Parameters="@CreateEntityExtensionParameters(context)">
+                        <span @onclick:stopPropagation="true">
+                            <MudTooltip Text="Delete entity">
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                               Color="Color.Error"
+                                               Size="Size.Small"
+                                               Disabled="@(_loading || _deletingSelected)"
+                                               OnClick="@(() => DeleteEntityAsync(context))" />
+                            </MudTooltip>
+                        </span>
+                    </QuasarExtensionOutlet>
+                </MudStack>
             </MudTd>
         </RowTemplate>
         <PagerContent>
@@ -187,6 +200,7 @@ else
         </PagerContent>
     </MudTable>
 }
+</QuasarExtensionOutlet>
 
 @code
 {
@@ -547,6 +561,31 @@ else
 
         return ConnectedAgents.FirstOrDefault(agent =>
             string.Equals(agent.AgentId, _selectedAgentId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool CanViewEntity(EntitySummary entity)
+    {
+        return GetSelectedAgent() is not null
+               && (string.Equals(entity.TypeTag, "Grid", StringComparison.OrdinalIgnoreCase)
+                   || (string.Equals(entity.TypeTag, "Voxel", StringComparison.OrdinalIgnoreCase)
+                       && string.Equals(entity.SubType, "Asteroid", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private IReadOnlyDictionary<string, object?> CreateEntityExtensionParameters(EntitySummary entity)
+    {
+        var agent = GetSelectedAgent();
+        var canView = CanViewEntity(entity);
+        return new Dictionary<string, object?>
+        {
+            ["AgentId"] = agent?.AgentId,
+            ["ServerName"] = agent is null ? null : ResolveServerName(agent),
+            ["EntityId"] = entity.EntityId,
+            ["EntityType"] = entity.TypeTag,
+            ["EntitySubType"] = entity.SubType,
+            ["EntityDisplayName"] = entity.DisplayName,
+            ["OwnerSteamId"] = entity.OwnerSteamId,
+            ["CanViewEntity"] = canView,
+        };
     }
 
     private bool MatchesSearch(EntitySummary entity)

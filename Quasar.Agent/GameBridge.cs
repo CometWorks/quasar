@@ -28,6 +28,7 @@ using Sandbox.Game.World;
 using VRage.Game;
 using VRage.Game.ModAPI;
 using VRage.Plugins;
+using VRage.Voxels;
 
 namespace Quasar.Agent
 {
@@ -59,6 +60,7 @@ namespace Quasar.Agent
         private readonly string _uniqueName;
         private readonly string _pluginVersion;
         private readonly ConcurrentQueue<DeathEventSnapshot> _deathQueue = new ConcurrentQueue<DeathEventSnapshot>();
+        private readonly SemaphoreSlim _viewerSceneBuildGate = new SemaphoreSlim(1, 1);
         private readonly object _saveSync = new object();
         private string _worldSavePath = string.Empty;
         private bool _worldSaveStateLoaded;
@@ -155,6 +157,9 @@ namespace Quasar.Agent
                 return Task.FromResult(CreateResult(command, false, "Game server not available."));
             }
 
+            if (command.CommandType == ServerCommandType.GetEntityRenderScene)
+                return ExecuteViewerCommandOffGameThreadAsync(command, cancellationToken);
+
             var completion = new TaskCompletionSource<ServerCommandResult>();
 
             using (cancellationToken.Register(() => completion.TrySetCanceled()))
@@ -173,6 +178,94 @@ namespace Quasar.Agent
 
                 return completion.Task;
             }
+        }
+
+        private async Task<ServerCommandResult> ExecuteViewerCommandOffGameThreadAsync(ServerCommandEnvelope command, CancellationToken cancellationToken)
+        {
+            await _viewerSceneBuildGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var work = await ResolveViewerSceneWorkOnGameThreadAsync(command, cancellationToken).ConfigureAwait(false);
+                if (work.Result != null)
+                    return work.Result;
+
+                return await Task.Run(() =>
+                {
+                    try
+                    {
+                        return BuildResolvedViewerScene(command, work);
+                    }
+                    catch (Exception exception)
+                    {
+                        return CreateResult(command, false, exception.Message);
+                    }
+                }, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _viewerSceneBuildGate.Release();
+            }
+        }
+
+        private Task<ViewerSceneWork> ResolveViewerSceneWorkOnGameThreadAsync(ServerCommandEnvelope command, CancellationToken cancellationToken)
+        {
+            var completion = new TaskCompletionSource<ViewerSceneWork>();
+            var game = MySandboxGame.Static;
+            if (game == null)
+                return Task.FromResult(new ViewerSceneWork { Result = CreateResult(command, false, "Game server not available.") });
+
+            cancellationToken.Register(() => completion.TrySetCanceled());
+            game.Invoke(() =>
+            {
+                try
+                {
+                    completion.TrySetResult(ResolveViewerSceneWorkOnGameThread(command));
+                }
+                catch (Exception exception)
+                {
+                    completion.TrySetResult(new ViewerSceneWork { Result = CreateResult(command, false, exception.Message) });
+                }
+            }, $"Quasar.Agent:{command.CommandType}:Resolve");
+
+            return completion.Task;
+        }
+
+        private ViewerSceneWork ResolveViewerSceneWorkOnGameThread(ServerCommandEnvelope command)
+        {
+            if (MySession.Static == null || !MySession.Static.Ready)
+                return new ViewerSceneWork { Result = CreateResult(command, false, "Session not ready.") };
+
+            var request = DeserializePayload<EntityRenderSceneRequest>(command.Payload);
+            if (request == null || request.EntityId == 0)
+                return new ViewerSceneWork { Result = CreateResult(command, false, "Viewer scene request is missing an entity id.") };
+
+            var work = new ViewerSceneWork
+            {
+                Request = request,
+                GameVersion = MySession.Static?.AppVersionFromSave.ToString() ?? string.Empty,
+            };
+
+            if (MyEntities.TryGetEntityById<MyCubeGrid>(request.EntityId, out var grid) && grid != null && !grid.MarkedForClose && !grid.Closed)
+                work.Grid = grid;
+            else if (MyEntities.TryGetEntityById<MyVoxelBase>(request.EntityId, out var voxel) && voxel != null && !voxel.MarkedForClose && !voxel.Closed)
+                work.Voxel = voxel;
+            else
+                work.Result = CreateResult(command, false, "Viewer entity not found or not loaded on this server.");
+
+            return work;
+        }
+
+        private ServerCommandResult BuildResolvedViewerScene(ServerCommandEnvelope command, ViewerSceneWork work)
+        {
+            EntityRenderScene scene;
+            if (work.Grid != null)
+                scene = GridRenderSceneInspector.Build(work.Grid, work.GameVersion, _pluginVersion, work.Request.IncludeVoxels, work.Request.IncludeContext);
+            else if (work.Voxel != null)
+                scene = GridRenderSceneInspector.BuildVoxel(work.Voxel, work.GameVersion, _pluginVersion, work.Request.IncludeVoxels);
+            else
+                return CreateResult(command, false, "Viewer entity not found or not loaded on this server.");
+
+            return CreateResult(command, true, "Viewer scene snapshot captured.", SerializePayload(scene));
         }
 
         private void RefreshSnapshotOnGameThread()
@@ -1314,6 +1407,19 @@ namespace Quasar.Agent
             public List<string> Keys { get; set; }
         }
 
+        private sealed class ViewerSceneWork
+        {
+            public EntityRenderSceneRequest Request { get; set; }
+
+            public string GameVersion { get; set; }
+
+            public MyCubeGrid Grid { get; set; }
+
+            public MyVoxelBase Voxel { get; set; }
+
+            public ServerCommandResult Result { get; set; }
+        }
+
         private List<DeathEventSnapshot> GetRecentDeaths()
         {
             var result = new List<DeathEventSnapshot>();
@@ -1392,6 +1498,9 @@ namespace Quasar.Agent
                 case ServerCommandType.DeleteEntity:
                     return DeleteEntity(command);
 
+                case ServerCommandType.GetEntityRenderScene:
+                    return GetEntityRenderScene(command);
+
                 default:
                     return CreateResult(command, false, $"Unsupported command '{command.CommandType}'.");
             }
@@ -1446,6 +1555,23 @@ namespace Quasar.Agent
 
             var success = EntityInspector.TryDelete(request.EntityId, out var message);
             return CreateResult(command, success, message);
+        }
+
+        private ServerCommandResult GetEntityRenderScene(ServerCommandEnvelope command)
+        {
+            var request = DeserializePayload<EntityRenderSceneRequest>(command.Payload);
+            if (request == null || request.EntityId == 0)
+                return CreateResult(command, false, "Viewer scene request is missing an entity id.");
+
+            var gameVersion = MySession.Static?.AppVersionFromSave.ToString() ?? string.Empty;
+            EntityRenderScene scene;
+            if (MyEntities.TryGetEntityById<MyCubeGrid>(request.EntityId, out var grid) && grid != null && !grid.MarkedForClose && !grid.Closed)
+                scene = GridRenderSceneInspector.Build(request.EntityId, gameVersion, _pluginVersion, request.IncludeVoxels, request.IncludeContext);
+            else if (MyEntities.TryGetEntityById<MyVoxelBase>(request.EntityId, out var voxel) && voxel != null && !voxel.MarkedForClose && !voxel.Closed)
+                scene = GridRenderSceneInspector.BuildVoxel(request.EntityId, gameVersion, _pluginVersion, request.IncludeVoxels);
+            else
+                return CreateResult(command, false, "Viewer entity not found or not loaded on this server.");
+            return CreateResult(command, true, "Viewer scene snapshot captured.", SerializePayload(scene));
         }
 
         private static string SerializePayload(object value)
