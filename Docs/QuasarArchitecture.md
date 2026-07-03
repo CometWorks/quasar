@@ -523,6 +523,9 @@ Practical guarantee:
   first telemetry snapshot under startup grace before applying the normal
   heartbeat timeout
 - the supervisor must preserve enough state that reconnect is operationally seamless
+- when the replacement supervisor adopts a still-live server process by id, it
+  reports the process as running (except during startup grace) instead of
+  carrying stale stopping/restarting UI state from the old worker
 - managed DS processes continue running independently during the rollover
 - already-running DS processes keep their loaded `Quasar.Agent` assembly until
   that server process exits; after reconnect, the supervisor compares the

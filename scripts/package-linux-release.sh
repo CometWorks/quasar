@@ -8,6 +8,7 @@ CONFIGURATION="${CONFIGURATION:-Release}"
 RUNTIME="${RUNTIME:-linux-x64}"
 VERSION="${VERSION:-}"
 ASSEMBLY_FILE_VERSION="1.0.0"
+INFORMATIONAL_VERSION="$VERSION"
 NUGET_VERSION="$VERSION"
 WEB_ARCHIVE_NAME="quasar-web-linux-x64.tar.gz"
 INSTALLER_ARCHIVE_NAME="quasar-installer-linux.tar.gz"
@@ -36,6 +37,11 @@ normalize_nuget_version() {
 
     if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
         echo "$version"
+        return
+    fi
+
+    if [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)-([0-9A-Za-z][0-9A-Za-z.-]*)$ ]]; then
+        echo "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}-${BASH_REMATCH[4]}.${BASH_REMATCH[5]}"
         return
     fi
 
@@ -119,6 +125,7 @@ if [[ -z "$VERSION" ]]; then
     VERSION="$(git -C "$REPO_DIR" rev-parse --short HEAD)"
 fi
 VERSION="${VERSION#v}"
+INFORMATIONAL_VERSION="$VERSION"
 NUGET_VERSION="$(normalize_nuget_version "$VERSION")"
 ASSEMBLY_FILE_VERSION="$(build_assembly_file_version "$VERSION")"
 
@@ -143,7 +150,7 @@ dotnet publish "$REPO_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj" \
     -p:Version="$NUGET_VERSION" \
     -p:AssemblyVersion="$ASSEMBLY_FILE_VERSION" \
     -p:FileVersion="$ASSEMBLY_FILE_VERSION" \
-    -p:InformationalVersion="$NUGET_VERSION" \
+    -p:InformationalVersion="$INFORMATIONAL_VERSION" \
     -o "$PUBLISH_DIR" \
     -v minimal
 

@@ -32,7 +32,7 @@ by name, so all platforms share the same release.
 For assembly/file metadata, the script always emits a valid `major.minor.build`
 version even when the base version is build-number style. The public update
 identity is `AssemblyInformationalVersion`, which keeps prerelease labels such
-as `1.0.0-main.7`; Quasar uses that value, plus the active-release pointer, for
+as `1.0.0.123-pr.45`; Quasar uses that value, plus the active-release pointer, for
 update comparisons instead of `AssemblyVersion`.
 For NuGet/package metadata, non-tag/short-hash values are mapped to a safe
 `1.0.0-<hash>` semver pre-release form so restore/publish do not fail. The
@@ -55,13 +55,20 @@ The release workflow is `.github/workflows/release.yml`. Each build publishes a
 single release/tag carrying both the Linux and Windows archives:
 
 - tag push `v<version>` → full release tagged `v<version>`
-- push to `main` → full release tagged `v1.0.0-main.<run-number>`
-- pull request → draft prerelease tagged `pr-<number>/v1.0.0-pr.<number>.<run-number>`
-- manual run (`workflow_dispatch`) → draft prerelease tagged `v1.0.0-manual.<run-number>`
+- push to `main` → full release tagged `v<base>.<build-number>`
+- pull request → draft prerelease tagged `pr-<number>/v<base>.<run-number>-pr.<number>`
+- manual run (`workflow_dispatch`) → draft prerelease tagged `v<base>.<run-number>-manual`
 
 The updater extracts the version from the tag with
 `QuasarReleaseVersion.Normalize`, so the tag prefix does not matter. Assembly/file
-metadata is normalized to `major.minor.build`.
+metadata is normalized to `major.minor.build`. PR and manual prerelease tags keep
+their numeric run number before the channel label, so update checks and release
+retention compare them by numeric build first instead of treating `-pr` or
+`-manual` as older than the base release.
+
+After publishing, the workflow prunes older GitHub releases with their tags. It
+keeps the newest two full active releases, plus the newest two draft/prerelease
+review builds per PR/manual stream.
 
 ## First Start
 

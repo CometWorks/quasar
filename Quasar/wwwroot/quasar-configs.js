@@ -210,9 +210,14 @@ window.quasarConfigs = window.quasarConfigs || {
     showRestartFeedback(options) {
         const opts = options || {};
         const read = (camelName, pascalName, fallback) => opts?.[camelName] ?? opts?.[pascalName] ?? fallback;
+        const readNumber = (camelName, pascalName, fallback) => {
+            const value = read(camelName, pascalName, fallback);
+            return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+        };
         const titleText = read("title", "Title", "Restarting Quasar");
         const messageText = read("message", "Message", "Waiting for the web worker to come back online.");
         const statusText = read("initialStatus", "InitialStatus", "Preparing restart request.");
+        const startedAt = readNumber("startedAt", "StartedAt", Date.now());
         const steps = read("steps", "Steps", [
             "Request restart",
             "Wait for worker stop",
@@ -271,7 +276,7 @@ window.quasarConfigs = window.quasarConfigs || {
             window.quasarRestartFeedback = state;
         }
 
-        state.startedAt = Date.now();
+        state.startedAt = startedAt;
         state.title.textContent = titleText;
         state.message.textContent = messageText;
         state.stepList.replaceChildren();
@@ -316,8 +321,71 @@ window.quasarConfigs = window.quasarConfigs || {
         if (state && state.root) {
             state.root.remove();
         }
+        window.quasarConfigs.clearRestartReloadState();
         window.quasarRestartFeedback = null;
         window.quasarRestartReloadSession = null;
+    },
+    getRestartReloadStorageKey() {
+        return "quasar.restartReload";
+    },
+    readRestartReloadState() {
+        try {
+            const raw = window.sessionStorage?.getItem(window.quasarConfigs.getRestartReloadStorageKey());
+            if (!raw) {
+                return null;
+            }
+
+            return JSON.parse(raw);
+        } catch {
+            window.quasarConfigs.clearRestartReloadState();
+            return null;
+        }
+    },
+    writeRestartReloadState(state) {
+        try {
+            window.sessionStorage?.setItem(
+                window.quasarConfigs.getRestartReloadStorageKey(),
+                JSON.stringify(state));
+        } catch {
+            // sessionStorage can be unavailable in private or locked-down browsers.
+        }
+    },
+    clearRestartReloadState() {
+        try {
+            window.sessionStorage?.removeItem(window.quasarConfigs.getRestartReloadStorageKey());
+        } catch {
+            // Ignore storage failures; in-memory restart polling still works.
+        }
+    },
+    resumeRestartReload() {
+        const saved = window.quasarConfigs.readRestartReloadState();
+        if (!saved || !saved.url) {
+            return false;
+        }
+
+        const options = saved.options || {};
+        const read = (camelName, pascalName, fallback) => options?.[camelName] ?? options?.[pascalName] ?? fallback;
+        const readNumber = (camelName, pascalName, fallback) => {
+            const value = read(camelName, pascalName, fallback);
+            return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+        };
+        const startedAt = typeof saved.startedAt === "number" && Number.isFinite(saved.startedAt)
+            ? saved.startedAt
+            : readNumber("startedAt", "StartedAt", Date.now());
+        const maxWaitMs = readNumber("maxWaitMs", "MaxWaitMs", 120000);
+        if (Date.now() - startedAt >= maxWaitMs + 1000) {
+            window.quasarConfigs.clearRestartReloadState();
+            return false;
+        }
+
+        window.quasarConfigs.reloadWhenHealthy(saved.url, {
+            ...options,
+            initialDelayMs: 0,
+            startedAt,
+            resumeSessionId: saved.sessionId || read("resumeSessionId", "ResumeSessionId", ""),
+            observedUnhealthy: !!(saved.observedUnhealthy ?? read("observedUnhealthy", "ObservedUnhealthy", false))
+        });
+        return true;
     },
     // Used when the Quasar worker is being restarted: the Blazor circuit drops, so we
     // poll the (anonymous) health endpoint from the browser and navigate to the target
@@ -326,9 +394,14 @@ window.quasarConfigs = window.quasarConfigs || {
         const url = targetUrl || "/";
         const opts = options || {};
         const read = (camelName, pascalName, fallback) => opts?.[camelName] ?? opts?.[pascalName] ?? fallback;
-        const pollIntervalMs = opts.pollIntervalMs || 1000;
-        const maxWaitMs = opts.maxWaitMs || 120000;
-        const initialDelayMs = opts.initialDelayMs || 1500;
+        const readNumber = (camelName, pascalName, fallback) => {
+            const value = read(camelName, pascalName, fallback);
+            return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+        };
+        const pollIntervalMs = readNumber("pollIntervalMs", "PollIntervalMs", 1000);
+        const maxWaitMs = readNumber("maxWaitMs", "MaxWaitMs", 120000);
+        const initialDelayMs = readNumber("initialDelayMs", "InitialDelayMs", 1500);
+        const stopWaitFallbackMs = readNumber("stopWaitFallbackMs", "StopWaitFallbackMs", 10000);
         const expectedVersion = (opts.expectedVersion || opts.ExpectedVersion || "").toString().trim().toLowerCase();
         const requireUnhealthy = !!(opts.requireUnhealthy ?? opts.RequireUnhealthy);
         const showFeedback = !!read(
@@ -351,12 +424,49 @@ window.quasarConfigs = window.quasarConfigs || {
             "timeoutMessage",
             "TimeoutMessage",
             "Still waiting for Quasar. Reloading page now.");
-        const startedAt = Date.now();
-        const sessionId = `${startedAt}:${Math.random()}`;
-        let observedUnhealthy = !requireUnhealthy;
+        const startedAt = readNumber("startedAt", "StartedAt", Date.now());
+        const sessionId = (read("resumeSessionId", "ResumeSessionId", "") || `${startedAt}:${Math.random()}`).toString();
+        let observedUnhealthy = !!read("observedUnhealthy", "ObservedUnhealthy", !requireUnhealthy);
         window.quasarRestartReloadSession = sessionId;
 
         const isCurrentSession = () => window.quasarRestartReloadSession === sessionId;
+        const persistState = () => {
+            window.quasarConfigs.writeRestartReloadState({
+                url,
+                sessionId,
+                startedAt,
+                observedUnhealthy,
+                options: {
+                    ...opts,
+                    initialDelayMs: 0,
+                    startedAt,
+                    resumeSessionId: sessionId,
+                    observedUnhealthy,
+                    stopWaitFallbackMs
+                }
+            });
+        };
+        const markObservedUnhealthy = () => {
+            if (!observedUnhealthy) {
+                observedUnhealthy = true;
+                persistState();
+            }
+        };
+        const canAcceptHealthyWorker = () => {
+            if (observedUnhealthy || !requireUnhealthy) {
+                return true;
+            }
+
+            if (Date.now() - startedAt < stopWaitFallbackMs) {
+                return false;
+            }
+
+            // Browser may miss the brief outage when the worker restarts quickly.
+            markObservedUnhealthy();
+            return true;
+        };
+
+        persistState();
 
         if (showFeedback) {
             window.quasarConfigs.showRestartFeedback(opts);
@@ -377,6 +487,7 @@ window.quasarConfigs = window.quasarConfigs || {
                 updateFeedback("timeout", timeoutMessage);
                 window.setTimeout(() => {
                     if (isCurrentSession()) {
+                        window.quasarConfigs.clearRestartReloadState();
                         window.location.href = url;
                     }
                 }, 500);
@@ -399,7 +510,8 @@ window.quasarConfigs = window.quasarConfigs || {
                 return;
             }
 
-            updateFeedback(observedUnhealthy ? "health" : "stop", observedUnhealthy ? pollingMessage : waitingForStopMessage);
+            const currentPhase = canAcceptHealthyWorker() ? "health" : "stop";
+            updateFeedback(currentPhase, currentPhase === "health" ? pollingMessage : waitingForStopMessage);
             fetch("/api/health", { cache: "no-store" })
                 .then(async (response) => {
                     if (!isCurrentSession()) {
@@ -407,7 +519,7 @@ window.quasarConfigs = window.quasarConfigs || {
                     }
 
                     if (!response.ok) {
-                        observedUnhealthy = true;
+                        markObservedUnhealthy();
                         updateFeedback("health", pollingMessage);
                         scheduleNext();
                         return;
@@ -426,6 +538,7 @@ window.quasarConfigs = window.quasarConfigs || {
                         updateFeedback("reload", successMessage);
                         window.setTimeout(() => {
                             if (isCurrentSession()) {
+                                window.quasarConfigs.clearRestartReloadState();
                                 window.location.href = url;
                             }
                         }, 250);
@@ -439,7 +552,7 @@ window.quasarConfigs = window.quasarConfigs || {
                         return;
                     }
 
-                    observedUnhealthy = true;
+                    markObservedUnhealthy();
                     updateFeedback("health", pollingMessage);
                     scheduleNext();
                 });
@@ -471,3 +584,5 @@ window.quasarConfigs = window.quasarConfigs || {
         }
     }
 };
+
+window.setTimeout(() => window.quasarConfigs.resumeRestartReload?.(), 0);
