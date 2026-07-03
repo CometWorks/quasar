@@ -507,9 +507,10 @@ plugin's static asset root under a deterministic path:
 ```
 
 The Grid Viewer can keep its JavaScript/Three.js-heavy surface in its own
-repository and serve it from that plugin path. Quasar core should stop copying
-viewer assets into `Quasar/wwwroot` once the plugin model replaces the current
-submodule staging path.
+repository and serve it from that plugin path. Quasar core no longer copies
+viewer assets into `Quasar/wwwroot`; the QuasarHub installer clones the pinned
+viewer repository commit, builds the adapter project, and loads the package from
+the Quasar data directory.
 
 Plugins can also ask Quasar to inject package stylesheets into the host page by
 declaring manifest-relative paths:

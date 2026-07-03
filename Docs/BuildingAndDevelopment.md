@@ -19,11 +19,11 @@ utilities. For the runtime design see [Architecture](QuasarArchitecture.md).
 - `Magnetar.Protocol`
   Shared transport and discovery contracts currently used by Quasar and
   Quasar.Agent.
-- `Viewer`
-  Browser-side grid and asteroid viewer submodule plus Quasar UI plugin.
-  Quasar copies `Viewer/src/CometWorks.GridViewer/wwwroot` into
-  `Quasar/wwwroot/viewer` during build and stages its pinned npm dependencies
-  into `Quasar/wwwroot/vendor`.
+- Quasar UI plugins
+  Optional UI extensions are discovered through QuasarHub and installed into the
+  Quasar data directory at runtime. Grid Viewer now lives in the external
+  `CometWorks/viewer` repository and is installed as a Quasar UI plugin instead
+  of being staged from this repository during the core Quasar build.
 
 The solution file is `Quasar.sln`.
 
@@ -53,15 +53,11 @@ The solution file is `Quasar.sln`.
   cached path to the build through `DS64`. On a cache miss it downloads the
   Windows depot with SteamCMD and retries the install to work around transient
   missing-configuration failures.
-- Building `Quasar/Quasar.csproj` also requires Node.js/npm. The project runs
-  `npm ci --ignore-scripts` from `Viewer/package-lock.json` and stages the full
-  pinned `three` `0.180.0` and `@zip.js/zip.js` `2.7.72` packages into
-  `wwwroot/vendor` for the fullscreen entity viewer.
-- The viewer is a Git submodule pinned under `Viewer/`, tracking
-  `https://github.com/CometWorks/viewer.git` on `main`. After a fresh clone, run
-  `git submodule update --init Viewer` if the directory is empty. To pick up the
-  latest viewer release, run `git submodule update --remote Viewer`, then commit
-  the updated `Viewer` gitlink in Quasar; the release workflow watches that path.
+- Building `Quasar/Quasar.csproj` no longer requires the Grid Viewer source tree
+  or its npm packages. The viewer plugin is installed from QuasarHub, where the
+  catalog pins a commit in `https://github.com/CometWorks/viewer.git`. The plugin
+  installer clones that repository, builds the adapter project, and serves the
+  viewer static assets from `/_quasar/plugins/{pluginId}/`.
 
 ## Managed runtime selection
 
