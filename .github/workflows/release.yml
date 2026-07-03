@@ -7,15 +7,12 @@ on:
       - main
     paths:
       - ".github/workflows/release.yml"
-      - ".gitmodules"
       - "Directory.Build.props"
       - "Magnetar.Protocol/**"
       - "Quasar/**"
       - "Quasar.Agent/**"
       - "Quasar.Bootstrap/**"
       - "Quasar.sln"
-      - "Viewer"
-      - "Viewer/**"
       - "install.sh"
       - "uninstall.sh"
       - "scripts/install.ps1"
@@ -31,15 +28,12 @@ on:
       - main
     paths:
       - ".github/workflows/release.yml"
-      - ".gitmodules"
       - "Directory.Build.props"
       - "Magnetar.Protocol/**"
       - "Quasar/**"
       - "Quasar.Agent/**"
       - "Quasar.Bootstrap/**"
       - "Quasar.sln"
-      - "Viewer"
-      - "Viewer/**"
       - "install.sh"
       - "uninstall.sh"
       - "scripts/install.ps1"
