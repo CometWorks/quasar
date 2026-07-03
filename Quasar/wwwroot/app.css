@@ -157,13 +157,20 @@ h1:focus {
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected),
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) > .mud-table-cell,
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) > td {
-    --quasar-table-hover-background: var(--quasar-hover-list-background, var(--mud-palette-secondary));
+    --quasar-table-selected-background: var(--quasar-hover-list-background, var(--mud-palette-secondary));
+    --quasar-table-hover-background: color-mix(in srgb, var(--quasar-table-selected-background) 84%, #000 16%);
     --quasar-table-hover-text: var(--quasar-hover-list-text, var(--mud-palette-secondary-text));
     --quasar-table-hover-success: color-mix(in srgb, var(--mud-palette-success) 72%, var(--quasar-table-hover-text));
     --quasar-table-hover-warning: color-mix(in srgb, var(--mud-palette-warning) 72%, var(--quasar-table-hover-text));
     --quasar-table-hover-error: color-mix(in srgb, var(--mud-palette-error) 72%, var(--quasar-table-hover-text));
-    background-color: var(--quasar-table-hover-background) !important;
+    background-color: var(--quasar-table-selected-background) !important;
     color: var(--quasar-table-hover-text) !important;
+}
+
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover > .mud-table-cell,
+.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):hover > td {
+    background-color: var(--quasar-table-hover-background) !important;
 }
 
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) *:not(.mud-button-root *) {
