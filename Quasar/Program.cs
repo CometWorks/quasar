@@ -8,6 +8,7 @@ using Quasar.Services.Discord;
 using Quasar.Services.PluginSdk;
 using Quasar.Services.Plugins;
 using Quasar.Services.Updates;
+using Quasar.Plugin.Abstractions.Companion;
 using AspNet.Security.OpenId.Steam;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.Authentication;
@@ -158,7 +159,7 @@ public class Program
             builder.Services.AddSingleton<ProfilerStoreService>();
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<EntityService>();
-            builder.Services.AddSingleton<ViewerSceneService>();
+            builder.Services.AddSingleton<IQuasarCompanionChannel, QuasarCompanionChannel>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
             builder.Services.AddSingleton<QuasarWorldTemplateCatalog>();
@@ -276,32 +277,6 @@ public class Program
             });
             if (authOptions.Enabled)
                 analyticsSeries.RequireAuthorization(QuasarPolicyNames.CanView);
-
-            var viewerScene = app.MapGet("/api/viewer/entities/{agentId}/{entityId:long}/scene", async (
-                string agentId,
-                long entityId,
-                HttpContext context,
-                ViewerSceneService viewerSceneService,
-                CancellationToken cancellationToken) =>
-            {
-                try
-                {
-                    var includeVoxels = IsTrueLikeQueryFlag(context.Request.Query["voxels"]);
-                    var includeContext = IsTrueLikeQueryFlag(context.Request.Query["context"]);
-                    return Results.Json(await viewerSceneService.GetEntitySceneAsync(agentId, entityId, includeVoxels, includeContext, cancellationToken));
-                }
-                catch (TimeoutException exception)
-                {
-                    return Results.Problem(exception.Message, statusCode: StatusCodes.Status504GatewayTimeout);
-                }
-                catch (InvalidOperationException exception)
-                {
-                    return Results.Problem(exception.Message, statusCode: StatusCodes.Status400BadRequest);
-                }
-            });
-
-            if (authOptions.Enabled)
-                viewerScene.RequireAuthorization(QuasarPolicyNames.CanView);
 
             var serverLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/server/download", (string uniqueName, HttpContext context, DedicatedServerCatalog catalog) =>
                 DownloadLogFile(ResolveDedicatedServerLogPath(
@@ -512,18 +487,6 @@ public class Program
         }
 
         return false;
-    }
-
-    private static bool IsTrueLikeQueryFlag(Microsoft.Extensions.Primitives.StringValues values)
-    {
-        if (values.Count == 0)
-            return false;
-
-        var value = values[0];
-        return string.IsNullOrEmpty(value) ||
-               string.Equals(value, "1", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ShouldListenOnAnyInterface(string host)

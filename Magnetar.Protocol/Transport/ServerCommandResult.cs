@@ -19,7 +19,8 @@ public class ServerCommandResult
     /// <summary>
     /// Optional JSON response body for commands that return structured data
     /// (e.g. <see cref="ServerCommandType.ListEntities"/> returns an
-    /// <c>EntityListResult</c>). Empty for simple commands.
+    /// <c>EntityListResult</c>, and <see cref="ServerCommandType.PluginRequest"/>
+    /// returns a companion response envelope). Empty for simple commands.
     /// </summary>
     public string Payload { get; set; } = string.Empty;
 

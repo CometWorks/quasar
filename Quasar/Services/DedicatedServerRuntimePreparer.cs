@@ -4,7 +4,9 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
+using Quasar.Plugin.Abstractions.Manifests;
 using Quasar.Models;
+using Quasar.Services.Plugins;
 
 namespace Quasar.Services;
 
@@ -30,6 +32,7 @@ public sealed class DedicatedServerRuntimePreparer
     private readonly QuasarConfigProfileCatalog _configProfiles;
     private readonly QuasarPluginCatalogService _pluginCatalog;
     private readonly QuasarDevFolderCatalog _devFolderCatalog;
+    private readonly QuasarUiPluginCatalog _uiPluginCatalog;
     private readonly GitHubUpdateCredentialsCatalog _githubCredentials;
 
     public DedicatedServerRuntimePreparer(
@@ -39,6 +42,7 @@ public sealed class DedicatedServerRuntimePreparer
         QuasarConfigProfileCatalog configProfiles,
         QuasarPluginCatalogService pluginCatalog,
         QuasarDevFolderCatalog devFolderCatalog,
+        QuasarUiPluginCatalog uiPluginCatalog,
         GitHubUpdateCredentialsCatalog githubCredentials)
     {
         _logger = logger;
@@ -47,6 +51,7 @@ public sealed class DedicatedServerRuntimePreparer
         _configProfiles = configProfiles;
         _pluginCatalog = pluginCatalog;
         _devFolderCatalog = devFolderCatalog;
+        _uiPluginCatalog = uiPluginCatalog;
         _githubCredentials = githubCredentials;
     }
 
@@ -214,6 +219,12 @@ public sealed class DedicatedServerRuntimePreparer
         Directory.CreateDirectory(localDirectory);
 
         var agentLocalFileNames = await DeployQuasarAgentAsync(definition, localDirectory, cancellationToken);
+        var companionLocalFileNames = await DeployUiPluginOwnedCompanionsAsync(localDirectory, cancellationToken);
+        var localPluginFileNames = agentLocalFileNames
+            .Concat(companionLocalFileNames)
+            .Where(fileName => !string.IsNullOrWhiteSpace(fileName))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         var currentTemplateName = string.IsNullOrWhiteSpace(configProfile.Name)
             ? "Quasar Current"
@@ -285,7 +296,7 @@ public sealed class DedicatedServerRuntimePreparer
                         new XElement("DebugBuild", devFolder.DebugBuild ? "true" : "false")))),
                 new XElement(
                     "Local",
-                    agentLocalFileNames.Select(fileName => new XElement("string", fileName))),
+                    localPluginFileNames.Select(fileName => new XElement("string", fileName))),
                 new XElement("Mods")));
 
         await AtomicFileWriter.WriteTextAsync(
@@ -455,6 +466,75 @@ public sealed class DedicatedServerRuntimePreparer
         return enabledNames;
     }
 
+    private async Task<IReadOnlyList<string>> DeployUiPluginOwnedCompanionsAsync(
+        string localPluginDirectory,
+        CancellationToken cancellationToken)
+    {
+        var enabledNames = new List<string>();
+
+        foreach (var loadedPlugin in _uiPluginCatalog.LoadedPlugins)
+        {
+            foreach (var companion in loadedPlugin.Context.Manifest.CompanionPluginManifests.Where(companion => companion.IsOwned))
+            {
+                var outputDirectory = Path.Combine(
+                    loadedPlugin.Context.PluginDirectory,
+                    CompanionOutputRelativeDirectory,
+                    SanitizePathSegment(companion.Id));
+                if (!Directory.Exists(outputDirectory))
+                {
+                    _logger.LogWarning(
+                        "Quasar UI plugin companion {CompanionId} for {PluginId} has no built output at {OutputDirectory}; it will not be deployed.",
+                        companion.Id,
+                        loadedPlugin.Id,
+                        outputDirectory);
+                    continue;
+                }
+
+                var entryAssemblyPath = ResolveCompanionEntryAssemblyPath(companion, outputDirectory);
+                if (!File.Exists(entryAssemblyPath))
+                {
+                    _logger.LogWarning(
+                        "Quasar UI plugin companion {CompanionId} for {PluginId} entry assembly was not found at {EntryAssemblyPath}; it will not be enabled.",
+                        companion.Id,
+                        loadedPlugin.Id,
+                        entryAssemblyPath);
+                    continue;
+                }
+
+                foreach (var sourcePath in Directory.EnumerateFiles(outputDirectory))
+                {
+                    var fileName = Path.GetFileName(sourcePath);
+                    if (ShouldSkipCompanionDeploymentFile(fileName))
+                        continue;
+
+                    await CopyFileIfChangedAsync(sourcePath, Path.Combine(localPluginDirectory, fileName), cancellationToken);
+                }
+
+                enabledNames.Add(Path.GetFileName(entryAssemblyPath));
+            }
+        }
+
+        return enabledNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static string ResolveCompanionEntryAssemblyPath(
+        QuasarCompanionPluginManifest companion,
+        string outputDirectory)
+    {
+        var entryAssembly = companion.EntryAssembly;
+        if (string.IsNullOrWhiteSpace(entryAssembly))
+            entryAssembly = $"{Path.GetFileNameWithoutExtension(companion.ProjectPath ?? companion.Id)}.dll";
+
+        return Path.Combine(outputDirectory, Path.GetFileName(entryAssembly));
+    }
+
+    private static bool ShouldSkipCompanionDeploymentFile(string fileName) =>
+        string.Equals(fileName, AgentPluginFileName, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(fileName, MagnetarProtocolFileName, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(fileName, HarmonyFileName, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(fileName, "PluginSdk.dll", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(fileName, "Quasar.Plugin.Abstractions.dll", StringComparison.OrdinalIgnoreCase);
+
     private async Task DeployHarmonyAsync(
         ManagedServerRuntime runtime,
         string sourceDirectory,
@@ -540,13 +620,23 @@ public sealed class DedicatedServerRuntimePreparer
         return null;
     }
 
+    private static string SanitizePathSegment(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var chars = (value ?? string.Empty).Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray();
+        var sanitized = new string(chars).Trim();
+        return string.IsNullOrWhiteSpace(sanitized) ? "plugin" : sanitized;
+    }
+
     private const string AgentPluginFileName = "Quasar.Agent.dll";
+    private const string MagnetarProtocolFileName = "Magnetar.Protocol.dll";
     private const string HarmonyFileName = "0Harmony.dll";
+    private const string CompanionOutputRelativeDirectory = ".quasar/companions";
 
     private static readonly string[] AgentDeploymentFiles =
     [
         AgentPluginFileName,
-        "Magnetar.Protocol.dll",
+        MagnetarProtocolFileName,
     ];
 
     private sealed record RemotePluginSourceSet(bool UseDefaultHub, IReadOnlyList<QuasarPluginCatalogEntry> Entries);

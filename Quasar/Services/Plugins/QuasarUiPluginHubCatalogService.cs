@@ -16,6 +16,8 @@ public sealed class QuasarUiPluginHubCatalogService
     private const int CacheSchemaVersion = 1;
     private const string InstallMetadataFileName = "quasar-ui-plugin-install.json";
     private const string PluginAbstractionsAssemblyFileName = "Quasar.Plugin.Abstractions.dll";
+    private const string MagnetarProtocolAssemblyFileName = "Magnetar.Protocol.dll";
+    private const string CompanionOutputRelativeDirectory = ".quasar/companions";
 
     public const string DefaultHubName = "QuasarHub";
     public const string DefaultHubRepo = "CometWorks/quasar-hub";
@@ -33,6 +35,7 @@ public sealed class QuasarUiPluginHubCatalogService
     private readonly IConfiguration _configuration;
     private readonly IHostEnvironment _environment;
     private readonly QuasarUiPluginStateStore _pluginStates;
+    private readonly QuasarUiPluginCatalog _uiPluginCatalog;
     private List<QuasarUiPluginHubEntry> _entries;
 
     public QuasarUiPluginHubCatalogService(
@@ -40,13 +43,15 @@ public sealed class QuasarUiPluginHubCatalogService
         IHttpClientFactory httpClientFactory,
         IConfiguration configuration,
         IHostEnvironment environment,
-        QuasarUiPluginStateStore pluginStates)
+        QuasarUiPluginStateStore pluginStates,
+        QuasarUiPluginCatalog uiPluginCatalog)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _configuration = configuration;
         _environment = environment;
         _pluginStates = pluginStates;
+        _uiPluginCatalog = uiPluginCatalog;
         _entries = LoadCache();
     }
 
@@ -122,6 +127,7 @@ public sealed class QuasarUiPluginHubCatalogService
                         ManifestBranch = DefaultHubBranch,
                         ManifestFile = GetArchiveEntryRelativePath(entry.FullName),
                         Hidden = GetBoolean(root, "Hidden"),
+                        ImplicitLoading = GetBoolean(root, "ImplicitLoading"),
                         DependencyIds = GetList(root, "DependencyIds", "DependencyId"),
                         CompanionPluginIds = GetList(root, "CompanionPluginIds", "CompanionPluginId"),
                         Platforms = GetList(root, "Platforms", "Platform"),
@@ -145,6 +151,7 @@ public sealed class QuasarUiPluginHubCatalogService
             LastRefreshUtc = DateTimeOffset.UtcNow;
             LastError = string.Empty;
             await SaveCacheAsync(normalized, cancellationToken);
+            await InstallOrUpdateImplicitPluginsAsync(normalized, cancellationToken);
             Changed?.Invoke();
             _logger.LogInformation("Downloaded QuasarHub catalog with {Count} entries.", normalized.Count);
         }
@@ -197,7 +204,10 @@ public sealed class QuasarUiPluginHubCatalogService
         };
     }
 
-    public async Task InstallOrUpdateAsync(QuasarUiPluginHubEntry entry, CancellationToken cancellationToken = default)
+    public async Task InstallOrUpdateAsync(
+        QuasarUiPluginHubEntry entry,
+        CancellationToken cancellationToken = default,
+        bool enableAfterInstall = true)
     {
         if (string.IsNullOrWhiteSpace(entry.RepoId))
             throw new InvalidOperationException("QuasarHub entry has no repository.");
@@ -231,7 +241,8 @@ public sealed class QuasarUiPluginHubCatalogService
             if (!File.Exists(projectPath))
                 throw new FileNotFoundException("Quasar UI plugin project file was not found.", projectPath);
 
-            await RunDotNetBuildAsync(projectPath, cancellationToken);
+            await RunQuasarUiPluginBuildAsync(projectPath, cancellationToken);
+            await BuildOwnedCompanionPluginsAsync(repositoryRoot, manifest, cancellationToken);
 
             if (Directory.Exists(installDirectory))
                 Directory.Move(installDirectory, backupDirectory);
@@ -240,7 +251,7 @@ public sealed class QuasarUiPluginHubCatalogService
             Directory.Move(repositoryRoot, installDirectory);
             installDirectoryReplaced = true;
             await WriteInstallMetadataAsync(installDirectory, entry, manifest, cancellationToken);
-            await _pluginStates.SetEnabledAsync(manifest.Id, enabled: true, cancellationToken);
+            await _pluginStates.SetEnabledAsync(manifest.Id, enableAfterInstall, cancellationToken);
 
             if (Directory.Exists(backupDirectory))
                 Directory.Delete(backupDirectory, recursive: true);
@@ -272,6 +283,49 @@ public sealed class QuasarUiPluginHubCatalogService
             TryDeleteDirectory(stagingDirectory);
             TryDeleteDirectory(backupDirectory);
             Changed?.Invoke();
+        }
+    }
+
+    private async Task InstallOrUpdateImplicitPluginsAsync(
+        IReadOnlyList<QuasarUiPluginHubEntry> entries,
+        CancellationToken cancellationToken)
+    {
+        if (_uiPluginCatalog.SafeMode)
+            return;
+
+        foreach (var entry in entries.Where(entry => entry.ImplicitLoading))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var installState = GetInstallState(entry);
+            var currentCommitInstalled = installState.Installed &&
+                string.Equals(installState.InstalledCommit, entry.Commit, StringComparison.OrdinalIgnoreCase);
+            if (currentCommitInstalled && string.IsNullOrWhiteSpace(installState.Error))
+                continue;
+
+            if (string.IsNullOrWhiteSpace(entry.RepoId) || string.IsNullOrWhiteSpace(entry.Commit))
+            {
+                _logger.LogWarning(
+                    "Implicit Quasar UI plugin {Plugin} cannot be installed because its QuasarHub entry has no repository or commit.",
+                    GetEntryLogName(entry));
+                continue;
+            }
+
+            var enableAfterInstall = !installState.Installed || installState.Enabled;
+            try
+            {
+                await InstallOrUpdateAsync(entry, cancellationToken, enableAfterInstall);
+                _logger.LogInformation(
+                    "Implicit Quasar UI plugin {Plugin} installed or updated from QuasarHub.",
+                    GetEntryLogName(entry));
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Implicit Quasar UI plugin {Plugin} install or update failed.",
+                    GetEntryLogName(entry));
+            }
         }
     }
 
@@ -397,7 +451,30 @@ public sealed class QuasarUiPluginHubCatalogService
         return RunProcessAsync(startInfo, "git", cancellationToken);
     }
 
-    private async Task RunDotNetBuildAsync(string projectPath, CancellationToken cancellationToken)
+    private async Task BuildOwnedCompanionPluginsAsync(
+        string repositoryRoot,
+        QuasarPluginManifest manifest,
+        CancellationToken cancellationToken)
+    {
+        foreach (var companion in manifest.CompanionPluginManifests.Where(companion => companion.IsOwned))
+        {
+            var projectPath = Path.GetFullPath(Path.Combine(repositoryRoot, companion.ProjectPath!));
+            EnsurePathInside(repositoryRoot, projectPath, "Companion plugin project path escapes the plugin repository.");
+            if (!File.Exists(projectPath))
+                throw new FileNotFoundException($"Companion plugin project file was not found for '{companion.Id}'.", projectPath);
+
+            var outputDirectory = Path.Combine(
+                repositoryRoot,
+                CompanionOutputRelativeDirectory,
+                SanitizePathSegment(companion.Id));
+            TryDeleteDirectory(outputDirectory);
+            Directory.CreateDirectory(outputDirectory);
+
+            await RunCompanionPluginBuildAsync(projectPath, outputDirectory, cancellationToken);
+        }
+    }
+
+    private async Task RunQuasarUiPluginBuildAsync(string projectPath, CancellationToken cancellationToken)
     {
         var buildConfiguration = GetBuildConfiguration();
         var startInfo = new ProcessStartInfo("dotnet")
@@ -424,10 +501,54 @@ public sealed class QuasarUiPluginHubCatalogService
         await RunProcessAsync(startInfo, "dotnet build", cancellationToken);
     }
 
+    private async Task RunCompanionPluginBuildAsync(
+        string projectPath,
+        string outputDirectory,
+        CancellationToken cancellationToken)
+    {
+        var buildConfiguration = GetBuildConfiguration();
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("build");
+        startInfo.ArgumentList.Add(projectPath);
+        startInfo.ArgumentList.Add("-c");
+        startInfo.ArgumentList.Add(buildConfiguration);
+        startInfo.ArgumentList.Add("-v:minimal");
+        startInfo.ArgumentList.Add("-o");
+        startInfo.ArgumentList.Add(outputDirectory);
+        startInfo.ArgumentList.Add("-p:Platform=x64");
+        startInfo.ArgumentList.Add("-p:CopyLocalLockFileAssemblies=true");
+
+        var protocolAssemblyPath = GetMagnetarProtocolAssemblyPath();
+        if (string.IsNullOrWhiteSpace(protocolAssemblyPath))
+        {
+            throw new InvalidOperationException(
+                "Magnetar.Protocol.dll was not found on disk. Quasar UI plugin companion builds require the protocol assembly from the running Quasar worker or staged Agent folder.");
+        }
+
+        startInfo.ArgumentList.Add($"-p:MagnetarProtocolAssembly={protocolAssemblyPath}");
+
+        await RunProcessAsync(startInfo, "dotnet build", cancellationToken);
+    }
+
     private static string GetPluginAbstractionsAssemblyPath()
     {
         var baseDirectoryPath = Path.Combine(AppContext.BaseDirectory, PluginAbstractionsAssemblyFileName);
         return File.Exists(baseDirectoryPath) ? baseDirectoryPath : string.Empty;
+    }
+
+    private static string GetMagnetarProtocolAssemblyPath()
+    {
+        var baseDirectoryPath = Path.Combine(AppContext.BaseDirectory, MagnetarProtocolAssemblyFileName);
+        if (File.Exists(baseDirectoryPath))
+            return baseDirectoryPath;
+
+        var agentDirectoryPath = Path.Combine(AppContext.BaseDirectory, "Agent", MagnetarProtocolAssemblyFileName);
+        return File.Exists(agentDirectoryPath) ? agentDirectoryPath : string.Empty;
     }
 
     private static async Task RunProcessAsync(ProcessStartInfo startInfo, string label, CancellationToken cancellationToken)
@@ -592,10 +713,14 @@ public sealed class QuasarUiPluginHubCatalogService
             ManifestBranch = entry.ManifestBranch,
             ManifestFile = entry.ManifestFile,
             Hidden = entry.Hidden,
+            ImplicitLoading = entry.ImplicitLoading,
             DependencyIds = entry.DependencyIds.ToList(),
             CompanionPluginIds = entry.CompanionPluginIds.ToList(),
             Platforms = entry.Platforms.ToList(),
         };
+
+    private static string GetEntryLogName(QuasarUiPluginHubEntry entry) =>
+        string.IsNullOrWhiteSpace(entry.FriendlyName) ? entry.CatalogId : entry.FriendlyName;
 
     private static string GetInstallKey(QuasarUiPluginHubEntry entry)
     {
@@ -613,6 +738,15 @@ public sealed class QuasarUiPluginHubCatalogService
         var chars = (value ?? string.Empty).Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray();
         var sanitized = new string(chars).Trim();
         return string.IsNullOrWhiteSpace(sanitized) ? "plugin" : sanitized;
+    }
+
+    private static void EnsurePathInside(string rootDirectory, string path, string message)
+    {
+        var root = Path.GetFullPath(rootDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                   + Path.DirectorySeparatorChar;
+        var candidate = Path.GetFullPath(path);
+        if (!candidate.StartsWith(root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            throw new InvalidOperationException(message);
     }
 
     private static void TryDeleteDirectory(string path)
@@ -702,6 +836,8 @@ public sealed class QuasarUiPluginHubEntry
     public string ManifestFile { get; set; } = string.Empty;
 
     public bool Hidden { get; set; }
+
+    public bool ImplicitLoading { get; set; }
 
     public IReadOnlyList<string> DependencyIds { get; set; } = [];
 

@@ -40,6 +40,13 @@ public static class QuasarPluginPackageManifestReader
         Require(path, manifest.EntryAssembly, "entryAssembly");
         Require(path, manifest.EntryType, "entryType");
         Require(path, manifest.ProjectPath, "projectPath");
+
+        foreach (var companion in manifest.CompanionPluginManifests)
+        {
+            Require(path, companion.Id, "companionPlugins[].id");
+            if (companion.IsOwned)
+                Require(path, companion.ProjectPath, "companionPlugins[].projectPath");
+        }
     }
 
     private static void Require(string path, string? value, string propertyName)

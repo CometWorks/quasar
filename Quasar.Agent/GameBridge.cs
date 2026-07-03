@@ -28,7 +28,6 @@ using Sandbox.Game.World;
 using VRage.Game;
 using VRage.Game.ModAPI;
 using VRage.Plugins;
-using VRage.Voxels;
 
 namespace Quasar.Agent
 {
@@ -60,7 +59,6 @@ namespace Quasar.Agent
         private readonly string _uniqueName;
         private readonly string _pluginVersion;
         private readonly ConcurrentQueue<DeathEventSnapshot> _deathQueue = new ConcurrentQueue<DeathEventSnapshot>();
-        private readonly SemaphoreSlim _viewerSceneBuildGate = new SemaphoreSlim(1, 1);
         private readonly object _saveSync = new object();
         private string _worldSavePath = string.Empty;
         private bool _worldSaveStateLoaded;
@@ -141,6 +139,9 @@ namespace Quasar.Agent
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
 
+            if (command.CommandType == ServerCommandType.PluginRequest)
+                return ExecuteCompanionPluginRequestAsync(command, cancellationToken);
+
             var game = MySandboxGame.Static;
             if (game == null)
             {
@@ -156,9 +157,6 @@ namespace Quasar.Agent
 
                 return Task.FromResult(CreateResult(command, false, "Game server not available."));
             }
-
-            if (command.CommandType == ServerCommandType.GetEntityRenderScene)
-                return ExecuteViewerCommandOffGameThreadAsync(command, cancellationToken);
 
             var completion = new TaskCompletionSource<ServerCommandResult>();
 
@@ -180,92 +178,52 @@ namespace Quasar.Agent
             }
         }
 
-        private async Task<ServerCommandResult> ExecuteViewerCommandOffGameThreadAsync(ServerCommandEnvelope command, CancellationToken cancellationToken)
+        private async Task<ServerCommandResult> ExecuteCompanionPluginRequestAsync(ServerCommandEnvelope command, CancellationToken cancellationToken)
         {
-            await _viewerSceneBuildGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            var request = DeserializePayload<CompanionPluginRequest>(command.Payload);
+            if (request == null)
+                return CreateResult(command, false, "Companion plugin request is missing.");
+            if (string.IsNullOrWhiteSpace(request.PluginId))
+                return CreateResult(command, false, "Companion plugin id is missing.");
+            if (string.IsNullOrWhiteSpace(request.Operation))
+                return CreateResult(command, false, "Companion plugin operation is missing.");
+
+            var handler = ResolveCompanionHandler(request.PluginId);
+            if (handler == null)
+                return CreateResult(command, false, $"Companion plugin '{request.PluginId}' is not loaded or does not expose a Quasar handler.");
+
+            CompanionPluginResponse response;
             try
             {
-                var work = await ResolveViewerSceneWorkOnGameThreadAsync(command, cancellationToken).ConfigureAwait(false);
-                if (work.Result != null)
-                    return work.Result;
-
-                return await Task.Run(() =>
-                {
-                    try
-                    {
-                        return BuildResolvedViewerScene(command, work);
-                    }
-                    catch (Exception exception)
-                    {
-                        return CreateResult(command, false, exception.Message);
-                    }
-                }, cancellationToken).ConfigureAwait(false);
+                response = await handler.HandleQuasarCompanionRequestAsync(request, cancellationToken).ConfigureAwait(false)
+                           ?? new CompanionPluginResponse
+                           {
+                               CorrelationId = request.CorrelationId,
+                               Success = false,
+                               Error = "Companion plugin returned no response.",
+                           };
             }
-            finally
+            catch (OperationCanceledException)
             {
-                _viewerSceneBuildGate.Release();
+                throw;
             }
-        }
-
-        private Task<ViewerSceneWork> ResolveViewerSceneWorkOnGameThreadAsync(ServerCommandEnvelope command, CancellationToken cancellationToken)
-        {
-            var completion = new TaskCompletionSource<ViewerSceneWork>();
-            var game = MySandboxGame.Static;
-            if (game == null)
-                return Task.FromResult(new ViewerSceneWork { Result = CreateResult(command, false, "Game server not available.") });
-
-            cancellationToken.Register(() => completion.TrySetCanceled());
-            game.Invoke(() =>
+            catch (Exception exception)
             {
-                try
+                response = new CompanionPluginResponse
                 {
-                    completion.TrySetResult(ResolveViewerSceneWorkOnGameThread(command));
-                }
-                catch (Exception exception)
-                {
-                    completion.TrySetResult(new ViewerSceneWork { Result = CreateResult(command, false, exception.Message) });
-                }
-            }, $"Quasar.Agent:{command.CommandType}:Resolve");
+                    CorrelationId = request.CorrelationId,
+                    Success = false,
+                    Error = exception.Message,
+                };
+            }
 
-            return completion.Task;
-        }
+            if (string.IsNullOrWhiteSpace(response.CorrelationId))
+                response.CorrelationId = request.CorrelationId;
 
-        private ViewerSceneWork ResolveViewerSceneWorkOnGameThread(ServerCommandEnvelope command)
-        {
-            if (MySession.Static == null || !MySession.Static.Ready)
-                return new ViewerSceneWork { Result = CreateResult(command, false, "Session not ready.") };
-
-            var request = DeserializePayload<EntityRenderSceneRequest>(command.Payload);
-            if (request == null || request.EntityId == 0)
-                return new ViewerSceneWork { Result = CreateResult(command, false, "Viewer scene request is missing an entity id.") };
-
-            var work = new ViewerSceneWork
-            {
-                Request = request,
-                GameVersion = MySession.Static?.AppVersionFromSave.ToString() ?? string.Empty,
-            };
-
-            if (MyEntities.TryGetEntityById<MyCubeGrid>(request.EntityId, out var grid) && grid != null && !grid.MarkedForClose && !grid.Closed)
-                work.Grid = grid;
-            else if (MyEntities.TryGetEntityById<MyVoxelBase>(request.EntityId, out var voxel) && voxel != null && !voxel.MarkedForClose && !voxel.Closed)
-                work.Voxel = voxel;
-            else
-                work.Result = CreateResult(command, false, "Viewer entity not found or not loaded on this server.");
-
-            return work;
-        }
-
-        private ServerCommandResult BuildResolvedViewerScene(ServerCommandEnvelope command, ViewerSceneWork work)
-        {
-            EntityRenderScene scene;
-            if (work.Grid != null)
-                scene = GridRenderSceneInspector.Build(work.Grid, work.GameVersion, _pluginVersion, work.Request.IncludeVoxels, work.Request.IncludeContext);
-            else if (work.Voxel != null)
-                scene = GridRenderSceneInspector.BuildVoxel(work.Voxel, work.GameVersion, _pluginVersion, work.Request.IncludeVoxels);
-            else
-                return CreateResult(command, false, "Viewer entity not found or not loaded on this server.");
-
-            return CreateResult(command, true, "Viewer scene snapshot captured.", SerializePayload(scene));
+            var message = response.Success
+                ? "Companion plugin response returned."
+                : FirstNonEmpty(response.Error, "Companion plugin request failed.");
+            return CreateResult(command, response.Success, message, SerializePayload(response));
         }
 
         private void RefreshSnapshotOnGameThread()
@@ -451,6 +409,22 @@ namespace Quasar.Agent
                 if (sdkProvider != null)
                     yield return sdkProvider;
             }
+        }
+
+        private static IQuasarCompanionRequestHandler ResolveCompanionHandler(string pluginId)
+        {
+            foreach (var loaded in EnumeratePlugins())
+            {
+                var handler = loaded.Plugin as IQuasarCompanionRequestHandler;
+                if (handler == null)
+                    continue;
+
+                var handlerPluginId = FirstNonEmpty(handler.PluginId, loaded.PluginId);
+                if (string.Equals(handlerPluginId, pluginId, StringComparison.OrdinalIgnoreCase))
+                    return handler;
+            }
+
+            return null;
         }
 
         private static IEnumerable<LoadedPlugin> EnumeratePlugins()
@@ -1407,19 +1381,6 @@ namespace Quasar.Agent
             public List<string> Keys { get; set; }
         }
 
-        private sealed class ViewerSceneWork
-        {
-            public EntityRenderSceneRequest Request { get; set; }
-
-            public string GameVersion { get; set; }
-
-            public MyCubeGrid Grid { get; set; }
-
-            public MyVoxelBase Voxel { get; set; }
-
-            public ServerCommandResult Result { get; set; }
-        }
-
         private List<DeathEventSnapshot> GetRecentDeaths()
         {
             var result = new List<DeathEventSnapshot>();
@@ -1498,9 +1459,6 @@ namespace Quasar.Agent
                 case ServerCommandType.DeleteEntity:
                     return DeleteEntity(command);
 
-                case ServerCommandType.GetEntityRenderScene:
-                    return GetEntityRenderScene(command);
-
                 default:
                     return CreateResult(command, false, $"Unsupported command '{command.CommandType}'.");
             }
@@ -1555,23 +1513,6 @@ namespace Quasar.Agent
 
             var success = EntityInspector.TryDelete(request.EntityId, out var message);
             return CreateResult(command, success, message);
-        }
-
-        private ServerCommandResult GetEntityRenderScene(ServerCommandEnvelope command)
-        {
-            var request = DeserializePayload<EntityRenderSceneRequest>(command.Payload);
-            if (request == null || request.EntityId == 0)
-                return CreateResult(command, false, "Viewer scene request is missing an entity id.");
-
-            var gameVersion = MySession.Static?.AppVersionFromSave.ToString() ?? string.Empty;
-            EntityRenderScene scene;
-            if (MyEntities.TryGetEntityById<MyCubeGrid>(request.EntityId, out var grid) && grid != null && !grid.MarkedForClose && !grid.Closed)
-                scene = GridRenderSceneInspector.Build(request.EntityId, gameVersion, _pluginVersion, request.IncludeVoxels, request.IncludeContext);
-            else if (MyEntities.TryGetEntityById<MyVoxelBase>(request.EntityId, out var voxel) && voxel != null && !voxel.MarkedForClose && !voxel.Closed)
-                scene = GridRenderSceneInspector.BuildVoxel(request.EntityId, gameVersion, _pluginVersion, request.IncludeVoxels);
-            else
-                return CreateResult(command, false, "Viewer entity not found or not loaded on this server.");
-            return CreateResult(command, true, "Viewer scene snapshot captured.", SerializePayload(scene));
         }
 
         private static string SerializePayload(object value)

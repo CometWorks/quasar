@@ -22,7 +22,8 @@ public class ServerCommandEnvelope
     /// Optional JSON request body for commands that carry structured parameters
     /// (e.g. <see cref="ServerCommandType.SetPlayerPromoteLevel"/> target level,
     /// <see cref="ServerCommandType.ListEntities"/> filter,
-    /// <see cref="ServerCommandType.DeleteEntity"/> target). Empty for simple commands.
+    /// <see cref="ServerCommandType.DeleteEntity"/> target,
+    /// <see cref="ServerCommandType.PluginRequest"/> companion request). Empty for simple commands.
     /// </summary>
     public string Payload { get; set; } = string.Empty;
 
