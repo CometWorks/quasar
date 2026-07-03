@@ -2,7 +2,7 @@
 
 Quasar plugins are trusted UI extensions loaded by the Quasar web host. They are
 separate from Magnetar Dedicated Server plugins. The first target plugin is the
-Grid Viewer: a heavy, mostly independent UI surface that should live outside the
+Entity Viewer: a heavy, mostly independent UI surface that should live outside the
 Quasar core repository while still feeling native inside Quasar.
 
 ## Goals
@@ -98,13 +98,13 @@ Example:
 
 ```json
 {
-  "id": "cometworks.gridviewer",
-  "displayName": "Grid Viewer",
+  "id": "cometworks.entityviewer",
+  "displayName": "Entity Viewer",
   "version": "0.1.0",
-  "entryAssembly": "CometWorks.GridViewer.Quasar.dll",
-  "entryType": "CometWorks.GridViewer.Quasar.GridViewerQuasarPlugin",
-  "projectPath": "src/CometWorks.GridViewer.Quasar/CometWorks.GridViewer.Quasar.csproj",
-  "staticAssets": "src/CometWorks.GridViewer/wwwroot",
+  "entryAssembly": "CometWorks.EntityViewer.Quasar.dll",
+  "entryType": "CometWorks.EntityViewer.Quasar.EntityViewerQuasarPlugin",
+  "projectPath": "src/CometWorks.EntityViewer.Quasar/CometWorks.EntityViewer.Quasar.csproj",
+  "staticAssets": "src/CometWorks.EntityViewer/wwwroot",
   "stylesheets": [
     "quasar-plugin.css"
   ],
@@ -130,6 +130,8 @@ The `/settings/ui-plugins` page now manages the QuasarHub catalog:
 
 - refreshes and caches the catalog in
   `{Quasar data directory}/Caches/ui-plugin-hub-catalog.json`
+- checks QuasarHub on Quasar startup and every 15 minutes so installed package
+  update availability stays current
 - shows installed, update-available, hidden, and invalid package states
 - enables or disables installed packages for the next restart
 - clones/fetches the plugin repository and checks out the pinned commit
@@ -367,7 +369,7 @@ Quasar should also pass plugin assemblies to Razor component endpoint mapping in
 Plugins can then provide normal routable Razor components:
 
 ```razor
-@page "/grid-viewer"
+@page "/entity-viewer"
 ```
 
 ## Navigation
@@ -513,7 +515,7 @@ plugin's static asset root under a deterministic path:
 /_quasar/plugins/{pluginId}/
 ```
 
-The Grid Viewer can keep its JavaScript/Three.js-heavy surface in its own
+The Entity Viewer can keep its JavaScript/Three.js-heavy surface in its own
 repository and serve it from that plugin path. Quasar core no longer copies
 viewer assets into `Quasar/wwwroot`; the QuasarHub installer clones the pinned
 viewer repository commit, builds the adapter project, and loads the package from
@@ -573,11 +575,11 @@ Envelope fields:
 Quasar performs web auth, rate limits requests, and binds requests to a managed
 server. Companion plugins handle only their own operation names.
 
-## Grid Viewer and GridBackups
+## Entity Viewer and GridBackups
 
-Grid Viewer is the first Quasar UI plugin.
+Entity Viewer is the first Quasar UI plugin.
 
-Grid Viewer owns:
+Entity Viewer owns:
 
 - entity-list viewer button contribution
 - fullscreen viewer shell
@@ -594,8 +596,8 @@ GridBackups owns:
 - companion-channel handlers for grid audit, backup list, snapshot metadata, and
   future snapshot content
 
-Grid Viewer should call GridBackups through the companion channel. GridBackups
-should not reference the Grid Viewer UI assembly. If shared DTOs are useful, put
+Entity Viewer should call GridBackups through the companion channel. GridBackups
+should not reference the Entity Viewer UI assembly. If shared DTOs are useful, put
 them in a small contracts assembly that both can reference.
 
 ## MudBlazor Requirement
@@ -647,5 +649,5 @@ the Quasar process. Therefore:
 7. Add fine-grained inline region outlets for stable declarations.
 8. Add first patch targets on Entities and Dashboard.
 9. Add generic companion data channel through Quasar.Agent.
-10. Use Grid Viewer from its external Quasar UI plugin repository.
+10. Use Entity Viewer from its external Quasar UI plugin repository.
 11. Add GridBackups companion handlers for audit/grid/snapshot requests.

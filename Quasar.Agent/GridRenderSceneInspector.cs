@@ -831,7 +831,7 @@ namespace Quasar.Agent
                 }
                 catch
                 {
-                    // Voxel metadata is optional for the grid viewer; skip bodies that are mid-close.
+                    // Voxel metadata is optional for the entity viewer; skip bodies that are mid-close.
                 }
             }
 
@@ -3109,6 +3109,7 @@ namespace Quasar.Agent
             private readonly Dictionary<string, ViewerTextureAsset> _texturesById = new Dictionary<string, ViewerTextureAsset>(StringComparer.OrdinalIgnoreCase);
             private readonly Dictionary<string, ViewerModAssetRoot> _modsById = new Dictionary<string, ViewerModAssetRoot>(StringComparer.OrdinalIgnoreCase);
             private readonly Dictionary<string, string> _modIdsByKey = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, string> _modRootIdsByAlias = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             private readonly Dictionary<string, string> _idsByLogicalPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             public string RegisterModel(string logicalPath)
@@ -3170,7 +3171,10 @@ namespace Quasar.Agent
                 var service = modItem.PublishedServiceName ?? string.Empty;
                 var key = (service + ":" + modItem.PublishedFileId + ":" + name).ToLowerInvariant();
                 if (_modIdsByKey.TryGetValue(key, out var existing))
+                {
+                    RegisterModAliases(existing, name, modItem.FriendlyName, PublishedFileIdAlias(modItem.PublishedFileId));
                     return existing;
+                }
 
                 var rootId = "mod_" + ShortHash(key);
                 _modIdsByKey[key] = rootId;
@@ -3183,6 +3187,7 @@ namespace Quasar.Agent
                     FriendlyName = modItem.FriendlyName ?? string.Empty,
                     IsDependency = modItem.IsDependency,
                 };
+                RegisterModAliases(rootId, name, modItem.FriendlyName, PublishedFileIdAlias(modItem.PublishedFileId));
                 return rootId;
             }
 
@@ -3275,10 +3280,16 @@ namespace Quasar.Agent
                 if (string.IsNullOrWhiteSpace(name))
                     return string.Empty;
 
+                if (TryGetRegisteredModRoot(name, out var registeredRootId))
+                    return registeredRootId;
+
                 var service = string.Empty;
                 var key = service + ":0:" + name;
                 if (_modIdsByKey.TryGetValue(key, out var existing))
+                {
+                    RegisterModAliases(existing, name);
                     return existing;
+                }
 
                 var rootId = "mod_" + ShortHash(key.ToLowerInvariant());
                 _modIdsByKey[key] = rootId;
@@ -3288,7 +3299,72 @@ namespace Quasar.Agent
                     Name = name,
                     FriendlyName = name,
                 };
+                RegisterModAliases(rootId, name);
                 return rootId;
+            }
+
+            private bool TryGetRegisteredModRoot(string alias, out string rootId)
+            {
+                rootId = null;
+                var normalized = NormalizeModAlias(alias);
+                if (string.IsNullOrEmpty(normalized))
+                    return false;
+
+                if (_modRootIdsByAlias.TryGetValue(normalized, out rootId))
+                    return true;
+
+                var stem = ArchiveStem(normalized);
+                return !string.IsNullOrEmpty(stem) && _modRootIdsByAlias.TryGetValue(stem, out rootId);
+            }
+
+            private void RegisterModAliases(string rootId, params string[] aliases)
+            {
+                foreach (var alias in aliases)
+                    RegisterModAlias(rootId, alias);
+            }
+
+            private void RegisterModAlias(string rootId, string alias)
+            {
+                var normalized = NormalizeModAlias(alias);
+                if (string.IsNullOrEmpty(rootId) || string.IsNullOrEmpty(normalized))
+                    return;
+
+                if (!_modRootIdsByAlias.ContainsKey(normalized))
+                    _modRootIdsByAlias[normalized] = rootId;
+
+                var stem = ArchiveStem(normalized);
+                if (!string.IsNullOrEmpty(stem) && !_modRootIdsByAlias.ContainsKey(stem))
+                    _modRootIdsByAlias[stem] = rootId;
+            }
+
+            private static string NormalizeModAlias(string value)
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                    return string.Empty;
+
+                var alias = value.Trim().Replace('\\', '/');
+                var slash = alias.IndexOf('/');
+                if (slash >= 0)
+                    alias = alias.Substring(0, slash);
+
+                return alias.ToLowerInvariant();
+            }
+
+            private static string ArchiveStem(string value)
+            {
+                if (string.IsNullOrEmpty(value))
+                    return string.Empty;
+                if (value.EndsWith(".sbm", StringComparison.OrdinalIgnoreCase))
+                    return value.Substring(0, value.Length - ".sbm".Length);
+                if (value.EndsWith("_legacy.bin", StringComparison.OrdinalIgnoreCase))
+                    return value.Substring(0, value.Length - "_legacy.bin".Length);
+
+                return string.Empty;
+            }
+
+            private static string PublishedFileIdAlias(ulong publishedFileId)
+            {
+                return publishedFileId == 0 ? string.Empty : publishedFileId.ToString();
             }
 
             private static string SourceKind(string logicalPath, string rootId)

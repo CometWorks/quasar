@@ -17,7 +17,7 @@ entity browser: list, filter, inspect, and delete entities per server, with
 full admin controls.
 
 **Out of scope (later stage):** 3D render preview / world-space visualization
-of entity positions. The grid viewer / minimap render is a follow-on feature.
+of entity positions. The entity viewer / minimap render is a follow-on feature.
 Note this in the roadmap — the entity data model should include `WorldAABB` /
 `WorldMatrix` from the start so the renderer can consume it without a schema
 change later.
