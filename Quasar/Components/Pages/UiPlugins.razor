@@ -19,18 +19,20 @@
                 Loaded Quasar UI plugins, extension points, nav contributions, and safe boot state.
             </MudText>
         </MudStack>
-        <MudChip T="string"
-                 Color="@(PluginCatalog.SafeMode ? Color.Warning : Color.Success)"
-                 Variant="Variant.Outlined">
-            @(PluginCatalog.SafeMode ? "Safe boot active" : "Dynamic plugins enabled")
-        </MudChip>
-        <MudButton Variant="Variant.Outlined"
-                   Color="Color.Warning"
-                   StartIcon="@Icons.Material.Filled.RestartAlt"
-                   Disabled="@(!IsRestartAvailable)"
-                   OnClick="RestartQuasarAsync">
-            Restart Quasar
-        </MudButton>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Wrap="Wrap.Wrap" Class="ui-plugin-header-actions">
+            <MudChip T="string"
+                     Color="@(PluginCatalog.SafeMode ? Color.Warning : Color.Success)"
+                     Variant="Variant.Outlined">
+                @(PluginCatalog.SafeMode ? "Safe boot active" : "Dynamic plugins enabled")
+            </MudChip>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Warning"
+                       StartIcon="@Icons.Material.Filled.RestartAlt"
+                       Disabled="@(!IsRestartAvailable)"
+                       OnClick="RestartQuasarAsync">
+                Restart Quasar
+            </MudButton>
+        </MudStack>
     </MudStack>
 
     <MudGrid>
@@ -148,7 +150,7 @@
                 </MudAlert>
             }
 
-            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.End" Spacing="1">
+            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="1" Class="ui-plugin-hub-filter-row">
                 <MudTextField @bind-Value="_hubSearch"
                               Label="Search hub"
                               Variant="Variant.Outlined"
@@ -160,7 +162,8 @@
                            Color="Color.Default"
                            StartIcon="@Icons.Material.Filled.OpenInNew"
                            Href="https://github.com/CometWorks/quasar-hub"
-                           Target="_blank">
+                           Target="_blank"
+                           Class="ui-plugin-hub-open-button">
                     Open Hub
                 </MudButton>
             </MudStack>

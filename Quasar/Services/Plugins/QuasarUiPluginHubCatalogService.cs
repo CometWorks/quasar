@@ -411,6 +411,10 @@ public sealed class QuasarUiPluginHubCatalogService
         startInfo.ArgumentList.Add(buildConfiguration);
         startInfo.ArgumentList.Add("-v:minimal");
 
+        var abstractionsAssemblyPath = typeof(QuasarPluginManifest).Assembly.Location;
+        if (!string.IsNullOrWhiteSpace(abstractionsAssemblyPath) && File.Exists(abstractionsAssemblyPath))
+            startInfo.ArgumentList.Add($"-p:QuasarPluginAbstractionsAssembly={abstractionsAssemblyPath}");
+
         await RunProcessAsync(startInfo, "dotnet build", cancellationToken);
     }
 

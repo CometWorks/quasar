@@ -134,6 +134,8 @@ The `/settings/ui-plugins` page now manages the QuasarHub catalog:
 - enables or disables installed packages for the next restart
 - clones/fetches the plugin repository and checks out the pinned commit
 - builds the declared plugin project with `dotnet build`
+- passes `QuasarPluginAbstractionsAssembly` to the build so the plugin compiles
+  against the contract DLL loaded by the running Quasar worker
 - removes local plugin packages
 - links back to the plugin repository and QuasarHub
 

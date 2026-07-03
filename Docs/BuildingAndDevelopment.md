@@ -56,8 +56,9 @@ The solution file is `Quasar.sln`.
 - Building `Quasar/Quasar.csproj` no longer requires the Grid Viewer source tree
   or its npm packages. The viewer plugin is installed from QuasarHub, where the
   catalog pins a commit in `https://github.com/CometWorks/viewer.git`. The plugin
-  installer clones that repository, builds the adapter project, and serves the
-  viewer static assets from `/_quasar/plugins/{pluginId}/`.
+  installer clones that repository, builds the adapter project against the
+  running Quasar worker's `Quasar.Plugin.Abstractions.dll`, and serves the viewer
+  static assets from `/_quasar/plugins/{pluginId}/`.
 
 ## Managed runtime selection
 
