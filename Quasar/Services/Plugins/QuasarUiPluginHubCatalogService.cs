@@ -15,6 +15,7 @@ public sealed class QuasarUiPluginHubCatalogService
 {
     private const int CacheSchemaVersion = 1;
     private const string InstallMetadataFileName = "quasar-ui-plugin-install.json";
+    private const string PluginAbstractionsAssemblyFileName = "Quasar.Plugin.Abstractions.dll";
 
     public const string DefaultHubName = "QuasarHub";
     public const string DefaultHubRepo = "CometWorks/quasar-hub";
@@ -411,11 +412,22 @@ public sealed class QuasarUiPluginHubCatalogService
         startInfo.ArgumentList.Add(buildConfiguration);
         startInfo.ArgumentList.Add("-v:minimal");
 
-        var abstractionsAssemblyPath = typeof(QuasarPluginManifest).Assembly.Location;
-        if (!string.IsNullOrWhiteSpace(abstractionsAssemblyPath) && File.Exists(abstractionsAssemblyPath))
-            startInfo.ArgumentList.Add($"-p:QuasarPluginAbstractionsAssembly={abstractionsAssemblyPath}");
+        var abstractionsAssemblyPath = GetPluginAbstractionsAssemblyPath();
+        if (string.IsNullOrWhiteSpace(abstractionsAssemblyPath))
+        {
+            throw new InvalidOperationException(
+                "Quasar.Plugin.Abstractions.dll was not found on disk. Quasar UI plugin installs require the abstraction assembly beside the running worker so plugin adapters can build against the active contract.");
+        }
+
+        startInfo.ArgumentList.Add($"-p:QuasarPluginAbstractionsAssembly={abstractionsAssemblyPath}");
 
         await RunProcessAsync(startInfo, "dotnet build", cancellationToken);
+    }
+
+    private static string GetPluginAbstractionsAssemblyPath()
+    {
+        var baseDirectoryPath = Path.Combine(AppContext.BaseDirectory, PluginAbstractionsAssemblyFileName);
+        return File.Exists(baseDirectoryPath) ? baseDirectoryPath : string.Empty;
     }
 
     private static async Task RunProcessAsync(ProcessStartInfo startInfo, string label, CancellationToken cancellationToken)

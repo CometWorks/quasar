@@ -15,6 +15,7 @@ web UI worker.
   - default `appsettings.json`
 - `quasar-web-linux-x64.tar.gz`
   - web worker executable `Quasar`
+  - `Quasar.Plugin.Abstractions.dll` for Quasar UI plugin adapter builds
   - Blazor/static assets
   - `Agent/Quasar.Agent.dll`
   - `Agent/Magnetar.Protocol.dll`

@@ -20,6 +20,7 @@ Linux packager, under `artifacts/windows/`:
   - default `appsettings.json`
 - `quasar-web-win-x64.zip`
   - web worker executable `Quasar.exe`
+  - `Quasar.Plugin.Abstractions.dll` for Quasar UI plugin adapter builds
   - Blazor/static assets
   - `Agent/Quasar.Agent.dll`
   - `Agent/Magnetar.Protocol.dll`

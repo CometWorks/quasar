@@ -167,6 +167,11 @@ The first installer supports root `quasar-plugin.json` package manifests. Build
 configuration comes from `QUASAR_UI_PLUGIN_BUILD_CONFIGURATION`,
 `Quasar:Plugins:BuildConfiguration`, or `Debug` in development and `Release`
 otherwise.
+The installer passes the running worker's physical
+`Quasar.Plugin.Abstractions.dll` to adapter builds as
+`QuasarPluginAbstractionsAssembly`. Release packaging keeps that DLL beside the
+single-file worker so Bootstrap-managed installs can build UI plugins from
+QuasarHub without needing a NuGet package.
 
 Install, update, and remove operations change files on disk only. The active
 plugin assembly set is still loaded at Quasar worker startup, so each operation

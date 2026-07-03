@@ -102,4 +102,17 @@
           SkipUnchangedFiles="true" />
   </Target>
 
+  <Target Name="StageQuasarPluginAbstractionsForPublish" AfterTargets="Publish">
+    <PropertyGroup>
+      <_QuasarPluginAbstractionsBuildFile>$(TargetDir)Quasar.Plugin.Abstractions.dll</_QuasarPluginAbstractionsBuildFile>
+      <_QuasarPluginAbstractionsPublishFile>$(PublishDir)Quasar.Plugin.Abstractions.dll</_QuasarPluginAbstractionsPublishFile>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_QuasarPluginAbstractionsBuildFile)"
+          DestinationFiles="$(_QuasarPluginAbstractionsPublishFile)"
+          Condition="Exists('$(_QuasarPluginAbstractionsBuildFile)')"
+          SkipUnchangedFiles="true" />
+    <Error Condition="'$(PublishSingleFile)' == 'true' and !Exists('$(_QuasarPluginAbstractionsPublishFile)')"
+           Text="Quasar.Plugin.Abstractions.dll was not staged beside the single-file worker. Quasar UI plugin hub installs require this file." />
+  </Target>
+
 </Project>
