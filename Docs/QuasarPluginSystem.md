@@ -172,6 +172,9 @@ The installer passes the running worker's physical
 `QuasarPluginAbstractionsAssembly`. Release packaging keeps that DLL beside the
 single-file worker so Bootstrap-managed installs can build UI plugins from
 QuasarHub without needing a NuGet package.
+At startup, Quasar resolves plugin dependencies from the plugin's shadow-copied
+build output and records contribution enumeration failures as plugin load errors
+instead of letting one plugin crash the worker during catalog construction.
 
 Install, update, and remove operations change files on disk only. The active
 plugin assembly set is still loaded at Quasar worker startup, so each operation

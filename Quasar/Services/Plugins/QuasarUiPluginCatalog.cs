@@ -19,6 +19,10 @@ public sealed class QuasarUiPluginCatalog
 {
     public const string StaticAssetRequestPathPrefix = "/_quasar/plugins";
 
+    private static readonly object AssemblyResolverSync = new();
+    private static readonly Dictionary<string, List<PluginAssemblyCandidate>> PluginAssemblyCandidates = new(StringComparer.OrdinalIgnoreCase);
+    private static bool _assemblyResolverRegistered;
+
     private readonly IReadOnlyList<QuasarLoadedUiPlugin> _plugins;
     private readonly List<string> _loadErrors;
 
@@ -32,18 +36,15 @@ public sealed class QuasarUiPluginCatalog
         _loadErrors = loadErrors?.ToList() ?? [];
         SafeMode = safeMode;
         SafeModeReasons = safeModeReasons;
-        RazorAssemblies = plugins
-            .SelectMany(plugin => plugin.Plugin.GetRazorAssemblies())
+        RazorAssemblies = CollectPluginValues(plugins, plugin => plugin.Plugin.GetRazorAssemblies(), "Razor assemblies")
             .Distinct()
             .ToArray();
-        NavItems = plugins
-            .SelectMany(plugin => plugin.Plugin.GetNavItems())
+        NavItems = CollectPluginValues(plugins, plugin => plugin.Plugin.GetNavItems(), "nav items")
             .OrderBy(item => item.Zone, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.Order)
             .ThenBy(item => item.Text, StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        Extensions = plugins
-            .SelectMany(plugin => plugin.Plugin.GetExtensions())
+        Extensions = CollectPluginValues(plugins, plugin => plugin.Plugin.GetExtensions(), "extensions")
             .OrderBy(item => item.TargetKey, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.Priority)
             .ToArray();
@@ -51,6 +52,27 @@ public sealed class QuasarUiPluginCatalog
             .SelectMany(GetStylesheetHrefs)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private IReadOnlyList<T> CollectPluginValues<T>(
+        IReadOnlyList<QuasarLoadedUiPlugin> plugins,
+        Func<QuasarLoadedUiPlugin, IEnumerable<T>> selector,
+        string label)
+    {
+        var values = new List<T>();
+        foreach (var plugin in plugins)
+        {
+            try
+            {
+                values.AddRange(selector(plugin));
+            }
+            catch (Exception exception)
+            {
+                _loadErrors.Add($"{plugin.Context.PluginDirectory}: failed to get {label}: {exception.Message}");
+            }
+        }
+
+        return values;
     }
 
     public bool SafeMode { get; }
@@ -210,6 +232,7 @@ public sealed class QuasarUiPluginCatalog
     {
         var entryAssemblyPath = ResolveEntryAssemblyPath(configuration, environment, manifestDirectory, manifest.EntryAssembly);
         var shadowDirectory = ShadowCopyPlugin(manifest.Id, entryAssemblyPath);
+        RegisterPluginAssemblyResolution(shadowDirectory);
         var shadowEntryAssemblyPath = Path.Combine(shadowDirectory, Path.GetFileName(entryAssemblyPath));
         var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(shadowEntryAssemblyPath);
         var entryType = assembly.GetType(manifest.EntryType, throwOnError: true)
@@ -328,6 +351,61 @@ public sealed class QuasarUiPluginCatalog
         return pluginCacheDirectory;
     }
 
+    private static void RegisterPluginAssemblyResolution(string assemblyDirectory)
+    {
+        lock (AssemblyResolverSync)
+        {
+            foreach (var assemblyPath in Directory.EnumerateFiles(assemblyDirectory, "*.dll", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    var assemblyName = AssemblyName.GetAssemblyName(assemblyPath);
+                    if (string.IsNullOrWhiteSpace(assemblyName.Name))
+                        continue;
+
+                    var candidates = PluginAssemblyCandidates.GetValueOrDefault(assemblyName.Name);
+                    if (candidates is null)
+                    {
+                        candidates = [];
+                        PluginAssemblyCandidates[assemblyName.Name] = candidates;
+                    }
+
+                    if (!candidates.Any(candidate => string.Equals(candidate.Path, assemblyPath, StringComparison.OrdinalIgnoreCase)))
+                        candidates.Add(new PluginAssemblyCandidate(assemblyPath, assemblyName));
+                }
+                catch
+                {
+                    // Non-.NET DLLs can sit beside plugin assets; ignore them for assembly probing.
+                }
+            }
+
+            if (_assemblyResolverRegistered)
+                return;
+
+            AssemblyLoadContext.Default.Resolving += ResolvePluginAssembly;
+            _assemblyResolverRegistered = true;
+        }
+    }
+
+    private static Assembly? ResolvePluginAssembly(AssemblyLoadContext context, AssemblyName assemblyName)
+    {
+        if (string.IsNullOrWhiteSpace(assemblyName.Name))
+            return null;
+
+        PluginAssemblyCandidate? candidate;
+        lock (AssemblyResolverSync)
+        {
+            if (!PluginAssemblyCandidates.TryGetValue(assemblyName.Name, out var candidates) || candidates.Count == 0)
+                return null;
+
+            candidate = candidates.FirstOrDefault(item => item.Name.Version == assemblyName.Version) ?? candidates[0];
+        }
+
+        return File.Exists(candidate.Path)
+            ? context.LoadFromAssemblyPath(candidate.Path)
+            : null;
+    }
+
     private static string ComputeShortHash(string path)
     {
         using var stream = File.OpenRead(path);
@@ -360,4 +438,6 @@ public sealed class QuasarUiPluginCatalog
             ? "plugin"
             : sanitized;
     }
+
+    private sealed record PluginAssemblyCandidate(string Path, AssemblyName Name);
 }
