@@ -175,8 +175,8 @@ Add two methods after `GetQuasarDiscordOptionsPath()`:
 public static string GetQuasarBrandingPath() =>
     Path.Combine(GetQuasarDirectory(), "branding.json");
 
-public static string GetQuasarBrandingDirectory(string webRootPath) =>
-    Path.Combine(webRootPath, "branding");
+public static string GetQuasarBrandingDirectory() =>
+    Path.Combine(GetQuasarDirectory(), "Branding");
 ```
 
 ### 7. `Quasar/Services/ThemePreferenceService.cs`

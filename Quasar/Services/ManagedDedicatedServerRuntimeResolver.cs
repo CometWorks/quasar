@@ -760,8 +760,8 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             if (File.Exists(interimPath))
                 return interimPath;
 
-            var legacyPath = Path.Combine(_options.MagnetarInstallDirectory, GetWindowsMagnetarLauncherFileName(ManagedServerRuntime.NetFramework48));
-            return File.Exists(legacyPath) ? legacyPath : string.Empty;
+            var netFrameworkPath = Path.Combine(_options.MagnetarInstallDirectory, GetWindowsMagnetarLauncherFileName(ManagedServerRuntime.NetFramework48));
+            return File.Exists(netFrameworkPath) ? netFrameworkPath : string.Empty;
         }
 
         return FindImmediateFile(Path.Combine(_options.MagnetarInstallDirectory, "Bin"), MagnetarLauncherFileNames) ?? string.Empty;

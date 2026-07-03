@@ -32,11 +32,8 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
     {
         _logger = logger;
         _protector = dataProtectionProvider.CreateProtector(DataProtectionPurpose);
-        _credentials = LoadCredentials(out var requiresMigration);
+        _credentials = LoadCredentials();
         _snapshot = CreateSnapshot(_credentials);
-
-        if (requiresMigration)
-            _ = MigrateLegacyPlaintextAsync();
 
         StartWatching();
     }
@@ -89,9 +86,8 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
         _reloadDebounce?.Dispose();
     }
 
-    private SteamWorkshopCredentials LoadCredentials(out bool requiresMigration)
+    private SteamWorkshopCredentials LoadCredentials()
     {
-        requiresMigration = false;
         var path = MagnetarPaths.GetQuasarWorkshopOptionsPath();
 
         try
@@ -104,33 +100,13 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
             if (persisted is null)
                 return SteamWorkshopCredentials.Normalize(null);
 
-            var credentials = persisted.ToCredentials(_protector, _logger, out var migrated);
-            requiresMigration = migrated;
+            var credentials = persisted.ToCredentials(_protector, _logger);
             return SteamWorkshopCredentials.Normalize(credentials);
         }
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Failed loading Steam Workshop credentials from {Path}", path);
             return SteamWorkshopCredentials.Normalize(null);
-        }
-    }
-
-    private async Task MigrateLegacyPlaintextAsync()
-    {
-        try
-        {
-            SteamWorkshopCredentials snapshot;
-            lock (_sync)
-            {
-                snapshot = _credentials.Clone();
-            }
-
-            await SaveAsync(snapshot).ConfigureAwait(false);
-            _logger.LogInformation("Migrated legacy plaintext Steam Workshop credentials to protected storage.");
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Failed migrating legacy plaintext Steam Workshop credentials.");
         }
     }
 
@@ -194,7 +170,7 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
 
     private void ReloadFromDisk()
     {
-        var reloaded = LoadCredentials(out var requiresMigration);
+        var reloaded = LoadCredentials();
         var snapshot = CreateSnapshot(reloaded);
         var changed = false;
 
@@ -207,9 +183,6 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
                 changed = true;
             }
         }
-
-        if (requiresMigration)
-            _ = MigrateLegacyPlaintextAsync();
 
         if (!changed)
             return;
@@ -243,10 +216,6 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
     {
         public string? ProtectedWebApiKey { get; set; }
 
-        // Legacy plaintext field — read-only for backward compatibility.
-        // New writes only emit ProtectedWebApiKey.
-        public string? WebApiKey { get; set; }
-
         public static PersistedCredentials FromCredentials(SteamWorkshopCredentials credentials, IDataProtector protector)
         {
             var key = credentials.WebApiKey;
@@ -258,11 +227,8 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
 
         public SteamWorkshopCredentials ToCredentials(
             IDataProtector protector,
-            ILogger logger,
-            out bool migratedFromPlaintext)
+            ILogger logger)
         {
-            migratedFromPlaintext = false;
-
             if (!string.IsNullOrWhiteSpace(ProtectedWebApiKey))
             {
                 try
@@ -279,15 +245,6 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
                         "The Data Protection keyring may have been rotated or replaced; clearing the stored key.");
                     return new SteamWorkshopCredentials();
                 }
-            }
-
-            if (!string.IsNullOrWhiteSpace(WebApiKey))
-            {
-                migratedFromPlaintext = true;
-                return new SteamWorkshopCredentials
-                {
-                    WebApiKey = WebApiKey,
-                };
             }
 
             return new SteamWorkshopCredentials();

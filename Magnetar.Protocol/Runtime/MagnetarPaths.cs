@@ -7,9 +7,8 @@ public static class MagnetarPaths
 {
     // -------------------------------------------------------------------------
     // Root — everything lives under QUASAR_DATA_DIR when set. Bootstrap sets it
-    // to the launcher install root for packaged installs after migrating legacy
-    // ~/.config/Quasar (Linux/macOS) or %APPDATA%\Quasar (Windows) data.
-    // Without Bootstrap, fall back to the OS application-data directory.
+    // to the launcher install root for packaged installs. Without Bootstrap,
+    // fall back to the OS application-data directory.
     // -------------------------------------------------------------------------
 
     public static string GetQuasarDirectory()
@@ -24,9 +23,6 @@ public static class MagnetarPaths
 
         return Path.Combine(appData, "Quasar");
     }
-
-    // Kept for backward compatibility — resolves to the Quasar root.
-    public static string GetRuntimeDirectory() => GetQuasarDirectory();
 
     // -------------------------------------------------------------------------
     // Bootstrap / web-service manifest
@@ -65,9 +61,6 @@ public static class MagnetarPaths
 
     public static string GetQuasarBrandingDirectory() =>
         Path.Combine(GetQuasarDirectory(), "Branding");
-
-    public static string GetQuasarBrandingDirectory(string webRootPath) =>
-        GetQuasarBrandingDirectory();
 
     public static string GetQuasarDeathMessagesPath() =>
         Path.Combine(GetQuasarDirectory(), "death-messages.json");
@@ -128,9 +121,6 @@ public static class MagnetarPaths
 
     public static string GetQuasarWorldTemplatesDirectory() =>
         Path.Combine(GetQuasarDirectory(), "WorldTemplates");
-
-    public static string GetLegacyQuasarWorldProfilesDirectory() =>
-        Path.Combine(GetQuasarDirectory(), "WorldProfiles");
 
     public static string GetQuasarWorldTemplateDirectory(string worldTemplateId) =>
         Path.Combine(GetQuasarWorldTemplatesDirectory(), SanitizePathSegment(worldTemplateId));

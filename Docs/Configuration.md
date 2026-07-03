@@ -82,10 +82,6 @@ worker** read JSON config from these locations, later ones overriding earlier:
    1. Set `QUASAR_DATA_DIR` (or `--data-dir <dir>` on Linux installs) to keep
    persistent local overrides in a separate directory.
 
-When Bootstrap starts without a custom `QUASAR_DATA_DIR`, it migrates legacy
-default data roots (`~/.config/Quasar` on Linux/macOS,
-`%APPDATA%\Quasar` on Windows) into the install root.
-
 The shipped defaults are defined in [`Quasar/appsettings.json`](../Quasar/appsettings.json).
 
 During UI-worker staging, Quasar performs a three-way merge for `appsettings.json`:

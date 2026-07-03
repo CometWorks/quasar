@@ -85,9 +85,6 @@ extracts it under:
 Then it writes `Updates/active-release.json` pointing at the managed active
 worker. `Updates\Staged\` is reserved for not-yet-activated update payloads. The
 downloaded archive must match the release's `SHA256SUMS` entry before extraction.
-On startup, Bootstrap also migrates a legacy default data root at
-`%APPDATA%\Quasar` into the install root unless `QUASAR_DATA_DIR` points to a
-custom directory.
 
 ## UI Worker Updates
 

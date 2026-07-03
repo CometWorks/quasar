@@ -84,8 +84,8 @@
                     <MudListItem T="string" Icon="@Icons.Material.Filled.CheckCircle" IconColor="Color.Success">
                         Same major.minor version restores in full; patch versions are compatible both ways.
                     </MudListItem>
-                    <MudListItem T="string" Icon="@Icons.Material.Filled.Upgrade" IconColor="Color.Info">
-                        Older backups are upgraded through a forward migration path when one is available.
+                    <MudListItem T="string" Icon="@Icons.Material.Filled.Block" IconColor="Color.Error">
+                        Restoring a backup from an older major.minor version is not supported.
                     </MudListItem>
                     <MudListItem T="string" Icon="@Icons.Material.Filled.Block" IconColor="Color.Error">
                         Restoring a backup from a newer major.minor version is not supported (no downgrade).

@@ -113,9 +113,9 @@
             template = importResult.Template;
             configProfileId = importResult.ConfigProfileId;
         }
-        else if (result.Data is QuasarWorldTemplate legacyTemplate)
+        else if (result.Data is QuasarWorldTemplate selectedTemplate)
         {
-            template = legacyTemplate;
+            template = selectedTemplate;
         }
 
         if (template is null)

@@ -595,30 +595,11 @@ jobs:
 
               match = matches[-1]
               numbers = [int(part) for part in match.group("core").split(".")]
-              prerelease = match.group("pre") or ""
-              prerelease_parts = prerelease.split(".") if prerelease else []
-              prerelease_build = None
-
-              if prerelease.isdigit():
-                  prerelease_build = int(prerelease)
-              elif prerelease_parts:
-                  # Legacy PR/manual tags used base-pr.<number>.<run> and
-                  # base-manual.<run>. Sort them by the trailing run number so
-                  # current review builds are not treated as older than stable
-                  # base releases only because they carry a non-numeric label.
-                  if prerelease_parts[0] in {"main", "manual"} and prerelease_parts[-1].isdigit():
-                      prerelease_build = int(prerelease_parts[-1])
-                  elif (
-                      prerelease_parts[0] == "pr"
-                      and len(prerelease_parts) >= 3
-                      and prerelease_parts[-1].isdigit()
-                  ):
-                      prerelease_build = int(prerelease_parts[-1])
 
               while len(numbers) < 3:
                   numbers.append(0)
               if len(numbers) < 4:
-                  numbers.append(prerelease_build or 0)
+                  numbers.append(0)
 
               return tuple(numbers[:4])
 

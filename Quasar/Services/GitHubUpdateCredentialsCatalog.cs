@@ -32,11 +32,8 @@ public sealed class GitHubUpdateCredentialsCatalog : IDisposable
     {
         _logger = logger;
         _protector = dataProtectionProvider.CreateProtector(DataProtectionPurpose);
-        _credentials = LoadCredentials(out var requiresMigration);
+        _credentials = LoadCredentials();
         _snapshot = CreateSnapshot(_credentials);
-
-        if (requiresMigration)
-            _ = MigrateLegacyPlaintextAsync();
 
         StartWatching();
     }
@@ -92,9 +89,8 @@ public sealed class GitHubUpdateCredentialsCatalog : IDisposable
         _reloadDebounce?.Dispose();
     }
 
-    private GitHubUpdateCredentials LoadCredentials(out bool requiresMigration)
+    private GitHubUpdateCredentials LoadCredentials()
     {
-        requiresMigration = false;
         var path = MagnetarPaths.GetQuasarGitHubUpdateCredentialsPath();
 
         try
@@ -107,33 +103,13 @@ public sealed class GitHubUpdateCredentialsCatalog : IDisposable
             if (persisted is null)
                 return GitHubUpdateCredentials.Normalize(null);
 
-            var credentials = persisted.ToCredentials(_protector, _logger, out var migrated);
-            requiresMigration = migrated;
+            var credentials = persisted.ToCredentials(_protector, _logger);
             return GitHubUpdateCredentials.Normalize(credentials);
         }
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Failed loading GitHub update credentials from {Path}", path);
             return GitHubUpdateCredentials.Normalize(null);
-        }
-    }
-
-    private async Task MigrateLegacyPlaintextAsync()
-    {
-        try
-        {
-            GitHubUpdateCredentials snapshot;
-            lock (_sync)
-            {
-                snapshot = _credentials.Clone();
-            }
-
-            await SaveAsync(snapshot).ConfigureAwait(false);
-            _logger.LogInformation("Migrated legacy plaintext GitHub update credentials to protected storage.");
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Failed migrating legacy plaintext GitHub update credentials.");
         }
     }
 
@@ -197,7 +173,7 @@ public sealed class GitHubUpdateCredentialsCatalog : IDisposable
 
     private void ReloadFromDisk()
     {
-        var reloaded = LoadCredentials(out var requiresMigration);
+        var reloaded = LoadCredentials();
         var snapshot = CreateSnapshot(reloaded);
         var changed = false;
 
@@ -210,9 +186,6 @@ public sealed class GitHubUpdateCredentialsCatalog : IDisposable
                 changed = true;
             }
         }
-
-        if (requiresMigration)
-            _ = MigrateLegacyPlaintextAsync();
 
         if (!changed)
             return;
@@ -246,9 +219,6 @@ public sealed class GitHubUpdateCredentialsCatalog : IDisposable
     {
         public string? ProtectedToken { get; set; }
 
-        // Legacy plaintext field, read-only for migration if early builds wrote it.
-        public string? Token { get; set; }
-
         public static PersistedCredentials FromCredentials(GitHubUpdateCredentials credentials, IDataProtector protector)
         {
             var token = credentials.Token;
@@ -260,11 +230,8 @@ public sealed class GitHubUpdateCredentialsCatalog : IDisposable
 
         public GitHubUpdateCredentials ToCredentials(
             IDataProtector protector,
-            ILogger logger,
-            out bool migratedFromPlaintext)
+            ILogger logger)
         {
-            migratedFromPlaintext = false;
-
             if (!string.IsNullOrWhiteSpace(ProtectedToken))
             {
                 try
@@ -281,15 +248,6 @@ public sealed class GitHubUpdateCredentialsCatalog : IDisposable
                         "The Data Protection keyring may have been rotated or replaced; clearing the stored token.");
                     return new GitHubUpdateCredentials();
                 }
-            }
-
-            if (!string.IsNullOrWhiteSpace(Token))
-            {
-                migratedFromPlaintext = true;
-                return new GitHubUpdateCredentials
-                {
-                    Token = Token,
-                };
             }
 
             return new GitHubUpdateCredentials();

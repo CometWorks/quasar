@@ -93,13 +93,8 @@ The downloaded archive must match the release's `SHA256SUMS` entry before it is
 extracted.
 When running as a systemd service, Bootstrap ignores a stale active-release
 pointer that targets a random external build directory. Only packaged
-`WebService/` workers, managed web releases, staged legacy workers, or explicitly
-configured `QUASAR_WEB_EXE` / `QUASAR_WEB_DLL` workers are trusted. If Bootstrap
-finds an older active pointer that still targets `Updates/Staged/<version>`, it
-migrates that release into `ManagedRuntime/WebService/<version>` before launch.
-On startup, Bootstrap also migrates a legacy default data root at
-`~/.config/Quasar` into the install root unless `QUASAR_DATA_DIR` points to a
-custom directory.
+`WebService/` workers, managed web releases, or explicitly configured
+`QUASAR_WEB_EXE` / `QUASAR_WEB_DLL` workers are trusted.
 
 Bootstrap always captures the managed web UI worker's stdout/stderr and mirrors
 it to its own console. For systemd installs, Quasar web UI warnings and errors
