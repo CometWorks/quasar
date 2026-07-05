@@ -393,12 +393,38 @@
                         <MudTd DataLabel="Entry">
                             <MudText Typo="Typo.body2" Class="mono">@context.Context.Manifest.EntryAssembly</MudText>
                             <MudText Typo="Typo.caption" Class="mud-text-secondary mono">@context.Context.Manifest.EntryType</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary mono">cache @context.ShadowCopyHash</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Source assembly</MudText>
+                            <CopyablePath Value="@context.EntryAssemblyPath" Inline="true" TextClass="mud-text-secondary mono" />
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatFileInfo(context.EntryAssemblyPath)</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Source build output</MudText>
+                            <CopyablePath Value="@GetBuildOutputDirectory(context.EntryAssemblyPath)" Inline="true" TextClass="mud-text-secondary mono" />
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatDirectoryInfo(GetBuildOutputDirectory(context.EntryAssemblyPath))</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Loaded assembly</MudText>
+                            <CopyablePath Value="@context.LoadedAssemblyPath" Inline="true" TextClass="mud-text-secondary mono" />
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatFileInfo(context.LoadedAssemblyPath)</MudText>
+                            @if (BuildOutputChangedAfterLoad(context))
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Warning">Source build output changed after this plugin was loaded. Restart Quasar to apply it.</MudText>
+                            }
                         </MudTd>
                         <MudTd DataLabel="Static Assets">
                             @if (!string.IsNullOrWhiteSpace(context.Context.StaticAssetsDirectory))
                             {
                                 <MudText Typo="Typo.body2" Class="mono">@GetPluginStaticPath(context)</MudText>
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Served snapshot</MudText>
                                 <CopyablePath Value="@context.Context.StaticAssetsDirectory" Inline="true" TextClass="mud-text-secondary mono" />
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatDirectoryInfo(context.Context.StaticAssetsDirectory)</MudText>
+                                @if (!string.IsNullOrWhiteSpace(context.SourceStaticAssetsDirectory))
+                                {
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Source assets</MudText>
+                                    <CopyablePath Value="@context.SourceStaticAssetsDirectory" Inline="true" TextClass="mud-text-secondary mono" />
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatDirectoryInfo(context.SourceStaticAssetsDirectory)</MudText>
+                                }
+                                @if (StaticAssetsChangedAfterLoad(context))
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Warning">Source static assets changed after this plugin was loaded. Restart Quasar to serve them.</MudText>
+                                }
                             }
                             else
                             {
@@ -422,6 +448,8 @@
                         </MudTd>
                         <MudTd DataLabel="Directory">
                             <CopyablePath Value="@context.Context.PluginDirectory" Inline="true" TextClass="mud-text-secondary mono" />
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Shadow cache</MudText>
+                            <CopyablePath Value="@context.ShadowCopyDirectory" Inline="true" TextClass="mud-text-secondary mono" />
                         </MudTd>
                         <MudTd DataLabel="" Class="quasar-actions-column">
                             <MudButton Variant="Variant.Outlined"
@@ -815,6 +843,95 @@
 
     private static string GetPluginStaticPath(QuasarLoadedUiPlugin plugin) =>
         $"{QuasarUiPluginCatalog.StaticAssetRequestPathPrefix}/{plugin.Id}/";
+
+    private static string FormatFileInfo(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return "-";
+
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists
+                ? $"{info.Length:n0} bytes, {info.LastWriteTimeUtc:u}"
+                : "missing";
+        }
+        catch
+        {
+            return "unreadable";
+        }
+    }
+
+    private static string FormatDirectoryInfo(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return "-";
+
+        try
+        {
+            if (!Directory.Exists(path))
+                return "missing";
+
+            var files = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).ToList();
+            if (files.Count == 0)
+                return "0 files";
+
+            var latest = files.Select(File.GetLastWriteTimeUtc).Max();
+            return $"{files.Count:n0} files, latest {latest:u}";
+        }
+        catch
+        {
+            return "unreadable";
+        }
+    }
+
+    private static string GetBuildOutputDirectory(string? entryAssemblyPath) =>
+        string.IsNullOrWhiteSpace(entryAssemblyPath)
+            ? string.Empty
+            : Path.GetDirectoryName(entryAssemblyPath) ?? string.Empty;
+
+    private static bool BuildOutputChangedAfterLoad(QuasarLoadedUiPlugin plugin)
+    {
+        var source = LatestDirectoryWriteUtc(GetBuildOutputDirectory(plugin.EntryAssemblyPath));
+        var loaded = LatestDirectoryWriteUtc(plugin.ShadowCopyDirectory, plugin.Context.StaticAssetsDirectory);
+        return source.HasValue &&
+               loaded.HasValue &&
+               source.Value > loaded.Value.AddSeconds(1);
+    }
+
+    private static bool StaticAssetsChangedAfterLoad(QuasarLoadedUiPlugin plugin)
+    {
+        var source = LatestDirectoryWriteUtc(plugin.SourceStaticAssetsDirectory);
+        var loaded = LatestDirectoryWriteUtc(plugin.Context.StaticAssetsDirectory);
+        return source.HasValue &&
+               loaded.HasValue &&
+               source.Value > loaded.Value.AddSeconds(1);
+    }
+
+    private static DateTime? LatestDirectoryWriteUtc(string? path, string? excludedDirectory = null)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+            return null;
+
+        try
+        {
+            var excluded = string.IsNullOrWhiteSpace(excludedDirectory)
+                ? null
+                : Path.GetFullPath(excludedDirectory);
+            return Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+                .Where(file => excluded is null ||
+                               !Path.GetFullPath(file).StartsWith(
+                                   excluded + Path.DirectorySeparatorChar,
+                                   StringComparison.OrdinalIgnoreCase))
+                .Select(File.GetLastWriteTimeUtc)
+                .DefaultIfEmpty()
+                .Max();
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private static string FormatComponent(Type type) =>
         type.FullName ?? type.Name;
