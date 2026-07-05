@@ -157,6 +157,7 @@ public class Program
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<MetricsStoreService>());
             builder.Services.AddSingleton<AnalyticsSeriesService>();
             builder.Services.AddSingleton<ProfilerStoreService>();
+            builder.Services.AddSingleton<PluginStatsStoreService>();
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<EntityService>();
             builder.Services.AddSingleton<IQuasarCompanionChannel, QuasarCompanionChannel>();
@@ -277,6 +278,16 @@ public class Program
             });
             if (authOptions.Enabled)
                 analyticsSeries.RequireAuthorization(QuasarPolicyNames.CanView);
+
+            // Chartable plugin-statistics metrics discovered at runtime from what plugins have
+            // published (provider/group/field), so the Analytics page can offer them as panels.
+            var pluginStatsCatalog = app.MapGet("/api/analytics/plugin-stats/catalog", (HttpContext context, PluginStatsStoreService store) =>
+            {
+                var servers = context.Request.Query["servers"].Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!).ToArray();
+                return Results.Json(store.GetCatalog(servers));
+            });
+            if (authOptions.Enabled)
+                pluginStatsCatalog.RequireAuthorization(QuasarPolicyNames.CanView);
 
             var serverLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/server/download", (string uniqueName, HttpContext context, DedicatedServerCatalog catalog) =>
                 DownloadLogFile(ResolveDedicatedServerLogPath(

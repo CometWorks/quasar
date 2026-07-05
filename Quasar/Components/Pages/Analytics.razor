@@ -5,6 +5,7 @@
 @inject DedicatedServerCatalog ServerCatalog
 @inject AgentRegistry Registry
 @inject ProfilerStoreService ProfilerStore
+@inject PluginStatsStoreService PluginStatsStore
 @inject ISnackbar Snackbar
 @inject ILocalStorageService LocalStorage
 @inject IDialogService DialogService
@@ -218,6 +219,28 @@
     </MudExpansionPanel>
 </MudExpansionPanels>
 
+@if (_pluginPanels.Count > 0)
+{
+    <MudPaper Class="pa-4 mb-4">
+        <MudStack Spacing="2">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                <MudText Typo="Typo.h6">Plugin statistics</MudText>
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    <MudButton Variant="Variant.Outlined" Size="MudBlazor.Size.Small" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Visibility" OnClick="ShowPluginStatsPanelsAsync">
+                        Show plugin statistics charts
+                    </MudButton>
+                    <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.VisibilityOff" OnClick="HidePluginStatsPanelsAsync">
+                        Hide all
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+            <MudText Typo="Typo.body2">
+                @_pluginPanels.Count metric@(_pluginPanels.Count == 1 ? "" : "s") published by plugins on the selected server@(_effectiveServers.Count == 1 ? "" : "s"), discovered from the schema each plugin ships. Show them all here, or add individual metrics from "Add panel". Each chart draws one line per instance (e.g. per cache).
+            </MudText>
+        </MudStack>
+    </MudPaper>
+}
+
 <MudStack Row="true" Spacing="1" Class="mb-4 analytics-chip-row">
     @foreach (var chip in _summaryChips)
     {
@@ -316,6 +339,8 @@ else
     private long _fromUnix;
     private long _toUnix;
     private List<string> _effectiveServers = [];
+    private IReadOnlyList<PluginStatPanel> _pluginPanels = [];
+    private Dictionary<string, PluginStatPanel> _pluginPanelsByKey = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _serverNameMap = new(StringComparer.OrdinalIgnoreCase);
     private DotNetObjectReference<Analytics>? _selfRef;
 
@@ -654,6 +679,28 @@ else
         await RefreshAsync();
     }
 
+    private async Task ShowPluginStatsPanelsAsync()
+    {
+        foreach (var panel in _config.Panels)
+        {
+            if (IsPluginStatPanel(panel.Key))
+                panel.Visible = true;
+        }
+
+        await RefreshAsync();
+    }
+
+    private async Task HidePluginStatsPanelsAsync()
+    {
+        foreach (var panel in _config.Panels)
+        {
+            if (IsPluginStatPanel(panel.Key))
+                panel.Visible = false;
+        }
+
+        await RefreshAsync();
+    }
+
     private Task SetAnalyticsProfilesExpanded(bool expanded)
     {
         _analyticsProfilesExpanded = expanded;
@@ -850,6 +897,8 @@ else
         var selectedServers = GetSelectedUniqueNames();
         _effectiveServers = selectedServers.ToList();
 
+        RefreshPluginPanels();
+
         // Read range samples in-memory purely to drive the summary chips and decide whether there is
         // anything to chart. The bulk series data is fetched by the browser, not sent over the circuit.
         var samplesByServer = new Dictionary<string, MetricSample[]>(StringComparer.OrdinalIgnoreCase);
@@ -871,6 +920,22 @@ else
         BuildChartCards(hasScalarData || hasProfilerData, keepEmptyProfilerPanels: selectedServers.Count > 0);
     }
 
+    // Discovers plugin-published metrics for the selected servers and merges any newly seen ones
+    // into the panel set (hidden) so they surface in the "Add panel" menu and the plugin section.
+    private void RefreshPluginPanels()
+    {
+        _pluginPanels = PluginStatsStore.GetCatalog(_effectiveServers);
+        _pluginPanelsByKey = _pluginPanels.ToDictionary(panel => panel.Key, StringComparer.OrdinalIgnoreCase);
+
+        var known = _config.Panels.Select(panel => panel.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var nextOrder = _config.Panels.Count == 0 ? 0 : _config.Panels.Max(panel => panel.Order) + 1;
+        foreach (var panel in _pluginPanels)
+        {
+            if (known.Add(panel.Key))
+                _config.Panels.Add(new AnalyticsPanelConfig { Key = panel.Key, Visible = false, Order = nextOrder++, ColumnSpan = 1, RowSpan = 1 });
+        }
+    }
+
     private void BuildChartCards(bool hasData, bool keepEmptyProfilerPanels)
     {
         _chartCards.Clear();
@@ -882,18 +947,18 @@ else
                      .OrderBy(panel => panel.Order)
                      .ThenBy(panel => ResolveMetricTitle(panel.Key), StringComparer.OrdinalIgnoreCase))
         {
-            var metric = AnalyticsMetrics.FindPanel(panel.Key);
-            if (metric is null)
+            var info = ResolvePanelInfo(panel.Key);
+            if (info is null)
                 continue;
 
-            if (!hasData && !IsProfilerPanel(panel.Key))
+            if (!hasData && !IsProfilerPanel(panel.Key) && !IsPluginStatPanel(panel.Key))
                 continue;
 
             var layoutStyle = $"grid-column: span {Math.Clamp(panel.ColumnSpan, 1, _config.GridColumns)}; grid-row: span {Math.Clamp(panel.RowSpan, 1, Math.Max(1, _config.GridRows))};";
             _chartCards.Add(new ChartCard(
                 Key: panel.Key,
-                Title: metric.Title,
-                Subtitle: metric.Subtitle,
+                Title: info.Value.Title,
+                Subtitle: info.Value.Subtitle,
                 ContainerId: ContainerId(panel.Key),
                 LayoutStyle: layoutStyle,
                 Height: ResolveChartHeight(panel),
@@ -1240,11 +1305,28 @@ else
         return Math.Max(280, (rowHeight * rowSpan) - 88);
     }
 
-    private string ResolveMetricTitle(string key) => AnalyticsMetrics.FindPanel(key)?.Title ?? key;
+    private string ResolveMetricTitle(string key) => ResolvePanelInfo(key)?.Title ?? key;
+
+    // Resolves a panel's display title/subtitle from the static metric catalog first, then from the
+    // runtime-discovered plugin-statistics catalog.
+    private (string Title, string Subtitle)? ResolvePanelInfo(string key)
+    {
+        var metric = AnalyticsMetrics.FindPanel(key);
+        if (metric is not null)
+            return (metric.Title, metric.Subtitle);
+
+        if (_pluginPanelsByKey.TryGetValue(key, out var plugin))
+            return (plugin.Title, plugin.Subtitle);
+
+        return null;
+    }
 
     private static bool IsProfilerPanel(string key) =>
         ProfilerAnalyticsMetrics.Find(key) is not null ||
         ProfilerEntryAnalyticsMetrics.Find(key) is not null;
+
+    private static bool IsPluginStatPanel(string key) =>
+        key.StartsWith(PluginStatsStoreService.KeyPrefix, StringComparison.Ordinal);
 
     private static AnalyticsViewConfig NormalizeConfig(AnalyticsViewConfig? config)
     {
@@ -1263,7 +1345,7 @@ else
 
         var panels = (normalized.Panels ?? [])
             .ToDictionary(panel => panel.Key, StringComparer.OrdinalIgnoreCase);
-        normalized.Panels = CreateDefaultPanels()
+        var rebuilt = CreateDefaultPanels()
             .Select(panel =>
             {
                 if (!panels.TryGetValue(panel.Key, out var existing))
@@ -1278,6 +1360,27 @@ else
                     RowSpan = Math.Clamp(existing.RowSpan, 1, Math.Max(1, normalized.GridRows)),
                 };
             })
+            .ToList();
+
+        // Preserve runtime-discovered plugin-statistics panels: their keys are not part of the
+        // static defaults, so they would otherwise be dropped on every config load.
+        var knownKeys = rebuilt.Select(panel => panel.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var existing in panels.Values)
+        {
+            if (!IsPluginStatPanel(existing.Key) || !knownKeys.Add(existing.Key))
+                continue;
+
+            rebuilt.Add(new AnalyticsPanelConfig
+            {
+                Key = existing.Key,
+                Visible = existing.Visible,
+                Order = Math.Clamp(existing.Order, 0, 999),
+                ColumnSpan = Math.Clamp(existing.ColumnSpan <= 0 ? 1 : existing.ColumnSpan, 1, normalized.GridColumns),
+                RowSpan = Math.Clamp(existing.RowSpan <= 0 ? 1 : existing.RowSpan, 1, Math.Max(1, normalized.GridRows)),
+            });
+        }
+
+        normalized.Panels = rebuilt
             .OrderBy(panel => panel.Order)
             .ToList();
 

@@ -29,6 +29,8 @@ public class AgentSnapshot
 
     public ProfilerSnapshot? Profiler { get; set; }
 
+    public PluginStatsSnapshot? PluginStats { get; set; }
+
     public List<PlayerSnapshot> Players { get; set; } = new List<PlayerSnapshot>();
 
     public List<long> HiddenPlayerSteamIds { get; set; } = new List<long>();

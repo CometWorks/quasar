@@ -13,12 +13,14 @@ public sealed class AgentRegistry
     private readonly KnownPlayerCatalog _knownPlayers;
     private readonly MetricsStoreService _metricsStore;
     private readonly ProfilerStoreService _profilerStore;
+    private readonly PluginStatsStoreService _pluginStatsStore;
 
-    public AgentRegistry(KnownPlayerCatalog knownPlayers, MetricsStoreService metricsStore, ProfilerStoreService profilerStore)
+    public AgentRegistry(KnownPlayerCatalog knownPlayers, MetricsStoreService metricsStore, ProfilerStoreService profilerStore, PluginStatsStoreService pluginStatsStore)
     {
         _knownPlayers = knownPlayers;
         _metricsStore = metricsStore;
         _profilerStore = profilerStore;
+        _pluginStatsStore = pluginStatsStore;
     }
 
     public event Action? Changed;
@@ -98,6 +100,9 @@ public sealed class AgentRegistry
 
             if (snapshot.Profiler is not null)
                 _profilerStore.Enqueue(snapshot.UniqueName, snapshot.Profiler);
+
+            if (snapshot.PluginStats is not null)
+                _pluginStatsStore.Enqueue(snapshot.UniqueName, snapshot.PluginStats);
         }
 
         NotifyChanged();

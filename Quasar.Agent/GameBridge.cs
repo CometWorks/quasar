@@ -280,6 +280,7 @@ namespace Quasar.Agent
                 Metrics = BuildMetrics(session),
                 ProfilerMode = AgentProfiler.Mode.ToString(),
                 Profiler = AgentProfiler.GetLatestSnapshot(),
+                PluginStats = PluginStatsCollector.Collect(),
                 Players = GetPlayers(session),
                 HiddenPlayerSteamIds = GetHiddenPlayerSteamIds(session),
                 HiddenPlayerIdentityIds = GetHiddenPlayerIdentityIds(session),

@@ -19,11 +19,13 @@ public sealed class AnalyticsSeriesService
 
     private readonly MetricsStoreService _store;
     private readonly ProfilerStoreService _profilerStore;
+    private readonly PluginStatsStoreService _pluginStatsStore;
 
-    public AnalyticsSeriesService(MetricsStoreService store, ProfilerStoreService profilerStore)
+    public AnalyticsSeriesService(MetricsStoreService store, ProfilerStoreService profilerStore, PluginStatsStoreService pluginStatsStore)
     {
         _store = store;
         _profilerStore = profilerStore;
+        _pluginStatsStore = pluginStatsStore;
     }
 
     public AnalyticsSeriesResponse Build(
@@ -56,13 +58,18 @@ public sealed class AnalyticsSeriesService
             .Select(metric => metric!)
             .ToList();
 
-        if (metrics.Count == 0 && profilerMetrics.Count == 0 && profilerEntryMetrics.Count == 0)
+        var pluginStatKeys = metricKeys
+            .Where(key => key.StartsWith(PluginStatsStoreService.KeyPrefix, StringComparison.Ordinal))
+            .ToList();
+
+        if (metrics.Count == 0 && profilerMetrics.Count == 0 && profilerEntryMetrics.Count == 0 && pluginStatKeys.Count == 0)
             return new AnalyticsSeriesResponse(fromUnix, toUnix, []);
 
-        var charts = new List<AnalyticsChartDto>(metrics.Count + profilerMetrics.Count + profilerEntryMetrics.Count);
+        var charts = new List<AnalyticsChartDto>(metrics.Count + profilerMetrics.Count + profilerEntryMetrics.Count + pluginStatKeys.Count);
         charts.AddRange(BuildMetricCharts(fromUnix, toUnix, servers, metrics, maxPoints));
         charts.AddRange(BuildProfilerCharts(fromUnix, toUnix, servers, profilerMetrics, maxPoints));
         charts.AddRange(BuildProfilerEntryCharts(fromUnix, toUnix, servers, profilerEntryMetrics, maxPoints));
+        charts.AddRange(BuildPluginStatsCharts(fromUnix, toUnix, servers, pluginStatKeys, maxPoints));
         return new AnalyticsSeriesResponse(fromUnix, toUnix, charts);
     }
 
@@ -412,6 +419,159 @@ public sealed class AnalyticsSeriesService
         }
 
         return charts;
+    }
+
+    // Self-describing plugin statistics: each metric key is plugin:{provider}:{group}:{field}. A
+    // chart shows one series per (server / instance label) for that field — the same shape as the
+    // profiler per-entry charts, but the group/field are resolved from the schema carried in each
+    // sample rather than a compile-time selector.
+    private IReadOnlyList<AnalyticsChartDto> BuildPluginStatsCharts(
+        long fromUnix,
+        long toUnix,
+        IReadOnlyList<string> servers,
+        IReadOnlyList<string> metricKeys,
+        int maxPoints)
+    {
+        if (metricKeys.Count == 0)
+            return [];
+
+        var serverKeys = servers
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (serverKeys.Count == 0)
+            return [];
+
+        var (bucketWidth, alignedFrom, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
+
+        var charts = new List<AnalyticsChartDto>(metricKeys.Count);
+        foreach (var metricKey in metricKeys)
+        {
+            if (!PluginStatsStoreService.TryParseMetricKey(metricKey, out var provider, out var groupName, out var fieldName))
+                continue;
+
+            var timelines = _pluginStatsStore.Read(provider, alignedFrom, toUnix, serverKeys);
+            if (timelines.Count == 0)
+                continue;
+
+            var buckets = new Dictionary<string, EntryBuckets>(StringComparer.OrdinalIgnoreCase);
+            var bucketHasData = new bool[bucketCount];
+            PluginStatField? field = null;
+
+            foreach (var timeline in timelines)
+            {
+                foreach (var sample in timeline.Samples)
+                {
+                    var bucket = (int)((sample.CapturedAtUtc.ToUnixTimeSeconds() - alignedFrom) / bucketWidth);
+                    if (bucket < 0 || bucket >= bucketCount)
+                        continue;
+
+                    var group = FindGroup(sample.Groups, groupName);
+                    if (group is null)
+                        continue;
+
+                    var fieldIndex = IndexOfField(group.Fields, fieldName);
+                    if (fieldIndex < 0)
+                        continue;
+
+                    field ??= group.Fields[fieldIndex];
+
+                    foreach (var instance in group.Instances)
+                    {
+                        if (instance.Values is null || fieldIndex >= instance.Values.Length)
+                            continue;
+
+                        var value = instance.Values[fieldIndex];
+                        if (!double.IsFinite(value))
+                            continue;
+
+                        var label = BuildPluginSeriesLabel(timeline.Server, instance.Label, group.Name);
+                        var series = GetOrCreateEntryBuckets(buckets, label, bucketCount);
+                        series.Sums[bucket] += value;
+                        series.Counts[bucket]++;
+                        series.Total += Math.Abs(value);
+                        bucketHasData[bucket] = true;
+                    }
+                }
+            }
+
+            if (field is null)
+                continue;
+
+            var kept = new List<int>(bucketCount);
+            for (var bucket = 0; bucket < bucketCount; bucket++)
+            {
+                if (bucketHasData[bucket])
+                    kept.Add(bucket);
+            }
+
+            if (kept.Count == 0)
+                continue;
+
+            var x = new long[kept.Count];
+            for (var i = 0; i < kept.Count; i++)
+                x[i] = alignedFrom + kept[i] * bucketWidth + bucketWidth / 2;
+
+            var decimals = string.Equals(field.Kind, "counter", StringComparison.OrdinalIgnoreCase) ? 0 : 2;
+
+            var seriesList = new List<AnalyticsSeriesDto>();
+            foreach (var series in buckets.Values
+                         .OrderByDescending(entry => entry.Total)
+                         .ThenBy(entry => entry.Label, StringComparer.OrdinalIgnoreCase)
+                         .Take(MaxProfilerEntrySeriesPerChart))
+            {
+                var y = new double?[kept.Count];
+                for (var i = 0; i < kept.Count; i++)
+                {
+                    var bucket = kept[i];
+                    if (series.Counts[bucket] <= 0)
+                        continue;
+
+                    y[i] = Math.Round(series.Sums[bucket] / series.Counts[bucket], decimals + 2, MidpointRounding.AwayFromZero);
+                }
+
+                seriesList.Add(new AnalyticsSeriesDto(series.Label, y));
+            }
+
+            if (seriesList.Count == 0)
+                continue;
+
+            var title = $"{provider}: {FirstNonBlank(field.Description, field.Name)}";
+            var subtitle = string.IsNullOrWhiteSpace(field.Unit) ? groupName : $"{groupName} · {field.Unit}";
+            var axis = new AnalyticsAxisDto(Min: 0, Max: null, Decimals: decimals, Kilo: false, TickAmount: 5);
+
+            charts.Add(new AnalyticsChartDto(metricKey, title, subtitle, axis, x, seriesList));
+        }
+
+        return charts;
+    }
+
+    private static PluginStatGroup? FindGroup(IReadOnlyList<PluginStatGroup> groups, string name)
+    {
+        foreach (var group in groups)
+        {
+            if (string.Equals(group.Name, name, StringComparison.OrdinalIgnoreCase))
+                return group;
+        }
+
+        return null;
+    }
+
+    private static int IndexOfField(IReadOnlyList<PluginStatField> fields, string name)
+    {
+        for (var i = 0; i < fields.Count; i++)
+        {
+            if (string.Equals(fields[i].Name, name, StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+
+        return -1;
+    }
+
+    private static string BuildPluginSeriesLabel(string server, string? instanceLabel, string groupName)
+    {
+        var name = !string.IsNullOrWhiteSpace(instanceLabel) ? instanceLabel.Trim() : groupName;
+        return $"{server} / {name}";
     }
 
     private static double? ResolveMax(AnalyticsMetric metric, double dynamicMax)
