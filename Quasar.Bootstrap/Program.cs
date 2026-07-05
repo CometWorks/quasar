@@ -30,7 +30,7 @@ internal static class Program
 
     public static async Task<int> Main(string[] args)
     {
-        BootstrapDataDirectoryDefaults.ApplyInstallRootDefault();
+        BootstrapInstallDirectoryDefaults.ApplyInstallRootDefault();
 
         var quiet = args.Any(static arg => string.Equals(arg, "--quiet", StringComparison.OrdinalIgnoreCase));
         var openBrowser = args.Any(static arg => string.Equals(arg, "--open-browser", StringComparison.OrdinalIgnoreCase));
@@ -560,20 +560,20 @@ internal static class Program
     }
 }
 
-internal static class BootstrapDataDirectoryDefaults
+internal static class BootstrapInstallDirectoryDefaults
 {
-    private const string DataDirectoryEnvironmentVariable = "QUASAR_DATA_DIR";
+    private const string InstallDirectoryEnvironmentVariable = "QUASAR_INSTALL_DIR";
 
     public static void ApplyInstallRootDefault()
     {
-        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(DataDirectoryEnvironmentVariable)))
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(InstallDirectoryEnvironmentVariable)))
             return;
 
         var installRoot = AppContext.BaseDirectory;
         if (string.IsNullOrWhiteSpace(installRoot))
             return;
 
-        Environment.SetEnvironmentVariable(DataDirectoryEnvironmentVariable, Path.GetFullPath(installRoot));
+        Environment.SetEnvironmentVariable(InstallDirectoryEnvironmentVariable, Path.GetFullPath(installRoot));
     }
 }
 
@@ -806,6 +806,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private WorkerProcessHandle? _currentWorker;
     private bool _isStopping;
     private bool _isRestartingForBootstrapUpdate;
+    private bool _isDrained;
 
     public LauncherCoordinator(BootstrapOptions options, LauncherForegroundOptions foregroundOptions, ILogger<LauncherCoordinator> logger)
     {
@@ -829,7 +830,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         {
             lock (_sync)
             {
-                return _currentWorker is not null && !_currentWorker.Process.HasExited;
+                return !_isDrained && _currentWorker is not null && !_currentWorker.Process.HasExited;
             }
         }
     }
@@ -838,19 +839,23 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     {
         var workerVersion = string.Empty;
         var workerBaseUrl = string.Empty;
+        var isDrained = false;
+        var isReady = false;
 
         lock (_sync)
         {
+            isDrained = _isDrained;
             if (_currentWorker is not null)
             {
                 workerVersion = _currentWorker.Release.Version;
                 workerBaseUrl = _currentWorker.BaseUri.AbsoluteUri.TrimEnd('/');
+                isReady = !_isDrained && !_currentWorker.Process.HasExited;
             }
         }
 
         return new
         {
-            status = IsReady ? "ok" : "starting",
+            status = isDrained ? "drained" : isReady ? "ok" : "starting",
             workerId = _workerId,
             hostId = Environment.MachineName.ToLowerInvariant(),
             hostName = Environment.MachineName,
@@ -878,6 +883,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         _logger.LogInformation("Starting Quasar...");
         Directory.CreateDirectory(MagnetarPaths.GetWebServiceDirectory());
         Directory.CreateDirectory(MagnetarPaths.GetQuasarUpdatesDirectory());
+        if (TryConsumeLauncherShutdownRequest())
+            _logger.LogInformation("Cleared stale Quasar launcher drain request on startup.");
+
         await EnsureInitialWebReleaseAvailableAsync(cancellationToken).ConfigureAwait(false);
         EnsureActiveReleasePointerExists();
         await ActivateCurrentReleaseAsync(force: false, cancellationToken).ConfigureAwait(false);
@@ -1051,13 +1059,13 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
     private async Task TryUpgradeBootstrapAsync(CancellationToken cancellationToken, BootstrapUpdateRequest? request = null)
     {
-        if (_isStopping || _isRestartingForBootstrapUpdate)
+        if (_isStopping || _isRestartingForBootstrapUpdate || IsDrained())
             return;
 
         await _bootstrapUpdateLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_isStopping || _isRestartingForBootstrapUpdate)
+            if (_isStopping || _isRestartingForBootstrapUpdate || IsDrained())
                 return;
 
             var requestedVersion = QuasarReleaseVersion.Normalize(request?.Version ?? string.Empty);
@@ -1553,6 +1561,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
     private async Task ActivateCurrentReleaseAsync(bool force, CancellationToken cancellationToken)
     {
+        if (IsDrained())
+            return;
+
         var pointer = ReadActiveReleasePointer();
         if (pointer is null)
             return;
@@ -1565,6 +1576,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             WorkerProcessHandle? current;
             lock (_sync)
             {
+                if (_isDrained)
+                    return;
+
                 current = _currentWorker;
                 if (!force &&
                     current is not null &&
@@ -1589,6 +1603,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                     stopManagedServers: false,
                     cancellationToken).ConfigureAwait(false);
             }
+
+            if (IsDrained())
+                return;
 
             var nextWorker = await StartWorkerAsync(pointer, cancellationToken).ConfigureAwait(false);
             if (nextWorker is null)
@@ -1615,9 +1632,15 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
     private async Task ActivateSpecificReleaseAsync(QuasarActiveReleasePointer pointer, CancellationToken cancellationToken)
     {
+        if (IsDrained())
+            return;
+
         await _activationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (IsDrained())
+                return;
+
             var worker = await StartWorkerAsync(pointer, cancellationToken).ConfigureAwait(false);
             if (worker is null)
                 return;
@@ -1641,6 +1664,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         CancellationToken cancellationToken,
         bool allowSafeModeRetry = true)
     {
+        if (IsDrained())
+            return null;
+
         if (string.IsNullOrWhiteSpace(pointer.FileName))
             return null;
 
@@ -1673,8 +1699,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         startInfo.Environment["QUASAR_MODE"] = "service";
         startInfo.Environment["QUASAR_LAUNCHER_TOKEN"] = _launcherToken;
         startInfo.Environment["QUASAR_BOOTSTRAP_VERSION"] = _options.Version;
-        startInfo.Environment["QUASAR_INSTALL_DIR"] = AppContext.BaseDirectory;
-        startInfo.Environment["QUASAR_DATA_DIR"] = MagnetarPaths.GetQuasarDirectory();
+        startInfo.Environment["QUASAR_INSTALL_DIR"] = ResolveInstallDirectoryForWorker();
         startInfo.Environment["QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN"] = _options.PreserveServersOnShutdown ? "true" : "false";
         startInfo.Environment["QUASAR_CONSOLE_LOGGING"] = "true";
 
@@ -1728,7 +1753,10 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (string.IsNullOrWhiteSpace(workerDirectory))
             return;
 
-        var sourcePath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        var sourcePath = ResolveInstallAppSettingsPath();
+        if (string.IsNullOrWhiteSpace(sourcePath))
+            return;
+
         var destinationPath = Path.Combine(workerDirectory, "appsettings.json");
         if (!File.Exists(sourcePath) || IsSamePath(sourcePath, destinationPath))
             return;
@@ -1830,14 +1858,22 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
         if (TryConsumeLauncherShutdownRequest())
         {
-            _logger.LogInformation("Quasar worker requested launcher shutdown; exiting without restarting worker.");
-            Environment.Exit(0);
+            lock (_sync)
+            {
+                if (ReferenceEquals(_currentWorker, worker))
+                    _currentWorker = null;
+
+                _isDrained = true;
+            }
+
+            _logger.LogInformation("Quasar worker requested launcher drain; Bootstrap remains running without a worker until the service or task is restarted.");
+            TryDisposeProcess(worker.Process);
             return;
         }
 
         lock (_sync)
         {
-            if (!_isStopping && ReferenceEquals(_currentWorker, worker))
+            if (!_isStopping && !_isDrained && ReferenceEquals(_currentWorker, worker))
             {
                 _currentWorker = null;
                 shouldRestart = true;
@@ -1861,6 +1897,14 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
         if (shouldRestart)
             _ = Task.Run(() => ActivateCurrentReleaseAsync(force: true, CancellationToken.None), CancellationToken.None);
+    }
+
+    private bool IsDrained()
+    {
+        lock (_sync)
+        {
+            return _isDrained;
+        }
     }
 
     private bool RegisterWorkerStartupFailure(string reason)
@@ -1942,6 +1986,17 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
 
         return true;
+    }
+
+    private static void TryDisposeProcess(Process process)
+    {
+        try
+        {
+            process.Dispose();
+        }
+        catch
+        {
+        }
     }
 
     private static bool TryConsumeBootstrapUpdateRequest(out BootstrapUpdateRequest request)
@@ -2239,8 +2294,13 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (string.IsNullOrWhiteSpace(path))
             return false;
 
-        return IsPathUnder(path, Path.Combine(AppContext.BaseDirectory, "WebService")) ||
-               IsPathUnder(path, MagnetarPaths.GetQuasarManagedWebServiceDirectory());
+        foreach (var directory in EnumerateInstallCandidateDirectories())
+        {
+            if (IsPathUnder(path, Path.Combine(directory, "WebService")))
+                return true;
+        }
+
+        return IsPathUnder(path, MagnetarPaths.GetQuasarManagedWebServiceDirectory());
     }
 
     private static bool IsPathUnder(string path, string root)
@@ -2255,14 +2315,72 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
     private static string? FindPackagedWorkerCandidate()
     {
-        foreach (var fileName in GetQuasarExecutableFileNames())
+        foreach (var directory in EnumerateInstallCandidateDirectories())
         {
-            var candidate = Path.Combine(AppContext.BaseDirectory, "WebService", fileName);
+            foreach (var fileName in GetQuasarExecutableFileNames())
+            {
+                var candidate = Path.Combine(directory, "WebService", fileName);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? ResolveInstallAppSettingsPath()
+    {
+        foreach (var directory in EnumerateInstallCandidateDirectories())
+        {
+            var candidate = Path.Combine(directory, "appsettings.json");
             if (File.Exists(candidate))
                 return candidate;
         }
 
         return null;
+    }
+
+    private static string ResolveInstallDirectoryForWorker()
+    {
+        var explicitInstallDirectory = Environment.GetEnvironmentVariable("QUASAR_INSTALL_DIR");
+        if (!string.IsNullOrWhiteSpace(explicitInstallDirectory))
+            return Path.GetFullPath(explicitInstallDirectory.Trim());
+
+        foreach (var directory in EnumerateInstallCandidateDirectories())
+        {
+            if (ContainsInstallAsset(directory))
+                return directory;
+        }
+
+        return Path.GetFullPath(AppContext.BaseDirectory);
+    }
+
+    private static bool ContainsInstallAsset(string directory) =>
+        File.Exists(Path.Combine(directory, LauncherExecutableFileName)) ||
+        File.Exists(Path.Combine(directory, "install.sh")) ||
+        File.Exists(Path.Combine(directory, "install.ps1")) ||
+        Directory.Exists(Path.Combine(directory, "WebService"));
+
+    private static IEnumerable<string> EnumerateInstallCandidateDirectories()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var directory in EnumerateRawInstallCandidateDirectories())
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+                continue;
+
+            var fullPath = Path.GetFullPath(directory.Trim());
+            if (seen.Add(fullPath))
+                yield return fullPath;
+        }
+    }
+
+    private static IEnumerable<string?> EnumerateRawInstallCandidateDirectories()
+    {
+        yield return Environment.GetEnvironmentVariable("QUASAR_INSTALL_DIR");
+        yield return MagnetarPaths.GetQuasarDirectory();
+        yield return AppContext.BaseDirectory;
+        yield return Directory.GetCurrentDirectory();
     }
 
     private static IEnumerable<string> GetQuasarExecutableFileNames()

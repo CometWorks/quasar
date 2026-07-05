@@ -5,7 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SERVICE_NAME="quasar"
 INSTALL_DIR=""
-DATA_DIR=""
 PACKAGED_INSTALL=false
 CONFIGURATION="Release"
 RUNTIME="linux-x64"
@@ -41,7 +40,6 @@ UI plugin installs and updates.
 
 Options:
   --install-dir <dir>       Install directory (default: extracted installer root; source installs use <run-user-home>/.local/share/Quasar)
-  --data-dir <dir>          Quasar data directory (default: install directory)
   --service-name <name>     systemd service name (default: quasar)
   --user <user>             User to run Quasar as (system installs only; default: sudo caller)
   --user-service            Install a user systemd service (default)
@@ -457,10 +455,6 @@ while [[ $# -gt 0 ]]; do
             INSTALL_DIR="${2:?Missing value for --install-dir}"
             shift 2
             ;;
-        --data-dir)
-            DATA_DIR="${2:?Missing value for --data-dir}"
-            shift 2
-            ;;
         --service-name)
             SERVICE_NAME="${2:?Missing value for --service-name}"
             shift 2
@@ -615,22 +609,11 @@ if [[ -z "$INSTALL_DIR" ]]; then
         INSTALL_DIR="$RUN_HOME/.local/share/Quasar"
     fi
 fi
-if [[ -z "$DATA_DIR" ]]; then
-    DATA_DIR="$INSTALL_DIR"
-fi
 INSTALL_DIR="$(realpath -m "$INSTALL_DIR")"
-DATA_DIR="$(realpath -m "$DATA_DIR")"
 
 case "$INSTALL_DIR" in
     ""|"/"|"/bin"|"/boot"|"/dev"|"/etc"|"/home"|"/lib"|"/lib64"|"/proc"|"/root"|"/run"|"/sbin"|"/sys"|"/tmp"|"/usr"|"/var")
         echo "Refusing unsafe install directory: $INSTALL_DIR" >&2
-        exit 1
-        ;;
-esac
-
-case "$DATA_DIR" in
-    ""|"/"|"/bin"|"/boot"|"/dev"|"/etc"|"/home"|"/lib"|"/lib64"|"/proc"|"/root"|"/run"|"/sbin"|"/sys"|"/tmp"|"/usr"|"/var")
-        echo "Refusing unsafe data directory: $DATA_DIR" >&2
         exit 1
         ;;
 esac
@@ -663,9 +646,7 @@ SuccessExitStatus=130 143
 Environment=QUASAR_MODE=Service
 Environment=QUASAR_OPEN_BROWSER_ON_START=false
 Environment=HOME=$RUN_HOME
-Environment=QUASAR_DATA_DIR=$DATA_DIR
-Environment=QUASAR_SYSTEMD_SERVICE=$SERVICE_NAME.service
-Environment=QUASAR_SYSTEMD_SCOPE=system
+Environment=QUASAR_INSTALL_DIR=$INSTALL_DIR
 
 [Install]
 WantedBy=multi-user.target
@@ -697,9 +678,7 @@ SuccessExitStatus=130 143
 Environment=QUASAR_MODE=Service
 Environment=QUASAR_OPEN_BROWSER_ON_START=false
 Environment=HOME=$RUN_HOME
-Environment=QUASAR_DATA_DIR=$DATA_DIR
-Environment=QUASAR_SYSTEMD_SERVICE=$SERVICE_NAME.service
-Environment=QUASAR_SYSTEMD_SCOPE=user
+Environment=QUASAR_INSTALL_DIR=$INSTALL_DIR
 
 [Install]
 WantedBy=default.target
@@ -735,28 +714,6 @@ copy_if_different() {
     fi
 
     cp -a "$source" "$destination"
-}
-
-cleanup_old_opt_install() {
-    local old_install_dir="/opt/quasar"
-    if [[ "$INSTALL_MODE" != "user" || "$INSTALL_DIR" == "$old_install_dir" || ! -x "$old_install_dir/uninstall.sh" ]]; then
-        return
-    fi
-
-    echo "Old system install found at $old_install_dir."
-    local uninstall_args=(--install-dir "$old_install_dir" --purge)
-    if grep -q -- "--system" "$old_install_dir/uninstall.sh"; then
-        uninstall_args=(--system "${uninstall_args[@]}")
-    fi
-
-    if [[ "${EUID}" -eq 0 ]]; then
-        "$old_install_dir/uninstall.sh" "${uninstall_args[@]}" || true
-    elif have sudo; then
-        echo "Removing old system install with sudo..."
-        sudo "$old_install_dir/uninstall.sh" "${uninstall_args[@]}" || true
-    else
-        echo "sudo not found; old system install remains at $old_install_dir." >&2
-    fi
 }
 
 publish_quasar() {
@@ -847,13 +804,8 @@ fi
 echo "Installing Quasar to $INSTALL_DIR..."
 if [[ "${EUID}" -eq 0 ]]; then
     install -d -m 0755 -o "$RUN_USER" -g "$RUN_GROUP" "$INSTALL_DIR"
-    install -d -m 0755 -o "$RUN_USER" -g "$RUN_GROUP" "$DATA_DIR"
 else
     install -d -m 0755 "$INSTALL_DIR"
-    install -d -m 0755 "$DATA_DIR"
-fi
-if [[ "$DATA_DIR" != "$INSTALL_DIR" && "$DATA_DIR" != "$INSTALL_DIR"/* ]]; then
-    find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 fi
 cp -a "$PUBLISH_DIR/." "$INSTALL_DIR/"
 copy_if_different "$SCRIPT_DIR/install.sh" "$INSTALL_DIR/install.sh"
@@ -887,8 +839,6 @@ if [[ "$ENABLE_SERVICE" == "true" ]]; then
     enable_service
 fi
 
-cleanup_old_opt_install
-
 if [[ "$START_SERVICE" == "true" ]]; then
     restart_service
 fi
@@ -898,7 +848,6 @@ Installed Quasar.
 
 Service:     $SERVICE_NAME.service ($INSTALL_MODE)
 Install dir: $INSTALL_DIR
-Data dir:    $DATA_DIR
 Run user:    $RUN_USER
 
 Renice helper:
@@ -915,3 +864,5 @@ else
     echo "To run the user service before login, enable linger once:"
     echo "  sudo loginctl enable-linger $RUN_USER"
 fi
+echo
+echo "UI Shutdown Quasar drains the worker; run the restart command above to bring it back."

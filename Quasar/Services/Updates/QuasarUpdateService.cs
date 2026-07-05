@@ -888,13 +888,16 @@ public sealed class QuasarUpdateService : BackgroundService
 
     private static string? ResolveCurrentAppSettingsPath(string stageDirectory)
     {
-        var candidates = new[]
+        var candidates = new List<string>
         {
-            Path.Combine(Environment.GetEnvironmentVariable("QUASAR_INSTALL_DIR") ?? string.Empty, AppSettingsFileName),
+            Path.Combine(MagnetarPaths.GetQuasarDirectory(), AppSettingsFileName),
+        };
+
+        candidates.AddRange([
             Path.Combine(AppContext.BaseDirectory, AppSettingsFileName),
             Path.Combine(Directory.GetCurrentDirectory(), AppSettingsFileName),
             Path.Combine(AppContext.BaseDirectory, "WebService", AppSettingsFileName),
-        };
+        ]);
 
         foreach (var candidate in candidates)
         {
@@ -919,9 +922,7 @@ public sealed class QuasarUpdateService : BackgroundService
 
     private static void TrySyncActiveAppSettingsToInstallDirectory(string activeDirectory)
     {
-        var installDirectory = Environment.GetEnvironmentVariable("QUASAR_INSTALL_DIR");
-        if (string.IsNullOrWhiteSpace(installDirectory))
-            return;
+        var installDirectory = MagnetarPaths.GetQuasarDirectory();
 
         var sourcePath = Path.Combine(activeDirectory, AppSettingsFileName);
         var destinationPath = Path.Combine(installDirectory, AppSettingsFileName);

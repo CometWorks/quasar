@@ -74,6 +74,11 @@ Bootstrap always captures the managed web UI worker's stdout/stderr and mirrors
 it to the Bootstrap process console, so Quasar web UI warnings and errors are
 available from the launcher side in addition to the configured Quasar log files.
 
+The UI **Shutdown Quasar** action drains the web worker, preserves managed
+servers, and leaves Bootstrap running without a worker. Because the task process
+is still alive, Task Scheduler does not restart the worker by itself. Stop and
+start the `Quasar` Scheduled Task to start the UI and supervisor again.
+
 If Bootstrap has no usable `Updates/active-release.json` and no packaged
 `WebService/Quasar.exe`, it downloads the latest Windows web asset from GitHub and
 extracts it under:
@@ -102,8 +107,8 @@ browser shows a restart progress overlay, polls `/api/health` until the
 activated UI version is serving, then reloads the Updates page.
 
 Staging also resolves `appsettings.json`. Quasar uses the stored release base in
-the data directory (`<install-root>\Updates\appsettings.base.json` by default) as the
-merge base, applies local values from the install directory, and writes the
+the install root (`<install-root>\Updates\appsettings.base.json`) as the merge
+base, applies local values from the install directory, and writes the
 resolved file into the staged worker. If the merge conflicts, auto-staging stops
 with a warning and `/settings/updates` shows a git-style conflict editor. Resolve
 and save the JSON there, or choose **Force release defaults** to stage the
@@ -225,7 +230,7 @@ elsewhere. Environment overrides:
 Quasar can check GitHub releases without a token, but hosts on shared servers,
 NAT gateways, and public cloud IP ranges can hit GitHub's unauthenticated rate
 limit. The Updates page lets an admin save a GitHub token for release checks.
-It is stored in `github-updates.json` under the Quasar data directory with the
+It is stored in `github-updates.json` under the Quasar install directory with the
 same Data Protection encryption model used for the Steam Workshop API key.
 
 Use a classic personal access token without any permissions:

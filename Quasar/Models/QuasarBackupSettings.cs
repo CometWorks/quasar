@@ -72,7 +72,7 @@ public sealed class QuasarBackupRuleSettings
 
 /// <summary>
 /// Persistent configuration for the automatic backup scheduler, serialized to
-/// <c>backup-settings.json</c> in the Quasar data directory. Each backup scope
+/// <c>backup-settings.json</c> in the Quasar install directory. Each backup scope
 /// has its own rule.
 /// </summary>
 public sealed class QuasarBackupSettings

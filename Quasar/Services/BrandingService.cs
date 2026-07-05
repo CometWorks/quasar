@@ -8,8 +8,8 @@ namespace Quasar.Services;
 
 /// <summary>
 /// Singleton store for branding and theme configuration. Persists to
-/// <c>branding.json</c> in the Quasar data directory and writes uploaded logo /
-/// favicon assets into the Quasar data directory. Mirrors the file-watch
+/// <c>branding.json</c> in the Quasar install directory and writes uploaded logo /
+/// favicon assets into the Quasar install directory. Mirrors the file-watch
 /// debounce pattern used by <see cref="Discord.DiscordOptionsCatalog"/> so
 /// external edits are picked up live.
 /// </summary>

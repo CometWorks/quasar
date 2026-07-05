@@ -413,7 +413,7 @@ public class Program
 
             app.MapStaticAssets();
 
-            // Runtime-uploaded branding assets live in the Quasar data directory
+            // Runtime-uploaded branding assets live in the Quasar install root
             // so web-service updates do not replace custom logos or favicons.
             var brandingAssetsDirectory = MagnetarPaths.GetQuasarBrandingDirectory();
             Directory.CreateDirectory(brandingAssetsDirectory);
@@ -449,7 +449,7 @@ public class Program
                 startupLogger.LogWarning("Quasar UI plugin load failed: {Error}", loadError);
 
             startupLogger.LogInformation(
-                "Quasar {Version} starting. BootstrapVersion={BootstrapVersion}; HostId={HostId}; DataDirectory={DataDirectory}.",
+                "Quasar {Version} starting. BootstrapVersion={BootstrapVersion}; HostId={HostId}; InstallRoot={InstallRoot}.",
                 webServiceOptions.Version,
                 string.IsNullOrWhiteSpace(webServiceOptions.BootstrapVersion) ? "none" : webServiceOptions.BootstrapVersion,
                 webServiceOptions.HostId,

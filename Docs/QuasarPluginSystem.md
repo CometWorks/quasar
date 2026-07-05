@@ -61,7 +61,7 @@ Safe-boot triggers:
 - command line: `--safe-mode`
 - environment variable: `QUASAR_SAFE_MODE=1`
 - environment variable: `QUASAR_DISABLE_UI_PLUGINS=1`
-- data-directory marker file: `{Quasar data directory}/ui-plugins.safe-mode`
+- install-root marker file: `{Quasar install directory}/ui-plugins.safe-mode`
 - automatic Bootstrap fallback after repeated worker startup failures or quick
   crashes
 
@@ -79,7 +79,7 @@ Plugin activation should be last-known-good:
 
 1. User installs/enables/updates a plugin.
 2. Quasar writes enabled/disabled state to
-   `{Quasar data directory}/ui-plugins.state.json`.
+   `{Quasar install directory}/ui-plugins.state.json`.
 3. Quasar restarts through Bootstrap.
 4. The new worker loads plugins.
 5. After startup and health checks pass, Quasar marks the plugin set active.
@@ -141,7 +141,7 @@ repositories and pinned commits. Quasar only shows entries whose `PluginKind` is
 The `/settings/ui-plugins` page now manages the QuasarHub catalog:
 
 - refreshes and caches the catalog in
-  `{Quasar data directory}/Caches/ui-plugin-hub-catalog.json`
+  `{Quasar install directory}/Caches/ui-plugin-hub-catalog.json`
 - checks QuasarHub on Quasar startup and every 15 minutes so installed package
   update availability stays current
 - automatically installs or updates reviewed hub entries that opt into
@@ -163,25 +163,25 @@ The `/settings/ui-plugins` page now manages the QuasarHub catalog:
 Installed UI plugin source packages live under:
 
 ```text
-{Quasar data directory}/Plugins/{catalog id}
+{Quasar install directory}/Plugins/{catalog id}
 ```
 
 Installer staging lives under:
 
 ```text
-{Quasar data directory}/Caches/ui-plugin-installer
+{Quasar install directory}/Caches/ui-plugin-installer
 ```
 
 Git source cache lives under:
 
 ```text
-{Quasar data directory}/Caches/ui-plugin-sources
+{Quasar install directory}/Caches/ui-plugin-sources
 ```
 
 Enabled/disabled state lives under:
 
 ```text
-{Quasar data directory}/ui-plugins.state.json
+{Quasar install directory}/ui-plugins.state.json
 ```
 
 The first installer supports root `quasar-plugin.json` package manifests. Build
@@ -305,13 +305,13 @@ Configuration/environment knobs:
 Default plugin root:
 
 ```text
-{Quasar data directory}/Plugins
+{Quasar install directory}/Plugins
 ```
 
 Shadow-copy root:
 
 ```text
-{Quasar data directory}/Caches/ui-plugins/{pluginId}/{entryAssemblyHash}
+{Quasar install directory}/Caches/ui-plugins/{pluginId}/{entryAssemblyHash}
 ```
 
 Plugin navigation items are rendered by the main Quasar sidebar. Supported zones:
@@ -570,7 +570,7 @@ The Entity Viewer can keep its JavaScript/Three.js-heavy surface in its own
 repository and serve it from that plugin path. Quasar core no longer copies
 viewer assets into `Quasar/wwwroot`; the QuasarHub installer clones the pinned
 viewer repository commit, builds the adapter project, and loads the package from
-the Quasar data directory.
+the Quasar install directory.
 
 Plugins can also ask Quasar to inject package stylesheets into the host page by
 declaring manifest-relative paths:

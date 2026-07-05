@@ -6,22 +6,18 @@ namespace Magnetar.Protocol.Runtime;
 public static class MagnetarPaths
 {
     // -------------------------------------------------------------------------
-    // Root — everything lives under QUASAR_DATA_DIR when set. Bootstrap sets it
-    // to the launcher install root for packaged installs. Without Bootstrap,
-    // fall back to the OS application-data directory.
+    // Root - everything lives under QUASAR_INSTALL_DIR when set. Bootstrap sets
+    // it to the launcher install root for packaged installs. Without the
+    // variable, direct worker sessions use the app base directory.
     // -------------------------------------------------------------------------
 
     public static string GetQuasarDirectory()
     {
-        var envOverride = Environment.GetEnvironmentVariable("QUASAR_DATA_DIR");
+        var envOverride = Environment.GetEnvironmentVariable("QUASAR_INSTALL_DIR");
         if (!string.IsNullOrWhiteSpace(envOverride))
             return envOverride.Trim();
 
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        if (string.IsNullOrWhiteSpace(appData))
-            appData = AppContext.BaseDirectory;
-
-        return Path.Combine(appData, "Quasar");
+        return Path.GetFullPath(AppContext.BaseDirectory);
     }
 
     // -------------------------------------------------------------------------

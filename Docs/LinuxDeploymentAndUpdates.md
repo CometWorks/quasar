@@ -73,11 +73,8 @@ review builds per PR/manual stream.
 ## First Start
 
 The default systemd user service runs Bootstrap from the extracted install root
-and sets `QUASAR_DATA_DIR` to that same directory. It also sets
-`QUASAR_SYSTEMD_SERVICE` and `QUASAR_SYSTEMD_SCOPE` so the web UI's **Shutdown
-Quasar** action can request `systemctl --user stop quasar.service` instead of
-only exiting the launcher. A machine-wide service is still available with
-`install.sh --system`.
+and sets `QUASAR_INSTALL_DIR` to that same directory. A machine-wide service is
+still available with `install.sh --system`.
 
 If Bootstrap has no usable `Updates/active-release.json` and no packaged
 `WebService/Quasar`, it downloads the latest Linux web asset from GitHub,
@@ -101,6 +98,13 @@ it to its own console. For systemd installs, Quasar web UI warnings and errors
 therefore appear in the service journal as well as in the configured Quasar log
 files.
 
+The UI **Shutdown Quasar** action drains the web worker, preserves managed
+servers, and leaves Bootstrap running without a worker. Because Bootstrap is
+still alive and exits successfully only when the service is stopped, systemd does
+not restart the worker by itself. Run `systemctl --user restart quasar.service`
+for the default user service, or `sudo systemctl restart quasar.service` for a
+system service, to start the UI and supervisor again.
+
 ## UI Worker Updates
 
 The running Quasar UI checks GitHub releases every 15 minutes by default. The
@@ -113,9 +117,9 @@ are only queued until the operator stages the selected version. Staging requires
 a matching `SHA256SUMS` entry for the downloaded asset.
 
 Staging also resolves `appsettings.json`. Quasar uses the stored release base in
-the data directory (`$QUASAR_DATA_DIR/Updates/appsettings.base.json`) as the
-merge base, applies local values from the install directory
-(`<install-root>` by default), and writes the resolved file into the staged worker. If the merge
+the install root (`$QUASAR_INSTALL_DIR/Updates/appsettings.base.json`) as the
+merge base, applies local values from the install directory, and writes the
+resolved file into the staged worker. If the merge
 conflicts, auto-staging stops with a warning and `/settings/updates` shows a
 git-style conflict editor. Resolve and save the JSON there, or choose **Force
 release defaults** to stage the release file without local appsettings values.
@@ -219,26 +223,17 @@ tar -xzf quasar-installer-linux.tar.gz -C ~/.local/share/Quasar --strip-componen
 ```
 
 For extracted release installers, `install.sh` uses the script directory as the
-default install directory and the default Quasar data directory. Source installs
-keep using `~/.local/share/Quasar` as the default install root, with state stored
-there as well. Use `--system` with `sudo` for a machine-wide service,
-`--install-dir <dir>` to copy Quasar elsewhere, or `--data-dir <dir>` to place
-Quasar state elsewhere. The generated service sets `HOME` and `QUASAR_DATA_DIR`
-explicitly so Bootstrap and the worker agree on the update/runtime state root.
-It also records the unit name/scope in `QUASAR_SYSTEMD_SERVICE` and
-`QUASAR_SYSTEMD_SCOPE`; with those set, the UI shutdown button asks systemd to
-stop the installed unit. The
-installer enables the service but does not start or restart it unless `--start`
-is passed; start it later with `systemctl --user restart quasar.service`. When
-installing from source instead of an extracted release archive, the installer
-stamps the launcher with `VERSION`, an exact git tag, or a short commit-derived
-prerelease identity so Bootstrap update comparisons do not fall back to plain
-`1.0.0`.
-
-If a previous `/opt/quasar` system install exists, the new user-mode installer
-installs the new Bootstrap and user service first, then calls the old
-`/opt/quasar/uninstall.sh --purge` through `sudo` to stop and remove the old
-system service and files.
+install root. Source installs keep using `~/.local/share/Quasar` as the default
+install root. Use `--system` with `sudo` for a machine-wide service or
+`--install-dir <dir>` to install Quasar elsewhere. The generated service sets
+`HOME` and `QUASAR_INSTALL_DIR` explicitly so Bootstrap and the worker agree on
+the unified update/runtime state root.
+The installer enables the service but does not start or restart it unless
+`--start` is passed; start it later with
+`systemctl --user restart quasar.service`. When installing from source instead
+of an extracted release archive, the installer stamps the launcher with
+`VERSION`, an exact git tag, or a short commit-derived prerelease identity so
+Bootstrap update comparisons do not fall back to plain `1.0.0`.
 
 Raising managed server priority no longer requires granting `CAP_SYS_NICE` to
 the whole Quasar service. The installer can build and install a narrow setuid
@@ -268,11 +263,9 @@ to remove a machine-wide service.
 For the web UI host/port (including how to change the listening port, default
 `8080`) and browser auto-open behavior, see [Configuration](Configuration.md).
 
-Update defaults live in `Quasar:Updates`. Packaged defaults come from the install
-directory, and operator overrides can live in the Quasar data directory
-(`<install-root>/appsettings.json` by default for Linux systemd installs, or
-`QUASAR_DATA_DIR/appsettings.json` when overridden). The worker and Bootstrap
-both read that data-directory file on startup.
+Update defaults live in `Quasar:Updates`. Packaged defaults and operator
+overrides live in the install root (`$QUASAR_INSTALL_DIR/appsettings.json`).
+The worker and Bootstrap both read that install-root file on startup.
 
 ```json
 {
@@ -311,7 +304,7 @@ until the operator chooses a version and presses Stage.
 Quasar can check GitHub releases without a token, but hosts on shared servers,
 NAT gateways, and public cloud IP ranges can hit GitHub's unauthenticated rate
 limit. The Updates page lets an admin save a GitHub token for release checks.
-It is stored in `github-updates.json` under the Quasar data directory with the
+It is stored in `github-updates.json` under the Quasar install directory with the
 same Data Protection encryption model and owner-only Unix permissions used for
 the Steam Workshop API key.
 

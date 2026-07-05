@@ -26,8 +26,11 @@ Quasar.exe serve
 ```
 
 Quasar starts, opens `http://localhost:8080` in your browser, and prints log
-output to the console. Press `Ctrl+C` to stop. The web UI port is configurable
-— see [Configuration](Configuration.md).
+output to the console. Press `Ctrl+C` to stop the launcher. The UI **Shutdown
+Quasar** action drains the web worker and leaves the foreground launcher idle;
+press `Ctrl+C`, then run `./Quasar serve` or `Quasar.exe serve` again when you
+want the UI back. The web UI port is configurable — see
+[Configuration](Configuration.md).
 
 ## Install as a background service
 
@@ -56,13 +59,13 @@ tar -xzf quasar-installer-linux.tar.gz -C ~/.local/share/Quasar --strip-componen
 ```
 
 The Linux installer defaults to a user systemd service, uses the extracted
-folder as the install and data root, and writes that path to the unit as
-`QUASAR_DATA_DIR`. Pass `--system` with `sudo` for a machine-wide service,
-`--install-dir <dir>` to copy Quasar elsewhere, or `--data-dir <dir>` to store
-Quasar state elsewhere.
+folder as the install root, and writes that path to the unit as
+`QUASAR_INSTALL_DIR`. Pass `--system` with `sudo` for a machine-wide service or
+`--install-dir <dir>` to install Quasar elsewhere.
 When Quasar is running from the installed user service, the UI **Shutdown
-Quasar** action requests `systemctl --user stop quasar.service` and leaves
-managed servers detached by default.
+Quasar** action drains the web worker and leaves `quasar.service` running idle
+without respawning it. Managed servers stay detached by default. Restart the
+service to bring the UI and supervisor back.
 
 Manage the service with the usual systemd commands:
 
@@ -98,6 +101,8 @@ The task starts at boot, restarts on failure, and runs as the installing user by
 default. Quasar state is stored in the same folder by default. Pass
 `-InstallDir <dir>` to copy Quasar elsewhere, or `-User <account>` to run as a
 specific service account instead.
+The UI **Shutdown Quasar** action drains the web worker and leaves the Scheduled
+Task running idle. Stop and start the task to bring the UI and supervisor back.
 
 To remove:
 
