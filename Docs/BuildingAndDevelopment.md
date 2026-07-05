@@ -124,11 +124,19 @@ direct worker uses its app base directory as the install root. The Bootstrap
 launcher and release/update cutover paths are covered by the packaged installer
 and release workflows rather than a local deploy helper.
 
-To run the UI worker from Rider against an installed service/deployed tree, set
-`QUASAR_INSTALL_DIR` to that Quasar root. The worker launch profile deliberately
-does not set `applicationUrl`, so host/port come from that install root's
-`appsettings.json`. Packaged assets and helper scripts are also probed from the
-same install root.
+To run the UI worker from Rider against an installed service/deployed tree,
+write that root path into `.quasar-install-dir` at the repository root. The file
+is ignored by git and is read through `QUASAR_INSTALL_DIR_FILE` from the worker
+launch profile:
+
+```bash
+printf '%s\n' "$HOME/.local/share/Quasar" > .quasar-install-dir
+```
+
+`QUASAR_INSTALL_DIR` still works and wins when set directly. The worker launch
+profile deliberately does not set `applicationUrl`, so host/port come from that
+install root's `appsettings.json`. Packaged assets and helper scripts are also
+probed from the same install root.
 
 Generate synthetic analytics data for local testing:
 

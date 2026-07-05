@@ -74,8 +74,9 @@ Both the **Bootstrap launcher** (`Quasar`/`Quasar.exe`) and the replaceable **we
 worker** read JSON config from the Quasar install root. Auto-updates preserve
 `appsettings.json` during Bootstrap self-updates, and UI-worker activation
 updates it from the staged, resolved `appsettings.json` so Bootstrap and the
-managed worker keep the same base settings. Set `QUASAR_INSTALL_DIR` for direct
-worker/dev runs that need to target a deployed Quasar root.
+managed worker keep the same base settings. Set `QUASAR_INSTALL_DIR`, or create
+the ignored `.quasar-install-dir` file used by the development launch profile,
+for direct worker/dev runs that need to target a deployed Quasar root.
 
 The shipped defaults are defined in [`Quasar/appsettings.json`](../Quasar/appsettings.json).
 
@@ -302,9 +303,10 @@ Running the worker directly with `dotnet run --project Quasar/Quasar.csproj` use
 [`Quasar/Properties/launchSettings.json`](../Quasar/Properties/launchSettings.json)
 only for development environment variables. It does not set `applicationUrl`, so
 the worker still reads `Quasar:Host` / `Quasar:Port` from normal configuration.
-Set those values in `QUASAR_INSTALL_DIR/appsettings.json` when running the worker
-from Rider against an installed Quasar root, or use `QUASAR_WEB_HOST`
-/ `QUASAR_WEB_PORT` for a one-off direct-worker override.
+Set those values in `QUASAR_INSTALL_DIR/appsettings.json`, or in the root named
+by `.quasar-install-dir`, when running the worker from Rider against an
+installed Quasar root. Use `QUASAR_WEB_HOST` / `QUASAR_WEB_PORT` for a one-off
+direct-worker override.
 
 ## Browser auto-open on start
 

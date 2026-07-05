@@ -6,7 +6,8 @@
       "dotnetRunMessages": false,
       "launchBrowser": false,
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "QUASAR_INSTALL_DIR_FILE": ".quasar-install-dir"
       }
     }
   }
