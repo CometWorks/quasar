@@ -8,8 +8,8 @@ namespace Quasar.Services;
 
 /// <summary>
 /// Singleton store for branding and theme configuration. Persists to
-/// <c>branding.json</c> in the Quasar data directory and writes uploaded logo /
-/// favicon assets into the Quasar data directory. Mirrors the file-watch
+/// <c>branding.json</c> in the Quasar install directory and writes uploaded logo /
+/// favicon assets into the Quasar install directory. Mirrors the file-watch
 /// debounce pattern used by <see cref="Discord.DiscordOptionsCatalog"/> so
 /// external edits are picked up live.
 /// </summary>
@@ -29,15 +29,10 @@ public sealed class BrandingService : IDisposable
     private FileSystemWatcher? _watcher;
     private CancellationTokenSource? _reloadDebounce;
 
-    public BrandingService(ILogger<BrandingService> logger, IWebHostEnvironment environment)
+    public BrandingService(ILogger<BrandingService> logger)
     {
         _logger = logger;
-
-        var legacyWebRootPath = string.IsNullOrWhiteSpace(environment.WebRootPath)
-            ? Path.Combine(environment.ContentRootPath, "wwwroot")
-            : environment.WebRootPath;
         _brandingAssetsDirectory = MagnetarPaths.GetQuasarBrandingDirectory();
-        MigrateLegacyBrandingAssets(Path.Combine(legacyWebRootPath, "branding"));
 
         _settings = LoadSettings();
         _snapshot = CreateSnapshot(_settings);
@@ -176,34 +171,6 @@ public sealed class BrandingService : IDisposable
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Failed clearing previous branding asset {BaseName}.", baseName);
-        }
-    }
-
-    private void MigrateLegacyBrandingAssets(string legacyDirectory)
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(legacyDirectory) ||
-                !Directory.Exists(legacyDirectory) ||
-                string.Equals(
-                    Path.GetFullPath(legacyDirectory),
-                    Path.GetFullPath(_brandingAssetsDirectory),
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-
-            Directory.CreateDirectory(_brandingAssetsDirectory);
-            foreach (var legacyPath in Directory.EnumerateFiles(legacyDirectory, "*", SearchOption.TopDirectoryOnly))
-            {
-                var destination = Path.Combine(_brandingAssetsDirectory, Path.GetFileName(legacyPath));
-                if (!File.Exists(destination))
-                    File.Copy(legacyPath, destination);
-            }
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Failed migrating legacy branding assets from {Path}.", legacyDirectory);
         }
     }
 

@@ -75,12 +75,12 @@
     private static string GetPlatformStorageLocation()
     {
         if (OperatingSystem.IsWindows())
-            return "the Quasar install directory, or QUASAR_DATA_DIR when that override is set";
+            return "the Quasar install directory";
 
         if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
-            return "the Quasar install directory, or QUASAR_DATA_DIR when that override is set";
+            return "the Quasar install directory";
 
-        return "the Quasar data directory, or QUASAR_DATA_DIR when that override is set";
+        return "the Quasar install directory";
     }
 
     private static string GetPlatformFileProtectionDescription()
@@ -91,6 +91,6 @@
         if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
             return "On this platform Quasar also restricts the credentials file to owner read/write permissions (0600) when the filesystem supports it.";
 
-        return "Restrict access to the Quasar data directory with the host operating system's file permissions.";
+        return "Restrict access to the Quasar install directory with the host operating system's file permissions.";
     }
 }

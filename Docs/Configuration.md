@@ -71,26 +71,18 @@ Magnetar log file. Auto-refresh and the Refresh button are active only for
 ## Where configuration is read from
 
 Both the **Bootstrap launcher** (`Quasar`/`Quasar.exe`) and the replaceable **web
-worker** read JSON config from these locations, later ones overriding earlier:
-
-1. The install directory `appsettings.json` (next to the executable). Auto-updates
-   preserve this file during Bootstrap self-updates. UI-worker activation updates
-   it from the staged, resolved `appsettings.json` so Bootstrap and the managed
-   worker keep the same base settings.
-2. The Quasar **data directory** `appsettings.json`. Bootstrap uses the install
-   root as the default data directory, so this is normally the same file as item
-   1. Set `QUASAR_DATA_DIR` (or `--data-dir <dir>` on Linux installs) to keep
-   persistent local overrides in a separate directory.
-
-When Bootstrap starts without a custom `QUASAR_DATA_DIR`, it migrates legacy
-default data roots (`~/.config/Quasar` on Linux/macOS,
-`%APPDATA%\Quasar` on Windows) into the install root.
+worker** read JSON config from the Quasar install root. Auto-updates preserve
+`appsettings.json` during Bootstrap self-updates, and UI-worker activation
+updates it from the staged, resolved `appsettings.json` so Bootstrap and the
+managed worker keep the same base settings. Set `QUASAR_INSTALL_DIR`, or create
+the ignored `.quasar-install-dir` file used by the development launch profile,
+for direct worker/dev runs that need to target a deployed Quasar root.
 
 The shipped defaults are defined in [`Quasar/appsettings.json`](../Quasar/appsettings.json).
 
 During UI-worker staging, Quasar performs a three-way merge for `appsettings.json`:
-the previous release base stored under the data directory is the merge base, the
-current install-directory `appsettings.json` supplies local values, and the new
+the previous release base stored under the install root is the merge base, the
+current install-root `appsettings.json` supplies local values, and the new
 release file supplies new defaults. Clean local changes are carried into the
 staged version automatically. If both the local file and the release changed the
 same setting differently, the Updates page shows a conflict editor with
@@ -130,7 +122,7 @@ mounted network share:
 }
 ```
 
-Relative paths are resolved under the Quasar data directory. If the folder is on
+Relative paths are resolved under the Quasar install directory. If the folder is on
 a network share, make sure it is mounted before Quasar starts and that the
 Quasar service account can create, list, read, and delete files in it. Changes
 from the Backup page apply to new stored-backup operations immediately; direct
@@ -308,9 +300,13 @@ trust broad networks unless every host in that range is under your control.
 ### Development port
 
 Running the worker directly with `dotnet run --project Quasar/Quasar.csproj` uses
-[`Quasar/Properties/launchSettings.json`](../Quasar/Properties/launchSettings.json),
-which sets `applicationUrl` to `http://0.0.0.0:8080`. Change `applicationUrl` there
-to use a different port for local `dotnet run` sessions.
+[`Quasar/Properties/launchSettings.json`](../Quasar/Properties/launchSettings.json)
+only for development environment variables. It does not set `applicationUrl`, so
+the worker still reads `Quasar:Host` / `Quasar:Port` from normal configuration.
+Set those values in `QUASAR_INSTALL_DIR/appsettings.json`, or in the root named
+by `.quasar-install-dir`, when running the worker from Rider against an
+installed Quasar root. Use `QUASAR_WEB_HOST` / `QUASAR_WEB_PORT` for a one-off
+direct-worker override.
 
 ## Browser auto-open on start
 

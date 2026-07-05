@@ -23,7 +23,6 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
     public QuasarWorldTemplateCatalog(ILogger<QuasarWorldTemplateCatalog> logger)
     {
         _logger = logger;
-        MigrateLegacyStorage();
         _templates = LoadTemplates();
         _snapshot = CreateSnapshot(_templates);
         StartWatching();
@@ -163,7 +162,6 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
 
             return Directory
                 .GetFiles(directory, "template.json", SearchOption.AllDirectories)
-                .Concat(Directory.GetFiles(directory, "profile.json", SearchOption.AllDirectories))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .Select(LoadTemplate)
@@ -184,18 +182,7 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
         {
             var json = File.ReadAllText(path);
             var template = JsonSerializer.Deserialize<QuasarWorldTemplate>(json, JsonOptions) ?? new QuasarWorldTemplate();
-            using var document = JsonDocument.Parse(json);
-            var root = document.RootElement;
             var pathTemplateId = GetTemplateIdFromDefinitionPath(path);
-
-            if (TryGetString(root, "worldTemplateId", out var storedId))
-            {
-                template.WorldTemplateId = storedId;
-            }
-            else if (TryGetString(root, "worldProfileId", out var legacyId))
-            {
-                template.WorldTemplateId = legacyId;
-            }
 
             if (!string.IsNullOrWhiteSpace(pathTemplateId))
                 template.WorldTemplateId = pathTemplateId;
@@ -379,104 +366,6 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
         return JsonSerializer.Serialize(normalized, JsonOptions);
     }
 
-    private void MigrateLegacyStorage()
-    {
-        var currentDirectory = MagnetarPaths.GetQuasarWorldTemplatesDirectory();
-        var legacyDirectory = MagnetarPaths.GetLegacyQuasarWorldProfilesDirectory();
-
-        try
-        {
-            if (Directory.Exists(legacyDirectory) && !Directory.Exists(currentDirectory))
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(currentDirectory)!);
-                Directory.Move(legacyDirectory, currentDirectory);
-                _logger.LogInformation("Migrated Quasar world templates from {LegacyPath} to {Path}.", legacyDirectory, currentDirectory);
-            }
-            else if (Directory.Exists(legacyDirectory) && Directory.Exists(currentDirectory))
-            {
-                foreach (var legacyTemplateDirectory in Directory.GetDirectories(legacyDirectory))
-                {
-                    var targetDirectory = Path.Combine(currentDirectory, Path.GetFileName(legacyTemplateDirectory));
-                    if (!Directory.Exists(targetDirectory))
-                        Directory.Move(legacyTemplateDirectory, targetDirectory);
-                }
-            }
-
-            if (Directory.Exists(currentDirectory))
-            {
-                RenameLegacyTemplateDefinitions(currentDirectory);
-                RewriteLegacyTemplateDefinitions(currentDirectory);
-            }
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Failed migrating legacy Quasar world template storage.");
-        }
-    }
-
-    private static void RenameLegacyTemplateDefinitions(string directory)
-    {
-        foreach (var legacyDefinitionPath in Directory.GetFiles(directory, "profile.json", SearchOption.AllDirectories))
-        {
-            var newDefinitionPath = Path.Combine(Path.GetDirectoryName(legacyDefinitionPath)!, "template.json");
-            if (File.Exists(newDefinitionPath))
-                continue;
-
-            File.Move(legacyDefinitionPath, newDefinitionPath);
-        }
-    }
-
-    private static void RewriteLegacyTemplateDefinitions(string directory)
-    {
-        foreach (var definitionPath in Directory.GetFiles(directory, "template.json", SearchOption.AllDirectories))
-        {
-            var json = File.ReadAllText(definitionPath);
-            using var document = JsonDocument.Parse(json);
-            var root = document.RootElement;
-            var pathTemplateId = GetTemplateIdFromDefinitionPath(definitionPath);
-            var hasWorldTemplateId = TryGetString(root, "worldTemplateId", out var storedId);
-            var hasLegacyWorldTemplateId = TryGetString(root, "worldProfileId", out var legacyId);
-
-            if (hasWorldTemplateId &&
-                !hasLegacyWorldTemplateId &&
-                string.Equals(storedId, pathTemplateId, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var template = JsonSerializer.Deserialize<QuasarWorldTemplate>(json, JsonOptions) ?? new QuasarWorldTemplate();
-            template.WorldTemplateId = !string.IsNullOrWhiteSpace(pathTemplateId)
-                ? pathTemplateId
-                : hasLegacyWorldTemplateId
-                    ? legacyId
-                    : template.WorldTemplateId;
-
-            var rewrittenJson = JsonSerializer.Serialize(Normalize(template), JsonOptions);
-            WriteTextReplacing(definitionPath, rewrittenJson);
-        }
-    }
-
     private static string GetTemplateIdFromDefinitionPath(string definitionPath) =>
         Path.GetFileName(Path.GetDirectoryName(definitionPath)) ?? string.Empty;
-
-    private static void WriteTextReplacing(string path, string content)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var tempPath = $"{path}.{Guid.NewGuid():N}.tmp";
-        File.WriteAllText(tempPath, content);
-        File.Move(tempPath, path, overwrite: true);
-    }
-
-    private static bool TryGetString(JsonElement element, string propertyName, out string value)
-    {
-        value = string.Empty;
-        if (!element.TryGetProperty(propertyName, out var property) ||
-            property.ValueKind != JsonValueKind.String)
-        {
-            return false;
-        }
-
-        value = property.GetString() ?? string.Empty;
-        return !string.IsNullOrWhiteSpace(value);
-    }
 }

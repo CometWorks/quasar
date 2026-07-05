@@ -22,7 +22,7 @@ utilities. For the runtime design see [Architecture](QuasarArchitecture.md).
   Quasar, Quasar.Agent, and companion plugins.
 - Quasar UI plugins
   Optional UI extensions are discovered through QuasarHub and installed into the
-  Quasar data directory at runtime. Entity Viewer now lives in the external
+  Quasar install directory at runtime. Entity Viewer now lives in the external
   `CometWorks/viewer` repository and is installed as a Quasar UI plugin instead
   of being staged from this repository during the core Quasar build.
 
@@ -119,10 +119,24 @@ For local web UI development, run the worker directly:
 dotnet run --project Quasar/Quasar.csproj
 ```
 
-This uses the development launch profile and the normal Quasar data directory
-(`~/.config/Quasar` on Linux unless `QUASAR_DATA_DIR` is set). The Bootstrap
+This uses the development launch profile. Without `QUASAR_INSTALL_DIR`, the
+direct worker uses its app base directory as the install root. The Bootstrap
 launcher and release/update cutover paths are covered by the packaged installer
 and release workflows rather than a local deploy helper.
+
+To run the UI worker from Rider against an installed service/deployed tree,
+write that root path into `.quasar-install-dir` at the repository root. The file
+is ignored by git and is read through `QUASAR_INSTALL_DIR_FILE` from the worker
+launch profile:
+
+```bash
+printf '%s\n' "$HOME/.local/share/Quasar" > .quasar-install-dir
+```
+
+`QUASAR_INSTALL_DIR` still works and wins when set directly. The worker launch
+profile deliberately does not set `applicationUrl`, so host/port come from that
+install root's `appsettings.json`. Packaged assets and helper scripts are also
+probed from the same install root.
 
 Generate synthetic analytics data for local testing:
 
@@ -131,8 +145,8 @@ python3 scripts/generate-analytics-data.py
 ```
 
 Optional `--server <name>` to target one server, `--days <n>`, `--seed <n>`,
-`--raw-hours <hours>`, `--raw-interval <seconds>`. Uses `QUASAR_DATA_DIR`
-automatically if set, otherwise defaults to the local Quasar data root.
+`--raw-hours <hours>`, `--raw-interval <seconds>`. Uses `QUASAR_INSTALL_DIR`
+automatically if set, otherwise defaults to the local Quasar install root.
 
 When refreshing the local graphify graph, prune generic framework plumbing after
 `.graphify_extract.json` is produced and before graph build/report generation:

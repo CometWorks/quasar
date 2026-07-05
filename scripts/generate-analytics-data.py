@@ -22,20 +22,15 @@ def clamp(value: float, min_value: float, max_value: float) -> float:
     return max(min_value, min(max_value, value))
 
 
-def get_quasar_root(data_dir: str | None) -> Path:
-    if data_dir:
-        return Path(data_dir).expanduser().resolve()
+def get_quasar_root(install_dir: str | None) -> Path:
+    if install_dir:
+        return Path(install_dir).expanduser().resolve()
 
-    env_override = os.getenv("QUASAR_DATA_DIR")
+    env_override = os.getenv("QUASAR_INSTALL_DIR")
     if env_override:
         return Path(env_override).expanduser().resolve()
 
-    if os.name == "nt":
-        appdata = os.getenv("APPDATA")
-        if appdata:
-            return Path(appdata) / "Quasar"
-
-    return Path.home() / ".config" / "Quasar"
+    return Path.cwd().resolve()
 
 
 def list_servers(quasar_root: Path) -> list[str]:
@@ -140,7 +135,7 @@ def generate_series(
 
 def build_args():
     parser = argparse.ArgumentParser(description="Generate Quasar analytics.jsonl test data.")
-    parser.add_argument("--data-dir", default=None, help="Override Quasar root directory")
+    parser.add_argument("--install-dir", default=None, help="Override Quasar install root directory")
     parser.add_argument("--days", type=int, default=30, help="How many days to generate (default 30)")
     parser.add_argument("--server", action="append", help="Server uniqueName; repeatable")
     parser.add_argument("--seed", type=int, default=1337, help="Random seed for repeatable output")
@@ -158,7 +153,7 @@ def main():
     if args.raw_hours <= 0:
         raise ValueError("--raw-hours must be > 0")
 
-    quasar_root = get_quasar_root(args.data_dir)
+    quasar_root = get_quasar_root(args.install_dir)
     servers_dir = quasar_root / "Magnetars"
 
     if args.server:

@@ -72,7 +72,7 @@ public sealed class QuasarBackupRuleSettings
 
 /// <summary>
 /// Persistent configuration for the automatic backup scheduler, serialized to
-/// <c>backup-settings.json</c> in the Quasar data directory. Each backup scope
+/// <c>backup-settings.json</c> in the Quasar install directory. Each backup scope
 /// has its own rule.
 /// </summary>
 public sealed class QuasarBackupSettings
@@ -86,19 +86,6 @@ public sealed class QuasarBackupSettings
     public QuasarBackupRuleSettings Server { get; set; } = new();
 
     public QuasarBackupRuleSettings World { get; set; } = new();
-
-    // Legacy flat settings kept for reading old backup-settings.json files.
-    public bool? Enabled { get; set; }
-
-    public BackupFrequency? Frequency { get; set; }
-
-    public TimeOnly? TimeOfDay { get; set; }
-
-    public DayOfWeek? DayOfWeek { get; set; }
-
-    public int? RetentionCount { get; set; }
-
-    public DateTimeOffset? LastBackupUtc { get; set; }
 
     public QuasarBackupSettings Clone()
     {
@@ -115,30 +102,9 @@ public sealed class QuasarBackupSettings
     {
         settings ??= new QuasarBackupSettings();
 
-        var useLegacyConfiguration =
-            settings.Configuration is null ||
-            settings.Enabled.HasValue ||
-            settings.LastBackupUtc is not null ||
-            settings.Frequency.HasValue ||
-            settings.TimeOfDay.HasValue ||
-            settings.DayOfWeek.HasValue ||
-            settings.RetentionCount.HasValue;
-
-        var configuration = useLegacyConfiguration
-            ? QuasarBackupRuleSettings.Normalize(new QuasarBackupRuleSettings
-            {
-                Enabled = settings.Enabled ?? false,
-                Frequency = settings.Frequency ?? BackupFrequency.Daily,
-                TimeOfDay = settings.TimeOfDay ?? new TimeOnly(3, 0),
-                DayOfWeek = settings.DayOfWeek ?? System.DayOfWeek.Sunday,
-                RetentionCount = settings.RetentionCount ?? DefaultRetentionCount,
-                LastBackupUtc = settings.LastBackupUtc,
-            })
-            : QuasarBackupRuleSettings.Normalize(settings.Configuration);
-
         return new QuasarBackupSettings
         {
-            Configuration = configuration,
+            Configuration = QuasarBackupRuleSettings.Normalize(settings.Configuration),
             Server = QuasarBackupRuleSettings.Normalize(settings.Server),
             World = QuasarBackupRuleSettings.Normalize(settings.World),
         };

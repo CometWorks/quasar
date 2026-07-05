@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
+using Magnetar.Protocol.Runtime;
 using Quasar.Plugin.Abstractions.Manifests;
 using Quasar.Models;
 using Quasar.Services.Plugins;
@@ -597,9 +598,11 @@ public sealed class DedicatedServerRuntimePreparer
 
     private static string? LocateAgentSourceDirectory()
     {
-        var stagedDirectory = Path.Combine(AppContext.BaseDirectory, "Agent");
-        if (File.Exists(Path.Combine(stagedDirectory, AgentPluginFileName)))
-            return stagedDirectory;
+        foreach (var stagedDirectory in EnumerateAgentSourceCandidates())
+        {
+            if (File.Exists(Path.Combine(stagedDirectory, AgentPluginFileName)))
+                return stagedDirectory;
+        }
 
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         for (var depth = 0; directory is not null && depth < 8; depth++, directory = directory.Parent)
@@ -618,6 +621,28 @@ public sealed class DedicatedServerRuntimePreparer
         }
 
         return null;
+    }
+
+    private static IEnumerable<string> EnumerateAgentSourceCandidates()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var directory in EnumerateInstallCandidateDirectories())
+        {
+            var candidate = Path.Combine(directory, "Agent");
+            if (seen.Add(Path.GetFullPath(candidate)))
+                yield return candidate;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateInstallCandidateDirectories()
+    {
+        var installDirectory = Environment.GetEnvironmentVariable("QUASAR_INSTALL_DIR");
+        if (!string.IsNullOrWhiteSpace(installDirectory))
+            yield return installDirectory.Trim();
+
+        yield return MagnetarPaths.GetQuasarDirectory();
+        yield return AppContext.BaseDirectory;
+        yield return Directory.GetCurrentDirectory();
     }
 
     private static string SanitizePathSegment(string value)

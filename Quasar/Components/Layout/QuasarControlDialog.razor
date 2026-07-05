@@ -31,7 +31,7 @@
                            Class="quasar-control-action">
                     <span>
                         <span class="quasar-control-action-title">Shutdown Quasar</span>
-                        <span class="quasar-control-action-body">Servers continue to run without Quasar supervision.</span>
+                        <span class="quasar-control-action-body">Drain the web UI; servers continue without supervision.</span>
                     </span>
                 </MudButton>
 
@@ -117,7 +117,7 @@
     {
         QuasarControlAction.RestartQuasar => "Running servers continue to run.",
         QuasarControlAction.ShutdownAllServers => "Every running server will save and stop.",
-        _ => "Quasar will stop, but running servers continue.",
+        _ => "Quasar will drain, but running servers continue.",
     };
 
     private string ConfirmationBody => _pendingAction switch
@@ -127,7 +127,7 @@
         QuasarControlAction.ShutdownAllServers =>
             "Quasar stays online. Each running server receives a normal save-and-stop request, and its goal state is set to Off so Quasar does not restart it.",
         _ =>
-            $"The Quasar web UI and supervisor stop. Running servers are left detached and can continue for {FormatOfflineGrace()} without Quasar before their agent offline policy takes over. Start Quasar again to re-adopt them.",
+            $"The web UI and supervisor stop, and the launcher stays drained so it will not restart them until the service, task, or foreground launcher is restarted. Running servers are left detached and can continue for {FormatOfflineGrace()} without Quasar before their agent offline policy takes over.",
     };
 
     private void Select(QuasarControlAction action)

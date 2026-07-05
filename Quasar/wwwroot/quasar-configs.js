@@ -566,7 +566,7 @@ window.quasarConfigs = window.quasarConfigs || {
                 await navigator.clipboard.writeText(text);
                 return true;
             }
-        } catch (e) { /* fall through to legacy path */ }
+        } catch (e) { /* fall through to fallback path */ }
         // Fallback for non-secure contexts (HTTP LAN access)
         try {
             const ta = document.createElement("textarea");

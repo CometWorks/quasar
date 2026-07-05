@@ -1,6 +1,5 @@
 using Magnetar.Protocol.Runtime;
 using Quasar.Models;
-using System.Diagnostics;
 
 namespace Quasar.Services;
 
@@ -104,177 +103,15 @@ public sealed class QuasarShutdownService
 
     /// <summary>
     /// Stops Quasar while preserving managed servers. When launched by Bootstrap,
-    /// the worker first asks the launcher process to exit so it does not
-    /// respawn the worker.
+    /// the worker asks the launcher to enter a drained state so it does not
+    /// respawn the worker until the external service/task is restarted.
     /// </summary>
     public void ShutdownQuasarPreservingServers(IProgress<string>? progress = null)
     {
         progress?.Report("Shutting down Quasar…");
         _supervisor.BeginLauncherDrain();
-        if (TryRequestSystemdServiceStop())
-            return;
-
         RequestLauncherShutdown();
         _lifetime.StopApplication();
-    }
-
-    private bool TryRequestSystemdServiceStop()
-    {
-        if (!OperatingSystem.IsLinux())
-            return false;
-
-        var target = ResolveSystemdServiceTarget();
-        if (target is null)
-            return false;
-
-        try
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "systemctl",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            AddSystemctlStopArguments(startInfo, target.Value);
-
-            using var process = Process.Start(startInfo);
-
-            if (process is null)
-                return false;
-
-            if (!process.WaitForExit(3000))
-            {
-                TryKillProcess(process);
-                _logger.LogWarning(
-                    "systemctl stop {ServiceName} did not return before timeout; falling back to launcher shutdown request.",
-                    target.Value.ServiceName);
-                return false;
-            }
-
-            if (process.ExitCode == 0)
-            {
-                _logger.LogInformation("Requested systemd stop for {ServiceName}.", target.Value.ServiceName);
-                return true;
-            }
-
-            _logger.LogWarning(
-                "systemctl stop {ServiceName} failed with exit code {ExitCode}; falling back to launcher shutdown request.",
-                target.Value.ServiceName,
-                process.ExitCode);
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Failed requesting systemd stop; falling back to launcher shutdown request.");
-        }
-
-        return false;
-    }
-
-    private static void TryKillProcess(Process process)
-    {
-        try
-        {
-            if (!process.HasExited)
-                process.Kill(entireProcessTree: false);
-        }
-        catch
-        {
-        }
-    }
-
-    private static void AddSystemctlStopArguments(ProcessStartInfo startInfo, SystemdServiceTarget target)
-    {
-        if (target.Scope == SystemdServiceScope.User)
-            startInfo.ArgumentList.Add("--user");
-
-        startInfo.ArgumentList.Add("--no-block");
-        startInfo.ArgumentList.Add("stop");
-        startInfo.ArgumentList.Add(target.ServiceName);
-    }
-
-    private static SystemdServiceTarget? ResolveSystemdServiceTarget()
-    {
-        var serviceName = NormalizeServiceName(Environment.GetEnvironmentVariable("QUASAR_SYSTEMD_SERVICE"));
-        var scope = ParseSystemdScope(Environment.GetEnvironmentVariable("QUASAR_SYSTEMD_SCOPE"));
-        if (!string.IsNullOrWhiteSpace(serviceName) && scope is not null)
-            return new SystemdServiceTarget(serviceName, scope.Value);
-
-        var detected = DetectSystemdServiceTargetFromCgroup();
-        if (detected is null)
-            return null;
-
-        return new SystemdServiceTarget(serviceName ?? detected.Value.ServiceName, scope ?? detected.Value.Scope);
-    }
-
-    private static SystemdServiceTarget? DetectSystemdServiceTargetFromCgroup()
-    {
-        const string cgroupPath = "/proc/self/cgroup";
-        if (!File.Exists(cgroupPath))
-            return null;
-
-        try
-        {
-            foreach (var line in File.ReadLines(cgroupPath))
-            {
-                var pathStart = line.IndexOf(":/", StringComparison.Ordinal);
-                if (pathStart < 0)
-                    continue;
-
-                var path = line[(pathStart + 1)..];
-                var serviceName = ExtractServiceName(path);
-                if (serviceName is null)
-                    continue;
-
-                if (path.Contains("/user.slice/", StringComparison.Ordinal) ||
-                    path.Contains("/user@", StringComparison.Ordinal))
-                {
-                    return new SystemdServiceTarget(serviceName, SystemdServiceScope.User);
-                }
-
-                if (path.Contains("/system.slice/", StringComparison.Ordinal))
-                    return new SystemdServiceTarget(serviceName, SystemdServiceScope.System);
-            }
-        }
-        catch
-        {
-        }
-
-        return null;
-    }
-
-    private static string? ExtractServiceName(string cgroupPath)
-    {
-        foreach (var segment in cgroupPath.Split('/', StringSplitOptions.RemoveEmptyEntries).Reverse())
-        {
-            if (segment.EndsWith(".service", StringComparison.Ordinal))
-                return segment;
-        }
-
-        return null;
-    }
-
-    private static string? NormalizeServiceName(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return null;
-
-        var serviceName = value.Trim();
-        return serviceName.EndsWith(".service", StringComparison.Ordinal)
-            ? serviceName
-            : $"{serviceName}.service";
-    }
-
-    private static SystemdServiceScope? ParseSystemdScope(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return null;
-
-        return value.Trim().ToLowerInvariant() switch
-        {
-            "user" => SystemdServiceScope.User,
-            "system" => SystemdServiceScope.System,
-            _ => null,
-        };
     }
 
     private void RequestLauncherShutdown()
@@ -288,18 +125,10 @@ public sealed class QuasarShutdownService
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Failed writing Quasar launcher shutdown request.");
+            _logger.LogWarning(exception, "Failed writing Quasar launcher drain request.");
         }
     }
 
     private static string GetLauncherShutdownRequestPath() =>
         Path.Combine(MagnetarPaths.GetQuasarDirectory(), "launcher-shutdown-request");
-
-    private readonly record struct SystemdServiceTarget(string ServiceName, SystemdServiceScope Scope);
-
-    private enum SystemdServiceScope
-    {
-        User,
-        System,
-    }
 }

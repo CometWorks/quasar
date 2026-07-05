@@ -679,18 +679,26 @@ public sealed class QuasarUiPluginHubCatalogService
 
     private static string GetPluginAbstractionsAssemblyPath()
     {
-        var baseDirectoryPath = Path.Combine(AppContext.BaseDirectory, PluginAbstractionsAssemblyFileName);
-        return File.Exists(baseDirectoryPath) ? baseDirectoryPath : string.Empty;
+        return EnumerateInstallCandidateDirectories()
+            .Select(directory => Path.Combine(directory, PluginAbstractionsAssemblyFileName))
+            .FirstOrDefault(File.Exists)
+            ?? string.Empty;
     }
 
     private static string GetMagnetarProtocolAssemblyPath()
     {
-        var baseDirectoryPath = Path.Combine(AppContext.BaseDirectory, MagnetarProtocolAssemblyFileName);
-        if (File.Exists(baseDirectoryPath))
-            return baseDirectoryPath;
+        foreach (var directory in EnumerateInstallCandidateDirectories())
+        {
+            var baseDirectoryPath = Path.Combine(directory, MagnetarProtocolAssemblyFileName);
+            if (File.Exists(baseDirectoryPath))
+                return baseDirectoryPath;
 
-        var agentDirectoryPath = Path.Combine(AppContext.BaseDirectory, "Agent", MagnetarProtocolAssemblyFileName);
-        return File.Exists(agentDirectoryPath) ? agentDirectoryPath : string.Empty;
+            var agentDirectoryPath = Path.Combine(directory, "Agent", MagnetarProtocolAssemblyFileName);
+            if (File.Exists(agentDirectoryPath))
+                return agentDirectoryPath;
+        }
+
+        return string.Empty;
     }
 
     private static async Task RunProcessAsync(ProcessStartInfo startInfo, string label, CancellationToken cancellationToken)
@@ -1004,18 +1012,34 @@ public sealed class QuasarUiPluginHubCatalogService
 
     private string GetInstallScriptPath()
     {
-        var candidates = new[]
-        {
-            Path.Combine(AppContext.BaseDirectory, "install.sh"),
-            Path.Combine(_environment.ContentRootPath, "install.sh"),
-            Path.Combine(_environment.ContentRootPath, "..", "install.sh"),
-            Path.Combine(Directory.GetCurrentDirectory(), "install.sh"),
-        };
-
-        return candidates
+        return EnumerateInstallCandidateDirectories()
+            .Concat([_environment.ContentRootPath, Path.Combine(_environment.ContentRootPath, "..")])
+            .Select(directory => Path.Combine(directory, "install.sh"))
             .Select(Path.GetFullPath)
             .FirstOrDefault(File.Exists)
             ?? string.Empty;
+    }
+
+    private static IEnumerable<string> EnumerateInstallCandidateDirectories()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var directory in EnumerateRawInstallCandidateDirectories())
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+                continue;
+
+            var fullPath = Path.GetFullPath(directory.Trim());
+            if (seen.Add(fullPath))
+                yield return fullPath;
+        }
+    }
+
+    private static IEnumerable<string?> EnumerateRawInstallCandidateDirectories()
+    {
+        yield return Environment.GetEnvironmentVariable("QUASAR_INSTALL_DIR");
+        yield return MagnetarPaths.GetQuasarDirectory();
+        yield return AppContext.BaseDirectory;
+        yield return Directory.GetCurrentDirectory();
     }
 
     private static string GetSdkVersion(string sdkLine)

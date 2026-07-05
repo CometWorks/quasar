@@ -8,7 +8,7 @@ namespace Quasar.Services.Backup;
 
 /// <summary>
 /// Singleton store for the automatic-backup schedule settings. Persists to
-/// <c>backup-settings.json</c> in the Quasar data directory and picks up external
+/// <c>backup-settings.json</c> in the Quasar install directory and picks up external
 /// edits via a debounced file watch, mirroring <see cref="BrandingService"/>.
 /// </summary>
 public sealed class QuasarBackupSettingsService : IDisposable

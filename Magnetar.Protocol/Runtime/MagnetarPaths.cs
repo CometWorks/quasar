@@ -1,32 +1,46 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace Magnetar.Protocol.Runtime;
 
 public static class MagnetarPaths
 {
+    private const string InstallDirectoryEnvironmentVariable = "QUASAR_INSTALL_DIR";
+    private const string InstallDirectoryFileEnvironmentVariable = "QUASAR_INSTALL_DIR_FILE";
+    private const string DevInstallDirectoryFileName = ".quasar-install-dir";
+    private static string? _cachedQuasarDirectory;
+
     // -------------------------------------------------------------------------
-    // Root — everything lives under QUASAR_DATA_DIR when set. Bootstrap sets it
-    // to the launcher install root for packaged installs after migrating legacy
-    // ~/.config/Quasar (Linux/macOS) or %APPDATA%\Quasar (Windows) data.
-    // Without Bootstrap, fall back to the OS application-data directory.
+    // Root - everything lives under QUASAR_INSTALL_DIR when set. Bootstrap sets
+    // it to the launcher install root for packaged installs. Direct worker
+    // sessions may read an ignored .quasar-install-dir file; otherwise they use
+    // the app base directory.
     // -------------------------------------------------------------------------
 
     public static string GetQuasarDirectory()
     {
-        var envOverride = Environment.GetEnvironmentVariable("QUASAR_DATA_DIR");
-        if (!string.IsNullOrWhiteSpace(envOverride))
-            return envOverride.Trim();
+        var cachedDirectory = _cachedQuasarDirectory;
+        if (cachedDirectory is not null)
+            return cachedDirectory;
 
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        if (string.IsNullOrWhiteSpace(appData))
-            appData = AppContext.BaseDirectory;
-
-        return Path.Combine(appData, "Quasar");
+        var resolvedDirectory = ResolveQuasarDirectory();
+        _cachedQuasarDirectory = resolvedDirectory;
+        return resolvedDirectory;
     }
 
-    // Kept for backward compatibility — resolves to the Quasar root.
-    public static string GetRuntimeDirectory() => GetQuasarDirectory();
+    private static string ResolveQuasarDirectory()
+    {
+        var envOverride = Environment.GetEnvironmentVariable(InstallDirectoryEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(envOverride))
+            return Path.GetFullPath(envOverride.Trim());
+
+        var fileOverride = TryReadInstallDirectoryOverrideFile();
+        if (fileOverride is not null)
+            return fileOverride;
+
+        return Path.GetFullPath(AppContext.BaseDirectory);
+    }
 
     // -------------------------------------------------------------------------
     // Bootstrap / web-service manifest
@@ -65,9 +79,6 @@ public static class MagnetarPaths
 
     public static string GetQuasarBrandingDirectory() =>
         Path.Combine(GetQuasarDirectory(), "Branding");
-
-    public static string GetQuasarBrandingDirectory(string webRootPath) =>
-        GetQuasarBrandingDirectory();
 
     public static string GetQuasarDeathMessagesPath() =>
         Path.Combine(GetQuasarDirectory(), "death-messages.json");
@@ -128,9 +139,6 @@ public static class MagnetarPaths
 
     public static string GetQuasarWorldTemplatesDirectory() =>
         Path.Combine(GetQuasarDirectory(), "WorldTemplates");
-
-    public static string GetLegacyQuasarWorldProfilesDirectory() =>
-        Path.Combine(GetQuasarDirectory(), "WorldProfiles");
 
     public static string GetQuasarWorldTemplateDirectory(string worldTemplateId) =>
         Path.Combine(GetQuasarWorldTemplatesDirectory(), SanitizePathSegment(worldTemplateId));
@@ -206,5 +214,71 @@ public static class MagnetarPaths
             sanitized = sanitized.Replace(invalidCharacter, '-');
 
         return sanitized;
+    }
+
+    private static string? TryReadInstallDirectoryOverrideFile()
+    {
+        foreach (var filePath in EnumerateInstallDirectoryOverrideFiles())
+        {
+            if (!File.Exists(filePath))
+                continue;
+
+            try
+            {
+                var value = File.ReadAllText(filePath).Trim();
+                if (string.IsNullOrWhiteSpace(value))
+                    continue;
+
+                var baseDirectory = Path.GetDirectoryName(filePath) ?? Directory.GetCurrentDirectory();
+                return Path.GetFullPath(Path.IsPathRooted(value)
+                    ? value
+                    : Path.Combine(baseDirectory, value));
+            }
+            catch
+            {
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> EnumerateInstallDirectoryOverrideFiles()
+    {
+        var explicitFile = Environment.GetEnvironmentVariable(InstallDirectoryFileEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(explicitFile))
+        {
+            var trimmed = explicitFile.Trim();
+            if (Path.IsPathRooted(trimmed))
+            {
+                yield return trimmed;
+                yield break;
+            }
+
+            foreach (var directory in EnumerateProbeDirectories())
+                yield return Path.Combine(directory, trimmed);
+
+            yield break;
+        }
+
+        foreach (var directory in EnumerateProbeDirectories())
+            yield return Path.Combine(directory, DevInstallDirectoryFileName);
+    }
+
+    private static IEnumerable<string> EnumerateProbeDirectories()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var root in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+        {
+            if (string.IsNullOrWhiteSpace(root))
+                continue;
+
+            var directory = new DirectoryInfo(root);
+            for (var depth = 0; directory is not null && depth < 8; depth++, directory = directory.Parent)
+            {
+                var fullPath = Path.GetFullPath(directory.FullName);
+                if (seen.Add(fullPath))
+                    yield return fullPath;
+            }
+        }
     }
 }

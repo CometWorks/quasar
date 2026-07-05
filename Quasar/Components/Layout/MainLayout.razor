@@ -337,7 +337,7 @@
     private async Task ShutdownQuasarAsync()
     {
         _isShuttingDown = true;
-        _shutdownStatus = "Shutting down Quasar… running servers continue.";
+        _shutdownStatus = "Draining Quasar… restart the service or task to bring the UI back.";
         await InvokeAsync(StateHasChanged);
         ShutdownService.ShutdownQuasarPreservingServers();
     }

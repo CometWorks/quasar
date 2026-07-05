@@ -71,6 +71,8 @@ stateDiagram-v2
     ForceKilled --> WorkerLaunching: start new-release worker
     Running --> Restarting: worker exits unexpectedly
     Restarting --> WorkerLaunching: relaunch (force)
+    Running --> Drained: UI Shutdown Quasar / launcher drain request
+    Drained --> [*]: service/task/foreground launcher restarted
     Running --> SelfUpgrade: newer Bootstrap asset applied
     SelfUpgrade --> [*]: exit 75 (Linux) / detached relaunch + exit 0 (Windows)
 ```
@@ -85,6 +87,7 @@ stateDiagram-v2
 | `Draining` | Pointer change detected; the launcher posts `/api/internal/drain` (authenticated with the per-session launcher token) and waits for graceful exit. |
 | `Retired` / `ForceKilled` | Old worker exited within the grace window, or was killed after timeout. |
 | `Restarting` | Worker exited unexpectedly (not a launcher request); relaunched with `force`. |
+| `Drained` | UI **Shutdown Quasar** requested a launcher drain; Bootstrap stays alive without respawning a worker until the service, task, or foreground launcher is restarted. |
 | `SelfUpgrade` | A newer Bootstrap asset was applied by the periodic monitor or by a consumed `Updates/bootstrap-update-request.json` request from the Updates page; forced requests target the detected version and platform asset. Linux exits **75** so systemd restarts it; Windows spawns a detached `Quasar.exe serve --quiet` replacement and exits **0**. |
 
 The pointer is `Updates/active-release.json`

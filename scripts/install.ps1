@@ -296,7 +296,6 @@ Installed Quasar.
 
 Scheduled task: $TaskName
 Install dir:    $InstallDir
-Data dir:       $InstallDir
 Run as:         $runAs
 Web UI:         $uiUrl
 
@@ -304,6 +303,7 @@ $startHint
 The task starts at boot and restarts the launcher on failure (keep-alive). On
 first start the launcher downloads the Quasar web UI from GitHub and then serves
 it at $uiUrl.
+UI Shutdown Quasar drains the worker; stop and start the task to bring it back.
 
 Manage the task:
   Get-ScheduledTask -TaskName '$TaskName'

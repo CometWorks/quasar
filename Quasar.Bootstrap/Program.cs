@@ -30,7 +30,7 @@ internal static class Program
 
     public static async Task<int> Main(string[] args)
     {
-        BootstrapDataDirectoryMigration.ApplyInstallRootDefault();
+        BootstrapInstallDirectoryDefaults.ApplyInstallRootDefault();
 
         var quiet = args.Any(static arg => string.Equals(arg, "--quiet", StringComparison.OrdinalIgnoreCase));
         var openBrowser = args.Any(static arg => string.Equals(arg, "--open-browser", StringComparison.OrdinalIgnoreCase));
@@ -560,242 +560,21 @@ internal static class Program
     }
 }
 
-internal static class BootstrapDataDirectoryMigration
+internal static class BootstrapInstallDirectoryDefaults
 {
-    private const string DataDirectoryEnvironmentVariable = "QUASAR_DATA_DIR";
-
-    public static BootstrapDataDirectoryMigrationResult LastResult { get; private set; } = BootstrapDataDirectoryMigrationResult.Empty;
+    private const string InstallDirectoryEnvironmentVariable = "QUASAR_INSTALL_DIR";
 
     public static void ApplyInstallRootDefault()
     {
-        LastResult = BootstrapDataDirectoryMigrationResult.Empty;
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(InstallDirectoryEnvironmentVariable)))
+            return;
 
-        var installRoot = NormalizeDirectory(AppContext.BaseDirectory);
+        var installRoot = AppContext.BaseDirectory;
         if (string.IsNullOrWhiteSpace(installRoot))
             return;
 
-        var legacyRoot = GetLegacyQuasarDirectory();
-        var configuredRoot = Environment.GetEnvironmentVariable(DataDirectoryEnvironmentVariable);
-        if (IsCustomDataDirectory(configuredRoot, installRoot, legacyRoot))
-            return;
-
-        var targetRoot = string.IsNullOrWhiteSpace(configuredRoot) || IsSamePath(configuredRoot, legacyRoot)
-            ? installRoot
-            : NormalizeDirectory(configuredRoot);
-
-        if (string.IsNullOrWhiteSpace(targetRoot))
-            targetRoot = installRoot;
-
-        if (!string.IsNullOrWhiteSpace(legacyRoot) &&
-            !IsSamePath(legacyRoot, targetRoot) &&
-            IsPathUnder(targetRoot, legacyRoot))
-        {
-            Environment.SetEnvironmentVariable(DataDirectoryEnvironmentVariable, legacyRoot);
-            LastResult = new BootstrapDataDirectoryMigrationResult(
-                legacyRoot,
-                targetRoot,
-                Migrated: false,
-                ErrorMessage: "Install root is inside the legacy data directory.");
-            return;
-        }
-
-        try
-        {
-            Directory.CreateDirectory(targetRoot);
-            var migrated = false;
-            if (!string.IsNullOrWhiteSpace(legacyRoot) &&
-                !IsSamePath(legacyRoot, targetRoot) &&
-                Directory.Exists(legacyRoot))
-            {
-                MergeDirectoryContents(legacyRoot, targetRoot);
-                TryRewriteMigratedActiveReleasePointer(legacyRoot, targetRoot);
-                TryDeleteDirectoryIfEmpty(legacyRoot);
-                migrated = true;
-            }
-
-            Environment.SetEnvironmentVariable(DataDirectoryEnvironmentVariable, targetRoot);
-            LastResult = new BootstrapDataDirectoryMigrationResult(legacyRoot, targetRoot, migrated, string.Empty);
-        }
-        catch (Exception exception)
-        {
-            if (!string.IsNullOrWhiteSpace(configuredRoot))
-                Environment.SetEnvironmentVariable(DataDirectoryEnvironmentVariable, configuredRoot);
-
-            LastResult = new BootstrapDataDirectoryMigrationResult(
-                legacyRoot,
-                targetRoot,
-                Migrated: false,
-                ErrorMessage: exception.Message);
-        }
+        Environment.SetEnvironmentVariable(InstallDirectoryEnvironmentVariable, Path.GetFullPath(installRoot));
     }
-
-    private static bool IsCustomDataDirectory(string? configuredRoot, string installRoot, string legacyRoot)
-    {
-        return !string.IsNullOrWhiteSpace(configuredRoot) &&
-               !IsSamePath(configuredRoot, installRoot) &&
-               !IsSamePath(configuredRoot, legacyRoot);
-    }
-
-    private static string GetLegacyQuasarDirectory()
-    {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return string.IsNullOrWhiteSpace(appData)
-            ? string.Empty
-            : NormalizeDirectory(Path.Combine(appData, "Quasar"));
-    }
-
-    private static void TryRewriteMigratedActiveReleasePointer(string legacyRoot, string targetRoot)
-    {
-        var pointerPath = Path.Combine(targetRoot, "Updates", "active-release.json");
-        if (!File.Exists(pointerPath))
-            return;
-
-        try
-        {
-            var pointer = JsonSerializer.Deserialize<QuasarActiveReleasePointer>(
-                File.ReadAllText(pointerPath),
-                LauncherCoordinator.JsonOptions);
-            if (pointer is null)
-                return;
-
-            var fileName = RewriteMigratedPath(pointer.FileName, legacyRoot, targetRoot);
-            var workingDirectory = RewriteMigratedPath(pointer.WorkingDirectory, legacyRoot, targetRoot);
-            var arguments = RewriteMigratedArguments(pointer.Arguments, legacyRoot, targetRoot);
-            if (string.Equals(fileName, pointer.FileName, StringComparison.Ordinal) &&
-                string.Equals(workingDirectory, pointer.WorkingDirectory, StringComparison.Ordinal) &&
-                string.Equals(arguments, pointer.Arguments, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            var rewritten = new QuasarActiveReleasePointer
-            {
-                Version = pointer.Version,
-                FileName = fileName,
-                Arguments = arguments,
-                WorkingDirectory = workingDirectory,
-                ActivatedAtUtc = pointer.ActivatedAtUtc,
-            };
-            File.WriteAllText(pointerPath, JsonSerializer.Serialize(rewritten, LauncherCoordinator.JsonOptions));
-        }
-        catch
-        {
-        }
-    }
-
-    private static string RewriteMigratedPath(string value, string legacyRoot, string targetRoot)
-    {
-        if (string.IsNullOrWhiteSpace(value) || !Path.IsPathFullyQualified(value))
-            return value;
-
-        if (IsSamePath(value, legacyRoot))
-            return targetRoot;
-
-        if (!IsPathUnder(value, legacyRoot))
-            return value;
-
-        var relativePath = Path.GetRelativePath(NormalizeDirectory(legacyRoot), NormalizeDirectory(value));
-        return Path.Combine(targetRoot, relativePath);
-    }
-
-    private static string RewriteMigratedArguments(string value, string legacyRoot, string targetRoot)
-    {
-        if (string.IsNullOrWhiteSpace(value) || string.IsNullOrWhiteSpace(legacyRoot))
-            return value;
-
-        var normalizedLegacyRoot = NormalizeDirectory(legacyRoot);
-        var normalizedTargetRoot = NormalizeDirectory(targetRoot);
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        var rewritten = value.Replace(normalizedLegacyRoot, normalizedTargetRoot, comparison);
-
-        if (OperatingSystem.IsWindows())
-        {
-            rewritten = rewritten.Replace(
-                normalizedLegacyRoot.Replace('\\', '/'),
-                normalizedTargetRoot.Replace('\\', '/'),
-                StringComparison.OrdinalIgnoreCase);
-        }
-
-        return rewritten;
-    }
-
-    private static void MergeDirectoryContents(string sourceDirectory, string destinationDirectory)
-    {
-        Directory.CreateDirectory(destinationDirectory);
-
-        foreach (var sourcePath in Directory.EnumerateFiles(sourceDirectory))
-        {
-            var destinationPath = Path.Combine(destinationDirectory, Path.GetFileName(sourcePath));
-            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
-            File.Copy(sourcePath, destinationPath, overwrite: true);
-            TryDeleteFile(sourcePath);
-        }
-
-        foreach (var sourceChildDirectory in Directory.EnumerateDirectories(sourceDirectory))
-        {
-            var destinationChildDirectory = Path.Combine(destinationDirectory, Path.GetFileName(sourceChildDirectory));
-            MergeDirectoryContents(sourceChildDirectory, destinationChildDirectory);
-            TryDeleteDirectoryIfEmpty(sourceChildDirectory);
-        }
-    }
-
-    private static void TryDeleteFile(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-                File.Delete(path);
-        }
-        catch
-        {
-        }
-    }
-
-    private static void TryDeleteDirectoryIfEmpty(string path)
-    {
-        try
-        {
-            if (Directory.Exists(path) && !Directory.EnumerateFileSystemEntries(path).Any())
-                Directory.Delete(path);
-        }
-        catch
-        {
-        }
-    }
-
-    private static string NormalizeDirectory(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-            return string.Empty;
-
-        return Path.GetFullPath(path.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-    }
-
-    private static bool IsSamePath(string? left, string? right)
-    {
-        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
-            return false;
-
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        return string.Equals(NormalizeDirectory(left), NormalizeDirectory(right), comparison);
-    }
-
-    private static bool IsPathUnder(string path, string possibleParent)
-    {
-        var normalizedPath = NormalizeDirectory(path) + Path.DirectorySeparatorChar;
-        var normalizedParent = NormalizeDirectory(possibleParent) + Path.DirectorySeparatorChar;
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        return normalizedPath.StartsWith(normalizedParent, comparison);
-    }
-}
-
-internal readonly record struct BootstrapDataDirectoryMigrationResult(
-    string LegacyPath,
-    string TargetPath,
-    bool Migrated,
-    string ErrorMessage)
-{
-    public static BootstrapDataDirectoryMigrationResult Empty { get; } = new(string.Empty, string.Empty, false, string.Empty);
 }
 
 internal sealed class BootstrapOptions
@@ -975,16 +754,14 @@ internal static class GitHubUpdateTokenReader
             if (persisted is null)
                 return string.Empty;
 
-            if (!string.IsNullOrWhiteSpace(persisted.ProtectedToken))
-            {
-                var protector = DataProtectionProvider
-                    .Create(new DirectoryInfo(MagnetarPaths.GetQuasarDataProtectionKeyringDirectory()), options => options.SetApplicationName("Quasar"))
-                    .CreateProtector(DataProtectionPurpose);
+            if (string.IsNullOrWhiteSpace(persisted.ProtectedToken))
+                return string.Empty;
 
-                return protector.Unprotect(persisted.ProtectedToken).Trim();
-            }
+            var protector = DataProtectionProvider
+                .Create(new DirectoryInfo(MagnetarPaths.GetQuasarDataProtectionKeyringDirectory()), options => options.SetApplicationName("Quasar"))
+                .CreateProtector(DataProtectionPurpose);
 
-            return persisted.Token?.Trim() ?? string.Empty;
+            return protector.Unprotect(persisted.ProtectedToken).Trim();
         }
         catch (Exception exception)
         {
@@ -996,8 +773,6 @@ internal static class GitHubUpdateTokenReader
     private sealed class PersistedCredentials
     {
         public string? ProtectedToken { get; set; }
-
-        public string? Token { get; set; }
     }
 }
 
@@ -1031,6 +806,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private WorkerProcessHandle? _currentWorker;
     private bool _isStopping;
     private bool _isRestartingForBootstrapUpdate;
+    private bool _isDrained;
 
     public LauncherCoordinator(BootstrapOptions options, LauncherForegroundOptions foregroundOptions, ILogger<LauncherCoordinator> logger)
     {
@@ -1054,7 +830,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         {
             lock (_sync)
             {
-                return _currentWorker is not null && !_currentWorker.Process.HasExited;
+                return !_isDrained && _currentWorker is not null && !_currentWorker.Process.HasExited;
             }
         }
     }
@@ -1063,19 +839,23 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     {
         var workerVersion = string.Empty;
         var workerBaseUrl = string.Empty;
+        var isDrained = false;
+        var isReady = false;
 
         lock (_sync)
         {
+            isDrained = _isDrained;
             if (_currentWorker is not null)
             {
                 workerVersion = _currentWorker.Release.Version;
                 workerBaseUrl = _currentWorker.BaseUri.AbsoluteUri.TrimEnd('/');
+                isReady = !_isDrained && !_currentWorker.Process.HasExited;
             }
         }
 
         return new
         {
-            status = IsReady ? "ok" : "starting",
+            status = isDrained ? "drained" : isReady ? "ok" : "starting",
             workerId = _workerId,
             hostId = Environment.MachineName.ToLowerInvariant(),
             hostName = Environment.MachineName,
@@ -1101,25 +881,11 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Starting Quasar...");
-        var migration = BootstrapDataDirectoryMigration.LastResult;
-        if (migration.Migrated)
-        {
-            _logger.LogInformation(
-                "Migrated legacy Quasar data directory from {LegacyPath} to {TargetPath}.",
-                migration.LegacyPath,
-                migration.TargetPath);
-        }
-        else if (!string.IsNullOrWhiteSpace(migration.ErrorMessage))
-        {
-            _logger.LogWarning(
-                "Failed migrating legacy Quasar data directory from {LegacyPath} to {TargetPath}: {Message}",
-                migration.LegacyPath,
-                migration.TargetPath,
-                migration.ErrorMessage);
-        }
-
         Directory.CreateDirectory(MagnetarPaths.GetWebServiceDirectory());
         Directory.CreateDirectory(MagnetarPaths.GetQuasarUpdatesDirectory());
+        if (TryConsumeLauncherShutdownRequest())
+            _logger.LogInformation("Cleared stale Quasar launcher drain request on startup.");
+
         await EnsureInitialWebReleaseAvailableAsync(cancellationToken).ConfigureAwait(false);
         EnsureActiveReleasePointerExists();
         await ActivateCurrentReleaseAsync(force: false, cancellationToken).ConfigureAwait(false);
@@ -1293,13 +1059,13 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
     private async Task TryUpgradeBootstrapAsync(CancellationToken cancellationToken, BootstrapUpdateRequest? request = null)
     {
-        if (_isStopping || _isRestartingForBootstrapUpdate)
+        if (_isStopping || _isRestartingForBootstrapUpdate || IsDrained())
             return;
 
         await _bootstrapUpdateLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_isStopping || _isRestartingForBootstrapUpdate)
+            if (_isStopping || _isRestartingForBootstrapUpdate || IsDrained())
                 return;
 
             var requestedVersion = QuasarReleaseVersion.Normalize(request?.Version ?? string.Empty);
@@ -1506,10 +1272,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     {
         var existing = ReadActiveReleasePointer();
         if (existing is not null && IsReleasePointerUsable(existing, allowExternalPointer: !IsServiceMode()))
-        {
-            TryMigrateStagedActiveRelease(existing);
             return;
-        }
 
         if (FindPackagedWorkerCandidate() is not null)
             return;
@@ -1798,6 +1561,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
     private async Task ActivateCurrentReleaseAsync(bool force, CancellationToken cancellationToken)
     {
+        if (IsDrained())
+            return;
+
         var pointer = ReadActiveReleasePointer();
         if (pointer is null)
             return;
@@ -1810,6 +1576,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             WorkerProcessHandle? current;
             lock (_sync)
             {
+                if (_isDrained)
+                    return;
+
                 current = _currentWorker;
                 if (!force &&
                     current is not null &&
@@ -1834,6 +1603,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                     stopManagedServers: false,
                     cancellationToken).ConfigureAwait(false);
             }
+
+            if (IsDrained())
+                return;
 
             var nextWorker = await StartWorkerAsync(pointer, cancellationToken).ConfigureAwait(false);
             if (nextWorker is null)
@@ -1860,9 +1632,15 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
     private async Task ActivateSpecificReleaseAsync(QuasarActiveReleasePointer pointer, CancellationToken cancellationToken)
     {
+        if (IsDrained())
+            return;
+
         await _activationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (IsDrained())
+                return;
+
             var worker = await StartWorkerAsync(pointer, cancellationToken).ConfigureAwait(false);
             if (worker is null)
                 return;
@@ -1886,6 +1664,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         CancellationToken cancellationToken,
         bool allowSafeModeRetry = true)
     {
+        if (IsDrained())
+            return null;
+
         if (string.IsNullOrWhiteSpace(pointer.FileName))
             return null;
 
@@ -1918,8 +1699,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         startInfo.Environment["QUASAR_MODE"] = "service";
         startInfo.Environment["QUASAR_LAUNCHER_TOKEN"] = _launcherToken;
         startInfo.Environment["QUASAR_BOOTSTRAP_VERSION"] = _options.Version;
-        startInfo.Environment["QUASAR_INSTALL_DIR"] = AppContext.BaseDirectory;
-        startInfo.Environment["QUASAR_DATA_DIR"] = MagnetarPaths.GetQuasarDirectory();
+        startInfo.Environment["QUASAR_INSTALL_DIR"] = ResolveInstallDirectoryForWorker();
         startInfo.Environment["QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN"] = _options.PreserveServersOnShutdown ? "true" : "false";
         startInfo.Environment["QUASAR_CONSOLE_LOGGING"] = "true";
 
@@ -1973,7 +1753,10 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (string.IsNullOrWhiteSpace(workerDirectory))
             return;
 
-        var sourcePath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        var sourcePath = ResolveInstallAppSettingsPath();
+        if (string.IsNullOrWhiteSpace(sourcePath))
+            return;
+
         var destinationPath = Path.Combine(workerDirectory, "appsettings.json");
         if (!File.Exists(sourcePath) || IsSamePath(sourcePath, destinationPath))
             return;
@@ -2075,14 +1858,22 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
         if (TryConsumeLauncherShutdownRequest())
         {
-            _logger.LogInformation("Quasar worker requested launcher shutdown; exiting without restarting worker.");
-            Environment.Exit(0);
+            lock (_sync)
+            {
+                if (ReferenceEquals(_currentWorker, worker))
+                    _currentWorker = null;
+
+                _isDrained = true;
+            }
+
+            _logger.LogInformation("Quasar worker requested launcher drain; Bootstrap remains running without a worker until the service or task is restarted.");
+            TryDisposeProcess(worker.Process);
             return;
         }
 
         lock (_sync)
         {
-            if (!_isStopping && ReferenceEquals(_currentWorker, worker))
+            if (!_isStopping && !_isDrained && ReferenceEquals(_currentWorker, worker))
             {
                 _currentWorker = null;
                 shouldRestart = true;
@@ -2106,6 +1897,14 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
         if (shouldRestart)
             _ = Task.Run(() => ActivateCurrentReleaseAsync(force: true, CancellationToken.None), CancellationToken.None);
+    }
+
+    private bool IsDrained()
+    {
+        lock (_sync)
+        {
+            return _isDrained;
+        }
     }
 
     private bool RegisterWorkerStartupFailure(string reason)
@@ -2189,6 +1988,17 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         return true;
     }
 
+    private static void TryDisposeProcess(Process process)
+    {
+        try
+        {
+            process.Dispose();
+        }
+        catch
+        {
+        }
+    }
+
     private static bool TryConsumeBootstrapUpdateRequest(out BootstrapUpdateRequest request)
     {
         request = new BootstrapUpdateRequest();
@@ -2264,52 +2074,6 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         File.WriteAllText(path, JsonSerializer.Serialize(pointer, JsonOptions));
     }
 
-    private static bool TryMigrateStagedActiveRelease(QuasarActiveReleasePointer pointer)
-    {
-        pointer = Normalize(pointer);
-        var sourceDirectory = string.IsNullOrWhiteSpace(pointer.WorkingDirectory)
-            ? Path.GetDirectoryName(pointer.FileName) ?? string.Empty
-            : pointer.WorkingDirectory;
-        if (string.IsNullOrWhiteSpace(sourceDirectory) ||
-            !IsPathUnder(sourceDirectory, MagnetarPaths.GetQuasarStagingDirectory()))
-        {
-            return false;
-        }
-
-        var version = QuasarReleaseVersion.Normalize(string.IsNullOrWhiteSpace(pointer.Version)
-            ? Path.GetFileName(sourceDirectory)
-            : pointer.Version);
-        var activeDirectory = MagnetarPaths.GetQuasarManagedWebReleaseDirectory(version);
-        if (IsSamePath(sourceDirectory, activeDirectory))
-            return false;
-
-        try
-        {
-            if (Directory.Exists(activeDirectory))
-                Directory.Delete(activeDirectory, recursive: true);
-
-            CopyDirectory(sourceDirectory, activeDirectory);
-            QuasarWebReleaseLayout.ValidateDirectory(activeDirectory);
-            var workerPath = Path.Combine(activeDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName);
-            EnsureExecutableBit(workerPath);
-
-            WriteActiveReleasePointer(new QuasarActiveReleasePointer
-            {
-                Version = version,
-                FileName = workerPath,
-                Arguments = string.Empty,
-                WorkingDirectory = activeDirectory,
-                ActivatedAtUtc = pointer.ActivatedAtUtc == default ? DateTimeOffset.UtcNow : pointer.ActivatedAtUtc,
-            });
-            CleanupStagedUpdates(activeDirectory);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
     private static void CleanupStagedUpdates(string activeWorkingDirectory)
     {
         var stagingDirectory = MagnetarPaths.GetQuasarStagingDirectory();
@@ -2337,17 +2101,6 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 continue;
 
             TryDeleteDirectory(directory);
-        }
-    }
-
-    private static void CopyDirectory(string sourceDirectory, string destinationDirectory)
-    {
-        foreach (var sourcePath in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
-        {
-            var relativePath = Path.GetRelativePath(sourceDirectory, sourcePath);
-            var destinationPath = Path.Combine(destinationDirectory, relativePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
-            File.Copy(sourcePath, destinationPath, overwrite: true);
         }
     }
 
@@ -2541,9 +2294,13 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (string.IsNullOrWhiteSpace(path))
             return false;
 
-        return IsPathUnder(path, Path.Combine(AppContext.BaseDirectory, "WebService")) ||
-               IsPathUnder(path, MagnetarPaths.GetQuasarManagedWebServiceDirectory()) ||
-               IsPathUnder(path, MagnetarPaths.GetQuasarStagingDirectory());
+        foreach (var directory in EnumerateInstallCandidateDirectories())
+        {
+            if (IsPathUnder(path, Path.Combine(directory, "WebService")))
+                return true;
+        }
+
+        return IsPathUnder(path, MagnetarPaths.GetQuasarManagedWebServiceDirectory());
     }
 
     private static bool IsPathUnder(string path, string root)
@@ -2558,14 +2315,72 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
     private static string? FindPackagedWorkerCandidate()
     {
-        foreach (var fileName in GetQuasarExecutableFileNames())
+        foreach (var directory in EnumerateInstallCandidateDirectories())
         {
-            var candidate = Path.Combine(AppContext.BaseDirectory, "WebService", fileName);
+            foreach (var fileName in GetQuasarExecutableFileNames())
+            {
+                var candidate = Path.Combine(directory, "WebService", fileName);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? ResolveInstallAppSettingsPath()
+    {
+        foreach (var directory in EnumerateInstallCandidateDirectories())
+        {
+            var candidate = Path.Combine(directory, "appsettings.json");
             if (File.Exists(candidate))
                 return candidate;
         }
 
         return null;
+    }
+
+    private static string ResolveInstallDirectoryForWorker()
+    {
+        var explicitInstallDirectory = Environment.GetEnvironmentVariable("QUASAR_INSTALL_DIR");
+        if (!string.IsNullOrWhiteSpace(explicitInstallDirectory))
+            return Path.GetFullPath(explicitInstallDirectory.Trim());
+
+        foreach (var directory in EnumerateInstallCandidateDirectories())
+        {
+            if (ContainsInstallAsset(directory))
+                return directory;
+        }
+
+        return Path.GetFullPath(AppContext.BaseDirectory);
+    }
+
+    private static bool ContainsInstallAsset(string directory) =>
+        File.Exists(Path.Combine(directory, LauncherExecutableFileName)) ||
+        File.Exists(Path.Combine(directory, "install.sh")) ||
+        File.Exists(Path.Combine(directory, "install.ps1")) ||
+        Directory.Exists(Path.Combine(directory, "WebService"));
+
+    private static IEnumerable<string> EnumerateInstallCandidateDirectories()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var directory in EnumerateRawInstallCandidateDirectories())
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+                continue;
+
+            var fullPath = Path.GetFullPath(directory.Trim());
+            if (seen.Add(fullPath))
+                yield return fullPath;
+        }
+    }
+
+    private static IEnumerable<string?> EnumerateRawInstallCandidateDirectories()
+    {
+        yield return Environment.GetEnvironmentVariable("QUASAR_INSTALL_DIR");
+        yield return MagnetarPaths.GetQuasarDirectory();
+        yield return AppContext.BaseDirectory;
+        yield return Directory.GetCurrentDirectory();
     }
 
     private static IEnumerable<string> GetQuasarExecutableFileNames()

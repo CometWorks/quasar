@@ -5,9 +5,9 @@
       "commandName": "Project",
       "dotnetRunMessages": false,
       "launchBrowser": false,
-      "applicationUrl": "http://0.0.0.0:8080",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "QUASAR_INSTALL_DIR_FILE": ".quasar-install-dir"
       }
     }
   }

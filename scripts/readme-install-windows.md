@@ -17,9 +17,11 @@ cd C:\quasar\Quasar
 ```
 
 Quasar starts, opens <http://localhost:8080> in your browser, and prints log
-output to the console. Press `Ctrl+C` to stop. On first start the launcher
-downloads the Quasar web UI from GitHub and caches it locally. The listening
-port is configurable — see [Configuration](Docs/Configuration.md).
+output to the console. Press `Ctrl+C` to stop the launcher. The UI **Shutdown
+Quasar** action drains the web worker and leaves the foreground launcher idle;
+press `Ctrl+C`, then run `.\Quasar.exe serve` again when you want the UI back.
+On first start the launcher downloads the Quasar web UI from GitHub and caches
+it locally. The listening port is configurable — see [Configuration](Docs/Configuration.md).
 
 ### Install as a background service (Scheduled Task)
 
@@ -36,6 +38,8 @@ folder by default, and registers a **Scheduled Task** named `Quasar` that starts
 the launcher at boot and restarts it on failure. The web UI is then served at
 <http://localhost:8080>. Pass `-InstallDir <dir>` to copy it elsewhere, or
 `-User <account>` to run as a specific service account instead of the current user.
+The UI **Shutdown Quasar** action drains the web worker and leaves the task
+running idle. Stop and start the task to bring the UI and supervisor back.
 
 Manage the task:
 

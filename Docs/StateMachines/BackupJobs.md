@@ -8,8 +8,7 @@ retention policy.
 Relevant source:
 [`AutomaticBackupService.cs`](../../Quasar/Services/Backup/AutomaticBackupService.cs),
 [`QuasarBackupManifest.cs`](../../Quasar/Models/QuasarBackupManifest.cs),
-[`BackupCompatibility.cs`](../../Quasar/Services/Backup/BackupCompatibility.cs),
-[`BackupFormatMigrations.cs`](../../Quasar/Services/Backup/BackupFormatMigrations.cs).
+[`BackupCompatibility.cs`](../../Quasar/Services/Backup/BackupCompatibility.cs).
 
 There are three [`QuasarBackupKind`](../../Quasar/Models/QuasarBackupManifest.cs)
 values — `Configuration`, `Server`, `World` — corresponding to the queued job
@@ -72,8 +71,7 @@ Restore is gated by a semantic-version check
 ([`BackupCompatibility.Evaluate`](../../Quasar/Services/Backup/BackupCompatibility.cs)):
 
 - same `Major.Minor` → allowed;
-- older backup → allowed only if [`BackupFormatMigrations.CanMigrate`](../../Quasar/Services/Backup/BackupFormatMigrations.cs)
-  finds a contiguous upgrade path through the registered migration steps;
+- older backup than the running build → rejected;
 - newer backup than the running build → rejected (no downgrade).
 
 The archive's `quasar-backup.json` manifest records `FormatVersion` (archive
