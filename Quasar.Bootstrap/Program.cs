@@ -802,6 +802,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private Task? _bootstrapUpdateMonitorTask;
     private FileSystemWatcher? _bootstrapUpdateRequestWatcher;
     private CancellationTokenSource? _bootstrapUpdateRequestDebounce;
+    private FileSystemWatcher? _workerRestartRequestWatcher;
+    private CancellationTokenSource? _workerRestartRequestDebounce;
     private readonly SemaphoreSlim _bootstrapUpdateLock = new(1, 1);
     private WorkerProcessHandle? _currentWorker;
     private bool _isStopping;
@@ -885,11 +887,14 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         Directory.CreateDirectory(MagnetarPaths.GetQuasarUpdatesDirectory());
         if (TryConsumeLauncherShutdownRequest())
             _logger.LogInformation("Cleared stale Quasar launcher drain request on startup.");
+        if (TryConsumeWorkerRestartRequest())
+            _logger.LogInformation("Cleared stale Quasar worker restart request on startup.");
 
         await EnsureInitialWebReleaseAvailableAsync(cancellationToken).ConfigureAwait(false);
         EnsureActiveReleasePointerExists();
         await ActivateCurrentReleaseAsync(force: false, cancellationToken).ConfigureAwait(false);
         StartWatchingReleasePointer();
+        StartWatchingWorkerRestartRequests();
         StartBootstrapUpdateMonitor();
         StartWatchingBootstrapUpdateRequests();
     }
@@ -904,6 +909,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         _bootstrapUpdateRequestWatcher?.Dispose();
         _bootstrapUpdateRequestDebounce?.Cancel();
         _bootstrapUpdateRequestDebounce?.Dispose();
+        _workerRestartRequestWatcher?.Dispose();
+        _workerRestartRequestDebounce?.Cancel();
+        _workerRestartRequestDebounce?.Dispose();
 
         WorkerProcessHandle? worker;
         lock (_sync)
@@ -937,6 +945,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         _bootstrapUpdateRequestWatcher?.Dispose();
         _bootstrapUpdateRequestDebounce?.Cancel();
         _bootstrapUpdateRequestDebounce?.Dispose();
+        _workerRestartRequestWatcher?.Dispose();
+        _workerRestartRequestDebounce?.Cancel();
+        _workerRestartRequestDebounce?.Dispose();
         _activationLock.Dispose();
         _bootstrapUpdateLock.Dispose();
         _healthClient.Dispose();
@@ -952,6 +963,64 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         _bootstrapUpdateMonitorTask = Task.Run(
             () => RunBootstrapUpdateMonitorAsync(_bootstrapUpdateMonitor.Token),
             CancellationToken.None);
+    }
+
+    private void StartWatchingWorkerRestartRequests()
+    {
+        var path = MagnetarPaths.GetQuasarWorkerRestartRequestPath();
+        var directory = Path.GetDirectoryName(path)!;
+        Directory.CreateDirectory(directory);
+
+        _workerRestartRequestWatcher = new FileSystemWatcher(directory)
+        {
+            Filter = Path.GetFileName(path),
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
+        };
+
+        _workerRestartRequestWatcher.Changed += HandleWorkerRestartRequestChanged;
+        _workerRestartRequestWatcher.Created += HandleWorkerRestartRequestChanged;
+        _workerRestartRequestWatcher.Renamed += HandleWorkerRestartRequestChanged;
+        _workerRestartRequestWatcher.EnableRaisingEvents = true;
+
+        if (File.Exists(path))
+            QueueWorkerRestartRequest();
+    }
+
+    private void HandleWorkerRestartRequestChanged(object sender, FileSystemEventArgs args)
+    {
+        QueueWorkerRestartRequest();
+    }
+
+    private void QueueWorkerRestartRequest()
+    {
+        CancellationTokenSource debounce;
+        lock (_sync)
+        {
+            _workerRestartRequestDebounce?.Cancel();
+            _workerRestartRequestDebounce?.Dispose();
+            _workerRestartRequestDebounce = new CancellationTokenSource();
+            debounce = _workerRestartRequestDebounce;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250), debounce.Token);
+                if (!TryConsumeWorkerRestartRequest())
+                    return;
+
+                _logger.LogInformation("Quasar worker restart requested by current worker.");
+                await RestartCurrentWorkerAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (debounce.IsCancellationRequested)
+            {
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Requested Quasar worker restart failed.");
+            }
+        }, CancellationToken.None);
     }
 
     private void StartWatchingBootstrapUpdateRequests()
@@ -1630,6 +1699,64 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
     }
 
+    private async Task RestartCurrentWorkerAsync(CancellationToken cancellationToken)
+    {
+        if (IsDrained())
+            return;
+
+        await _activationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var pointer = ReadActiveReleasePointer();
+            if (pointer is null)
+                return;
+
+            pointer = Normalize(pointer);
+
+            WorkerProcessHandle? current;
+            lock (_sync)
+            {
+                if (_isDrained)
+                    return;
+
+                current = _currentWorker;
+                if (current is not null && ReferenceEquals(_currentWorker, current))
+                    _currentWorker = null;
+            }
+
+            if (current is not null && !current.Process.HasExited)
+            {
+                await DrainAndRetireWorkerAsync(
+                    current,
+                    TimeSpan.FromSeconds(2),
+                    stopManagedServers: false,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            if (IsDrained())
+                return;
+
+            var nextWorker = await StartWorkerAsync(pointer, cancellationToken).ConfigureAwait(false);
+            if (nextWorker is null)
+            {
+                _logger.LogWarning("Quasar worker restart request could not start active release {Version}.", pointer.Version);
+                return;
+            }
+
+            lock (_sync)
+            {
+                _currentWorker = nextWorker;
+            }
+
+            CleanupInactiveManagedWebReleases(pointer.WorkingDirectory);
+            _logger.LogInformation("Restarted Quasar worker version {Version} at {BaseUri}.", pointer.Version, nextWorker.BaseUri);
+        }
+        finally
+        {
+            _activationLock.Release();
+        }
+    }
+
     private async Task ActivateSpecificReleaseAsync(QuasarActiveReleasePointer pointer, CancellationToken cancellationToken)
     {
         if (IsDrained())
@@ -1974,6 +2101,23 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private static bool TryConsumeLauncherShutdownRequest()
     {
         var path = GetLauncherShutdownRequestPath();
+        if (!File.Exists(path))
+            return false;
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+        }
+
+        return true;
+    }
+
+    private static bool TryConsumeWorkerRestartRequest()
+    {
+        var path = MagnetarPaths.GetQuasarWorkerRestartRequestPath();
         if (!File.Exists(path))
             return false;
 

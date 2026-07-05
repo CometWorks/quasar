@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Magnetar.Protocol.Runtime;
 using Quasar.Models;
 
@@ -9,6 +10,8 @@ namespace Quasar.Services;
 /// </summary>
 public sealed class QuasarShutdownService
 {
+    private static readonly TimeSpan LauncherRestartFallbackDelay = TimeSpan.FromSeconds(8);
+
     private readonly IHostApplicationLifetime _lifetime;
     private readonly DedicatedServerSupervisor _supervisor;
     private readonly WebServiceOptions _options;
@@ -95,9 +98,16 @@ public sealed class QuasarShutdownService
     {
         // BeginLauncherDrain marks the supervisor to preserve servers on this stop and
         // persists the runtime snapshot (including PIDs) so the next worker can adopt
-        // them; StopApplication then exits the worker for the launcher to respawn.
+        // them.
         progress?.Report("Restarting Quasar worker…");
         _supervisor.BeginLauncherDrain();
+
+        if (TryRequestLauncherWorkerRestart())
+        {
+            ScheduleRestartFallback();
+            return;
+        }
+
         _lifetime.StopApplication();
     }
 
@@ -131,4 +141,63 @@ public sealed class QuasarShutdownService
 
     private static string GetLauncherShutdownRequestPath() =>
         Path.Combine(MagnetarPaths.GetQuasarDirectory(), "launcher-shutdown-request");
+
+    private bool TryRequestLauncherWorkerRestart()
+    {
+        if (string.IsNullOrWhiteSpace(_options.LauncherToken))
+            return false;
+
+        var path = MagnetarPaths.GetQuasarWorkerRestartRequestPath();
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var json = JsonSerializer.Serialize(new
+            {
+                requestedAtUtc = DateTimeOffset.UtcNow,
+                reason = "worker-restart",
+                processId = Environment.ProcessId,
+            });
+            File.WriteAllText(path, json);
+            _logger.LogInformation("Requested Quasar worker restart through Bootstrap at {Path}.", path);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed writing Quasar worker restart request.");
+            return false;
+        }
+    }
+
+    private void ScheduleRestartFallback()
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(LauncherRestartFallbackDelay).ConfigureAwait(false);
+                TryDeleteWorkerRestartRequest();
+                _logger.LogWarning(
+                    "Bootstrap did not consume the Quasar worker restart request within {DelaySeconds:0} seconds; stopping worker directly.",
+                    LauncherRestartFallbackDelay.TotalSeconds);
+                _lifetime.StopApplication();
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Quasar worker restart fallback failed.");
+            }
+        });
+    }
+
+    private static void TryDeleteWorkerRestartRequest()
+    {
+        try
+        {
+            var path = MagnetarPaths.GetQuasarWorkerRestartRequestPath();
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+        }
+    }
 }

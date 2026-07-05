@@ -5,10 +5,11 @@ stateDiagram-v2
     WorkerLaunching --> ForceKilled: health timeout
     WorkerHealthy --> Running: serving the public port
     Running --> Draining: active-release.json changed
+    Running --> Draining: worker-restart-request.json consumed
     Draining --> Retired: worker exits within grace window
     Draining --> ForceKilled: grace timeout -> Kill
-    Retired --> WorkerLaunching: start new-release worker
-    ForceKilled --> WorkerLaunching: start new-release worker
+    Retired --> WorkerLaunching: start target worker
+    ForceKilled --> WorkerLaunching: start target worker
     Running --> Restarting: worker exits unexpectedly
     Restarting --> WorkerLaunching: relaunch (force)
     Running --> Drained: UI Shutdown Quasar / launcher drain request

@@ -65,10 +65,11 @@ stateDiagram-v2
     WorkerLaunching --> ForceKilled: health timeout
     WorkerHealthy --> Running: serving the public port
     Running --> Draining: active-release.json changed
+    Running --> Draining: worker-restart-request.json consumed
     Draining --> Retired: worker exits within grace window
     Draining --> ForceKilled: grace timeout -> Kill
-    Retired --> WorkerLaunching: start new-release worker
-    ForceKilled --> WorkerLaunching: start new-release worker
+    Retired --> WorkerLaunching: start target worker
+    ForceKilled --> WorkerLaunching: start target worker
     Running --> Restarting: worker exits unexpectedly
     Restarting --> WorkerLaunching: relaunch (force)
     Running --> Drained: UI Shutdown Quasar / launcher drain request
@@ -84,7 +85,7 @@ stateDiagram-v2
 | `NoWorker` | Startup before a worker exists; may download an initial UI worker. |
 | `WorkerLaunching` | Worker process started; polling `/api/health` (up to 60s). |
 | `WorkerHealthy` / `Running` | Worker serving the public port. |
-| `Draining` | Pointer change detected; the launcher posts `/api/internal/drain` (authenticated with the per-session launcher token) and waits for graceful exit. |
+| `Draining` | Pointer change or `Updates/worker-restart-request.json` detected; the launcher posts `/api/internal/drain` (authenticated with the per-session launcher token) and waits for graceful exit. Pointer changes start the new active release; worker-restart requests start the same active release again. |
 | `Retired` / `ForceKilled` | Old worker exited within the grace window, or was killed after timeout. |
 | `Restarting` | Worker exited unexpectedly (not a launcher request); relaunched with `force`. |
 | `Drained` | UI **Shutdown Quasar** requested a launcher drain; Bootstrap stays alive without respawning a worker until the service, task, or foreground launcher is restarted. |
