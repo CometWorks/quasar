@@ -171,6 +171,9 @@ public static class MagnetarPaths
     public static string GetQuasarBootstrapUpdateRequestPath() =>
         Path.Combine(GetQuasarUpdatesDirectory(), "bootstrap-update-request.json");
 
+    public static string GetQuasarWorkerRestartRequestPath() =>
+        Path.Combine(GetQuasarUpdatesDirectory(), "worker-restart-request.json");
+
     // -------------------------------------------------------------------------
     // Managed runtime (auto-downloaded Magnetar + DS install)
     // -------------------------------------------------------------------------
