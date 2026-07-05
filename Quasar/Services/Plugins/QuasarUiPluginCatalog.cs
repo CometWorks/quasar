@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Security.Cryptography;
+using System.Text;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
@@ -231,9 +232,10 @@ public sealed class QuasarUiPluginCatalog
         QuasarPluginManifest manifest)
     {
         var entryAssemblyPath = ResolveEntryAssemblyPath(configuration, environment, manifestDirectory, manifest.EntryAssembly);
-        var shadowDirectory = ShadowCopyPlugin(manifest.Id, entryAssemblyPath);
-        RegisterPluginAssemblyResolution(shadowDirectory);
-        var shadowEntryAssemblyPath = Path.Combine(shadowDirectory, Path.GetFileName(entryAssemblyPath));
+        var sourceStaticAssetsDirectory = ResolveOptionalDirectory(manifestDirectory, manifest.StaticAssets);
+        var shadowCopy = ShadowCopyPlugin(manifest.Id, entryAssemblyPath, sourceStaticAssetsDirectory);
+        RegisterPluginAssemblyResolution(shadowCopy.Directory);
+        var shadowEntryAssemblyPath = Path.Combine(shadowCopy.Directory, Path.GetFileName(entryAssemblyPath));
         var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(shadowEntryAssemblyPath);
         var entryType = assembly.GetType(manifest.EntryType, throwOnError: true)
                         ?? throw new InvalidOperationException($"Plugin entry type not found: {manifest.EntryType}");
@@ -244,18 +246,24 @@ public sealed class QuasarUiPluginCatalog
         var plugin = (IQuasarPlugin?)Activator.CreateInstance(entryType)
                      ?? throw new InvalidOperationException($"Plugin entry type could not be created: {manifest.EntryType}");
 
-        var staticAssetsDirectory = ResolveOptionalDirectory(manifestDirectory, manifest.StaticAssets);
         var context = new QuasarPluginContext
         {
             Manifest = manifest,
             PluginDirectory = manifestDirectory,
-            CacheDirectory = shadowDirectory,
-            StaticAssetsDirectory = staticAssetsDirectory,
+            CacheDirectory = shadowCopy.Directory,
+            StaticAssetsDirectory = shadowCopy.StaticAssetsDirectory,
             Configuration = configuration,
             Environment = environment,
         };
 
-        return new QuasarLoadedUiPlugin(plugin, context);
+        return new QuasarLoadedUiPlugin(
+            plugin,
+            context,
+            entryAssemblyPath,
+            shadowEntryAssemblyPath,
+            shadowCopy.Directory,
+            shadowCopy.Hash,
+            sourceStaticAssetsDirectory);
     }
 
     private static IEnumerable<string> GetStylesheetHrefs(QuasarLoadedUiPlugin plugin)
@@ -334,11 +342,14 @@ public sealed class QuasarUiPluginCatalog
             : null;
     }
 
-    private static string ShadowCopyPlugin(string pluginId, string entryAssemblyPath)
+    private static PluginShadowCopy ShadowCopyPlugin(
+        string pluginId,
+        string entryAssemblyPath,
+        string? sourceStaticAssetsDirectory)
     {
         var assemblyDirectory = Path.GetDirectoryName(entryAssemblyPath)
                                 ?? throw new InvalidOperationException($"Entry assembly has no directory: {entryAssemblyPath}");
-        var hash = ComputeShortHash(entryAssemblyPath);
+        var hash = ComputePluginSnapshotHash(assemblyDirectory, sourceStaticAssetsDirectory);
         var pluginCacheDirectory = Path.Combine(
             MagnetarPaths.GetQuasarDirectory(),
             "Caches",
@@ -348,7 +359,17 @@ public sealed class QuasarUiPluginCatalog
 
         Directory.CreateDirectory(pluginCacheDirectory);
         CopyDirectory(assemblyDirectory, pluginCacheDirectory);
-        return pluginCacheDirectory;
+
+        string? staticAssetsDirectory = null;
+        if (!string.IsNullOrWhiteSpace(sourceStaticAssetsDirectory) &&
+            Directory.Exists(sourceStaticAssetsDirectory))
+        {
+            staticAssetsDirectory = Path.Combine(pluginCacheDirectory, "__static");
+            Directory.CreateDirectory(staticAssetsDirectory);
+            CopyDirectory(sourceStaticAssetsDirectory, staticAssetsDirectory);
+        }
+
+        return new PluginShadowCopy(pluginCacheDirectory, staticAssetsDirectory, hash);
     }
 
     private static void RegisterPluginAssemblyResolution(string assemblyDirectory)
@@ -406,11 +427,45 @@ public sealed class QuasarUiPluginCatalog
             : null;
     }
 
-    private static string ComputeShortHash(string path)
+    private static string ComputePluginSnapshotHash(string assemblyDirectory, string? staticAssetsDirectory)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        AppendDirectoryToHash(hash, "assembly-output", assemblyDirectory);
+
+        if (!string.IsNullOrWhiteSpace(staticAssetsDirectory) &&
+            Directory.Exists(staticAssetsDirectory))
+            AppendDirectoryToHash(hash, "static-assets", staticAssetsDirectory);
+
+        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant()[..16];
+    }
+
+    private static void AppendDirectoryToHash(IncrementalHash hash, string label, string directory)
+    {
+        AppendStringToHash(hash, label);
+        foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories)
+                     .OrderBy(path => Path.GetRelativePath(directory, path), StringComparer.OrdinalIgnoreCase))
+        {
+            AppendStringToHash(hash, Path.GetRelativePath(directory, file).Replace('\\', '/'));
+            AppendFileToHash(hash, file);
+        }
+    }
+
+    private static void AppendStringToHash(IncrementalHash hash, string value)
+    {
+        var bytes = Encoding.UTF8.GetBytes(value);
+        hash.AppendData(bytes);
+        hash.AppendData([0]);
+    }
+
+    private static void AppendFileToHash(IncrementalHash hash, string path)
     {
         using var stream = File.OpenRead(path);
-        var hash = SHA256.HashData(stream);
-        return Convert.ToHexString(hash).ToLowerInvariant()[..16];
+        var buffer = new byte[81920];
+        int read;
+        while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+            hash.AppendData(buffer, 0, read);
+
+        hash.AppendData([0]);
     }
 
     private static void CopyDirectory(string sourceDirectory, string destinationDirectory)
@@ -440,4 +495,6 @@ public sealed class QuasarUiPluginCatalog
     }
 
     private sealed record PluginAssemblyCandidate(string Path, AssemblyName Name);
+
+    private sealed record PluginShadowCopy(string Directory, string? StaticAssetsDirectory, string Hash);
 }
