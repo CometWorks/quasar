@@ -51,6 +51,18 @@ start, which disables `MagnetarMod` and breaks the mission screen popup used by
 server-side plugins. Magnetar already does this automatically when cross-play is
 enabled. Turning it back off removes the flag from future starts.
 
+## Steam Workshop mod dependencies
+
+When a config profile with Workshop mods is saved, Quasar checks declared Steam
+Workshop child/dependency metadata, adds missing dependency mods, marks them as
+dependencies in the profile JSON, and orders them before the mods that require
+them. If Quasar has to move a manually listed dependency before its dependent,
+or Steam reports a circular dependency chain that prevents a clean topological
+order, the save continues and the UI shows a warning. The Steam Workshop API
+key configured from the Mods tab is required for this automatic dependency
+check. If the key is missing or Steam cannot be reached, Quasar keeps the
+current mod list and shows a warning instead of blocking the save.
+
 ## Dedicated Server log retention
 
 Each server has a **Space Engineers DS logs to keep** setting in the server

@@ -174,6 +174,86 @@
     transition: background-color 0.15s ease;
 }
 
+.mod-load-order-table {
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: calc(var(--mud-default-borderradius) + 2px);
+    overflow: hidden;
+    background: var(--mud-palette-background);
+}
+
+.mod-load-order-header,
+.mod-load-order-row {
+    display: grid;
+    grid-template-columns: minmax(6rem, 0.55fr) minmax(12rem, 2fr) minmax(9rem, 1fr) minmax(8rem, auto);
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.mod-load-order-header {
+    min-height: 2.75rem;
+    padding: 0.55rem 0.85rem;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.82rem;
+    font-weight: 600;
+    background: var(--mud-palette-background-gray);
+    border-bottom: 1px solid var(--mud-palette-lines-default);
+}
+
+.mod-load-order-zone,
+::deep .mod-load-order-zone {
+    display: grid;
+    background: var(--mud-palette-surface);
+}
+
+.mod-load-order-row {
+    position: relative;
+    min-height: 3.5rem;
+    padding: 0.55rem 0.85rem;
+    background: var(--mud-palette-surface);
+    transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mod-load-order-row::after {
+    content: "";
+    position: absolute;
+    left: 0.85rem;
+    right: 0.85rem;
+    bottom: 0;
+    height: 1px;
+    background: var(--mud-palette-divider);
+    pointer-events: none;
+}
+
+.mod-load-order-row:hover {
+    background: var(--mud-palette-action-default-hover);
+}
+
+.mod-load-order-row:last-child::after {
+    display: none;
+}
+
+.mod-load-order-row > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.mod-load-order-priority {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+}
+
+.mod-load-order-drag-icon {
+    color: var(--mud-palette-text-secondary);
+    cursor: grab;
+}
+
+.mod-load-order-row-dragging {
+    opacity: 0.76;
+    box-shadow: inset 4px 0 0 var(--mud-palette-primary);
+}
+
 @media (min-width: 1280px) {
     .configs-page-shell {
         height: calc(100vh - 11rem);
@@ -197,5 +277,28 @@
     .configs-editor-scroll {
         height: auto;
         overflow: visible;
+    }
+
+    .mod-load-order-header {
+        display: none;
+    }
+
+    .mod-load-order-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.5rem;
+        align-items: start;
+    }
+
+    .mod-load-order-priority {
+        grid-column: 1 / 2;
+    }
+
+    .mod-load-order-row .mono {
+        grid-column: 1 / 2;
+    }
+
+    .mod-load-order-row .quasar-actions-column {
+        grid-column: 2 / 3;
+        grid-row: 1 / span 3;
     }
 }

@@ -547,6 +547,8 @@ public sealed class QuasarModSelection
     public long WorkshopId { get; set; }
 
     public string DisplayName { get; set; } = string.Empty;
+
+    public bool IsDependency { get; set; }
 }
 
 public sealed class QuasarPluginCatalogEntry

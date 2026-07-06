@@ -644,27 +644,77 @@
                                     </MudAlert>
                                 }
 
-                                <MudTable T="QuasarModSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="FilteredMods">
-                                    <HeaderContent>
-                                        <MudTh>Name</MudTh>
-                                        <MudTh>Workshop ID</MudTh>
-                                        <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
-                                    </HeaderContent>
-                                    <RowTemplate>
-                                        <MudTd DataLabel="Name">@context.DisplayName</MudTd>
-                                        <MudTd DataLabel="Workshop ID" Class="mono">@context.WorkshopId</MudTd>
-                                        <MudTd DataLabel="" Class="quasar-actions-column">
-                                            <MudTooltip Text="Remove mod">
-                                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveModAsync(context.WorkshopId))" />
-                                            </MudTooltip>
-                                        </MudTd>
-                                    </RowTemplate>
-                                    <NoRecordsContent>
-                                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
-                                            No mods match current search.
-                                        </MudAlert>
-                                    </NoRecordsContent>
-                                </MudTable>
+                                @if (FilteredMods.Count == 0)
+                                {
+                                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                        No mods match current search.
+                                    </MudAlert>
+                                }
+                                else
+                                {
+                                    <div class="mod-load-order-table" role="table" aria-label="Selected mod load order">
+                                        <div class="mod-load-order-header" role="row">
+                                            <div role="columnheader">Priority</div>
+                                            <div role="columnheader">Name</div>
+                                            <div role="columnheader">Workshop ID</div>
+                                            <div role="columnheader" class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></div>
+                                        </div>
+                                        <MudDropContainer T="QuasarModSelection"
+                                                          Items="FilteredMods"
+                                                          ItemsSelector="@((mod, zone) => true)"
+                                                          ItemDropped="HandleModDropped"
+                                                          ItemDraggingClass="mod-load-order-row-dragging">
+                                            <ChildContent>
+                                                <MudDropZone T="QuasarModSelection"
+                                                             Identifier="@ModLoadOrderDropZone"
+                                                             AllowReorder="true"
+                                                             Class="mod-load-order-zone" />
+                                            </ChildContent>
+                                            <ItemRenderer>
+                                                <div class="mod-load-order-row" role="row" @key="context.WorkshopId">
+                                                    <div class="mod-load-order-priority" role="cell">
+                                                        <MudIcon Icon="@Icons.Material.Filled.DragIndicator" Size="Size.Small" Class="mod-load-order-drag-icon" />
+                                                        <MudText Typo="Typo.caption">@GetModLoadOrderLabel(context.WorkshopId)</MudText>
+                                                    </div>
+                                                    <div role="cell">
+                                                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                                                            <MudText Typo="Typo.subtitle2">@context.DisplayName</MudText>
+                                                            @if (context.IsDependency)
+                                                            {
+                                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info">Dependency</MudChip>
+                                                            }
+                                                        </MudStack>
+                                                    </div>
+                                                    <div role="cell" class="mono">@context.WorkshopId</div>
+                                                    <div role="cell" class="quasar-actions-column">
+                                                        <div class="plugin-actions">
+                                                            <MudTooltip Text="Move higher">
+                                                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp"
+                                                                               Color="Color.Default"
+                                                                               Size="Size.Small"
+                                                                               Disabled="@(!CanMoveMod(context.WorkshopId, -1))"
+                                                                               OnClick="@(() => MoveMod(context.WorkshopId, -1))" />
+                                                            </MudTooltip>
+                                                            <MudTooltip Text="Move lower">
+                                                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown"
+                                                                               Color="Color.Default"
+                                                                               Size="Size.Small"
+                                                                               Disabled="@(!CanMoveMod(context.WorkshopId, 1))"
+                                                                               OnClick="@(() => MoveMod(context.WorkshopId, 1))" />
+                                                            </MudTooltip>
+                                                            <MudTooltip Text="Remove mod">
+                                                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline"
+                                                                               Color="Color.Error"
+                                                                               Size="Size.Small"
+                                                                               OnClick="@(() => RemoveModAsync(context.WorkshopId))" />
+                                                            </MudTooltip>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </ItemRenderer>
+                                        </MudDropContainer>
+                                    </div>
+                                }
                                 </ChildContent>
                             </MudExpansionPanel>
 
@@ -865,6 +915,7 @@
     private const string AccessReservedAnchorId = "config-access-reserved";
     private const string AccessBannedAnchorId = "config-access-banned";
     private const string ModListPanelKey = "mod-list";
+    private const string ModLoadOrderDropZone = "mod-load-order";
     private const string WorkshopPanelKey = "workshop";
     private const string AdvancedModsPanelKey = "advanced-mods";
     private const string PluginListPanelKey = "plugin-list";
@@ -991,8 +1042,6 @@
 
     private List<QuasarModSelection> FilteredMods => (_editor?.Mods ?? [])
         .Where(mod => MatchesModSearch(mod))
-        .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
-        .ThenBy(mod => mod.WorkshopId)
         .ToList();
 
     protected override void OnInitialized()
@@ -1048,6 +1097,7 @@
             return false;
         }
 
+        await ResolveProfileModDependenciesAsync(_editor);
         await ConfigProfiles.UpsertAsync(_editor);
         if (reselectAfterSave)
             SelectProfile(_editor.ConfigProfileId);
@@ -1066,6 +1116,7 @@
 
         template.ConfigProfileId = string.Empty;
         template.Name = $"{template.Name} (Copy)";
+        await ResolveProfileModDependenciesAsync(template);
         await ConfigProfiles.UpsertAsync(template);
         SelectProfile(template.ConfigProfileId);
         Snackbar.Add("Config profile cloned.", Severity.Success);
@@ -1120,6 +1171,21 @@
         _deadModCleanupSummary = string.Empty;
         _deadModCleanupRemoved = [];
         Snackbar.Add("All mods cleared. Save profile to persist.", Severity.Success);
+    }
+
+    private async Task ResolveProfileModDependenciesAsync(QuasarConfigProfile profile)
+    {
+        if (profile.Mods.Count == 0)
+            return;
+
+        var result = await WorkshopMods.ResolveDependenciesAsync(profile.Mods);
+        profile.Mods = result.Mods.ToList();
+
+        if (result.AddedDependencyCount > 0)
+            Snackbar.Add($"Added {result.AddedDependencyCount} dependency mod(s).", Severity.Success);
+
+        if (result.Warnings.Count > 0)
+            Snackbar.Add($"Mod dependency check: {SummarizeWarnings(result.Warnings)}", Severity.Warning);
     }
 
     private async Task CloneCurrentProfileForCrossplayAsync()
@@ -1890,10 +1956,6 @@
             WorkshopId = _newModWorkshopId,
             DisplayName = _newModName.Trim(),
         });
-        _editor.Mods = _editor.Mods
-            .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(mod => mod.WorkshopId)
-            .ToList();
         _newModName = string.Empty;
         _newModWorkshopId = 0;
     }
@@ -1931,8 +1993,6 @@
 
             _editor.Mods = _editor.Mods
                 .Where(mod => !unavailableIds.Contains(mod.WorkshopId))
-                .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(mod => mod.WorkshopId)
                 .ToList();
 
             _deadModCleanupSummary =
@@ -2026,10 +2086,6 @@
                 ? result.WorkshopId.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 : result.Title.Trim(),
         });
-        _editor.Mods = _editor.Mods
-            .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(mod => mod.WorkshopId)
-            .ToList();
 
         if (showSnackbar)
             Snackbar.Add("Workshop mod added.", Severity.Success);
@@ -2066,11 +2122,6 @@
                 added++;
             }
 
-            _editor.Mods = _editor.Mods
-                .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(mod => mod.WorkshopId)
-                .ToList();
-
             _workshopInput = string.Empty;
 
             if (added > 0)
@@ -2105,6 +2156,88 @@
             return;
 
         _editor.Mods.RemoveAll(mod => mod.WorkshopId == workshopId);
+    }
+
+    private void HandleModDropped(MudItemDropInfo<QuasarModSelection> dropInfo)
+    {
+        if (dropInfo.Item is null)
+            return;
+
+        MoveModToVisibleIndex(dropInfo.Item.WorkshopId, dropInfo.IndexInZone);
+    }
+
+    private bool CanMoveMod(long workshopId, int delta)
+    {
+        if (_editor is null || delta == 0)
+            return false;
+
+        var index = GetModIndex(workshopId);
+        if (index < 0)
+            return false;
+
+        var targetIndex = index + delta;
+        return targetIndex >= 0 && targetIndex < _editor.Mods.Count;
+    }
+
+    private void MoveMod(long workshopId, int delta)
+    {
+        if (_editor is null || !CanMoveMod(workshopId, delta))
+            return;
+
+        var sourceIndex = GetModIndex(workshopId);
+        var targetIndex = sourceIndex + delta;
+        var item = _editor.Mods[sourceIndex];
+        _editor.Mods.RemoveAt(sourceIndex);
+        _editor.Mods.Insert(targetIndex, item);
+    }
+
+    private void MoveModToVisibleIndex(long workshopId, int visibleIndex)
+    {
+        if (_editor is null)
+            return;
+
+        var sourceIndex = GetModIndex(workshopId);
+        if (sourceIndex < 0)
+            return;
+
+        var item = _editor.Mods[sourceIndex];
+        _editor.Mods.RemoveAt(sourceIndex);
+
+        var visibleMods = _editor.Mods
+            .Where(MatchesModSearch)
+            .ToList();
+        if (visibleMods.Count == 0)
+        {
+            _editor.Mods.Insert(Math.Clamp(sourceIndex, 0, _editor.Mods.Count), item);
+            return;
+        }
+
+        var normalizedVisibleIndex = Math.Max(0, visibleIndex);
+        int insertIndex;
+        if (normalizedVisibleIndex >= visibleMods.Count)
+        {
+            var lastVisibleIndex = GetModIndex(visibleMods[^1].WorkshopId);
+            insertIndex = lastVisibleIndex < 0 ? _editor.Mods.Count : lastVisibleIndex + 1;
+        }
+        else
+        {
+            insertIndex = GetModIndex(visibleMods[normalizedVisibleIndex].WorkshopId);
+            if (insertIndex < 0)
+                insertIndex = _editor.Mods.Count;
+        }
+
+        _editor.Mods.Insert(Math.Clamp(insertIndex, 0, _editor.Mods.Count), item);
+    }
+
+    private int GetModIndex(long workshopId) =>
+        _editor?.Mods.FindIndex(mod => mod.WorkshopId == workshopId) ?? -1;
+
+    private string GetModLoadOrderLabel(long workshopId)
+    {
+        var index = GetModIndex(workshopId);
+        return index < 0
+            ? "-"
+            : (index + 1).ToString(CultureInfo.InvariantCulture);
     }
 
     private async Task RemoveModAsync(long workshopId)
@@ -2258,11 +2391,6 @@
             _editor.Mods.Add(mod);
             added++;
         }
-
-        _editor.Mods = _editor.Mods
-            .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(mod => mod.WorkshopId)
-            .ToList();
 
         if (added > 0)
             Snackbar.Add($"Merged {added} mod(s) from world template.", Severity.Success);

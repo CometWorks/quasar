@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject QuasarWorldTemplateCatalog WorldTemplateCatalog
 @inject QuasarConfigProfileCatalog ConfigProfiles
+@inject QuasarWorkshopModResolver WorkshopMods
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject WorldTemplateImportLocationService ImportLocations
@@ -381,10 +382,36 @@
         if (profile is null)
             return null;
 
+        await ResolveProfileModDependenciesAsync(profile);
         await ConfigProfiles.UpsertAsync(profile);
         Snackbar.Add($"Config profile '{profile.Name}' created from world settings.", Severity.Success);
         await OpenConfigProfileEditorAsync(profile.ConfigProfileId);
         return profile.ConfigProfileId;
+    }
+
+    private async Task ResolveProfileModDependenciesAsync(QuasarConfigProfile profile)
+    {
+        if (profile.Mods.Count == 0)
+            return;
+
+        var result = await WorkshopMods.ResolveDependenciesAsync(profile.Mods);
+        profile.Mods = result.Mods.ToList();
+
+        if (result.AddedDependencyCount > 0)
+            Snackbar.Add($"Added {result.AddedDependencyCount} dependency mod(s).", Severity.Success);
+
+        if (result.Warnings.Count > 0)
+            Snackbar.Add($"Mod dependency check: {SummarizeWarnings(result.Warnings)}", Severity.Warning);
+    }
+
+    private static string SummarizeWarnings(IReadOnlyList<string> warnings)
+    {
+        var preview = warnings.Take(2).ToList();
+        var summary = string.Join(" ", preview);
+        if (warnings.Count > preview.Count)
+            summary = $"{summary} (+{warnings.Count - preview.Count} more)";
+
+        return summary;
     }
 
     private async Task OpenConfigProfileEditorAsync(string configProfileId)

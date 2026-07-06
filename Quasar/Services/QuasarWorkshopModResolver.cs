@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -124,6 +125,92 @@ public sealed class QuasarWorkshopModResolver
         return new QuasarWorkshopAvailabilityResult(unavailable, candidates.Count);
     }
 
+    public async Task<QuasarModDependencyResolutionResult> ResolveDependenciesAsync(
+        IReadOnlyList<QuasarModSelection> mods,
+        CancellationToken cancellationToken = default)
+    {
+        var sourceMods = NormalizeModSelections(mods);
+        if (sourceMods.Count == 0)
+            return new QuasarModDependencyResolutionResult(sourceMods, 0, 0, []);
+
+        var warnings = new List<string>();
+        var webApiKey = _credentialsCatalog.GetCredentials().WebApiKey;
+        if (string.IsNullOrWhiteSpace(webApiKey))
+        {
+            warnings.Add("Steam Workshop Web API key required for automatic mod dependency resolution.");
+            return new QuasarModDependencyResolutionResult(
+                sourceMods.Select(mod => CloneMod(mod, mod.IsDependency)).ToList(),
+                0,
+                sourceMods.Count(mod => mod.IsDependency),
+                warnings);
+        }
+
+        var originalIds = sourceMods
+            .Select(mod => mod.WorkshopId)
+            .ToHashSet();
+        var originalById = sourceMods
+            .DistinctBy(mod => mod.WorkshopId)
+            .ToDictionary(mod => mod.WorkshopId);
+
+        Dictionary<long, PublishedFileDetailsItem> detailsById;
+        try
+        {
+            detailsById = await LoadDependencyDetailsAsync(
+                sourceMods.Select(mod => mod.WorkshopId),
+                webApiKey.Trim(),
+                warnings,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            warnings.Add($"Automatic mod dependency resolution failed: {exception.Message}");
+            return new QuasarModDependencyResolutionResult(
+                sourceMods.Select(mod => CloneMod(mod, mod.IsDependency)).ToList(),
+                0,
+                sourceMods.Count(mod => mod.IsDependency),
+                warnings);
+        }
+
+        var dependenciesByParent = BuildDependencyMap(detailsById, originalIds, warnings);
+        var dependencyIds = dependenciesByParent
+            .SelectMany(pair => pair.Value)
+            .ToHashSet();
+        WarnForSourceOrderConflicts(
+            sourceMods.Select(mod => mod.WorkshopId).ToList(),
+            dependenciesByParent,
+            detailsById,
+            warnings);
+        var sortedIds = TopologicalSort(
+            sourceMods.Select(mod => mod.WorkshopId),
+            dependenciesByParent,
+            detailsById,
+            warnings);
+        WarnForResolvedOrderConflicts(
+            sortedIds,
+            dependenciesByParent,
+            detailsById,
+            warnings);
+        var resolved = sortedIds
+            .Select(workshopId => new QuasarModSelection
+            {
+                WorkshopId = workshopId,
+                DisplayName = ResolveDisplayName(workshopId, originalById, detailsById),
+                IsDependency = dependencyIds.Contains(workshopId),
+            })
+            .ToList();
+        var addedDependencyCount = resolved.Count(mod => !originalIds.Contains(mod.WorkshopId));
+        var dependencyCount = resolved.Count(mod => mod.IsDependency);
+
+        _logger.LogInformation(
+            "Resolved {InitialModCount} selected workshop mods to {ResolvedModCount} entries with {AddedDependencyCount} added dependencies and {WarningCount} warnings.",
+            sourceMods.Count,
+            resolved.Count,
+            addedDependencyCount,
+            warnings.Count);
+
+        return new QuasarModDependencyResolutionResult(resolved, addedDependencyCount, dependencyCount, warnings);
+    }
+
     private async Task<QuasarWorkshopSearchResultSet> QueryFilesAsync(
         string searchText,
         int queryType,
@@ -231,6 +318,320 @@ public sealed class QuasarWorkshopModResolver
         }
 
         return results;
+    }
+
+    private async Task<Dictionary<long, PublishedFileDetailsItem>> GetPublishedFileDetailsWithChildrenAsync(
+        IReadOnlyList<long> workshopIds,
+        string webApiKey,
+        CancellationToken cancellationToken)
+    {
+        var results = new Dictionary<long, PublishedFileDetailsItem>();
+        foreach (var batch in Batch(workshopIds))
+        {
+            var query = new Dictionary<string, string?>
+            {
+                ["key"] = webApiKey,
+                ["appid"] = SpaceEngineersAppId.ToString(CultureInfo.InvariantCulture),
+                ["includechildren"] = "true",
+                ["includetags"] = "true",
+                ["short_description"] = "true",
+                ["return_details"] = "true",
+            };
+
+            for (var index = 0; index < batch.Count; index++)
+                query[$"publishedfileids[{index}]"] = batch[index].ToString(CultureInfo.InvariantCulture);
+
+            var url = QueryHelpers.AddQueryString(
+                "https://api.steampowered.com/IPublishedFileService/GetDetails/v1/",
+                query);
+            var payload = await GetAsync<PublishedFileDetailsEnvelope>(url, cancellationToken);
+
+            foreach (var item in payload.Response?.PublishedFileDetails ?? [])
+            {
+                if (TryParseWorkshopId(item.PublishedFileId, out var id))
+                    results[id] = item;
+            }
+        }
+
+        return results;
+    }
+
+    private async Task<Dictionary<long, PublishedFileDetailsItem>> LoadDependencyDetailsAsync(
+        IEnumerable<long> rootIds,
+        string webApiKey,
+        List<string> warnings,
+        CancellationToken cancellationToken)
+    {
+        var detailsById = new Dictionary<long, PublishedFileDetailsItem>();
+        var queuedIds = new Queue<long>(rootIds.Where(id => id > 0).Distinct());
+        var requestedIds = new HashSet<long>();
+
+        while (queuedIds.Count > 0)
+        {
+            var batch = new List<long>();
+            while (queuedIds.Count > 0 && batch.Count < BatchSize)
+            {
+                var workshopId = queuedIds.Dequeue();
+                if (requestedIds.Add(workshopId))
+                    batch.Add(workshopId);
+            }
+
+            if (batch.Count == 0)
+                continue;
+
+            var batchDetails = await GetPublishedFileDetailsWithChildrenAsync(batch, webApiKey, cancellationToken);
+            foreach (var workshopId in batch)
+            {
+                if (!batchDetails.TryGetValue(workshopId, out var detail) || detail.Result != 1)
+                {
+                    warnings.Add($"Workshop item {workshopId} could not be inspected for dependencies.");
+                    continue;
+                }
+
+                detailsById[workshopId] = detail;
+                foreach (var childId in GetChildWorkshopIds(detail))
+                {
+                    if (childId > 0 && !requestedIds.Contains(childId))
+                        queuedIds.Enqueue(childId);
+                }
+            }
+        }
+
+        return detailsById;
+    }
+
+    private static Dictionary<long, List<long>> BuildDependencyMap(
+        IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById,
+        IReadOnlySet<long> originalIds,
+        List<string> warnings)
+    {
+        var dependenciesByParent = new Dictionary<long, List<long>>();
+        foreach (var (parentId, parentDetail) in detailsById)
+        {
+            var dependencies = new List<long>();
+            var seen = new HashSet<long>();
+            foreach (var rawChildId in GetChildWorkshopIds(parentDetail))
+            {
+                foreach (var childId in ExpandCollectionDependencyIds(rawChildId, detailsById, []))
+                {
+                    if (childId == parentId)
+                    {
+                        warnings.Add($"Workshop item {parentId} declares itself as a dependency.");
+                        continue;
+                    }
+
+                    if (!seen.Add(childId))
+                        continue;
+
+                    if (originalIds.Contains(childId))
+                    {
+                        dependencies.Add(childId);
+                        continue;
+                    }
+
+                    if (!detailsById.TryGetValue(childId, out var childDetail) || childDetail.Result != 1)
+                    {
+                        warnings.Add($"Skipped dependency {childId} for {GetDisplayName(parentDetail)} ({parentId}): item could not be inspected.");
+                        continue;
+                    }
+
+                    if (!IsUsableWorkshopMod(childDetail))
+                    {
+                        warnings.Add($"Skipped dependency {GetDisplayName(childDetail)} ({childId}) for {GetDisplayName(parentDetail)} ({parentId}): workshop item is not a Space Engineers mod.");
+                        continue;
+                    }
+
+                    dependencies.Add(childId);
+                }
+            }
+
+            if (dependencies.Count > 0)
+                dependenciesByParent[parentId] = dependencies;
+        }
+
+        return dependenciesByParent;
+    }
+
+    private static IEnumerable<long> ExpandCollectionDependencyIds(
+        long childId,
+        IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById,
+        HashSet<long> seen)
+    {
+        if (!seen.Add(childId))
+            yield break;
+
+        if (detailsById.TryGetValue(childId, out var detail) && IsWorkshopCollection(detail))
+        {
+            foreach (var nestedChildId in GetChildWorkshopIds(detail))
+            {
+                foreach (var expandedId in ExpandCollectionDependencyIds(nestedChildId, detailsById, seen))
+                    yield return expandedId;
+            }
+
+            yield break;
+        }
+
+        yield return childId;
+    }
+
+    private static List<long> TopologicalSort(
+        IEnumerable<long> rootIds,
+        IReadOnlyDictionary<long, List<long>> dependenciesByParent,
+        IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById,
+        List<string> warnings)
+    {
+        var result = new List<long>();
+        var states = new Dictionary<long, VisitState>();
+        var stack = new List<long>();
+        var reportedCycles = new HashSet<string>();
+
+        foreach (var rootId in rootIds.Where(id => id > 0).Distinct())
+            Visit(rootId);
+
+        return result;
+
+        void Visit(long workshopId)
+        {
+            if (states.TryGetValue(workshopId, out var state))
+            {
+                if (state == VisitState.Visiting)
+                    WarnForCycle(workshopId);
+                return;
+            }
+
+            states[workshopId] = VisitState.Visiting;
+            stack.Add(workshopId);
+            if (dependenciesByParent.TryGetValue(workshopId, out var dependencies))
+            {
+                foreach (var dependencyId in dependencies)
+                    Visit(dependencyId);
+            }
+
+            stack.RemoveAt(stack.Count - 1);
+            states[workshopId] = VisitState.Visited;
+            result.Add(workshopId);
+        }
+
+        void WarnForCycle(long repeatedWorkshopId)
+        {
+            var startIndex = stack.IndexOf(repeatedWorkshopId);
+            var cycle = startIndex >= 0
+                ? stack.Skip(startIndex).Append(repeatedWorkshopId).ToList()
+                : new List<long> { repeatedWorkshopId, repeatedWorkshopId };
+            var cycleKey = string.Join(">", cycle);
+            if (!reportedCycles.Add(cycleKey))
+                return;
+
+            warnings.Add($"Circular mod dependency detected: {FormatDependencyChain(cycle, detailsById)}. Dependency load order may be ambiguous.");
+        }
+    }
+
+    private static void WarnForSourceOrderConflicts(
+        IReadOnlyList<long> sourceIds,
+        IReadOnlyDictionary<long, List<long>> dependenciesByParent,
+        IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById,
+        List<string> warnings)
+    {
+        var sourceIndexes = sourceIds
+            .Where(id => id > 0)
+            .Distinct()
+            .Select((id, index) => new { id, index })
+            .ToDictionary(item => item.id, item => item.index);
+        var reported = new HashSet<(long ParentId, long DependencyId)>();
+
+        foreach (var (parentId, dependencyIds) in dependenciesByParent)
+        {
+            if (!sourceIndexes.TryGetValue(parentId, out var parentIndex))
+                continue;
+
+            foreach (var dependencyId in dependencyIds)
+            {
+                if (!sourceIndexes.TryGetValue(dependencyId, out var dependencyIndex))
+                    continue;
+
+                if (dependencyIndex <= parentIndex || !reported.Add((parentId, dependencyId)))
+                    continue;
+
+                warnings.Add($"Reordered dependency {FormatWorkshopItem(dependencyId, detailsById)} before dependent {FormatWorkshopItem(parentId, detailsById)}.");
+            }
+        }
+    }
+
+    private static void WarnForResolvedOrderConflicts(
+        IReadOnlyList<long> sortedIds,
+        IReadOnlyDictionary<long, List<long>> dependenciesByParent,
+        IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById,
+        List<string> warnings)
+    {
+        var sortedIndexes = sortedIds
+            .Where(id => id > 0)
+            .Distinct()
+            .Select((id, index) => new { id, index })
+            .ToDictionary(item => item.id, item => item.index);
+        var reported = new HashSet<(long ParentId, long DependencyId)>();
+
+        foreach (var (parentId, dependencyIds) in dependenciesByParent)
+        {
+            if (!sortedIndexes.TryGetValue(parentId, out var parentIndex))
+                continue;
+
+            foreach (var dependencyId in dependencyIds)
+            {
+                if (!sortedIndexes.TryGetValue(dependencyId, out var dependencyIndex))
+                    continue;
+
+                if (dependencyIndex <= parentIndex || !reported.Add((parentId, dependencyId)))
+                    continue;
+
+                warnings.Add($"Dependency order conflict remains: {FormatWorkshopItem(parentId, detailsById)} depends on {FormatWorkshopItem(dependencyId, detailsById)}, but no valid topological order exists.");
+            }
+        }
+    }
+
+    private static List<QuasarModSelection> NormalizeModSelections(IEnumerable<QuasarModSelection> mods)
+    {
+        var result = new List<QuasarModSelection>();
+        var seen = new HashSet<long>();
+        foreach (var mod in mods)
+        {
+            if (mod.WorkshopId <= 0 || !seen.Add(mod.WorkshopId))
+                continue;
+
+            result.Add(new QuasarModSelection
+            {
+                WorkshopId = mod.WorkshopId,
+                DisplayName = string.IsNullOrWhiteSpace(mod.DisplayName)
+                    ? mod.WorkshopId.ToString(CultureInfo.InvariantCulture)
+                    : mod.DisplayName.Trim(),
+                IsDependency = mod.IsDependency,
+            });
+        }
+
+        return result;
+    }
+
+    private static QuasarModSelection CloneMod(QuasarModSelection mod, bool isDependency) =>
+        new()
+        {
+            WorkshopId = mod.WorkshopId,
+            DisplayName = string.IsNullOrWhiteSpace(mod.DisplayName)
+                ? mod.WorkshopId.ToString(CultureInfo.InvariantCulture)
+                : mod.DisplayName.Trim(),
+            IsDependency = isDependency,
+        };
+
+    private static string ResolveDisplayName(
+        long workshopId,
+        IReadOnlyDictionary<long, QuasarModSelection> originalById,
+        IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById)
+    {
+        if (originalById.TryGetValue(workshopId, out var original) && !string.IsNullOrWhiteSpace(original.DisplayName))
+            return original.DisplayName.Trim();
+
+        if (detailsById.TryGetValue(workshopId, out var detail))
+            return GetDisplayName(detail);
+
+        return workshopId.ToString(CultureInfo.InvariantCulture);
     }
 
     private async Task<T> PostAsync<T>(
@@ -354,10 +755,42 @@ public sealed class QuasarWorkshopModResolver
         return tags.Contains("world") || tags.Contains("blueprint") || tags.Contains("ingameScript");
     }
 
+    private static bool IsUsableWorkshopMod(PublishedFileDetailsItem detail) =>
+        detail.Result == 1 &&
+        (detail.ConsumerAppId == 0 || detail.ConsumerAppId == SpaceEngineersAppId) &&
+        !IsWorkshopCollection(detail) &&
+        !IsClearlyNonMod(detail);
+
+    private static bool IsWorkshopCollection(PublishedFileDetailsItem detail) =>
+        detail.FileType == 2 ||
+        detail.Tags.Any(tag => string.Equals(tag.Tag?.Trim(), "collection", StringComparison.OrdinalIgnoreCase));
+
+    private static List<long> GetChildWorkshopIds(PublishedFileDetailsItem detail) =>
+        (detail.Children ?? [])
+        .OrderBy(child => child.SortOrder)
+        .Select(child => TryParseWorkshopId(child.PublishedFileId, out var childId) ? childId : 0L)
+        .Where(childId => childId > 0)
+        .ToList();
+
     private static string GetDisplayName(PublishedFileDetailsItem detail) =>
         string.IsNullOrWhiteSpace(detail.Title)
             ? detail.PublishedFileId
             : detail.Title.Trim();
+
+    private static string FormatDependencyChain(
+        IReadOnlyList<long> workshopIds,
+        IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById) =>
+        string.Join(" -> ", workshopIds.Select(workshopId => FormatWorkshopItem(workshopId, detailsById)));
+
+    private static string FormatWorkshopItem(
+        long workshopId,
+        IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById)
+    {
+        if (detailsById.TryGetValue(workshopId, out var detail))
+            return $"{GetDisplayName(detail)} ({workshopId})";
+
+        return workshopId.ToString(CultureInfo.InvariantCulture);
+    }
 
     private static string GetDescription(PublishedFileDetailsItem detail) =>
         string.IsNullOrWhiteSpace(detail.ShortDescription)
@@ -554,8 +987,14 @@ public sealed class QuasarWorkshopModResolver
         [JsonPropertyName("preview_url")]
         public string PreviewUrl { get; set; } = string.Empty;
 
+        [JsonPropertyName("file_type")]
+        public int FileType { get; set; } = -1;
+
         [JsonPropertyName("tags")]
         public List<PublishedFileTag> Tags { get; set; } = [];
+
+        [JsonPropertyName("children")]
+        public List<CollectionChildItem> Children { get; set; } = [];
     }
 
     private sealed class PublishedFileTag
@@ -563,10 +1002,22 @@ public sealed class QuasarWorkshopModResolver
         [JsonPropertyName("tag")]
         public string Tag { get; set; } = string.Empty;
     }
+
+    private enum VisitState
+    {
+        Visiting,
+        Visited,
+    }
 }
 
 public sealed record QuasarWorkshopResolutionResult(
     IReadOnlyList<QuasarModSelection> Mods,
+    IReadOnlyList<string> Warnings);
+
+public sealed record QuasarModDependencyResolutionResult(
+    IReadOnlyList<QuasarModSelection> Mods,
+    int AddedDependencyCount,
+    int DependencyCount,
     IReadOnlyList<string> Warnings);
 
 public sealed record QuasarWorkshopAvailabilityResult(
