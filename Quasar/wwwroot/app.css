@@ -411,7 +411,15 @@ td.quasar-actions-column > .plugin-actions {
     display: inline-flex;
     align-items: center;
     min-width: 0;
+    max-width: 100%;
     vertical-align: middle;
+}
+
+.copyable-path-value {
+    min-width: 0;
+    max-width: 100%;
+    flex: 1 1 auto;
+    overflow: hidden;
 }
 
 .copyable-path-text {
@@ -421,6 +429,7 @@ td.quasar-actions-column > .plugin-actions {
 }
 
 .copyable-path-button {
+    flex: 0 0 auto;
     margin-left: 2px;
     vertical-align: middle;
 }
