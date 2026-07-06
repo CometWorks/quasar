@@ -249,6 +249,7 @@ public sealed class QuasarUiPluginCatalog
         var context = new QuasarPluginContext
         {
             Manifest = manifest,
+            InstallDirectory = MagnetarPaths.GetQuasarDirectory(),
             PluginDirectory = manifestDirectory,
             CacheDirectory = shadowCopy.Directory,
             StaticAssetsDirectory = shadowCopy.StaticAssetsDirectory,

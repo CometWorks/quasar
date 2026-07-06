@@ -375,7 +375,7 @@
             }
             else
             {
-                <MudTable T="QuasarLoadedUiPlugin" Items="@PluginCatalog.LoadedPlugins" Dense="true" Hover="true" Breakpoint="Breakpoint.Md">
+                <MudTable T="QuasarLoadedUiPlugin" Items="@PluginCatalog.LoadedPlugins" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Class="ui-plugin-loaded-table">
                     <HeaderContent>
                         <MudTh>Name</MudTh>
                         <MudTh>ID</MudTh>
@@ -383,26 +383,23 @@
                         <MudTh>Entry</MudTh>
                         <MudTh>Static Assets</MudTh>
                         <MudTh>Stylesheets</MudTh>
-                        <MudTh>Directory</MudTh>
                         <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
                     </HeaderContent>
                     <RowTemplate>
+                        @{
+                            var buildOutputDirectory = GetBuildOutputDirectory(context.EntryAssemblyPath);
+                        }
                         <MudTd DataLabel="Name">@context.DisplayName</MudTd>
-                        <MudTd DataLabel="ID"><MudText Typo="Typo.body2" Class="mono">@context.Id</MudText></MudTd>
+                        <MudTd DataLabel="ID"><MudText Typo="Typo.body2" Class="mono ui-plugin-truncate-line">@context.Id</MudText></MudTd>
                         <MudTd DataLabel="Version">@context.Context.Manifest.Version</MudTd>
                         <MudTd DataLabel="Entry">
-                            <MudText Typo="Typo.body2" Class="mono">@context.Context.Manifest.EntryAssembly</MudText>
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary mono">@context.Context.Manifest.EntryType</MudText>
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary mono">cache @context.ShadowCopyHash</MudText>
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Source assembly</MudText>
-                            <CopyablePath Value="@context.EntryAssemblyPath" Inline="true" TextClass="mud-text-secondary mono" />
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatFileInfo(context.EntryAssemblyPath)</MudText>
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Source build output</MudText>
-                            <CopyablePath Value="@GetBuildOutputDirectory(context.EntryAssemblyPath)" Inline="true" TextClass="mud-text-secondary mono" />
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatDirectoryInfo(GetBuildOutputDirectory(context.EntryAssemblyPath))</MudText>
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Loaded assembly</MudText>
-                            <CopyablePath Value="@context.LoadedAssemblyPath" Inline="true" TextClass="mud-text-secondary mono" />
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatFileInfo(context.LoadedAssemblyPath)</MudText>
+                            <MudStack Spacing="1" Class="ui-plugin-cell-stack">
+                                <MudStack Spacing="0">
+                                    <MudText Typo="Typo.body2" Class="mono ui-plugin-truncate-line">@context.Context.Manifest.EntryAssembly</MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary mono ui-plugin-truncate-line">@context.Context.Manifest.EntryType</MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary mono">@FormatCacheHash(context.ShadowCopyHash)</MudText>
+                                </MudStack>
+                            </MudStack>
                             @if (BuildOutputChangedAfterLoad(context))
                             {
                                 <MudText Typo="Typo.caption" Color="Color.Warning">Source build output changed after this plugin was loaded. Restart Quasar to apply it.</MudText>
@@ -411,16 +408,10 @@
                         <MudTd DataLabel="Static Assets">
                             @if (!string.IsNullOrWhiteSpace(context.Context.StaticAssetsDirectory))
                             {
-                                <MudText Typo="Typo.body2" Class="mono">@GetPluginStaticPath(context)</MudText>
-                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Served snapshot</MudText>
-                                <CopyablePath Value="@context.Context.StaticAssetsDirectory" Inline="true" TextClass="mud-text-secondary mono" />
-                                <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatDirectoryInfo(context.Context.StaticAssetsDirectory)</MudText>
-                                @if (!string.IsNullOrWhiteSpace(context.SourceStaticAssetsDirectory))
-                                {
-                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Source assets</MudText>
-                                    <CopyablePath Value="@context.SourceStaticAssetsDirectory" Inline="true" TextClass="mud-text-secondary mono" />
-                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatDirectoryInfo(context.SourceStaticAssetsDirectory)</MudText>
-                                }
+                                <MudStack Spacing="1" Class="ui-plugin-cell-stack">
+                                    <MudText Typo="Typo.body2" Class="mono ui-plugin-truncate-line">@GetPluginStaticPath(context)</MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatDirectoryInfo(context.Context.StaticAssetsDirectory)</MudText>
+                                </MudStack>
                                 @if (StaticAssetsChangedAfterLoad(context))
                                 {
                                     <MudText Typo="Typo.caption" Color="Color.Warning">Source static assets changed after this plugin was loaded. Restart Quasar to serve them.</MudText>
@@ -437,7 +428,7 @@
                                 <MudStack Spacing="0">
                                     @foreach (var stylesheet in context.Context.Manifest.Stylesheets)
                                     {
-                                        <MudText Typo="Typo.caption" Class="mud-text-secondary mono">@stylesheet</MudText>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary mono ui-plugin-truncate-line">@stylesheet</MudText>
                                     }
                                 </MudStack>
                             }
@@ -446,19 +437,49 @@
                                 <MudText Typo="Typo.body2" Class="mud-text-secondary">None</MudText>
                             }
                         </MudTd>
-                        <MudTd DataLabel="Directory">
-                            <CopyablePath Value="@context.Context.PluginDirectory" Inline="true" TextClass="mud-text-secondary mono" />
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Shadow cache</MudText>
-                            <CopyablePath Value="@context.ShadowCopyDirectory" Inline="true" TextClass="mud-text-secondary mono" />
-                        </MudTd>
-                        <MudTd DataLabel="" Class="quasar-actions-column">
-                            <MudButton Variant="Variant.Outlined"
-                                       Color="Color.Warning"
-                                       Size="Size.Small"
-                                       StartIcon="@Icons.Material.Filled.VisibilityOff"
-                                       OnClick="@(() => SetLoadedPluginEnabledAsync(context, enabled: false))">
-                                Disable
-                            </MudButton>
+                        <MudTd DataLabel="" Class="quasar-actions-column ui-plugin-loaded-actions-column">
+                            <div class="ui-plugin-actions ui-plugin-loaded-actions">
+                                <MudMenu Icon="@Icons.Material.Filled.FolderOpen"
+                                         Dense="true"
+                                         Size="Size.Small"
+                                         Color="Color.Default"
+                                         AnchorOrigin="Origin.BottomRight"
+                                         TransformOrigin="Origin.TopRight">
+                                    <div class="ui-plugin-path-menu">
+                                        <MudText Typo="Typo.subtitle2">Plugin paths</MudText>
+                                        <div class="ui-plugin-path-menu-section">
+                                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Entry</MudText>
+                                            @RenderPathMenuRow("Source assembly", context.EntryAssemblyPath, FormatFileInfo(context.EntryAssemblyPath), "Copy source assembly path")
+                                            @RenderPathMenuRow("Build output", buildOutputDirectory, FormatDirectoryInfo(buildOutputDirectory), "Copy source build output path")
+                                            @RenderPathMenuRow("Loaded assembly", context.LoadedAssemblyPath, FormatFileInfo(context.LoadedAssemblyPath), "Copy loaded assembly path")
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(context.Context.StaticAssetsDirectory))
+                                        {
+                                            <div class="ui-plugin-path-menu-section">
+                                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Static assets</MudText>
+                                                @RenderPathMenuRow("Request path", GetPluginStaticPath(context), string.Empty, "Copy static asset URL path", "Static asset URL path copied to clipboard.")
+                                                @RenderPathMenuRow("Served snapshot", context.Context.StaticAssetsDirectory, FormatDirectoryInfo(context.Context.StaticAssetsDirectory), "Copy served static asset path")
+                                                @if (!string.IsNullOrWhiteSpace(context.SourceStaticAssetsDirectory))
+                                                {
+                                                    @RenderPathMenuRow("Source assets", context.SourceStaticAssetsDirectory, FormatDirectoryInfo(context.SourceStaticAssetsDirectory), "Copy source static asset path")
+                                                }
+                                            </div>
+                                        }
+                                        <div class="ui-plugin-path-menu-section">
+                                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Directories</MudText>
+                                            @RenderPathMenuRow("Package", context.Context.PluginDirectory, FormatDirectoryInfo(context.Context.PluginDirectory), "Copy plugin package path")
+                                            @RenderPathMenuRow("Shadow cache", context.ShadowCopyDirectory, FormatDirectoryInfo(context.ShadowCopyDirectory), "Copy shadow cache path")
+                                        </div>
+                                    </div>
+                                </MudMenu>
+                                <MudButton Variant="Variant.Outlined"
+                                           Color="Color.Warning"
+                                           Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.VisibilityOff"
+                                           OnClick="@(() => SetLoadedPluginEnabledAsync(context, enabled: false))">
+                                    Disable
+                                </MudButton>
+                            </div>
                         </MudTd>
                     </RowTemplate>
                 </MudTable>
@@ -595,6 +616,36 @@
         ["PluginStates"] = PluginStates,
         ["LoadedPlugins"] = PluginCatalog.LoadedPlugins,
         ["LoadErrors"] = PluginCatalog.LoadErrors,
+    };
+
+    private RenderFragment RenderPathMenuRow(
+        string label,
+        string? value,
+        string detail,
+        string copyTooltip,
+        string successMessage = "Path copied to clipboard.") => builder =>
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return;
+
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "ui-plugin-path-menu-row");
+        builder.OpenElement(2, "span");
+        builder.AddAttribute(3, "class", "ui-plugin-path-menu-label");
+        builder.AddContent(4, label);
+        builder.CloseElement();
+        builder.OpenComponent<CopyablePath>(5);
+        builder.AddAttribute(6, nameof(CopyablePath.Value), value);
+        builder.AddAttribute(7, nameof(CopyablePath.DisplayValue), FormatPathSummary(value));
+        builder.AddAttribute(8, nameof(CopyablePath.ValueTooltip), FormatPathTooltip(label, value, detail));
+        builder.AddAttribute(9, nameof(CopyablePath.Tooltip), copyTooltip);
+        builder.AddAttribute(10, nameof(CopyablePath.SuccessMessage), successMessage);
+        builder.AddAttribute(11, nameof(CopyablePath.Inline), true);
+        builder.AddAttribute(12, nameof(CopyablePath.ShowValueTooltip), true);
+        builder.AddAttribute(13, nameof(CopyablePath.Class), "ui-plugin-menu-copy-path");
+        builder.AddAttribute(14, nameof(CopyablePath.TextClass), "mud-text-secondary mono");
+        builder.CloseComponent();
+        builder.CloseElement();
     };
 
     protected override void OnInitialized()
@@ -843,6 +894,42 @@
 
     private static string GetPluginStaticPath(QuasarLoadedUiPlugin plugin) =>
         $"{QuasarUiPluginCatalog.StaticAssetRequestPathPrefix}/{plugin.Id}/";
+
+    private static string FormatCacheHash(string? hash) =>
+        string.IsNullOrWhiteSpace(hash)
+            ? "cache -"
+            : hash.Length <= 12
+                ? $"cache {hash}"
+                : $"cache {hash[..12]}";
+
+    private static string FormatPathSummary(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return "-";
+
+        var trimmed = path.Trim().TrimEnd('/', '\\');
+        if (trimmed.Length == 0)
+            return path.Trim();
+
+        var separator = trimmed.Contains('\\') && !trimmed.Contains('/') ? "\\" : "/";
+        var segments = trimmed
+            .Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
+
+        if (segments.Length <= 3)
+            return trimmed;
+
+        return $"...{separator}{string.Join(separator, segments.Skip(segments.Length - 3))}";
+    }
+
+    private static string FormatPathTooltip(string label, string? path, string detail)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return $"{label}: -";
+
+        return string.IsNullOrWhiteSpace(detail) || detail == "-"
+            ? $"{label}: {path}"
+            : $"{label}: {path} ({detail})";
+    }
 
     private static string FormatFileInfo(string? path)
     {

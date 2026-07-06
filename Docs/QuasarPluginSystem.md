@@ -108,7 +108,7 @@ Example:
   "stylesheets": [
     "quasar-plugin.css"
   ],
-  "quasarVersion": ">=0.1.0",
+  "quasarVersion": ">=1.1.0",
   "companionPlugins": [
     {
       "id": "cometworks.entityviewer",
@@ -275,6 +275,14 @@ registration happens after the app is built. Razor assemblies are passed to the
 Blazor router and Razor component endpoint builder so plugin pages can be routed
 normally.
 
+`QuasarPluginContext.InstallDirectory` is the resolved Quasar install root. It
+honors `QUASAR_INSTALL_DIR`, `QUASAR_INSTALL_DIR_FILE`, and development
+`.quasar-install-dir` files through Quasar's normal path resolver. Plugins that
+need durable Quasar-owned files should base them from this property instead of
+reading those environment variables directly. `PluginDirectory` remains the
+package manifest directory, and `CacheDirectory` remains the shadow-copy load
+directory.
+
 The Quasar host has an initial no-op catalog at
 `Quasar.Services.Plugins.QuasarUiPluginCatalog`. It provides the stable
 integration seam for:
@@ -292,10 +300,13 @@ loading. It scans plugin package roots for `quasar-plugin.json`, loads the
 declared entry assembly from a cache folder, and exposes any load failures in
 startup logs and the `/settings/ui-plugins` page.
 
-The `/settings/ui-plugins` page also shows loaded plugin static asset paths,
-declared stylesheet paths, nav contributions, extension contributions, and
-startup load errors. It can create or clear the safe-boot marker, disable a
-loaded package for the next restart, and manage QuasarHub-installed packages.
+The `/settings/ui-plugins` page also shows loaded plugin entry and static asset
+summaries. Full entry, directory, and static asset diagnostics live behind each
+row's paths menu; hover reveals full values and file or directory metadata, while
+copy buttons still copy the full value. The page also shows declared stylesheet
+paths, nav contributions, extension contributions, and startup load errors. It
+can create or clear the safe-boot marker, disable a loaded package for the next
+restart, and manage QuasarHub-installed packages.
 
 Configuration/environment knobs:
 

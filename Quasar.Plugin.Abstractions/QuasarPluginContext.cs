@@ -8,6 +8,8 @@ public sealed class QuasarPluginContext
 {
     public required QuasarPluginManifest Manifest { get; init; }
 
+    public required string InstallDirectory { get; init; }
+
     public required string PluginDirectory { get; init; }
 
     public required string CacheDirectory { get; init; }

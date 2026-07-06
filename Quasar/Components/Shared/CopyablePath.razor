@@ -6,7 +6,18 @@
     @if (Inline)
     {
         <span class="@RootCssClass">
-            <span class="@TextCssClass">@Value</span>
+            <span class="copyable-path-value">
+                @if (ShowValueTooltip)
+                {
+                    <MudTooltip Text="@ResolvedValueTooltip">
+                        <span class="@TextCssClass">@ResolvedDisplayValue</span>
+                    </MudTooltip>
+                }
+                else
+                {
+                    <span class="@TextCssClass">@ResolvedDisplayValue</span>
+                }
+            </span>
             <MudTooltip Text="@Tooltip">
                 <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
                                Size="Size.Small"
@@ -19,7 +30,16 @@
     else
     {
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="@RootCssClass">
-            <MudText Typo="@Typo" Class="@TextCssClass">@Value</MudText>
+            @if (ShowValueTooltip)
+            {
+                <MudTooltip Text="@ResolvedValueTooltip">
+                    <MudText Typo="@Typo" Class="@TextCssClass">@ResolvedDisplayValue</MudText>
+                </MudTooltip>
+            }
+            else
+            {
+                <MudText Typo="@Typo" Class="@TextCssClass">@ResolvedDisplayValue</MudText>
+            }
             <MudTooltip Text="@Tooltip">
                 <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
                                Size="Size.Small"
@@ -34,6 +54,9 @@
 {
     [Parameter]
     public string Value { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? DisplayValue { get; set; }
 
     [Parameter]
     public Typo Typo { get; set; } = Typo.caption;
@@ -51,6 +74,12 @@
     public string Tooltip { get; set; } = "Copy path";
 
     [Parameter]
+    public bool ShowValueTooltip { get; set; }
+
+    [Parameter]
+    public string? ValueTooltip { get; set; }
+
+    [Parameter]
     public string SuccessMessage { get; set; } = "Path copied to clipboard.";
 
     [Parameter]
@@ -61,6 +90,10 @@
         : JoinCss("copyable-path", Class);
 
     private string TextCssClass => JoinCss("copyable-path-text", TextClass);
+
+    private string ResolvedDisplayValue => string.IsNullOrWhiteSpace(DisplayValue) ? Value : DisplayValue;
+
+    private string ResolvedValueTooltip => string.IsNullOrWhiteSpace(ValueTooltip) ? Value : ValueTooltip;
 
     private async Task CopyAsync()
     {

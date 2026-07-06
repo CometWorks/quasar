@@ -31,6 +31,81 @@
     white-space: nowrap;
 }
 
+::deep .ui-plugin-cell-stack {
+    min-width: 0;
+}
+
+::deep .ui-plugin-loaded-table .mud-table-cell {
+    vertical-align: top;
+}
+
+.ui-plugin-truncate-line {
+    display: block;
+    max-width: 18rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.ui-plugin-loaded-actions-column {
+    width: 1%;
+    white-space: nowrap;
+}
+
+.ui-plugin-loaded-actions {
+    min-width: 9rem;
+}
+
+.ui-plugin-path-menu {
+    width: min(42rem, calc(100vw - 3rem));
+    max-width: 100%;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.ui-plugin-path-menu-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.ui-plugin-path-menu-row {
+    display: grid;
+    grid-template-columns: 8.5rem minmax(0, 1fr);
+    align-items: center;
+    column-gap: 0.5rem;
+    min-width: 0;
+}
+
+.ui-plugin-path-menu-label {
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+::deep .ui-plugin-menu-copy-path {
+    width: 100%;
+    max-width: 100%;
+}
+
+::deep .ui-plugin-menu-copy-path.copyable-path-inline {
+    display: flex;
+}
+
+::deep .ui-plugin-menu-copy-path .copyable-path-text {
+    display: block;
+    max-width: min(28rem, 100%);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    word-break: normal;
+}
+
 @media (max-width: 960px) {
     .ui-plugin-actions {
         justify-content: flex-start;
@@ -44,5 +119,13 @@
 
     .ui-plugin-hub-open-button {
         min-height: 40px;
+    }
+
+    .ui-plugin-truncate-line {
+        max-width: 100%;
+    }
+
+    .ui-plugin-path-menu-row {
+        grid-template-columns: 6.5rem minmax(0, 1fr);
     }
 }
