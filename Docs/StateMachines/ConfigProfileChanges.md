@@ -40,12 +40,13 @@ stateDiagram-v2
 (atomic swap). External edits to the JSON are picked up by a debounced
 file-watch reload (`ScheduleReload`). Mod arrays are order preserving; the saved
 order becomes the Space Engineers mod load order when Quasar rewrites
-`Sandbox_config.sbc` during server preparation. Before saving profile edits or
-world-template/server-editor mod imports, Quasar expands declared Steam Workshop
-dependencies, marks dependency rows with `IsDependency`, and topologically sorts
-dependency mods before dependents. The resolver warns when it corrects an
-existing dependency/dependent order conflict, sees a circular dependency chain,
-or cannot satisfy a dependency edge after sorting.
+`Sandbox_config.sbc` during server preparation. On profile open, before saving
+profile edits, and during world-template/server-editor mod imports, Quasar
+expands declared Steam Workshop dependencies and marks dependency rows with
+`IsDependency` without reordering existing rows. The Mods tab's **Auto Sort
+Dependencies** action applies the topological sort explicitly. The resolver
+warns when a dependency/dependent pair is currently out of order, sees a
+circular dependency chain, or cannot satisfy a dependency edge after sorting.
 
 **World-template import.** The world-template UI can derive a new config profile
 from a template's current `Sandbox_config.sbc`. It imports DS-visible session

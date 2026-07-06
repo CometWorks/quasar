@@ -184,7 +184,7 @@
 .mod-load-order-header,
 .mod-load-order-row {
     display: grid;
-    grid-template-columns: minmax(6rem, 0.55fr) minmax(12rem, 2fr) minmax(9rem, 1fr) minmax(8rem, auto);
+    grid-template-columns: minmax(6rem, 0.55fr) minmax(12rem, 2fr) minmax(9rem, 1fr) minmax(3.5rem, auto);
     gap: 0.75rem;
     align-items: center;
 }
@@ -220,16 +220,12 @@
     right: 0.85rem;
     bottom: 0;
     height: 1px;
-    background: var(--mud-palette-divider);
+    background: var(--mud-palette-lines-default);
     pointer-events: none;
 }
 
 .mod-load-order-row:hover {
     background: var(--mud-palette-action-default-hover);
-}
-
-.mod-load-order-row:last-child::after {
-    display: none;
 }
 
 .mod-load-order-row > div {

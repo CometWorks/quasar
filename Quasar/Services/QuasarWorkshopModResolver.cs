@@ -127,6 +127,7 @@ public sealed class QuasarWorkshopModResolver
 
     public async Task<QuasarModDependencyResolutionResult> ResolveDependenciesAsync(
         IReadOnlyList<QuasarModSelection> mods,
+        bool sortLoadOrder = false,
         CancellationToken cancellationToken = default)
     {
         var sourceMods = NormalizeModSelections(mods);
@@ -175,22 +176,13 @@ public sealed class QuasarWorkshopModResolver
         var dependencyIds = dependenciesByParent
             .SelectMany(pair => pair.Value)
             .ToHashSet();
-        WarnForSourceOrderConflicts(
+        var resolvedIds = ResolveDependencyOrder(
             sourceMods.Select(mod => mod.WorkshopId).ToList(),
             dependenciesByParent,
             detailsById,
-            warnings);
-        var sortedIds = TopologicalSort(
-            sourceMods.Select(mod => mod.WorkshopId),
-            dependenciesByParent,
-            detailsById,
-            warnings);
-        WarnForResolvedOrderConflicts(
-            sortedIds,
-            dependenciesByParent,
-            detailsById,
-            warnings);
-        var resolved = sortedIds
+            warnings,
+            sortLoadOrder);
+        var resolved = resolvedIds
             .Select(workshopId => new QuasarModSelection
             {
                 WorkshopId = workshopId,
@@ -452,6 +444,64 @@ public sealed class QuasarWorkshopModResolver
         return dependenciesByParent;
     }
 
+    private static List<long> ResolveDependencyOrder(
+        IReadOnlyList<long> sourceIds,
+        IReadOnlyDictionary<long, List<long>> dependenciesByParent,
+        IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById,
+        List<string> warnings,
+        bool sortLoadOrder)
+    {
+        if (sortLoadOrder)
+        {
+            WarnForSourceOrderConflicts(sourceIds, dependenciesByParent, detailsById, warnings);
+            var sortedIds = TopologicalSort(sourceIds, dependenciesByParent, detailsById, warnings);
+            WarnForResolvedOrderConflicts(sortedIds, dependenciesByParent, detailsById, warnings);
+            return sortedIds;
+        }
+
+        WarnForDependencyCycles(sourceIds, dependenciesByParent, detailsById, warnings);
+        var checkedIds = PreserveSourceOrderAndAppendDependencies(sourceIds, dependenciesByParent);
+        WarnForCurrentOrderConflicts(checkedIds, dependenciesByParent, detailsById, warnings);
+        return checkedIds;
+    }
+
+    private static List<long> PreserveSourceOrderAndAppendDependencies(
+        IReadOnlyList<long> sourceIds,
+        IReadOnlyDictionary<long, List<long>> dependenciesByParent)
+    {
+        var result = new List<long>();
+        var seen = new HashSet<long>();
+        var traversed = new HashSet<long>();
+
+        foreach (var sourceId in sourceIds.Where(id => id > 0))
+        {
+            if (seen.Add(sourceId))
+                result.Add(sourceId);
+        }
+
+        foreach (var sourceId in sourceIds.Where(id => id > 0).Distinct())
+            AppendReachableDependencies(sourceId);
+
+        return result;
+
+        void AppendReachableDependencies(long parentId)
+        {
+            if (!traversed.Add(parentId))
+                return;
+
+            if (!dependenciesByParent.TryGetValue(parentId, out var dependencyIds))
+                return;
+
+            foreach (var dependencyId in dependencyIds)
+            {
+                if (seen.Add(dependencyId))
+                    result.Add(dependencyId);
+
+                AppendReachableDependencies(dependencyId);
+            }
+        }
+    }
+
     private static IEnumerable<long> ExpandCollectionDependencyIds(
         long childId,
         IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById,
@@ -526,6 +576,54 @@ public sealed class QuasarWorkshopModResolver
         }
     }
 
+    private static void WarnForDependencyCycles(
+        IEnumerable<long> rootIds,
+        IReadOnlyDictionary<long, List<long>> dependenciesByParent,
+        IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById,
+        List<string> warnings)
+    {
+        var states = new Dictionary<long, VisitState>();
+        var stack = new List<long>();
+        var reportedCycles = new HashSet<string>();
+
+        foreach (var rootId in rootIds.Where(id => id > 0).Distinct())
+            Visit(rootId);
+
+        void Visit(long workshopId)
+        {
+            if (states.TryGetValue(workshopId, out var state))
+            {
+                if (state == VisitState.Visiting)
+                    WarnForCycle(workshopId);
+                return;
+            }
+
+            states[workshopId] = VisitState.Visiting;
+            stack.Add(workshopId);
+            if (dependenciesByParent.TryGetValue(workshopId, out var dependencyIds))
+            {
+                foreach (var dependencyId in dependencyIds)
+                    Visit(dependencyId);
+            }
+
+            stack.RemoveAt(stack.Count - 1);
+            states[workshopId] = VisitState.Visited;
+        }
+
+        void WarnForCycle(long repeatedWorkshopId)
+        {
+            var startIndex = stack.IndexOf(repeatedWorkshopId);
+            var cycle = startIndex >= 0
+                ? stack.Skip(startIndex).Append(repeatedWorkshopId).ToList()
+                : new List<long> { repeatedWorkshopId, repeatedWorkshopId };
+            var cycleKey = string.Join(">", cycle);
+            if (!reportedCycles.Add(cycleKey))
+                return;
+
+            warnings.Add($"Circular mod dependency detected: {FormatDependencyChain(cycle, detailsById)}. Dependency load order may be ambiguous.");
+        }
+    }
+
     private static void WarnForSourceOrderConflicts(
         IReadOnlyList<long> sourceIds,
         IReadOnlyDictionary<long, List<long>> dependenciesByParent,
@@ -553,6 +651,37 @@ public sealed class QuasarWorkshopModResolver
                     continue;
 
                 warnings.Add($"Reordered dependency {FormatWorkshopItem(dependencyId, detailsById)} before dependent {FormatWorkshopItem(parentId, detailsById)}.");
+            }
+        }
+    }
+
+    private static void WarnForCurrentOrderConflicts(
+        IReadOnlyList<long> orderedIds,
+        IReadOnlyDictionary<long, List<long>> dependenciesByParent,
+        IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById,
+        List<string> warnings)
+    {
+        var indexes = orderedIds
+            .Where(id => id > 0)
+            .Distinct()
+            .Select((id, index) => new { id, index })
+            .ToDictionary(item => item.id, item => item.index);
+        var reported = new HashSet<(long ParentId, long DependencyId)>();
+
+        foreach (var (parentId, dependencyIds) in dependenciesByParent)
+        {
+            if (!indexes.TryGetValue(parentId, out var parentIndex))
+                continue;
+
+            foreach (var dependencyId in dependencyIds)
+            {
+                if (!indexes.TryGetValue(dependencyId, out var dependencyIndex))
+                    continue;
+
+                if (dependencyIndex <= parentIndex || !reported.Add((parentId, dependencyId)))
+                    continue;
+
+                warnings.Add($"Dependency order needs sorting: {FormatWorkshopItem(dependencyId, detailsById)} should load before {FormatWorkshopItem(parentId, detailsById)}.");
             }
         }
     }

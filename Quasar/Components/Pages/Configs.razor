@@ -621,6 +621,13 @@
                                         Merge from World Template
                                     </MudButton>
                                     <MudButton Variant="Variant.Outlined"
+                                               Color="Color.Secondary"
+                                               StartIcon="@Icons.Material.Filled.Sort"
+                                               OnClick="AutoSortModDependenciesAsync"
+                                               Disabled="@(_modDependencyCheckRunning || _editor?.Mods.Count == 0 || !WorkshopCredentials.HasWebApiKey)">
+                                        @(_modDependencyCheckRunning ? "Checking Dependencies..." : "Auto Sort Dependencies")
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Outlined"
                                                Color="Color.Warning"
                                                StartIcon="@Icons.Material.Filled.DeleteSweep"
                                                OnClick="RemoveDeadModsAsync"
@@ -652,7 +659,7 @@
                                 }
                                 else
                                 {
-                                    <div class="mod-load-order-table" role="table" aria-label="Selected mod load order">
+                                    <div @key="_modListRenderVersion" class="mod-load-order-table" role="table" aria-label="Selected mod load order">
                                         <div class="mod-load-order-header" role="row">
                                             <div role="columnheader">Priority</div>
                                             <div role="columnheader">Name</div>
@@ -688,20 +695,6 @@
                                                     <div role="cell" class="mono">@context.WorkshopId</div>
                                                     <div role="cell" class="quasar-actions-column">
                                                         <div class="plugin-actions">
-                                                            <MudTooltip Text="Move higher">
-                                                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp"
-                                                                               Color="Color.Default"
-                                                                               Size="Size.Small"
-                                                                               Disabled="@(!CanMoveMod(context.WorkshopId, -1))"
-                                                                               OnClick="@(() => MoveMod(context.WorkshopId, -1))" />
-                                                            </MudTooltip>
-                                                            <MudTooltip Text="Move lower">
-                                                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown"
-                                                                               Color="Color.Default"
-                                                                               Size="Size.Small"
-                                                                               Disabled="@(!CanMoveMod(context.WorkshopId, 1))"
-                                                                               OnClick="@(() => MoveMod(context.WorkshopId, 1))" />
-                                                            </MudTooltip>
                                                             <MudTooltip Text="Remove mod">
                                                                 <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline"
                                                                                Color="Color.Error"
@@ -947,6 +940,9 @@
     private bool _workshopResultsLoaded;
     private bool _modResolving;
     private bool _deadModCleanupRunning;
+    private bool _modDependencyCheckRunning;
+    private long _modDependencyCheckVersion;
+    private long _modListRenderVersion;
     private string _deadModCleanupSummary = string.Empty;
     private List<QuasarModSelection> _deadModCleanupRemoved = [];
     private string? _workshopSearchError;
@@ -1043,6 +1039,8 @@
     private List<QuasarModSelection> FilteredMods => (_editor?.Mods ?? [])
         .Where(mod => MatchesModSearch(mod))
         .ToList();
+
+    private void RefreshModList() => _modListRenderVersion++;
 
     protected override void OnInitialized()
     {
@@ -1170,16 +1168,94 @@
         _editor.Mods = [];
         _deadModCleanupSummary = string.Empty;
         _deadModCleanupRemoved = [];
+        RefreshModList();
         Snackbar.Add("All mods cleared. Save profile to persist.", Severity.Success);
     }
 
-    private async Task ResolveProfileModDependenciesAsync(QuasarConfigProfile profile)
+    private void QueueSelectedProfileDependencyCheck()
+    {
+        var version = ++_modDependencyCheckVersion;
+        if (_editor is null || _editor.Mods.Count == 0 || !WorkshopCredentials.HasWebApiKey)
+            return;
+
+        _ = InvokeAsync(() => CheckSelectedProfileDependenciesAsync(version));
+    }
+
+    private async Task CheckSelectedProfileDependenciesAsync(long version)
+    {
+        if (_editor is null || _editor.Mods.Count == 0 || _modDependencyCheckRunning)
+            return;
+
+        _modDependencyCheckRunning = true;
+        try
+        {
+            var profile = _editor;
+            var profileId = profile.ConfigProfileId;
+            var result = await WorkshopMods.ResolveDependenciesAsync(profile.Mods, sortLoadOrder: false);
+            if (version != _modDependencyCheckVersion ||
+                _editor is null ||
+                !string.Equals(_editor.ConfigProfileId, profileId, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            ApplyProfileModDependencyResult(profile, result);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Mod dependency check failed: {exception.Message}", Severity.Warning);
+        }
+        finally
+        {
+            _modDependencyCheckRunning = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task AutoSortModDependenciesAsync()
+    {
+        if (_editor is null || _editor.Mods.Count == 0)
+            return;
+
+        if (!WorkshopCredentials.HasWebApiKey)
+        {
+            Snackbar.Add("Steam Workshop Web API key required for dependency sorting.", Severity.Warning);
+            return;
+        }
+
+        _modDependencyCheckVersion++;
+        _modDependencyCheckRunning = true;
+        try
+        {
+            await ResolveProfileModDependenciesAsync(_editor, sortLoadOrder: true);
+            Snackbar.Add("Dependency load order sorted. Save profile to persist.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Mod dependency sort failed: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _modDependencyCheckRunning = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ResolveProfileModDependenciesAsync(QuasarConfigProfile profile, bool sortLoadOrder = false)
     {
         if (profile.Mods.Count == 0)
             return;
 
-        var result = await WorkshopMods.ResolveDependenciesAsync(profile.Mods);
+        var result = await WorkshopMods.ResolveDependenciesAsync(profile.Mods, sortLoadOrder: sortLoadOrder);
+        ApplyProfileModDependencyResult(profile, result);
+    }
+
+    private void ApplyProfileModDependencyResult(
+        QuasarConfigProfile profile,
+        QuasarModDependencyResolutionResult result)
+    {
         profile.Mods = result.Mods.ToList();
+        RefreshModList();
 
         if (result.AddedDependencyCount > 0)
             Snackbar.Add($"Added {result.AddedDependencyCount} dependency mod(s).", Severity.Success);
@@ -1299,6 +1375,8 @@
         _hasExplicitCategoryExpansion = true;
         _expandedCategoryKey = null;
         EnsureActiveConfigTabAllowed();
+        RefreshModList();
+        QueueSelectedProfileDependencyCheck();
     }
 
     private string GetInitialProfileId()
@@ -1956,6 +2034,7 @@
             WorkshopId = _newModWorkshopId,
             DisplayName = _newModName.Trim(),
         });
+        RefreshModList();
         _newModName = string.Empty;
         _newModWorkshopId = 0;
     }
@@ -1994,6 +2073,7 @@
             _editor.Mods = _editor.Mods
                 .Where(mod => !unavailableIds.Contains(mod.WorkshopId))
                 .ToList();
+            RefreshModList();
 
             _deadModCleanupSummary =
                 $"Removed {_deadModCleanupRemoved.Count} dead mod(s) from {result.CheckedCount} checked. Save the profile to persist the change.";
@@ -2086,6 +2166,7 @@
                 ? result.WorkshopId.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 : result.Title.Trim(),
         });
+        RefreshModList();
 
         if (showSnackbar)
             Snackbar.Add("Workshop mod added.", Severity.Success);
@@ -2123,6 +2204,8 @@
             }
 
             _workshopInput = string.Empty;
+            if (added > 0)
+                RefreshModList();
 
             if (added > 0)
             {
@@ -2155,7 +2238,8 @@
         if (_editor is null)
             return;
 
-        _editor.Mods.RemoveAll(mod => mod.WorkshopId == workshopId);
+        if (_editor.Mods.RemoveAll(mod => mod.WorkshopId == workshopId) > 0)
+            RefreshModList();
     }
 
     private void HandleModDropped(MudItemDropInfo<QuasarModSelection> dropInfo)
@@ -2164,31 +2248,6 @@
             return;
 
         MoveModToVisibleIndex(dropInfo.Item.WorkshopId, dropInfo.IndexInZone);
-    }
-
-    private bool CanMoveMod(long workshopId, int delta)
-    {
-        if (_editor is null || delta == 0)
-            return false;
-
-        var index = GetModIndex(workshopId);
-        if (index < 0)
-            return false;
-
-        var targetIndex = index + delta;
-        return targetIndex >= 0 && targetIndex < _editor.Mods.Count;
-    }
-
-    private void MoveMod(long workshopId, int delta)
-    {
-        if (_editor is null || !CanMoveMod(workshopId, delta))
-            return;
-
-        var sourceIndex = GetModIndex(workshopId);
-        var targetIndex = sourceIndex + delta;
-        var item = _editor.Mods[sourceIndex];
-        _editor.Mods.RemoveAt(sourceIndex);
-        _editor.Mods.Insert(targetIndex, item);
     }
 
     private void MoveModToVisibleIndex(long workshopId, int visibleIndex)
@@ -2209,6 +2268,7 @@
         if (visibleMods.Count == 0)
         {
             _editor.Mods.Insert(Math.Clamp(sourceIndex, 0, _editor.Mods.Count), item);
+            RefreshModList();
             return;
         }
 
@@ -2227,6 +2287,7 @@
         }
 
         _editor.Mods.Insert(Math.Clamp(insertIndex, 0, _editor.Mods.Count), item);
+        RefreshModList();
     }
 
     private int GetModIndex(long workshopId) =>
@@ -2393,9 +2454,14 @@
         }
 
         if (added > 0)
+        {
+            RefreshModList();
             Snackbar.Add($"Merged {added} mod(s) from world template.", Severity.Success);
+        }
         else
+        {
             Snackbar.Add("All template mods were already in this profile.", Severity.Info);
+        }
     }
 
     private string GetProfileSummary(QuasarConfigProfile template)
