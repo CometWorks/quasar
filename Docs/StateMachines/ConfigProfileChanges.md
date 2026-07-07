@@ -38,7 +38,18 @@ stateDiagram-v2
 **Persistence.** `QuasarConfigProfileCatalog.UpsertAsync` normalizes and writes
 `{ProfilesDir}/{id}/profile.json` plus a `History/{timestamp}.json` snapshot
 (atomic swap). External edits to the JSON are picked up by a debounced
-file-watch reload (`ScheduleReload`).
+file-watch reload (`ScheduleReload`). Mod arrays are order preserving; the saved
+order becomes the Space Engineers mod load order when Quasar rewrites
+`Sandbox_config.sbc` during server preparation. On profile open, before saving
+profile edits, and during world-template/server-editor mod imports, Quasar
+expands declared Steam Workshop dependencies and marks dependency rows with
+`IsDependency` without reordering existing rows. The Mods tab's **Auto Sort
+Dependencies** action applies the topological sort explicitly. The resolver
+warns when a dependency/dependent pair is currently out of order, sees a
+circular dependency chain, or cannot satisfy a dependency edge after sorting.
+Successful dependency checks also refresh a collapsed, flattened dependency
+outline in the Mods tab; that view is derived UI state and is not saved into
+the profile JSON.
 
 **World-template import.** The world-template UI can derive a new config profile
 from a template's current `Sandbox_config.sbc`. It imports DS-visible session

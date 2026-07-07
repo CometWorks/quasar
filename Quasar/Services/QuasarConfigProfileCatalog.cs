@@ -316,10 +316,9 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
             {
                 WorkshopId = mod.WorkshopId,
                 DisplayName = string.IsNullOrWhiteSpace(mod.DisplayName) ? mod.WorkshopId.ToString() : mod.DisplayName.Trim(),
+                IsDependency = mod.IsDependency,
             })
             .DistinctBy(mod => mod.WorkshopId)
-            .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(mod => mod.WorkshopId)
             .ToList();
         if (profile.UpdatedAtUtc == default)
             profile.UpdatedAtUtc = DateTimeOffset.UtcNow;

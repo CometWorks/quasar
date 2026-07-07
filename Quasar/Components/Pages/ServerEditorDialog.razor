@@ -445,6 +445,9 @@
     private QuasarConfigProfileCatalog ConfigProfiles { get; set; } = default!;
 
     [Inject]
+    private QuasarWorkshopModResolver WorkshopMods { get; set; } = default!;
+
+    [Inject]
     private QuasarWorldTemplateCatalog WorldTemplates { get; set; } = default!;
 
     [Inject]
@@ -1167,14 +1170,35 @@
             added++;
         }
 
-        profile.Mods = profile.Mods
-            .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(mod => mod.WorkshopId)
-            .ToList();
-
+        await ResolveProfileModDependenciesAsync(profile);
         await ConfigProfiles.UpsertAsync(profile);
         Snackbar.Add($"Merged {added} mod(s) into config profile '{profile.Name}'.", Severity.Success);
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ResolveProfileModDependenciesAsync(QuasarConfigProfile profile)
+    {
+        if (profile.Mods.Count == 0)
+            return;
+
+        var result = await WorkshopMods.ResolveDependenciesAsync(profile.Mods);
+        profile.Mods = result.Mods.ToList();
+
+        if (result.AddedDependencyCount > 0)
+            Snackbar.Add($"Added {result.AddedDependencyCount} dependency mod(s).", Severity.Success);
+
+        if (result.Warnings.Count > 0)
+            Snackbar.Add($"Mod dependency check: {SummarizeWarnings(result.Warnings)}", Severity.Warning);
+    }
+
+    private static string SummarizeWarnings(IReadOnlyList<string> warnings)
+    {
+        var preview = warnings.Take(2).ToList();
+        var summary = string.Join(" ", preview);
+        if (warnings.Count > preview.Count)
+            summary = $"{summary} (+{warnings.Count - preview.Count} more)";
+
+        return summary;
     }
 
     private static string NormalizeWhitespace(string? value) =>
