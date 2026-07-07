@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Magnetar.Protocol.Runtime;
+using Quasar.Services;
 
 namespace Quasar.Services.Discord;
 
@@ -16,8 +17,7 @@ public sealed class DiscordOptionsCatalog : IDisposable
     private readonly ILogger<DiscordOptionsCatalog> _logger;
     private DiscordOptions _options;
     private string _snapshot;
-    private FileSystemWatcher? _watcher;
-    private CancellationTokenSource? _reloadDebounce;
+    private DebouncedFileWatcher? _watcher;
 
     public DiscordOptionsCatalog(ILogger<DiscordOptionsCatalog> logger)
     {
@@ -32,8 +32,6 @@ public sealed class DiscordOptionsCatalog : IDisposable
     public void Dispose()
     {
         _watcher?.Dispose();
-        _reloadDebounce?.Cancel();
-        _reloadDebounce?.Dispose();
     }
 
     public DiscordOptions GetOptions()
@@ -84,68 +82,7 @@ public sealed class DiscordOptionsCatalog : IDisposable
 
     private void StartWatching()
     {
-        var path = MagnetarPaths.GetQuasarDiscordOptionsPath();
-        var directory = Path.GetDirectoryName(path);
-        if (string.IsNullOrWhiteSpace(directory))
-            return;
-
-        Directory.CreateDirectory(directory);
-
-        _watcher = new FileSystemWatcher(directory)
-        {
-            IncludeSubdirectories = false,
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
-            Filter = Path.GetFileName(path),
-        };
-
-        _watcher.Changed += HandleWatchedFileChanged;
-        _watcher.Created += HandleWatchedFileChanged;
-        _watcher.Deleted += HandleWatchedFileChanged;
-        _watcher.Renamed += HandleWatchedFileChanged;
-        _watcher.EnableRaisingEvents = true;
-    }
-
-    private void HandleWatchedFileChanged(object sender, FileSystemEventArgs args)
-    {
-        if (!IsTrackedPath(args.FullPath))
-            return;
-
-        ScheduleReload();
-    }
-
-    private bool IsTrackedPath(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-            return false;
-
-        return string.Equals(
-            Path.GetFullPath(path),
-            Path.GetFullPath(MagnetarPaths.GetQuasarDiscordOptionsPath()),
-            StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void ScheduleReload()
-    {
-        CancellationTokenSource debounce;
-        lock (_sync)
-        {
-            _reloadDebounce?.Cancel();
-            _reloadDebounce?.Dispose();
-            _reloadDebounce = new CancellationTokenSource();
-            debounce = _reloadDebounce;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(250), debounce.Token);
-                ReloadFromDisk();
-            }
-            catch (OperationCanceledException)
-            {
-            }
-        }, CancellationToken.None);
+        _watcher = DebouncedFileWatcher.WatchFile(MagnetarPaths.GetQuasarDiscordOptionsPath(), ReloadFromDisk);
     }
 
     private void ReloadFromDisk()

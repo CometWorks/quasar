@@ -26,8 +26,7 @@ public sealed class BrandingService : IDisposable
     private readonly string _brandingAssetsDirectory;
     private BrandingSettings _settings;
     private string _snapshot;
-    private FileSystemWatcher? _watcher;
-    private CancellationTokenSource? _reloadDebounce;
+    private DebouncedFileWatcher? _watcher;
 
     public BrandingService(ILogger<BrandingService> logger)
     {
@@ -127,8 +126,6 @@ public sealed class BrandingService : IDisposable
     public void Dispose()
     {
         _watcher?.Dispose();
-        _reloadDebounce?.Cancel();
-        _reloadDebounce?.Dispose();
     }
 
     private async Task<string> WriteAssetAsync(string baseName, Stream data, string extension, CancellationToken cancellationToken)
@@ -212,68 +209,7 @@ public sealed class BrandingService : IDisposable
 
     private void StartWatching()
     {
-        var path = MagnetarPaths.GetQuasarBrandingPath();
-        var directory = Path.GetDirectoryName(path);
-        if (string.IsNullOrWhiteSpace(directory))
-            return;
-
-        Directory.CreateDirectory(directory);
-
-        _watcher = new FileSystemWatcher(directory)
-        {
-            IncludeSubdirectories = false,
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
-            Filter = Path.GetFileName(path),
-        };
-
-        _watcher.Changed += HandleWatchedFileChanged;
-        _watcher.Created += HandleWatchedFileChanged;
-        _watcher.Deleted += HandleWatchedFileChanged;
-        _watcher.Renamed += HandleWatchedFileChanged;
-        _watcher.EnableRaisingEvents = true;
-    }
-
-    private void HandleWatchedFileChanged(object sender, FileSystemEventArgs args)
-    {
-        if (!IsTrackedPath(args.FullPath))
-            return;
-
-        ScheduleReload();
-    }
-
-    private static bool IsTrackedPath(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-            return false;
-
-        return string.Equals(
-            Path.GetFullPath(path),
-            Path.GetFullPath(MagnetarPaths.GetQuasarBrandingPath()),
-            StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void ScheduleReload()
-    {
-        CancellationTokenSource debounce;
-        lock (_sync)
-        {
-            _reloadDebounce?.Cancel();
-            _reloadDebounce?.Dispose();
-            _reloadDebounce = new CancellationTokenSource();
-            debounce = _reloadDebounce;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(250), debounce.Token);
-                ReloadFromDisk();
-            }
-            catch (OperationCanceledException)
-            {
-            }
-        }, CancellationToken.None);
+        _watcher = DebouncedFileWatcher.WatchFile(MagnetarPaths.GetQuasarBrandingPath(), ReloadFromDisk);
     }
 
     private void ReloadFromDisk()

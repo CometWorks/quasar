@@ -566,6 +566,7 @@
 
         var result = await WorkshopMods.ResolveDependenciesAsync(profile.Mods);
         profile.Mods = result.Mods.ToList();
+        profile.RootSettings.AutodetectDependencies = result.Warnings.Count > 0;
 
         if (result.AddedDependencyCount > 0)
             Snackbar.Add($"Added {result.AddedDependencyCount} dependency mod(s).", Severity.Success);

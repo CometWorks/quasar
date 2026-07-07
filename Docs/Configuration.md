@@ -55,15 +55,25 @@ enabled. Turning it back off removes the flag from future starts.
 
 When a config profile with Workshop mods is opened, saved, or receives imported
 mods, Quasar checks declared Steam Workshop child/dependency metadata, adds
-missing dependency mods, and marks dependency rows in the profile JSON. It does
-not reorder the profile automatically during this check; the Mods tab provides
-an **Auto Sort Dependencies** action that applies a topological dependency
-order when the operator wants it. If Quasar finds a dependency listed after its
-dependent, or Steam reports a circular dependency chain that prevents a clean
-topological order, the UI shows a warning. The Steam Workshop API key
-configured from the Mods tab is required for this automatic dependency check.
-If the key is missing or Steam cannot be reached, Quasar keeps the current mod
-list and shows a warning instead of blocking the save.
+missing dependency mods, and marks dependency rows in the profile JSON and the
+world's generated `Sandbox_config.sbc`. It does not reorder the profile
+automatically during this check; the Mods tab provides an **Auto Sort
+Dependencies** action that applies a topological dependency order when the
+operator wants it. If Quasar finds a dependency listed after its dependent, or
+Steam reports a circular dependency chain that prevents a clean topological
+order, the UI shows a warning. The Steam Workshop API key configured from the
+Mods tab is required for this automatic dependency check. If the key is missing
+or Steam cannot be reached, Quasar keeps the current mod list and shows a
+warning instead of blocking the save.
+
+Space Engineers Dedicated Server also has its own **Autodetect Dependencies**
+setting. Quasar manages that setting in the profile instead of showing it as a
+manual world option: it is disabled after a clean dependency check or a
+successful auto-sort, so DS receives the exact generated `Sandbox_config.sbc`
+mod list and load order. Quasar enables it as a fallback when the mod list is
+manually changed, the Workshop API key is missing, dependency checks fail, or
+dependency warnings remain after sorting. Auto-sort reorder notices do not keep
+the fallback enabled when the final sorted order is otherwise valid.
 
 After a dependency check or auto-sort, the Mods tab also shows a collapsed,
 flattened dependency outline. Rows are tagged as root mods, dependency mods,

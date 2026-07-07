@@ -1624,26 +1624,17 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 ExtractZipArchive(archivePath, destinationRoot);
                 return;
             case ArchiveKind.TarGz:
-                ExtractReaderArchive(archivePath, destinationRoot);
+                ExtractSharpCompressArchive(archivePath, destinationRoot);
                 return;
             case ArchiveKind.SevenZip:
-                ExtractSevenZipArchive(archivePath, destinationRoot);
+                ExtractSharpCompressArchive(archivePath, destinationRoot);
                 return;
             default:
                 throw new InvalidOperationException($"Unsupported Magnetar archive format: {archivePath}");
         }
     }
 
-    private static void ExtractReaderArchive(string archivePath, string destinationRoot)
-    {
-        using var archive = ArchiveFactory.OpenArchive(archivePath, new ReaderOptions());
-        foreach (var entry in archive.Entries)
-        {
-            ExtractSharpCompressEntry(entry, destinationRoot);
-        }
-    }
-
-    private static void ExtractSevenZipArchive(string archivePath, string destinationRoot)
+    private static void ExtractSharpCompressArchive(string archivePath, string destinationRoot)
     {
         using var archive = ArchiveFactory.OpenArchive(archivePath, new ReaderOptions());
         foreach (var entry in archive.Entries)

@@ -23,12 +23,12 @@ public sealed class WorldTemplateImportLocationService
     ];
 
     private readonly ManagedRuntimeOptions _options;
-    private readonly ILocalStorageService _localStorage;
+    private readonly BrowserStorageService _storage;
 
-    public WorldTemplateImportLocationService(ManagedRuntimeOptions options, ILocalStorageService localStorage)
+    public WorldTemplateImportLocationService(ManagedRuntimeOptions options, BrowserStorageService storage)
     {
         _options = options;
-        _localStorage = localStorage;
+        _storage = storage;
     }
 
     public IReadOnlyList<FileBrowserShortcut> GetContentShortcuts()
@@ -120,7 +120,7 @@ public sealed class WorldTemplateImportLocationService
         {
             var resolved = FileBrowserService.ResolvePath(path);
             if (Directory.Exists(resolved))
-                await _localStorage.SetItemAsync(StorageKey, resolved);
+                await _storage.SetStringAsync(StorageKey, resolved);
         }
         catch (InvalidOperationException)
         {
@@ -134,7 +134,7 @@ public sealed class WorldTemplateImportLocationService
     {
         try
         {
-            return await _localStorage.GetItemAsync<string>(StorageKey) ?? string.Empty;
+            return await _storage.GetStringAsync(StorageKey) ?? string.Empty;
         }
         catch (InvalidOperationException)
         {

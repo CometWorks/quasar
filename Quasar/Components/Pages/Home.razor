@@ -11,7 +11,7 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
-@inject ILocalStorageService LocalStorage
+@inject BrowserStorageService BrowserStorage
 
 <PageTitle>@(IsListView ? "Servers" : "Dashboard")</PageTitle>
 
@@ -737,7 +737,7 @@ else
         _serverViewLoadedFromStorage = true;
         try
         {
-            var stored = await LocalStorage.GetItemAsync<string>(ServerViewStorageKey);
+            var stored = await BrowserStorage.GetStringAsync(ServerViewStorageKey);
             if (TryParseServerView(stored, out var storedView) && storedView != _serverView)
             {
                 _serverView = storedView;
@@ -840,7 +840,7 @@ else
     {
         try
         {
-            await LocalStorage.SetItemAsync(ServerViewStorageKey, view == DashboardServerView.List ? "list" : "cards");
+            await BrowserStorage.SetStringAsync(ServerViewStorageKey, view == DashboardServerView.List ? "list" : "cards");
         }
         catch (InvalidOperationException)
         {

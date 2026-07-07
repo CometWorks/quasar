@@ -63,6 +63,9 @@ public static class WorldSandboxConfigEditor
             {
                 WorkshopId = workshopId,
                 DisplayName = friendlyName,
+                IsDependency = bool.TryParse(
+                    ElementIgnoreCase(item, "IsDependency")?.Value,
+                    out var isDependency) && isDependency,
             });
         }
 
@@ -367,7 +370,8 @@ public static class WorldSandboxConfigEditor
                 new XAttribute("FriendlyName", friendlyName),
                 new XElement("Name", $"{idString}.sbm"),
                 new XElement("PublishedFileId", idString),
-                new XElement("PublishedServiceName", "Steam")));
+                new XElement("PublishedServiceName", "Steam"),
+                new XElement("IsDependency", mod.IsDependency ? "true" : "false")));
         }
     }
 
