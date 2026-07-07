@@ -65,6 +65,11 @@ configured from the Mods tab is required for this automatic dependency check.
 If the key is missing or Steam cannot be reached, Quasar keeps the current mod
 list and shows a warning instead of blocking the save.
 
+After a dependency check or auto-sort, the Mods tab also shows a collapsed,
+flattened dependency outline. Rows are tagged as root mods, dependency mods,
+already-listed repeats, or circular references so operators can inspect why a
+dependency warning was raised without changing the saved mod list.
+
 ## Dedicated Server log retention
 
 Each server has a **Space Engineers DS logs to keep** setting in the server

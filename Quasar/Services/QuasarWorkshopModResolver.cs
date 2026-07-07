@@ -132,7 +132,7 @@ public sealed class QuasarWorkshopModResolver
     {
         var sourceMods = NormalizeModSelections(mods);
         if (sourceMods.Count == 0)
-            return new QuasarModDependencyResolutionResult(sourceMods, 0, 0, []);
+            return new QuasarModDependencyResolutionResult(sourceMods, 0, 0, [], []);
 
         var warnings = new List<string>();
         var webApiKey = _credentialsCatalog.GetCredentials().WebApiKey;
@@ -143,7 +143,8 @@ public sealed class QuasarWorkshopModResolver
                 sourceMods.Select(mod => CloneMod(mod, mod.IsDependency)).ToList(),
                 0,
                 sourceMods.Count(mod => mod.IsDependency),
-                warnings);
+                warnings,
+                []);
         }
 
         var originalIds = sourceMods
@@ -169,13 +170,19 @@ public sealed class QuasarWorkshopModResolver
                 sourceMods.Select(mod => CloneMod(mod, mod.IsDependency)).ToList(),
                 0,
                 sourceMods.Count(mod => mod.IsDependency),
-                warnings);
+                warnings,
+                []);
         }
 
         var dependenciesByParent = BuildDependencyMap(detailsById, originalIds, warnings);
         var dependencyIds = dependenciesByParent
             .SelectMany(pair => pair.Value)
             .ToHashSet();
+        var dependencyTreeRows = BuildDependencyTreeRows(
+            sourceMods.Select(mod => mod.WorkshopId).ToList(),
+            dependenciesByParent,
+            dependencyIds,
+            detailsById);
         var resolvedIds = ResolveDependencyOrder(
             sourceMods.Select(mod => mod.WorkshopId).ToList(),
             dependenciesByParent,
@@ -200,7 +207,12 @@ public sealed class QuasarWorkshopModResolver
             addedDependencyCount,
             warnings.Count);
 
-        return new QuasarModDependencyResolutionResult(resolved, addedDependencyCount, dependencyCount, warnings);
+        return new QuasarModDependencyResolutionResult(
+            resolved,
+            addedDependencyCount,
+            dependencyCount,
+            warnings,
+            dependencyTreeRows);
     }
 
     private async Task<QuasarWorkshopSearchResultSet> QueryFilesAsync(
@@ -499,6 +511,79 @@ public sealed class QuasarWorkshopModResolver
 
                 AppendReachableDependencies(dependencyId);
             }
+        }
+    }
+
+    private static List<QuasarModDependencyTreeRow> BuildDependencyTreeRows(
+        IReadOnlyList<long> sourceIds,
+        IReadOnlyDictionary<long, List<long>> dependenciesByParent,
+        IReadOnlySet<long> dependencyIds,
+        IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById)
+    {
+        var rows = new List<QuasarModDependencyTreeRow>();
+        var emitted = new HashSet<long>();
+        var path = new List<long>();
+
+        var rootIds = sourceIds.Where(id => id > 0).Distinct().ToList();
+        for (var index = 0; index < rootIds.Count; index++)
+        {
+            AddNode(
+                rootIds[index],
+                depth: 0,
+                isRoot: true);
+        }
+
+        return rows;
+
+        void AddNode(
+            long workshopId,
+            int depth,
+            bool isRoot)
+        {
+            var alreadyListed = emitted.Contains(workshopId);
+            rows.Add(new QuasarModDependencyTreeRow(
+                workshopId,
+                ResolveTreeDisplayName(workshopId, detailsById),
+                depth,
+                isRoot,
+                dependencyIds.Contains(workshopId),
+                alreadyListed,
+                false,
+                null));
+
+            if (alreadyListed)
+                return;
+
+            emitted.Add(workshopId);
+            if (!dependenciesByParent.TryGetValue(workshopId, out var children))
+                return;
+
+            var childIds = children.Where(id => id > 0).Distinct().ToList();
+            path.Add(workshopId);
+            for (var index = 0; index < childIds.Count; index++)
+            {
+                var childId = childIds[index];
+                if (path.Contains(childId))
+                {
+                    rows.Add(new QuasarModDependencyTreeRow(
+                        childId,
+                        ResolveTreeDisplayName(childId, detailsById),
+                        depth + 1,
+                        false,
+                        dependencyIds.Contains(childId),
+                        emitted.Contains(childId),
+                        true,
+                        childId));
+                    continue;
+                }
+
+                AddNode(
+                    childId,
+                    depth + 1,
+                    isRoot: false);
+            }
+
+            path.RemoveAt(path.Count - 1);
         }
     }
 
@@ -921,6 +1006,16 @@ public sealed class QuasarWorkshopModResolver
         return workshopId.ToString(CultureInfo.InvariantCulture);
     }
 
+    private static string ResolveTreeDisplayName(
+        long workshopId,
+        IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById)
+    {
+        if (detailsById.TryGetValue(workshopId, out var detail))
+            return GetDisplayName(detail);
+
+        return workshopId.ToString(CultureInfo.InvariantCulture);
+    }
+
     private static string GetDescription(PublishedFileDetailsItem detail) =>
         string.IsNullOrWhiteSpace(detail.ShortDescription)
             ? string.Empty
@@ -1147,7 +1242,18 @@ public sealed record QuasarModDependencyResolutionResult(
     IReadOnlyList<QuasarModSelection> Mods,
     int AddedDependencyCount,
     int DependencyCount,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<QuasarModDependencyTreeRow> DependencyTreeRows);
+
+public sealed record QuasarModDependencyTreeRow(
+    long WorkshopId,
+    string DisplayName,
+    int Depth,
+    bool IsRoot,
+    bool IsDependency,
+    bool IsAlreadyListed,
+    bool IsCycle,
+    long? CycleTargetId);
 
 public sealed record QuasarWorkshopAvailabilityResult(
     IReadOnlyList<QuasarModSelection> UnavailableMods,

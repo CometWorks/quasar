@@ -636,6 +636,68 @@
                                     </MudButton>
                                 </MudStack>
 
+                                @if (_modDependencyTreeRows.Count > 0)
+                                {
+                                    <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="mod-dependency-outline-panels">
+                                        <MudExpansionPanel Class="configs-expansion-panel mod-dependency-outline-panel" KeepContentAlive="false">
+                                            <TitleContent>
+                                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                                                    <MudIcon Icon="@Icons.Material.Filled.AccountTree" Size="Size.Small" />
+                                                    <MudText Typo="Typo.subtitle2">Dependency outline</MudText>
+                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_modDependencyTreeRows.Count row(s)</MudChip>
+                                                </MudStack>
+                                            </TitleContent>
+                                            <ChildContent>
+                                                <div class="mod-dependency-tree" role="tree" aria-label="Workshop mod dependency tree">
+                                                    @for (var rowIndex = 0; rowIndex < _modDependencyTreeRows.Count; rowIndex++)
+                                                    {
+                                                        var row = _modDependencyTreeRows[rowIndex];
+                                                        <div class="@GetDependencyTreeRowClass(row)"
+                                                             style="@GetDependencyTreeRowStyle(row)"
+                                                             role="treeitem"
+                                                             aria-level="@(row.Depth + 1)"
+                                                             @key="GetDependencyTreeRowKey(row, rowIndex)">
+                                                            <div class="mod-dependency-tree-guide" aria-hidden="true">
+                                                                <span class="mod-dependency-tree-node">
+                                                                    <MudIcon Icon="@GetDependencyTreeIcon(row)" Size="Size.Small" Color="@GetDependencyTreeIconColor(row)" />
+                                                                </span>
+                                                            </div>
+                                                            <div class="mod-dependency-tree-content">
+                                                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                                                                    <MudText Typo="Typo.subtitle2" Class="mod-dependency-tree-name">@row.DisplayName</MudText>
+                                                                    @if (row.IsRoot)
+                                                                    {
+                                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Root</MudChip>
+                                                                    }
+                                                                    @if (row.IsDependency)
+                                                                    {
+                                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info">Dependency</MudChip>
+                                                                    }
+                                                                    @if (row.IsAlreadyListed && !row.IsCycle)
+                                                                    {
+                                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">Already listed</MudChip>
+                                                                    }
+                                                                    @if (row.IsCycle)
+                                                                    {
+                                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error">Cycle</MudChip>
+                                                                    }
+                                                                </MudStack>
+                                                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1" Class="mod-dependency-tree-meta">
+                                                                    <MudText Typo="Typo.caption" Class="mono">@row.WorkshopId</MudText>
+                                                                    @if (row.IsCycle)
+                                                                    {
+                                                                        <MudText Typo="Typo.caption" Color="Color.Error">Cycles back to @row.CycleTargetId</MudText>
+                                                                    }
+                                                                </MudStack>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </ChildContent>
+                                        </MudExpansionPanel>
+                                    </MudExpansionPanels>
+                                }
+
                                 @if (!string.IsNullOrWhiteSpace(_deadModCleanupSummary))
                                 {
                                     <MudAlert Severity="@(_deadModCleanupRemoved.Count > 0 ? Severity.Success : Severity.Info)"
@@ -943,6 +1005,7 @@
     private bool _modDependencyCheckRunning;
     private long _modDependencyCheckVersion;
     private long _modListRenderVersion;
+    private IReadOnlyList<QuasarModDependencyTreeRow> _modDependencyTreeRows = [];
     private string _deadModCleanupSummary = string.Empty;
     private List<QuasarModSelection> _deadModCleanupRemoved = [];
     private string? _workshopSearchError;
@@ -1040,7 +1103,12 @@
         .Where(mod => MatchesModSearch(mod))
         .ToList();
 
-    private void RefreshModList() => _modListRenderVersion++;
+    private void RefreshModList(bool clearDependencyTree = true)
+    {
+        _modListRenderVersion++;
+        if (clearDependencyTree)
+            _modDependencyTreeRows = [];
+    }
 
     protected override void OnInitialized()
     {
@@ -1255,7 +1323,8 @@
         QuasarModDependencyResolutionResult result)
     {
         profile.Mods = result.Mods.ToList();
-        RefreshModList();
+        _modDependencyTreeRows = result.DependencyTreeRows;
+        RefreshModList(clearDependencyTree: false);
 
         if (result.AddedDependencyCount > 0)
             Snackbar.Add($"Added {result.AddedDependencyCount} dependency mod(s).", Severity.Success);
@@ -2300,6 +2369,50 @@
             ? "-"
             : (index + 1).ToString(CultureInfo.InvariantCulture);
     }
+
+    private static string GetDependencyTreeRowClass(QuasarModDependencyTreeRow row)
+    {
+        var classes = new List<string> { "mod-dependency-tree-row" };
+        if (row.IsAlreadyListed)
+            classes.Add("mod-dependency-tree-row-muted");
+        if (row.IsCycle)
+            classes.Add("mod-dependency-tree-row-cycle");
+
+        return string.Join(' ', classes);
+    }
+
+    private static string GetDependencyTreeRowStyle(QuasarModDependencyTreeRow row)
+    {
+        var paddingLeftRem = 0.75 + Math.Max(0, row.Depth) * 1.4;
+        return $"padding-left: {paddingLeftRem.ToString("0.##", CultureInfo.InvariantCulture)}rem;";
+    }
+
+    private static string GetDependencyTreeIcon(QuasarModDependencyTreeRow row)
+    {
+        if (row.IsCycle)
+            return Icons.Material.Filled.ErrorOutline;
+        if (row.IsAlreadyListed)
+            return Icons.Material.Filled.DoneAll;
+        if (row.IsRoot)
+            return Icons.Material.Filled.AccountTree;
+
+        return Icons.Material.Filled.Extension;
+    }
+
+    private static Color GetDependencyTreeIconColor(QuasarModDependencyTreeRow row)
+    {
+        if (row.IsCycle)
+            return Color.Error;
+        if (row.IsAlreadyListed)
+            return Color.Default;
+        if (row.IsRoot)
+            return Color.Primary;
+
+        return Color.Info;
+    }
+
+    private static string GetDependencyTreeRowKey(QuasarModDependencyTreeRow row, int rowIndex) =>
+        $"{rowIndex}:{row.Depth}:{row.WorkshopId}:{row.IsCycle}:{row.IsAlreadyListed}";
 
     private async Task RemoveModAsync(long workshopId)
     {
