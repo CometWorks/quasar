@@ -17,8 +17,7 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
     private readonly ILogger<QuasarWorldTemplateCatalog> _logger;
     private List<QuasarWorldTemplate> _templates;
     private string _snapshot;
-    private FileSystemWatcher? _watcher;
-    private CancellationTokenSource? _reloadDebounce;
+    private DebouncedFileWatcher? _watcher;
 
     public QuasarWorldTemplateCatalog(ILogger<QuasarWorldTemplateCatalog> logger)
     {
@@ -33,8 +32,6 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
     public void Dispose()
     {
         _watcher?.Dispose();
-        _reloadDebounce?.Cancel();
-        _reloadDebounce?.Dispose();
     }
 
     public IReadOnlyList<QuasarWorldTemplate> GetTemplates()
@@ -280,46 +277,12 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
     private void StartWatching()
     {
         var directory = MagnetarPaths.GetQuasarWorldTemplatesDirectory();
-        Directory.CreateDirectory(directory);
-
-        _watcher = new FileSystemWatcher(directory)
-        {
-            IncludeSubdirectories = true,
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
-            Filter = "template.json",
-        };
-
-        _watcher.Changed += HandleWatchedFileChanged;
-        _watcher.Created += HandleWatchedFileChanged;
-        _watcher.Deleted += HandleWatchedFileChanged;
-        _watcher.Renamed += HandleWatchedFileChanged;
-        _watcher.EnableRaisingEvents = true;
-    }
-
-    private void HandleWatchedFileChanged(object sender, FileSystemEventArgs args) => ScheduleReload();
-
-    private void ScheduleReload()
-    {
-        CancellationTokenSource debounce;
-        lock (_sync)
-        {
-            _reloadDebounce?.Cancel();
-            _reloadDebounce?.Dispose();
-            _reloadDebounce = new CancellationTokenSource();
-            debounce = _reloadDebounce;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(250), debounce.Token);
-                ReloadFromDisk();
-            }
-            catch (OperationCanceledException)
-            {
-            }
-        }, CancellationToken.None);
+        _watcher = DebouncedFileWatcher.WatchDirectory(
+            directory,
+            "template.json",
+            includeSubdirectories: true,
+            path => true,
+            ReloadFromDisk);
     }
 
     private void ReloadFromDisk()

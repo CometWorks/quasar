@@ -274,7 +274,7 @@ public sealed class QuasarWorkshopModResolver
         CancellationToken cancellationToken)
     {
         var results = new Dictionary<long, List<long>>();
-        foreach (var batch in Batch(workshopIds))
+        foreach (var batch in workshopIds.Chunk(BatchSize))
         {
             var content = BuildIndexedFormContent("collectioncount", batch, "publishedfileids");
             var payload = await PostAsync<CollectionDetailsEnvelope>(
@@ -306,7 +306,7 @@ public sealed class QuasarWorkshopModResolver
         CancellationToken cancellationToken)
     {
         var results = new Dictionary<long, PublishedFileDetailsItem>();
-        foreach (var batch in Batch(workshopIds))
+        foreach (var batch in workshopIds.Chunk(BatchSize))
         {
             var content = BuildIndexedFormContent("itemcount", batch, "publishedfileids");
             var payload = await PostAsync<PublishedFileDetailsEnvelope>(
@@ -330,7 +330,7 @@ public sealed class QuasarWorkshopModResolver
         CancellationToken cancellationToken)
     {
         var results = new Dictionary<long, PublishedFileDetailsItem>();
-        foreach (var batch in Batch(workshopIds))
+        foreach (var batch in workshopIds.Chunk(BatchSize))
         {
             var query = new Dictionary<string, string?>
             {
@@ -342,7 +342,7 @@ public sealed class QuasarWorkshopModResolver
                 ["return_details"] = "true",
             };
 
-            for (var index = 0; index < batch.Count; index++)
+            for (var index = 0; index < batch.Length; index++)
                 query[$"publishedfileids[{index}]"] = batch[index].ToString(CultureInfo.InvariantCulture);
 
             var url = QueryHelpers.AddQueryString(
@@ -920,15 +920,6 @@ public sealed class QuasarWorkshopModResolver
         }
 
         return expanded;
-    }
-
-    private static IReadOnlyList<List<long>> Batch(IReadOnlyList<long> source)
-    {
-        var batches = new List<List<long>>();
-        for (var index = 0; index < source.Count; index += BatchSize)
-            batches.Add(source.Skip(index).Take(BatchSize).ToList());
-
-        return batches;
     }
 
     private static List<KeyValuePair<string, string>> BuildIndexedFormContent(

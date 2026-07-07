@@ -8,14 +8,14 @@ public enum ThemeMode { System, Light, Dark }
 public sealed class ThemePreferenceService
 {
     private const string StorageKey = "quasar.theme.mode";
-    private readonly ILocalStorageService _localStorage;
+    private readonly BrowserStorageService _storage;
     private readonly BrandingService _brandingService;
     private readonly IJSRuntime _js;
     private bool _initialized;
 
-    public ThemePreferenceService(ILocalStorageService localStorage, BrandingService brandingService, IJSRuntime js)
+    public ThemePreferenceService(BrowserStorageService storage, BrandingService brandingService, IJSRuntime js)
     {
-        _localStorage = localStorage;
+        _storage = storage;
         _brandingService = brandingService;
         _js = js;
     }
@@ -34,12 +34,12 @@ public sealed class ThemePreferenceService
         var previousDarkMode = IsDarkMode;
         try
         {
-            var stored = await _localStorage.GetItemAsync<string>(StorageKey);
+            var stored = await _storage.GetStringAsync(StorageKey);
 
             if (string.IsNullOrEmpty(stored))
             {
                 var systemDark = await GetSystemDarkModeAsync();
-                await _localStorage.SetItemAsync<string>(StorageKey, "system");
+                await _storage.SetStringAsync(StorageKey, "system");
                 Mode = ThemeMode.System;
                 IsDarkMode = systemDark;
             }
@@ -108,7 +108,7 @@ public sealed class ThemePreferenceService
                 ThemeMode.Dark => "dark",
                 _ => "system",
             };
-            await _localStorage.SetItemAsync<string>(StorageKey, value);
+            await _storage.SetStringAsync(StorageKey, value);
         }
         catch (InvalidOperationException)
         {

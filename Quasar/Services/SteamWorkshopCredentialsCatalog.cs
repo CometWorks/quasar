@@ -23,8 +23,7 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
     private readonly IDataProtector _protector;
     private SteamWorkshopCredentials _credentials;
     private string _snapshot;
-    private FileSystemWatcher? _watcher;
-    private CancellationTokenSource? _reloadDebounce;
+    private DebouncedFileWatcher? _watcher;
 
     public SteamWorkshopCredentialsCatalog(
         ILogger<SteamWorkshopCredentialsCatalog> logger,
@@ -82,8 +81,6 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
     public void Dispose()
     {
         _watcher?.Dispose();
-        _reloadDebounce?.Cancel();
-        _reloadDebounce?.Dispose();
     }
 
     private SteamWorkshopCredentials LoadCredentials()
@@ -112,60 +109,7 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
 
     private void StartWatching()
     {
-        var path = MagnetarPaths.GetQuasarWorkshopOptionsPath();
-        var directory = Path.GetDirectoryName(path);
-        if (string.IsNullOrWhiteSpace(directory))
-            return;
-
-        Directory.CreateDirectory(directory);
-
-        _watcher = new FileSystemWatcher(directory)
-        {
-            IncludeSubdirectories = false,
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
-            Filter = Path.GetFileName(path),
-        };
-
-        _watcher.Changed += HandleWatchedFileChanged;
-        _watcher.Created += HandleWatchedFileChanged;
-        _watcher.Deleted += HandleWatchedFileChanged;
-        _watcher.Renamed += HandleWatchedFileChanged;
-        _watcher.EnableRaisingEvents = true;
-    }
-
-    private void HandleWatchedFileChanged(object sender, FileSystemEventArgs args)
-    {
-        if (!string.Equals(
-                Path.GetFullPath(args.FullPath),
-                Path.GetFullPath(MagnetarPaths.GetQuasarWorkshopOptionsPath()),
-                StringComparison.OrdinalIgnoreCase))
-            return;
-
-        ScheduleReload();
-    }
-
-    private void ScheduleReload()
-    {
-        CancellationTokenSource debounce;
-        lock (_sync)
-        {
-            _reloadDebounce?.Cancel();
-            _reloadDebounce?.Dispose();
-            _reloadDebounce = new CancellationTokenSource();
-            debounce = _reloadDebounce;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(250), debounce.Token);
-                ReloadFromDisk();
-            }
-            catch (OperationCanceledException)
-            {
-            }
-        }, CancellationToken.None);
+        _watcher = DebouncedFileWatcher.WatchFile(MagnetarPaths.GetQuasarWorkshopOptionsPath(), ReloadFromDisk);
     }
 
     private void ReloadFromDisk()

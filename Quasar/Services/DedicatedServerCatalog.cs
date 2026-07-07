@@ -21,8 +21,7 @@ public sealed class DedicatedServerCatalog : IDisposable
     private readonly ILogger<DedicatedServerCatalog> _logger;
     private List<DedicatedServerDefinition> _servers;
     private string _snapshot;
-    private FileSystemWatcher? _watcher;
-    private CancellationTokenSource? _reloadDebounce;
+    private DebouncedFileWatcher? _watcher;
 
     public DedicatedServerCatalog(ILogger<DedicatedServerCatalog> logger)
     {
@@ -37,8 +36,6 @@ public sealed class DedicatedServerCatalog : IDisposable
     public void Dispose()
     {
         _watcher?.Dispose();
-        _reloadDebounce?.Cancel();
-        _reloadDebounce?.Dispose();
     }
 
     public IReadOnlyList<DedicatedServerDefinition> GetServers()
@@ -473,28 +470,12 @@ public sealed class DedicatedServerCatalog : IDisposable
     private void StartWatching()
     {
         var directory = MagnetarPaths.GetQuasarServersDirectory();
-        Directory.CreateDirectory(directory);
-
-        _watcher = new FileSystemWatcher(directory)
-        {
-            IncludeSubdirectories = true,
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
-            Filter = "*.json",
-        };
-
-        _watcher.Changed += HandleWatchedFileChanged;
-        _watcher.Created += HandleWatchedFileChanged;
-        _watcher.Deleted += HandleWatchedFileChanged;
-        _watcher.Renamed += HandleWatchedFileChanged;
-        _watcher.EnableRaisingEvents = true;
-    }
-
-    private void HandleWatchedFileChanged(object sender, FileSystemEventArgs args)
-    {
-        if (!IsTrackedServerPath(args.FullPath))
-            return;
-
-        ScheduleReload();
+        _watcher = DebouncedFileWatcher.WatchDirectory(
+            directory,
+            "*.json",
+            includeSubdirectories: true,
+            IsTrackedServerPath,
+            ReloadFromDisk);
     }
 
     private static bool IsTrackedServerPath(string path)
@@ -503,30 +484,6 @@ public sealed class DedicatedServerCatalog : IDisposable
             return false;
 
         return string.Equals(Path.GetFileName(path), "server.json", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void ScheduleReload()
-    {
-        CancellationTokenSource debounce;
-        lock (_sync)
-        {
-            _reloadDebounce?.Cancel();
-            _reloadDebounce?.Dispose();
-            _reloadDebounce = new CancellationTokenSource();
-            debounce = _reloadDebounce;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(250), debounce.Token);
-                ReloadFromDisk();
-            }
-            catch (OperationCanceledException)
-            {
-            }
-        }, CancellationToken.None);
     }
 
     private void ReloadFromDisk()

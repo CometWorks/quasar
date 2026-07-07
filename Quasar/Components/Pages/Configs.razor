@@ -1028,6 +1028,7 @@
     private IReadOnlyList<QuasarPluginCatalogEntry> CatalogEntries => PluginCatalog.GetEntries();
 
     private List<QuasarConfigOptionDefinition> VisibleWorldOptions => QuasarConfigMetadata.Options
+        .Where(option => !option.Hidden)
         .Where(option => option.Matches(_worldSearch))
         .OrderBy(option => QuasarConfigMetadata.Categories.First(category => category.Key == option.CategoryKey).Order)
         .ThenBy(option => option.Order)
@@ -1103,11 +1104,15 @@
         .Where(mod => MatchesModSearch(mod))
         .ToList();
 
-    private void RefreshModList(bool clearDependencyTree = true)
+    private void RefreshModList(bool clearDependencyTree = true, bool enableDependencyFallback = true)
     {
         _modListRenderVersion++;
         if (clearDependencyTree)
+        {
             _modDependencyTreeRows = [];
+            if (enableDependencyFallback)
+                EnableServerDependencyAutodetectFallback(_editor);
+        }
     }
 
     protected override void OnInitialized()
@@ -1243,8 +1248,14 @@
     private void QueueSelectedProfileDependencyCheck()
     {
         var version = ++_modDependencyCheckVersion;
-        if (_editor is null || _editor.Mods.Count == 0 || !WorkshopCredentials.HasWebApiKey)
+        if (_editor is null || _editor.Mods.Count == 0)
             return;
+
+        if (!WorkshopCredentials.HasWebApiKey)
+        {
+            EnableServerDependencyAutodetectFallback(_editor);
+            return;
+        }
 
         _ = InvokeAsync(() => CheckSelectedProfileDependenciesAsync(version));
     }
@@ -1267,10 +1278,11 @@
                 return;
             }
 
-            ApplyProfileModDependencyResult(profile, result);
+            ApplyProfileModDependencyResult(profile, result, sortLoadOrder: false);
         }
         catch (Exception exception)
         {
+            EnableServerDependencyAutodetectFallback(_editor);
             Snackbar.Add($"Mod dependency check failed: {exception.Message}", Severity.Warning);
         }
         finally
@@ -1287,6 +1299,7 @@
 
         if (!WorkshopCredentials.HasWebApiKey)
         {
+            EnableServerDependencyAutodetectFallback(_editor);
             Snackbar.Add("Steam Workshop Web API key required for dependency sorting.", Severity.Warning);
             return;
         }
@@ -1300,6 +1313,7 @@
         }
         catch (Exception exception)
         {
+            EnableServerDependencyAutodetectFallback(_editor);
             Snackbar.Add($"Mod dependency sort failed: {exception.Message}", Severity.Error);
         }
         finally
@@ -1315,14 +1329,16 @@
             return;
 
         var result = await WorkshopMods.ResolveDependenciesAsync(profile.Mods, sortLoadOrder: sortLoadOrder);
-        ApplyProfileModDependencyResult(profile, result);
+        ApplyProfileModDependencyResult(profile, result, sortLoadOrder);
     }
 
     private void ApplyProfileModDependencyResult(
         QuasarConfigProfile profile,
-        QuasarModDependencyResolutionResult result)
+        QuasarModDependencyResolutionResult result,
+        bool sortLoadOrder)
     {
         profile.Mods = result.Mods.ToList();
+        ApplyServerDependencyAutodetectPolicy(profile, result, sortLoadOrder);
         _modDependencyTreeRows = result.DependencyTreeRows;
         RefreshModList(clearDependencyTree: false);
 
@@ -1331,6 +1347,31 @@
 
         if (result.Warnings.Count > 0)
             Snackbar.Add($"Mod dependency check: {SummarizeWarnings(result.Warnings)}", Severity.Warning);
+    }
+
+    private static void ApplyServerDependencyAutodetectPolicy(
+        QuasarConfigProfile profile,
+        QuasarModDependencyResolutionResult result,
+        bool sortLoadOrder)
+    {
+        profile.RootSettings.AutodetectDependencies = RequiresServerDependencyAutodetectFallback(result, sortLoadOrder);
+    }
+
+    private static bool RequiresServerDependencyAutodetectFallback(
+        QuasarModDependencyResolutionResult result,
+        bool sortLoadOrder)
+    {
+        return result.Warnings.Any(warning =>
+            !sortLoadOrder ||
+            !warning.StartsWith("Reordered dependency ", StringComparison.Ordinal));
+    }
+
+    private static void EnableServerDependencyAutodetectFallback(QuasarConfigProfile? profile)
+    {
+        if (profile is null || profile.Mods.Count == 0)
+            return;
+
+        profile.RootSettings.AutodetectDependencies = true;
     }
 
     private async Task CloneCurrentProfileForCrossplayAsync()
@@ -1444,7 +1485,7 @@
         _hasExplicitCategoryExpansion = true;
         _expandedCategoryKey = null;
         EnsureActiveConfigTabAllowed();
-        RefreshModList();
+        RefreshModList(enableDependencyFallback: false);
         QueueSelectedProfileDependencyCheck();
     }
 

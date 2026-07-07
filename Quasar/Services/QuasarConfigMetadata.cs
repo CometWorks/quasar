@@ -59,6 +59,8 @@ public sealed class QuasarConfigOptionDefinition
 
     public string SearchAliases { get; init; } = string.Empty;
 
+    public bool Hidden { get; init; }
+
     private string SearchBlob =>
         string.Join(
             ' ',
@@ -119,7 +121,7 @@ public static class QuasarConfigMetadata
         RootDecimal("WatcherSimulationSpeedMinimum", "WatcherSimulationSpeedMinimum", "automation", "Min Simulation Speed", 90, min: 0, max: 1.1, step: 0.01),
         RootInt("ManualActionDelay", "ManualActionDelay", "automation", "Manual Action Delay (min)", 100, min: 0),
         RootText("ManualActionChatMessage", "ManualActionChatMessage", "automation", "Manual Action Chat Message", 110, helperText: "Use {0} for minute countdown."),
-        RootBool("AutodetectDependencies", "AutodetectDependencies", "automation", "Autodetect Dependencies", 120),
+        RootBool("AutodetectDependencies", "AutodetectDependencies", "automation", "Autodetect Dependencies", 120, hidden: true),
 
         RootBool("SaveChatToLog", "SaveChatToLog", "moderation", "Save Chat To Log", 10),
         RootSelectText("NetworkType", "NetworkType", "moderation", "Network Type", 20, [new(nameof(QuasarNetworkType.Steam), "Steam"), new(nameof(QuasarNetworkType.EOS), "EOS")], helperText: "Controls Steam or EOS networking and mod source resolution.", searchAliases: "steam eos epic mods workshop"),
@@ -368,7 +370,7 @@ public static class QuasarConfigMetadata
         return intValue.ToString(CultureInfo.InvariantCulture);
     }
 
-    private static QuasarConfigOptionDefinition RootBool(string propertyName, string elementName, string categoryKey, string label, int order, string helperText = "", string searchAliases = "") =>
+    private static QuasarConfigOptionDefinition RootBool(string propertyName, string elementName, string categoryKey, string label, int order, string helperText = "", string searchAliases = "", bool hidden = false) =>
         new()
         {
             Scope = QuasarConfigOptionScope.Root,
@@ -380,6 +382,7 @@ public static class QuasarConfigMetadata
             Order = order,
             HelperText = helperText,
             SearchAliases = searchAliases,
+            Hidden = hidden,
         };
 
     private static QuasarConfigOptionDefinition RootInt(string propertyName, string elementName, string categoryKey, string label, int order, double? min = null, double? max = null, double? step = 1, string helperText = "", string searchAliases = "") =>

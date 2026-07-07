@@ -7,7 +7,7 @@
 @inject ProfilerStoreService ProfilerStore
 @inject PluginStatsStoreService PluginStatsStore
 @inject ISnackbar Snackbar
-@inject ILocalStorageService LocalStorage
+@inject BrowserStorageService BrowserStorage
 @inject IDialogService DialogService
 @inject ThemePreferenceService ThemePreference
 @inject IJSRuntime JS
@@ -432,7 +432,7 @@ else
     {
         try
         {
-            var stored = await LocalStorage.GetItemAsync<AnalyticsViewConfig>(StorageKey);
+            var stored = await BrowserStorage.GetJsonAsync<AnalyticsViewConfig>(StorageKey);
             _config = NormalizeConfig(stored);
             _configLoaded = true;
         }
@@ -453,7 +453,7 @@ else
 
         try
         {
-            await LocalStorage.SetItemAsync(StorageKey, _config);
+            await BrowserStorage.SetJsonAsync(StorageKey, _config);
         }
         catch (InvalidOperationException)
         {

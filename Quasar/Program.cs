@@ -135,7 +135,6 @@ public class Program
                 .SetApplicationName("Quasar")
                 .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyringDirectory));
             builder.Services.AddHttpClient();
-            builder.Services.AddLocalStorageServices();
             builder.Services.AddMudServices(configuration =>
             {
                 configuration.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomStart;
@@ -164,6 +163,7 @@ public class Program
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
             builder.Services.AddSingleton<QuasarWorldTemplateCatalog>();
+            builder.Services.AddScoped<BrowserStorageService>();
             builder.Services.AddScoped<WorldTemplateImportLocationService>();
             builder.Services.AddSingleton<QuasarPluginCatalogService>();
             builder.Services.AddSingleton<PluginCatalogRefreshService>();

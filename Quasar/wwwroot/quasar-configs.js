@@ -2,6 +2,26 @@ window.quasarConfigs = window.quasarConfigs || {
     getSystemDarkMode() {
         return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
     },
+    getLocalStorage(key) {
+        try {
+            return window.localStorage ? window.localStorage.getItem(key) : null;
+        } catch {
+            return null;
+        }
+    },
+    setLocalStorage(key, value) {
+        try {
+            if (!window.localStorage) {
+                return;
+            }
+            if (value === null || value === undefined) {
+                window.localStorage.removeItem(key);
+            } else {
+                window.localStorage.setItem(key, String(value));
+            }
+        } catch {
+        }
+    },
     getViewportWidth() {
         return Math.max(320, Math.floor(window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth || 1280));
     },

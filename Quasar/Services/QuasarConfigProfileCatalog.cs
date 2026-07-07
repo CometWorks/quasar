@@ -17,8 +17,7 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
     private readonly ILogger<QuasarConfigProfileCatalog> _logger;
     private List<QuasarConfigProfile> _profiles;
     private string _snapshot;
-    private FileSystemWatcher? _watcher;
-    private CancellationTokenSource? _reloadDebounce;
+    private DebouncedFileWatcher? _watcher;
 
     public QuasarConfigProfileCatalog(ILogger<QuasarConfigProfileCatalog> logger)
     {
@@ -33,8 +32,6 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
     public void Dispose()
     {
         _watcher?.Dispose();
-        _reloadDebounce?.Cancel();
-        _reloadDebounce?.Dispose();
     }
 
     public IReadOnlyList<QuasarConfigProfile> GetProfiles()
@@ -336,28 +333,12 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
     private void StartWatching()
     {
         var directory = GetProfilesDirectory();
-        Directory.CreateDirectory(directory);
-
-        _watcher = new FileSystemWatcher(directory)
-        {
-            IncludeSubdirectories = true,
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
-            Filter = "*.json",
-        };
-
-        _watcher.Changed += HandleWatchedFileChanged;
-        _watcher.Created += HandleWatchedFileChanged;
-        _watcher.Deleted += HandleWatchedFileChanged;
-        _watcher.Renamed += HandleWatchedFileChanged;
-        _watcher.EnableRaisingEvents = true;
-    }
-
-    private void HandleWatchedFileChanged(object sender, FileSystemEventArgs args)
-    {
-        if (!IsTrackedProfilePath(args.FullPath))
-            return;
-
-        ScheduleReload();
+        _watcher = DebouncedFileWatcher.WatchDirectory(
+            directory,
+            "*.json",
+            includeSubdirectories: true,
+            IsTrackedProfilePath,
+            ReloadFromDisk);
     }
 
     private static bool IsTrackedProfilePath(string path)
@@ -366,30 +347,6 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
             return false;
 
         return string.Equals(Path.GetFileName(path), "profile.json", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void ScheduleReload()
-    {
-        CancellationTokenSource debounce;
-        lock (_sync)
-        {
-            _reloadDebounce?.Cancel();
-            _reloadDebounce?.Dispose();
-            _reloadDebounce = new CancellationTokenSource();
-            debounce = _reloadDebounce;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(250), debounce.Token);
-                ReloadFromDisk();
-            }
-            catch (OperationCanceledException)
-            {
-            }
-        }, CancellationToken.None);
     }
 
     private void ReloadFromDisk()

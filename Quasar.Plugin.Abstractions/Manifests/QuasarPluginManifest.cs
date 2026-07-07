@@ -29,14 +29,6 @@ public sealed class QuasarPluginManifest
         init => _companionPluginManifests = value ?? [];
     }
 
-    [JsonIgnore]
-    [Obsolete("Use CompanionPluginManifests for owned companion plugin metadata.")]
-    public IReadOnlyList<string> CompanionPlugins
-    {
-        get => _companionPluginManifests.Select(companion => companion.Id).Where(id => !string.IsNullOrWhiteSpace(id)).ToArray();
-        init => _companionPluginManifests = value?.Select(id => new QuasarCompanionPluginManifest { Id = id }).ToArray() ?? [];
-    }
-
     public IReadOnlyList<string> Dependencies { get; init; } = [];
 
     private IReadOnlyList<QuasarCompanionPluginManifest> _companionPluginManifests = [];
