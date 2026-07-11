@@ -112,40 +112,13 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
         Changed?.Invoke();
     }
 
-    public async Task RestoreDefaultProfilesAsync(CancellationToken cancellationToken = default)
-    {
-        var defaults = CreateDefaultProfiles(saveToDisk: false);
-
-        foreach (var profile in defaults)
-            await SaveProfileAsync(profile, cancellationToken);
-
-        lock (_sync)
-        {
-            foreach (var profile in defaults)
-            {
-                var normalized = Normalize(Clone(profile));
-                var index = _profiles.FindIndex(existing =>
-                    string.Equals(existing.ConfigProfileId, normalized.ConfigProfileId, StringComparison.OrdinalIgnoreCase));
-
-                if (index >= 0)
-                    _profiles[index] = Clone(normalized);
-                else
-                    _profiles.Add(Clone(normalized));
-            }
-
-            _snapshot = CreateSnapshot(_profiles);
-        }
-
-        Changed?.Invoke();
-    }
-
     private List<QuasarConfigProfile> LoadProfiles()
     {
         try
         {
             var directory = GetProfilesDirectory();
             if (!Directory.Exists(directory))
-                return CreateDefaultProfiles(saveToDisk: true);
+                return [];
 
             var profiles = Directory
                 .GetFiles(directory, "profile.json", SearchOption.AllDirectories)
@@ -175,64 +148,6 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
         {
             _logger.LogWarning(exception, "Failed to load Quasar config profile from {Path}", path);
             return null;
-        }
-    }
-
-    private List<QuasarConfigProfile> CreateDefaultProfiles(bool saveToDisk)
-    {
-        var profiles = new List<QuasarConfigProfile>
-        {
-            CreateDefaultProfile("survival-default", "Survival (default)", 1),
-            CreateDefaultProfile("creative-default", "Creative (default)", 0),
-        };
-
-        if (saveToDisk)
-        {
-            foreach (var profile in profiles)
-                SaveDefaultProfile(profile);
-        }
-
-        return profiles;
-    }
-
-    private static QuasarConfigProfile CreateDefaultProfile(string id, string name, int gameMode)
-    {
-        return Normalize(new QuasarConfigProfile
-        {
-            ConfigProfileId = id,
-            Name = name,
-            Description = "Quasar built-in starter profile.",
-            SessionSettings = new QuasarSessionSettings
-            {
-                GameMode = gameMode,
-                MaxPlayers = 30,
-            },
-            Plugins = CreateDefaultPlugins(),
-        });
-    }
-
-    private static List<QuasarPluginSelection> CreateDefaultPlugins() =>
-    [
-        new() { PluginId = "C88741F0-0AA5-4263-BD78-5D21467A84D3", DisplayName = "Concealment" },
-        new() { PluginId = "DF09925B-6D53-41F2-899C-CA6214B5DD6F", DisplayName = "Essentials" },
-        new() { PluginId = "9AC2F6A8-B8A7-4250-8814-BADE62C5CF3C", DisplayName = "GridBackups" },
-        new() { PluginId = "9103FB18-9813-4B64-9D87-A58434266D93", DisplayName = "Block Limits" },
-        new() { PluginId = "17C928CE-4645-4E1B-9365-C3C46BFE061D", DisplayName = "Hangar" },
-    ];
-
-    private void SaveDefaultProfile(QuasarConfigProfile profile)
-    {
-        try
-        {
-            profile.UpdatedAtUtc = DateTimeOffset.UtcNow;
-            var path = GetProfilePath(profile.ConfigProfileId);
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, JsonSerializer.Serialize(profile, JsonOptions));
-            _logger.LogInformation("Seeded default Quasar config profile at {Path}.", path);
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Failed seeding default Quasar config profile {ConfigProfileId}.", profile.ConfigProfileId);
         }
     }
 

@@ -64,6 +64,18 @@
                     <MudChip T="string" Color="@GetStateColor(context.UniqueName)" Variant="Variant.Outlined">
                         @GetStateText(context.UniqueName)
                     </MudChip>
+                    @if (ShouldShowLatestErrorLine(context.UniqueName))
+                    {
+                        <MudTooltip Text="Open console at latest error lines">
+                            <MudLink Typo="Typo.caption"
+                                     Color="Color.Error"
+                                     Underline="Underline.Hover"
+                                     Style="display:block;max-width:18rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                                     @onclick="@(() => OpenErrorConsoleDialogAsync(context.UniqueName))">
+                                @GetRuntime(context.UniqueName)!.LatestErrorLogLine
+                            </MudLink>
+                        </MudTooltip>
+                    }
                 </MudTd>
                 <MudTd DataLabel="Unique name" Class="mono">@context.UniqueName</MudTd>
                 <MudTd DataLabel="Port" Class="mono">
@@ -293,6 +305,12 @@
     private Task OpenConsoleDialogAsync(string uniqueName) =>
         ServerActions.OpenConsoleDialogAsync(uniqueName);
 
+    private Task OpenErrorConsoleDialogAsync(string uniqueName)
+    {
+        var kind = GetRuntime(uniqueName)?.LatestErrorLogKind ?? string.Empty;
+        return ServerActions.OpenConsoleDialogAsync(uniqueName, kind, "errors");
+    }
+
     private Task CreateWorldTemplateAsync(DedicatedServerDefinition definition) =>
         ServerActions.CreateWorldTemplateAsync(definition);
 
@@ -507,6 +525,13 @@
             DedicatedServerProcessState.Faulted => Color.Error,
             _ => Color.Default,
         };
+    }
+
+    private bool ShouldShowLatestErrorLine(string uniqueName)
+    {
+        var runtime = GetRuntime(uniqueName);
+        return runtime?.State is DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted &&
+               !string.IsNullOrWhiteSpace(runtime.LatestErrorLogLine);
     }
 
     private bool IsRunning(string uniqueName)

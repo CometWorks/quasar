@@ -37,7 +37,7 @@
                         <MudTooltip Text="Shortcuts in this dialog: Ctrl or Alt + PageUp/PageDown rolls 250 lines; Ctrl or Alt + Home/End jumps to the oldest or newest lines.">
                             <MudIcon Icon="@Icons.Material.Filled.Keyboard" Size="Size.Small" Color="Color.Default" />
                         </MudTooltip>
-                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Search" OnClick="ShowServerLogExceptionsAsync">Exceptions</MudButton>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Search" OnClick="ShowServerLogErrorsAsync">Errors</MudButton>
                         <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshServerLogAsync" Disabled="@(!CanRefreshServerLog)">Refresh</MudButton>
                     </MudStack>
                 </MudStack>
@@ -92,7 +92,7 @@
                                            Disabled="@(!_infoLogLoaded || _infoLogMissing)"
                                            Size="Size.Small" />
                         </MudTooltip>
-                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Search" OnClick="ShowInfoLogExceptionsAsync">Exceptions</MudButton>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Search" OnClick="ShowInfoLogErrorsAsync">Errors</MudButton>
                         <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInfoLogAsync" Disabled="@(!CanRefreshInfoLog)">Refresh</MudButton>
                     </MudStack>
                 </MudStack>
@@ -198,6 +198,12 @@
     [Parameter]
     public string UniqueName { get; set; } = string.Empty;
 
+    [Parameter]
+    public string InitialLogKind { get; set; } = string.Empty;
+
+    [Parameter]
+    public string InitialMode { get; set; } = string.Empty;
+
     private readonly string _scrollContainerId = $"quasar-console-{Guid.NewGuid():N}";
     private readonly string _infoLogScrollContainerId = $"quasar-info-log-{Guid.NewGuid():N}";
 
@@ -220,6 +226,7 @@
     private bool _serverLogInteropDirty = true;
     private bool _serverLogInteropAttached;
     private DotNetObjectReference<ServerConsoleDialog>? _serverLogInteropRef;
+    private bool _loadInitialServerErrors;
     private string _infoLogContent = string.Empty;
     private string _infoLogPath = string.Empty;
     private string _infoLogSelection = LatestLogSelection;
@@ -232,6 +239,7 @@
     private bool _infoLogScrollPending;
     private long _infoLogReadOffset;
     private string _infoLogMode = "tail";
+    private bool _loadInitialInfoErrors;
     private CancellationTokenSource? _autoRefreshCts;
     private Task? _autoRefreshTask;
     private string ServerLogDownloadHref => BuildLogDownloadHref("server", _serverLogSelection);
@@ -243,9 +251,26 @@
 
     protected override void OnInitialized()
     {
+        ConfigureInitialView();
         _serverLogPath = ResolveSelectedServerLogPath();
         _infoLogPath = ResolveSelectedInfoLogPath();
         StartAutoRefreshLoop();
+    }
+
+    private void ConfigureInitialView()
+    {
+        if (!string.Equals(InitialMode, "errors", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (string.Equals(InitialLogKind, "magnetar", StringComparison.OrdinalIgnoreCase))
+        {
+            _activeTabIndex = InfoLogTabIndex;
+            _loadInitialInfoErrors = true;
+            return;
+        }
+
+        _activeTabIndex = ServerLogTabIndex;
+        _loadInitialServerErrors = true;
     }
 
     private void StartAutoRefreshLoop()
@@ -299,7 +324,15 @@
         {
             if (!_serverLogLoaded)
             {
-                await LoadServerLogAsync();
+                if (_loadInitialServerErrors)
+                {
+                    _loadInitialServerErrors = false;
+                    await LoadServerLogErrorsAsync();
+                }
+                else
+                {
+                    await LoadServerLogAsync();
+                }
                 return;
             }
 
@@ -320,7 +353,15 @@
 
             if (!_infoLogLoaded)
             {
-                await LoadInfoLogAsync();
+                if (_loadInitialInfoErrors)
+                {
+                    _loadInitialInfoErrors = false;
+                    await LoadInfoLogErrorsAsync();
+                }
+                else
+                {
+                    await LoadInfoLogAsync();
+                }
                 return;
             }
 
@@ -386,9 +427,9 @@
         await LoadServerLogAsync();
     }
 
-    private async Task ShowServerLogExceptionsAsync()
+    private async Task ShowServerLogErrorsAsync()
     {
-        await LoadServerLogExceptionsAsync();
+        await LoadServerLogErrorsAsync();
     }
 
     private async Task LoadServerLogAsync()
@@ -578,7 +619,7 @@
         return BuildServerLogMoveResult(true, scrollRatio);
     }
 
-    private async Task LoadServerLogExceptionsAsync()
+    private async Task LoadServerLogErrorsAsync()
     {
         _serverLogPath = ResolveSelectedServerLogPath();
 
@@ -591,18 +632,18 @@
                 _serverLogLineCount = 0;
                 _serverLogTruncated = false;
                 _serverLogError = null;
-                _serverLogMode = "exceptions";
+                _serverLogMode = "errors";
                 _serverLogWindowStart = 0;
             }
             else
             {
                 var tail = await ReadTailAsync(_serverLogPath, InfoLogExceptionSearchBytes);
-                SetServerLogTextWindow(ExtractExceptionBlocks(tail.Text, tail.Truncated, "server log"));
+                SetServerLogTextWindow(ExtractErrorBlocks(tail.Text, tail.Truncated, "server log"));
                 _serverLogTruncated = tail.Truncated;
                 _serverLogReadOffset = tail.FileLength;
                 _serverLogMissing = false;
                 _serverLogError = null;
-                _serverLogMode = "exceptions";
+                _serverLogMode = "errors";
             }
         }
         catch (Exception exception)
@@ -612,7 +653,7 @@
             _serverLogLineCount = 0;
             _serverLogTruncated = false;
             _serverLogMissing = false;
-            _serverLogMode = "exceptions";
+            _serverLogMode = "errors";
             _serverLogWindowStart = 0;
         }
 
@@ -652,9 +693,9 @@
         await LoadInfoLogAsync();
     }
 
-    private async Task ShowInfoLogExceptionsAsync()
+    private async Task ShowInfoLogErrorsAsync()
     {
-        await LoadInfoLogExceptionsAsync();
+        await LoadInfoLogErrorsAsync();
     }
 
     private async Task LoadInfoLogAsync()
@@ -762,7 +803,7 @@
         }
     }
 
-    private async Task LoadInfoLogExceptionsAsync()
+    private async Task LoadInfoLogErrorsAsync()
     {
         _infoLogPath = ResolveSelectedInfoLogPath();
 
@@ -775,18 +816,18 @@
                 _infoLogLineCount = 0;
                 _infoLogTruncated = false;
                 _infoLogError = null;
-                _infoLogMode = "exceptions";
+                _infoLogMode = "errors";
             }
             else
             {
                 var tail = await ReadTailAsync(_infoLogPath, InfoLogExceptionSearchBytes);
-                _infoLogContent = ExtractExceptionBlocks(tail.Text, tail.Truncated, "info log");
+                _infoLogContent = ExtractErrorBlocks(tail.Text, tail.Truncated, "info log");
                 _infoLogTruncated = tail.Truncated;
                 _infoLogReadOffset = tail.FileLength;
                 _infoLogLineCount = CountLines(_infoLogContent);
                 _infoLogMissing = false;
                 _infoLogError = null;
-                _infoLogMode = "exceptions";
+                _infoLogMode = "errors";
             }
         }
         catch (Exception exception)
@@ -796,7 +837,7 @@
             _infoLogLineCount = 0;
             _infoLogTruncated = false;
             _infoLogMissing = false;
-            _infoLogMode = "exceptions";
+            _infoLogMode = "errors";
         }
 
         _infoLogLoaded = true;
@@ -996,8 +1037,8 @@
         if (_infoLogMissing)
             return "Magnetar info log not found yet.";
 
-        var status = _infoLogMode == "exceptions"
-            ? $"{_infoLogLineCount} line(s) from exception excerpts{(_infoLogTruncated ? " (searched log tail)" : string.Empty)}"
+        var status = _infoLogMode == "errors"
+            ? $"{_infoLogLineCount} line(s) from error excerpts{(_infoLogTruncated ? " (searched log tail)" : string.Empty)}"
             : $"{_infoLogLineCount} line(s){(_infoLogTruncated ? " (tail only)" : string.Empty)}";
 
         return IsWatchingLatestInfoLog
@@ -1010,9 +1051,9 @@
         if (_serverLogMissing)
             return "Dedicated Server log not found yet.";
 
-        if (_serverLogMode == "exceptions")
+        if (_serverLogMode == "errors")
         {
-            var exceptionStatus = $"{_serverLogLineCount} line(s) from exception excerpts{(_serverLogTruncated ? " (searched log tail)" : string.Empty)}";
+            var exceptionStatus = $"{_serverLogLineCount} line(s) from error excerpts{(_serverLogTruncated ? " (searched log tail)" : string.Empty)}";
             return IsWatchingLatestServerLog
                 ? exceptionStatus
                 : $"Viewing archived file; refresh disabled. {exceptionStatus}";
@@ -1219,12 +1260,12 @@
         return $"{bytes} B";
     }
 
-    private static string ExtractExceptionBlocks(string text, bool truncated, string logName)
+    private static string ExtractErrorBlocks(string text, bool truncated, string logName)
     {
         var lines = text.Replace("\r\n", "\n").Split('\n');
         var matches = lines
             .Select((line, index) => (line, index))
-            .Where(item => item.line.Contains("Exception", StringComparison.OrdinalIgnoreCase))
+            .Where(item => IsErrorLogLine(item.line))
             .Select(item => item.index)
             .TakeLast(InfoLogExceptionMatchLimit)
             .ToList();
@@ -1232,8 +1273,8 @@
         if (matches.Count == 0)
         {
             return truncated
-                ? $"No lines containing \"Exception\" found in the searched {logName} tail."
-                : $"No lines containing \"Exception\" found in {logName}.";
+                ? $"No error lines found in the searched {logName} tail."
+                : $"No error lines found in {logName}.";
         }
 
         var ranges = new List<(int Start, int End)>();
@@ -1262,12 +1303,28 @@
             if (output.Count > 0)
                 output.Add(string.Empty);
 
-            output.Add($"--- Exception excerpt {rangeIndex + 1} (line {start + 1} of searched text) ---");
+            output.Add($"--- Error excerpt {rangeIndex + 1} (line {start + 1} of searched text) ---");
             for (var i = start; i <= end; i++)
                 output.Add(lines[i]);
         }
 
         return string.Join(Environment.NewLine, output);
+    }
+
+    private static bool IsErrorLogLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return false;
+
+        return line.Contains("exception", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("fatal", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("critical", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("error", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("failure", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("crash", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("could not", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("unable to", StringComparison.OrdinalIgnoreCase);
     }
 
     private void Close() => MudDialog.Close();

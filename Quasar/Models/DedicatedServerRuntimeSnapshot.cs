@@ -26,6 +26,10 @@ public sealed class DedicatedServerRuntimeSnapshot
 
     public string LastMessage { get; set; } = string.Empty;
 
+    public string LatestErrorLogLine { get; set; } = string.Empty;
+
+    public string LatestErrorLogKind { get; set; } = string.Empty;
+
     public bool AgentAttached { get; set; }
 
     public DateTimeOffset? AgentLastSeenUtc { get; set; }

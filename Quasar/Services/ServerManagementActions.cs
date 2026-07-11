@@ -23,11 +23,13 @@ public sealed class ServerManagementActions(
         KeepSelectedWorld,
     }
 
-    public async Task OpenConsoleDialogAsync(string uniqueName)
+    public async Task OpenConsoleDialogAsync(string uniqueName, string initialLogKind = "", string initialMode = "")
     {
         var parameters = new DialogParameters
         {
             [nameof(ServerConsoleDialog.UniqueName)] = uniqueName,
+            [nameof(ServerConsoleDialog.InitialLogKind)] = initialLogKind,
+            [nameof(ServerConsoleDialog.InitialMode)] = initialMode,
         };
 
         var dialogOptions = new DialogOptions

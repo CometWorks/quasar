@@ -101,6 +101,18 @@
                 {
                     <MudText Typo="Typo.caption">@Runtime.HealthSummary</MudText>
                 }
+                @if (ShouldShowLatestErrorLine)
+                {
+                    <MudTooltip Text="Open console at latest error lines">
+                        <MudLink Typo="Typo.caption"
+                                 Color="Color.Error"
+                                 Underline="Underline.Hover"
+                                 Style="display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                                 @onclick="OpenErrorConsoleAsync">
+                            @Runtime!.LatestErrorLogLine
+                        </MudLink>
+                    </MudTooltip>
+                }
                 <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-1">
                     <MudTooltip Text="@GetDirectConnectTooltip()">
                         <MudChip T="string"
@@ -194,6 +206,10 @@
         !string.IsNullOrWhiteSpace(Server.ConfigProfileId) &&
         ConfigProfiles.GetProfile(Server.ConfigProfileId) is not null;
 
+    private bool ShouldShowLatestErrorLine =>
+        ProcessState is DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted &&
+        !string.IsNullOrWhiteSpace(Runtime?.LatestErrorLogLine);
+
     private Task StartAsync() => StartRequested.InvokeAsync(Server.UniqueName);
 
     private Task StopAsync() => StopRequested.InvokeAsync(Server.UniqueName);
@@ -203,6 +219,9 @@
     private Task RestartAsync() => RestartRequested.InvokeAsync(Server.UniqueName);
 
     private Task OpenConsoleAsync() => ServerActions.OpenConsoleDialogAsync(Server.UniqueName);
+
+    private Task OpenErrorConsoleAsync() =>
+        ServerActions.OpenConsoleDialogAsync(Server.UniqueName, Runtime?.LatestErrorLogKind ?? string.Empty, "errors");
 
     private Task CloneAsync() => ServerActions.OpenCloneDialogAsync(Server);
 

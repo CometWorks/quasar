@@ -23,6 +23,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private const string ReniceHelperPath = "/usr/local/bin/quasar-renice";
     private const string RestoreInProgressMessage = "Start deferred: a backup restore is in progress for this server.";
     private const int MaxModDownloadFailures = 20;
+    private const int ErrorLogTailBytes = 256 * 1024;
     private static readonly Regex PrefixedLogLinePattern = new(
         @"^(?<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,7})?)\s*[:\-]\s*(?<message>.*)$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -246,6 +247,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     ? DedicatedServerProcessState.Restarting
                     : DedicatedServerProcessState.Starting;
                 state.LastMessage = "Starting process.";
+                state.LatestErrorLogLine = string.Empty;
+                state.LatestErrorLogKind = string.Empty;
                 if (!state.IsRestartPending)
                 {
                     state.RestartAttempts = 0;
@@ -539,6 +542,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             state.LastExitCode = null;
             state.StoppedAtUtc = DateTimeOffset.UtcNow;
             state.LastMessage = "Error status cleared.";
+            state.LatestErrorLogLine = string.Empty;
+            state.LatestErrorLogKind = string.Empty;
             state.ModDownloadFailures.Clear();
             ResetHealthTracking(state);
             changed = true;
@@ -666,6 +671,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 {
                     state.State = DedicatedServerProcessState.Running;
                     state.LastMessage = "Server online.";
+                    state.LatestErrorLogLine = string.Empty;
+                    state.LatestErrorLogKind = string.Empty;
                     state.AgentAttachRetryAttempts = 0;
                     healthChanged = true;
                 }
@@ -1497,6 +1504,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         bool stopRequested;
         bool restartRequested;
         bool shouldRestart = false;
+        bool shouldCaptureErrorTail = false;
+        DateTimeOffset? errorLogSinceUtc = null;
         int restartDelaySeconds = 0;
         DateTimeOffset now = DateTimeOffset.UtcNow;
 
@@ -1513,6 +1522,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (state.StartedAtUtc.HasValue && (now - state.StartedAtUtc.Value) >= RestartCounterResetWindow)
                 state.RestartAttempts = 0;
 
+            errorLogSinceUtc = state.StartedAtUtc;
             state.Process.Dispose();
             state.Process = null;
             state.ProcessId = null;
@@ -1574,7 +1584,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                             : $"Process exited with code {exitCode}.";
                 }
             }
+
+            shouldCaptureErrorTail = state.State is DedicatedServerProcessState.Crashed
+                or DedicatedServerProcessState.Faulted;
         }
+
+        if (shouldCaptureErrorTail)
+            CaptureLatestErrorLogTail(uniqueName, definition, errorLogSinceUtc);
 
         NotifyChanged();
         _logger.LogInformation("Server {UniqueName} exited with code {ExitCode}.", uniqueName, exitCode);
@@ -1768,23 +1784,177 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private void SetFaulted(string uniqueName, string message)
     {
+        DedicatedServerDefinition? definition = null;
+        DateTimeOffset? errorLogSinceUtc = null;
         lock (_sync)
         {
             if (!_states.TryGetValue(uniqueName, out var state))
                 return;
 
+            definition = Clone(state.Definition);
+            errorLogSinceUtc = state.StartedAtUtc;
             state.State = DedicatedServerProcessState.Faulted;
             state.Process = null;
             state.ProcessId = null;
             state.IsRestartPending = false;
             state.LastMessage = message;
+            state.LatestErrorLogLine = string.Empty;
+            state.LatestErrorLogKind = string.Empty;
             state.StoppedAtUtc = DateTimeOffset.UtcNow;
             ResetHealthTracking(state);
         }
 
+        if (definition is not null && errorLogSinceUtc.HasValue)
+            CaptureLatestErrorLogTail(uniqueName, definition, errorLogSinceUtc);
+
         _logger.LogWarning("Server {UniqueName} faulted: {Message}", uniqueName, message);
         NotifyChanged();
     }
+
+    private void CaptureLatestErrorLogTail(string uniqueName, DedicatedServerDefinition definition, DateTimeOffset? sinceUtc)
+    {
+        var latest = FindLatestErrorLogLine(definition, sinceUtc);
+        if (latest is null)
+            return;
+
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out var state))
+                return;
+
+            state.LatestErrorLogLine = latest.Line;
+            state.LatestErrorLogKind = latest.Kind;
+        }
+    }
+
+    private static ErrorLogLine? FindLatestErrorLogLine(DedicatedServerDefinition definition, DateTimeOffset? sinceUtc)
+    {
+        var serverLog = FindLatestErrorLine(
+            ResolveDedicatedServerAppDataPath(definition),
+            "SpaceEngineersDedicated*.log",
+            "server",
+            sinceUtc);
+        var magnetarLog = FindLatestErrorLine(
+            ResolveMagnetarAppDataPath(definition),
+            "info*.log",
+            "magnetar",
+            sinceUtc);
+
+        return new[] { serverLog, magnetarLog }
+            .Where(line => line is not null)
+            .Cast<ErrorLogLine>()
+            .OrderByDescending(line => line.FileLastWriteUtc)
+            .FirstOrDefault();
+    }
+
+    private static ErrorLogLine? FindLatestErrorLine(string appDataPath, string searchPattern, string kind, DateTimeOffset? sinceUtc)
+    {
+        try
+        {
+            if (!Directory.Exists(appDataPath))
+                return null;
+
+            var file = Directory.EnumerateFiles(appDataPath, searchPattern, SearchOption.TopDirectoryOnly)
+                .Select(path => new FileInfo(path))
+                .OrderByDescending(file => file.LastWriteTimeUtc)
+                .ThenByDescending(file => file.Name, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault();
+            if (file is null || !file.Exists)
+                return null;
+
+            if (sinceUtc.HasValue && file.LastWriteTimeUtc < sinceUtc.Value.UtcDateTime.AddSeconds(-5))
+                return null;
+
+            foreach (var line in ReadLogTailLines(file.FullName, ErrorLogTailBytes).Reverse())
+            {
+                var normalized = NormalizeErrorLogLine(line, out var timestampUtc);
+                if (sinceUtc.HasValue &&
+                    timestampUtc.HasValue &&
+                    timestampUtc.Value < sinceUtc.Value.AddSeconds(-5))
+                {
+                    continue;
+                }
+
+                if (!IsErrorLogLine(normalized))
+                    continue;
+
+                return new ErrorLogLine(kind, TruncateErrorStatusLine(normalized), file.LastWriteTimeUtc);
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<string> ReadLogTailLines(string path, int maxBytes)
+    {
+        using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+
+        var truncated = false;
+        if (stream.Length > maxBytes)
+        {
+            stream.Seek(-maxBytes, SeekOrigin.End);
+            truncated = true;
+        }
+
+        using var reader = new StreamReader(stream);
+        if (truncated)
+            reader.ReadLine();
+
+        return reader.ReadToEnd()
+            .Replace("\r\n", "\n")
+            .Split('\n')
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .ToArray();
+    }
+
+    private static string NormalizeErrorLogLine(string line, out DateTimeOffset? timestampUtc)
+    {
+        timestampUtc = null;
+        var text = line.Trim();
+        if (TryNormalizePrefixedLogLine(text, out var parsedTimestampUtc, out var message))
+        {
+            timestampUtc = parsedTimestampUtc;
+            text = message;
+        }
+
+        return Regex.Replace(text, @"\s+", " ").Trim();
+    }
+
+    private static bool IsErrorLogLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return false;
+
+        return line.Contains("exception", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("fatal", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("critical", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("error", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("failure", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("crash", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("could not", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains("unable to", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string TruncateErrorStatusLine(string line) =>
+        line.Length <= 500 ? line : $"{line[..500]}...";
+
+    private static string ResolveDedicatedServerAppDataPath(DedicatedServerDefinition definition) =>
+        string.IsNullOrWhiteSpace(definition.DedicatedServerAppDataPath)
+            ? MagnetarPaths.GetQuasarServerDedicatedServerAppDataDirectory(definition.UniqueName)
+            : definition.DedicatedServerAppDataPath.Trim();
+
+    private static string ResolveMagnetarAppDataPath(DedicatedServerDefinition definition) =>
+        string.IsNullOrWhiteSpace(definition.MagnetarAppDataPath)
+            ? MagnetarPaths.GetQuasarServerMagnetarAppDataDirectory(definition.UniqueName)
+            : definition.MagnetarAppDataPath.Trim();
 
     private void SetStopped(string uniqueName, string message)
     {
@@ -2645,6 +2815,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             ProcessId = state.ProcessId,
             LastExitCode = state.LastExitCode,
             LastMessage = state.LastMessage,
+            LatestErrorLogLine = state.LatestErrorLogLine,
+            LatestErrorLogKind = state.LatestErrorLogKind,
             AgentAttached = agent?.IsConnected == true,
             AgentLastSeenUtc = agent?.LastSeenUtc,
             StartedAtUtc = state.StartedAtUtc,
@@ -2691,6 +2863,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public int? LastExitCode { get; set; }
 
         public string LastMessage { get; set; } = string.Empty;
+
+        public string LatestErrorLogLine { get; set; } = string.Empty;
+
+        public string LatestErrorLogKind { get; set; } = string.Empty;
 
         public DateTimeOffset? StartedAtUtc { get; set; }
 
@@ -2756,6 +2932,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         float? SimulationProgressScore = null,
         int? SimulationProgressWindowSeconds = null,
         ulong? SimulationFramesAdvanced = null);
+
+    private sealed record ErrorLogLine(
+        string Kind,
+        string Line,
+        DateTime FileLastWriteUtc);
 
     private sealed class PersistedSupervisorState
     {
