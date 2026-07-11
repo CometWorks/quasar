@@ -336,6 +336,18 @@
                                 </MudText>
                             </MudStack>
 
+                            @if (IsSetupStepComplete(4))
+                            {
+                                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="setup-wizard-actions">
+                                    <MudButton Variant="Variant.Filled"
+                                               Color="Color.Success"
+                                               StartIcon="@Icons.Material.Filled.Check"
+                                               OnClick="HideSetupWizard">
+                                        Close
+                                    </MudButton>
+                                </MudStack>
+                            }
+
                         </MudStack>
 
                         @if (LaunchedServers.Count > 0)

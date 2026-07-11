@@ -55,10 +55,11 @@ the world-options UI and managed from these results: Quasar disables it after a
 clean check or successful sort, and enables it when dependency state is
 unchecked or unresolved warnings remain.
 
-**World-template import.** The world-template UI can derive a new config profile
-from a template's current `Sandbox_config.sbc`. It imports DS-visible session
-settings and workshop mods, then persists the result through the same
-`UpsertAsync` path.
+**Profile creation.** Profiles start empty when created directly, or can be
+derived by the world-template UI from a template's current `Sandbox_config.sbc`.
+Template-derived profiles import DS-visible session settings and workshop mods,
+then persist the result through the same `UpsertAsync` path. Quasar does not
+seed or restore built-in default profiles.
 
 **Live vs restart-required.** Changes that the running server/agent can apply
 dynamically go live immediately; changes flagged restart-required are applied on
