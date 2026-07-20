@@ -66,6 +66,12 @@ Mods tab is required for this automatic dependency check. If the key is missing
 or Steam cannot be reached, Quasar keeps the current mod list and shows a
 warning instead of blocking the save.
 
+Opening the Mods tab also refreshes each selected mod's display name from Steam
+Workshop. This public lookup does not require the Workshop API key and preserves
+Workshop IDs, load order, and dependency flags. Refreshed names remain pending
+editor changes until the profile is saved; a failed lookup leaves existing names
+unchanged.
+
 Space Engineers Dedicated Server also has its own **Autodetect Dependencies**
 setting. Quasar manages that setting in the profile instead of showing it as a
 manual world option: it is disabled after a clean dependency check or a

@@ -55,6 +55,10 @@ the world-options UI and managed from these results: Quasar disables it after a
 clean check or successful sort, and enables it when dependency state is
 unchecked or unresolved warnings remain.
 
+Opening the Mods tab refreshes selected mod display names from Steam Workshop as
+pending editor changes. The refresh preserves Workshop IDs, list order, and
+dependency flags, and failures leave the stored names intact.
+
 **Profile creation.** Profiles start empty when created directly, or can be
 derived by the world-template UI from a template's current `Sandbox_config.sbc`.
 Template-derived profiles import DS-visible session settings and workshop mods,

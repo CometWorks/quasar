@@ -148,7 +148,11 @@
                     </MudStack>
                 </MudPaper>
 
-                <MudTabs Rounded="true" ApplyEffectsToContainer="true" KeepPanelsAlive="false" @bind-ActivePanelIndex="_activeConfigTabIndex">
+                <MudTabs Rounded="true"
+                         ApplyEffectsToContainer="true"
+                         KeepPanelsAlive="false"
+                         ActivePanelIndex="_activeConfigTabIndex"
+                         ActivePanelIndexChanged="HandleConfigTabChangedAsync">
                     <MudTabPanel Text="World">
                         @if (IsConfigTabActive(WorldTabIndex))
                         {
@@ -995,6 +999,7 @@
     private bool _modResolving;
     private bool _deadModCleanupRunning;
     private bool _modDependencyCheckRunning;
+    private bool _modNameRefreshRunning;
     private long _modDependencyCheckVersion;
     private long _modListRenderVersion;
     private IReadOnlyList<QuasarModDependencyTreeRow> _modDependencyTreeRows = [];
@@ -1609,6 +1614,65 @@
     }
 
     private bool IsConfigTabActive(int tabIndex) => _activeConfigTabIndex == tabIndex;
+
+    private async Task HandleConfigTabChangedAsync(int tabIndex)
+    {
+        _activeConfigTabIndex = tabIndex;
+        if (tabIndex == ModsTabIndex)
+            await RefreshModNamesAsync();
+    }
+
+    private async Task RefreshModNamesAsync()
+    {
+        if (_editor is null || _editor.Mods.Count == 0 || _modNameRefreshRunning)
+            return;
+
+        _modNameRefreshRunning = true;
+        var profile = _editor;
+        var profileId = profile.ConfigProfileId;
+        try
+        {
+            var names = await WorkshopMods.GetDisplayNamesAsync(profile.Mods.Select(mod => mod.WorkshopId));
+            if (_editor is null ||
+                !string.Equals(_editor.ConfigProfileId, profileId, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var updatedCount = 0;
+            foreach (var mod in profile.Mods)
+            {
+                if (!names.TryGetValue(mod.WorkshopId, out var displayName) ||
+                    string.Equals(mod.DisplayName, displayName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                mod.DisplayName = displayName;
+                updatedCount++;
+            }
+
+            if (updatedCount == 0)
+                return;
+
+            _modDependencyTreeRows = _modDependencyTreeRows
+                .Select(row => names.TryGetValue(row.WorkshopId, out var displayName)
+                    ? row with { DisplayName = displayName }
+                    : row)
+                .ToList();
+            RefreshModList(clearDependencyTree: false, enableDependencyFallback: false);
+            Snackbar.Add($"Refreshed {updatedCount} mod name(s). Save profile to persist.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Mod name refresh failed: {exception.Message}", Severity.Warning);
+        }
+        finally
+        {
+            _modNameRefreshRunning = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
 
     private void EnsureActiveConfigTabAllowed()
     {
