@@ -665,9 +665,7 @@ public class Program
         if (server is null)
             return null;
 
-        var appDataPath = string.IsNullOrWhiteSpace(server.DedicatedServerAppDataPath)
-            ? MagnetarPaths.GetQuasarServerDedicatedServerAppDataDirectory(uniqueName)
-            : server.DedicatedServerAppDataPath.Trim();
+        var appDataPath = DedicatedServerPathResolver.Resolve(server).DedicatedServerAppDataPath;
 
         if (!Directory.Exists(appDataPath))
             return null;
@@ -681,9 +679,7 @@ public class Program
         if (server is null)
             return null;
 
-        var appDataPath = string.IsNullOrWhiteSpace(server.MagnetarAppDataPath)
-            ? MagnetarPaths.GetQuasarServerMagnetarAppDataDirectory(uniqueName)
-            : server.MagnetarAppDataPath.Trim();
+        var appDataPath = DedicatedServerPathResolver.Resolve(server).MagnetarAppDataPath;
 
         if (!Directory.Exists(appDataPath))
             return null;

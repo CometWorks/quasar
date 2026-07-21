@@ -1594,7 +1594,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         NotifyChanged();
         _logger.LogInformation("Server {UniqueName} exited with code {ExitCode}.", uniqueName, exitCode);
-        PruneDedicatedServerLogFiles(uniqueName, definition.DedicatedServerAppDataPath, definition.DsLogFilesToKeep);
+        PruneDedicatedServerLogFiles(uniqueName, ResolveDedicatedServerAppDataPath(definition), definition.DsLogFilesToKeep);
 
         if (!shouldRestart)
             return;
@@ -1947,14 +1947,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         line.Length <= 500 ? line : $"{line[..500]}...";
 
     private static string ResolveDedicatedServerAppDataPath(DedicatedServerDefinition definition) =>
-        string.IsNullOrWhiteSpace(definition.DedicatedServerAppDataPath)
-            ? MagnetarPaths.GetQuasarServerDedicatedServerAppDataDirectory(definition.UniqueName)
-            : definition.DedicatedServerAppDataPath.Trim();
+        DedicatedServerPathResolver.Resolve(definition).DedicatedServerAppDataPath;
 
     private static string ResolveMagnetarAppDataPath(DedicatedServerDefinition definition) =>
-        string.IsNullOrWhiteSpace(definition.MagnetarAppDataPath)
-            ? MagnetarPaths.GetQuasarServerMagnetarAppDataDirectory(definition.UniqueName)
-            : definition.MagnetarAppDataPath.Trim();
+        DedicatedServerPathResolver.Resolve(definition).MagnetarAppDataPath;
 
     private void SetStopped(string uniqueName, string message)
     {

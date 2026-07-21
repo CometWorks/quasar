@@ -373,8 +373,22 @@
                         </TitleContent>
                         <ChildContent>
                             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-3">
-                                Advanced. Leave these blank unless you need to override Quasar's managed runtime defaults.
+                                Advanced. Leave these blank for relocatable managed defaults. Relative paths resolve from the Quasar root; absolute paths stay external.
                             </MudAlert>
+                            @if (HasExternalPathOverrides)
+                            {
+                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-3">
+                                    One or more absolute path overrides point outside the current Quasar root. They will not move when the Quasar folder moves. Reset them only after the authoritative server data has been copied into this Quasar root.
+                                </MudAlert>
+                            }
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Default"
+                                       Size="Size.Small"
+                                       Class="mb-3"
+                                       StartIcon="@Icons.Material.Filled.Restore"
+                                       OnClick="ResetManagedPaths">
+                                Use Managed Defaults
+                            </MudButton>
                             <MudGrid>
                                 <MudItem xs="12" md="6">
                                     <MudTextField
@@ -392,9 +406,12 @@
                                 </MudItem>
                                 <MudItem xs="12" md="6">
                                     <MudTextField
-                                        @bind-Value="_editor.DedicatedServerAppDataPath"
+                                        T="string"
+                                        Value="_editor.DedicatedServerAppDataPath"
+                                        ValueChanged="HandleDedicatedServerAppDataPathChanged"
                                         Label="DS app-data path"
                                         Variant="Variant.Outlined"
+                                        Immediate="true"
                                         HelperText="@($"Space Engineers Dedicated Server data (-path). Default: {GetDefaultDedicatedServerAppDataPath()}")" />
                                 </MudItem>
                                 <MudItem xs="12" md="6">
@@ -598,6 +615,14 @@
 
     private IReadOnlyList<WorldSaveOption> AvailableWorldSaves => _availableWorldSaves;
 
+    private bool HasExternalPathOverrides =>
+        DedicatedServerPathResolver.IsAbsoluteOutsideQuasarRoot(_editor.ExecutablePath) ||
+        DedicatedServerPathResolver.IsAbsoluteOutsideQuasarRoot(_editor.WorkingDirectory) ||
+        DedicatedServerPathResolver.IsAbsoluteOutsideQuasarRoot(_editor.DedicatedServerAppDataPath) ||
+        DedicatedServerPathResolver.IsAbsoluteOutsideQuasarRoot(_editor.MagnetarAppDataPath) ||
+        DedicatedServerPathResolver.IsAbsoluteOutsideQuasarRoot(_editor.WorldPath) ||
+        DedicatedServerPathResolver.IsAbsoluteOutsideQuasarRoot(_editor.ConfigFilePath);
+
     private void HandleWorldSaveChanged(string value)
     {
         _editor.WorldSaveName = value ?? string.Empty;
@@ -606,6 +631,21 @@
     private void HandleSavesPathChanged(string value)
     {
         _editor.WorldPath = value ?? string.Empty;
+        RefreshAvailableWorldSaves();
+    }
+
+    private void HandleDedicatedServerAppDataPathChanged(string value)
+    {
+        _editor.DedicatedServerAppDataPath = value ?? string.Empty;
+        RefreshAvailableWorldSaves();
+    }
+
+    private void ResetManagedPaths()
+    {
+        _editor.DedicatedServerAppDataPath = string.Empty;
+        _editor.MagnetarAppDataPath = string.Empty;
+        _editor.WorldPath = string.Empty;
+        _editor.ConfigFilePath = string.Empty;
         RefreshAvailableWorldSaves();
     }
 
@@ -656,9 +696,12 @@
         if (!string.IsNullOrWhiteSpace(_editor.WorldSaveName))
             return;
 
-        var worldPath = _editor.WorldPath?.Trim();
-        if (string.IsNullOrWhiteSpace(worldPath) ||
-            !File.Exists(Path.Combine(worldPath, "Sandbox.sbc")))
+        var storedWorldPath = _editor.WorldPath?.Trim();
+        if (string.IsNullOrWhiteSpace(storedWorldPath))
+            return;
+
+        var worldPath = DedicatedServerPathResolver.ResolvePath(storedWorldPath, GetDefaultSavesPath());
+        if (!File.Exists(Path.Combine(worldPath, "Sandbox.sbc")))
         {
             return;
         }
@@ -668,7 +711,7 @@
         if (string.IsNullOrWhiteSpace(saveName) || string.IsNullOrWhiteSpace(savesPath))
             return;
 
-        _editor.WorldPath = savesPath;
+        _editor.WorldPath = DedicatedServerPathResolver.ToStoredPath(savesPath, GetDefaultSavesPath());
         _editor.WorldSaveName = saveName;
     }
 
@@ -780,8 +823,8 @@
         updated.DisplayName = NormalizeWhitespace(updated.DisplayName);
         updated.InGameServerName = NormalizeWhitespace(updated.InGameServerName);
         updated.InGameWorldName = NormalizeWhitespace(updated.InGameWorldName);
-        updated.WorldPath = GetEffectiveSavesPath();
         updated.WorldSaveName = NormalizeWhitespace(updated.WorldSaveName);
+        DedicatedServerPathResolver.CanonicalizeForStorage(updated);
         MudDialog.Close(DialogResult.Ok(updated));
     }
 
@@ -862,7 +905,6 @@
         {
             Directory.CreateDirectory(savesPath);
             await Task.Run(() => CopyWorldDirectory(sourcePath, targetPath));
-            _editor.WorldPath = savesPath;
             _editor.WorldSaveName = saveName;
             _editor.WorldTemplateId = template.WorldTemplateId;
             if (!string.IsNullOrWhiteSpace(configProfileId))
@@ -917,18 +959,14 @@
 
     private string GetEffectiveSavesPath()
     {
-        return string.IsNullOrWhiteSpace(_editor.WorldPath)
-            ? GetDefaultSavesPath()
-            : _editor.WorldPath.Trim();
+        return DedicatedServerPathResolver.Resolve(_editor).SavesPath;
     }
 
     private string GetDefaultSavesPath()
     {
-        var dsPath = string.IsNullOrWhiteSpace(_editor.DedicatedServerAppDataPath)
-            ? GetDefaultDedicatedServerAppDataPath()
-            : _editor.DedicatedServerAppDataPath;
-
-        return Path.Combine(dsPath, "Saves");
+        return Path.Combine(
+            DedicatedServerPathResolver.Resolve(_editor).DedicatedServerAppDataPath,
+            "Saves");
     }
 
     private string CreateUniqueSaveName(string templateName)
@@ -995,11 +1033,9 @@
 
     private string GetDefaultConfigFilePath()
     {
-        var dsPath = string.IsNullOrWhiteSpace(_editor.DedicatedServerAppDataPath)
-            ? GetDefaultDedicatedServerAppDataPath()
-            : _editor.DedicatedServerAppDataPath;
-
-        return Path.Combine(dsPath, "SpaceEngineers-Dedicated.cfg");
+        return Path.Combine(
+            DedicatedServerPathResolver.Resolve(_editor).DedicatedServerAppDataPath,
+            "SpaceEngineers-Dedicated.cfg");
     }
 
     private string GetDefaultDedicatedServerAppDataPath()

@@ -63,10 +63,11 @@ public sealed class DedicatedServerRuntimePreparer
     {
         ArgumentNullException.ThrowIfNull(definition);
 
-        var dedicatedServerAppDataPath = RequirePath(definition.DedicatedServerAppDataPath, "DedicatedServerAppDataPath");
-        var magnetarAppDataPath = RequirePath(definition.MagnetarAppDataPath, "MagnetarAppDataPath");
+        var paths = DedicatedServerPathResolver.Resolve(definition);
+        var dedicatedServerAppDataPath = paths.DedicatedServerAppDataPath;
+        var magnetarAppDataPath = paths.MagnetarAppDataPath;
         var configProfile = ResolveConfigProfile(definition);
-        var worldPath = ResolveConfiguredWorldPath(definition);
+        var worldPath = ResolveConfiguredWorldPath(paths);
         var runtimeConfigPath = Path.Combine(dedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg");
         var lastSessionPath = Path.Combine(dedicatedServerAppDataPath, "Saves", "LastSession.sbl");
 
@@ -106,9 +107,10 @@ public sealed class DedicatedServerRuntimePreparer
 
         var sourceDirectory = LocateAgentSourceDirectory();
         var bundledPath = sourceDirectory is null ? string.Empty : Path.Combine(sourceDirectory, AgentPluginFileName);
-        var deployedPath = string.IsNullOrWhiteSpace(definition.MagnetarAppDataPath)
-            ? string.Empty
-            : Path.Combine(definition.MagnetarAppDataPath, "Local", AgentPluginFileName);
+        var deployedPath = Path.Combine(
+            DedicatedServerPathResolver.Resolve(definition).MagnetarAppDataPath,
+            "Local",
+            AgentPluginFileName);
 
         return new AgentDeploymentComparison(
             bundledPath,
@@ -124,9 +126,7 @@ public sealed class DedicatedServerRuntimePreparer
         string runtimeConfigPath,
         CancellationToken cancellationToken)
     {
-        var configuredSourcePath = string.IsNullOrWhiteSpace(definition.ConfigFilePath)
-            ? runtimeConfigPath
-            : definition.ConfigFilePath.Trim();
+        var configuredSourcePath = DedicatedServerPathResolver.Resolve(definition).ConfigFilePath;
 
         var sourcePath = File.Exists(configuredSourcePath)
             ? configuredSourcePath
@@ -875,18 +875,9 @@ public sealed class DedicatedServerRuntimePreparer
         return sanitized.Trim();
     }
 
-    private static string ResolveConfiguredWorldPath(DedicatedServerDefinition definition)
+    private static string ResolveConfiguredWorldPath(ResolvedDedicatedServerPaths paths)
     {
-        var savesPath = RequirePath(definition.WorldPath, "Saves path");
-        var saveName = RequirePath(definition.WorldSaveName, "World save");
-        if (Path.IsPathRooted(saveName) ||
-            saveName.Contains(Path.DirectorySeparatorChar) ||
-            saveName.Contains(Path.AltDirectorySeparatorChar))
-        {
-            throw new InvalidOperationException($"World save name '{saveName}' must be a folder name, not a path.");
-        }
-
-        return ResolveWorldPath(Path.Combine(savesPath, saveName));
+        return ResolveWorldPath(paths.WorldSavePath);
     }
 
     private static string ResolveWorldPath(string worldPath)

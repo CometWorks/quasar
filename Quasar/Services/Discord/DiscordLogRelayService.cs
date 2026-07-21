@@ -1,6 +1,7 @@
 using Discord;
 using Discord.WebSocket;
 using Magnetar.Protocol.Runtime;
+using Quasar.Models;
 
 namespace Quasar.Services.Discord;
 
@@ -109,9 +110,7 @@ public sealed class DiscordLogRelayService
         if (server is null)
             return null;
 
-        var appDataPath = string.IsNullOrWhiteSpace(server.DedicatedServerAppDataPath)
-            ? MagnetarPaths.GetQuasarServerDedicatedServerAppDataDirectory(uniqueName)
-            : server.DedicatedServerAppDataPath.Trim();
+        var appDataPath = DedicatedServerPathResolver.Resolve(server).DedicatedServerAppDataPath;
 
         if (!Directory.Exists(appDataPath))
             return null;
