@@ -780,6 +780,24 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         return EnumerateDedicatedServer64Candidates().FirstOrDefault(IsValidDedicatedServer64Directory) ?? string.Empty;
     }
 
+    // Managed Magnetar install root that companion plugin builds feed to $(Magnetar), but only
+    // when PluginSdk.dll is actually present under the layout the companion csproj expects
+    // ($(Magnetar)/Libraries/MagnetarLegacy on Windows, $(Magnetar)/Bin elsewhere). Returns
+    // empty otherwise so the build falls back to the project's own $(Magnetar) default.
+    // Symmetric with ResolveInstalledDedicatedServer64Path.
+    public string ResolveInstalledMagnetarInstallDirectory()
+    {
+        var installDirectory = _options.MagnetarInstallDirectory;
+        if (string.IsNullOrWhiteSpace(installDirectory))
+            return string.Empty;
+
+        var pluginSdkPath = OperatingSystem.IsWindows()
+            ? Path.Combine(installDirectory, "Libraries", "MagnetarLegacy", "PluginSdk.dll")
+            : Path.Combine(installDirectory, "Bin", "PluginSdk.dll");
+
+        return File.Exists(pluginSdkPath) ? installDirectory : string.Empty;
+    }
+
     private static string GetDedicatedServerVersion(string dedicatedServer64Path)
     {
         if (!IsValidDedicatedServer64Directory(dedicatedServer64Path))

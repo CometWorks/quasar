@@ -686,6 +686,14 @@ public sealed class QuasarUiPluginHubCatalogService
         if (!string.IsNullOrWhiteSpace(dedicatedServer64Path))
             startInfo.ArgumentList.Add($"-p:DS64={dedicatedServer64Path}");
 
+        // Companion plugins also reference PluginSdk.dll via the $(Magnetar) property (which
+        // defaults to a separately-installed %APPDATA%/Magnetar). Point it at Quasar's managed
+        // Magnetar install so PluginSdk resolves from the internal runtime; when that install is
+        // missing the property is left unset and the project's own $(Magnetar) fallback applies.
+        var magnetarInstallDirectory = _dedicatedServerRuntimeResolver.ResolveInstalledMagnetarInstallDirectory();
+        if (!string.IsNullOrWhiteSpace(magnetarInstallDirectory))
+            startInfo.ArgumentList.Add($"-p:Magnetar={magnetarInstallDirectory}");
+
         await RunProcessAsync(startInfo, "dotnet build", cancellationToken);
     }
 
