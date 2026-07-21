@@ -37,6 +37,7 @@ public sealed class QuasarUiPluginHubCatalogService
     private readonly IHostEnvironment _environment;
     private readonly QuasarUiPluginStateStore _pluginStates;
     private readonly QuasarUiPluginCatalog _uiPluginCatalog;
+    private readonly ManagedDedicatedServerRuntimeResolver _dedicatedServerRuntimeResolver;
     private readonly SemaphoreSlim _dotNetSdkInstallLock = new(1, 1);
     private QuasarDotNetSdkStatus _dotNetSdkStatus;
     private bool _dotNetSdkInstallInProgress;
@@ -48,7 +49,8 @@ public sealed class QuasarUiPluginHubCatalogService
         IConfiguration configuration,
         IHostEnvironment environment,
         QuasarUiPluginStateStore pluginStates,
-        QuasarUiPluginCatalog uiPluginCatalog)
+        QuasarUiPluginCatalog uiPluginCatalog,
+        ManagedDedicatedServerRuntimeResolver dedicatedServerRuntimeResolver)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;
@@ -56,6 +58,7 @@ public sealed class QuasarUiPluginHubCatalogService
         _environment = environment;
         _pluginStates = pluginStates;
         _uiPluginCatalog = uiPluginCatalog;
+        _dedicatedServerRuntimeResolver = dedicatedServerRuntimeResolver;
         _dotNetSdkStatus = DetectDotNetSdkStatus();
         _entries = LoadCache();
     }
@@ -673,6 +676,15 @@ public sealed class QuasarUiPluginHubCatalogService
         }
 
         startInfo.ArgumentList.Add($"-p:MagnetarProtocolAssembly={protocolAssemblyPath}");
+
+        // Companion plugins reference the Space Engineers DedicatedServer64 assemblies via
+        // the $(DS64) property. Point that at Quasar's managed DS install so the plugin builds
+        // against the internal runtime instead of requiring a separately-installed DS64. When no
+        // managed install is present the property is left unset and the project's own $(DS64)
+        // fallbacks (registry / Steam library path) take over.
+        var dedicatedServer64Path = _dedicatedServerRuntimeResolver.ResolveInstalledDedicatedServer64Path();
+        if (!string.IsNullOrWhiteSpace(dedicatedServer64Path))
+            startInfo.ArgumentList.Add($"-p:DS64={dedicatedServer64Path}");
 
         await RunProcessAsync(startInfo, "dotnet build", cancellationToken);
     }
