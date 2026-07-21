@@ -508,22 +508,21 @@ public sealed class QuasarBackupService
         WriteServerManifest(archive, definition, timestamp, QuasarBackupKind.Server);
         WriteEntry(archive, ServerDefinitionEntryName, JsonSerializer.SerializeToUtf8Bytes(definition, JsonOptions));
 
-        var dedicatedServerAppDataRoot = Path.GetFullPath(definition.DedicatedServerAppDataPath);
-        var savesRoot = string.IsNullOrWhiteSpace(definition.WorldPath)
-            ? string.Empty
-            : Path.GetFullPath(definition.WorldPath);
+        var paths = DedicatedServerPathResolver.Resolve(definition);
+        var dedicatedServerAppDataRoot = paths.DedicatedServerAppDataPath;
+        var savesRoot = paths.SavesPath;
         AddDirectory(
             archive,
             DedicatedServerPrefix,
-            definition.DedicatedServerAppDataPath,
+            paths.DedicatedServerAppDataPath,
             cancellationToken,
             sourcePath => IsExcludedDedicatedServerBackupPath(dedicatedServerAppDataRoot, savesRoot, sourcePath));
         AddDirectory(
             archive,
             MagnetarPrefix,
-            definition.MagnetarAppDataPath,
+            paths.MagnetarAppDataPath,
             cancellationToken,
-            sourcePath => IsExcludedMagnetarBackupPath(definition.MagnetarAppDataPath, sourcePath));
+            sourcePath => IsExcludedMagnetarBackupPath(paths.MagnetarAppDataPath, sourcePath));
         AddExternalDedicatedConfig(archive, definition, cancellationToken);
     }
 
@@ -729,11 +728,17 @@ public sealed class QuasarBackupService
                 restoreServerDefinition = true;
             }
             else if (entry.FullName.StartsWith(DedicatedServerPrefix, StringComparison.Ordinal))
-                destination = ResolvePrefixedExtractionTarget(entry.FullName, DedicatedServerPrefix, target.DedicatedServerAppDataPath);
+                destination = ResolvePrefixedExtractionTarget(
+                    entry.FullName,
+                    DedicatedServerPrefix,
+                    DedicatedServerPathResolver.Resolve(target).DedicatedServerAppDataPath);
             else if (entry.FullName.StartsWith(DedicatedConfigPrefix, StringComparison.Ordinal))
                 destination = ResolveDedicatedConfigExtractionTarget(entry.FullName, target);
             else if (entry.FullName.StartsWith(MagnetarPrefix, StringComparison.Ordinal))
-                destination = ResolvePrefixedExtractionTarget(entry.FullName, MagnetarPrefix, target.MagnetarAppDataPath);
+                destination = ResolvePrefixedExtractionTarget(
+                    entry.FullName,
+                    MagnetarPrefix,
+                    DedicatedServerPathResolver.Resolve(target).MagnetarAppDataPath);
             else if (entry.FullName.StartsWith(WorldPrefix, StringComparison.Ordinal))
             {
                 if (!includeWorldConfig && IsWorldConfigEntry(entry.FullName[WorldPrefix.Length..]))
@@ -885,11 +890,7 @@ public sealed class QuasarBackupService
         if (!string.Equals(relative, "SpaceEngineers-Dedicated.cfg", StringComparison.OrdinalIgnoreCase))
             return null;
 
-        var configPath = string.IsNullOrWhiteSpace(target.ConfigFilePath)
-            ? Path.Combine(target.DedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg")
-            : target.ConfigFilePath.Trim();
-
-        return Path.GetFullPath(configPath);
+        return DedicatedServerPathResolver.Resolve(target).ConfigFilePath;
     }
 
     private DedicatedServerDefinition? ResolveRestoreTarget(
@@ -955,11 +956,12 @@ public sealed class QuasarBackupService
         DedicatedServerDefinition definition,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(definition.ConfigFilePath) || !File.Exists(definition.ConfigFilePath))
+        var paths = DedicatedServerPathResolver.Resolve(definition);
+        if (!File.Exists(paths.ConfigFilePath))
             return;
 
-        var configPath = Path.GetFullPath(definition.ConfigFilePath);
-        var appDataRoot = Path.GetFullPath(definition.DedicatedServerAppDataPath);
+        var configPath = paths.ConfigFilePath;
+        var appDataRoot = paths.DedicatedServerAppDataPath;
         if (IsPathWithinRoot(configPath, appDataRoot))
             return;
 

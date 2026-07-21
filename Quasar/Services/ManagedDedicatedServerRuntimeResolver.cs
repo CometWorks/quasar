@@ -96,7 +96,8 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     {
         ArgumentNullException.ThrowIfNull(definition);
 
-        var configuredExecutablePath = definition.ExecutablePath?.Trim() ?? string.Empty;
+        var paths = DedicatedServerPathResolver.Resolve(definition);
+        var configuredExecutablePath = paths.ExecutablePath;
         var inferredDedicatedServer64Path = TryInferDedicatedServer64Path(configuredExecutablePath);
 
         // Only Windows ships both Magnetar builds; every other host runs the .NET 10
@@ -119,9 +120,9 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             launcherExecutablePath = configuredExecutablePath;
         }
 
-        var workingDirectory = string.IsNullOrWhiteSpace(definition.WorkingDirectory)
+        var workingDirectory = string.IsNullOrWhiteSpace(paths.WorkingDirectory)
             ? Path.GetDirectoryName(launcherExecutablePath) ?? AppContext.BaseDirectory
-            : definition.WorkingDirectory.Trim();
+            : paths.WorkingDirectory;
 
         var dedicatedServer64Path = await ResolveDedicatedServer64PathAsync(
             inferredDedicatedServer64Path,

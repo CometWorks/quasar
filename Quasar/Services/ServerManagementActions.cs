@@ -336,7 +336,9 @@ public sealed class ServerManagementActions(
 
     private bool EnsureCloneUsesIndependentPaths(DedicatedServerDefinition source, DedicatedServerDefinition clone)
     {
-        if (PathsEqual(source.DedicatedServerAppDataPath, clone.DedicatedServerAppDataPath))
+        var sourcePaths = DedicatedServerPathResolver.Resolve(source);
+        var clonePaths = DedicatedServerPathResolver.Resolve(clone);
+        if (PathsEqual(sourcePaths.DedicatedServerAppDataPath, clonePaths.DedicatedServerAppDataPath))
         {
             snackbar.Add("Clone DS app-data path matches the source. Clear the path override or choose a different folder.", Severity.Error);
             return false;
@@ -348,7 +350,7 @@ public sealed class ServerManagementActions(
             return false;
         }
 
-        if (PathsEqual(source.ConfigFilePath, clone.ConfigFilePath))
+        if (PathsEqual(sourcePaths.ConfigFilePath, clonePaths.ConfigFilePath))
         {
             snackbar.Add("Clone rendered config path matches the source. Clear the path override or choose a different file.", Severity.Error);
             return false;
@@ -359,13 +361,15 @@ public sealed class ServerManagementActions(
 
     private static void EnsureCloneStorageIsIndependent(DedicatedServerDefinition source, DedicatedServerDefinition target)
     {
-        if (PathsEqual(source.DedicatedServerAppDataPath, target.DedicatedServerAppDataPath))
+        var sourcePaths = DedicatedServerPathResolver.Resolve(source);
+        var targetPaths = DedicatedServerPathResolver.Resolve(target);
+        if (PathsEqual(sourcePaths.DedicatedServerAppDataPath, targetPaths.DedicatedServerAppDataPath))
             throw new InvalidOperationException("Clone DS app-data path still matches the source.");
 
         if (PathsEqual(source.GetWorldSavePath(), target.GetWorldSavePath()))
             throw new InvalidOperationException("Clone world save path still matches the source.");
 
-        if (PathsEqual(source.ConfigFilePath, target.ConfigFilePath))
+        if (PathsEqual(sourcePaths.ConfigFilePath, targetPaths.ConfigFilePath))
             throw new InvalidOperationException("Clone rendered config path still matches the source.");
     }
 

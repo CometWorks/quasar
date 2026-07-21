@@ -1155,18 +1155,18 @@
 
     private string ResolveDedicatedServerAppDataPath()
     {
-        var configuredPath = ServerCatalog.GetServer(UniqueName)?.DedicatedServerAppDataPath;
-        return string.IsNullOrWhiteSpace(configuredPath)
+        var definition = ServerCatalog.GetServer(UniqueName);
+        return definition is null
             ? MagnetarPaths.GetQuasarServerDedicatedServerAppDataDirectory(UniqueName)
-            : configuredPath.Trim();
+            : DedicatedServerPathResolver.Resolve(definition).DedicatedServerAppDataPath;
     }
 
     private string ResolveMagnetarAppDataPath()
     {
-        var configuredPath = ServerCatalog.GetServer(UniqueName)?.MagnetarAppDataPath;
-        return string.IsNullOrWhiteSpace(configuredPath)
+        var definition = ServerCatalog.GetServer(UniqueName);
+        return definition is null
             ? MagnetarPaths.GetQuasarServerMagnetarAppDataDirectory(UniqueName)
-            : configuredPath.Trim();
+            : DedicatedServerPathResolver.Resolve(definition).MagnetarAppDataPath;
     }
 
     private static IReadOnlyList<LogFileOption> EnumerateLogFiles(string appDataPath, string searchPattern)

@@ -189,6 +189,20 @@ elsewhere or `-User <name>` for a specific service account.
 .\uninstall.ps1 -Purge   # also delete the install directory
 ```
 
+## Relocating the install root
+
+Stop the Quasar Scheduled Task and its managed servers, copy the complete
+install root, then rerun `install.ps1 -InstallDir <new-root>` so the task starts
+Quasar from the new location. Blank managed server paths and relative overrides
+follow the new root automatically. Absolute overrides remain at their configured
+external locations.
+
+Older `server.json` files may contain materialized absolute defaults. Opening
+and saving the server canonicalizes defaults under the current root. If both old
+and new server-data trees exist, first copy the authoritative tree manually;
+then use **Edit Server -> Paths -> Use Managed Defaults**. Quasar deliberately
+does not choose between, merge, move, or delete two existing trees.
+
 ## Configuration
 
 For the web UI host/port (including how to change the listening port, default

@@ -258,6 +258,20 @@ the service. With `--service-name <name>`, it stops the matching `<name>.service
 unit instead. Use `sudo ./uninstall.sh --system --purge` from a system install
 to remove a machine-wide service.
 
+## Relocating the install root
+
+Stop Quasar and its managed servers, then copy the complete install root to the
+new location and rerun `install.sh --install-dir <new-root>` so systemd receives
+the new `QUASAR_INSTALL_DIR`. Blank managed server paths and relative overrides
+follow the new root automatically. Absolute overrides remain at their configured
+external locations.
+
+Older `server.json` files may contain materialized absolute defaults. Opening
+and saving the server canonicalizes defaults under the current root. If both old
+and new server-data trees exist, first copy the authoritative tree manually;
+then use **Edit Server -> Paths -> Use Managed Defaults**. Quasar deliberately
+does not choose between, merge, move, or delete two existing trees.
+
 ## Configuration
 
 For the web UI host/port (including how to change the listening port, default

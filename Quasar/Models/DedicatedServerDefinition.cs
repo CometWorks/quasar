@@ -160,9 +160,6 @@ public sealed class DedicatedServerDefinition
 
     public string GetWorldSavePath()
     {
-        if (string.IsNullOrWhiteSpace(WorldPath) || string.IsNullOrWhiteSpace(WorldSaveName))
-            return string.Empty;
-
-        return Path.Combine(WorldPath.Trim(), WorldSaveName.Trim());
+        return DedicatedServerPathResolver.Resolve(this).WorldSavePath;
     }
 }

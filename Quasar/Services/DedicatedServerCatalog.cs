@@ -234,19 +234,11 @@ public sealed class DedicatedServerCatalog : IDisposable
             : server.OriginalUniqueName.Trim();
         server.ExecutablePath = server.ExecutablePath?.Trim() ?? string.Empty;
         server.WorkingDirectory = server.WorkingDirectory?.Trim() ?? string.Empty;
-        server.DedicatedServerAppDataPath = string.IsNullOrWhiteSpace(server.DedicatedServerAppDataPath)
-            ? MagnetarPaths.GetQuasarServerDedicatedServerAppDataDirectory(server.UniqueName)
-            : server.DedicatedServerAppDataPath.Trim();
-        server.MagnetarAppDataPath = string.IsNullOrWhiteSpace(server.MagnetarAppDataPath)
-            ? MagnetarPaths.GetQuasarServerMagnetarAppDataDirectory(server.UniqueName)
-            : server.MagnetarAppDataPath.Trim();
-        server.WorldPath = string.IsNullOrWhiteSpace(server.WorldPath)
-            ? Path.Combine(server.DedicatedServerAppDataPath, "Saves")
-            : server.WorldPath.Trim();
+        server.DedicatedServerAppDataPath = server.DedicatedServerAppDataPath?.Trim() ?? string.Empty;
+        server.MagnetarAppDataPath = server.MagnetarAppDataPath?.Trim() ?? string.Empty;
+        server.WorldPath = server.WorldPath?.Trim() ?? string.Empty;
         server.WorldSaveName = NormalizeWorldSaveName(server.WorldSaveName);
-        server.ConfigFilePath = string.IsNullOrWhiteSpace(server.ConfigFilePath)
-            ? Path.Combine(server.DedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg")
-            : server.ConfigFilePath.Trim();
+        server.ConfigFilePath = server.ConfigFilePath?.Trim() ?? string.Empty;
         server.ConfigProfileId = server.ConfigProfileId?.Trim() ?? string.Empty;
         server.WorldTemplateId = server.WorldTemplateId?.Trim() ?? string.Empty;
         server.LaunchArguments = server.LaunchArguments?.Trim() ?? string.Empty;
@@ -292,6 +284,7 @@ public sealed class DedicatedServerCatalog : IDisposable
             : string.Empty;
         if (server.UpdatedAtUtc == default)
             server.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        DedicatedServerPathResolver.CanonicalizeForStorage(server);
         return server;
     }
 
@@ -430,6 +423,7 @@ public sealed class DedicatedServerCatalog : IDisposable
         definition.MagnetarAppDataPath = RewriteManagedPath(definition.MagnetarAppDataPath, previousRoot, currentRoot);
         definition.WorldPath = RewriteManagedPath(definition.WorldPath, previousRoot, currentRoot);
         definition.ConfigFilePath = RewriteManagedPath(definition.ConfigFilePath, previousRoot, currentRoot);
+        DedicatedServerPathResolver.CanonicalizeForStorage(definition);
 
         if (!Directory.Exists(previousRoot))
             return;
@@ -446,25 +440,13 @@ public sealed class DedicatedServerCatalog : IDisposable
         if (string.IsNullOrWhiteSpace(path))
             return path;
 
-        var fullPath = Path.GetFullPath(path);
+        var fullPath = DedicatedServerPathResolver.ResolvePath(path, previousRoot);
         var fullPreviousRoot = Path.GetFullPath(previousRoot);
-        if (!IsPathWithinRoot(fullPath, fullPreviousRoot))
+        if (!DedicatedServerPathResolver.IsPathWithinRoot(fullPath, fullPreviousRoot))
             return path;
 
         var relative = Path.GetRelativePath(fullPreviousRoot, fullPath);
-        return Path.Combine(currentRoot, relative);
-    }
-
-    private static bool IsPathWithinRoot(string fullPath, string fullRoot)
-    {
-        if (string.Equals(fullPath, fullRoot, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        var prefix = fullRoot.EndsWith(Path.DirectorySeparatorChar)
-            ? fullRoot
-            : fullRoot + Path.DirectorySeparatorChar;
-
-        return fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+        return DedicatedServerPathResolver.ToStoredPath(Path.Combine(currentRoot, relative), null);
     }
 
     private void StartWatching()

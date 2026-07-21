@@ -125,6 +125,23 @@ public sealed class QuasarWorkshopModResolver
         return new QuasarWorkshopAvailabilityResult(unavailable, candidates.Count);
     }
 
+    public async Task<IReadOnlyDictionary<long, string>> GetDisplayNamesAsync(
+        IEnumerable<long> workshopIds,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = workshopIds
+            .Where(workshopId => workshopId > 0)
+            .Distinct()
+            .ToList();
+        if (ids.Count == 0)
+            return new Dictionary<long, string>();
+
+        var detailsById = await GetPublishedFileDetailsAsync(ids, cancellationToken);
+        return detailsById
+            .Where(pair => pair.Value.Result == 1 && !string.IsNullOrWhiteSpace(pair.Value.Title))
+            .ToDictionary(pair => pair.Key, pair => pair.Value.Title.Trim());
+    }
+
     public async Task<QuasarModDependencyResolutionResult> ResolveDependenciesAsync(
         IReadOnlyList<QuasarModSelection> mods,
         bool sortLoadOrder = false,
@@ -839,11 +856,15 @@ public sealed class QuasarWorkshopModResolver
         IReadOnlyDictionary<long, QuasarModSelection> originalById,
         IReadOnlyDictionary<long, PublishedFileDetailsItem> detailsById)
     {
+        if (detailsById.TryGetValue(workshopId, out var detail) &&
+            detail.Result == 1 &&
+            !string.IsNullOrWhiteSpace(detail.Title))
+        {
+            return detail.Title.Trim();
+        }
+
         if (originalById.TryGetValue(workshopId, out var original) && !string.IsNullOrWhiteSpace(original.DisplayName))
             return original.DisplayName.Trim();
-
-        if (detailsById.TryGetValue(workshopId, out var detail))
-            return GetDisplayName(detail);
 
         return workshopId.ToString(CultureInfo.InvariantCulture);
     }

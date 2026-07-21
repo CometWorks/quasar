@@ -51,6 +51,29 @@ start, which disables `MagnetarMod` and breaks the mission screen popup used by
 server-side plugins. Magnetar already does this automatically when cross-play is
 enabled. Turning it back off removes the flag from future starts.
 
+The server editor does not report `MagnetarMod` as missing from the selected
+config profile while Magnetar's implicit mod loading is active. It still warns
+when implicit loading is disabled explicitly or by cross-play.
+
+## Server storage paths
+
+Server path fields under **Edit Server -> Paths** use three forms:
+
+- blank: Quasar's managed per-server location under the current install root
+- relative: an override resolved from the current Quasar install root
+- absolute: an external location that does not move with Quasar
+
+Managed defaults stay blank in `server.json`; Quasar resolves them only when it
+accesses the filesystem. Paths inside the Quasar root are stored with portable
+forward-slash separators. Changing the DS app-data path immediately refreshes
+the world-save list when the saves path is blank and therefore derived from the
+DS location.
+
+**Use Managed Defaults** clears the DS, Magnetar, saves, and rendered-config
+overrides. It changes only the pending server definition; it does not copy or
+delete files. Copy the authoritative server data into the current Quasar root
+before resetting paths, especially when both the old and new roots still exist.
+
 ## Steam Workshop mod dependencies
 
 When a config profile with Workshop mods is opened, saved, or receives imported
@@ -65,6 +88,12 @@ order, the UI shows a warning. The Steam Workshop API key configured from the
 Mods tab is required for this automatic dependency check. If the key is missing
 or Steam cannot be reached, Quasar keeps the current mod list and shows a
 warning instead of blocking the save.
+
+Opening the Mods tab also refreshes each selected mod's display name from Steam
+Workshop. This public lookup does not require the Workshop API key and preserves
+Workshop IDs, load order, and dependency flags. Refreshed names remain pending
+editor changes until the profile is saved; a failed lookup leaves existing names
+unchanged.
 
 Space Engineers Dedicated Server also has its own **Autodetect Dependencies**
 setting. Quasar manages that setting in the profile instead of showing it as a
