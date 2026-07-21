@@ -477,6 +477,7 @@
 
     private const string DisableImplicitMagnetarModLoadWarning = "Turning this on passes -noimplicitmod at startup, disables MagnetarMod, and breaks the mission screen popup used by server-side plugins. This is already done automatically by Magnetar when cross-play is enabled.";
     private const string DisableImplicitMagnetarModLoadHint = "This mod load disabling is already done automatically by Magnetar when cross-play is enabled.";
+    private const string ImplicitMagnetarModName = "MagnetarMod";
     private const Color DisableImplicitMagnetarModLoadColor = Color.Warning;
     private static string DisableImplicitMagnetarModLoadColorStyle => BuildControlledCheckboxColorStyle(DisableImplicitMagnetarModLoadColor);
 
@@ -1133,8 +1134,13 @@
                 return Array.Empty<QuasarModSelection>();
 
             var profileIds = profile.Mods.Select(mod => mod.WorkshopId).ToHashSet();
+            var implicitMagnetarModEnabled =
+                !_editor.DisableImplicitMagnetarModLoad && !profile.RootSettings.CrossPlatform;
             return worldMods
-                .Where(mod => !profileIds.Contains(mod.WorkshopId))
+                .Where(mod =>
+                    !profileIds.Contains(mod.WorkshopId) &&
+                    (!implicitMagnetarModEnabled ||
+                     !string.Equals(mod.DisplayName, ImplicitMagnetarModName, StringComparison.OrdinalIgnoreCase)))
                 .ToArray();
         }
     }

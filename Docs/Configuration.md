@@ -51,6 +51,10 @@ start, which disables `MagnetarMod` and breaks the mission screen popup used by
 server-side plugins. Magnetar already does this automatically when cross-play is
 enabled. Turning it back off removes the flag from future starts.
 
+The server editor does not report `MagnetarMod` as missing from the selected
+config profile while Magnetar's implicit mod loading is active. It still warns
+when implicit loading is disabled explicitly or by cross-play.
+
 ## Steam Workshop mod dependencies
 
 When a config profile with Workshop mods is opened, saved, or receives imported
