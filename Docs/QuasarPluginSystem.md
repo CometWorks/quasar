@@ -155,8 +155,10 @@ The `/settings/ui-plugins` page now manages the QuasarHub catalog:
 - passes `QuasarPluginAbstractionsAssembly` to the build so the plugin compiles
   against the contract DLL loaded by the running Quasar worker
 - builds any owned Magnetar companion projects declared in `companionPlugins`
-  objects, passing `MagnetarProtocolAssembly` so they compile against the
-  protocol assembly used by Quasar.Agent
+  objects, passing `MagnetarProtocolAssembly` and the resolved `DS64` directory
+  so they compile against the protocol and Dedicated Server assemblies used by
+  the Quasar-managed host; if Quasar cannot resolve a valid DS64 directory, the
+  companion project's own `DS64` fallback remains in effect
 - removes local plugin packages
 - links back to the plugin repository and QuasarHub
 
