@@ -149,7 +149,13 @@ Required separation per server:
 - plugin/configuration surface
 - DS-owned log files and Magnetar-owned `info_*.log`
 
-Quasar should treat these as explicit server properties rather than assuming one shared machine-global app-data location.
+Quasar stores these as logical server properties rather than assuming one shared
+machine-global app-data location. Blank path values select the managed layout
+under `<quasar-root>/Magnetars/<server>/`; relative values resolve from the
+current Quasar root; absolute values are external operator overrides. All
+runtime, backup, restore, log, and editor consumers resolve the logical values
+through one path resolver before touching the filesystem. Managed definitions
+therefore remain valid when the complete Quasar root moves.
 
 This separation is required because different servers may:
 
@@ -903,7 +909,7 @@ As of this document:
   lines first.
 - first health-monitoring and auto-recovery pass exists for agent attach grace, heartbeat freshness, simulation-frame progress scoring aligned with the DS watcher, and uptime-based warning/recycle policy
 - initial runtime launch preparation now exists for isolated app-data roots, runtime config sync, `LastSession.sbl`, and enforced headless launch shaping
-- server definitions store a saves root (`WorldPath`) plus selected save folder (`WorldSaveName`). The server editor requires a selected save before save/start, lists existing saves from the saves root, and has an always-available Create From Template dialog that can create/import a world template before copying it into a new save.
+- server definitions store a logical saves-root override (`WorldPath`) plus selected save folder (`WorldSaveName`). Blank paths derive from the server's managed DS app-data root, in-root overrides are persisted relative to the Quasar root, and external absolute overrides remain explicit. The server editor resolves that path before listing or validating saves, refreshes the save list when the DS root changes, and can reset all data paths to relocatable managed defaults. It requires a selected save before save/start and has an always-available Create From Template dialog that can create/import a world template before copying it into a new save.
 - neutral light/dark theming exists with local-storage persistence
 - config editing is now migrated out of Python into Quasar-managed JSON profiles and rendered runtime artifacts. Profiles cover Quasar root settings, server password (rendered to DS-compatible hash/salt), and DS-visible SE session settings including block type world limits; on server start Quasar writes session settings and mods into the world's authoritative `Sandbox_config.sbc` as well as the runtime DS config. Profile mod order is preserved as the Space Engineers mod load order; the Mods tab lets operators reorder selected mods before saving and refreshes their current Steam Workshop display names when opened without changing IDs, order, or dependency flags. On profile open, save, and mod-import paths, Quasar uses Steam Workshop child/dependency metadata to add missing dependency mods and marks every dependency with an `IsDependency` profile flag without reordering the list. That flag is written back to `Sandbox_config.sbc` so DS autodetect treats dependency rows as dependencies instead of root mods. The Mods tab exposes an explicit Auto Sort Dependencies action that topologically sorts dependencies before dependents while keeping unrelated operator order stable. It warns when a dependency is currently after its dependent, when Steam metadata has a circular dependency chain, or when a cycle leaves a dependency order conflict after sorting. Dependency checks also return collapsed flattened outline rows for the Mods tab, tagged as root, dependency, already-listed, or cycle rows for inspection. Quasar hides the DS Autodetect Dependencies root setting and manages it from dependency state: disabled after a clean check/sort, enabled when manual mod edits invalidate the checked state or unresolved warnings remain. World-template import flows can also read a template's current `Sandbox_config.sbc` and create a config profile from its session settings and mods; fresh installs no longer seed built-in default profiles.
 - file watching/reload now exists for manual edits to Quasar-managed server/profile JSON

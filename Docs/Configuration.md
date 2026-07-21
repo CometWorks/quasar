@@ -55,6 +55,25 @@ The server editor does not report `MagnetarMod` as missing from the selected
 config profile while Magnetar's implicit mod loading is active. It still warns
 when implicit loading is disabled explicitly or by cross-play.
 
+## Server storage paths
+
+Server path fields under **Edit Server -> Paths** use three forms:
+
+- blank: Quasar's managed per-server location under the current install root
+- relative: an override resolved from the current Quasar install root
+- absolute: an external location that does not move with Quasar
+
+Managed defaults stay blank in `server.json`; Quasar resolves them only when it
+accesses the filesystem. Paths inside the Quasar root are stored with portable
+forward-slash separators. Changing the DS app-data path immediately refreshes
+the world-save list when the saves path is blank and therefore derived from the
+DS location.
+
+**Use Managed Defaults** clears the DS, Magnetar, saves, and rendered-config
+overrides. It changes only the pending server definition; it does not copy or
+delete files. Copy the authoritative server data into the current Quasar root
+before resetting paths, especially when both the old and new roots still exist.
+
 ## Steam Workshop mod dependencies
 
 When a config profile with Workshop mods is opened, saved, or receives imported
