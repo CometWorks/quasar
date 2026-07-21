@@ -767,7 +767,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         return FindImmediateFile(Path.Combine(_options.MagnetarInstallDirectory, "Bin"), MagnetarLauncherFileNames) ?? string.Empty;
     }
 
-    private string ResolveInstalledDedicatedServer64Path()
+    public string ResolveInstalledDedicatedServer64Path()
     {
         if (IsValidDedicatedServer64Directory(_options.DedicatedServer64OverridePath))
             return _options.DedicatedServer64OverridePath;
