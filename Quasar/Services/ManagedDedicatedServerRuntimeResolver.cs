@@ -1053,6 +1053,26 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         if (IsValidDedicatedServer64Directory(adjacentPath))
             return adjacentPath;
 
+        // A previously-installed managed DS is handled per the configured launch-update policy.
+        // The default (Update) runs a lightweight `app_update` check that only downloads when
+        // Steam reports a newer build; Skip avoids SteamCMD entirely; Validate forces a full
+        // re-hash. Only Validate re-checks every file (minutes on a multi-GB install), which is
+        // why it must never be the every-launch default - full validation is otherwise the
+        // warmup service's job (startup + the manual "check for updates" action).
+        var managedInstallPath = Path.Combine(_options.DedicatedServerInstallDirectory, "DedicatedServer64");
+        if (IsValidDedicatedServer64Directory(managedInstallPath))
+        {
+            if (_options.DedicatedServerLaunchUpdateMode == DedicatedServerLaunchUpdateMode.Skip)
+                return managedInstallPath;
+
+            var refreshed = await TryEnsureManagedDedicatedServerInstallAsync(
+                cancellationToken,
+                steamCmdPath: null,
+                progress: null,
+                validate: _options.DedicatedServerLaunchUpdateMode == DedicatedServerLaunchUpdateMode.Validate);
+            return IsValidDedicatedServer64Directory(refreshed) ? refreshed : managedInstallPath;
+        }
+
         if (_options.PreferManagedDedicatedServerInstall)
         {
             var managedPath = await TryEnsureManagedDedicatedServerInstallAsync(cancellationToken);
@@ -1071,12 +1091,13 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     }
 
     private Task<string> TryEnsureManagedDedicatedServerInstallAsync(CancellationToken cancellationToken) =>
-        TryEnsureManagedDedicatedServerInstallAsync(cancellationToken, steamCmdPath: null, progress: null);
+        TryEnsureManagedDedicatedServerInstallAsync(cancellationToken, steamCmdPath: null, progress: null, validate: true);
 
     private async Task<string> TryEnsureManagedDedicatedServerInstallAsync(
         CancellationToken cancellationToken,
         string? steamCmdPath,
-        IProgress<ManagedRuntimeInstallProgress>? progress)
+        IProgress<ManagedRuntimeInstallProgress>? progress,
+        bool validate = true)
     {
         var dedicatedServer64Path = Path.Combine(_options.DedicatedServerInstallDirectory, "DedicatedServer64");
         var hadValidInstall = IsValidDedicatedServer64Directory(dedicatedServer64Path);
@@ -1110,7 +1131,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 {
                     StartInfo = CreateSteamCmdStartInfo(
                         steamCmdPath,
-                        BuildDedicatedServerUpdateArguments(_options.DedicatedServerInstallDirectory)),
+                        BuildDedicatedServerUpdateArguments(_options.DedicatedServerInstallDirectory, validate)),
                 };
 
                 try
@@ -1432,13 +1453,14 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         }
     }
 
-    private static string BuildDedicatedServerUpdateArguments(string installDirectory)
+    private static string BuildDedicatedServerUpdateArguments(string installDirectory, bool validate)
     {
         var forcePlatform = OperatingSystem.IsWindows()
             ? string.Empty
             : "+@sSteamCmdForcePlatformType windows ";
+        var validateToken = validate ? " validate" : string.Empty;
 
-        return $"+force_install_dir {QuoteArgument(installDirectory)} {forcePlatform}+login anonymous +app_update {DedicatedServerAppId} validate +quit";
+        return $"+force_install_dir {QuoteArgument(installDirectory)} {forcePlatform}+login anonymous +app_update {DedicatedServerAppId}{validateToken} +quit";
     }
 
     private static ProcessStartInfo CreateSteamCmdStartInfo(string steamCmdPath, string arguments)

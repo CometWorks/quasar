@@ -30,6 +30,8 @@ public sealed class ManagedRuntimeOptions
 
     public bool PreferManagedDedicatedServerInstall { get; init; } = true;
 
+    public DedicatedServerLaunchUpdateMode DedicatedServerLaunchUpdateMode { get; init; } = DedicatedServerLaunchUpdateMode.Update;
+
     public static ManagedRuntimeOptions Create(IConfiguration configuration)
     {
         var section = configuration.GetSection("Quasar").GetSection("ManagedRuntime");
@@ -83,6 +85,11 @@ public sealed class ManagedRuntimeOptions
         if (!bool.TryParse(preferManagedDedicatedServerInstallValue, out var preferManagedDedicatedServerInstall))
             preferManagedDedicatedServerInstall = true;
 
+        var launchUpdateModeValue = Environment.GetEnvironmentVariable("QUASAR_DS_LAUNCH_UPDATE_MODE")
+                                    ?? section["DedicatedServerLaunchUpdateMode"];
+        if (!Enum.TryParse<DedicatedServerLaunchUpdateMode>(launchUpdateModeValue, ignoreCase: true, out var launchUpdateMode))
+            launchUpdateMode = DedicatedServerLaunchUpdateMode.Update;
+
         return new ManagedRuntimeOptions
         {
             MagnetarArchiveUrl = magnetarArchiveUrl.Trim(),
@@ -95,6 +102,7 @@ public sealed class ManagedRuntimeOptions
             DedicatedServer64OverridePath = dedicatedServer64OverridePath.Trim(),
             SteamCmdPath = steamCmdPath.Trim(),
             PreferManagedDedicatedServerInstall = preferManagedDedicatedServerInstall,
+            DedicatedServerLaunchUpdateMode = launchUpdateMode,
         };
     }
 
@@ -107,4 +115,22 @@ public sealed class ManagedRuntimeOptions
         OperatingSystem.IsWindows()
             ? DefaultWindowsSteamCmdArchiveUrl
             : DefaultLinuxSteamCmdArchiveUrl;
+}
+
+/// <summary>
+/// Controls how the launch hot path treats an already-installed managed Dedicated Server.
+/// Full validation re-hashes the entire multi-GB install and takes minutes, so it must not
+/// be the every-launch default.
+/// </summary>
+public enum DedicatedServerLaunchUpdateMode
+{
+    /// <summary>Use the installed managed DS as-is; never run SteamCMD on launch (fastest).</summary>
+    Skip,
+
+    /// <summary>Run a lightweight <c>app_update</c> check on launch, downloading only when Steam
+    /// reports a newer build; no full file validation. Default.</summary>
+    Update,
+
+    /// <summary>Run <c>app_update ... validate</c> on launch, re-hashing the whole install (slowest).</summary>
+    Validate,
 }
