@@ -6,6 +6,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Magnetar.Protocol.Runtime;
@@ -18,6 +19,7 @@ namespace Quasar.Services;
 public sealed class ManagedDedicatedServerRuntimeResolver
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions AppSettingsJsonOptions = new() { WriteIndented = true };
     private static readonly TimeSpan MagnetarReleaseCheckCooldown = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan SteamCmdKillWaitTimeout = TimeSpan.FromSeconds(10);
     private const string MagnetarLauncherName = "MagnetarInterim";
@@ -796,6 +798,57 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             : Path.Combine(installDirectory, "Bin", "PluginSdk.dll");
 
         return File.Exists(pluginSdkPath) ? installDirectory : string.Empty;
+    }
+
+    /// <summary>Current launch-time DS update policy (read fresh on each server launch).</summary>
+    public DedicatedServerLaunchUpdateMode DedicatedServerLaunchUpdateMode => _options.DedicatedServerLaunchUpdateMode;
+
+    /// <summary>
+    /// Updates the launch-time DS update policy in-memory and persists it to appsettings.json so
+    /// it survives a restart. Mirrors how QuasarUpdateService persists its editable settings.
+    /// </summary>
+    public async Task SetDedicatedServerLaunchUpdateModeAsync(
+        DedicatedServerLaunchUpdateMode mode,
+        CancellationToken cancellationToken = default)
+    {
+        _options.DedicatedServerLaunchUpdateMode = mode;
+        await PersistManagedRuntimeSettingAsync("DedicatedServerLaunchUpdateMode", mode.ToString(), cancellationToken);
+    }
+
+    private static async Task PersistManagedRuntimeSettingAsync(
+        string settingName,
+        string value,
+        CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(MagnetarPaths.GetQuasarDirectory(), "appsettings.json");
+        JsonObject root;
+        if (File.Exists(path))
+        {
+            var text = await File.ReadAllTextAsync(path, cancellationToken);
+            root = string.IsNullOrWhiteSpace(text)
+                ? new JsonObject()
+                : JsonNode.Parse(text)?.AsObject() ?? new JsonObject();
+        }
+        else
+        {
+            root = new JsonObject();
+        }
+
+        var quasar = GetOrCreateJsonObject(root, "Quasar");
+        var managedRuntime = GetOrCreateJsonObject(quasar, "ManagedRuntime");
+        managedRuntime[settingName] = value;
+
+        await AtomicFileWriter.WriteTextAsync(path, root.ToJsonString(AppSettingsJsonOptions), cancellationToken);
+    }
+
+    private static JsonObject GetOrCreateJsonObject(JsonObject parent, string name)
+    {
+        if (parent[name] is JsonObject existing)
+            return existing;
+
+        var created = new JsonObject();
+        parent[name] = created;
+        return created;
     }
 
     private static string GetDedicatedServerVersion(string dedicatedServer64Path)

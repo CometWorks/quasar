@@ -6,6 +6,7 @@
 @inject WebServiceOptions WebOptions
 @inject GitHubUpdateCredentialsCatalog GitHubCredentials
 @inject ManagedRuntimeWarmupService RuntimeWarmup
+@inject ManagedDedicatedServerRuntimeResolver RuntimeResolver
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject IJSRuntime JS
@@ -250,6 +251,22 @@
                             <MudTd DataLabel="Last check">@FormatTimestamp(context.LastCheckedUtc)</MudTd>
                         </RowTemplate>
                     </MudTable>
+
+                    <MudDivider />
+                    <MudSelect T="DedicatedServerLaunchUpdateMode"
+                               Value="_launchUpdateMode"
+                               ValueChanged="HandleLaunchUpdateModeChanged"
+                               Disabled="_runtimeBusy"
+                               Label="Dedicated Server update on launch"
+                               Dense="true"
+                               Style="max-width: 420px;">
+                        <MudSelectItem T="DedicatedServerLaunchUpdateMode" Value="DedicatedServerLaunchUpdateMode.Skip">Skip - use installed as-is (fastest)</MudSelectItem>
+                        <MudSelectItem T="DedicatedServerLaunchUpdateMode" Value="DedicatedServerLaunchUpdateMode.Update">Update - check for a newer build (default)</MudSelectItem>
+                        <MudSelectItem T="DedicatedServerLaunchUpdateMode" Value="DedicatedServerLaunchUpdateMode.Validate">Validate - full re-check of every file (slowest)</MudSelectItem>
+                    </MudSelect>
+                    <MudText Typo="Typo.body2">
+                        Controls what happens to an already-installed Dedicated Server when a server starts. Validate re-hashes the whole multi-GB install and adds minutes to every launch; Update only downloads when Steam reports a newer build.
+                    </MudText>
                 </MudStack>
             </MudPaper>
         </MudItem>
@@ -378,6 +395,7 @@
     private bool _runtimeBusy;
     private bool _includePrerelease;
     private bool _autoStageWebUpdates = true;
+    private DedicatedServerLaunchUpdateMode _launchUpdateMode = DedicatedServerLaunchUpdateMode.Update;
     private bool _bootstrapActivationRequested;
     private string _selectedWebVersion = string.Empty;
     private string _appSettingsConflictText = string.Empty;
@@ -389,6 +407,7 @@
         _runtimeSnapshot = RuntimeWarmup.GetSnapshot();
         _includePrerelease = Options.IncludePrerelease;
         _autoStageWebUpdates = Options.AutoStageWebUpdates;
+        _launchUpdateMode = RuntimeResolver.DedicatedServerLaunchUpdateMode;
         _selectedWebVersion = _snapshot.SelectedWebVersion;
         UpdateService.Changed += OnUpdatesChanged;
         RuntimeWarmup.Changed += OnRuntimeWarmupChanged;
@@ -565,6 +584,30 @@
             () => RuntimeWarmup.CheckDedicatedServerNowAsync(),
             "Dedicated Server update check complete.",
             "Dedicated Server update check failed");
+    }
+
+    private async Task HandleLaunchUpdateModeChanged(DedicatedServerLaunchUpdateMode mode)
+    {
+        if (mode == _launchUpdateMode)
+            return;
+
+        var previous = _launchUpdateMode;
+        _launchUpdateMode = mode;
+        _runtimeBusy = true;
+        try
+        {
+            await RuntimeResolver.SetDedicatedServerLaunchUpdateModeAsync(mode);
+            Snackbar.Add($"Dedicated Server launch update mode set to {mode}.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            _launchUpdateMode = previous;
+            Snackbar.Add($"Failed updating launch update mode: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _runtimeBusy = false;
+        }
     }
 
     private async Task HandleSelectedWebVersionChanged(string? version)

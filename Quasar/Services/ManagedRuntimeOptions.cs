@@ -30,7 +30,9 @@ public sealed class ManagedRuntimeOptions
 
     public bool PreferManagedDedicatedServerInstall { get; init; } = true;
 
-    public DedicatedServerLaunchUpdateMode DedicatedServerLaunchUpdateMode { get; init; } = DedicatedServerLaunchUpdateMode.Update;
+    // Mutable so the Updates page can change it at runtime (mirrors QuasarUpdateOptions'
+    // editable settings); the resolver reads it fresh on each launch.
+    public DedicatedServerLaunchUpdateMode DedicatedServerLaunchUpdateMode { get; set; } = DedicatedServerLaunchUpdateMode.Update;
 
     public static ManagedRuntimeOptions Create(IConfiguration configuration)
     {
