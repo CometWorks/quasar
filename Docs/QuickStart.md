@@ -38,7 +38,8 @@ The dashboard setup wizard starts from a world shipped with Space Engineers
 Dedicated Server:
 
 1. Choose a predefined Dedicated Server world. Quasar copies it into managed
-   world-template storage.
+   world-template storage. The chooser stays disabled until the managed
+   Dedicated Server download is installed and validated.
 2. Create a matching config profile from that template's
    `Sandbox_config.sbc`. This carries the world's session settings and mods
    forward instead of applying an unrelated profile on first start.
