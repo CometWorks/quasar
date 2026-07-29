@@ -6,6 +6,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Magnetar.Protocol.Runtime;
@@ -18,6 +19,7 @@ namespace Quasar.Services;
 public sealed class ManagedDedicatedServerRuntimeResolver
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions AppSettingsJsonOptions = new() { WriteIndented = true };
     private static readonly TimeSpan MagnetarReleaseCheckCooldown = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan SteamCmdKillWaitTimeout = TimeSpan.FromSeconds(10);
     private const string MagnetarLauncherName = "MagnetarInterim";
@@ -798,6 +800,57 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         return File.Exists(pluginSdkPath) ? installDirectory : string.Empty;
     }
 
+    /// <summary>Current launch-time DS update policy (read fresh on each server launch).</summary>
+    public DedicatedServerLaunchUpdateMode DedicatedServerLaunchUpdateMode => _options.DedicatedServerLaunchUpdateMode;
+
+    /// <summary>
+    /// Updates the launch-time DS update policy in-memory and persists it to appsettings.json so
+    /// it survives a restart. Mirrors how QuasarUpdateService persists its editable settings.
+    /// </summary>
+    public async Task SetDedicatedServerLaunchUpdateModeAsync(
+        DedicatedServerLaunchUpdateMode mode,
+        CancellationToken cancellationToken = default)
+    {
+        _options.DedicatedServerLaunchUpdateMode = mode;
+        await PersistManagedRuntimeSettingAsync("DedicatedServerLaunchUpdateMode", mode.ToString(), cancellationToken);
+    }
+
+    private static async Task PersistManagedRuntimeSettingAsync(
+        string settingName,
+        string value,
+        CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(MagnetarPaths.GetQuasarDirectory(), "appsettings.json");
+        JsonObject root;
+        if (File.Exists(path))
+        {
+            var text = await File.ReadAllTextAsync(path, cancellationToken);
+            root = string.IsNullOrWhiteSpace(text)
+                ? new JsonObject()
+                : JsonNode.Parse(text)?.AsObject() ?? new JsonObject();
+        }
+        else
+        {
+            root = new JsonObject();
+        }
+
+        var quasar = GetOrCreateJsonObject(root, "Quasar");
+        var managedRuntime = GetOrCreateJsonObject(quasar, "ManagedRuntime");
+        managedRuntime[settingName] = value;
+
+        await AtomicFileWriter.WriteTextAsync(path, root.ToJsonString(AppSettingsJsonOptions), cancellationToken);
+    }
+
+    private static JsonObject GetOrCreateJsonObject(JsonObject parent, string name)
+    {
+        if (parent[name] is JsonObject existing)
+            return existing;
+
+        var created = new JsonObject();
+        parent[name] = created;
+        return created;
+    }
+
     private static string GetDedicatedServerVersion(string dedicatedServer64Path)
     {
         if (!IsValidDedicatedServer64Directory(dedicatedServer64Path))
@@ -1053,6 +1106,26 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         if (IsValidDedicatedServer64Directory(adjacentPath))
             return adjacentPath;
 
+        // A previously-installed managed DS is handled per the configured launch-update policy.
+        // The default (Update) runs a lightweight `app_update` check that only downloads when
+        // Steam reports a newer build; Skip avoids SteamCMD entirely; Validate forces a full
+        // re-hash. Only Validate re-checks every file (minutes on a multi-GB install), which is
+        // why it must never be the every-launch default - full validation is otherwise the
+        // warmup service's job (startup + the manual "check for updates" action).
+        var managedInstallPath = Path.Combine(_options.DedicatedServerInstallDirectory, "DedicatedServer64");
+        if (IsValidDedicatedServer64Directory(managedInstallPath))
+        {
+            if (_options.DedicatedServerLaunchUpdateMode == DedicatedServerLaunchUpdateMode.Skip)
+                return managedInstallPath;
+
+            var refreshed = await TryEnsureManagedDedicatedServerInstallAsync(
+                cancellationToken,
+                steamCmdPath: null,
+                progress: null,
+                validate: _options.DedicatedServerLaunchUpdateMode == DedicatedServerLaunchUpdateMode.Validate);
+            return IsValidDedicatedServer64Directory(refreshed) ? refreshed : managedInstallPath;
+        }
+
         if (_options.PreferManagedDedicatedServerInstall)
         {
             var managedPath = await TryEnsureManagedDedicatedServerInstallAsync(cancellationToken);
@@ -1071,12 +1144,13 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     }
 
     private Task<string> TryEnsureManagedDedicatedServerInstallAsync(CancellationToken cancellationToken) =>
-        TryEnsureManagedDedicatedServerInstallAsync(cancellationToken, steamCmdPath: null, progress: null);
+        TryEnsureManagedDedicatedServerInstallAsync(cancellationToken, steamCmdPath: null, progress: null, validate: true);
 
     private async Task<string> TryEnsureManagedDedicatedServerInstallAsync(
         CancellationToken cancellationToken,
         string? steamCmdPath,
-        IProgress<ManagedRuntimeInstallProgress>? progress)
+        IProgress<ManagedRuntimeInstallProgress>? progress,
+        bool validate = true)
     {
         var dedicatedServer64Path = Path.Combine(_options.DedicatedServerInstallDirectory, "DedicatedServer64");
         var hadValidInstall = IsValidDedicatedServer64Directory(dedicatedServer64Path);
@@ -1110,7 +1184,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 {
                     StartInfo = CreateSteamCmdStartInfo(
                         steamCmdPath,
-                        BuildDedicatedServerUpdateArguments(_options.DedicatedServerInstallDirectory)),
+                        BuildDedicatedServerUpdateArguments(_options.DedicatedServerInstallDirectory, validate)),
                 };
 
                 try
@@ -1432,13 +1506,14 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         }
     }
 
-    private static string BuildDedicatedServerUpdateArguments(string installDirectory)
+    private static string BuildDedicatedServerUpdateArguments(string installDirectory, bool validate)
     {
         var forcePlatform = OperatingSystem.IsWindows()
             ? string.Empty
             : "+@sSteamCmdForcePlatformType windows ";
+        var validateToken = validate ? " validate" : string.Empty;
 
-        return $"+force_install_dir {QuoteArgument(installDirectory)} {forcePlatform}+login anonymous +app_update {DedicatedServerAppId} validate +quit";
+        return $"+force_install_dir {QuoteArgument(installDirectory)} {forcePlatform}+login anonymous +app_update {DedicatedServerAppId}{validateToken} +quit";
     }
 
     private static ProcessStartInfo CreateSteamCmdStartInfo(string steamCmdPath, string arguments)
