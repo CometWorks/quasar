@@ -1,0 +1,4 @@
+.appsettings-json-editor ::deep textarea {
+    font-family: "JetBrains Mono", "Cascadia Code", monospace;
+    font-size: 0.8rem;
+}

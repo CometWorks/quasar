@@ -33,7 +33,7 @@
     @if (_snapshot.AppSettingsConflict)
     {
         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-            appsettings.json could not be merged automatically. Resolve the conflict markers below, or force the release defaults.
+            appsettings.json could not be merged automatically. Compare the current and incoming files, choose a starting point, edit the final file if needed, then save it.
         </MudAlert>
 
         <MudPaper Class="pa-4">
@@ -43,30 +43,72 @@
                 {
                     <CopyablePath Value="@_snapshot.AppSettingsConflictPath" />
                 }
-                <MudTextField T="string"
-                              @bind-Value="_appSettingsConflictText"
-                              Label="appsettings.json"
-                              Variant="Variant.Outlined"
-                              Lines="18"
-                              Sizing="InputSizing.Auto"
-                              MaxLines="10000"
-                              FullWidth="true"
-                              Disabled="_busy"
-                              Immediate="true" />
+
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="6">
+                        <MudStack Spacing="1">
+                            <MudTextField T="string"
+                                          Value="_currentAppSettingsText"
+                                          Label="Current appsettings.json"
+                                          Variant="Variant.Outlined"
+                                          Lines="14"
+                                          Sizing="InputSizing.Auto"
+                                          MaxLines="10000"
+                                          FullWidth="true"
+                                          ReadOnly="true"
+                                          Class="appsettings-json-editor" />
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.ArrowDownward"
+                                       Disabled="_busy || string.IsNullOrWhiteSpace(_currentAppSettingsText)"
+                                       OnClick="TakeCurrentAppSettings">
+                                Take current
+                            </MudButton>
+                        </MudStack>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudStack Spacing="1">
+                            <MudTextField T="string"
+                                          Value="_incomingAppSettingsText"
+                                          Label="Incoming appsettings.json"
+                                          Variant="Variant.Outlined"
+                                          Lines="14"
+                                          Sizing="InputSizing.Auto"
+                                          MaxLines="10000"
+                                          FullWidth="true"
+                                          ReadOnly="true"
+                                          Class="appsettings-json-editor" />
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.ArrowDownward"
+                                       Disabled="_busy || string.IsNullOrWhiteSpace(_incomingAppSettingsText)"
+                                       OnClick="TakeIncomingAppSettings">
+                                Take incoming
+                            </MudButton>
+                        </MudStack>
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudTextField T="string"
+                                      @bind-Value="_resolvedAppSettingsText"
+                                      Label="Final appsettings.json"
+                                      Variant="Variant.Outlined"
+                                      Lines="18"
+                                      Sizing="InputSizing.Auto"
+                                      MaxLines="10000"
+                                      FullWidth="true"
+                                      Disabled="_busy"
+                                      Immediate="true"
+                                      Class="appsettings-json-editor" />
+                    </MudItem>
+                </MudGrid>
+
                 <MudStack Row="true" Spacing="2">
                     <MudButton Variant="Variant.Filled"
                                Color="Color.Primary"
                                StartIcon="@Icons.Material.Filled.Save"
-                               Disabled="_busy || string.IsNullOrWhiteSpace(_appSettingsConflictText)"
+                               Disabled="_busy || string.IsNullOrWhiteSpace(_resolvedAppSettingsText)"
                                OnClick="SaveAppSettingsResolutionAsync">
                         Save resolution
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined"
-                               Color="Color.Warning"
-                               StartIcon="@Icons.Material.Filled.PriorityHigh"
-                               Disabled="_busy || _snapshot.Web is null"
-                               OnClick="ForceReleaseAppSettingsAsync">
-                        Force release defaults
                     </MudButton>
                 </MudStack>
             </MudStack>
@@ -398,7 +440,9 @@
     private DedicatedServerLaunchUpdateMode _launchUpdateMode = DedicatedServerLaunchUpdateMode.Update;
     private bool _bootstrapActivationRequested;
     private string _selectedWebVersion = string.Empty;
-    private string _appSettingsConflictText = string.Empty;
+    private string _currentAppSettingsText = string.Empty;
+    private string _incomingAppSettingsText = string.Empty;
+    private string _resolvedAppSettingsText = string.Empty;
     private string _githubToken = string.Empty;
 
     protected override void OnInitialized()
@@ -428,7 +472,11 @@
         _autoStageWebUpdates = Options.AutoStageWebUpdates;
         _selectedWebVersion = _snapshot.SelectedWebVersion;
         if (!_snapshot.AppSettingsConflict)
-            _appSettingsConflictText = string.Empty;
+        {
+            _currentAppSettingsText = string.Empty;
+            _incomingAppSettingsText = string.Empty;
+            _resolvedAppSettingsText = string.Empty;
+        }
         if (_snapshot.Bootstrap is null)
             _bootstrapActivationRequested = false;
         StateHasChanged();
@@ -703,7 +751,15 @@
     {
         try
         {
-            _appSettingsConflictText = await UpdateService.ReadAppSettingsConflictTextAsync();
+            var documents = await UpdateService.ReadAppSettingsConflictDocumentsAsync();
+            _currentAppSettingsText = documents.Current;
+            _incomingAppSettingsText = documents.Incoming;
+            if (string.IsNullOrWhiteSpace(_resolvedAppSettingsText))
+            {
+                _resolvedAppSettingsText = string.IsNullOrWhiteSpace(documents.Current)
+                    ? documents.Incoming
+                    : documents.Current;
+            }
             await InvokeAsync(StateHasChanged);
         }
         catch (Exception exception)
@@ -712,29 +768,16 @@
         }
     }
 
+    private void TakeCurrentAppSettings() => _resolvedAppSettingsText = _currentAppSettingsText;
+
+    private void TakeIncomingAppSettings() => _resolvedAppSettingsText = _incomingAppSettingsText;
+
     private async Task SaveAppSettingsResolutionAsync()
     {
         await RunBusyAsync(
-            () => UpdateService.ResolveAppSettingsConflictAsync(_appSettingsConflictText),
+            () => UpdateService.ResolveAppSettingsConflictAsync(_resolvedAppSettingsText),
             "appsettings.json conflict resolved.",
             "Failed saving appsettings.json");
-    }
-
-    private async Task ForceReleaseAppSettingsAsync()
-    {
-        var confirmed = await DialogService.ShowMessageBoxAsync(
-            "Force release appsettings.json?",
-            "This discards local appsettings.json values for the staged update and uses the release defaults.",
-            yesText: "Force defaults",
-            cancelText: "Cancel");
-
-        if (confirmed != true)
-            return;
-
-        await RunBusyAsync(
-            () => UpdateService.StageWebUpdateAsync(forceAppSettingsOverride: true),
-            "Release appsettings.json staged.",
-            "Failed forcing release appsettings.json");
     }
 
     private async Task SaveGitHubTokenAsync()
