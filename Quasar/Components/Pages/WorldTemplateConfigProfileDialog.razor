@@ -83,6 +83,9 @@
     public string WorldPath { get; set; } = string.Empty;
 
     [Parameter]
+    public string WorldTemplateId { get; set; } = string.Empty;
+
+    [Parameter]
     public bool AllowSkip { get; set; } = true;
 
     private MudForm? _form;
@@ -153,6 +156,7 @@
             return;
 
         _sourceProfile.ConfigProfileId = string.Empty;
+        _sourceProfile.SourceWorldTemplateId = WorldTemplateId.Trim();
         _sourceProfile.Name = _profileName.Trim();
         _sourceProfile.Description = _profileDescription?.Trim() ?? string.Empty;
         MudDialog.Close(DialogResult.Ok(new WorldTemplateConfigProfileDialogResult(_sourceProfile)));
