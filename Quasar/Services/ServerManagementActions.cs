@@ -42,9 +42,13 @@ public sealed class ServerManagementActions(
         await dialogService.ShowAsync<ServerConsoleDialog>($"Console — {uniqueName}", parameters, dialogOptions);
     }
 
-    public async Task OpenCreateDialogAsync()
+    public async Task OpenCreateDialogAsync(string configProfileId = "", string worldTemplateId = "")
     {
-        var definition = await ShowEditorDialogAsync(CreateBlank(), isEditing: false, isClone: false);
+        var initial = CreateBlank();
+        initial.ConfigProfileId = configProfileId;
+        initial.WorldTemplateId = worldTemplateId;
+
+        var definition = await ShowEditorDialogAsync(initial, isEditing: false, isClone: false);
         if (definition is null)
             return;
 

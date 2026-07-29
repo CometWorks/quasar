@@ -260,17 +260,16 @@
             return;
         }
 
-        var profilePrompt = await PromptForConfigProfileAsync(_name.Trim(), _sourcePath.Trim(), allowSkip: true);
-        if (profilePrompt.Canceled)
-            return;
-
         _importing = true;
         try
         {
-            await WorldTemplateCatalog.ImportAsync(_name, _description, _sourcePath);
-            Snackbar.Add($"World template '{_name}' imported.", Severity.Success);
+            var template = await WorldTemplateCatalog.ImportAsync(_name, _description, _sourcePath);
+            Snackbar.Add($"World template '{template.Name}' imported.", Severity.Success);
             ResetForm();
-            await CreateConfigProfileAsync(profilePrompt.Profile);
+
+            var profilePrompt = await PromptForConfigProfileAsync(template, allowSkip: true);
+            if (!profilePrompt.Canceled)
+                await CreateConfigProfileAsync(profilePrompt.Profile, template.WorldTemplateId);
         }
         catch (Exception ex)
         {
@@ -304,16 +303,15 @@
 
     private async Task ImportInstalledTemplateAsync(InstalledWorldTemplateSource source)
     {
-        var profilePrompt = await PromptForConfigProfileAsync(source.DisplayName, source.SourcePath, allowSkip: true);
-        if (profilePrompt.Canceled)
-            return;
-
         _importing = true;
         try
         {
             var template = await WorldTemplateCatalog.ImportAsync(source.DisplayName, source.Description, source.SourcePath);
             Snackbar.Add($"World template '{template.Name}' added.", Severity.Success);
-            await CreateConfigProfileAsync(profilePrompt.Profile);
+
+            var profilePrompt = await PromptForConfigProfileAsync(template, allowSkip: true);
+            if (!profilePrompt.Canceled)
+                await CreateConfigProfileAsync(profilePrompt.Profile, template.WorldTemplateId);
         }
         catch (Exception ex)
         {
@@ -330,15 +328,14 @@
         if (!row.WorldExists)
             return;
 
-        var sourceDir = WorldTemplateCatalog.GetWorldDirectory(row.Template.WorldTemplateId);
-        var profilePrompt = await PromptForConfigProfileAsync(row.Template.Name, sourceDir, allowSkip: false);
+        var profilePrompt = await PromptForConfigProfileAsync(row.Template, allowSkip: false);
         if (profilePrompt.Canceled || profilePrompt.Profile is null)
             return;
 
         _importing = true;
         try
         {
-            await CreateConfigProfileAsync(profilePrompt.Profile);
+            await CreateConfigProfileAsync(profilePrompt.Profile, row.Template.WorldTemplateId);
         }
         catch (Exception ex)
         {
@@ -351,14 +348,14 @@
     }
 
     private async Task<(bool Canceled, QuasarConfigProfile? Profile)> PromptForConfigProfileAsync(
-        string worldName,
-        string worldPath,
+        QuasarWorldTemplate template,
         bool allowSkip)
     {
         var parameters = new DialogParameters
         {
-            [nameof(WorldTemplateConfigProfileDialog.WorldName)] = worldName,
-            [nameof(WorldTemplateConfigProfileDialog.WorldPath)] = worldPath,
+            [nameof(WorldTemplateConfigProfileDialog.WorldName)] = template.Name,
+            [nameof(WorldTemplateConfigProfileDialog.WorldPath)] = WorldTemplateCatalog.GetWorldDirectory(template.WorldTemplateId),
+            [nameof(WorldTemplateConfigProfileDialog.WorldTemplateId)] = template.WorldTemplateId,
             [nameof(WorldTemplateConfigProfileDialog.AllowSkip)] = allowSkip,
         };
 
@@ -377,11 +374,12 @@
         return (false, null);
     }
 
-    private async Task<string?> CreateConfigProfileAsync(QuasarConfigProfile? profile)
+    private async Task<string?> CreateConfigProfileAsync(QuasarConfigProfile? profile, string worldTemplateId)
     {
         if (profile is null)
             return null;
 
+        profile.SourceWorldTemplateId = worldTemplateId;
         await ResolveProfileModDependenciesAsync(profile);
         await ConfigProfiles.UpsertAsync(profile);
         Snackbar.Add($"Config profile '{profile.Name}' created from world settings.", Severity.Success);

@@ -36,6 +36,8 @@ public sealed class QuasarConfigProfile
 {
     public string ConfigProfileId { get; set; } = string.Empty;
 
+    public string SourceWorldTemplateId { get; set; } = string.Empty;
+
     public string Name { get; set; } = string.Empty;
 
     public string Description { get; set; } = string.Empty;
@@ -49,6 +51,11 @@ public sealed class QuasarConfigProfile
     public List<QuasarModSelection> Mods { get; set; } = [];
 
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+
+    public bool WasCreatedFromWorldTemplate(string worldTemplateId) =>
+        !string.IsNullOrWhiteSpace(SourceWorldTemplateId) &&
+        !string.IsNullOrWhiteSpace(worldTemplateId) &&
+        string.Equals(SourceWorldTemplateId, worldTemplateId, StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed class QuasarDevFolderSelection

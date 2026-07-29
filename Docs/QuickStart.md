@@ -32,6 +32,24 @@ press `Ctrl+C`, then run `./Quasar serve` or `Quasar.exe serve` again when you
 want the UI back. The web UI port is configurable — see
 [Configuration](Configuration.md).
 
+## First server setup
+
+The dashboard setup wizard starts from a world shipped with Space Engineers
+Dedicated Server:
+
+1. Choose a predefined Dedicated Server world. Quasar copies it into managed
+   world-template storage.
+2. Create a matching config profile from that template's
+   `Sandbox_config.sbc`. This carries the world's session settings and mods
+   forward instead of applying an unrelated profile on first start.
+3. Create the server. The wizard preselects the matching world template and
+   config profile; create the server's save from that template in the editor.
+4. Start the server and wait for Quasar.Agent to connect.
+
+Both template and matching profile are required. If a profile was already
+created from the selected template, the wizard recognizes that relationship
+and skips the profile-creation step.
+
 ## Install as a background service
 
 If .NET 10 is missing, the Linux installer detects the available package manager

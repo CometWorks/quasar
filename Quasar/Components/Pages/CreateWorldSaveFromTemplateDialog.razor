@@ -63,6 +63,9 @@
     [Parameter]
     public string? InitialConfigProfileId { get; set; }
 
+    [Parameter]
+    public string? InitialWorldTemplateId { get; set; }
+
     private MudForm? _form;
     private bool _formIsValid;
     private string _selectedTemplateId = string.Empty;
@@ -77,8 +80,13 @@
     private void RefreshTemplates()
     {
         _templates = WorldTemplates.GetTemplates();
-        if (string.IsNullOrWhiteSpace(_selectedTemplateId) && _templates.Count > 0)
-            _selectedTemplateId = _templates[0].WorldTemplateId;
+        if (!string.IsNullOrWhiteSpace(_selectedTemplateId) || _templates.Count == 0)
+            return;
+
+        _selectedTemplateId = _templates.Any(template =>
+                string.Equals(template.WorldTemplateId, InitialWorldTemplateId, StringComparison.OrdinalIgnoreCase))
+            ? InitialWorldTemplateId!
+            : _templates[0].WorldTemplateId;
     }
 
     private void HandleTemplateChanged(string value)

@@ -257,6 +257,9 @@
     [Parameter]
     public string? InitialConfigProfileId { get; set; }
 
+    [Parameter]
+    public bool TemplateOnly { get; set; }
+
     private MudForm? _form;
     private bool _formIsValid;
     private string _name = string.Empty;
@@ -292,6 +295,9 @@
     protected override void OnInitialized()
     {
         RefreshInstalledTemplates();
+        if (TemplateOnly)
+            return;
+
         _selectedConfigProfileId = GetInitialConfigProfileId();
         if (!string.IsNullOrWhiteSpace(_selectedConfigProfileId))
             _modAction = WorldImportModAction.ExistingProfile;
@@ -360,6 +366,12 @@
 
     private async Task ContinueFromDetailsAsync()
     {
+        if (TemplateOnly)
+        {
+            await ImportAsync();
+            return;
+        }
+
         LoadSourceConfigProfile();
 
         _newProfileName = string.IsNullOrWhiteSpace(_newProfileName)
@@ -433,7 +445,7 @@
         try
         {
             var template = await WorldTemplates.ImportAsync(_name.Trim(), _description?.Trim() ?? string.Empty, _sourcePath.Trim());
-            var configProfileId = await ApplyModActionAsync();
+            var configProfileId = await ApplyModActionAsync(template.WorldTemplateId);
             MudDialog.Close(DialogResult.Ok(new WorldTemplateQuickImportResult(template, configProfileId)));
         }
         catch (Exception exception)
@@ -446,7 +458,7 @@
         }
     }
 
-    private async Task<string?> ApplyModActionAsync()
+    private async Task<string?> ApplyModActionAsync(string worldTemplateId)
     {
         if (_step != ImportStep.ConfigProfile || _modAction == WorldImportModAction.None)
             return null;
@@ -470,6 +482,7 @@
 
         var newProfile = _sourceConfigProfile;
         newProfile.ConfigProfileId = string.Empty;
+        newProfile.SourceWorldTemplateId = worldTemplateId;
         newProfile.Name = _newProfileName.Trim();
         newProfile.Description = _newProfileDescription?.Trim() ?? string.Empty;
 
@@ -535,9 +548,11 @@
     private string GetPrimaryButtonText() =>
         _importing
             ? "Importing..."
-            : _step == ImportStep.ConfigProfile
-                ? "Import World Template"
-                : "Continue";
+            : TemplateOnly
+                ? "Create World Template"
+                : _step == ImportStep.ConfigProfile
+                    ? "Import World Template"
+                    : "Continue";
 
     private static int MergeMods(QuasarConfigProfile profile, IEnumerable<QuasarModSelection> mods)
     {

@@ -190,6 +190,7 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
         profile.ConfigProfileId = string.IsNullOrWhiteSpace(profile.ConfigProfileId)
             ? Guid.NewGuid().ToString("N")
             : profile.ConfigProfileId.Trim();
+        profile.SourceWorldTemplateId = profile.SourceWorldTemplateId?.Trim() ?? string.Empty;
         profile.Name = profile.Name?.Trim() ?? string.Empty;
         profile.Description = profile.Description?.Trim() ?? string.Empty;
         profile.RootSettings ??= new QuasarWorldRootSettings();
