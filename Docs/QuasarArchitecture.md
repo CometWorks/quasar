@@ -552,7 +552,8 @@ Practical guarantee:
    base from the install directory, local install-directory values, and new release
    defaults
 5. UI notifies admins that the update is queued/staged, or shows a conflict
-   resolver when appsettings cannot be auto-merged
+   resolver with current and incoming files side-by-side and an editable final
+   file when appsettings cannot be auto-merged
 6. admin activates the staged UI update from `/settings/updates`
 7. activation promotes the staged payload into `ManagedRuntime/WebService/<version>/`,
    updates the install-directory `appsettings.json` from the resolved staged file,

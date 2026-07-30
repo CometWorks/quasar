@@ -110,11 +110,12 @@ Staging also resolves `appsettings.json`. Quasar uses the stored release base in
 the install root (`<install-root>\Updates\appsettings.base.json`) as the merge
 base, applies local values from the install directory, and writes the
 resolved file into the staged worker. If the merge conflicts, auto-staging stops
-with a warning and `/settings/updates` shows a git-style conflict editor. Resolve
-and save the JSON there, or choose **Force release defaults** to stage the
-release file without local appsettings values. During activation, the resolved
-file is copied back to the install directory so Bootstrap and the managed worker
-launch with the same base settings.
+with a warning and `/settings/updates` shows current and incoming files
+side-by-side with an editable final file below. **Take current** and **Take
+incoming** copy a complete file into the final editor without saving it; review
+or edit that result, then choose **Save resolution**. During activation, the
+resolved file is copied back to the install directory so Bootstrap and the
+managed worker launch with the same base settings.
 
 ## Managed Runtime Update Checks
 

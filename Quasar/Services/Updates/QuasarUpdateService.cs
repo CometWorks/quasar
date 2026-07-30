@@ -330,13 +330,23 @@ public sealed class QuasarUpdateService : BackgroundService
         });
     }
 
-    public async Task<string> ReadAppSettingsConflictTextAsync(CancellationToken cancellationToken = default)
+    public async Task<(string Current, string Incoming)> ReadAppSettingsConflictDocumentsAsync(
+        CancellationToken cancellationToken = default)
     {
-        var path = GetSnapshot().AppSettingsConflictPath;
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            return string.Empty;
+        var stagedDirectory = GetSnapshot().Web?.StagedDirectory;
+        if (string.IsNullOrWhiteSpace(stagedDirectory))
+            return (string.Empty, string.Empty);
 
-        return await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+        var currentPath = ResolveCurrentAppSettingsPath(stagedDirectory);
+        var incomingPath = Path.Combine(stagedDirectory, AppSettingsReleaseBaseFileName);
+        var current = currentPath is not null
+            ? await File.ReadAllTextAsync(currentPath, cancellationToken).ConfigureAwait(false)
+            : string.Empty;
+        var incoming = File.Exists(incomingPath)
+            ? await File.ReadAllTextAsync(incomingPath, cancellationToken).ConfigureAwait(false)
+            : string.Empty;
+
+        return (current, incoming);
     }
 
     public async Task ResolveAppSettingsConflictAsync(string resolvedText, CancellationToken cancellationToken = default)

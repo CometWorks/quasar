@@ -121,8 +121,10 @@ the install root (`$QUASAR_INSTALL_DIR/Updates/appsettings.base.json`) as the
 merge base, applies local values from the install directory, and writes the
 resolved file into the staged worker. If the merge
 conflicts, auto-staging stops with a warning and `/settings/updates` shows a
-git-style conflict editor. Resolve and save the JSON there, or choose **Force
-release defaults** to stage the release file without local appsettings values.
+three-pane resolver: current and incoming files side-by-side, with an editable
+final file below. **Take current** and **Take incoming** copy into the final
+editor without saving; review or edit that result, then choose **Save
+resolution**.
 
 Activation is explicit and requires the worker to be running under Bootstrap.
 The UI copies the staged payload into

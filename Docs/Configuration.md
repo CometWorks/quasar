@@ -143,9 +143,11 @@ the previous release base stored under the install root is the merge base, the
 current install-root `appsettings.json` supplies local values, and the new
 release file supplies new defaults. Clean local changes are carried into the
 staged version automatically. If both the local file and the release changed the
-same setting differently, the Updates page shows a conflict editor with
-git-style markers. Resolve and save the JSON before activation, or use **Force
-release defaults** to discard local appsettings values for that staged release.
+same setting differently, the Updates page shows the current and incoming files
+side-by-side with an editable final file below them. Use **Take current** or
+**Take incoming** as a starting point, make any needed edits, then choose **Save
+resolution** before activation. The take actions only copy into the final
+editor; saving remains a separate action.
 
 ## Per-server launch diagnostics
 
