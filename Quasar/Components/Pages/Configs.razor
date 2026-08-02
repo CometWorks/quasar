@@ -127,6 +127,13 @@
                         </MudText>
                     }
 
+                    @if (_editor.SessionSettings.OnlineMode == 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
+                            World is set to Offline, everyone will be granted Admin permissions and players will not be able to join from outside localhost.
+                        </MudAlert>
+                    }
+
                     <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-4">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveTemplateAsync">Save Profile</MudButton>
                         <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="ResetEditorAsync">Reset</MudButton>

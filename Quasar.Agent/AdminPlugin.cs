@@ -36,6 +36,7 @@ namespace Quasar.Agent
         {
             var options = AgentOptions.FromEnvironment();
             LogStartupVersions();
+            OfflineModeNetworkGuard.Apply();
             AgentProfiler.Configure(options);
             AgentProfilerPatches.Apply(options);
             ServerCommands.Register(typeof(AdminPlugin).Assembly, typeof(StopCommand), typeof(RestartCommand), typeof(QuitCommand));
@@ -78,6 +79,7 @@ namespace Quasar.Agent
             _bridge?.Dispose();
             _bridge = null;
             AgentProfilerPatches.Dispose();
+            OfflineModeNetworkGuard.Dispose();
         }
 
         // The Magnetar host is tearing the server down. When the intent is a

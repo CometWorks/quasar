@@ -74,6 +74,24 @@ overrides. It changes only the pending server definition; it does not copy or
 delete files. Copy the authoritative server data into the current Quasar root
 before resetting paths, especially when both the old and new roots still exist.
 
+## Online mode defaults and Offline safety
+
+New config profiles default **Online Mode** to **Public**. Profiles created from
+a world template also use Public rather than importing the template world's
+saved Online Mode.
+
+Offline mode is unsafe on an ordinary Space Engineers dedicated server because
+every connected user receives Owner-level permissions. Quasar shows a warning
+whenever a profile is set to Offline. At launch it overrides that server's
+rendered listen IP to `127.0.0.1`, and Quasar.Agent accepts only direct peers
+whose reported address is loopback. Relay peers and network transports that do
+not expose a verifiable loopback address are rejected. This restriction applies
+only while Online Mode is Offline; Public, Friends, and Private retain the
+server definition's configured Listen IP.
+
+`0.0.0.0` means “listen on every local interface”; it is not a valid remote
+client address and is not treated as localhost by the join guard.
+
 ## Steam Workshop mod dependencies
 
 When a config profile with Workshop mods is opened, saved, or receives imported

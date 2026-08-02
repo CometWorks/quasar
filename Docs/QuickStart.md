@@ -42,7 +42,9 @@ Dedicated Server:
    Dedicated Server download is installed and validated.
 2. Create a matching config profile from that template's
    `Sandbox_config.sbc`. This carries the world's session settings and mods
-   forward instead of applying an unrelated profile on first start.
+   forward instead of applying an unrelated profile on first start. Online Mode
+   is the exception: generated profiles start Public even when the template is
+   Offline, Friends, or Private.
 3. Create the server. The wizard preselects the matching world template and
    config profile; create the server's save from that template in the editor.
 4. Start the server and wait for Quasar.Agent to connect.
