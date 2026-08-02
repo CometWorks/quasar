@@ -165,8 +165,11 @@ public sealed class DedicatedServerRuntimePreparer
             UpsertElement(root, "RemoteApiPort", (definition.ServerPort + 2000).ToString(CultureInfo.InvariantCulture));
         }
 
-        if (!string.IsNullOrWhiteSpace(definition.ServerIP))
-            UpsertElement(root, "ServerIP", definition.ServerIP.Trim());
+        var serverIp = configProfile.SessionSettings.OnlineMode == 0
+            ? "127.0.0.1"
+            : definition.ServerIP;
+        if (!string.IsNullOrWhiteSpace(serverIp))
+            UpsertElement(root, "ServerIP", serverIp.Trim());
 
         ApplyConfigProfile(root, configProfile);
         UpsertElement(root, "ServerName", GetServerDisplayName(definition));

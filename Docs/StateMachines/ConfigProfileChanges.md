@@ -62,8 +62,18 @@ dependency flags, and failures leave the stored names intact.
 **Profile creation.** Profiles start empty when created directly, or can be
 derived by the world-template UI from a template's current `Sandbox_config.sbc`.
 Template-derived profiles import DS-visible session settings and workshop mods,
-then persist the result through the same `UpsertAsync` path. Quasar does not
-seed or restore built-in default profiles.
+then persist the result through the same `UpsertAsync` path. New profiles always
+default Online Mode to **Public**, including profiles derived from a world
+template; a template's saved Online Mode is intentionally not imported. Quasar
+does not seed or restore built-in default profiles.
+
+**Offline safety.** Selecting Offline shows a warning in the profile editor
+because Space Engineers grants every connected user Owner-level permissions in
+that mode. On server start Quasar forces the rendered DS listen IP to
+`127.0.0.1`, and Quasar.Agent rejects any join whose direct peer address is not
+loopback. Relay connections and transports that cannot prove a loopback peer are
+rejected. `0.0.0.0` is a wildcard listen address, not a client address, so it is
+never accepted as proof that a joining client is local.
 
 **Live vs restart-required.** Changes that the running server/agent can apply
 dynamically go live immediately; changes flagged restart-required are applied on

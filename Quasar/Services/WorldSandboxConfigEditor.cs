@@ -137,6 +137,8 @@ public static class WorldSandboxConfigEditor
         {
             if (string.IsNullOrWhiteSpace(option.ElementName))
                 continue;
+            if (option.PropertyName == nameof(QuasarSessionSettings.OnlineMode))
+                continue;
 
             var element = ElementIgnoreCase(settingsElement, option.ElementName);
             if (element is null)
