@@ -74,6 +74,20 @@ overrides. It changes only the pending server definition; it does not copy or
 delete files. Copy the authoritative server data into the current Quasar root
 before resetting paths, especially when both the old and new roots still exist.
 
+## Server and world names
+
+The server editor's **Identity** section keeps Quasar's display name separate
+from the names advertised by Space Engineers. **In-game server name** controls
+the server-list title. **In-game world name** controls the world name shown in
+the server browser. Blank values fall back to the Quasar display name and server
+identifier respectively.
+
+Quasar writes the selected world name into both the generated Dedicated Server
+configuration and the selected save's `Sandbox_config.sbc` before each start.
+The latter is required for existing saves because Space Engineers loads and
+advertises that file's `SessionName`. Name changes therefore take effect on the
+next server start or restart.
+
 ## Online mode defaults and Offline safety
 
 New config profiles default **Online Mode** to **Public**. Profiles created from

@@ -87,11 +87,13 @@ public static class WorldSandboxConfigEditor
     public static async Task WriteProfileAsync(
         string sandboxConfigPath,
         QuasarConfigProfile profile,
+        string sessionName,
         CancellationToken cancellationToken = default)
     {
         var document = LoadDocument(sandboxConfigPath);
         var root = GetRoot(document, sandboxConfigPath);
 
+        UpsertElement(root, "SessionName", sessionName);
         ApplySessionSettings(root, profile.SessionSettings);
         ApplyMods(root, profile.Mods);
 

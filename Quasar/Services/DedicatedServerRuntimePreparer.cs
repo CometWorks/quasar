@@ -699,7 +699,11 @@ public sealed class DedicatedServerRuntimePreparer
             return;
         }
 
-        await WorldSandboxConfigEditor.WriteProfileAsync(sandboxConfigPath, configProfile, cancellationToken);
+        await WorldSandboxConfigEditor.WriteProfileAsync(
+            sandboxConfigPath,
+            configProfile,
+            GetWorldDisplayName(definition, worldPath),
+            cancellationToken);
         _logger.LogInformation(
             "Wrote profile '{ProfileName}' settings and {Count} mod entr(y/ies) into {Path}.",
             configProfile.Mods.Count, configProfile.Name, sandboxConfigPath);

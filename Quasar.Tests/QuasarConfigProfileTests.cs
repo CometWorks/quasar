@@ -1,3 +1,4 @@
+using System.Xml.Linq;
 using Quasar.Models;
 using Quasar.Services;
 using Xunit;
@@ -51,5 +52,29 @@ public sealed class QuasarConfigProfileTests
         };
 
         Assert.Equal(expected, profile.WasCreatedFromWorldTemplate(worldTemplateId));
+    }
+
+    [Fact]
+    public async Task WriteProfileAsync_UpdatesAdvertisedWorldName()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"quasar-world-{Guid.NewGuid():N}.sbc");
+        try
+        {
+            await File.WriteAllTextAsync(
+                path,
+                "<MyObjectBuilder_WorldConfiguration><SessionName>Old World</SessionName><Settings /></MyObjectBuilder_WorldConfiguration>");
+
+            await WorldSandboxConfigEditor.WriteProfileAsync(
+                path,
+                new QuasarConfigProfile(),
+                "New World");
+
+            var document = XDocument.Load(path);
+            Assert.Equal("New World", document.Root?.Element("SessionName")?.Value);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }
