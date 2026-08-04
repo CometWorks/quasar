@@ -26,6 +26,8 @@ public sealed class DedicatedServerRuntimeSnapshot
 
     public string LastMessage { get; set; } = string.Empty;
 
+    public DedicatedServerRestartInfo? LastRestart { get; set; }
+
     public string LatestErrorLogLine { get; set; } = string.Empty;
 
     public string LatestErrorLogKind { get; set; } = string.Empty;

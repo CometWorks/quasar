@@ -17,6 +17,7 @@ using Newtonsoft.Json.Serialization;
 using PluginSdk;
 using PluginSdk.Commands;
 using PluginSdk.Config;
+using PluginSdk.Logging;
 using Sandbox;
 using Sandbox.Engine.Networking;
 using Sandbox.Engine.Multiplayer;
@@ -34,6 +35,7 @@ namespace Quasar.Agent
     public class GameBridge : IDisposable
     {
         private static readonly TimeSpan SnapshotInterval = TimeSpan.FromSeconds(1);
+        private static readonly Logger Log = Logger.Create("Quasar.Agent");
         private const string ServerChatAuthorName = "Server";
         private static readonly MyPromoteLevel[] PromoteLevels =
         {
@@ -150,6 +152,7 @@ namespace Quasar.Agent
 
                 if (command.CommandType == ServerCommandType.StopServer)
                 {
+                    LogLifecycleStop(command);
                     _quasarRequestedStop = true;
                     ServerControl.SaveAndQuit();
                     return Task.FromResult(CreateResult(command, true, "Server shutdown requested."));
@@ -1414,6 +1417,7 @@ namespace Quasar.Agent
                         : CreateResult(command, false, "Session not ready.");
 
                 case ServerCommandType.StopServer:
+                    LogLifecycleStop(command);
                     _quasarRequestedStop = true;
                     ServerControl.SaveAndQuit();
                     return CreateResult(command, true, "World save and server shutdown requested.");
@@ -1568,6 +1572,20 @@ namespace Quasar.Agent
             {
                 return string.Empty;
             }
+        }
+
+        private static void LogLifecycleStop(ServerCommandEnvelope command)
+        {
+            if (string.IsNullOrWhiteSpace(command.Text))
+                return;
+
+            Log.Warning(
+                command.Text.Trim(),
+                new
+                {
+                    commandId = command.CommandId,
+                    issuedAtUtc = command.IssuedAtUtc,
+                });
         }
 
         private static MyPromoteLevel GetAdjacentPromoteLevel(ulong steamId, int direction)

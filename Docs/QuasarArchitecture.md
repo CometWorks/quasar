@@ -909,6 +909,11 @@ As of this document:
   `info_*.log`, but formats the PluginSdk JSON sink lines as normal text log
   lines first.
 - first health-monitoring and auto-recovery pass exists for agent attach grace, heartbeat freshness, simulation-frame progress scoring aligned with the DS watcher, and uptime-based warning/recycle policy
+- restart supervision retains the latest cause, reason, request/completion
+  times, and outcome across worker turnover. Health-policy restart reasons are
+  logged in Quasar, shown in Dashboard card/list views, and—when Quasar.Agent
+  is connected—logged through PluginSdk into the instance Magnetar
+  `info_*.log` before shutdown
 - initial runtime launch preparation now exists for isolated app-data roots, runtime config sync, `LastSession.sbl`, and enforced headless launch shaping
 - server definitions store a logical saves-root override (`WorldPath`) plus selected save folder (`WorldSaveName`). Blank paths derive from the server's managed DS app-data root, in-root overrides are persisted relative to the Quasar root, and external absolute overrides remain explicit. The server editor resolves that path before listing or validating saves, refreshes the save list when the DS root changes, and can reset all data paths to relocatable managed defaults. It requires a selected save before save/start and has an always-available Create From Template dialog that can create/import a world template before copying it into a new save.
 - neutral light/dark theming exists with local-storage persistence

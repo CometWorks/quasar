@@ -246,7 +246,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 state.State = state.IsRestartPending
                     ? DedicatedServerProcessState.Restarting
                     : DedicatedServerProcessState.Starting;
-                state.LastMessage = "Starting process.";
+                state.LastMessage = state.IsRestartPending && state.LastRestart is not null
+                    ? BuildRestartMessage(state.LastRestart)
+                    : "Starting process.";
                 state.LatestErrorLogLine = string.Empty;
                 state.LatestErrorLogKind = string.Empty;
                 if (!state.IsRestartPending)
@@ -289,7 +291,14 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     public Task StopServerAsync(string uniqueName, CancellationToken cancellationToken = default) =>
         StopServerAsync(uniqueName, DefaultGracefulStopTimeout, cancellationToken);
 
-    public async Task StopServerAsync(string uniqueName, TimeSpan? forceAfter, CancellationToken cancellationToken = default)
+    public Task StopServerAsync(string uniqueName, TimeSpan? forceAfter, CancellationToken cancellationToken = default) =>
+        StopServerAsync(uniqueName, forceAfter, string.Empty, cancellationToken);
+
+    private async Task StopServerAsync(
+        string uniqueName,
+        TimeSpan? forceAfter,
+        string agentLifecycleMessage,
+        CancellationToken cancellationToken)
     {
         ManagedServerState? state;
         Process? process;
@@ -329,7 +338,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         NotifyChanged();
 
-        await TryRequestGracefulStopAsync(uniqueName, cancellationToken);
+        await TryRequestGracefulStopAsync(uniqueName, agentLifecycleMessage, cancellationToken);
 
         if (process is null)
             return;
@@ -380,6 +389,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         ManagedServerState? state;
         Process? process;
         var waitForStartCancellation = false;
+        DedicatedServerRestartInfo? cancelledRestart = null;
 
         lock (_sync)
         {
@@ -398,8 +408,18 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             state.LastMessage = IsProcessActive(process)
                 ? "Killing starting process."
                 : "Cancelling start.";
+            if (CompletePendingRestart(state, DedicatedServerRestartOutcome.Failed, DateTimeOffset.UtcNow))
+                cancelledRestart = Clone(state.LastRestart!);
         }
 
+        if (cancelledRestart is not null)
+        {
+            _logger.LogWarning(
+                "Server {UniqueName} {RestartCause} restart was cancelled by an operator: {Reason}",
+                uniqueName,
+                cancelledRestart.Cause,
+                cancelledRestart.Reason);
+        }
         NotifyChanged();
         await _catalog.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.Off, cancellationToken);
 
@@ -448,6 +468,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         var changed = false;
         var startNow = false;
+        DedicatedServerRestartInfo? restart = null;
         lock (_sync)
         {
             if (!_states.TryGetValue(uniqueName, out var state))
@@ -459,18 +480,37 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             state.StopRequested = false;
             state.IsRestartPending = true;
             state.State = DedicatedServerProcessState.Restarting;
-            state.LastMessage = "Restart requested from in-game command.";
+            restart = SetRestartRequested(
+                state,
+                DedicatedServerRestartCause.InGame,
+                "Restart requested from in-game command.",
+                DateTimeOffset.UtcNow);
+            state.LastMessage = BuildRestartMessage(restart);
             changed = true;
         }
 
         if (changed)
+        {
+            LogRestartRequested(uniqueName, restart!);
             NotifyChanged();
+        }
 
         if (startNow)
             await StartServerAsync(uniqueName, cancellationToken);
     }
 
-    public async Task RestartServerAsync(string uniqueName, CancellationToken cancellationToken = default)
+    public Task RestartServerAsync(string uniqueName, CancellationToken cancellationToken = default) =>
+        RestartServerAsync(
+            uniqueName,
+            DedicatedServerRestartCause.Manual,
+            "Manual restart requested.",
+            cancellationToken);
+
+    private async Task RestartServerAsync(
+        string uniqueName,
+        DedicatedServerRestartCause cause,
+        string reason,
+        CancellationToken cancellationToken)
     {
         var definition = _catalog.GetServer(uniqueName);
         if (definition is null)
@@ -487,6 +527,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             }
         }
 
+        RecordRestartRequested(uniqueName, cause, reason);
+
         var agentDeployment = _runtimePreparer.GetAgentDeploymentComparison(definition);
         if (agentDeployment.HasMismatch)
         {
@@ -499,7 +541,25 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         definition.GoalState = DedicatedServerGoalState.On;
         definition.AutoStart = true;
         await _catalog.UpsertAsync(definition, cancellationToken);
-        await StopServerAsync(uniqueName, cancellationToken);
+
+        var agentLifecycleMessage = cause == DedicatedServerRestartCause.HealthPolicy
+            ? $"Quasar health policy requested a restart: {reason}"
+            : string.Empty;
+        await StopServerAsync(uniqueName, DefaultGracefulStopTimeout, agentLifecycleMessage, cancellationToken);
+
+        lock (_sync)
+        {
+            if (_states.TryGetValue(uniqueName, out var state) &&
+                state.LastRestart?.Outcome == DedicatedServerRestartOutcome.Pending)
+            {
+                state.StopRequested = false;
+                state.IsRestartPending = true;
+                state.State = DedicatedServerProcessState.Restarting;
+                state.LastMessage = BuildRestartMessage(state.LastRestart);
+            }
+        }
+
+        NotifyChanged();
         await StartServerAsync(uniqueName, cancellationToken);
     }
 
@@ -606,10 +666,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private async Task ReconcileAsync(CancellationToken cancellationToken)
     {
-        List<(string UniqueName, ReconcileAction Action, string Reason)> actions = new();
+        List<ReconcileRequest> actions = new();
         List<(string UniqueName, DedicatedServerProcessPriority Priority, string Phase)> priorityActions = new();
         List<(string UniqueName, string Affinity, string Phase)> affinityActions = new();
         List<(string UniqueName, DedicatedServerDefinition Definition)> agentDeploymentChecks = new();
+        List<(string UniqueName, DedicatedServerRestartInfo Restart)> recoveredRestarts = new();
         var agents = BuildAgentLookup();
         var now = DateTimeOffset.UtcNow;
         var healthChanged = false;
@@ -679,6 +740,16 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
                 if (processActive &&
                     state.State == DedicatedServerProcessState.Running &&
+                    agent?.IsConnected == true &&
+                    agent.Snapshot?.IsRunning == true &&
+                    CompletePendingRestart(state, DedicatedServerRestartOutcome.Recovered, now))
+                {
+                    recoveredRestarts.Add((state.UniqueName, Clone(state.LastRestart!)));
+                    healthChanged = true;
+                }
+
+                if (processActive &&
+                    state.State == DedicatedServerProcessState.Running &&
                     agent?.IsConnected == true)
                 {
                     agentDeploymentChecks.Add((state.UniqueName, Clone(state.Definition)));
@@ -706,14 +777,14 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 {
                     if (!processActive && state.State == DedicatedServerProcessState.Stopped)
                     {
-                        actions.Add((state.UniqueName, ReconcileAction.Start, "goal state is on"));
+                        actions.Add(new(state.UniqueName, ReconcileAction.Start, "goal state is on"));
                     }
                     else if (processActive &&
                              health.State == DedicatedServerHealthState.Unhealthy &&
                              state.Definition.AutoRestartOnUnhealthy &&
                              state.State == DedicatedServerProcessState.Starting)
                     {
-                        actions.Add((state.UniqueName, ReconcileAction.RetryAttach, health.Summary));
+                        actions.Add(new(state.UniqueName, ReconcileAction.RetryAttach, health.Summary));
                     }
                     else if (processActive &&
                              health.State == DedicatedServerHealthState.Unhealthy &&
@@ -722,7 +793,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                              CanScheduleHealthRestart(state, now))
                     {
                         state.LastHealthRecoveryActionUtc = now;
-                        actions.Add((state.UniqueName, ReconcileAction.Restart, health.Summary));
+                        actions.Add(new(
+                            state.UniqueName,
+                            ReconcileAction.Restart,
+                            health.Summary,
+                            DedicatedServerRestartCause.HealthPolicy));
                     }
                     else if (processActive &&
                              state.State == DedicatedServerProcessState.Running &&
@@ -730,7 +805,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     {
                         if (CanRunPlannedRestart(state))
                         {
-                            actions.Add((state.UniqueName, ReconcileAction.Restart, $"maximum uptime {state.Definition.MaximumUptime} reached"));
+                            actions.Add(new(
+                                state.UniqueName,
+                                ReconcileAction.Restart,
+                                $"Maximum uptime {state.Definition.MaximumUptime} reached.",
+                                DedicatedServerRestartCause.MaximumUptime));
                         }
                         else
                         {
@@ -744,7 +823,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     {
                         if (state.LastScheduledRestartUtc == now)
                         {
-                            actions.Add((state.UniqueName, ReconcileAction.Restart, $"scheduled restart at {state.Definition.DailyRestartTimeLocal}"));
+                            actions.Add(new(
+                                state.UniqueName,
+                                ReconcileAction.Restart,
+                                $"Scheduled restart at {state.Definition.DailyRestartTimeLocal}.",
+                                DedicatedServerRestartCause.Scheduled));
                         }
                         else
                         {
@@ -756,13 +839,23 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 else
                 {
                     if (processActive && state.State != DedicatedServerProcessState.Stopping)
-                        actions.Add((state.UniqueName, ReconcileAction.Stop, "goal state is off"));
+                        actions.Add(new(state.UniqueName, ReconcileAction.Stop, "goal state is off"));
                 }
             }
         }
 
         if (healthChanged)
             NotifyChanged();
+
+        foreach (var (uniqueName, restart) in recoveredRestarts)
+        {
+            _logger.LogInformation(
+                "Server {UniqueName} recovered after {RestartCause} restart requested at {RequestedAtUtc}: {Reason}",
+                uniqueName,
+                restart.Cause,
+                restart.RequestedAtUtc,
+                restart.Reason);
+        }
 
         foreach (var (uniqueName, priority, phase) in priorityActions)
             TryApplyProcessPriority(uniqueName, priority, phase);
@@ -773,28 +866,31 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         foreach (var (uniqueName, definition) in agentDeploymentChecks)
             WarnIfAgentDeploymentMismatch(uniqueName, definition);
 
-        foreach (var (uniqueName, action, reason) in actions)
+        foreach (var request in actions)
         {
             if (cancellationToken.IsCancellationRequested)
                 break;
 
-            switch (action)
+            switch (request.Action)
             {
                 case ReconcileAction.Start:
-                    await StartServerAsync(uniqueName, cancellationToken);
+                    await StartServerAsync(request.UniqueName, cancellationToken);
                     break;
 
                 case ReconcileAction.Stop:
-                    await StopServerAsync(uniqueName, cancellationToken);
+                    await StopServerAsync(request.UniqueName, cancellationToken);
                     break;
 
                 case ReconcileAction.Restart:
-                    _logger.LogWarning("Quasar health recovery restarting server {UniqueName}: {Reason}", uniqueName, reason);
-                    await RestartServerAsync(uniqueName, cancellationToken);
+                    await RestartServerAsync(
+                        request.UniqueName,
+                        request.RestartCause,
+                        request.Reason,
+                        cancellationToken);
                     break;
 
                 case ReconcileAction.RetryAttach:
-                    await RetryAgentAttachAsync(uniqueName, reason, cancellationToken);
+                    await RetryAgentAttachAsync(request.UniqueName, request.Reason, cancellationToken);
                     break;
             }
         }
@@ -809,6 +905,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         int maxAttempts;
         int retryDelaySeconds;
         var faulted = false;
+        DedicatedServerRestartInfo? restart = null;
 
         lock (_sync)
         {
@@ -836,8 +933,16 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             else
             {
                 state.LastMessage = $"Quasar.Agent attach timed out ({attempt}/{maxAttempts}). Retrying in {retryDelaySeconds}s.";
+                restart = SetRestartRequested(
+                    state,
+                    DedicatedServerRestartCause.AgentAttachRecovery,
+                    $"{reason} Attach attempt {attempt}/{maxAttempts} timed out.",
+                    DateTimeOffset.UtcNow);
             }
         }
+
+        if (restart is not null)
+            LogRestartRequested(uniqueName, restart);
 
         NotifyChanged();
 
@@ -877,10 +982,16 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     state.StartedAtUtc = null;
                     state.StoppedAtUtc = DateTimeOffset.UtcNow;
                     state.LastMessage = $"Quasar.Agent did not attach after {maxAttempts} attempt(s). {reason}";
+                    CompletePendingRestart(state, DedicatedServerRestartOutcome.Failed, state.StoppedAtUtc.Value);
                     ResetHealthTracking(state);
                 }
             }
 
+            _logger.LogWarning(
+                "Server {UniqueName} agent-attach recovery failed after {MaxAttempts} attempts: {Reason}",
+                uniqueName,
+                maxAttempts,
+                reason);
             NotifyChanged();
             return;
         }
@@ -1087,6 +1198,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             }
             else
             {
+                var restartPending = current.LastRestart?.Outcome == DedicatedServerRestartOutcome.Pending;
                 current.Process = process;
                 current.State = DedicatedServerProcessState.Starting;
                 current.ProcessId = process.Id;
@@ -1094,9 +1206,14 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 current.AgentWatchSinceUtc = current.StartedAtUtc;
                 current.StoppedAtUtc = null;
                 current.LastExitCode = null;
-                current.LastMessage = "Process started; waiting for server online signal.";
+                current.LastMessage = restartPending
+                    ? BuildRestartMessage(current.LastRestart!)
+                    : "Process started; waiting for server online signal.";
                 current.StandardOutputLogPath = string.Empty;
                 current.StandardErrorLogPath = string.Empty;
+                // IsRestartPending means the current process is expected to exit
+                // for an in-game restart command. Once its replacement launches,
+                // normal startup/attach and crash-retry policy must apply again.
                 current.IsRestartPending = false;
                 current.StopRequested = false;
                 current.ModDownloadFailures.Clear();
@@ -1508,6 +1625,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         DateTimeOffset? errorLogSinceUtc = null;
         int restartDelaySeconds = 0;
         DateTimeOffset now = DateTimeOffset.UtcNow;
+        DedicatedServerRestartInfo? requestedRestart = null;
+        DedicatedServerRestartInfo? failedRestart = null;
 
         lock (_sync)
         {
@@ -1555,6 +1674,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     state.IsRestartPending = true;
                     state.State = DedicatedServerProcessState.Restarting;
                     state.LastMessage = $"Process exited with code {exitCode}. Restarting.";
+                    requestedRestart = SetRestartRequested(
+                        state,
+                        DedicatedServerRestartCause.CrashRecovery,
+                        $"Process exited with code {exitCode}; restart attempt {nextAttempt}/{maxAttempts}.",
+                        now);
                     shouldRestart = true;
                     restartDelaySeconds = Math.Max(0, definition.RestartDelaySeconds);
                 }
@@ -1564,6 +1688,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     state.IsRestartPending = false;
                     state.State = DedicatedServerProcessState.Faulted;
                     state.LastMessage = $"Process exited with code {exitCode}. Restart attempt limit ({maxAttempts}) reached.";
+                    if (CompletePendingRestart(state, DedicatedServerRestartOutcome.Failed, now))
+                        failedRestart = Clone(state.LastRestart!);
                 }
             }
 
@@ -1594,6 +1720,17 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         NotifyChanged();
         _logger.LogInformation("Server {UniqueName} exited with code {ExitCode}.", uniqueName, exitCode);
+        if (requestedRestart is not null)
+            LogRestartRequested(uniqueName, requestedRestart);
+        if (failedRestart is not null)
+        {
+            _logger.LogWarning(
+                "Server {UniqueName} failed during {RestartCause} restart requested at {RequestedAtUtc}: {Reason}",
+                uniqueName,
+                failedRestart.Cause,
+                failedRestart.RequestedAtUtc,
+                failedRestart.Reason);
+        }
         PruneDedicatedServerLogFiles(uniqueName, ResolveDedicatedServerAppDataPath(definition), definition.DsLogFilesToKeep);
 
         if (!shouldRestart)
@@ -1617,14 +1754,25 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         await StartServerAsync(uniqueName, _shutdown.Token);
     }
 
-    private async Task TryRequestGracefulStopAsync(string uniqueName, CancellationToken cancellationToken)
+    private async Task TryRequestGracefulStopAsync(
+        string uniqueName,
+        string agentLifecycleMessage,
+        CancellationToken cancellationToken)
     {
         var agent = _registry.GetAgents().FirstOrDefault(current =>
             current.IsConnected &&
             string.Equals(current.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
 
         if (agent is null)
+        {
+            if (!string.IsNullOrWhiteSpace(agentLifecycleMessage))
+            {
+                _logger.LogWarning(
+                    "Could not deliver health-policy restart reason to Quasar.Agent for server {UniqueName} because no connected agent is available; reason remains available in Quasar logs and UI.",
+                    uniqueName);
+            }
             return;
+        }
 
         try
         {
@@ -1649,11 +1797,22 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 UniqueName = uniqueName,
                 ServerId = agent.ServerKey,
                 CommandType = ServerCommandType.StopServer,
+                Text = agentLifecycleMessage,
             }, cancellationToken);
         }
         catch (Exception exception)
         {
-            _logger.LogDebug(exception, "Failed to send graceful stop to Quasar.Agent for server {UniqueName}.", uniqueName);
+            if (string.IsNullOrWhiteSpace(agentLifecycleMessage))
+            {
+                _logger.LogDebug(exception, "Failed to send graceful stop to Quasar.Agent for server {UniqueName}.", uniqueName);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Could not deliver health-policy restart reason to Quasar.Agent for server {UniqueName}; reason remains available in Quasar logs and UI.",
+                    uniqueName);
+            }
         }
     }
 
@@ -1684,6 +1843,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 state.StandardOutputLogPath = string.Empty;
                 state.StandardErrorLogPath = string.Empty;
                 state.LastHealthRecoveryActionUtc = persistedState.LastHealthRecoveryActionUtc;
+                state.LastRestart = persistedState.LastRestart is null
+                    ? null
+                    : Clone(persistedState.LastRestart);
                 state.StopRequested = false;
                 state.IsRestartPending = false;
 
@@ -1786,6 +1948,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     {
         DedicatedServerDefinition? definition = null;
         DateTimeOffset? errorLogSinceUtc = null;
+        DedicatedServerRestartInfo? failedRestart = null;
         lock (_sync)
         {
             if (!_states.TryGetValue(uniqueName, out var state))
@@ -1801,6 +1964,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             state.LatestErrorLogLine = string.Empty;
             state.LatestErrorLogKind = string.Empty;
             state.StoppedAtUtc = DateTimeOffset.UtcNow;
+            if (CompletePendingRestart(state, DedicatedServerRestartOutcome.Failed, state.StoppedAtUtc.Value))
+                failedRestart = Clone(state.LastRestart!);
             ResetHealthTracking(state);
         }
 
@@ -1808,6 +1973,15 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             CaptureLatestErrorLogTail(uniqueName, definition, errorLogSinceUtc);
 
         _logger.LogWarning("Server {UniqueName} faulted: {Message}", uniqueName, message);
+        if (failedRestart is not null)
+        {
+            _logger.LogWarning(
+                "Server {UniqueName} failed during {RestartCause} restart requested at {RequestedAtUtc}: {Reason}",
+                uniqueName,
+                failedRestart.Cause,
+                failedRestart.RequestedAtUtc,
+                failedRestart.Reason);
+        }
         NotifyChanged();
     }
 
@@ -1955,6 +2129,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private void SetStopped(string uniqueName, string message)
     {
         var changed = false;
+        DedicatedServerRestartInfo? failedRestart = null;
         lock (_sync)
         {
             if (!_states.TryGetValue(uniqueName, out var state))
@@ -1974,11 +2149,23 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             state.IsRestartPending = false;
             state.LastMessage = message;
             state.StoppedAtUtc = DateTimeOffset.UtcNow;
+            if (CompletePendingRestart(state, DedicatedServerRestartOutcome.Failed, state.StoppedAtUtc.Value))
+                failedRestart = Clone(state.LastRestart!);
             ResetHealthTracking(state);
         }
 
         if (changed)
+        {
+            if (failedRestart is not null)
+            {
+                _logger.LogWarning(
+                    "Server {UniqueName} stopped before {RestartCause} restart recovered: {Reason}",
+                    uniqueName,
+                    failedRestart.Cause,
+                    failedRestart.Reason);
+            }
             NotifyChanged();
+        }
     }
 
     private void PruneDedicatedServerLogFiles(string uniqueName, string appDataPath, int dsLogFilesToKeep)
@@ -2694,6 +2881,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                         StandardOutputLogPath = state.StandardOutputLogPath,
                         StandardErrorLogPath = state.StandardErrorLogPath,
                         LastHealthRecoveryActionUtc = state.LastHealthRecoveryActionUtc,
+                        LastRestart = state.LastRestart is null ? null : Clone(state.LastRestart),
                     })
                     .OrderBy(state => state.UniqueName, StringComparer.OrdinalIgnoreCase)
                     .ToList(),
@@ -2703,6 +2891,101 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         var json = JsonSerializer.Serialize(persisted, PersistedStateJsonOptions);
         await AtomicFileWriter.WriteTextAsync(MagnetarPaths.GetQuasarSupervisorStatePath(), json, cancellationToken);
     }
+
+    private void RecordRestartRequested(
+        string uniqueName,
+        DedicatedServerRestartCause cause,
+        string reason)
+    {
+        DedicatedServerRestartInfo? restart;
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out var state))
+                return;
+
+            restart = SetRestartRequested(state, cause, reason, DateTimeOffset.UtcNow);
+            state.IsRestartPending = true;
+            state.State = DedicatedServerProcessState.Restarting;
+            state.LastMessage = BuildRestartMessage(restart);
+        }
+
+        LogRestartRequested(uniqueName, restart);
+        NotifyChanged();
+    }
+
+    private static DedicatedServerRestartInfo SetRestartRequested(
+        ManagedServerState state,
+        DedicatedServerRestartCause cause,
+        string reason,
+        DateTimeOffset requestedAtUtc)
+    {
+        state.LastRestart = new DedicatedServerRestartInfo
+        {
+            Cause = cause,
+            Reason = reason.Trim(),
+            RequestedAtUtc = requestedAtUtc,
+            Outcome = DedicatedServerRestartOutcome.Pending,
+        };
+        return Clone(state.LastRestart);
+    }
+
+    private void LogRestartRequested(string uniqueName, DedicatedServerRestartInfo restart)
+    {
+        if (restart.Cause is DedicatedServerRestartCause.HealthPolicy or DedicatedServerRestartCause.AgentAttachRecovery)
+        {
+            _logger.LogWarning(
+                "Server {UniqueName} restart requested by {RestartCause} at {RequestedAtUtc}: {Reason}",
+                uniqueName,
+                restart.Cause,
+                restart.RequestedAtUtc,
+                restart.Reason);
+            return;
+        }
+
+        _logger.LogInformation(
+            "Server {UniqueName} restart requested by {RestartCause} at {RequestedAtUtc}: {Reason}",
+            uniqueName,
+            restart.Cause,
+            restart.RequestedAtUtc,
+            restart.Reason);
+    }
+
+    private static bool CompletePendingRestart(
+        ManagedServerState state,
+        DedicatedServerRestartOutcome outcome,
+        DateTimeOffset completedAtUtc)
+    {
+        if (state.LastRestart?.Outcome != DedicatedServerRestartOutcome.Pending)
+            return false;
+
+        state.LastRestart.Outcome = outcome;
+        state.LastRestart.CompletedAtUtc = completedAtUtc;
+        return true;
+    }
+
+    private static string BuildRestartMessage(DedicatedServerRestartInfo restart) =>
+        $"{FormatRestartCause(restart.Cause)} restart pending: {restart.Reason}";
+
+    private static string FormatRestartCause(DedicatedServerRestartCause cause) => cause switch
+    {
+        DedicatedServerRestartCause.HealthPolicy => "Health policy",
+        DedicatedServerRestartCause.AgentAttachRecovery => "Agent attach recovery",
+        DedicatedServerRestartCause.Scheduled => "Scheduled",
+        DedicatedServerRestartCause.MaximumUptime => "Maximum uptime",
+        DedicatedServerRestartCause.Manual => "Manual",
+        DedicatedServerRestartCause.InGame => "In-game",
+        DedicatedServerRestartCause.CrashRecovery => "Crash recovery",
+        _ => "Server",
+    };
+
+    private static DedicatedServerRestartInfo Clone(DedicatedServerRestartInfo restart) => new()
+    {
+        Cause = restart.Cause,
+        Reason = restart.Reason,
+        RequestedAtUtc = restart.RequestedAtUtc,
+        CompletedAtUtc = restart.CompletedAtUtc,
+        Outcome = restart.Outcome,
+    };
 
     private static int SafeGetExitCode(Process process)
     {
@@ -2811,6 +3094,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             ProcessId = state.ProcessId,
             LastExitCode = state.LastExitCode,
             LastMessage = state.LastMessage,
+            LastRestart = state.LastRestart is null ? null : Clone(state.LastRestart),
             LatestErrorLogLine = state.LatestErrorLogLine,
             LatestErrorLogKind = state.LatestErrorLogKind,
             AgentAttached = agent?.IsConnected == true,
@@ -2859,6 +3143,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public int? LastExitCode { get; set; }
 
         public string LastMessage { get; set; } = string.Empty;
+
+        public DedicatedServerRestartInfo? LastRestart { get; set; }
 
         public string LatestErrorLogLine { get; set; } = string.Empty;
 
@@ -2922,6 +3208,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         RetryAttach = 3,
     }
 
+    private readonly record struct ReconcileRequest(
+        string UniqueName,
+        ReconcileAction Action,
+        string Reason,
+        DedicatedServerRestartCause RestartCause = DedicatedServerRestartCause.Unknown);
+
     private readonly record struct ServerHealthAssessment(
         DedicatedServerHealthState State,
         string Summary,
@@ -2962,5 +3254,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public string? StandardErrorLogPath { get; set; }
 
         public DateTimeOffset? LastHealthRecoveryActionUtc { get; set; }
+
+        public DedicatedServerRestartInfo? LastRestart { get; set; }
     }
 }
