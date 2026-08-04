@@ -148,6 +148,18 @@ stateDiagram-v2
   Quasar Agent `!restart [seconds]` command. Agent-requested restart is tracked
   as `Restarting` after the chat countdown and before the process exits; the
   subsequent clean exit is relaunched without consuming crash-restart budget.
+- Every restart records its cause, human-readable reason, request time,
+  completion time, and outcome (`Pending`, `Recovered`, or `Failed`). The latest
+  record is persisted with supervisor runtime state and appears in both
+  Dashboard card and list views, so generic stop/start messages do not erase
+  the original reason.
+- Health-policy restart requests are warnings in Quasar's `quasar.log`. When
+  the agent is connected, Quasar also sends the reason with the graceful-stop
+  command; Quasar.Agent logs it through PluginSdk before shutdown, which writes
+  it to the instance's Magnetar `info_*.log` and queues it for Recent plugin
+  logs. If the unhealthy condition includes a missing or disconnected agent,
+  Quasar logs that Magnetar-side delivery was unavailable while retaining the
+  reason in Quasar's log and UI.
 
 ---
 

@@ -154,6 +154,13 @@ pointing at the active file. PluginSdk stdout sink lines captured by
 Quasar.Agent are also appended to that active Magnetar log as normal text log
 lines for the specific instance.
 
+Before a connected instance shuts down for a Quasar health-policy restart,
+Quasar.Agent writes the restart reason through the same PluginSdk path. This
+writes the reason to the active Magnetar `info_*.log` and queues it for Quasar's
+Recent plugin logs. When the health failure itself prevents agent communication,
+only Quasar's own log and persisted Dashboard restart status can record the
+reason; Quasar emits an explicit warning for that delivery limitation.
+
 The server console dialog can view **Most recent** or a specific older DS /
 Magnetar log file. Auto-refresh and the Refresh button are active only for
 **Most recent**; selecting an older file keeps that snapshot fixed for review.

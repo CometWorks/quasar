@@ -101,6 +101,14 @@
                 {
                     <MudText Typo="Typo.caption">@Runtime.HealthSummary</MudText>
                 }
+                @if (Runtime?.LastRestart is { } lastRestart)
+                {
+                    <MudTooltip Text="@GetRestartTooltip(lastRestart)">
+                        <MudText Typo="Typo.caption" Color="@GetRestartColor(lastRestart)">
+                            @GetRestartSummary(lastRestart)
+                        </MudText>
+                    </MudTooltip>
+                }
                 @if (ShouldShowLatestErrorLine)
                 {
                     <MudTooltip Text="Open console at latest error lines">
@@ -371,4 +379,37 @@
             _ => Color.Default,
         };
     }
+
+    private static string GetRestartSummary(DedicatedServerRestartInfo restart)
+    {
+        var prefix = restart.Outcome switch
+        {
+            DedicatedServerRestartOutcome.Pending => "Restart pending",
+            DedicatedServerRestartOutcome.Failed => "Last restart failed",
+            _ => "Last restart recovered",
+        };
+        return $"{prefix} · {GetRestartCauseLabel(restart.Cause)} · {restart.RequestedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
+    }
+
+    private static string GetRestartTooltip(DedicatedServerRestartInfo restart) =>
+        $"{GetRestartSummary(restart)} · {restart.Reason}";
+
+    private static Color GetRestartColor(DedicatedServerRestartInfo restart) => restart.Outcome switch
+    {
+        DedicatedServerRestartOutcome.Pending => Color.Warning,
+        DedicatedServerRestartOutcome.Failed => Color.Error,
+        _ => Color.Success,
+    };
+
+    private static string GetRestartCauseLabel(DedicatedServerRestartCause cause) => cause switch
+    {
+        DedicatedServerRestartCause.HealthPolicy => "Health policy",
+        DedicatedServerRestartCause.AgentAttachRecovery => "Agent attach recovery",
+        DedicatedServerRestartCause.Scheduled => "Scheduled",
+        DedicatedServerRestartCause.MaximumUptime => "Maximum uptime",
+        DedicatedServerRestartCause.Manual => "Manual",
+        DedicatedServerRestartCause.InGame => "In-game",
+        DedicatedServerRestartCause.CrashRecovery => "Crash recovery",
+        _ => "Unknown",
+    };
 }
