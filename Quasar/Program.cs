@@ -43,9 +43,9 @@ public class Program
             var updateOptions = QuasarUpdateOptions.Create(builder.Configuration);
             var authOptions = QuasarAuthOptions.Create(builder.Configuration);
             var analyticsStoreOptions = AnalyticsStoreOptions.Create(builder.Configuration);
-            QuasarUiPluginCatalog? uiPluginCatalog = webServiceOptions.Headless
-                ? null
-                : QuasarUiPluginCatalog.Create(builder.Configuration, builder.Environment);
+            var runtimePluginCatalog = QuasarUiPluginCatalog.Create(
+                builder.Configuration, builder.Environment, loadPluginAssemblies: !webServiceOptions.Headless);
+            QuasarUiPluginCatalog? uiPluginCatalog = webServiceOptions.Headless ? null : runtimePluginCatalog;
 
             QuasarLoggingConfigurator.Configure(builder, webServiceOptions);
 
@@ -171,6 +171,7 @@ public class Program
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
             builder.Services.AddSingleton<QuasarWorldTemplateCatalog>();
             builder.Services.AddSingleton<QuasarPluginCatalogService>();
+            builder.Services.AddSingleton(runtimePluginCatalog);
             builder.Services.AddSingleton<PluginCatalogRefreshService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PluginCatalogRefreshService>());
             builder.Services.AddSingleton<SteamWorkshopCredentialsCatalog>();
@@ -221,7 +222,6 @@ public class Program
                 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUiPluginHubRefreshService>());
                 builder.Services.AddSingleton<BrandingService>();
                 builder.Services.AddScoped<ThemePreferenceService>();
-                builder.Services.AddSingleton(uiPluginCatalog);
                 uiPluginCatalog.ConfigurePluginServices(builder.Services);
             }
 

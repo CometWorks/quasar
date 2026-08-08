@@ -440,6 +440,8 @@ and `/ws/agent`, but does not load Razor components, UI plugins, branding assets
 or static web assets. It does not open a browser. Existing configuration profiles,
 world templates, server definitions, and data paths are unchanged, so switching
 between UI and headless operation does not convert or duplicate state.
+Enabled UI-plugin package manifests are still read as data so their owned server
+companions remain deployable; their UI assemblies are not loaded.
 
 - `GET /api/health` is process liveness and reports `headless`.
 - `GET /api/ready` confirms that the API worker and its durable server catalog are

@@ -476,12 +476,12 @@ public sealed class DedicatedServerRuntimePreparer
     {
         var enabledNames = new List<string>();
 
-        foreach (var loadedPlugin in _uiPluginCatalog.LoadedPlugins)
+        foreach (var package in _uiPluginCatalog.Packages)
         {
-            foreach (var companion in loadedPlugin.Context.Manifest.CompanionPluginManifests.Where(companion => companion.IsOwned))
+            foreach (var companion in package.Manifest.CompanionPluginManifests.Where(companion => companion.IsOwned))
             {
                 var outputDirectory = Path.Combine(
-                    loadedPlugin.Context.PluginDirectory,
+                    package.PluginDirectory,
                     CompanionOutputRelativeDirectory,
                     SanitizePathSegment(companion.Id));
                 if (!Directory.Exists(outputDirectory))
@@ -489,7 +489,7 @@ public sealed class DedicatedServerRuntimePreparer
                     _logger.LogWarning(
                         "Quasar UI plugin companion {CompanionId} for {PluginId} has no built output at {OutputDirectory}; it will not be deployed.",
                         companion.Id,
-                        loadedPlugin.Id,
+                        package.Manifest.Id,
                         outputDirectory);
                     continue;
                 }
@@ -500,7 +500,7 @@ public sealed class DedicatedServerRuntimePreparer
                     _logger.LogWarning(
                         "Quasar UI plugin companion {CompanionId} for {PluginId} entry assembly was not found at {EntryAssemblyPath}; it will not be enabled.",
                         companion.Id,
-                        loadedPlugin.Id,
+                        package.Manifest.Id,
                         entryAssemblyPath);
                     continue;
                 }
