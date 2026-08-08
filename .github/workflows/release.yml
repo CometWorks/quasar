@@ -47,6 +47,7 @@ on:
 
 permissions:
   contents: write
+  packages: read
 
 env:
   SE_DS_APPID: "298740"
@@ -157,7 +158,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
-      NuGetPackageSourceCredentials_cometworks: Username=${{ secrets.COMETWORKS_PACKAGES_USER }};Password=${{ secrets.COMETWORKS_PACKAGES_TOKEN }};ValidAuthenticationTypes=Basic
+      NuGetPackageSourceCredentials_github: Username=${{ github.actor }};Password=${{ github.token }};ValidAuthenticationTypes=Basic
     steps:
       - uses: actions/checkout@v4
         with:
@@ -316,7 +317,7 @@ jobs:
     runs-on: windows-latest
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
-      NuGetPackageSourceCredentials_cometworks: Username=${{ secrets.COMETWORKS_PACKAGES_USER }};Password=${{ secrets.COMETWORKS_PACKAGES_TOKEN }};ValidAuthenticationTypes=Basic
+      NuGetPackageSourceCredentials_github: Username=${{ github.actor }};Password=${{ github.token }};ValidAuthenticationTypes=Basic
     steps:
       - uses: actions/checkout@v4
         with:

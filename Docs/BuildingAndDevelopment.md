@@ -31,19 +31,22 @@ The solution file is `Quasar.sln`.
 ## Build setup
 
 Quasar consumes the private
-`CometWorks.ClusterGateway.AdminContract` package from the `cometworks` source in
-the repository `NuGet.Config`. Supply a Forgejo package-reader account or token
-through NuGet's source-credential environment variable before restore; never add
-credentials to `NuGet.Config`:
+`CometWorks.ClusterGateway.AdminContract` package from the CometWorks GitHub
+Packages source in the repository `NuGet.Config`. For a clean local restore,
+authenticate GitHub CLI with `read:packages` and expose its short-lived credential
+through NuGet's source-credential environment variable; never add credentials to
+`NuGet.Config`:
 
 ```bash
-export NuGetPackageSourceCredentials_cometworks='Username=<user>;Password=<token>;ValidAuthenticationTypes=Basic'
+gh auth refresh -s read:packages
+export NuGetPackageSourceCredentials_github="Username=$(gh api user --jq .login);Password=$(gh auth token);ValidAuthenticationTypes=Basic"
 dotnet restore Quasar.sln
-unset NuGetPackageSourceCredentials_cometworks
+unset NuGetPackageSourceCredentials_github
 ```
 
-The release workflow expects equivalent repository secrets named
-`COMETWORKS_PACKAGES_USER` and `COMETWORKS_PACKAGES_TOKEN`.
+The release workflow uses its built-in `GITHUB_TOKEN`; it needs no custom package
+secret. The Gateway package settings grant `CometWorks/quasar` read access under
+**Manage Actions access**.
 
 - `Quasar.Agent` depends on a local `DS64` path for Space Engineers Dedicated
   Server assemblies.
