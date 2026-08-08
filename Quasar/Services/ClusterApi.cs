@@ -15,6 +15,17 @@ internal static class ClusterApi
 
     public static void MapClusterApi(this WebApplication app, QuasarAuthOptions authOptions)
     {
+        app.MapGet("/health", (HttpContext context) =>
+        {
+            SetProtocolHeader(context);
+            return Results.Json(Envelope(new QuasarServiceHealth("quasar", true)), JsonOptions);
+        });
+        app.MapGet("/ready", (HttpContext context, ClusterOperationStore operations) =>
+        {
+            SetProtocolHeader(context);
+            return Results.Json(Envelope(new QuasarServiceReadiness(operations.IsReady)), JsonOptions,
+                statusCode: operations.IsReady ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
+        });
         RouteGroupBuilder routes = app.MapGroup("/api/v1/clusters");
         routes.MapGet("", (HttpContext context, ClusterCatalog catalog) =>
         {
@@ -38,8 +49,16 @@ internal static class ClusterApi
         routes.MapGet("/{uniqueName}/recovery-readiness", (string uniqueName, HttpContext context,
             ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken cancellationToken) =>
             Query(uniqueName, context, catalog, client.GetRecoveryReadinessAsync, cancellationToken));
+        routes.MapGet("/{uniqueName}/config", (string uniqueName, HttpContext context,
+            ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken cancellationToken) =>
+            Query(uniqueName, context, catalog, client.GetPolicyAsync, cancellationToken));
+        RouteHandlerBuilder setConfig = routes.MapPut("/{uniqueName}/config", SetPolicy);
+        routes.MapGet("/{uniqueName}/operations/{operationId}", GetOperation);
         if (authOptions.Enabled)
+        {
             routes.RequireAuthorization(QuasarPolicyNames.ClusterQuery);
+            setConfig.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+        }
     }
 
     private static async Task<IResult> Query<T>(string uniqueName, HttpContext context, ClusterCatalog catalog,
@@ -61,6 +80,52 @@ internal static class ClusterApi
         {
             return Error((int)exception.StatusCode, exception.Code, exception.Message);
         }
+    }
+
+    private static async Task<IResult> SetPolicy(string uniqueName, Admin.ClusterPolicy policy,
+        HttpContext context, ClusterCatalog catalog, ClusterGatewayClient client,
+        ClusterOperationStore operations, CancellationToken cancellationToken)
+    {
+        SetProtocolHeader(context);
+        ClusterDefinition? cluster = catalog.GetCluster(uniqueName);
+        if (cluster == null)
+            return Error(StatusCodes.Status404NotFound, "unknown_cluster", $"Unknown cluster '{uniqueName}'.");
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(StatusCodes.Status403Forbidden, "cluster_forbidden",
+                "The credential cannot access this cluster.");
+        try
+        {
+            ClusterOperation operation = await operations.ExecuteAsync(uniqueName, "cluster.config.set",
+                context.Request.Headers["Idempotency-Key"].ToString(),
+                context.User.Identity?.Name ?? "anonymous", policy,
+                token => client.SetPolicyAsync(cluster, policy, token), cancellationToken);
+            context.Response.Headers.Location = $"/api/v1/clusters/{Uri.EscapeDataString(uniqueName)}"
+                + $"/operations/{operation.OperationId}";
+            return Results.Json(Envelope(operation), JsonOptions, statusCode: StatusCodes.Status202Accepted);
+        }
+        catch (ClusterOperationConflictException exception)
+        {
+            return Error(exception.StatusCode, exception.Code, exception.Message);
+        }
+        catch (ClusterOperationStoreUnavailableException exception)
+        {
+            return Error(StatusCodes.Status503ServiceUnavailable, "operation_store_unavailable", exception.Message);
+        }
+    }
+
+    private static IResult GetOperation(string uniqueName, string operationId, HttpContext context,
+        ClusterCatalog catalog, ClusterOperationStore operations)
+    {
+        SetProtocolHeader(context);
+        if (catalog.GetCluster(uniqueName) == null)
+            return Error(StatusCodes.Status404NotFound, "unknown_cluster", $"Unknown cluster '{uniqueName}'.");
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(StatusCodes.Status403Forbidden, "cluster_forbidden",
+                "The credential cannot access this cluster.");
+        ClusterOperation? operation = operations.Get(operationId);
+        return operation == null || !operation.Cluster.Equals(uniqueName, StringComparison.OrdinalIgnoreCase)
+            ? Error(StatusCodes.Status404NotFound, "unknown_operation", $"Unknown operation '{operationId}'.")
+            : Results.Json(Envelope(operation), JsonOptions);
     }
 
     private static Admin.AdminEnvelope<T> Envelope<T>(T data) =>
@@ -86,4 +151,7 @@ internal static class ClusterApi
 
     private sealed record ClusterSummary(string UniqueName, string DisplayName, string GatewayUrl,
         string ConfigProfileId, string WorldTemplateId);
+
+    private sealed record QuasarServiceHealth(string Service, bool Live);
+    private sealed record QuasarServiceReadiness(bool Ready);
 }

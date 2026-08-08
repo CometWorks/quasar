@@ -55,7 +55,7 @@ public sealed class ServicePrincipalOptions
     {
         Name = principal.Name?.Trim() ?? string.Empty,
         TokenEnvironmentVariable = principal.TokenEnvironmentVariable?.Trim() ?? string.Empty,
-        Scopes = (principal.Scopes ?? []).Where(scope => scope == QuasarScopes.ClusterQuery)
+        Scopes = (principal.Scopes ?? []).Where(scope => scope is QuasarScopes.ClusterQuery or QuasarScopes.ClusterManage)
             .Distinct(StringComparer.Ordinal).ToList(),
         Clusters = (principal.Clusters ?? []).Where(cluster => !string.IsNullOrWhiteSpace(cluster))
             .Select(cluster => cluster.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),

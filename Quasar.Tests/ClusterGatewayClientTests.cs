@@ -89,6 +89,24 @@ public sealed class ClusterGatewayClientTests
         Assert.Equal("http://gateway.test/admin/v1/recovery-readiness", handler.RequestUri?.ToString());
     }
 
+    [Fact]
+    public async Task PolicyMutationUsesVersionedGatewayPut()
+    {
+        var applied = new ClusterPolicyApplied("revision-2", true, []);
+        var handler = new StubHandler(_ => Response(HttpStatusCode.OK,
+            new AdminEnvelope<ClusterPolicyApplied>(AdminProtocol.Version, DateTimeOffset.UtcNow, applied)));
+        var client = new ClusterGatewayClient(new HttpClient(handler));
+        var policy = new ClusterPolicy("revision-2", 2, ["host-a", "host-b"], "host-a");
+
+        AdminEnvelope<ClusterPolicyApplied> result = await client.SetPolicyAsync(
+            Definition(), policy, CancellationToken.None);
+
+        Assert.True(result.Data.Changed);
+        Assert.Equal(HttpMethod.Put, handler.Method);
+        Assert.Equal("http://gateway.test/admin/v1/config", handler.RequestUri?.ToString());
+        Assert.Contains("\"nodeTargetCount\":2", handler.RequestBody);
+    }
+
     private static ClusterDefinition Definition() => new()
     {
         UniqueName = "demo",
@@ -108,12 +126,17 @@ public sealed class ClusterGatewayClientTests
     private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
     {
         public Uri? RequestUri { get; private set; }
+        public HttpMethod? Method { get; private set; }
+        public string? RequestBody { get; private set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             RequestUri = request.RequestUri;
-            return Task.FromResult(respond(request));
+            Method = request.Method;
+            RequestBody = request.Content == null
+                ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+            return respond(request);
         }
     }
 }

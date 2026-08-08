@@ -458,8 +458,8 @@ Enabled UI-plugin package manifests are still read as data so their owned server
 companions remain deployable; their UI assemblies are not loaded.
 
 - `GET /api/health` is process liveness and reports `headless`.
-- `GET /api/ready` confirms that the API worker and its durable server catalog are
-  ready for queries.
+- `GET /api/ready` confirms that the API worker, durable catalogs, and cluster
+  operation store are ready.
 - `GET /` returns a small JSON discovery document instead of the UI.
 
 Authentication and authorization remain enabled exactly as configured; headless
@@ -484,24 +484,33 @@ variable at query time.
 }
 ```
 
-The first Phase 4 API slice is read-only and uses Gateway admin contract version
-1. It is available in normal and headless operation:
+The Phase 4 API uses Gateway admin contract version 1 and is available in normal
+and headless operation:
 
 - `GET /api/v1/clusters`
 - `GET /api/v1/clusters/{uniqueName}/health`
 - `GET /api/v1/clusters/{uniqueName}/status`
 - `GET /api/v1/clusters/{uniqueName}/plan`
 - `GET /api/v1/clusters/{uniqueName}/recovery-readiness`
+- `GET /api/v1/clusters/{uniqueName}/config`
+- `PUT /api/v1/clusters/{uniqueName}/config`
+- `GET /api/v1/clusters/{uniqueName}/operations/{operationId}`
 
 Responses preserve the Gateway envelope, capture time, string enum values, and
 stable error codes. When Quasar authentication is enabled, these routes require
 a human `CanView` role or the scoped service-principal permission described below.
 `/api/health` and `/api/ready` include
 `configuredClusters`; they do not contact Gateway and remain usable if a Gateway
-is down. Recovery readiness is calculated by Gateway from its durable Registry,
+is down. The readiness payload also reports the durable operation store. Recovery
+readiness is calculated by Gateway from its durable Registry,
 Save Catalog, snapshot, WAL, and artifact-holder records; Quasar does not infer it
-from node liveness. Command operations and UI editing are later Phase 4 slices;
-this query surface does not imply them.
+from node liveness.
+
+Policy mutation requires an `Idempotency-Key` header. Quasar writes the operation
+under `<quasar-root>/Operations/Clusters` before calling Gateway, returns `202` with
+the durable operation ID, and exposes the completed result or structured failure at
+the operation route. Replaying the same key and request returns the same operation;
+reusing a key with different content returns `idempotency_key_conflict`.
 
 ### Query-only service principals
 
@@ -528,7 +537,9 @@ or device-login flow. Store only the environment-variable name in configuration:
 Set `QUASAR_FACTORY_READER_TOKEN` to a random value of at least 32 characters in
 the Quasar service environment. Use `Clusters: [ "*" ]` only when the principal
 must query every configured cluster. The `cluster.query` scope can call only the
-versioned cluster query routes; it grants no server logs, configuration access, or
-mutation permission. Invalid credentials and forbidden cluster access return
+versioned cluster query and operation-status routes; it grants no server logs or
+mutation permission. Use `cluster.manage` for an automation principal that may also
+change cluster policy; both scopes remain limited by the principal's `Clusters`
+allow-list. Invalid credentials and forbidden cluster access return
 versioned JSON errors instead of redirects. Identical token values assigned to
 multiple principals fail closed.

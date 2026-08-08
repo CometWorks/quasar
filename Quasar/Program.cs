@@ -147,7 +147,12 @@ public class Program
                     context.User.Identity?.IsAuthenticated == true && (context.User.IsInRole(QuasarRoles.Viewer)
                     || context.User.IsInRole(QuasarRoles.Editor)
                     || context.User.IsInRole(QuasarRoles.Admin)
-                    || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterQuery))));
+                    || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterQuery)
+                    || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterManage))));
+                options.AddPolicy(QuasarPolicyNames.ClusterManage, policy => policy.RequireAssertion(context =>
+                    context.User.Identity?.IsAuthenticated == true && (context.User.IsInRole(QuasarRoles.Editor)
+                    || context.User.IsInRole(QuasarRoles.Admin)
+                    || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterManage))));
                 AddRolePolicy(options, QuasarPolicyNames.CanView, QuasarRoles.Viewer, QuasarRoles.Editor, QuasarRoles.Admin);
                 AddRolePolicy(options, QuasarPolicyNames.CanEditConfigs, QuasarRoles.Editor, QuasarRoles.Admin);
                 AddRolePolicy(options, QuasarPolicyNames.CanEditServers, QuasarRoles.Editor, QuasarRoles.Admin);
@@ -200,6 +205,7 @@ public class Program
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ManagedRuntimeWarmupService>());
             builder.Services.AddSingleton<DedicatedServerCatalog>();
             builder.Services.AddSingleton<ClusterCatalog>();
+            builder.Services.AddSingleton<ClusterOperationStore>();
             builder.Services.AddSingleton<DedicatedServerSupervisor>();
             builder.Services.AddSingleton<DedicatedServerRuntimePreparer>();
             builder.Services.AddSingleton<FileBrowserService>();
@@ -301,15 +307,17 @@ public class Program
             }));
 
             app.MapGet("/api/ready", (WebServiceState state, DedicatedServerCatalog catalog,
-                ClusterCatalog clusterCatalog) => Results.Json(new
-            {
-                status = "ready",
-                state.Options.WorkerId,
-                state.Options.Version,
-                headless = state.Options.Headless,
-                configuredServers = catalog.GetServers().Count,
-                configuredClusters = clusterCatalog.GetClusters().Count,
-            }));
+                ClusterCatalog clusterCatalog, ClusterOperationStore operations) => Results.Json(new
+                {
+                    status = operations.IsReady ? "ready" : "not-ready",
+                    state.Options.WorkerId,
+                    state.Options.Version,
+                    headless = state.Options.Headless,
+                    configuredServers = catalog.GetServers().Count,
+                    configuredClusters = clusterCatalog.GetClusters().Count,
+                    operationStore = operations.IsReady,
+                }, statusCode: operations.IsReady
+                    ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable));
 
             app.MapGet("/api/discovery", (WebServiceState state) =>
                 Results.Json(state.CurrentManifest));

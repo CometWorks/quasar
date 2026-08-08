@@ -33,11 +33,25 @@ public sealed class ClusterGatewayClient
         ClusterDefinition cluster, CancellationToken cancellationToken) =>
         GetAsync<Admin.RecoveryReadiness>(cluster, "recovery-readiness", cancellationToken);
 
+    public Task<Admin.AdminEnvelope<Admin.ClusterPolicy?>> GetPolicyAsync(
+        ClusterDefinition cluster, CancellationToken cancellationToken) =>
+        GetAsync<Admin.ClusterPolicy?>(cluster, "config", cancellationToken);
+
+    public Task<Admin.AdminEnvelope<Admin.ClusterPolicyApplied>> SetPolicyAsync(
+        ClusterDefinition cluster, Admin.ClusterPolicy policy, CancellationToken cancellationToken) =>
+        SendAsync<Admin.ClusterPolicyApplied>(cluster, "config", HttpMethod.Put, policy, cancellationToken);
+
     private async Task<Admin.AdminEnvelope<T>> GetAsync<T>(
         ClusterDefinition cluster, string route, CancellationToken cancellationToken)
+        => await SendAsync<T>(cluster, route, HttpMethod.Get, null, cancellationToken);
+
+    private async Task<Admin.AdminEnvelope<T>> SendAsync<T>(ClusterDefinition cluster, string route,
+        HttpMethod method, object? body, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get,
+        using var request = new HttpRequestMessage(method,
             $"{cluster.GatewayUrl}{Admin.AdminProtocol.RoutePrefix}/{route}");
+        if (body != null)
+            request.Content = JsonContent.Create(body, options: JsonOptions);
         if (!string.IsNullOrWhiteSpace(cluster.GatewayAdminTokenEnvironmentVariable))
         {
             string? token = Environment.GetEnvironmentVariable(cluster.GatewayAdminTokenEnvironmentVariable);
