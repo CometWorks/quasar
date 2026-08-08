@@ -41,12 +41,23 @@ public sealed class ClusterGatewayClient
         ClusterDefinition cluster, Admin.ClusterPolicy policy, CancellationToken cancellationToken) =>
         SendAsync<Admin.ClusterPolicyApplied>(cluster, "config", HttpMethod.Put, policy, cancellationToken);
 
+    public Task<Admin.AdminEnvelope<Admin.GatewayLifecycleResult>> ShutdownAsync(
+        ClusterDefinition cluster, Admin.ShutdownRequest request, CancellationToken cancellationToken) =>
+        SendAsync<Admin.GatewayLifecycleResult>(cluster, "shutdown", HttpMethod.Post, request,
+            cancellationToken, TimeSpan.FromSeconds(
+                request.GracePeriodSeconds + request.CompletionTimeoutSeconds + 30));
+
+    public Task<Admin.AdminEnvelope<Admin.GatewayLifecycleResult>> RestartGatewayAsync(
+        ClusterDefinition cluster, Admin.GatewayRestartRequest request, CancellationToken cancellationToken) =>
+        SendAsync<Admin.GatewayLifecycleResult>(cluster, "gateway/restart", HttpMethod.Post, request,
+            cancellationToken);
+
     private async Task<Admin.AdminEnvelope<T>> GetAsync<T>(
         ClusterDefinition cluster, string route, CancellationToken cancellationToken)
         => await SendAsync<T>(cluster, route, HttpMethod.Get, null, cancellationToken);
 
     private async Task<Admin.AdminEnvelope<T>> SendAsync<T>(ClusterDefinition cluster, string route,
-        HttpMethod method, object? body, CancellationToken cancellationToken)
+        HttpMethod method, object? body, CancellationToken cancellationToken, TimeSpan? timeout = null)
     {
         using var request = new HttpRequestMessage(method,
             $"{cluster.GatewayUrl}{Admin.AdminProtocol.RoutePrefix}/{route}");
@@ -63,9 +74,11 @@ public sealed class ClusterGatewayClient
 
         try
         {
+            using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutSource.CancelAfter(timeout ?? TimeSpan.FromSeconds(30));
             using HttpResponseMessage response = await _http.SendAsync(
-                request, HttpCompletionOption.ResponseContentRead, cancellationToken);
-            string json = await response.Content.ReadAsStringAsync(cancellationToken);
+                request, HttpCompletionOption.ResponseContentRead, timeoutSource.Token);
+            string json = await response.Content.ReadAsStringAsync(timeoutSource.Token);
             ValidateProtocol(response, json);
             if (!response.IsSuccessStatusCode)
             {

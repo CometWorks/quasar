@@ -3,6 +3,7 @@
 @using HostContract = Quasar.Host.Contract.V1
 @inject ClusterGatewayClient GatewayClient
 @inject ClusterHostClient HostClient
+@inject ClusterReconciler Reconciler
 
 <MudStack Spacing="3">
     @if (_loading && _status is null)
@@ -71,6 +72,8 @@
             <MudSimpleTable Dense="true" Hover="true">
                 <tbody>
                     <tr><th>Gateway</th><td class="mono">@Cluster.GatewayUrl</td></tr>
+                    <tr><th>Desired state</th><td>@Cluster.GoalState</td></tr>
+                    <tr><th>Reconciler</th><td>@ReconcileText</td></tr>
                     <tr><th>World</th><td>@(_status?.WorldId ?? "-")</td></tr>
                     <tr><th>Config profile</th><td>@ValueOrDash(Cluster.ConfigProfileId)</td></tr>
                     <tr><th>World setup</th><td>@ValueOrDash(Cluster.WorldTemplateId)</td></tr>
@@ -237,6 +240,16 @@
             gateway.ClusterId.Equals(Cluster.UniqueName, StringComparison.OrdinalIgnoreCase)) is { } gateway
         ? $"{gateway.Observed} · PID {gateway.ProcessId?.ToString() ?? "-"} · {gateway.ConfigRevision}"
         : "Not assigned";
+    private string ReconcileText
+    {
+        get
+        {
+            ClusterReconcileStatus status = Reconciler.GetStatus(Cluster.UniqueName);
+            return status.ErrorCode is null
+                ? $"{status.State} · {status.Message}"
+                : $"{status.State} · {status.ErrorCode}: {status.Message}";
+        }
+    }
     private string RegistryText => _recovery is null ? "-"
         : $"{(_recovery.Registry.SnapshotPresent ? "snapshot present" : "no snapshot")} · {_recovery.Registry.WalRecords} WAL records";
 

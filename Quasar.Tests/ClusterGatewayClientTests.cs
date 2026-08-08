@@ -107,6 +107,40 @@ public sealed class ClusterGatewayClientTests
         Assert.Contains("\"nodeTargetCount\":2", handler.RequestBody);
     }
 
+    [Fact]
+    public async Task ShutdownUsesStableIdempotentLifecycleRoute()
+    {
+        Guid requestId = Guid.NewGuid();
+        var result = new GatewayLifecycleResult(requestId, GatewayLifecycleAction.GracefulShutdown,
+            GatewayOperationDisposition.Accepted, ClusterPhase.Down, DateTimeOffset.UtcNow);
+        var handler = new StubHandler(_ => Response(HttpStatusCode.OK,
+            new AdminEnvelope<GatewayLifecycleResult>(AdminProtocol.Version, DateTimeOffset.UtcNow, result)));
+        var client = new ClusterGatewayClient(new HttpClient(handler));
+
+        await client.ShutdownAsync(Definition(), new ShutdownRequest(requestId,
+            ShutdownMode.Graceful, 0, 10, 10), CancellationToken.None);
+
+        Assert.Equal(HttpMethod.Post, handler.Method);
+        Assert.Equal("http://gateway.test/admin/v1/shutdown", handler.RequestUri?.ToString());
+        Assert.Contains(requestId.ToString(), handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GatewayRestartUsesStableLifecycleRoute()
+    {
+        Guid requestId = Guid.NewGuid();
+        var result = new GatewayLifecycleResult(requestId, GatewayLifecycleAction.Restart,
+            GatewayOperationDisposition.Accepted, ClusterPhase.Serving, DateTimeOffset.UtcNow);
+        var handler = new StubHandler(_ => Response(HttpStatusCode.OK,
+            new AdminEnvelope<GatewayLifecycleResult>(AdminProtocol.Version, DateTimeOffset.UtcNow, result)));
+        var client = new ClusterGatewayClient(new HttpClient(handler));
+
+        await client.RestartGatewayAsync(Definition(), new GatewayRestartRequest(requestId), CancellationToken.None);
+
+        Assert.Equal(HttpMethod.Post, handler.Method);
+        Assert.Equal("http://gateway.test/admin/v1/gateway/restart", handler.RequestUri?.ToString());
+    }
+
     private static ClusterDefinition Definition() => new()
     {
         UniqueName = "demo",

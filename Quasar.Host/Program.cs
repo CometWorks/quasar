@@ -385,7 +385,8 @@ internal static class Program
                 throw new InvalidOperationException("self-test Gateway start/re-adoption failed");
             HostContract.GatewayStatus gatewayStopped = await new GatewayActualizer(stateRoot, "host-a")
                 .ReconcileAsync(gatewaySpec with { Goal = HostContract.GatewayGoal.Off }, CancellationToken.None);
-            if (gatewayStopped.Observed != HostContract.GatewayObservedState.Missing)
+            if (gatewayStopped.Observed != HostContract.GatewayObservedState.Missing
+                || gatewayStopped.ProcessId is not null || gatewayStopped.LaunchedAt is not null)
                 throw new InvalidOperationException("self-test exact Gateway stop failed");
             gatewayProcessId = null;
 

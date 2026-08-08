@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Models;
 using Quasar.Services;
+using Quasar.Host.Contract.V1;
 using Xunit;
 
 namespace Quasar.Tests;
@@ -56,6 +57,31 @@ public sealed class ClusterCatalogTests : IDisposable
         using ClusterCatalog catalog = CreateCatalog();
 
         Assert.Equal("valid", Assert.Single(catalog.GetClusters()).UniqueName);
+    }
+
+    [Fact]
+    public async Task PersistsClusterGoalAndGatewaySpecAtomically()
+    {
+        string definitionDirectory = Path.Combine(_directory, "demo");
+        Directory.CreateDirectory(definitionDirectory);
+        string path = Path.Combine(definitionDirectory, "cluster.json");
+        File.WriteAllText(path, """
+        { "uniqueName": "demo", "gatewayUrl": "http://gateway.test" }
+        """);
+        using ClusterCatalog catalog = CreateCatalog();
+        var gateway = new GatewaySpec("demo", GatewayGoal.Off, "/bundle/manifest.json",
+            new string('a', 64), "r1", [28000, 28016], "/runs/demo");
+
+        await catalog.SetGatewayAsync("demo", gateway);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+
+        using ClusterCatalog recovered = CreateCatalog();
+        ClusterDefinition cluster = Assert.Single(recovered.GetClusters());
+        Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);
+        GatewaySpec persisted = Assert.IsType<GatewaySpec>(cluster.Gateway);
+        Assert.Equal(GatewayGoal.On, persisted.Goal);
+        Assert.Equal([28000, 28016], persisted.Ports);
+        Assert.Contains("\"goalState\": \"On\"", File.ReadAllText(path));
     }
 
     public void Dispose()

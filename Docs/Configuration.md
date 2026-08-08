@@ -482,9 +482,23 @@ variable at query time.
   "hostCommandUrl": "http://127.0.0.1:28400",
   "hostCommandTokenEnvironmentVariable": "PRODUCTION_HOST_COMMAND_TOKEN",
   "configProfileId": "survival",
-  "worldTemplateId": "main-world"
+  "worldTemplateId": "main-world",
+  "goalState": "Off",
+  "shutdownGracePeriodSeconds": 60,
+  "gateway": {
+    "clusterId": "production",
+    "goal": "On",
+    "bundleManifestPath": "/srv/quasar/bundles/cluster/manifest.json",
+    "bundleManifestSha256": "<64 lowercase hex characters>",
+    "configRevision": "production-r1",
+    "ports": [ 27016, 28016 ],
+    "runRoot": "/srv/quasar/clusters/production/gateway"
+  }
 }
 ```
+
+`gateway.goal` is stored as `On` because it is the launch template; the cluster
+`goalState` is authoritative. The reconciler overrides the Host goal as it converges.
 
 The Phase 4 API uses Gateway admin contract version 1 and is available in normal
 and headless operation:
@@ -496,6 +510,10 @@ and headless operation:
 - `GET /api/v1/clusters/{uniqueName}/recovery-readiness`
 - `GET /api/v1/clusters/{uniqueName}/config`
 - `PUT /api/v1/clusters/{uniqueName}/config`
+- `GET /api/v1/clusters/{uniqueName}/lifecycle`
+- `PUT /api/v1/clusters/{uniqueName}/goal`
+- `PUT /api/v1/clusters/{uniqueName}/gateway-spec`
+- `POST /api/v1/clusters/{uniqueName}/gateway/restart`
 - `GET /api/v1/clusters/{uniqueName}/host`
 - `PUT /api/v1/clusters/{uniqueName}/host/attachment`
 - `PUT /api/v1/clusters/{uniqueName}/host/gateway`
@@ -514,10 +532,13 @@ from node liveness.
 Configured clusters appear beside standalone servers in both dashboard views. Their
 detail page reports Gateway, World Authority, node capacity, and reconstructibility
 from the query contracts above. The **Tools → Hosts** page shows Host executor
-reachability and persisted attachments. These views are observational: lifecycle and
-policy changes still pass through the durable API operation path.
+reachability and persisted attachments. Cluster rows keep the familiar start/stop
+controls; stop changes the durable cluster goal and the reconciler performs Gateway
+graceful shutdown, verifies `Down` plus the clean marker, then asks Host to stop the
+exact Gateway process. A crashed Gateway is restarted first so its Registry can
+finish that sequence. The reconciler is a hosted service in normal and headless mode.
 
-Policy mutation requires an `Idempotency-Key` header. Quasar writes the operation
+Every mutation requires an `Idempotency-Key` header. Quasar writes the operation
 under `<quasar-root>/Operations/Clusters` before calling Gateway, returns `202` with
 the durable operation ID, and exposes the completed result or structured failure at
 the operation route. Replaying the same key and request returns the same operation;

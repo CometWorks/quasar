@@ -96,7 +96,7 @@ internal sealed class GatewayActualizer
             if (record is not null && record.Status != GatewayLaunchStatus.Stopped)
                 WriteRecord(record with { Status = GatewayLaunchStatus.Stopped, Failure = null });
             return Status(spec, HostContract.GatewayObservedState.Missing,
-                record?.ProcessId, record?.LaunchedAt, null);
+                null, null, null);
         }
 
         using Process process = match.Process!;
@@ -105,7 +105,7 @@ internal sealed class GatewayActualizer
             await KillProcessAsync(process, cancellationToken);
             WriteRecord(record with { Status = GatewayLaunchStatus.Stopped, Failure = null });
             return Status(spec, HostContract.GatewayObservedState.Missing,
-                record.ProcessId, record.LaunchedAt, null);
+                null, null, null);
         }
         catch (InvalidOperationException exception)
         {

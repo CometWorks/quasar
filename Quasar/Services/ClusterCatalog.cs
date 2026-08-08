@@ -7,11 +7,15 @@ namespace Quasar.Services;
 
 public sealed class ClusterCatalog : IDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true,
+    };
     private static readonly Regex UniqueNameRegex = new("^[a-zA-Z0-9_-]+$", RegexOptions.Compiled);
     private readonly object _sync = new();
     private readonly ILogger<ClusterCatalog> _logger;
     private readonly string _directory;
+    private readonly SemaphoreSlim _writeGate = new(1, 1);
     private List<ClusterDefinition> _clusters;
     private DebouncedFileWatcher? _watcher;
 
@@ -39,7 +43,60 @@ public sealed class ClusterCatalog : IDisposable
                 string.Equals(cluster.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))?.Clone();
     }
 
+    public Task<ClusterDefinition> SetGoalStateAsync(string uniqueName, DedicatedServerGoalState goal,
+        CancellationToken cancellationToken = default) =>
+        UpdateAsync(uniqueName, cluster => cluster.GoalState = goal, cancellationToken);
+
+    public Task<ClusterDefinition> SetGatewayAsync(string uniqueName,
+        Quasar.Host.Contract.V1.GatewaySpec gateway, CancellationToken cancellationToken = default) =>
+        UpdateAsync(uniqueName, cluster => cluster.Gateway = NormalizeGatewaySpec(cluster.UniqueName, gateway),
+            cancellationToken);
+
     public void Dispose() => _watcher?.Dispose();
+
+    private async Task<ClusterDefinition> UpdateAsync(string uniqueName, Action<ClusterDefinition> update,
+        CancellationToken cancellationToken)
+    {
+        await _writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            ClusterDefinition cluster = GetCluster(uniqueName)
+                ?? throw new KeyNotFoundException($"Unknown cluster '{uniqueName}'.");
+            update(cluster);
+            cluster.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            Normalize(cluster);
+            string path = ResolvePath(cluster.UniqueName);
+            await AtomicFileWriter.WriteTextAsync(path, JsonSerializer.Serialize(cluster, JsonOptions), cancellationToken);
+            lock (_sync)
+            {
+                int index = _clusters.FindIndex(existing => string.Equals(existing.UniqueName,
+                    cluster.UniqueName, StringComparison.OrdinalIgnoreCase));
+                if (index >= 0) _clusters[index] = cluster.Clone();
+            }
+            Changed?.Invoke();
+            return cluster.Clone();
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
+    }
+
+    private string ResolvePath(string uniqueName)
+    {
+        string conventional = Path.Combine(_directory, uniqueName, "cluster.json");
+        if (File.Exists(conventional)) return conventional;
+        foreach (string path in Directory.EnumerateFiles(_directory, "cluster.json", SearchOption.AllDirectories))
+        {
+            try
+            {
+                ClusterDefinition? candidate = JsonSerializer.Deserialize<ClusterDefinition>(File.ReadAllText(path), JsonOptions);
+                if (string.Equals(candidate?.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase)) return path;
+            }
+            catch (JsonException) { }
+        }
+        return conventional;
+    }
 
     private List<ClusterDefinition> Load()
     {
@@ -92,6 +149,42 @@ public sealed class ClusterCatalog : IDisposable
             throw new InvalidDataException("Cluster Host command credential environment variable is required.");
         cluster.ConfigProfileId = (cluster.ConfigProfileId ?? string.Empty).Trim();
         cluster.WorldTemplateId = (cluster.WorldTemplateId ?? string.Empty).Trim();
+        if (cluster.ShutdownGracePeriodSeconds is < 0 or > 3600)
+            throw new InvalidDataException("Cluster shutdown grace period must be between 0 and 3600 seconds.");
+        if (cluster.Gateway != null)
+            cluster.Gateway = NormalizeGatewaySpec(cluster.UniqueName, cluster.Gateway);
+    }
+
+    internal static Quasar.Host.Contract.V1.GatewaySpec NormalizeGatewaySpec(string uniqueName,
+        Quasar.Host.Contract.V1.GatewaySpec gateway)
+    {
+        string clusterId = gateway.ClusterId?.Trim() ?? string.Empty;
+        if (!string.Equals(clusterId, uniqueName, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Gateway spec cluster ID must match the cluster unique name.");
+        string manifest = gateway.BundleManifestPath?.Trim() ?? string.Empty;
+        string runRoot = gateway.RunRoot?.Trim() ?? string.Empty;
+        string revision = gateway.ConfigRevision?.Trim() ?? string.Empty;
+        string hash = gateway.BundleManifestSha256?.Trim().ToLowerInvariant() ?? string.Empty;
+        int[] ports = gateway.Ports ?? [];
+        if (manifest.Length == 0 || runRoot.Length == 0)
+            throw new ArgumentException("Gateway bundle manifest and run root are required.");
+        if (revision.Length is 0 or > 256)
+            throw new ArgumentException("Gateway config revision is required and cannot exceed 256 characters.");
+        if (hash.Length != 64 || hash.Any(character => !Uri.IsHexDigit(character)))
+            throw new ArgumentException("Gateway bundle manifest SHA-256 must contain 64 hexadecimal characters.");
+        if (ports.Length == 0 || ports.Any(port => port is < 1 or > 65535)
+            || ports.Distinct().Count() != ports.Length)
+            throw new ArgumentException("Gateway ports must contain unique values between 1 and 65535.");
+        return gateway with
+        {
+            ClusterId = uniqueName,
+            Goal = Quasar.Host.Contract.V1.GatewayGoal.On,
+            BundleManifestPath = manifest,
+            BundleManifestSha256 = hash,
+            ConfigRevision = revision,
+            Ports = ports.Order().ToArray(),
+            RunRoot = runRoot,
+        };
     }
 
     private void StartWatching()

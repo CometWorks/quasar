@@ -3,6 +3,7 @@
 @inject DedicatedServerCatalog ServerCatalog
 @inject DedicatedServerSupervisor Supervisor
 @inject ClusterCatalog ClusterCatalog
+@inject ClusterCommandService ClusterCommands
 @inject ClusterGatewayClient ClusterGatewayClient
 @inject AgentRegistry Registry
 @inject QuasarConfigProfileCatalog ConfigProfiles
@@ -183,6 +184,20 @@
                                  Color="Color.Primary" Underline="Underline.Hover">@cluster.DisplayName</MudLink>
                     </MudTd>
                     <MudTd DataLabel="" Class="quasar-actions-column">
+                        @if (cluster.GoalState == DedicatedServerGoalState.Off)
+                        {
+                            <MudTooltip Text="Start cluster">
+                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.PlayArrow"
+                                               Color="Color.Success" OnClick="@(() => StartClusterAsync(cluster.UniqueName))" />
+                            </MudTooltip>
+                        }
+                        else
+                        {
+                            <MudTooltip Text="Gracefully stop cluster">
+                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Stop"
+                                               Color="Color.Error" OnClick="@(() => StopClusterAsync(cluster.UniqueName))" />
+                            </MudTooltip>
+                        }
                         <MudTooltip Text="Open cluster details">
                             <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.OpenInNew"
                                            Color="Color.Primary" OnClick="@(() => OpenCluster(cluster.UniqueName))" />
@@ -482,6 +497,41 @@
         {
             await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.Off);
             Snackbar.Add("Server stop requested.", Severity.Info);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task StartClusterAsync(string uniqueName)
+    {
+        try
+        {
+            await ClusterCommands.SetGoalAsync(uniqueName,
+                new ClusterGoalRequest(DedicatedServerGoalState.On),
+                Guid.NewGuid().ToString("N"), "web-ui");
+            Snackbar.Add("Cluster start requested.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task StopClusterAsync(string uniqueName)
+    {
+        if (!await ConfirmDestructiveActionAsync(
+                "Stop cluster?",
+                $"Cluster '{uniqueName}' will disconnect players, save every partition and global state, then stop the Gateway last.",
+                "Stop"))
+            return;
+        try
+        {
+            await ClusterCommands.SetGoalAsync(uniqueName,
+                new ClusterGoalRequest(DedicatedServerGoalState.Off),
+                Guid.NewGuid().ToString("N"), "web-ui");
+            Snackbar.Add("Graceful cluster stop requested.", Severity.Info);
         }
         catch (Exception exception)
         {

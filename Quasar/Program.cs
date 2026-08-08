@@ -169,7 +169,7 @@ public class Program
                 .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyringDirectory));
             builder.Services.AddHttpClient();
             builder.Services.AddHttpClient<ClusterGatewayClient>(client =>
-                client.Timeout = TimeSpan.FromSeconds(30));
+                client.Timeout = Timeout.InfiniteTimeSpan);
             builder.Services.AddHttpClient<ClusterHostClient>(client =>
                 client.Timeout = TimeSpan.FromSeconds(30));
             builder.Services.AddSingleton(webServiceOptions);
@@ -208,6 +208,9 @@ public class Program
             builder.Services.AddSingleton<DedicatedServerCatalog>();
             builder.Services.AddSingleton<ClusterCatalog>();
             builder.Services.AddSingleton<ClusterOperationStore>();
+            builder.Services.AddSingleton<ClusterCommandService>();
+            builder.Services.AddSingleton<ClusterReconciler>();
+            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ClusterReconciler>());
             builder.Services.AddSingleton<DedicatedServerSupervisor>();
             builder.Services.AddSingleton<DedicatedServerRuntimePreparer>();
             builder.Services.AddSingleton<FileBrowserService>();
