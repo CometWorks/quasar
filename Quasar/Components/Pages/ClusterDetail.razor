@@ -1,0 +1,44 @@
+@page "/clusters/{UniqueName}"
+@inject ClusterCatalog ClusterCatalog
+
+<PageTitle>@(Cluster?.DisplayName ?? "Cluster")</PageTitle>
+
+@if (Cluster is null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
+        Cluster '@UniqueName' was not found.
+    </MudAlert>
+}
+else
+{
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center"
+              Justify="Justify.SpaceBetween" Spacing="2" Class="mb-3">
+        <div>
+            <MudText Typo="Typo.h5">@Cluster.DisplayName</MudText>
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">Cluster</MudChip>
+                <MudText Typo="Typo.body2" Class="mono">@Cluster.UniqueName</MudText>
+            </MudStack>
+        </div>
+        <MudButton Href="/" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack">
+            Servers
+        </MudButton>
+    </MudStack>
+
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">
+        Manage this cluster as one server. Gateway, World Authority, and node placement are
+        shown for visibility; the Registry remains authoritative for fleet decisions.
+    </MudAlert>
+
+    <ClusterDetailPanel Cluster="Cluster" />
+}
+
+@code
+{
+    [Parameter]
+    public string UniqueName { get; set; } = string.Empty;
+
+    private ClusterDefinition? Cluster { get; set; }
+
+    protected override void OnParametersSet() => Cluster = ClusterCatalog.GetCluster(UniqueName);
+}

@@ -1,0 +1,257 @@
+@implements IAsyncDisposable
+@using Admin = CometWorks.ClusterGateway.AdminContract.V1
+@using HostContract = Quasar.Host.Contract.V1
+@inject ClusterGatewayClient GatewayClient
+@inject ClusterHostClient HostClient
+
+<MudStack Spacing="3">
+    @if (_loading && _status is null)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
+    }
+
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="6" lg="3">
+            <MudPaper Class="pa-3 server-card" Elevation="0">
+                <MudText Typo="Typo.overline">Serving</MudText>
+                <MudText Typo="Typo.h6" Color="@PhaseColor">@PhaseText</MudText>
+                <MudText Typo="Typo.caption">Gateway is @GatewayText.ToLowerInvariant().</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <MudPaper Class="pa-3 server-card" Elevation="0">
+                <MudText Typo="Typo.overline">Players</MudText>
+                <MudText Typo="Typo.h6">@PlayerText</MudText>
+                <MudText Typo="Typo.caption">@JoinText</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <MudPaper Class="pa-3 server-card" Elevation="0">
+                <MudText Typo="Typo.overline">Capacity</MudText>
+                <MudText Typo="Typo.h6">@CapacityText</MudText>
+                <MudText Typo="Typo.caption">@CapacityDetail</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <MudPaper Class="pa-3 server-card" Elevation="0">
+                <MudText Typo="Typo.overline">Recovery</MudText>
+                <MudText Typo="Typo.h6" Color="@RecoveryColor">@RecoveryText</MudText>
+                <MudText Typo="Typo.caption">@RecoveryDetail</MudText>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudPaper Class="pa-4 server-card" Elevation="0">
+        <MudText Typo="Typo.h6" Class="mb-2">Physical components</MudText>
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+            <MudChip T="string" Variant="Variant.Outlined" Color="@GatewayColor">
+                Gateway · @GatewayText
+            </MudChip>
+            <MudChip T="string" Variant="Variant.Outlined" Color="@WorldAuthorityColor">
+                World Authority · @WorldAuthorityText
+            </MudChip>
+            <MudChip T="string" Variant="Variant.Outlined" Color="@NodesColor">
+                Nodes · @CapacityText
+            </MudChip>
+        </MudStack>
+        @if (_status?.DegradedReasons.Length > 0)
+        {
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
+                @string.Join(" · ", _status.DegradedReasons)
+            </MudAlert>
+        }
+    </MudPaper>
+
+    <MudExpansionPanels>
+        <MudExpansionPanel Text="Advanced cluster details">
+            <MudSimpleTable Dense="true" Hover="true">
+                <tbody>
+                    <tr><th>Gateway</th><td class="mono">@Cluster.GatewayUrl</td></tr>
+                    <tr><th>World</th><td>@(_status?.WorldId ?? "-")</td></tr>
+                    <tr><th>Config profile</th><td>@ValueOrDash(Cluster.ConfigProfileId)</td></tr>
+                    <tr><th>World setup</th><td>@ValueOrDash(Cluster.WorldTemplateId)</td></tr>
+                    <tr><th>Host executor</th><td>@HostText</td></tr>
+                    <tr><th>Registry WAL</th><td>@RegistryText</td></tr>
+                </tbody>
+            </MudSimpleTable>
+            @if (_plan.Length > 0)
+            {
+                <MudTable T="Admin.NodePlan" Items="_plan" Dense="true" Hover="true" Class="mt-3">
+                    <HeaderContent>
+                        <MudTh>Slot</MudTh>
+                        <MudTh>Host</MudTh>
+                        <MudTh>Role</MudTh>
+                        <MudTh>Goal</MudTh>
+                        <MudTh>Observed</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Slot" Class="mono">@context.SlotKey</MudTd>
+                        <MudTd DataLabel="Host">@context.Host</MudTd>
+                        <MudTd DataLabel="Role">@RoleText(context.Role)</MudTd>
+                        <MudTd DataLabel="Goal">@context.Goal</MudTd>
+                        <MudTd DataLabel="Observed">@context.Observed</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudExpansionPanel>
+    </MudExpansionPanels>
+</MudStack>
+
+@code
+{
+    private readonly CancellationTokenSource _shutdown = new();
+    private Admin.ClusterStatus? _status;
+    private Admin.NodePlan[] _plan = [];
+    private Admin.RecoveryReadiness? _recovery;
+    private HostContract.HostStatus? _host;
+    private Task? _refreshLoop;
+    private string? _error;
+    private bool _loading;
+
+    [Parameter, EditorRequired]
+    public ClusterDefinition Cluster { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync(_shutdown.Token);
+        _refreshLoop = RefreshLoopAsync(_shutdown.Token);
+    }
+
+    private async Task RefreshLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+                await InvokeAsync(() => RefreshAsync(cancellationToken));
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task RefreshAsync(CancellationToken cancellationToken)
+    {
+        _loading = true;
+        try
+        {
+            Task<Admin.AdminEnvelope<Admin.ClusterStatus>> status =
+                GatewayClient.GetStatusAsync(Cluster, cancellationToken);
+            Task<Admin.AdminEnvelope<Admin.NodePlan[]>> plan =
+                GatewayClient.GetPlanAsync(Cluster, cancellationToken);
+            Task<Admin.AdminEnvelope<Admin.RecoveryReadiness>> recovery =
+                GatewayClient.GetRecoveryReadinessAsync(Cluster, cancellationToken);
+            Task<HostContract.HostEnvelope<HostContract.HostStatus>> host =
+                HostClient.GetStatusAsync(Cluster, cancellationToken);
+            Admin.ClusterStatus? nextStatus = null;
+            Admin.NodePlan[] nextPlan = [];
+            Admin.RecoveryReadiness? nextRecovery = null;
+            HostContract.HostStatus? nextHost = null;
+            var errors = new List<string>();
+            try
+            {
+                nextStatus = (await status).Data;
+            }
+            catch (ClusterGatewayException exception)
+            {
+                errors.Add(exception.Message);
+            }
+            try
+            {
+                nextPlan = (await plan).Data;
+            }
+            catch (ClusterGatewayException exception)
+            {
+                errors.Add(exception.Message);
+            }
+            try
+            {
+                nextRecovery = (await recovery).Data;
+            }
+            catch (ClusterGatewayException exception)
+            {
+                errors.Add(exception.Message);
+            }
+            try
+            {
+                nextHost = (await host).Data;
+            }
+            catch (ClusterHostException exception)
+            {
+                errors.Add(exception.Message);
+            }
+            _status = nextStatus;
+            _plan = nextPlan;
+            _recovery = nextRecovery;
+            _host = nextHost;
+            _error = errors.Count == 0 ? null : string.Join(" ", errors.Distinct());
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private string PhaseText => _status?.Phase.ToString() ?? "Unavailable";
+    private Color PhaseColor => _status?.Phase switch
+    {
+        Admin.ClusterPhase.Serving => Color.Success,
+        Admin.ClusterPhase.Degraded => Color.Warning,
+        Admin.ClusterPhase.Bootstrapping => Color.Info,
+        Admin.ClusterPhase.Draining => Color.Warning,
+        _ => Color.Default,
+    };
+    private string GatewayText => _status is null ? "Unavailable" : "Online";
+    private Color GatewayColor => _status is null ? Color.Error : Color.Success;
+    private string PlayerText => _status is null ? "-" : $"{_status.Counts.ConnectedClients} connected";
+    private string JoinText => _status?.Phase == Admin.ClusterPhase.Serving
+        ? "Player entry point is serving." : "Player entry point is not serving yet.";
+    private int ReadyNodes => _plan.Count(item => item.Observed == Admin.NodeObservation.Ready);
+    private int WantedNodes => _plan.Count(item => item.Goal == Admin.NodeGoal.Wanted);
+    private string CapacityText => _status is null ? "-" : $"{ReadyNodes}/{WantedNodes} ready";
+    private string CapacityDetail => _status is null ? "Capacity unavailable."
+        : $"{_status.Counts.Nodes} registered; {_plan.Count(item => item.FailureAlert)} alerting.";
+    private Color NodesColor => _status is null ? Color.Error
+        : ReadyNodes >= WantedNodes && WantedNodes > 0 ? Color.Success : Color.Warning;
+    private string WorldAuthorityText => _status?.WorldAuthority.Node ?? "Unavailable";
+    private Color WorldAuthorityColor => _status?.WorldAuthority.Node is null ? Color.Warning : Color.Success;
+    private string RecoveryText => _recovery?.State.ToString() ?? "Unknown";
+    private Color RecoveryColor => _recovery?.State switch
+    {
+        Admin.RecoveryReadinessState.Ready => Color.Success,
+        Admin.RecoveryReadinessState.AtRisk => Color.Warning,
+        Admin.RecoveryReadinessState.NotReconstructible => Color.Error,
+        _ => Color.Default,
+    };
+    private string RecoveryDetail => _recovery?.LatestPoint is null
+        ? "No reconstructible cut reported."
+        : $"{_recovery.LatestPoint.Consistency} · cluster time {_recovery.LatestPoint.ClusterTime}";
+    private string HostText => _host is null ? "Unavailable"
+        : $"{_host.HostId} · {_host.Attachments.Length} attachment(s)";
+    private string RegistryText => _recovery is null ? "-"
+        : $"{(_recovery.Registry.SnapshotPresent ? "snapshot present" : "no snapshot")} · {_recovery.Registry.WalRecords} WAL records";
+
+    private static string ValueOrDash(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string RoleText(Admin.NodeRole role) =>
+        role == Admin.NodeRole.WorldAuthority ? "World Authority" : "Node";
+
+    public async ValueTask DisposeAsync()
+    {
+        await _shutdown.CancelAsync();
+        if (_refreshLoop is not null)
+        {
+            try
+            {
+                await _refreshLoop;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+        _shutdown.Dispose();
+    }
+}

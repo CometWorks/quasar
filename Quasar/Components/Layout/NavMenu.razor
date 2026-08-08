@@ -34,6 +34,16 @@
 
     <MudDivider />
 
+    <MudText Typo="Typo.overline" Class="px-4">Tools</MudText>
+    <MudNavMenu Class="magnetar-nav-menu">
+        <MudNavLink Href="/hosts" Icon="@Icons.Material.Filled.Dns">
+            Hosts
+        </MudNavLink>
+        <PluginNavItems Items="@UiPlugins.NavItems" Zone="@QuasarNavZones.Tools" />
+    </MudNavMenu>
+
+    <MudDivider />
+
     <MudNavMenu Class="magnetar-nav-menu">
         <MudNavLink Href="/settings/appearance" Icon="@Icons.Material.Filled.Palette">
             Appearance

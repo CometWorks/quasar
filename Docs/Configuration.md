@@ -510,6 +510,12 @@ readiness is calculated by Gateway from its durable Registry,
 Save Catalog, snapshot, WAL, and artifact-holder records; Quasar does not infer it
 from node liveness.
 
+Configured clusters appear beside standalone servers in both dashboard views. Their
+detail page reports Gateway, World Authority, node capacity, and reconstructibility
+from the query contracts above. The **Tools → Hosts** page shows Host executor
+reachability and persisted attachments. These views are observational: lifecycle and
+policy changes still pass through the durable API operation path.
+
 Policy mutation requires an `Idempotency-Key` header. Quasar writes the operation
 under `<quasar-root>/Operations/Clusters` before calling Gateway, returns `202` with
 the durable operation ID, and exposes the completed result or structured failure at

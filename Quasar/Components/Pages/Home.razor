@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject AgentRegistry Registry
 @inject DedicatedServerCatalog ServerCatalog
+@inject ClusterCatalog ClusterCatalog
 @inject DedicatedServerSupervisor Supervisor
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarWorldTemplateCatalog WorldTemplates
@@ -442,25 +443,25 @@
 <MudGrid Class="mb-4">
     <MudItem xs="12" sm="6" lg="3">
         <MudPaper Class="pa-4 summary-card">
-            <MudText Typo="Typo.overline">Online Servers</MudText>
+            <MudText Typo="Typo.overline">@(Clusters.Count > 0 ? "Online Standalone" : "Online Servers")</MudText>
             <MudText Typo="Typo.h4">@OnlineServerCount</MudText>
         </MudPaper>
     </MudItem>
     <MudItem xs="12" sm="6" lg="3">
         <MudPaper Class="pa-4 summary-card">
-            <MudText Typo="Typo.overline">Players Online</MudText>
+            <MudText Typo="Typo.overline">@(Clusters.Count > 0 ? "Standalone Players" : "Players Online")</MudText>
             <MudText Typo="Typo.h4">@PlayersOnline</MudText>
         </MudPaper>
     </MudItem>
     <MudItem xs="12" sm="6" lg="3">
         <MudPaper Class="@GetProblemCardClass(WarningServerCount, false)">
-            <MudText Typo="Typo.overline">Health Warnings</MudText>
+            <MudText Typo="Typo.overline">@(Clusters.Count > 0 ? "Standalone Warnings" : "Health Warnings")</MudText>
             <MudText Typo="Typo.h4">@WarningServerCount</MudText>
         </MudPaper>
     </MudItem>
     <MudItem xs="12" sm="6" lg="3">
         <MudPaper Class="@GetProblemCardClass(UnhealthyServerCount, true)">
-            <MudText Typo="Typo.overline">Errors</MudText>
+            <MudText Typo="Typo.overline">@(Clusters.Count > 0 ? "Standalone Errors" : "Errors")</MudText>
             <MudText Typo="Typo.h4">@UnhealthyServerCount</MudText>
         </MudPaper>
     </MudItem>
@@ -503,7 +504,7 @@
              LaunchBlockedMessage="@RuntimeWarmupSnapshot.Message"
              ConfigProfileSelected="OpenConfigProfileFromServerListAsync" />
 }
-else if (Servers.Count == 0)
+else if (Servers.Count == 0 && Clusters.Count == 0)
 {
     @if (!ShowSetupWizard)
     {
@@ -529,6 +530,12 @@ else
                             ConfigProfileSelected="OpenConfigProfileFromServerListAsync" />
             </MudItem>
         }
+        @foreach (var cluster in Clusters)
+        {
+            <MudItem xs="12" xl="6">
+                <ClusterCard Cluster="@cluster" />
+            </MudItem>
+        }
     </MudGrid>
 }
 
@@ -547,6 +554,7 @@ else
 
     private IReadOnlyList<AgentRuntimeState> Agents => Registry.GetAgents();
     private IReadOnlyList<DedicatedServerDefinition> Servers => ServerCatalog.GetServers();
+    private IReadOnlyList<ClusterDefinition> Clusters => ClusterCatalog.GetClusters();
     private IReadOnlyList<DedicatedServerRuntimeSnapshot> RuntimeSnapshotList => Supervisor.GetSnapshots();
     private ManagedRuntimeWarmupSnapshot RuntimeWarmupSnapshot => RuntimeWarmup.GetSnapshot();
     private IReadOnlyDictionary<string, DedicatedServerRuntimeSnapshot> RuntimeSnapshots => Supervisor
@@ -577,7 +585,7 @@ else
         .Where(agent => agent?.IsConnected == true)
         .Sum(agent => agent?.Snapshot?.Metrics.PlayersOnline ?? 0);
 
-    private int ConfiguredServerCount => Servers.Count;
+    private int ConfiguredServerCount => Servers.Count + Clusters.Count;
 
     private int RunningServerCount => RuntimeSnapshotList.Count(snapshot =>
         snapshot.State is DedicatedServerProcessState.Starting
@@ -724,6 +732,7 @@ else
     {
         Registry.Changed += HandleRegistryChanged;
         ServerCatalog.Changed += HandleRegistryChanged;
+        ClusterCatalog.Changed += HandleRegistryChanged;
         Supervisor.Changed += HandleRegistryChanged;
         ConfigProfiles.Changed += HandleRegistryChanged;
         WorldTemplates.Changed += HandleRegistryChanged;
@@ -771,6 +780,7 @@ else
     {
         Registry.Changed -= HandleRegistryChanged;
         ServerCatalog.Changed -= HandleRegistryChanged;
+        ClusterCatalog.Changed -= HandleRegistryChanged;
         Supervisor.Changed -= HandleRegistryChanged;
         ConfigProfiles.Changed -= HandleRegistryChanged;
         WorldTemplates.Changed -= HandleRegistryChanged;

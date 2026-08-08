@@ -1,12 +1,55 @@
+@page "/hosts"
 @implements IDisposable
 @inject AgentRegistry Registry
+@inject ClusterCatalog ClusterCatalog
+@inject ClusterHostClient ClusterHostClient
 
 <PageTitle>Hosts</PageTitle>
 
 <MudText Typo="Typo.h5" Class="mb-2">Hosts</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Each host can run many dedicated servers and plugin agents behind one shared Quasar supervisor endpoint.</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Process agents report standalone-server health. Enrolled Quasar.Host executors independently keep cluster Gateways and node slots reconciled while the central Quasar worker restarts.</MudText>
+
+<MudPaper Class="server-card mb-4">
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center"
+              Justify="Justify.SpaceBetween" Spacing="2" Class="pa-4 pb-2">
+        <div>
+            <MudText Typo="Typo.h6">Cluster executors</MudText>
+            <MudText Typo="Typo.body2">Reachability and persisted cluster attachments from the authenticated Host contract.</MudText>
+        </div>
+        <MudChip T="string" Variant="Variant.Outlined">@($"{ExecutorRows.Count} executor(s)")</MudChip>
+    </MudStack>
+    <MudTable T="ExecutorHostRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="ExecutorRows">
+        <HeaderContent>
+            <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.HostName)">Host</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.ExecutorId)">Executor</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.Reachable)">Reachability</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.ClusterNames)">Clusters</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.ActualizationCount)">Prepared</MudTableSortLabel></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Host">@context.HostName</MudTd>
+            <MudTd DataLabel="Executor" Class="mono">@context.ExecutorId</MudTd>
+            <MudTd DataLabel="Reachability">
+                <MudTooltip Text="@context.Error">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                             Color="@(context.Reachable ? Color.Success : Color.Error)">
+                        @(context.Reachable ? "reachable" : "unreachable")
+                    </MudChip>
+                </MudTooltip>
+            </MudTd>
+            <MudTd DataLabel="Clusters">@context.ClusterNames</MudTd>
+            <MudTd DataLabel="Prepared">@($"{context.ActualizationCount}/{context.AttachmentCount}")</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                No cluster Host command endpoints are configured.
+            </MudAlert>
+        </NoRecordsContent>
+    </MudTable>
+</MudPaper>
 
 <MudPaper Class="server-card">
+    <MudText Typo="Typo.h6" Class="pa-4 pb-2">In-process agents</MudText>
     <MudTable T="HostRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="HostRows">
         <HeaderContent>
             <MudTh><MudTableSortLabel SortBy="new Func<HostRow, object>(x => x.HostName)">Host</MudTableSortLabel></MudTh>
@@ -30,6 +73,10 @@
 
 @code
 {
+    private readonly CancellationTokenSource _shutdown = new();
+    private IReadOnlyList<ExecutorHostRow> ExecutorRows { get; set; } = [];
+    private Task? _refreshLoop;
+
     private IReadOnlyList<HostRow> HostRows => Registry
         .GetAgents()
         .GroupBy(agent => agent.HostKey, StringComparer.OrdinalIgnoreCase)
@@ -43,15 +90,76 @@
         .OrderBy(row => row.HostName, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         Registry.Changed += HandleRegistryChanged;
+        ClusterCatalog.Changed += HandleClusterCatalogChanged;
+        await RefreshExecutorsAsync(_shutdown.Token, render: false);
+        _refreshLoop = RefreshLoopAsync(_shutdown.Token);
     }
 
     public void Dispose()
     {
         Registry.Changed -= HandleRegistryChanged;
+        ClusterCatalog.Changed -= HandleClusterCatalogChanged;
+        _shutdown.Cancel();
+        _shutdown.Dispose();
     }
+
+    private async Task RefreshLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+                await RefreshExecutorsAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private async Task RefreshExecutorsAsync(CancellationToken cancellationToken, bool render = true)
+    {
+        ClusterDefinition[] clusters = ClusterCatalog.GetClusters()
+            .Where(cluster => !string.IsNullOrWhiteSpace(cluster.HostCommandUrl))
+            .ToArray();
+        ExecutorHostRow[] queried = await Task.WhenAll(clusters.Select(cluster =>
+            QueryExecutorAsync(cluster, cancellationToken)));
+        if (cancellationToken.IsCancellationRequested)
+            return;
+        ExecutorRows = queried
+            .GroupBy(row => row.Identity, StringComparer.OrdinalIgnoreCase)
+            .Select(group => ExecutorHostRow.Merge(group))
+            .OrderBy(row => row.HostName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (render)
+            await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task<ExecutorHostRow> QueryExecutorAsync(
+        ClusterDefinition cluster, CancellationToken cancellationToken)
+    {
+        try
+        {
+            Quasar.Host.Contract.V1.HostStatus status =
+                (await ClusterHostClient.GetStatusAsync(cluster, cancellationToken)).Data;
+            return new ExecutorHostRow(status.HostId, status.ExecutorId, true,
+                status.Attachments.Select(attachment => attachment.ClusterId).ToArray(),
+                status.Attachments.Count(attachment => attachment.ActualizationConfigured),
+                status.Attachments.Length, string.Empty);
+        }
+        catch (ClusterHostException exception)
+        {
+            return new ExecutorHostRow(cluster.HostCommandUrl, "-", false,
+                [cluster.UniqueName], 0, 1, exception.Message);
+        }
+    }
+
+    private void HandleClusterCatalogChanged() => _ = RefreshExecutorsAsync(_shutdown.Token);
 
     private void HandleRegistryChanged()
     {
@@ -67,5 +175,32 @@
         public int ConnectedAgents { get; set; }
 
         public int PlayersOnline { get; set; }
+    }
+
+    private sealed record ExecutorHostRow(
+        string HostName,
+        string ExecutorId,
+        bool Reachable,
+        string[] Clusters,
+        int ActualizationCount,
+        int AttachmentCount,
+        string Error)
+    {
+        public string Identity => Reachable ? HostName + "\0" + ExecutorId : HostName;
+        public string ClusterNames => string.Join(", ", Clusters.OrderBy(value => value,
+            StringComparer.OrdinalIgnoreCase));
+
+        public static ExecutorHostRow Merge(IEnumerable<ExecutorHostRow> rows)
+        {
+            ExecutorHostRow first = rows.First();
+            string[] clusters = rows.SelectMany(row => row.Clusters)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            return first with
+            {
+                Clusters = clusters,
+                ActualizationCount = rows.Max(row => row.ActualizationCount),
+                AttachmentCount = rows.Max(row => row.AttachmentCount),
+            };
+        }
     }
 }

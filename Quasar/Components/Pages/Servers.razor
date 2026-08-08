@@ -1,6 +1,9 @@
 @implements IDisposable
+@using Admin = CometWorks.ClusterGateway.AdminContract.V1
 @inject DedicatedServerCatalog ServerCatalog
 @inject DedicatedServerSupervisor Supervisor
+@inject ClusterCatalog ClusterCatalog
+@inject ClusterGatewayClient ClusterGatewayClient
 @inject AgentRegistry Registry
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarWorldTemplateCatalog WorldTemplates
@@ -18,20 +21,20 @@
 @if (!HideHeader)
 {
     <MudText Typo="Typo.h5" Class="mb-2">Servers</MudText>
-    <MudText Typo="Typo.body2">Persistent dedicated servers. Quasar launches, stops, and restarts processes from these definitions, and Quasar.Agent attaches once the server is up for live data. Expand a row to see live agent data: players, chat, and command results.</MudText>
+    <MudText Typo="Typo.body2">Persistent standalone servers and clusters. Ordinary server controls stay here; cluster rows expose the Gateway, World Authority, node capacity, and recovery state as one managed server.</MudText>
 }
 
 <MudPaper Class="pa-4 server-card mt-2">
     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-4">
         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-            <MudChip T="string" Variant="Variant.Outlined">@($"{ServerDefinitions.Count} server(s)")</MudChip>
+            <MudChip T="string" Variant="Variant.Outlined">@($"{ManagedServers.Count} server(s)")</MudChip>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialogAsync">
                 Create Server
             </MudButton>
         </MudStack>
     </MudStack>
 
-    @if (ServerDefinitions.Count == 0)
+    @if (ManagedServers.Count == 0)
     {
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
             No servers defined yet.
@@ -39,17 +42,18 @@
     }
     else
     {
-        <MudTable T="DedicatedServerDefinition" Dense="true" Hover="true" Breakpoint="@ServerTableBreakpoint" Items="ServerDefinitions" Class="servers-list-table">
+        <MudTable T="ManagedServerRow" Dense="true" Hover="true" Breakpoint="@ServerTableBreakpoint" Items="ManagedServers" Class="servers-list-table">
             <HeaderContent>
                 <MudTh></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetStateText(x.UniqueName))">Status</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.UniqueName)">Unique name</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => x.ServerPort)">Port</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetConfigProfileName(x.ConfigProfileId))">Config</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetPlayerSortValue(x.UniqueName))">Players</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetProcessSortValue(x.UniqueName))">Process</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetAttachmentStatus(x.UniqueName))">Agent</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<DedicatedServerDefinition, object>(x => GetDisplayName(x))">Name</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(x => x.Kind)">Type</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(GetManagedStateText)">Status</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(x => x.UniqueName)">Unique name</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(GetEndpointSortValue)">Endpoint</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(x => GetConfigProfileName(x.ConfigProfileId))">Config</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(GetManagedPlayerSortValue)">Players</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(GetManagedProcessSortValue)">Process</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(GetManagedAttachmentStatus)">Agent / WA</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(x => x.DisplayName)">Name</MudTableSortLabel></MudTh>
                 <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
             </HeaderContent>
             <RowTemplate>
@@ -60,115 +64,145 @@
                                        OnClick="@(() => ToggleExpanded(context.UniqueName))" />
                     </MudTooltip>
                 </MudTd>
-                <MudTd DataLabel="Status">
-                    <MudChip T="string" Color="@GetStateColor(context.UniqueName)" Variant="Variant.Outlined">
-                        @GetStateText(context.UniqueName)
-                    </MudChip>
-                    @if (GetRuntime(context.UniqueName)?.LastRestart is { } lastRestart)
-                    {
-                        <MudTooltip Text="@GetRestartTooltip(lastRestart)">
-                            <MudText Typo="Typo.caption"
-                                     Color="@GetRestartColor(lastRestart)"
-                                     Style="display:block;max-width:18rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                                @GetRestartSummary(lastRestart)
-                            </MudText>
-                        </MudTooltip>
-                    }
-                    @if (ShouldShowLatestErrorLine(context.UniqueName))
-                    {
-                        <MudTooltip Text="Open console at latest error lines">
-                            <MudLink Typo="Typo.caption"
-                                     Color="Color.Error"
-                                     Underline="Underline.Hover"
-                                     Style="display:block;max-width:18rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
-                                     @onclick="@(() => OpenErrorConsoleDialogAsync(context.UniqueName))">
-                                @GetRuntime(context.UniqueName)!.LatestErrorLogLine
+                @if (context.Server is { } server)
+                {
+                    <MudTd DataLabel="Type">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Standalone</MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Status">
+                        <MudChip T="string" Color="@GetStateColor(server.UniqueName)" Variant="Variant.Outlined">
+                            @GetStateText(server.UniqueName)
+                        </MudChip>
+                        @if (GetRuntime(server.UniqueName)?.LastRestart is { } lastRestart)
+                        {
+                            <MudTooltip Text="@GetRestartTooltip(lastRestart)">
+                                <MudText Typo="Typo.caption"
+                                         Color="@GetRestartColor(lastRestart)"
+                                         Style="display:block;max-width:18rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                    @GetRestartSummary(lastRestart)
+                                </MudText>
+                            </MudTooltip>
+                        }
+                        @if (ShouldShowLatestErrorLine(server.UniqueName))
+                        {
+                            <MudTooltip Text="Open console at latest error lines">
+                                <MudLink Typo="Typo.caption" Color="Color.Error" Underline="Underline.Hover"
+                                         Style="display:block;max-width:18rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                                         @onclick="@(() => OpenErrorConsoleDialogAsync(server.UniqueName))">
+                                    @GetRuntime(server.UniqueName)!.LatestErrorLogLine
+                                </MudLink>
+                            </MudTooltip>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Unique name" Class="mono">@server.UniqueName</MudTd>
+                    <MudTd DataLabel="Endpoint" Class="mono">
+                        <MudTooltip Text="@GetDirectConnectTooltip(server)">
+                            <MudLink Typo="Typo.body2" Color="Color.Primary" Underline="Underline.Hover"
+                                     @onclick="@(() => CopyDirectConnectAsync(server))">
+                                @server.ServerPort
                             </MudLink>
                         </MudTooltip>
-                    }
-                </MudTd>
-                <MudTd DataLabel="Unique name" Class="mono">@context.UniqueName</MudTd>
-                <MudTd DataLabel="Port" Class="mono">
-                    <MudTooltip Text="@GetDirectConnectTooltip(context)">
-                        <MudLink Typo="Typo.body2"
-                                 Color="Color.Primary"
-                                 Underline="Underline.Hover"
-                                 @onclick="@(() => CopyDirectConnectAsync(context))">
-                            @context.ServerPort
-                        </MudLink>
-                    </MudTooltip>
-                </MudTd>
-                <MudTd DataLabel="Config">
-                    @if (CanOpenConfigProfile(context.ConfigProfileId))
-                    {
-                        <MudLink Typo="Typo.body2"
-                                 Color="Color.Primary"
-                                 Underline="Underline.Hover"
-                                 @onclick="@(() => OpenConfigProfileAsync(context.ConfigProfileId))">
-                            @GetConfigProfileName(context.ConfigProfileId)
-                        </MudLink>
-                    }
-                    else
-                    {
-                        <MudText Typo="Typo.body2">@GetConfigProfileName(context.ConfigProfileId)</MudText>
-                    }
-                </MudTd>
-                <MudTd DataLabel="Players">@GetPlayerCount(context.UniqueName)</MudTd>
-                <MudTd DataLabel="Process" Class="mono">@GetProcessDisplay(context.UniqueName)</MudTd>
-                <MudTd DataLabel="Agent">@GetAttachmentStatus(context.UniqueName)</MudTd>
-                <MudTd DataLabel="Name">
-                    <MudText Typo="Typo.body2">@GetDisplayName(context)</MudText>
-                </MudTd>
-                <MudTd DataLabel="" Class="quasar-actions-column">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0">
-                        @if (CanStartServer(context.UniqueName))
+                    </MudTd>
+                    <MudTd DataLabel="Config">
+                        @if (CanOpenConfigProfile(server.ConfigProfileId))
                         {
-                            <MudTooltip Text="@GetStartTooltip(context)">
-                                <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Color="Color.Success" Size="Size.Small" Disabled="@IsStartDisabled(context)" OnClick="@(() => StartAsync(context.UniqueName))" />
-                            </MudTooltip>
+                            <MudLink Typo="Typo.body2" Color="Color.Primary" Underline="Underline.Hover"
+                                     @onclick="@(() => OpenConfigProfileAsync(server.ConfigProfileId))">
+                                @GetConfigProfileName(server.ConfigProfileId)
+                            </MudLink>
                         }
-                        @if (CanStopServer(context.UniqueName))
+                        else
                         {
-                            <MudTooltip Text="Stop server">
-                                <MudIconButton Icon="@Icons.Material.Filled.Stop" Color="Color.Error" Size="Size.Small" OnClick="@(() => StopAsync(context.UniqueName))" />
-                            </MudTooltip>
+                            <MudText Typo="Typo.body2">@GetConfigProfileName(server.ConfigProfileId)</MudText>
                         }
-                        @if (CanKillStartingServer(context.UniqueName))
+                    </MudTd>
+                    <MudTd DataLabel="Players">@GetPlayerCount(server.UniqueName)</MudTd>
+                    <MudTd DataLabel="Process" Class="mono">@GetProcessDisplay(server.UniqueName)</MudTd>
+                    <MudTd DataLabel="Agent / WA">@GetAttachmentStatus(server.UniqueName)</MudTd>
+                    <MudTd DataLabel="Name"><MudText Typo="Typo.body2">@GetDisplayName(server)</MudText></MudTd>
+                    <MudTd DataLabel="" Class="quasar-actions-column">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0">
+                            @if (CanStartServer(server.UniqueName))
+                            {
+                                <MudTooltip Text="@GetStartTooltip(server)">
+                                    <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Color="Color.Success" Size="Size.Small" Disabled="@IsStartDisabled(server)" OnClick="@(() => StartAsync(server.UniqueName))" />
+                                </MudTooltip>
+                            }
+                            @if (CanStopServer(server.UniqueName))
+                            {
+                                <MudTooltip Text="Stop server"><MudIconButton Icon="@Icons.Material.Filled.Stop" Color="Color.Error" Size="Size.Small" OnClick="@(() => StopAsync(server.UniqueName))" /></MudTooltip>
+                            }
+                            @if (CanKillStartingServer(server.UniqueName))
+                            {
+                                <MudTooltip Text="Kill starting server"><MudIconButton Icon="@Icons.Material.Filled.StopCircle" Color="Color.Error" Size="Size.Small" OnClick="@(() => KillStartingAsync(server.UniqueName))" /></MudTooltip>
+                            }
+                            @if (CanRestartServer(server.UniqueName))
+                            {
+                                <MudTooltip Text="Restart server"><MudIconButton Icon="@Icons.Material.Filled.RestartAlt" Color="Color.Primary" Size="Size.Small" OnClick="@(() => RestartAsync(server.UniqueName))" /></MudTooltip>
+                            }
+                            <MudTooltip Text="Show console output"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Terminal" Color="Color.Default" OnClick="@(() => OpenConsoleDialogAsync(server.UniqueName))" /></MudTooltip>
+                            <MudTooltip Text="Clone server"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.ContentCopy" Color="Color.Default" OnClick="@(() => OpenCloneDialogAsync(server))" /></MudTooltip>
+                            <MudTooltip Text="Create world template"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Public" Color="Color.Default" Disabled="@(!CanCreateWorldTemplate(server))" OnClick="@(() => CreateWorldTemplateAsync(server))" /></MudTooltip>
+                            <MudTooltip Text="Edit server"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" Color="Color.Default" OnClick="@(() => OpenEditDialogAsync(server))" /></MudTooltip>
+                            <MudTooltip Text="Delete server"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteAsync(server.UniqueName))" /></MudTooltip>
+                        </MudStack>
+                    </MudTd>
+                }
+                else if (context.Cluster is { } cluster)
+                {
+                    <MudTd DataLabel="Type">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">Cluster</MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Status">
+                        <MudTooltip Text="@GetClusterError(cluster.UniqueName)">
+                            <MudChip T="string" Color="@GetClusterStateColor(cluster.UniqueName)" Variant="Variant.Outlined">
+                                @GetClusterStateText(cluster.UniqueName)
+                            </MudChip>
+                        </MudTooltip>
+                    </MudTd>
+                    <MudTd DataLabel="Unique name" Class="mono">@cluster.UniqueName</MudTd>
+                    <MudTd DataLabel="Endpoint" Class="mono">@GetGatewayEndpoint(cluster)</MudTd>
+                    <MudTd DataLabel="Config">
+                        @if (CanOpenConfigProfile(cluster.ConfigProfileId))
                         {
-                            <MudTooltip Text="Kill starting server">
-                                <MudIconButton Icon="@Icons.Material.Filled.StopCircle" Color="Color.Error" Size="Size.Small" OnClick="@(() => KillStartingAsync(context.UniqueName))" />
-                            </MudTooltip>
+                            <MudLink Typo="Typo.body2" Color="Color.Primary" Underline="Underline.Hover"
+                                     @onclick="@(() => OpenConfigProfileAsync(cluster.ConfigProfileId))">
+                                @GetConfigProfileName(cluster.ConfigProfileId)
+                            </MudLink>
                         }
-                        @if (CanRestartServer(context.UniqueName))
+                        else
                         {
-                            <MudTooltip Text="Restart server">
-                                <MudIconButton Icon="@Icons.Material.Filled.RestartAlt" Color="Color.Primary" Size="Size.Small" OnClick="@(() => RestartAsync(context.UniqueName))" />
-                            </MudTooltip>
+                            <MudText Typo="Typo.body2">@GetConfigProfileName(cluster.ConfigProfileId)</MudText>
                         }
-                        <MudTooltip Text="Show console output">
-                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Terminal" Color="Color.Default" OnClick="@(() => OpenConsoleDialogAsync(context.UniqueName))" />
+                    </MudTd>
+                    <MudTd DataLabel="Players">@GetClusterPlayerCount(cluster.UniqueName)</MudTd>
+                    <MudTd DataLabel="Process">@GetClusterCapacity(cluster.UniqueName)</MudTd>
+                    <MudTd DataLabel="Agent / WA">@GetClusterWorldAuthority(cluster.UniqueName)</MudTd>
+                    <MudTd DataLabel="Name">
+                        <MudLink Href="@ClusterHref(cluster.UniqueName)" Typo="Typo.body2"
+                                 Color="Color.Primary" Underline="Underline.Hover">@cluster.DisplayName</MudLink>
+                    </MudTd>
+                    <MudTd DataLabel="" Class="quasar-actions-column">
+                        <MudTooltip Text="Open cluster details">
+                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.OpenInNew"
+                                           Color="Color.Primary" OnClick="@(() => OpenCluster(cluster.UniqueName))" />
                         </MudTooltip>
-                        <MudTooltip Text="Clone server">
-                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.ContentCopy" Color="Color.Default" OnClick="@(() => OpenCloneDialogAsync(context))" />
-                        </MudTooltip>
-                        <MudTooltip Text="Create world template">
-                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Public" Color="Color.Default" Disabled="@(!CanCreateWorldTemplate(context))" OnClick="@(() => CreateWorldTemplateAsync(context))" />
-                        </MudTooltip>
-                        <MudTooltip Text="Edit server">
-                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" Color="Color.Default" OnClick="@(() => OpenEditDialogAsync(context))" />
-                        </MudTooltip>
-                        <MudTooltip Text="Delete server">
-                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteAsync(context.UniqueName))" />
-                        </MudTooltip>
-                    </MudStack>
-                </MudTd>
+                    </MudTd>
+                }
             </RowTemplate>
             <ChildRowContent>
                 @if (IsExpanded(context.UniqueName))
                 {
                     <MudTr Class="servers-list-detail-row">
-                        <td colspan="10" style="padding: 0.75rem 1rem; background: var(--mud-palette-background);">
-                            <ServerDetailPanel Server="@context" Runtime="@GetRuntime(context.UniqueName)" Agent="@GetAgent(context.UniqueName)" />
+                        <td colspan="11" style="padding: 0.75rem 1rem; background: var(--mud-palette-background);">
+                            @if (context.Server is { } server)
+                            {
+                                <ServerDetailPanel Server="@server" Runtime="@GetRuntime(server.UniqueName)" Agent="@GetAgent(server.UniqueName)" />
+                            }
+                            else if (context.Cluster is { } cluster)
+                            {
+                                <ClusterDetailPanel Cluster="@cluster" />
+                            }
                         </td>
                     </MudTr>
                 }
@@ -200,6 +234,10 @@
 @code
 {
     private readonly HashSet<string> _expanded = new(StringComparer.OrdinalIgnoreCase);
+    private readonly CancellationTokenSource _clusterRefreshShutdown = new();
+    private IReadOnlyDictionary<string, ClusterListSnapshot> _clusterSnapshots =
+        new Dictionary<string, ClusterListSnapshot>(StringComparer.OrdinalIgnoreCase);
+    private Task? _clusterRefreshLoop;
     [Parameter]
     public EventCallback<string> ConfigProfileSelected { get; set; }
 
@@ -221,6 +259,12 @@
     private Breakpoint ServerTableBreakpoint => DisableResponsiveLayout ? Breakpoint.None : Breakpoint.Md;
 
     private IReadOnlyList<DedicatedServerDefinition> ServerDefinitions => ServerCatalog.GetServers();
+    private IReadOnlyList<ClusterDefinition> ClusterDefinitions => ClusterCatalog.GetClusters();
+    private IReadOnlyList<ManagedServerRow> ManagedServers => ServerDefinitions
+        .Select(server => new ManagedServerRow(server, null))
+        .Concat(ClusterDefinitions.Select(cluster => new ManagedServerRow(null, cluster)))
+        .OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
 
     private IReadOnlyDictionary<string, DedicatedServerRuntimeSnapshot> RuntimeSnapshots => Supervisor
         .GetSnapshots()
@@ -239,6 +283,7 @@
         {
             var defined = ServerDefinitions
                 .Select(definition => definition.UniqueName)
+                .Concat(ClusterDefinitions.Select(definition => definition.UniqueName))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             return Registry.GetAgents()
@@ -249,13 +294,16 @@
         }
     }
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         ServerCatalog.Changed += HandleChanged;
         Supervisor.Changed += HandleChanged;
         Registry.Changed += HandleChanged;
         ConfigProfiles.Changed += HandleChanged;
         WorldTemplates.Changed += HandleChanged;
+        ClusterCatalog.Changed += HandleClusterChanged;
+        await RefreshClusterSnapshotsAsync(_clusterRefreshShutdown.Token, render: false);
+        _clusterRefreshLoop = RunClusterRefreshLoopAsync(_clusterRefreshShutdown.Token);
     }
 
     public void Dispose()
@@ -265,6 +313,74 @@
         Registry.Changed -= HandleChanged;
         ConfigProfiles.Changed -= HandleChanged;
         WorldTemplates.Changed -= HandleChanged;
+        ClusterCatalog.Changed -= HandleClusterChanged;
+        _clusterRefreshShutdown.Cancel();
+        _clusterRefreshShutdown.Dispose();
+    }
+
+    private async Task RunClusterRefreshLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+                await RefreshClusterSnapshotsAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private async Task RefreshClusterSnapshotsAsync(CancellationToken cancellationToken, bool render = true)
+    {
+        ClusterDefinition[] clusters = ClusterCatalog.GetClusters().ToArray();
+        ClusterListSnapshot[] snapshots = await Task.WhenAll(clusters.Select(cluster =>
+            LoadClusterSnapshotAsync(cluster, cancellationToken)));
+        if (cancellationToken.IsCancellationRequested)
+            return;
+        _clusterSnapshots = snapshots.ToDictionary(item => item.UniqueName,
+            StringComparer.OrdinalIgnoreCase);
+        if (render)
+            await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task<ClusterListSnapshot> LoadClusterSnapshotAsync(
+        ClusterDefinition cluster, CancellationToken cancellationToken)
+    {
+        Task<Admin.AdminEnvelope<Admin.ClusterStatus>> statusTask =
+            ClusterGatewayClient.GetStatusAsync(cluster, cancellationToken);
+        Task<Admin.AdminEnvelope<Admin.NodePlan[]>> planTask =
+            ClusterGatewayClient.GetPlanAsync(cluster, cancellationToken);
+        Admin.ClusterStatus? status = null;
+        Admin.NodePlan[] plan = [];
+        var errors = new List<string>();
+        try
+        {
+            status = (await statusTask).Data;
+        }
+        catch (ClusterGatewayException exception)
+        {
+            errors.Add(exception.Message);
+        }
+        try
+        {
+            plan = (await planTask).Data;
+        }
+        catch (ClusterGatewayException exception)
+        {
+            errors.Add(exception.Message);
+        }
+        return new ClusterListSnapshot(cluster.UniqueName, status, plan,
+            errors.Count == 0 ? null : string.Join(" ", errors.Distinct()));
+    }
+
+    private void HandleClusterChanged()
+    {
+        _ = RefreshClusterSnapshotsAsync(_clusterRefreshShutdown.Token);
+        HandleChanged();
     }
 
     private bool IsExpanded(string uniqueName) => _expanded.Contains(uniqueName);
@@ -648,6 +764,68 @@
     private bool CanCreateWorldTemplate(DedicatedServerDefinition definition) =>
         ServerActions.CanCreateWorldTemplate(definition);
 
+    private ClusterListSnapshot? GetClusterSnapshot(string uniqueName) =>
+        _clusterSnapshots.TryGetValue(uniqueName, out ClusterListSnapshot? snapshot) ? snapshot : null;
+
+    private string GetManagedStateText(ManagedServerRow row) => row.Server is not null
+        ? GetStateText(row.UniqueName) : GetClusterStateText(row.UniqueName);
+
+    private object GetEndpointSortValue(ManagedServerRow row) => row.Server is not null
+        ? row.Server.ServerPort : GetGatewayEndpoint(row.Cluster!);
+
+    private object GetManagedPlayerSortValue(ManagedServerRow row) => row.Server is not null
+        ? GetPlayerSortValue(row.UniqueName)
+        : GetClusterSnapshot(row.UniqueName)?.Status?.Counts.ConnectedClients ?? -1;
+
+    private object GetManagedProcessSortValue(ManagedServerRow row) => row.Server is not null
+        ? GetProcessSortValue(row.UniqueName)
+        : GetClusterSnapshot(row.UniqueName)?.Plan.Count(item =>
+            item.Observed == Admin.NodeObservation.Ready) ?? -1;
+
+    private string GetManagedAttachmentStatus(ManagedServerRow row) => row.Server is not null
+        ? GetAttachmentStatus(row.UniqueName) : GetClusterWorldAuthority(row.UniqueName);
+
+    private string GetClusterStateText(string uniqueName) =>
+        GetClusterSnapshot(uniqueName)?.Status?.Phase.ToString().ToLowerInvariant() ?? "unavailable";
+
+    private Color GetClusterStateColor(string uniqueName) => GetClusterSnapshot(uniqueName)?.Status?.Phase switch
+    {
+        Admin.ClusterPhase.Serving => Color.Success,
+        Admin.ClusterPhase.Degraded => Color.Warning,
+        Admin.ClusterPhase.Bootstrapping => Color.Info,
+        Admin.ClusterPhase.Draining => Color.Warning,
+        Admin.ClusterPhase.Down => Color.Default,
+        _ => Color.Error,
+    };
+
+    private string GetClusterError(string uniqueName) =>
+        GetClusterSnapshot(uniqueName)?.Error ?? "Gateway status is current.";
+
+    private static string GetGatewayEndpoint(ClusterDefinition cluster) =>
+        Uri.TryCreate(cluster.GatewayUrl, UriKind.Absolute, out Uri? gateway) ? gateway.Authority : "-";
+
+    private string GetClusterPlayerCount(string uniqueName) =>
+        GetClusterSnapshot(uniqueName)?.Status?.Counts.ConnectedClients.ToString() ?? "-";
+
+    private string GetClusterCapacity(string uniqueName)
+    {
+        ClusterListSnapshot? snapshot = GetClusterSnapshot(uniqueName);
+        if (snapshot is null)
+            return "-";
+        int ready = snapshot.Plan.Count(item => item.Observed == Admin.NodeObservation.Ready);
+        int wanted = snapshot.Plan.Count(item => item.Goal == Admin.NodeGoal.Wanted);
+        return wanted == 0 && snapshot.Status is not null
+            ? $"{snapshot.Status.Counts.Nodes} registered" : $"{ready}/{wanted} ready";
+    }
+
+    private string GetClusterWorldAuthority(string uniqueName) =>
+        GetClusterSnapshot(uniqueName)?.Status?.WorldAuthority.Node ?? "-";
+
+    private static string ClusterHref(string uniqueName) =>
+        $"/clusters/{Uri.EscapeDataString(uniqueName)}";
+
+    private void OpenCluster(string uniqueName) => Navigation.NavigateTo(ClusterHref(uniqueName));
+
     private DedicatedServerRuntimeSnapshot? GetRuntime(string uniqueName)
     {
         RuntimeSnapshots.TryGetValue(uniqueName, out var runtime);
@@ -658,5 +836,23 @@
     {
         _ = InvokeAsync(StateHasChanged);
     }
+
+    private sealed record ManagedServerRow(
+        DedicatedServerDefinition? Server,
+        ClusterDefinition? Cluster)
+    {
+        public string UniqueName => Server?.UniqueName ?? Cluster!.UniqueName;
+        public string DisplayName => Server is null
+            ? Cluster!.DisplayName
+            : string.IsNullOrWhiteSpace(Server.DisplayName) ? Server.UniqueName : Server.DisplayName;
+        public string ConfigProfileId => Server?.ConfigProfileId ?? Cluster!.ConfigProfileId;
+        public string Kind => Server is null ? "Cluster" : "Standalone";
+    }
+
+    private sealed record ClusterListSnapshot(
+        string UniqueName,
+        Admin.ClusterStatus? Status,
+        Admin.NodePlan[] Plan,
+        string? Error);
 
 }
