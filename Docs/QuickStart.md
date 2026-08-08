@@ -32,6 +32,16 @@ press `Ctrl+C`, then run `./Quasar serve` or `Quasar.exe serve` again when you
 want the UI back. The web UI port is configurable — see
 [Configuration](Configuration.md).
 
+For an API-only automation worker, add `--headless`:
+
+```bash
+./Quasar serve --headless
+curl http://127.0.0.1:8080/api/ready
+```
+
+This keeps the supervisor, APIs, background jobs, and agent socket active while
+skipping Razor, UI plugins, branding, and static-file hosting.
+
 ## First server setup
 
 The dashboard setup wizard starts from a world shipped with Space Engineers

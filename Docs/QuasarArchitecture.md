@@ -245,6 +245,20 @@ Allowed uses:
 
 Domain management should not be REST-first.
 
+### API-only operation
+
+Quasar can run as `serve --headless` for dark-factory automation. This is the
+same supervisor process and data model with the presentation layer disabled:
+Razor components, UI-plugin assemblies, branding, static assets, and browser
+launch are omitted. Plugin manifests are still inspected so owned server
+companions can be prepared without loading their UI code.
+
+The current headless foundation exposes process liveness, readiness, discovery,
+and the existing authenticated APIs. Phase 4 adds the versioned cluster query
+and command contract, durable idempotent operations, scoped service principals,
+and deterministic CLI on this same host. The browser UI must consume that
+contract too; it may not gain UI-only cluster behavior or validation.
+
 ## UI Theme
 
 The Blazor Server UI should stay deliberately neutral:

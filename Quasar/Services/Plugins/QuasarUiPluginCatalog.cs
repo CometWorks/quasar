@@ -25,15 +25,18 @@ public sealed class QuasarUiPluginCatalog
     private static bool _assemblyResolverRegistered;
 
     private readonly IReadOnlyList<QuasarLoadedUiPlugin> _plugins;
+    private readonly IReadOnlyList<QuasarUiPluginPackage> _packages;
     private readonly List<string> _loadErrors;
 
     private QuasarUiPluginCatalog(
         IReadOnlyList<QuasarLoadedUiPlugin> plugins,
+        IReadOnlyList<QuasarUiPluginPackage> packages,
         bool safeMode,
         IReadOnlyList<string> safeModeReasons,
         IEnumerable<string>? loadErrors = null)
     {
         _plugins = plugins;
+        _packages = packages;
         _loadErrors = loadErrors?.ToList() ?? [];
         SafeMode = safeMode;
         SafeModeReasons = safeModeReasons;
@@ -84,6 +87,8 @@ public sealed class QuasarUiPluginCatalog
 
     public IReadOnlyList<QuasarLoadedUiPlugin> LoadedPlugins => _plugins;
 
+    public IReadOnlyList<QuasarUiPluginPackage> Packages => _packages;
+
     public IReadOnlyList<Assembly> RazorAssemblies { get; }
 
     public IReadOnlyList<QuasarNavItem> NavItems { get; }
@@ -94,14 +99,16 @@ public sealed class QuasarUiPluginCatalog
 
     public static string SafeModeMarkerPath => GetSafeModeMarkerPath();
 
-    public static QuasarUiPluginCatalog Create(IConfiguration configuration, IHostEnvironment environment)
+    public static QuasarUiPluginCatalog Create(IConfiguration configuration, IHostEnvironment environment,
+        bool loadPluginAssemblies = true)
     {
         var safeMode = IsSafeModeEnabled(configuration, out var safeModeReasons);
         if (safeMode)
-            return new QuasarUiPluginCatalog([], safeMode: true, safeModeReasons);
+            return new QuasarUiPluginCatalog([], [], safeMode: true, safeModeReasons);
 
         var loadErrors = new List<string>();
         var plugins = new List<QuasarLoadedUiPlugin>();
+        var packages = new List<QuasarUiPluginPackage>();
         var pluginStates = QuasarUiPluginStateStore.LoadSnapshot();
         foreach (var manifestDirectory in DiscoverManifestDirectories(configuration))
         {
@@ -112,8 +119,9 @@ public sealed class QuasarUiPluginCatalog
                 if (!QuasarUiPluginStateStore.IsEnabled(pluginStates, manifest.Id))
                     continue;
 
-                var loadedPlugin = LoadPlugin(configuration, environment, manifestDirectory, manifest);
-                plugins.Add(loadedPlugin);
+                if (loadPluginAssemblies)
+                    plugins.Add(LoadPlugin(configuration, environment, manifestDirectory, manifest));
+                packages.Add(new QuasarUiPluginPackage(manifest, manifestDirectory));
             }
             catch (Exception exception)
             {
@@ -121,7 +129,7 @@ public sealed class QuasarUiPluginCatalog
             }
         }
 
-        return new QuasarUiPluginCatalog(plugins, safeMode: false, safeModeReasons: [], loadErrors);
+        return new QuasarUiPluginCatalog(plugins, packages, safeMode: false, safeModeReasons: [], loadErrors);
     }
 
     public void ConfigurePluginServices(IServiceCollection services)
@@ -499,3 +507,5 @@ public sealed class QuasarUiPluginCatalog
 
     private sealed record PluginShadowCopy(string Directory, string? StaticAssetsDirectory, string Hash);
 }
+
+public sealed record QuasarUiPluginPackage(QuasarPluginManifest Manifest, string PluginDirectory);

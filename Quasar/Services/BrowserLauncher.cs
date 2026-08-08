@@ -6,7 +6,7 @@ public static class BrowserLauncher
 {
     public static bool ShouldOpenBrowser(WebServiceOptions options)
     {
-        if (options.IsServiceMode || !options.OpenBrowserOnStart)
+        if (options.Headless || options.IsServiceMode || !options.OpenBrowserOnStart)
             return false;
 
         if (OperatingSystem.IsLinux())
