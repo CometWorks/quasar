@@ -37,6 +37,7 @@ For an API-only automation worker, add `--headless`:
 ```bash
 ./Quasar serve --headless
 curl http://127.0.0.1:8080/api/ready
+./Quasar cluster list
 ```
 
 This keeps the supervisor, APIs, background jobs, and agent socket active while

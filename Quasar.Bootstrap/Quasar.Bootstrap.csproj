@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Magnetar.Protocol\Magnetar.Protocol.csproj" />
+    <PackageReference Include="CometWorks.ClusterGateway.AdminContract" Version="0.5.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -15,6 +16,10 @@
     <Nullable>enable</Nullable>
     <RuntimeIdentifiers>linux-x64;win-x64</RuntimeIdentifiers>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Quasar.Tests" />
+  </ItemGroup>
 
   <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
     <SelfContained>true</SelfContained>

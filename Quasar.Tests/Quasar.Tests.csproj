@@ -19,5 +19,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Quasar\Quasar.csproj" />
     <ProjectReference Include="..\Quasar.Agent\Quasar.Agent.csproj" />
+    <ProjectReference Include="..\Quasar.Bootstrap\Quasar.Bootstrap.csproj" />
   </ItemGroup>
 </Project>

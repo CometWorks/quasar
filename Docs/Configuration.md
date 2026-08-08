@@ -544,6 +544,36 @@ the durable operation ID, and exposes the completed result or structured failure
 the operation route. Replaying the same key and request returns the same operation;
 reusing a key with different content returns `idempotency_key_conflict`.
 
+### Packaged cluster CLI
+
+The packaged `Quasar` launcher is also the thin dark-factory API client. It writes
+one compact JSON envelope to stdout and diagnostics to stderr. `--url` overrides
+`QUASAR_URL`; without either, the CLI uses the local Quasar discovery manifest.
+Bearer tokens are read only from the environment (default `QUASAR_API_TOKEN`) so
+they do not appear in process arguments or shell history.
+
+```bash
+export QUASAR_API_TOKEN='<service-principal token>'
+
+./Quasar cluster list --url https://quasar.internal
+./Quasar cluster lifecycle production --url https://quasar.internal
+./Quasar cluster goal production off --url https://quasar.internal \
+  --idempotency-key deploy-2026-08-09-stop --wait --wait-timeout 1800
+./Quasar cluster operation production <operation-id> --url https://quasar.internal --wait
+./Quasar cluster gateway-restart production --url https://quasar.internal \
+  --request-id <guid> --idempotency-key deploy-2026-08-09-gateway --wait
+```
+
+Read commands are `list`, `health`, `status`, `lifecycle`, `plan`,
+`recovery-readiness`, `config`, and `operation`. Mutations require a caller-owned
+idempotency key. `--wait` polls the durable operation route and is safe to repeat
+after either caller or Quasar restarts. Request timeout defaults to 30 seconds and
+is controlled by `--timeout`; operation wait timeout defaults to 900 seconds.
+
+Exit codes are stable: `0` success/accepted, `2` usage, `3` local configuration,
+`4` connection or timeout, `5` authentication/authorization, `6` API rejection,
+`7` completed operation failure, and `8` incompatible or invalid protocol JSON.
+
 ### Query-only service principals
 
 Dark-factory callers can use a scoped bearer credential without a browser, cookie,

@@ -22,6 +22,7 @@ internal static class Program
     private const string EnsureRunningCommand = "ensure-running";
     private const string ServeCommand = "serve";
     private const string ActivateReleaseCommand = "activate-release";
+    private const string ClusterCommand = "cluster";
     private const string SpawnMutexName = "Quasar.Bootstrap";
     private static readonly HttpClient HealthHttpClient = new()
     {
@@ -54,6 +55,7 @@ internal static class Program
             EnsureRunningCommand => await EnsureRunningAsync(quiet, openBrowser, force, foreground, headless),
             ServeCommand => await ServeAsync(quiet, foreground, service, headless),
             ActivateReleaseCommand => await ActivateReleaseAsync(args, quiet, headless),
+            ClusterCommand => await ClusterCli.RunAsync(args),
             _ => InvalidUsage(quiet),
         };
     }
@@ -397,7 +399,7 @@ internal static class Program
     private static int InvalidUsage(bool quiet)
     {
         if (!quiet)
-            Console.Error.WriteLine("Usage: Quasar.Bootstrap [ensure-running|serve|activate-release] [options] [--headless]");
+            Console.Error.WriteLine("Usage: Quasar.Bootstrap [ensure-running|serve|activate-release|cluster] [options] [--headless]");
 
         return 2;
     }
