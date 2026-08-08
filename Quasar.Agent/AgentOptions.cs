@@ -11,11 +11,25 @@ namespace Quasar.Agent
     public sealed class AgentOptions
     {
         /// <summary>
+        /// True when the stock-DS cluster runtime is active. This intentionally
+        /// uses the same opt-in environment variable as ClusterRuntime so the
+        /// agent cannot disagree about who owns process lifecycle.
+        /// </summary>
+        public bool ClusterMode { get; set; }
+
+        public string ClusterId { get; set; } = string.Empty;
+
+        public string ClusterNodeId { get; set; } = string.Empty;
+
+        public string ClusterNodeRole { get; set; } = string.Empty;
+
+        /// <summary>
         /// How long, in seconds, to keep the server running after losing contact
         /// with Quasar before saving the world and stopping it. Zero or negative
         /// means stop promptly once Quasar is gone. The self-stop only arms after
         /// the agent has successfully connected to Quasar at least once, so a
-        /// server that never reached Quasar is never auto-stopped.
+        /// server that never reached Quasar is never auto-stopped. Cluster nodes
+        /// ignore this setting and reconnect indefinitely.
         /// </summary>
         public int OfflineShutdownSeconds { get; set; } = 3600;
 
@@ -36,6 +50,11 @@ namespace Quasar.Agent
         {
             var options = new AgentOptions
             {
+                ClusterMode = !string.IsNullOrWhiteSpace(
+                    Environment.GetEnvironmentVariable("SE_CLUSTER_GATEWAY_REGISTRY")),
+                ClusterId = ReadString("SE_CLUSTER_ID"),
+                ClusterNodeId = ReadString("SE_CLUSTER_NODE_ID"),
+                ClusterNodeRole = ReadString("SE_CLUSTER_NODE_ROLE"),
                 // Zero/negative is meaningful here (stop promptly), so it is kept as-is.
                 OfflineShutdownSeconds = ReadInt("QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS", 3600),
                 ReconnectIntervalSeconds = ReadInt("QUASAR_AGENT_RECONNECT_INTERVAL_SECONDS", 10),
@@ -51,6 +70,23 @@ namespace Quasar.Agent
 
             return options;
         }
+
+        internal bool ShouldSelfStop(DateTime disconnectedSinceUtc, DateTime nowUtc)
+        {
+            if (ClusterMode)
+                return false;
+
+            return OfflineShutdownSeconds <= 0 ||
+                   nowUtc - disconnectedSinceUtc >= TimeSpan.FromSeconds(OfflineShutdownSeconds);
+        }
+
+        internal bool AllowsCommand(Magnetar.Protocol.Transport.ServerCommandType command) =>
+            !ClusterMode ||
+            (command != Magnetar.Protocol.Transport.ServerCommandType.SaveWorld &&
+             command != Magnetar.Protocol.Transport.ServerCommandType.StopServer);
+
+        private static string ReadString(string name) =>
+            (Environment.GetEnvironmentVariable(name) ?? string.Empty).Trim();
 
         private static int ReadInt(string name, int fallback)
         {

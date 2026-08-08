@@ -32,8 +32,8 @@ namespace Quasar.Agent
         private volatile ClientWebSocket _socket;
 
         // True once the agent has connected to Quasar at least once. The
-        // autonomous save-and-stop only arms after a prior connection, so a
-        // standalone server that never reached Quasar is never auto-stopped.
+        // standalone autonomous save-and-stop only arms after a prior connection.
+        // Cluster nodes never auto-stop when Quasar is unavailable.
         private bool _hasConnected;
 
         // When the agent first noticed it had lost Quasar, used to measure how
@@ -161,9 +161,9 @@ namespace Quasar.Agent
         /// Once the agent has been connected at least once, it counts how long
         /// Quasar has been unreachable; when that exceeds the configured offline
         /// window (or that window is zero/negative, meaning "stop promptly") it
-        /// saves the world and stops the server autonomously — no command from
-        /// Quasar required, so it also handles a crash, power loss or network
-        /// partition. Otherwise it waits a jittered interval before retrying.
+        /// saves the world and stops a standalone server autonomously — no command
+        /// from Quasar required. Cluster nodes always keep running and reconnecting;
+        /// their process lifecycle belongs to the Gateway and host executor.
         /// Returns false when the loop should stop (self-stop triggered or the
         /// agent is shutting down), true to keep reconnecting.
         /// </summary>
@@ -176,7 +176,7 @@ namespace Quasar.Agent
             if (_disconnectedSinceUtc == null)
                 _disconnectedSinceUtc = now;
 
-            if (_hasConnected && ShouldSelfStop(now))
+            if (_hasConnected && _options.ShouldSelfStop(_disconnectedSinceUtc.Value, now))
             {
                 var offline = now - _disconnectedSinceUtc.Value;
                 Log($"Quasar has been unreachable for {offline.TotalSeconds:F0} second(s); saving the world and stopping the server.");
@@ -202,17 +202,6 @@ namespace Quasar.Agent
             }
 
             return true;
-        }
-
-        private bool ShouldSelfStop(DateTime now)
-        {
-            // Zero/negative means stop as soon as Quasar is gone (crash-safe
-            // equivalent of an immediate shutdown), but still only after a prior
-            // connection, which the caller has already checked.
-            if (_options.OfflineShutdownSeconds <= 0)
-                return true;
-
-            return now - _disconnectedSinceUtc.Value >= TimeSpan.FromSeconds(_options.OfflineShutdownSeconds);
         }
 
         private TimeSpan NextReconnectDelay()

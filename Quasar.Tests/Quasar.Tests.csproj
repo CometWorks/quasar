@@ -18,5 +18,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Quasar\Quasar.csproj" />
+    <ProjectReference Include="..\Quasar.Agent\Quasar.Agent.csproj" />
   </ItemGroup>
 </Project>

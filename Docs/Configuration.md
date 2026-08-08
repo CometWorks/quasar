@@ -230,6 +230,20 @@ automatically; move them manually if they should appear in the new folder. When
 `QUASAR_BACKUP_DIR` is set, it takes precedence and the Backup page shows the
 active folder as read-only.
 
+## Agent cluster mode
+
+`Quasar.Agent` enters cluster mode when `SE_CLUSTER_GATEWAY_REGISTRY` is non-empty,
+the same activation condition used by ClusterRuntime. The host executor also supplies
+`SE_CLUSTER_ID`, `SE_CLUSTER_NODE_ID`, and `SE_CLUSTER_NODE_ROLE`; the agent includes
+those values in hello and snapshot telemetry.
+
+Cluster mode changes lifecycle safety, not the telemetry transport: the agent keeps
+reconnecting when Quasar is unavailable, never performs the standalone offline
+save-and-stop policy, does not register its standalone lifecycle chat commands, and
+rejects save/stop commands received over the agent WebSocket. Cluster lifecycle
+requests must use Magnetar's PluginSdk route to the Gateway, while OS/executor process
+termination remains outside the agent.
+
 ## Agent profiler mode
 
 Managed Space Engineers servers receive the profiler mode through

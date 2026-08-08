@@ -60,6 +60,7 @@ namespace Quasar.Agent
         private readonly string _hostId;
         private readonly string _uniqueName;
         private readonly string _pluginVersion;
+        private readonly AgentOptions _options;
         private readonly ConcurrentQueue<DeathEventSnapshot> _deathQueue = new ConcurrentQueue<DeathEventSnapshot>();
         private readonly object _saveSync = new object();
         private string _worldSavePath = string.Empty;
@@ -84,8 +85,9 @@ namespace Quasar.Agent
         /// </summary>
         public bool QuasarRequestedStop => _quasarRequestedStop;
 
-        public GameBridge(object gameServer)
+        public GameBridge(object gameServer, AgentOptions options)
         {
+            _options = options ?? throw new ArgumentNullException(nameof(options));
             _hostId = (Environment.GetEnvironmentVariable("MAGNETAR_HOST_ID") ?? _hostName)
                 .Trim()
                 .ToLowerInvariant();
@@ -140,6 +142,10 @@ namespace Quasar.Agent
         {
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
+
+            if (!_options.AllowsCommand(command.CommandType))
+                return Task.FromResult(CreateResult(command, false,
+                    "Cluster nodes reject agent-local save and stop commands; use the Gateway cluster API."));
 
             if (command.CommandType == ServerCommandType.PluginRequest)
                 return ExecuteCompanionPluginRequestAsync(command, cancellationToken);
@@ -255,6 +261,10 @@ namespace Quasar.Agent
                 ServerId = serverId,
                 ServerName = serverName,
                 WorldName = worldName,
+                ClusterMode = _options.ClusterMode,
+                ClusterId = _options.ClusterId,
+                ClusterNodeId = _options.ClusterNodeId,
+                ClusterNodeRole = _options.ClusterNodeRole,
                 PluginId = "quasar-agent",
                 PluginVersion = _pluginVersion,
                 ProcessId = _processId,
@@ -278,6 +288,10 @@ namespace Quasar.Agent
                 ServerId = hello.ServerId,
                 ServerName = hello.ServerName,
                 WorldName = hello.WorldName,
+                ClusterMode = hello.ClusterMode,
+                ClusterId = hello.ClusterId,
+                ClusterNodeId = hello.ClusterNodeId,
+                ClusterNodeRole = hello.ClusterNodeRole,
                 IsRunning = session != null && session.Ready,
                 CapturedAtUtc = DateTimeOffset.UtcNow,
                 Metrics = BuildMetrics(session),
