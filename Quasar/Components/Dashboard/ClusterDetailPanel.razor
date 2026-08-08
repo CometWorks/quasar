@@ -75,6 +75,7 @@
                     <tr><th>Config profile</th><td>@ValueOrDash(Cluster.ConfigProfileId)</td></tr>
                     <tr><th>World setup</th><td>@ValueOrDash(Cluster.WorldTemplateId)</td></tr>
                     <tr><th>Host executor</th><td>@HostText</td></tr>
+                    <tr><th>Gateway executor</th><td>@GatewayExecutorText</td></tr>
                     <tr><th>Registry WAL</th><td>@RegistryText</td></tr>
                 </tbody>
             </MudSimpleTable>
@@ -232,6 +233,10 @@
         : $"{_recovery.LatestPoint.Consistency} · cluster time {_recovery.LatestPoint.ClusterTime}";
     private string HostText => _host is null ? "Unavailable"
         : $"{_host.HostId} · {_host.Attachments.Length} attachment(s)";
+    private string GatewayExecutorText => _host?.Gateways?.FirstOrDefault(gateway =>
+            gateway.ClusterId.Equals(Cluster.UniqueName, StringComparison.OrdinalIgnoreCase)) is { } gateway
+        ? $"{gateway.Observed} · PID {gateway.ProcessId?.ToString() ?? "-"} · {gateway.ConfigRevision}"
+        : "Not assigned";
     private string RegistryText => _recovery is null ? "-"
         : $"{(_recovery.Registry.SnapshotPresent ? "snapshot present" : "no snapshot")} · {_recovery.Registry.WalRecords} WAL records";
 

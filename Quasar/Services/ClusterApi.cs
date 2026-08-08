@@ -1,5 +1,6 @@
 using Quasar.Models;
 using Quasar.Services.Auth;
+using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Admin = CometWorks.ClusterGateway.AdminContract.V1;
@@ -57,12 +58,15 @@ internal static class ClusterApi
         RouteHandlerBuilder setConfig = routes.MapPut("/{uniqueName}/config", SetPolicy);
         RouteHandlerBuilder applyAttachment = routes.MapPut(
             "/{uniqueName}/host/attachment", ApplyHostAttachment);
+        RouteHandlerBuilder applyGateway = routes.MapPut(
+            "/{uniqueName}/host/gateway", ApplyHostGateway);
         routes.MapGet("/{uniqueName}/operations/{operationId}", GetOperation);
         if (authOptions.Enabled)
         {
             routes.RequireAuthorization(QuasarPolicyNames.ClusterQuery);
             setConfig.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             applyAttachment.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            applyGateway.RequireAuthorization(QuasarPolicyNames.ClusterManage);
         }
     }
 
@@ -178,6 +182,62 @@ internal static class ClusterApi
         {
             return Error(StatusCodes.Status503ServiceUnavailable, "operation_store_unavailable", exception.Message);
         }
+    }
+
+    private static async Task<IResult> ApplyHostGateway(string uniqueName,
+        [FromBody] HostContract.GatewaySpec gateway, HttpContext context,
+        [FromServices] ClusterCatalog catalog,
+        [FromServices] ClusterHostClient client,
+        [FromServices] ClusterGatewayClient gatewayClient,
+        [FromServices] ClusterOperationStore operations,
+        CancellationToken cancellationToken)
+    {
+        SetProtocolHeader(context);
+        ClusterDefinition? cluster = catalog.GetCluster(uniqueName);
+        if (cluster == null)
+            return Error(StatusCodes.Status404NotFound, "unknown_cluster", $"Unknown cluster '{uniqueName}'.");
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(StatusCodes.Status403Forbidden, "cluster_forbidden",
+                "The credential cannot access this cluster.");
+        if (!string.Equals(gateway.ClusterId, uniqueName, StringComparison.OrdinalIgnoreCase))
+            return Error(StatusCodes.Status400BadRequest, "cluster_id_mismatch",
+                "Gateway spec cluster ID must match the route cluster.");
+        try
+        {
+            ClusterOperation operation = await operations.ExecuteAsync(uniqueName,
+                "cluster.host.gateway.apply", context.Request.Headers["Idempotency-Key"].ToString(),
+                context.User.Identity?.Name ?? "anonymous", gateway, async token =>
+                {
+                    if (gateway.Goal == HostContract.GatewayGoal.Off)
+                    {
+                        Admin.ClusterStatus status = (await gatewayClient.GetStatusAsync(cluster, token)).Data;
+                        EnsureGatewayCanStop(status);
+                    }
+                    HostContract.HostEnvelope<HostContract.GatewayStatus> result =
+                        await client.ApplyGatewayAsync(cluster, gateway, token);
+                    return new Admin.AdminEnvelope<HostContract.GatewayStatus>(
+                        Admin.AdminProtocol.Version, result.CapturedAt, result.Data);
+                }, cancellationToken);
+            context.Response.Headers.Location = $"/api/v1/clusters/{Uri.EscapeDataString(uniqueName)}"
+                + $"/operations/{operation.OperationId}";
+            return Results.Json(Envelope(operation), JsonOptions, statusCode: StatusCodes.Status202Accepted);
+        }
+        catch (ClusterOperationConflictException exception)
+        {
+            return Error(exception.StatusCode, exception.Code, exception.Message);
+        }
+        catch (ClusterOperationStoreUnavailableException exception)
+        {
+            return Error(StatusCodes.Status503ServiceUnavailable, "operation_store_unavailable", exception.Message);
+        }
+    }
+
+    internal static void EnsureGatewayCanStop(Admin.ClusterStatus status)
+    {
+        if (status.Phase != Admin.ClusterPhase.Down || status.LastCleanShutdown is null)
+            throw new ClusterGatewayException(System.Net.HttpStatusCode.Conflict,
+                "cluster_not_cleanly_down",
+                "Gateway goal Off requires phase Down and a clean-shutdown marker.");
     }
 
     private static IResult GetOperation(string uniqueName, string operationId, HttpContext context,

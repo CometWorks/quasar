@@ -123,18 +123,156 @@ internal sealed class AttachmentStore
     }
 }
 
+internal sealed class GatewaySpecStore
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+        WriteIndented = true,
+    };
+    private readonly object _sync = new();
+    private readonly string _directory;
+    private readonly Dictionary<string, HostContract.GatewaySpec> _specs =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, HostContract.GatewayStatus> _statuses =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public GatewaySpecStore(string stateDirectory)
+    {
+        _directory = Path.Combine(stateDirectory, "gateways");
+        if (!Directory.Exists(_directory))
+            return;
+        foreach (string path in Directory.GetFiles(_directory, "*.json").OrderBy(path => path,
+                     StringComparer.Ordinal))
+        {
+            HostContract.GatewaySpec spec = JsonSerializer.Deserialize<HostContract.GatewaySpec>(
+                File.ReadAllText(path), JsonOptions) ?? throw new InvalidDataException("Gateway spec is empty");
+            spec = Validate(spec);
+            _specs[spec.ClusterId] = spec;
+        }
+    }
+
+    public HostContract.GatewaySpec[] GetAll()
+    {
+        lock (_sync)
+            return _specs.Values.OrderBy(item => item.ClusterId, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    public HostContract.GatewaySpec Apply(HostContract.GatewaySpec spec)
+    {
+        spec = Validate(spec);
+        lock (_sync)
+        {
+            WriteAtomic(SpecPath(spec.ClusterId), spec);
+            _specs[spec.ClusterId] = spec;
+            return spec;
+        }
+    }
+
+    public void SetStatus(HostContract.GatewayStatus status)
+    {
+        lock (_sync)
+            _statuses[status.ClusterId] = status;
+    }
+
+    public HostContract.GatewayStatus[] GetStatuses()
+    {
+        lock (_sync)
+            return _specs.Values.Select(spec => _statuses.GetValueOrDefault(spec.ClusterId)
+                    ?? new HostContract.GatewayStatus(spec.ClusterId, spec.Goal,
+                        HostContract.GatewayObservedState.Missing, spec.BundleManifestSha256,
+                        spec.ConfigRevision, spec.Ports, spec.RunRoot, null, null, null))
+                .OrderBy(item => item.ClusterId, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    public static HostContract.GatewaySpec Validate(HostContract.GatewaySpec spec)
+    {
+        string clusterId = spec.ClusterId?.Trim() ?? string.Empty;
+        if (clusterId.Length == 0 || clusterId.Any(character =>
+                !char.IsAsciiLetterOrDigit(character) && character is not ('-' or '_')))
+            throw new ArgumentException("Cluster ID must contain only letters, digits, underscores, and hyphens");
+        if (!Enum.IsDefined(spec.Goal))
+            throw new ArgumentException("Gateway goal is invalid");
+        string manifest = RequireAbsolute(spec.BundleManifestPath, "Bundle manifest");
+        string runRoot = RequireAbsolute(spec.RunRoot, "Run root");
+        string hash = NormalizeSha256(spec.BundleManifestSha256);
+        string revision = spec.ConfigRevision?.Trim() ?? string.Empty;
+        if (revision.Length is 0 or > 256)
+            throw new ArgumentException("Gateway config revision is required and cannot exceed 256 characters");
+        int[] ports = spec.Ports ?? [];
+        if (ports.Length == 0 || ports.Any(port => port is < 1 or > 65535)
+            || ports.Distinct().Count() != ports.Length)
+            throw new ArgumentException("Gateway ports must contain unique values between 1 and 65535");
+        return spec with
+        {
+            ClusterId = clusterId,
+            BundleManifestPath = manifest,
+            BundleManifestSha256 = hash,
+            ConfigRevision = revision,
+            Ports = ports.Order().ToArray(),
+            RunRoot = runRoot,
+        };
+    }
+
+    private string SpecPath(string clusterId)
+    {
+        string key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(clusterId))).ToLowerInvariant();
+        return Path.Combine(_directory, key + ".json");
+    }
+
+    private static string RequireAbsolute(string path, string label)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
+            throw new ArgumentException(label + " path must be absolute on the executor host");
+        return Path.GetFullPath(path);
+    }
+
+    private static string NormalizeSha256(string value)
+    {
+        string normalized = value?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (normalized.Length != 64 || normalized.Any(character => !Uri.IsHexDigit(character)))
+            throw new ArgumentException("Bundle manifest SHA-256 must contain 64 hexadecimal characters");
+        return normalized;
+    }
+
+    private static void WriteAtomic<T>(string path, T value)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(Path.GetDirectoryName(path)!,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        string temporary = path + ".tmp";
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions);
+        using (var file = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None,
+                   4096, FileOptions.WriteThrough))
+        {
+            file.Write(bytes);
+            file.Flush(flushToDisk: true);
+        }
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        File.Move(temporary, path, overwrite: true);
+    }
+}
+
 internal sealed class HostCommandServer : IDisposable
 {
     private const int MaxRequestBytes = 64 * 1024;
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+    };
     private readonly HttpListener _listener = new();
     private readonly byte[] _tokenHash;
     private readonly HostExecutorConfig _config;
     private readonly AttachmentStore _attachments;
+    private readonly GatewaySpecStore _gateways;
+    private readonly GatewayActualizer _gatewayActualizer;
     private CancellationTokenSource? _shutdown;
     private Task? _loop;
 
-    public HostCommandServer(HostCommandConfig command, HostExecutorConfig config, AttachmentStore attachments)
+    public HostCommandServer(HostCommandConfig command, HostExecutorConfig config,
+        AttachmentStore attachments, GatewaySpecStore gateways, GatewayActualizer gatewayActualizer)
     {
         string? token = Environment.GetEnvironmentVariable(command.TokenEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(token))
@@ -143,6 +281,8 @@ internal sealed class HostCommandServer : IDisposable
         _tokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
         _config = config;
         _attachments = attachments;
+        _gateways = gateways;
+        _gatewayActualizer = gatewayActualizer;
         _listener.Prefixes.Add(command.Url.TrimEnd('/') + "/");
     }
 
@@ -223,11 +363,26 @@ internal sealed class HostCommandServer : IDisposable
         {
             HostContract.HostAttachmentStatus[] attachments = _attachments.GetAll().Select(ToStatus).ToArray();
             await WriteAsync(context, 200, new HostContract.HostStatus(
-                _config.ExecutorId, _config.HostId, attachments), cancellationToken);
+                _config.ExecutorId, _config.HostId, attachments, _gateways.GetStatuses()), cancellationToken);
             return;
         }
 
-        string prefix = HostContract.HostProtocol.RoutePrefix + "/attachments/";
+        string prefix = HostContract.HostProtocol.RoutePrefix + "/gateways/";
+        if (context.Request.HttpMethod == "PUT" && path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            string clusterId = Uri.UnescapeDataString(path[prefix.Length..]);
+            HostContract.GatewaySpec spec = await ReadJsonAsync<HostContract.GatewaySpec>(
+                context.Request, cancellationToken);
+            if (!clusterId.Equals(spec.ClusterId, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("Route cluster ID does not match the Gateway spec body");
+            spec = _gateways.Apply(spec);
+            HostContract.GatewayStatus status = await _gatewayActualizer.ReconcileAsync(spec, cancellationToken);
+            _gateways.SetStatus(status);
+            await WriteAsync(context, 200, status, cancellationToken);
+            return;
+        }
+
+        prefix = HostContract.HostProtocol.RoutePrefix + "/attachments/";
         if (context.Request.HttpMethod == "PUT" && path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
         {
             string clusterId = Uri.UnescapeDataString(path[prefix.Length..]);

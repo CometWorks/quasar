@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Quasar.Models;
 using HostContract = global::Quasar.Host.Contract.V1;
 
@@ -8,7 +9,10 @@ namespace Quasar.Services;
 
 public sealed class ClusterHostClient
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
     private readonly HttpClient _http;
 
     public ClusterHostClient(HttpClient http) => _http = http;
@@ -22,6 +26,12 @@ public sealed class ClusterHostClient
         CancellationToken cancellationToken) => SendAsync<HostContract.HostAttachmentStatus>(cluster,
         HttpMethod.Put, HostContract.HostProtocol.AttachmentRoute(attachment.ClusterId),
         attachment, cancellationToken);
+
+    public Task<HostContract.HostEnvelope<HostContract.GatewayStatus>> ApplyGatewayAsync(
+        ClusterDefinition cluster, HostContract.GatewaySpec gateway,
+        CancellationToken cancellationToken) => SendAsync<HostContract.GatewayStatus>(cluster,
+        HttpMethod.Put, HostContract.HostProtocol.GatewayRoute(gateway.ClusterId),
+        gateway, cancellationToken);
 
     private async Task<HostContract.HostEnvelope<T>> SendAsync<T>(ClusterDefinition cluster,
         HttpMethod method, string route, object? body, CancellationToken cancellationToken)

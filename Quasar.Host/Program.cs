@@ -14,7 +14,7 @@ namespace Quasar.Host;
 internal static class Program
 {
     private const string Usage = "Usage: Quasar.Host run --config FILE [--once] | status ..."
-        + " | attachment apply ... | --self-test";
+        + " | attachment apply ... | gateway apply ... | --self-test";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() },
@@ -57,14 +57,18 @@ internal static class Program
         };
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
         var actualizer = new NodeActualizer(config.StateDirectory, config.HostId);
+        var gatewayActualizer = new GatewayActualizer(config.StateDirectory, config.HostId);
         AttachmentStore attachments;
+        GatewaySpecStore gateways;
         HostCommandServer? commandServer = null;
         try
         {
             attachments = new AttachmentStore(config.StateDirectory, config.Attachments);
+            gateways = new GatewaySpecStore(config.StateDirectory);
             if (config.Command is not null)
             {
-                commandServer = new HostCommandServer(config.Command, config, attachments);
+                commandServer = new HostCommandServer(config.Command, config, attachments,
+                    gateways, gatewayActualizer);
                 commandServer.Start(shutdown.Token);
             }
         }
@@ -80,6 +84,14 @@ internal static class Program
             var connected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             do
             {
+                foreach (HostContract.GatewaySpec gateway in gateways.GetAll())
+                {
+                    HostContract.GatewayStatus status = await gatewayActualizer.ReconcileAsync(
+                        gateway, shutdown.Token);
+                    gateways.SetStatus(status);
+                    if (once)
+                        Console.WriteLine($"cluster={gateway.ClusterId} gateway={status.Observed.ToString().ToLowerInvariant()}");
+                }
                 foreach (HostContract.HostAttachmentSpec attachment in attachments.GetAll())
                 {
                     try
@@ -278,6 +290,7 @@ internal static class Program
         const string commandTokenVariable = "QUASAR_HOST_SELF_TEST_TOKEN";
         string? previousCommandToken = Environment.GetEnvironmentVariable(commandTokenVariable);
         int? childProcessId = null;
+        int? gatewayProcessId = null;
         try
         {
             int commandPort;
@@ -294,8 +307,11 @@ internal static class Program
                 Command = new HostCommandConfig(commandUrl, commandTokenVariable),
             };
             var attachmentStore = new AttachmentStore(commandConfig.StateDirectory, commandConfig.Attachments);
+            var gatewayStore = new GatewaySpecStore(commandConfig.StateDirectory);
+            var commandGatewayActualizer = new GatewayActualizer(commandConfig.StateDirectory, commandConfig.HostId);
             using (var commandShutdown = new CancellationTokenSource())
-            using (var commandServer = new HostCommandServer(commandConfig.Command, commandConfig, attachmentStore))
+            using (var commandServer = new HostCommandServer(commandConfig.Command, commandConfig,
+                       attachmentStore, gatewayStore, commandGatewayActualizer))
             {
                 commandServer.Start(commandShutdown.Token);
                 using var commandClient = new HttpClient();
@@ -346,9 +362,33 @@ internal static class Program
             [
                 new NodeSpawnSpec("slot-a", Admin.NodeRole.Regular, "node-a", executable, string.Empty,
                     ["--self-test-child"], [], [reservedPort], 30),
-            ]);
+            ], new GatewaySpawnSpec(executable, string.Empty, ["--self-test-child"], []));
             string manifestPath = Path.Combine(bundleRoot, "manifest.json");
             File.WriteAllBytes(manifestPath, JsonSerializer.SerializeToUtf8Bytes(manifest, JsonOptions));
+            var gatewaySpec = new HostContract.GatewaySpec("demo", HostContract.GatewayGoal.On,
+                manifestPath, ComputeSha256(manifestPath), "config-self-test", [reservedPort],
+                Path.Combine(root, "gateway-run"));
+            var persistedGateways = new GatewaySpecStore(stateRoot);
+            gatewaySpec = persistedGateways.Apply(gatewaySpec);
+            HostContract.GatewayStatus gatewayRunning = await new GatewayActualizer(stateRoot, "host-a")
+                .ReconcileAsync(gatewaySpec, CancellationToken.None);
+            gatewayProcessId = gatewayRunning.ProcessId;
+            HostContract.GatewayStatus gatewayReadopted = await new GatewayActualizer(stateRoot, "host-a")
+                .ReconcileAsync(gatewaySpec, CancellationToken.None);
+            HostContract.GatewayStatus gatewayMismatch = await new GatewayActualizer(stateRoot, "host-a")
+                .ReconcileAsync(gatewaySpec with { ConfigRevision = "config-other" }, CancellationToken.None);
+            if (gatewayRunning.Observed != HostContract.GatewayObservedState.Running
+                || gatewayProcessId is null || gatewayReadopted.ProcessId != gatewayProcessId
+                || gatewayMismatch.Observed != HostContract.GatewayObservedState.Failed
+                || Process.GetProcessById(gatewayProcessId.Value).HasExited
+                || new GatewaySpecStore(stateRoot).GetAll().Single().ConfigRevision != "config-self-test")
+                throw new InvalidOperationException("self-test Gateway start/re-adoption failed");
+            HostContract.GatewayStatus gatewayStopped = await new GatewayActualizer(stateRoot, "host-a")
+                .ReconcileAsync(gatewaySpec with { Goal = HostContract.GatewayGoal.Off }, CancellationToken.None);
+            if (gatewayStopped.Observed != HostContract.GatewayObservedState.Missing)
+                throw new InvalidOperationException("self-test exact Gateway stop failed");
+            gatewayProcessId = null;
+
             var attachment = new HostContract.HostAttachmentSpec("demo", "http://127.0.0.1:28016",
                 "DEMO_EXECUTOR_TOKEN", manifestPath, ComputeSha256(manifestPath), runRoot);
             var wanted = new Admin.NodePlan("slot-a", "host-a", null, Admin.NodeRole.Regular,
@@ -435,6 +475,18 @@ internal static class Program
                 try
                 {
                     using Process process = Process.GetProcessById(pid);
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                }
+                catch (ArgumentException)
+                {
+                }
+            }
+            if (gatewayProcessId is int gatewayPid)
+            {
+                try
+                {
+                    using Process process = Process.GetProcessById(gatewayPid);
                     process.Kill(entireProcessTree: true);
                     await process.WaitForExitAsync();
                 }

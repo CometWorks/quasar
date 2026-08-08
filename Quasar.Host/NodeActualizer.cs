@@ -583,7 +583,8 @@ internal sealed record BundleManifest(
     int SchemaVersion,
     string Revision,
     BundleFile[] Files,
-    NodeSpawnSpec[] Nodes);
+    NodeSpawnSpec[] Nodes,
+    GatewaySpawnSpec? Gateway = null);
 
 internal sealed record BundleFile(string Path, string Sha256);
 

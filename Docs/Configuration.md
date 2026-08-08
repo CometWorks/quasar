@@ -498,6 +498,7 @@ and headless operation:
 - `PUT /api/v1/clusters/{uniqueName}/config`
 - `GET /api/v1/clusters/{uniqueName}/host`
 - `PUT /api/v1/clusters/{uniqueName}/host/attachment`
+- `PUT /api/v1/clusters/{uniqueName}/host/gateway`
 - `GET /api/v1/clusters/{uniqueName}/operations/{operationId}`
 
 Responses preserve the Gateway envelope, capture time, string enum values, and
@@ -594,7 +595,15 @@ HTTP loopback origin and bearer authentication from the named environment variab
 raw token is never stored in either JSON file. Quasar uses it for Host status and durable,
 idempotent attachment updates. Operators can inspect the same contract directly with
 `Quasar.Host status --url URL --token-env ENV` or apply an attachment file with
-`Quasar.Host attachment apply --url URL --token-env ENV --file FILE`.
+`Quasar.Host attachment apply --url URL --token-env ENV --file FILE`. Apply the designated
+Gateway's desired state with
+`Quasar.Host gateway apply --url URL --token-env ENV --file gateway.json` or the durable
+Quasar API route above. The versioned `GatewaySpec` binds the cluster and On/Off goal to an
+immutable bundle-manifest hash, config revision, reserved ports, and provenance-marked run root.
+Host persists the level-triggered spec before reconciling it, re-adopts an exact matching process
+after restart, and refuses to stop or replace a process whose recorded identity does not match.
+The Quasar API accepts `goal: Off` only after Gateway reports phase `Down` and a clean-shutdown
+marker; emergency recovery uses a separate audited path rather than weakening this gate.
 
 With a bundle configured, Host verifies the pinned manifest SHA-256 and every file hash,
 then uses its per-slot immutable spawn specifications. Each specification declares the

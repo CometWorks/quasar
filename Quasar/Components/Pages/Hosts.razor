@@ -24,6 +24,7 @@
             <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.ExecutorId)">Executor</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.Reachable)">Reachability</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.ClusterNames)">Clusters</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.GatewaySummary)">Gateway</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.ActualizationCount)">Prepared</MudTableSortLabel></MudTh>
         </HeaderContent>
         <RowTemplate>
@@ -38,6 +39,7 @@
                 </MudTooltip>
             </MudTd>
             <MudTd DataLabel="Clusters">@context.ClusterNames</MudTd>
+            <MudTd DataLabel="Gateway">@context.GatewaySummary</MudTd>
             <MudTd DataLabel="Prepared">@($"{context.ActualizationCount}/{context.AttachmentCount}")</MudTd>
         </RowTemplate>
         <NoRecordsContent>
@@ -150,12 +152,14 @@
             return new ExecutorHostRow(status.HostId, status.ExecutorId, true,
                 status.Attachments.Select(attachment => attachment.ClusterId).ToArray(),
                 status.Attachments.Count(attachment => attachment.ActualizationConfigured),
-                status.Attachments.Length, string.Empty);
+                status.Attachments.Length,
+                (status.Gateways ?? []).Select(gateway =>
+                    $"{gateway.ClusterId}: {gateway.Observed}").ToArray(), string.Empty);
         }
         catch (ClusterHostException exception)
         {
             return new ExecutorHostRow(cluster.HostCommandUrl, "-", false,
-                [cluster.UniqueName], 0, 1, exception.Message);
+                [cluster.UniqueName], 0, 1, [], exception.Message);
         }
     }
 
@@ -184,11 +188,13 @@
         string[] Clusters,
         int ActualizationCount,
         int AttachmentCount,
+        string[] Gateways,
         string Error)
     {
         public string Identity => Reachable ? HostName + "\0" + ExecutorId : HostName;
         public string ClusterNames => string.Join(", ", Clusters.OrderBy(value => value,
             StringComparer.OrdinalIgnoreCase));
+        public string GatewaySummary => Gateways.Length == 0 ? "-" : string.Join(", ", Gateways);
 
         public static ExecutorHostRow Merge(IEnumerable<ExecutorHostRow> rows)
         {
@@ -200,6 +206,7 @@
                 Clusters = clusters,
                 ActualizationCount = rows.Max(row => row.ActualizationCount),
                 AttachmentCount = rows.Max(row => row.AttachmentCount),
+                Gateways = rows.SelectMany(row => row.Gateways).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             };
         }
     }

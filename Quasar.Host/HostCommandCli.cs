@@ -1,18 +1,24 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using HostContract = global::Quasar.Host.Contract.V1;
 
 namespace Quasar.Host;
 
 internal static class HostCommandCli
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
 
     public static async Task<int?> TryRunAsync(string[] args, CancellationToken cancellationToken = default)
     {
         bool status = args.Length > 0 && args[0] == "status";
-        bool apply = args.Length > 1 && args[0] == "attachment" && args[1] == "apply";
+        bool attachmentApply = args.Length > 1 && args[0] == "attachment" && args[1] == "apply";
+        bool gatewayApply = args.Length > 1 && args[0] == "gateway" && args[1] == "apply";
+        bool apply = attachmentApply || gatewayApply;
         if (!status && !apply)
             return null;
         int start = status ? 1 : 2;
@@ -20,7 +26,8 @@ internal static class HostCommandCli
             || apply && string.IsNullOrWhiteSpace(file) || status && file is not null)
         {
             Console.Error.WriteLine("Usage: Quasar.Host status --url URL --token-env ENV"
-                + " | attachment apply --url URL --token-env ENV --file FILE");
+                + " | attachment apply --url URL --token-env ENV --file FILE"
+                + " | gateway apply --url URL --token-env ENV --file FILE");
             return 2;
         }
         string? token = Environment.GetEnvironmentVariable(tokenVariable!);
@@ -42,12 +49,26 @@ internal static class HostCommandCli
             }
             else
             {
-                HostContract.HostAttachmentSpec attachment = JsonSerializer.Deserialize<HostContract.HostAttachmentSpec>(
-                    File.ReadAllText(file!), JsonOptions) ?? throw new InvalidDataException("Attachment file is empty");
                 request.Method = HttpMethod.Put;
-                request.RequestUri = new Uri(url!.TrimEnd('/')
-                    + HostContract.HostProtocol.AttachmentRoute(attachment.ClusterId));
-                request.Content = JsonContent.Create(attachment, options: JsonOptions);
+                if (attachmentApply)
+                {
+                    HostContract.HostAttachmentSpec attachment =
+                        JsonSerializer.Deserialize<HostContract.HostAttachmentSpec>(
+                            File.ReadAllText(file!), JsonOptions)
+                        ?? throw new InvalidDataException("Attachment file is empty");
+                    request.RequestUri = new Uri(url!.TrimEnd('/')
+                        + HostContract.HostProtocol.AttachmentRoute(attachment.ClusterId));
+                    request.Content = JsonContent.Create(attachment, options: JsonOptions);
+                }
+                else
+                {
+                    HostContract.GatewaySpec gateway = JsonSerializer.Deserialize<HostContract.GatewaySpec>(
+                        File.ReadAllText(file!), JsonOptions)
+                        ?? throw new InvalidDataException("Gateway spec file is empty");
+                    request.RequestUri = new Uri(url!.TrimEnd('/')
+                        + HostContract.HostProtocol.GatewayRoute(gateway.ClusterId));
+                    request.Content = JsonContent.Create(gateway, options: JsonOptions);
+                }
             }
             using HttpResponseMessage response = await client.SendAsync(request,
                 HttpCompletionOption.ResponseContentRead, cancellationToken);

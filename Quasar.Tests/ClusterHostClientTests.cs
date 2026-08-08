@@ -65,6 +65,36 @@ public sealed class ClusterHostClientTests
         }
     }
 
+    [Fact]
+    public async Task GatewayApplyUsesVersionedBearerContract()
+    {
+        string? previous = Environment.GetEnvironmentVariable(TokenVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(TokenVariable, "test-host-token");
+            var gateway = new GatewaySpec("demo", GatewayGoal.On, "/bundles/gateway.json",
+                new string('a', 64), "config-7", [28000, 28016], "/runs/gateway");
+            var envelope = new HostEnvelope<GatewayStatus>(HostProtocol.Version, DateTimeOffset.UtcNow,
+                new GatewayStatus("demo", GatewayGoal.On, GatewayObservedState.Running,
+                    gateway.BundleManifestSha256, gateway.ConfigRevision, gateway.Ports,
+                    gateway.RunRoot, 42, DateTimeOffset.UtcNow, null));
+            var handler = new StubHandler(_ => Response(HttpStatusCode.OK, envelope));
+            var client = new ClusterHostClient(new HttpClient(handler));
+
+            HostEnvelope<GatewayStatus> result = await client.ApplyGatewayAsync(
+                Definition(), gateway, CancellationToken.None);
+
+            Assert.Equal(GatewayObservedState.Running, result.Data.Observed);
+            Assert.Equal(HttpMethod.Put, handler.Method);
+            Assert.Equal("http://host.test:28400/host/v1/gateways/demo", handler.RequestUri?.ToString());
+            Assert.Contains("\"goal\":\"On\"", handler.Body, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(TokenVariable, previous);
+        }
+    }
+
     private static ClusterDefinition Definition() => new()
     {
         UniqueName = "demo",
@@ -87,12 +117,16 @@ public sealed class ClusterHostClientTests
     {
         public Uri? RequestUri { get; private set; }
         public AuthenticationHeaderValue? Authorization { get; private set; }
+        public HttpMethod? Method { get; private set; }
+        public string Body { get; private set; } = string.Empty;
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             RequestUri = request.RequestUri;
             Authorization = request.Headers.Authorization;
+            Method = request.Method;
+            Body = request.Content?.ReadAsStringAsync(cancellationToken).GetAwaiter().GetResult() ?? string.Empty;
             return Task.FromResult(respond(request));
         }
     }
