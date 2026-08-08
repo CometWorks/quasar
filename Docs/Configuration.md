@@ -543,3 +543,32 @@ change cluster policy; both scopes remain limited by the principal's `Clusters`
 allow-list. Invalid credentials and forbidden cluster access return
 versioned JSON errors instead of redirects. Identical token values assigned to
 multiple principals fail closed.
+
+## Host executor attachments
+
+`Quasar.Host` is packaged under the release's `Host` directory. Its persisted
+attachment file contains stable executor/host IDs, Gateway URLs, and credential
+environment-variable names; raw executor tokens remain in the host service
+environment. One process may attach to multiple clusters:
+
+```json
+{
+  "executorId": "executor-a",
+  "hostId": "host-a",
+  "pollIntervalSeconds": 2,
+  "attachments": [
+    {
+      "clusterId": "production",
+      "gatewayUrl": "https://gateway.internal:8443",
+      "tokenEnvironmentVariable": "PRODUCTION_EXECUTOR_TOKEN"
+    }
+  ]
+}
+```
+
+Run `Quasar.Host run --config host.json`; `--once` performs one deterministic
+plan/heartbeat cycle for deployment checks. The current foundation authenticates,
+validates protocol and host scoping, polls each host-filtered NodePlan, and posts an
+empty executor heartbeat. It does not report fabricated process observations.
+Bundle installation, durable launch records, re-adoption, and spawn/kill actualization
+are the next Phase 4 slice.
