@@ -9,6 +9,7 @@ public sealed class QuasarAuthOptions
     public SteamAuthOptions Steam { get; set; } = new();
     public ExternalProviderOptions ExternalProviders { get; set; } = new();
     public WorkshopOptions Workshop { get; set; } = new();
+    public List<ServicePrincipalOptions> ServicePrincipals { get; set; } = [];
 
     public static QuasarAuthOptions Create(IConfiguration configuration)
     {
@@ -27,12 +28,38 @@ public sealed class QuasarAuthOptions
         Steam ??= new SteamAuthOptions();
         ExternalProviders ??= new ExternalProviderOptions();
         Workshop ??= new WorkshopOptions();
+        ServicePrincipals ??= [];
 
         TrustedNetworkBypass.Normalize();
         Steam.Normalize();
         ExternalProviders.Normalize();
         Workshop.Normalize();
+        ServicePrincipals = ServicePrincipals.Select(ServicePrincipalOptions.Normalize)
+            .Where(principal => principal.Name.Length != 0
+                && principal.TokenEnvironmentVariable.Length != 0
+                && principal.Scopes.Count != 0
+                && principal.Clusters.Count != 0)
+            .DistinctBy(principal => principal.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
+}
+
+public sealed class ServicePrincipalOptions
+{
+    public string Name { get; set; } = string.Empty;
+    public string TokenEnvironmentVariable { get; set; } = string.Empty;
+    public List<string> Scopes { get; set; } = [];
+    public List<string> Clusters { get; set; } = [];
+
+    public static ServicePrincipalOptions Normalize(ServicePrincipalOptions principal) => new()
+    {
+        Name = principal.Name?.Trim() ?? string.Empty,
+        TokenEnvironmentVariable = principal.TokenEnvironmentVariable?.Trim() ?? string.Empty,
+        Scopes = (principal.Scopes ?? []).Where(scope => scope == QuasarScopes.ClusterQuery)
+            .Distinct(StringComparer.Ordinal).ToList(),
+        Clusters = (principal.Clusters ?? []).Where(cluster => !string.IsNullOrWhiteSpace(cluster))
+            .Select(cluster => cluster.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+    };
 }
 
 public sealed class TrustedNetworkBypassOptions

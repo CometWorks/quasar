@@ -6,6 +6,7 @@ public static class QuasarAuthSchemes
 {
     public const string Cookie = "QuasarCookie";
     public const string TrustedNetwork = "QuasarTrustedNetwork";
+    public const string ServicePrincipal = "QuasarServicePrincipal";
     public const string Steam = "Steam";
 }
 
@@ -14,6 +15,8 @@ public static class QuasarClaimTypes
     public const string Provider = "quasar:provider";
     public const string SteamId = "steamid";
     public const string SteamProfileUrl = "steam_profile_url";
+    public const string Scope = "quasar:scope";
+    public const string Cluster = "quasar:cluster";
 }
 
 public static class QuasarRoles
@@ -32,6 +35,7 @@ public static class QuasarRoles
 
 public static class QuasarPolicyNames
 {
+    public const string ClusterQuery = "ClusterQuery";
     public const string CanView = "CanView";
     public const string CanEditConfigs = "CanEditConfigs";
     public const string CanEditServers = "CanEditServers";
@@ -40,6 +44,11 @@ public static class QuasarPolicyNames
     public const string CanManageAppearance = "CanManageAppearance";
     public const string CanManageSecurity = "CanManageSecurity";
     public const string CanShutdownQuasar = "CanShutdownQuasar";
+}
+
+public static class QuasarScopes
+{
+    public const string ClusterQuery = "cluster.query";
 }
 
 public static class SteamAuthConstants
@@ -52,6 +61,15 @@ public static class SteamAuthConstants
 
 public static class ClaimsPrincipalExtensions
 {
+    public static bool IsQuasarServicePrincipal(this ClaimsPrincipal principal) =>
+        string.Equals(principal.FindFirstValue(QuasarClaimTypes.Provider),
+            QuasarAuthSchemes.ServicePrincipal, StringComparison.Ordinal);
+
+    public static bool CanQueryCluster(this ClaimsPrincipal principal, string uniqueName) =>
+        !principal.IsQuasarServicePrincipal()
+        || principal.FindAll(QuasarClaimTypes.Cluster).Any(claim => claim.Value == "*"
+            || string.Equals(claim.Value, uniqueName, StringComparison.OrdinalIgnoreCase));
+
     public static string? GetQuasarDisplayName(this ClaimsPrincipal principal)
     {
         var provider = principal.FindFirstValue(QuasarClaimTypes.Provider);

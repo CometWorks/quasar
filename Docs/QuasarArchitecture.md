@@ -270,9 +270,12 @@ URL and the name of the environment variable holding its credential. Quasar
 readiness reports catalog availability without contacting Gateway, so a failed
 cluster does not make the management plane itself unready.
 
-Later Phase 4 slices add durable idempotent commands, scoped service principals,
-and UI editing on this same API-first host. The browser UI must consume those
-contracts too; it may not gain UI-only cluster behavior or validation.
+The first automation scope, `cluster.query`, authenticates bearer service
+principals from environment-backed tokens and limits each principal to an explicit
+cluster allow-list. It grants no other viewer surface or mutation role. Later Phase
+4 slices add durable idempotent commands, an automation-operator scope, and UI
+editing on this same API-first host. The browser UI must consume those contracts
+too; it may not gain UI-only cluster behavior or validation.
 
 ## UI Theme
 

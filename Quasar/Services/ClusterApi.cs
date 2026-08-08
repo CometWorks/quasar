@@ -19,9 +19,11 @@ internal static class ClusterApi
         routes.MapGet("", (HttpContext context, ClusterCatalog catalog) =>
         {
             SetProtocolHeader(context);
-            ClusterSummary[] clusters = catalog.GetClusters().Select(cluster => new ClusterSummary(
-                cluster.UniqueName, cluster.DisplayName, cluster.GatewayUrl,
-                cluster.ConfigProfileId, cluster.WorldTemplateId)).ToArray();
+            ClusterSummary[] clusters = catalog.GetClusters()
+                .Where(cluster => context.User.CanQueryCluster(cluster.UniqueName))
+                .Select(cluster => new ClusterSummary(
+                    cluster.UniqueName, cluster.DisplayName, cluster.GatewayUrl,
+                    cluster.ConfigProfileId, cluster.WorldTemplateId)).ToArray();
             return Results.Json(Envelope(clusters), JsonOptions);
         });
         routes.MapGet("/{uniqueName}/health", (string uniqueName, HttpContext context, ClusterCatalog catalog,
@@ -37,7 +39,7 @@ internal static class ClusterApi
             ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken cancellationToken) =>
             Query(uniqueName, context, catalog, client.GetRecoveryReadinessAsync, cancellationToken));
         if (authOptions.Enabled)
-            routes.RequireAuthorization(QuasarPolicyNames.CanView);
+            routes.RequireAuthorization(QuasarPolicyNames.ClusterQuery);
     }
 
     private static async Task<IResult> Query<T>(string uniqueName, HttpContext context, ClusterCatalog catalog,
@@ -48,6 +50,9 @@ internal static class ClusterApi
         ClusterDefinition? cluster = catalog.GetCluster(uniqueName);
         if (cluster == null)
             return Error(StatusCodes.Status404NotFound, "unknown_cluster", $"Unknown cluster '{uniqueName}'.");
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(StatusCodes.Status403Forbidden, "cluster_forbidden",
+                "The credential cannot access this cluster.");
         try
         {
             return Results.Json(await query(cluster, cancellationToken), JsonOptions);
@@ -67,6 +72,17 @@ internal static class ClusterApi
 
     private static void SetProtocolHeader(HttpContext context) =>
         context.Response.Headers["X-Cluster-Gateway-Protocol"] = Admin.AdminProtocol.Version.ToString();
+
+    internal static Task WriteAuthorizationErrorAsync(
+        HttpContext context, int status, string code, string message)
+    {
+        SetProtocolHeader(context);
+        context.Response.StatusCode = status;
+        return context.Response.WriteAsJsonAsync(new Admin.AdminErrorEnvelope(
+            Admin.AdminProtocol.Version,
+            DateTimeOffset.UtcNow,
+            new Admin.AdminError(code, message)), JsonOptions);
+    }
 
     private sealed record ClusterSummary(string UniqueName, string DisplayName, string GatewayUrl,
         string ConfigProfileId, string WorldTemplateId);
