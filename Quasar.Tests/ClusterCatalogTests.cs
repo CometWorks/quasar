@@ -1,0 +1,73 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+using Quasar.Models;
+using Quasar.Services;
+using Xunit;
+
+namespace Quasar.Tests;
+
+public sealed class ClusterCatalogTests : IDisposable
+{
+    private readonly string _directory = Path.Combine(
+        Path.GetTempPath(), $"quasar-cluster-catalog-{Guid.NewGuid():N}");
+
+    [Fact]
+    public void LoadsAndNormalizesClusterDefinitions()
+    {
+        string definitionDirectory = Path.Combine(_directory, "demo");
+        Directory.CreateDirectory(definitionDirectory);
+        File.WriteAllText(Path.Combine(definitionDirectory, "cluster.json"), """
+        {
+          "uniqueName": " demo ",
+          "displayName": "",
+          "gatewayUrl": "https://gateway.test/",
+          "gatewayAdminTokenEnvironmentVariable": null,
+          "configProfileId": " survival ",
+          "worldTemplateId": null
+        }
+        """);
+        using ClusterCatalog catalog = CreateCatalog();
+
+        ClusterDefinition cluster = Assert.Single(catalog.GetClusters());
+
+        Assert.Equal("demo", cluster.UniqueName);
+        Assert.Equal("demo", cluster.DisplayName);
+        Assert.Equal("https://gateway.test", cluster.GatewayUrl);
+        Assert.Equal(string.Empty, cluster.GatewayAdminTokenEnvironmentVariable);
+        Assert.Equal("survival", cluster.ConfigProfileId);
+        Assert.Equal(string.Empty, cluster.WorldTemplateId);
+    }
+
+    [Fact]
+    public void SkipsInvalidDefinitionsWithoutDroppingValidOnes()
+    {
+        Directory.CreateDirectory(Path.Combine(_directory, "valid"));
+        Directory.CreateDirectory(Path.Combine(_directory, "invalid"));
+        File.WriteAllText(Path.Combine(_directory, "valid", "cluster.json"), """
+        { "uniqueName": "valid", "gatewayUrl": "http://gateway.test" }
+        """);
+        File.WriteAllText(Path.Combine(_directory, "invalid", "cluster.json"), """
+        { "uniqueName": "invalid", "gatewayUrl": "file:///tmp/gateway" }
+        """);
+        using ClusterCatalog catalog = CreateCatalog();
+
+        Assert.Equal("valid", Assert.Single(catalog.GetClusters()).UniqueName);
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_directory))
+            Directory.Delete(_directory, recursive: true);
+    }
+
+    private ClusterCatalog CreateCatalog()
+    {
+        IConfiguration configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Quasar:ClusterCatalogPath"] = _directory,
+            })
+            .Build();
+        return new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, configuration);
+    }
+}

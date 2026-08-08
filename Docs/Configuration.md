@@ -450,3 +450,71 @@ companions remain deployable; their UI assemblies are not loaded.
 
 Authentication and authorization remain enabled exactly as configured; headless
 mode is not an authentication bypass.
+
+## Cluster query catalog
+
+Quasar discovers clusters from `<quasar-root>/Clusters/<unique-name>/cluster.json`.
+Set `Quasar:ClusterCatalogPath` to override that directory for development or an
+external configuration deployment. A definition contains management metadata;
+Gateway credentials stay outside the file and are read from the named environment
+variable at query time.
+
+```json
+{
+  "uniqueName": "production",
+  "displayName": "Production cluster",
+  "gatewayUrl": "https://cluster-gateway.internal:8443",
+  "gatewayAdminTokenEnvironmentVariable": "PRODUCTION_GATEWAY_ADMIN_TOKEN",
+  "configProfileId": "survival",
+  "worldTemplateId": "main-world"
+}
+```
+
+The first Phase 4 API slice is read-only and uses Gateway admin contract version
+1. It is available in normal and headless operation:
+
+- `GET /api/v1/clusters`
+- `GET /api/v1/clusters/{uniqueName}/health`
+- `GET /api/v1/clusters/{uniqueName}/status`
+- `GET /api/v1/clusters/{uniqueName}/plan`
+- `GET /api/v1/clusters/{uniqueName}/recovery-readiness`
+
+Responses preserve the Gateway envelope, capture time, string enum values, and
+stable error codes. When Quasar authentication is enabled, these routes require
+a human `CanView` role or the scoped service-principal permission described below.
+`/api/health` and `/api/ready` include
+`configuredClusters`; they do not contact Gateway and remain usable if a Gateway
+is down. Recovery readiness is calculated by Gateway from its durable Registry,
+Save Catalog, snapshot, WAL, and artifact-holder records; Quasar does not infer it
+from node liveness. Command operations and UI editing are later Phase 4 slices;
+this query surface does not imply them.
+
+### Query-only service principals
+
+Dark-factory callers can use a scoped bearer credential without a browser, cookie,
+or device-login flow. Store only the environment-variable name in configuration:
+
+```json
+{
+  "Quasar": {
+    "Auth": {
+      "ServicePrincipals": [
+        {
+          "Name": "factory-reader",
+          "TokenEnvironmentVariable": "QUASAR_FACTORY_READER_TOKEN",
+          "Scopes": [ "cluster.query" ],
+          "Clusters": [ "production" ]
+        }
+      ]
+    }
+  }
+}
+```
+
+Set `QUASAR_FACTORY_READER_TOKEN` to a random value of at least 32 characters in
+the Quasar service environment. Use `Clusters: [ "*" ]` only when the principal
+must query every configured cluster. The `cluster.query` scope can call only the
+versioned cluster query routes; it grants no server logs, configuration access, or
+mutation permission. Invalid credentials and forbidden cluster access return
+versioned JSON errors instead of redirects. Identical token values assigned to
+multiple principals fail closed.

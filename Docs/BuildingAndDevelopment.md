@@ -30,6 +30,24 @@ The solution file is `Quasar.sln`.
 
 ## Build setup
 
+Quasar consumes the private
+`CometWorks.ClusterGateway.AdminContract` package from the CometWorks GitHub
+Packages source in the repository `NuGet.Config`. For a clean local restore,
+authenticate GitHub CLI with `read:packages` and expose its short-lived credential
+through NuGet's source-credential environment variable; never add credentials to
+`NuGet.Config`:
+
+```bash
+gh auth refresh -s read:packages
+export NuGetPackageSourceCredentials_github="Username=$(gh api user --jq .login);Password=$(gh auth token);ValidAuthenticationTypes=Basic"
+dotnet restore Quasar.sln
+unset NuGetPackageSourceCredentials_github
+```
+
+The release workflow uses its built-in `GITHUB_TOKEN`; it needs no custom package
+secret. The Gateway package settings grant `CometWorks/quasar` read access under
+**Manage Actions access**.
+
 - `Quasar.Agent` depends on a local `DS64` path for Space Engineers Dedicated
   Server assemblies.
 - `Quasar.Agent` must not use Magnetar or Quasar release version stamping.

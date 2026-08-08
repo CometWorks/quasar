@@ -76,7 +76,7 @@ public class Program
             builder.Services.AddAuthentication(options =>
                 {
                     options.DefaultScheme = QuasarAuthSchemes.Cookie;
-                    options.DefaultChallengeScheme = SteamAuthenticationDefaults.AuthenticationScheme;
+                    options.DefaultChallengeScheme = QuasarAuthSchemes.Cookie;
                 })
                 .AddCookie(QuasarAuthSchemes.Cookie, options =>
                 {
@@ -88,6 +88,16 @@ public class Program
                     options.Cookie.SameSite = SameSiteMode.Lax;
                     options.SlidingExpiration = true;
                     options.ExpireTimeSpan = TimeSpan.FromHours(12);
+                    options.Events.OnRedirectToLogin = context =>
+                        IsClusterApi(context.Request.Path)
+                            ? ClusterApi.WriteAuthorizationErrorAsync(context.HttpContext, 401,
+                                "authentication_required", "A valid Quasar credential is required.")
+                            : Redirect(context.Response, context.RedirectUri);
+                    options.Events.OnRedirectToAccessDenied = context =>
+                        IsClusterApi(context.Request.Path)
+                            ? ClusterApi.WriteAuthorizationErrorAsync(context.HttpContext, 403,
+                                "scope_forbidden", "The credential cannot access this cluster operation.")
+                            : Redirect(context.Response, context.RedirectUri);
                 })
                 .AddSteam(options =>
                 {
@@ -133,6 +143,11 @@ public class Program
                 });
             builder.Services.AddAuthorization(options =>
             {
+                options.AddPolicy(QuasarPolicyNames.ClusterQuery, policy => policy.RequireAssertion(context =>
+                    context.User.Identity?.IsAuthenticated == true && (context.User.IsInRole(QuasarRoles.Viewer)
+                    || context.User.IsInRole(QuasarRoles.Editor)
+                    || context.User.IsInRole(QuasarRoles.Admin)
+                    || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterQuery))));
                 AddRolePolicy(options, QuasarPolicyNames.CanView, QuasarRoles.Viewer, QuasarRoles.Editor, QuasarRoles.Admin);
                 AddRolePolicy(options, QuasarPolicyNames.CanEditConfigs, QuasarRoles.Editor, QuasarRoles.Admin);
                 AddRolePolicy(options, QuasarPolicyNames.CanEditServers, QuasarRoles.Editor, QuasarRoles.Admin);
@@ -148,6 +163,8 @@ public class Program
                 .SetApplicationName("Quasar")
                 .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyringDirectory));
             builder.Services.AddHttpClient();
+            builder.Services.AddHttpClient<ClusterGatewayClient>(client =>
+                client.Timeout = TimeSpan.FromSeconds(30));
             builder.Services.AddSingleton(webServiceOptions);
             builder.Services.AddSingleton(managedRuntimeOptions);
             builder.Services.AddSingleton(updateOptions);
@@ -157,6 +174,7 @@ public class Program
             builder.Services.AddSingleton(analyticsStoreOptions);
             builder.Services.AddSingleton<QuasarRoleMapper>();
             builder.Services.AddSingleton<TrustedNetworkEvaluator>();
+            builder.Services.AddSingleton<ServicePrincipalAuthenticator>();
             builder.Services.AddSingleton<QuasarAuthSettingsService>();
             builder.Services.AddSingleton<KnownPlayerCatalog>();
             builder.Services.AddSingleton<MetricsStoreService>();
@@ -181,6 +199,7 @@ public class Program
             builder.Services.AddSingleton<ManagedRuntimeWarmupService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ManagedRuntimeWarmupService>());
             builder.Services.AddSingleton<DedicatedServerCatalog>();
+            builder.Services.AddSingleton<ClusterCatalog>();
             builder.Services.AddSingleton<DedicatedServerSupervisor>();
             builder.Services.AddSingleton<DedicatedServerRuntimePreparer>();
             builder.Services.AddSingleton<FileBrowserService>();
@@ -240,7 +259,12 @@ public class Program
             app.UseAuthentication();
             app.Use(async (context, next) =>
             {
+                var servicePrincipals = context.RequestServices.GetRequiredService<ServicePrincipalAuthenticator>();
+                bool hasBearerAuthorization = servicePrincipals.HasBearerAuthorization(context.Request);
+                if (authOptions.Enabled && hasBearerAuthorization)
+                    servicePrincipals.TryAuthenticate(context);
                 if (authOptions.Enabled &&
+                    !hasBearerAuthorization &&
                     context.User.Identity?.IsAuthenticated != true &&
                     context.RequestServices.GetRequiredService<TrustedNetworkEvaluator>().IsTrusted(context))
                 {
@@ -254,7 +278,8 @@ public class Program
             if (!webServiceOptions.Headless)
                 app.UseAntiforgery();
 
-            app.MapGet("/api/health", (WebServiceState state, DedicatedServerCatalog catalog) => Results.Json(new
+            app.MapGet("/api/health", (WebServiceState state, DedicatedServerCatalog catalog,
+                ClusterCatalog clusterCatalog) => Results.Json(new
             {
                 status = "ok",
                 state.Options.WorkerId,
@@ -267,6 +292,7 @@ public class Program
                     : state.CurrentManifest.BaseUrl,
                 connectedAgents = state.Registry.GetAgents().Count(agent => agent.IsConnected),
                 configuredServers = catalog.GetServers().Count,
+                configuredClusters = clusterCatalog.GetClusters().Count,
                 runningServers = state.Supervisor.GetSnapshots().Count(snapshot =>
                     snapshot.State is DedicatedServerProcessState.Starting
                         or DedicatedServerProcessState.Running
@@ -274,17 +300,20 @@ public class Program
                         or DedicatedServerProcessState.Stopping),
             }));
 
-            app.MapGet("/api/ready", (WebServiceState state, DedicatedServerCatalog catalog) => Results.Json(new
+            app.MapGet("/api/ready", (WebServiceState state, DedicatedServerCatalog catalog,
+                ClusterCatalog clusterCatalog) => Results.Json(new
             {
                 status = "ready",
                 state.Options.WorkerId,
                 state.Options.Version,
                 headless = state.Options.Headless,
                 configuredServers = catalog.GetServers().Count,
+                configuredClusters = clusterCatalog.GetClusters().Count,
             }));
 
             app.MapGet("/api/discovery", (WebServiceState state) =>
                 Results.Json(state.CurrentManifest));
+            app.MapClusterApi(authOptions);
 
             // Analytics chart data, fetched directly by the browser (uPlot) instead of being pushed
             // through the Blazor SignalR circuit. Averaged down to maxPoints per series server-side.
@@ -656,6 +685,14 @@ public class Program
     private static void AddRolePolicy(AuthorizationOptions options, string policyName, params string[] roles)
     {
         options.AddPolicy(policyName, policy => policy.RequireRole(roles));
+    }
+
+    private static bool IsClusterApi(PathString path) => path.StartsWithSegments("/api/v1/clusters");
+
+    private static Task Redirect(HttpResponse response, string location)
+    {
+        response.Redirect(location);
+        return Task.CompletedTask;
     }
 
     private static ForwardedHeadersOptions CreateForwardedHeadersOptions(QuasarAuthOptions authOptions)
