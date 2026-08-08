@@ -18,6 +18,14 @@ public class AgentHello
 
     public string WorldName { get; set; } = string.Empty;
 
+    public bool ClusterMode { get; set; }
+
+    public string ClusterId { get; set; } = string.Empty;
+
+    public string ClusterNodeId { get; set; } = string.Empty;
+
+    public string ClusterNodeRole { get; set; } = string.Empty;
+
     public string PluginId { get; set; } = string.Empty;
 
     public string PluginVersion { get; set; } = string.Empty;

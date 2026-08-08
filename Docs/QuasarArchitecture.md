@@ -69,6 +69,10 @@ That means `Quasar` is responsible for:
 - executes game-thread actions
 - reconnects when the supervisor is temporarily unreachable
 
+On a cluster node it reports process telemetry tagged with cluster/node/role identity,
+reconnects indefinitely, and does not own save, shutdown, or restart. ClusterRuntime and
+Magnetar route lifecycle intent to the Gateway; `Quasar.Host` owns process execution.
+
 ## Target Workflow
 
 Primary workflow:
@@ -191,7 +195,7 @@ This channel is the main runtime communication path for:
 - snapshots
 - commands
 - command results
-- admin-stop notifications (the agent reports an in-game admin shutdown so Quasar flips goal state to `Off`)
+- standalone admin-stop notifications (the agent reports an in-game admin shutdown so Quasar flips goal state to `Off`)
 - heartbeats / reconnect handling
 
 This is the current control-plane transport and remains the active implementation path.
@@ -213,7 +217,7 @@ Important boundary:
 
 So the intended long-term split is:
 
-- control plane: `Quasar.Agent <-> Quasar`
+- process telemetry/control: `Quasar.Agent <-> Quasar`
 - local same-host bulk state plane: `DS <-> DS`, with Quasar coordinating setup
 
 Recommended abstraction boundary:

@@ -30,17 +30,20 @@ namespace Quasar.Agent
         private bool _adminStopReported;
         private bool _adminRestartRequested;
         private bool _adminRestartReported;
+        private bool _clusterMode;
         private DateTime _lastDeathSubscriptionRefreshUtc = DateTime.MinValue;
 
         public void Init(object gameServer)
         {
             var options = AgentOptions.FromEnvironment();
+            _clusterMode = options.ClusterMode;
             LogStartupVersions();
             OfflineModeNetworkGuard.Apply();
             AgentProfiler.Configure(options);
             AgentProfilerPatches.Apply(options);
-            ServerCommands.Register(typeof(AdminPlugin).Assembly, typeof(StopCommand), typeof(RestartCommand), typeof(QuitCommand));
-            _bridge = new GameBridge(gameServer);
+            if (!_clusterMode)
+                ServerCommands.Register(typeof(AdminPlugin).Assembly, typeof(StopCommand), typeof(RestartCommand), typeof(QuitCommand));
+            _bridge = new GameBridge(gameServer, options);
 
             // Start capturing plugin log lines before the connection loop so any
             // emitted during startup are buffered and shipped once connected.
@@ -48,24 +51,29 @@ namespace Quasar.Agent
             _outbox.Start();
 
             _connection = new AgentConnection(_bridge, new WebServiceLocator(), options, _outbox);
-            StopCommand.AdminStopRequested = ReportAdminStop;
-            QuitCommand.AdminStopRequested = ReportAdminStop;
-            RestartCommand.AdminRestartRequested = ReportAdminRestart;
+            if (!_clusterMode)
+            {
+                StopCommand.AdminStopRequested = ReportAdminStop;
+                QuitCommand.AdminStopRequested = ReportAdminStop;
+                RestartCommand.AdminRestartRequested = ReportAdminRestart;
+                ServerControl.Terminating += OnServerTerminating;
+            }
             _connection.Start();
             MyVisualScriptLogicProvider.PlayerDied += OnPlayerDied;
-            ServerControl.Terminating += OnServerTerminating;
         }
 
         public void Update()
         {
-            RestartCommand.UpdateScheduledRestart();
+            if (!_clusterMode)
+                RestartCommand.UpdateScheduledRestart();
             _bridge?.Update();
             RefreshDeathSubscriptions();
         }
 
         public void Dispose()
         {
-            ServerControl.Terminating -= OnServerTerminating;
+            if (!_clusterMode)
+                ServerControl.Terminating -= OnServerTerminating;
             StopCommand.AdminStopRequested = null;
             QuitCommand.AdminStopRequested = null;
             RestartCommand.AdminRestartRequested = null;

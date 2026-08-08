@@ -66,4 +66,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Magnetar.Protocol\Magnetar.Protocol.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Quasar.Tests" />
+  </ItemGroup>
 </Project>

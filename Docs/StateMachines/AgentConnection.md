@@ -27,8 +27,8 @@ stateDiagram-v2
     Handshaking --> Streaming: Hello and PluginConfigSnapshot sent
     Streaming --> Streaming: Snapshot every 2s, handle Command, Ping, ConfigUpdate
     Streaming --> Reconnecting: socket closed or error
-    Reconnecting --> Locating: backoff elapsed (~10s, 3s jitter)
-    Reconnecting --> AutonomousSaveStop: offline past window (default 1h), had connected
+    Reconnecting --> Locating: backoff elapsed (~10s, 3s jitter); always for cluster nodes
+    Reconnecting --> AutonomousSaveStop: standalone only, offline past window (default 1h), had connected
     AutonomousSaveStop --> [*]: SaveAndQuit, server exits
 ```
 
@@ -38,12 +38,18 @@ stateDiagram-v2
 | --- | --- |
 | `Locating` | `WebServiceLocator` probes the explicit supervisor URL from `QUASAR_BASE_URL` (plus compatible public-base-url variables) and the discovery manifest, accepting the first `/api/health` response that succeeds. If no healthy instance is found, the agent does not start Quasar or Bootstrap; it waits for the reconnect loop. |
 | `Connecting` | Opens `ws(s)://…/ws/agent` (WebSocket keep-alive 20s). |
-| `Handshaking` | Sends the `Hello` identity message and forces an initial `PluginConfigSnapshot`. |
+| `Handshaking` | Sends the `Hello` identity message and forces an initial `PluginConfigSnapshot`. Cluster hello/snapshot payloads include cluster, node, and role tags from the executor environment. |
 | `Streaming` | Sends a `Snapshot` every ~2s, flushes buffered plugin-log batches, and dispatches inbound `Command` (including `PluginRequest` companion dispatch) / `Ping` / `PluginConfigUpdate` messages. |
 | `Reconnecting` | On socket error/close, waits `ReconnectIntervalSeconds` (~10s) ± jitter (~3s) then re-locates. |
-| `AutonomousSaveStop` | If the agent had connected at least once and Quasar stays unreachable past `OfflineShutdownSeconds` (default 3600s), it performs a `SaveAndQuit`. The "had connected" guard prevents auto-stopping a server that never attached. |
+| `AutonomousSaveStop` | Standalone only: if the agent had connected at least once and Quasar stays unreachable past `OfflineShutdownSeconds` (default 3600s), it performs a `SaveAndQuit`. The "had connected" guard prevents auto-stopping a server that never attached. |
 
-An admin-initiated in-game shutdown (not a Quasar-requested stop) sends an
+Cluster mode is active when `SE_CLUSTER_GATEWAY_REGISTRY` is set, matching
+ClusterRuntime's own activation rule. In this mode the agent reconnects indefinitely,
+does not register its standalone `!stop`, `!restart`, or `!quit` commands, and rejects
+save/stop commands arriving through the agent channel. Magnetar's cluster-aware commands
+route lifecycle intent through PluginSdk to the Gateway instead.
+
+On standalone servers, an admin-initiated in-game shutdown (not a Quasar-requested stop) sends an
 `AdminStop` wire message before exit so the supervisor flips the goal to `Off`
 (see [Dedicated Server Lifecycle](DedicatedServerLifecycle.md#goal-state)).
 
