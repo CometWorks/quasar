@@ -477,10 +477,13 @@ The first Phase 4 API slice is read-only and uses Gateway admin contract version
 - `GET /api/v1/clusters/{uniqueName}/health`
 - `GET /api/v1/clusters/{uniqueName}/status`
 - `GET /api/v1/clusters/{uniqueName}/plan`
+- `GET /api/v1/clusters/{uniqueName}/recovery-readiness`
 
 Responses preserve the Gateway envelope, capture time, string enum values, and
 stable error codes. When Quasar authentication is enabled, these routes require
 the existing `CanView` policy. `/api/health` and `/api/ready` include
 `configuredClusters`; they do not contact Gateway and remain usable if a Gateway
-is down. Command operations, service-principal scopes, and UI editing are later
+is down. Recovery readiness is calculated by Gateway from its durable Registry,
+Save Catalog, snapshot, WAL, and artifact-holder records; Quasar does not infer it
+from node liveness. Command operations, service-principal scopes, and UI editing are later
 Phase 4 slices; this query surface does not imply them.

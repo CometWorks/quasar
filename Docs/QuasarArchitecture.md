@@ -259,6 +259,9 @@ durable cluster catalog and proxies Gateway contract-version-1 health, status,
 and desired-node-plan queries without referencing Gateway implementation types.
 Gateway responses retain their capture time and stable error envelope so dark-
 factory callers can distinguish unavailable, rejected, and incompatible peers.
+The same surface carries Gateway-computed recovery readiness: newest complete cut,
+consistency class, current save-age bounds, replica/distinct-host coverage, missing
+artifacts, and Registry checkpoint/WAL state.
 
 The contract assembly is published by Cluster Gateway as
 `CometWorks.ClusterGateway.AdminContract`; Quasar, Gateway, and automation clients

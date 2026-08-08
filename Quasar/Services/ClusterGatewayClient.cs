@@ -29,6 +29,10 @@ public sealed class ClusterGatewayClient
         ClusterDefinition cluster, CancellationToken cancellationToken) =>
         GetAsync<Admin.NodePlan[]>(cluster, "plan", cancellationToken);
 
+    public Task<Admin.AdminEnvelope<Admin.RecoveryReadiness>> GetRecoveryReadinessAsync(
+        ClusterDefinition cluster, CancellationToken cancellationToken) =>
+        GetAsync<Admin.RecoveryReadiness>(cluster, "recovery-readiness", cancellationToken);
+
     private async Task<Admin.AdminEnvelope<T>> GetAsync<T>(
         ClusterDefinition cluster, string route, CancellationToken cancellationToken)
     {

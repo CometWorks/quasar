@@ -33,6 +33,9 @@ internal static class ClusterApi
         routes.MapGet("/{uniqueName}/plan", (string uniqueName, HttpContext context, ClusterCatalog catalog,
             ClusterGatewayClient client, CancellationToken cancellationToken) =>
             Query(uniqueName, context, catalog, client.GetPlanAsync, cancellationToken));
+        routes.MapGet("/{uniqueName}/recovery-readiness", (string uniqueName, HttpContext context,
+            ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken cancellationToken) =>
+            Query(uniqueName, context, catalog, client.GetRecoveryReadinessAsync, cancellationToken));
         if (authOptions.Enabled)
             routes.RequireAuthorization(QuasarPolicyNames.CanView);
     }

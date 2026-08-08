@@ -62,6 +62,33 @@ public sealed class ClusterGatewayClientTests
         Assert.Equal("cluster_not_ready", exception.Code);
     }
 
+    [Fact]
+    public async Task RecoveryQueryPreservesAuthoritativeCoverage()
+    {
+        var readiness = new RecoveryReadiness(
+            RecoveryReadinessState.AtRisk,
+            new RecoveryPoint("online-1", RecoveryConsistency.CutConsistent, 42),
+            10,
+            12,
+            5,
+            new ArtifactCoverage(2, 2, 1, 1),
+            new ArtifactCoverage(1, 1, 2, 2),
+            new ArtifactCoverage(1, 1, 1, 1),
+            new RegistryDurability(true, DateTimeOffset.UtcNow, 3, 4096),
+            [],
+            ["partitionSingleCopy"]);
+        var envelope = new AdminEnvelope<RecoveryReadiness>(AdminProtocol.Version, DateTimeOffset.UtcNow, readiness);
+        var handler = new StubHandler(_ => Response(HttpStatusCode.OK, envelope));
+        var client = new ClusterGatewayClient(new HttpClient(handler));
+
+        AdminEnvelope<RecoveryReadiness> result = await client.GetRecoveryReadinessAsync(
+            Definition(), CancellationToken.None);
+
+        Assert.Equal(RecoveryReadinessState.AtRisk, result.Data.State);
+        Assert.Equal(2, result.Data.PartitionSaves.Covered);
+        Assert.Equal("http://gateway.test/admin/v1/recovery-readiness", handler.RequestUri?.ToString());
+    }
+
     private static ClusterDefinition Definition() => new()
     {
         UniqueName = "demo",
