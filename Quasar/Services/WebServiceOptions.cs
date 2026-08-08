@@ -30,6 +30,8 @@ public sealed class WebServiceOptions
 
     public bool OpenBrowserOnStart { get; init; } = true;
 
+    public bool Headless { get; init; }
+
     public string BackupDirectory { get; set; } = MagnetarPaths.GetQuasarBackupsDirectory();
 
     public string LoggingDirectory { get; init; } = MagnetarPaths.GetQuasarLogDirectory();
@@ -98,6 +100,12 @@ public sealed class WebServiceOptions
 
         if (!bool.TryParse(openBrowserValue, out var openBrowserOnStart))
             openBrowserOnStart = true;
+
+        var headlessValue = Environment.GetEnvironmentVariable("QUASAR_HEADLESS")
+                            ?? section["Headless"]
+                            ?? "false";
+        if (!bool.TryParse(headlessValue, out var headless))
+            headless = false;
 
         var backupDirectory = ResolveBackupDirectory(
             Environment.GetEnvironmentVariable("QUASAR_BACKUP_DIR") ?? section["BackupDirectory"]);
@@ -192,6 +200,7 @@ public sealed class WebServiceOptions
             HostName = hostName,
             Mode = mode,
             OpenBrowserOnStart = openBrowserOnStart,
+            Headless = headless,
             BackupDirectory = backupDirectory,
             LoggingDirectory = loggingDirectory,
             LoggingFormat = loggingFormat,

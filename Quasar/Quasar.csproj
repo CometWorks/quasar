@@ -26,6 +26,10 @@
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Quasar.Tests" />
+  </ItemGroup>
+
   <!-- Build Quasar.Agent and stage its plugin DLLs into an Agent/ subfolder of both
        the Build output and the Publish output. The runtime preparer copies these
        into each server's Magnetar Local plugin folder. -->

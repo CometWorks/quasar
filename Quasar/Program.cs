@@ -31,17 +31,21 @@ public class Program
     {
         try
         {
-            var builder = WebApplication.CreateBuilder(args);
-            AddDeploymentConfigurationSources(builder.Configuration, builder.Environment.EnvironmentName, args);
-            if (ShouldUseSourceStaticWebAssets())
-                builder.WebHost.UseStaticWebAssets();
+            string[] workerArgs = NormalizeWorkerArguments(args);
+            var builder = WebApplication.CreateBuilder(workerArgs);
+            AddDeploymentConfigurationSources(builder.Configuration, builder.Environment.EnvironmentName, workerArgs);
 
             var webServiceOptions = WebServiceOptions.Create(builder.Configuration);
+            if (!webServiceOptions.Headless && ShouldUseSourceStaticWebAssets())
+                builder.WebHost.UseStaticWebAssets();
+
             var managedRuntimeOptions = ManagedRuntimeOptions.Create(builder.Configuration);
             var updateOptions = QuasarUpdateOptions.Create(builder.Configuration);
             var authOptions = QuasarAuthOptions.Create(builder.Configuration);
             var analyticsStoreOptions = AnalyticsStoreOptions.Create(builder.Configuration);
-            var uiPluginCatalog = QuasarUiPluginCatalog.Create(builder.Configuration, builder.Environment);
+            QuasarUiPluginCatalog? uiPluginCatalog = webServiceOptions.Headless
+                ? null
+                : QuasarUiPluginCatalog.Create(builder.Configuration, builder.Environment);
 
             QuasarLoggingConfigurator.Configure(builder, webServiceOptions);
 
@@ -53,13 +57,22 @@ public class Program
                     builder.WebHost.UseUrls(webServiceOptions.ListenUrl);
             }
 
-            builder.Services.AddRazorComponents()
-                .AddInteractiveServerComponents();
+            if (!webServiceOptions.Headless)
+            {
+                builder.Services.AddRazorComponents()
+                    .AddInteractiveServerComponents();
+                builder.Services.AddCascadingAuthenticationState();
+                builder.Services.AddMudServices(configuration =>
+                {
+                    configuration.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomStart;
+                    configuration.SnackbarConfiguration.PreventDuplicates = true;
+                    configuration.SnackbarConfiguration.NewestOnTop = true;
+                });
+            }
             builder.Services.Configure<HostOptions>(options =>
             {
                 options.ShutdownTimeout = TimeSpan.FromMinutes(30);
             });
-            builder.Services.AddCascadingAuthenticationState();
             builder.Services.AddAuthentication(options =>
                 {
                     options.DefaultScheme = QuasarAuthSchemes.Cookie;
@@ -135,12 +148,6 @@ public class Program
                 .SetApplicationName("Quasar")
                 .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyringDirectory));
             builder.Services.AddHttpClient();
-            builder.Services.AddMudServices(configuration =>
-            {
-                configuration.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomStart;
-                configuration.SnackbarConfiguration.PreventDuplicates = true;
-                configuration.SnackbarConfiguration.NewestOnTop = true;
-            });
             builder.Services.AddSingleton(webServiceOptions);
             builder.Services.AddSingleton(managedRuntimeOptions);
             builder.Services.AddSingleton(updateOptions);
@@ -163,15 +170,9 @@ public class Program
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
             builder.Services.AddSingleton<QuasarWorldTemplateCatalog>();
-            builder.Services.AddScoped<BrowserStorageService>();
-            builder.Services.AddScoped<WorldTemplateImportLocationService>();
             builder.Services.AddSingleton<QuasarPluginCatalogService>();
             builder.Services.AddSingleton<PluginCatalogRefreshService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PluginCatalogRefreshService>());
-            builder.Services.AddSingleton<QuasarUiPluginStateStore>();
-            builder.Services.AddSingleton<QuasarUiPluginHubCatalogService>();
-            builder.Services.AddSingleton<QuasarUiPluginHubRefreshService>();
-            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUiPluginHubRefreshService>());
             builder.Services.AddSingleton<SteamWorkshopCredentialsCatalog>();
             builder.Services.AddSingleton<GitHubUpdateCredentialsCatalog>();
             builder.Services.AddSingleton<QuasarWorkshopModResolver>();
@@ -181,7 +182,6 @@ public class Program
             builder.Services.AddSingleton<DedicatedServerCatalog>();
             builder.Services.AddSingleton<DedicatedServerSupervisor>();
             builder.Services.AddSingleton<DedicatedServerRuntimePreparer>();
-            builder.Services.AddScoped<ServerManagementActions>();
             builder.Services.AddSingleton<FileBrowserService>();
             builder.Services.AddSingleton<WebServiceState>();
             builder.Services.AddSingleton<PluginLogStream>();
@@ -202,8 +202,6 @@ public class Program
             builder.Services.AddSingleton<DiscordAnalyticsExportService>();
             builder.Services.AddSingleton<DiscordBotService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<DiscordBotService>());
-            builder.Services.AddSingleton<BrandingService>();
-            builder.Services.AddScoped<ThemePreferenceService>();
             builder.Services.AddSingleton<QuasarShutdownService>();
             builder.Services.AddSingleton<QuasarUpdateService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUpdateService>());
@@ -212,16 +210,29 @@ public class Program
             builder.Services.AddSingleton<QuasarBackupService>();
             builder.Services.AddSingleton<AutomaticBackupService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<AutomaticBackupService>());
-            builder.Services.AddSingleton(uiPluginCatalog);
-            uiPluginCatalog.ConfigurePluginServices(builder.Services);
+            if (uiPluginCatalog != null)
+            {
+                builder.Services.AddScoped<BrowserStorageService>();
+                builder.Services.AddScoped<WorldTemplateImportLocationService>();
+                builder.Services.AddScoped<ServerManagementActions>();
+                builder.Services.AddSingleton<QuasarUiPluginStateStore>();
+                builder.Services.AddSingleton<QuasarUiPluginHubCatalogService>();
+                builder.Services.AddSingleton<QuasarUiPluginHubRefreshService>();
+                builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUiPluginHubRefreshService>());
+                builder.Services.AddSingleton<BrandingService>();
+                builder.Services.AddScoped<ThemePreferenceService>();
+                builder.Services.AddSingleton(uiPluginCatalog);
+                uiPluginCatalog.ConfigurePluginServices(builder.Services);
+            }
 
             var app = builder.Build();
 
-            if (!app.Environment.IsDevelopment())
+            if (!webServiceOptions.Headless && !app.Environment.IsDevelopment())
                 app.UseExceptionHandler("/Error");
 
             app.UseForwardedHeaders(CreateForwardedHeadersOptions(authOptions));
-            app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+            if (!webServiceOptions.Headless)
+                app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
             app.UseWebSockets(new WebSocketOptions
             {
                 KeepAliveInterval = TimeSpan.FromSeconds(30),
@@ -240,7 +251,8 @@ public class Program
                 await next(context);
             });
             app.UseAuthorization();
-            app.UseAntiforgery();
+            if (!webServiceOptions.Headless)
+                app.UseAntiforgery();
 
             app.MapGet("/api/health", (WebServiceState state, DedicatedServerCatalog catalog) => Results.Json(new
             {
@@ -249,6 +261,7 @@ public class Program
                 state.Options.HostId,
                 state.Options.HostName,
                 state.Options.Version,
+                headless = state.Options.Headless,
                 baseUrl = string.IsNullOrWhiteSpace(state.CurrentManifest.BaseUrl)
                     ? state.Options.BaseUrl
                     : state.CurrentManifest.BaseUrl,
@@ -259,6 +272,15 @@ public class Program
                         or DedicatedServerProcessState.Running
                         or DedicatedServerProcessState.Restarting
                         or DedicatedServerProcessState.Stopping),
+            }));
+
+            app.MapGet("/api/ready", (WebServiceState state, DedicatedServerCatalog catalog) => Results.Json(new
+            {
+                status = "ready",
+                state.Options.WorkerId,
+                state.Options.Version,
+                headless = state.Options.Headless,
+                configuredServers = catalog.GetServers().Count,
             }));
 
             app.MapGet("/api/discovery", (WebServiceState state) =>
@@ -333,39 +355,42 @@ public class Program
                 backupDownloadByName.RequireAuthorization(QuasarPolicyNames.CanManageSecurity);
             }
 
-            app.MapGet("/login", (HttpContext context) =>
+            if (!webServiceOptions.Headless)
             {
-                if (!authOptions.Enabled)
+                app.MapGet("/login", (HttpContext context) =>
+                {
+                    if (!authOptions.Enabled)
+                        return Results.Redirect("/");
+
+                    var forceSteam = bool.TryParse(context.Request.Query["forceSteam"], out var parsedForceSteam) && parsedForceSteam;
+                    if (context.User.Identity?.IsAuthenticated == true && !forceSteam)
+                        return Results.Redirect(SanitizeReturnUrl(context.Request.Query["returnUrl"]));
+
+                    if (!authOptions.Steam.Enabled ||
+                        !string.Equals(authOptions.DefaultProvider, QuasarAuthSchemes.Steam, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Results.Content(CreateLoginUnavailableHtml(), "text/html");
+                    }
+
+                    return Results.Challenge(new AuthenticationProperties
+                    {
+                        RedirectUri = SanitizeReturnUrl(context.Request.Query["returnUrl"]),
+                        IsPersistent = true,
+                    }, [SteamAuthenticationDefaults.AuthenticationScheme]);
+                }).AllowAnonymous();
+
+                app.MapGet("/logout", async (HttpContext context) =>
+                {
+                    await context.SignOutAsync(QuasarAuthSchemes.Cookie);
                     return Results.Redirect("/");
+                }).AllowAnonymous();
 
-                var forceSteam = bool.TryParse(context.Request.Query["forceSteam"], out var parsedForceSteam) && parsedForceSteam;
-                if (context.User.Identity?.IsAuthenticated == true && !forceSteam)
-                    return Results.Redirect(SanitizeReturnUrl(context.Request.Query["returnUrl"]));
-
-                if (!authOptions.Steam.Enabled ||
-                    !string.Equals(authOptions.DefaultProvider, QuasarAuthSchemes.Steam, StringComparison.OrdinalIgnoreCase))
-                {
-                    return Results.Content(CreateLoginUnavailableHtml(), "text/html");
-                }
-
-                return Results.Challenge(new AuthenticationProperties
-                {
-                    RedirectUri = SanitizeReturnUrl(context.Request.Query["returnUrl"]),
-                    IsPersistent = true,
-                }, [SteamAuthenticationDefaults.AuthenticationScheme]);
-            }).AllowAnonymous();
-
-            app.MapGet("/logout", async (HttpContext context) =>
-            {
-                await context.SignOutAsync(QuasarAuthSchemes.Cookie);
-                return Results.Redirect("/");
-            }).AllowAnonymous();
-
-            app.MapGet("/access-denied", () => Results.Content(
-                    CreateAccessDeniedHtml(),
-                    "text/html",
-                    statusCode: StatusCodes.Status403Forbidden))
-                .AllowAnonymous();
+                app.MapGet("/access-denied", () => Results.Content(
+                        CreateAccessDeniedHtml(),
+                        "text/html",
+                        statusCode: StatusCodes.Status403Forbidden))
+                    .AllowAnonymous();
+            }
 
             app.MapPost("/api/internal/drain", (HttpContext context, DedicatedServerSupervisor supervisor, QuasarShutdownService shutdownService, IHostApplicationLifetime lifetime, TrustedNetworkEvaluator trustedNetworkEvaluator) =>
             {
@@ -422,48 +447,65 @@ public class Program
                 await socketHandler.HandleAsync(context);
             });
 
-            app.MapStaticAssets();
-
-            // Runtime-uploaded branding assets live in the Quasar install root
-            // so web-service updates do not replace custom logos or favicons.
-            var brandingAssetsDirectory = MagnetarPaths.GetQuasarBrandingDirectory();
-            Directory.CreateDirectory(brandingAssetsDirectory);
-            app.UseStaticFiles(new StaticFileOptions
+            if (uiPluginCatalog != null)
             {
-                FileProvider = new PhysicalFileProvider(brandingAssetsDirectory),
-                RequestPath = "/branding",
-            });
-            uiPluginCatalog.UsePluginStaticAssets(app);
-            uiPluginCatalog.ConfigurePluginEndpoints(app);
+                app.MapStaticAssets();
 
-            var razorComponents = app.MapRazorComponents<App>()
-                .AddInteractiveServerRenderMode()
-                .AddAdditionalAssemblies(uiPluginCatalog.RazorAssemblies.ToArray());
-            if (authOptions.Enabled)
-                razorComponents.RequireAuthorization(QuasarPolicyNames.CanView);
+                // Runtime-uploaded branding assets live in the Quasar install root
+                // so web-service updates do not replace custom logos or favicons.
+                var brandingAssetsDirectory = MagnetarPaths.GetQuasarBrandingDirectory();
+                Directory.CreateDirectory(brandingAssetsDirectory);
+                app.UseStaticFiles(new StaticFileOptions
+                {
+                    FileProvider = new PhysicalFileProvider(brandingAssetsDirectory),
+                    RequestPath = "/branding",
+                });
+                uiPluginCatalog.UsePluginStaticAssets(app);
+                uiPluginCatalog.ConfigurePluginEndpoints(app);
+
+                var razorComponents = app.MapRazorComponents<App>()
+                    .AddInteractiveServerRenderMode()
+                    .AddAdditionalAssemblies(uiPluginCatalog.RazorAssemblies.ToArray());
+                if (authOptions.Enabled)
+                    razorComponents.RequireAuthorization(QuasarPolicyNames.CanView);
+            }
+            else
+            {
+                app.MapGet("/", (WebServiceOptions options) => Results.Json(new
+                {
+                    service = WebServiceOptions.SupervisorName,
+                    options.Version,
+                    mode = "headless",
+                    api = "/api",
+                    health = "/api/health",
+                    readiness = "/api/ready",
+                }));
+            }
 
             var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
-            if (uiPluginCatalog.SafeMode)
+            if (uiPluginCatalog?.SafeMode == true)
             {
                 startupLogger.LogWarning(
                     "Quasar UI plugin safe mode is enabled. Reasons={Reasons}",
                     string.Join("; ", uiPluginCatalog.SafeModeReasons));
             }
-            else
+            else if (uiPluginCatalog != null)
             {
                 startupLogger.LogInformation(
                     "Quasar UI plugin catalog initialized. PluginCount={PluginCount}.",
                     uiPluginCatalog.LoadedPlugins.Count);
             }
 
-            foreach (var loadError in uiPluginCatalog.LoadErrors)
-                startupLogger.LogWarning("Quasar UI plugin load failed: {Error}", loadError);
+            if (uiPluginCatalog != null)
+                foreach (var loadError in uiPluginCatalog.LoadErrors)
+                    startupLogger.LogWarning("Quasar UI plugin load failed: {Error}", loadError);
 
             startupLogger.LogInformation(
-                "Quasar {Version} starting. BootstrapVersion={BootstrapVersion}; HostId={HostId}; InstallRoot={InstallRoot}.",
+                "Quasar {Version} starting. BootstrapVersion={BootstrapVersion}; HostId={HostId}; Headless={Headless}; InstallRoot={InstallRoot}.",
                 webServiceOptions.Version,
                 string.IsNullOrWhiteSpace(webServiceOptions.BootstrapVersion) ? "none" : webServiceOptions.BootstrapVersion,
                 webServiceOptions.HostId,
+                webServiceOptions.Headless,
                 MagnetarPaths.GetQuasarDirectory());
 
             using var gracefulShutdownSignals = RegisterGracefulShutdownSignals(app.Services);
@@ -487,6 +529,18 @@ public class Program
             LogManager.Shutdown();
         }
     }
+
+    internal static string[] NormalizeWorkerArguments(IEnumerable<string> args) => args.Select(argument =>
+    {
+        if (string.Equals(argument, "--headless", StringComparison.OrdinalIgnoreCase))
+            return "--Quasar:Headless=true";
+        if (string.Equals(argument, "--no-headless", StringComparison.OrdinalIgnoreCase))
+            return "--Quasar:Headless=false";
+        const string prefix = "--headless=";
+        return argument.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? "--Quasar:Headless=" + argument[prefix.Length..]
+            : argument;
+    }).ToArray();
 
     private static bool ShouldUseSourceStaticWebAssets()
     {

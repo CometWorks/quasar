@@ -36,6 +36,9 @@ internal static class Program
         var openBrowser = args.Any(static arg => string.Equals(arg, "--open-browser", StringComparison.OrdinalIgnoreCase));
         var force = args.Any(static arg => string.Equals(arg, "--force", StringComparison.OrdinalIgnoreCase));
         var service = args.Any(static arg => string.Equals(arg, "--service", StringComparison.OrdinalIgnoreCase));
+        var headless = args.Any(static arg => string.Equals(arg, "--headless", StringComparison.OrdinalIgnoreCase))
+                       || bool.TryParse(Environment.GetEnvironmentVariable("QUASAR_HEADLESS"), out var environmentHeadless)
+                       && environmentHeadless;
         var explicitForeground = args.Any(static arg =>
             string.Equals(arg, "--foreground", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(arg, "--console", StringComparison.OrdinalIgnoreCase));
@@ -48,9 +51,9 @@ internal static class Program
 
         return command.ToLowerInvariant() switch
         {
-            EnsureRunningCommand => await EnsureRunningAsync(quiet, openBrowser, force, foreground),
-            ServeCommand => await ServeAsync(quiet, foreground, service),
-            ActivateReleaseCommand => await ActivateReleaseAsync(args, quiet),
+            EnsureRunningCommand => await EnsureRunningAsync(quiet, openBrowser, force, foreground, headless),
+            ServeCommand => await ServeAsync(quiet, foreground, service, headless),
+            ActivateReleaseCommand => await ActivateReleaseAsync(args, quiet, headless),
             _ => InvalidUsage(quiet),
         };
     }
@@ -67,13 +70,14 @@ internal static class Program
         }
     }
 
-    private static async Task<int> EnsureRunningAsync(bool quiet, bool openBrowser = false, bool force = false, bool foreground = false)
+    private static async Task<int> EnsureRunningAsync(bool quiet, bool openBrowser = false, bool force = false,
+        bool foreground = false, bool headless = false)
     {
         var existing = await TryGetHealthyServiceUriAsync().ConfigureAwait(false);
         if (existing is not null)
         {
             if (!force)
-                return Complete(existing, quiet, openBrowser);
+                return Complete(existing, quiet, openBrowser, headless);
 
             if (!quiet)
             {
@@ -98,7 +102,7 @@ internal static class Program
         if (existing is not null)
         {
             if (!force)
-                return Complete(existing, quiet, openBrowser);
+                return Complete(existing, quiet, openBrowser, headless);
 
             // Another server surfaced during the mutex wait; kill it too.
             await KillExistingServerAsync().ConfigureAwait(false);
@@ -119,7 +123,7 @@ internal static class Program
 
         if (foreground)
         {
-            if (openBrowser && !IsHeadless())
+            if (openBrowser && !headless && HasGraphicalSession())
             {
                 _ = Task.Run(async () =>
                 {
@@ -137,10 +141,10 @@ internal static class Program
                 });
             }
 
-            return await ServeAsync(quiet, foreground: true).ConfigureAwait(false);
+            return await ServeAsync(quiet, foreground: true, headless: headless).ConfigureAwait(false);
         }
 
-        if (!TryBuildBootstrapLaunchSpec(out var fileName, out var arguments, out var workingDirectory))
+        if (!TryBuildBootstrapLaunchSpec(headless, out var fileName, out var arguments, out var workingDirectory))
         {
             if (!quiet)
                 Console.Error.WriteLine("Quasar.Bootstrap could not locate its launcher entrypoint.");
@@ -155,7 +159,7 @@ internal static class Program
             await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
             existing = await TryGetHealthyServiceUriAsync().ConfigureAwait(false);
             if (existing is not null)
-                return Complete(existing, quiet, openBrowser);
+                return Complete(existing, quiet, openBrowser, headless);
         }
 
         if (!quiet)
@@ -189,7 +193,8 @@ internal static class Program
         }
     }
 
-    private static async Task<int> ServeAsync(bool quiet = false, bool foreground = false, bool service = false)
+    private static async Task<int> ServeAsync(bool quiet = false, bool foreground = false, bool service = false,
+        bool headless = false)
     {
         var existing = await TryGetHealthyServiceUriAsync().ConfigureAwait(false);
         if (existing is not null)
@@ -222,7 +227,7 @@ internal static class Program
 
         var coordinator = new LauncherCoordinator(
             options,
-            new LauncherForegroundOptions(foreground, service),
+            new LauncherForegroundOptions(foreground, service, headless),
             loggerFactory.CreateLogger<LauncherCoordinator>());
 
         using var shutdown = new CancellationTokenSource();
@@ -278,13 +283,13 @@ internal static class Program
         }
     }
 
-    private static async Task<int> ActivateReleaseAsync(string[] args, bool quiet)
+    private static async Task<int> ActivateReleaseAsync(string[] args, bool quiet, bool headless)
     {
         var fileName = GetOptionValue(args, "--file");
         if (string.IsNullOrWhiteSpace(fileName))
         {
             if (!quiet)
-                Console.Error.WriteLine("Usage: Quasar.Bootstrap activate-release --file <worker exe|dll> [--working-dir <dir>] [--args <worker args>] [--version <version>] [--quiet]");
+                Console.Error.WriteLine("Usage: Quasar.Bootstrap activate-release --file <worker exe|dll> [--working-dir <dir>] [--args <worker args>] [--version <version>] [--quiet] [--headless]");
 
             return 2;
         }
@@ -307,7 +312,7 @@ internal static class Program
         };
 
         WriteActiveReleasePointer(pointer);
-        var ensureResult = await EnsureRunningAsync(true).ConfigureAwait(false);
+        var ensureResult = await EnsureRunningAsync(true, headless: headless).ConfigureAwait(false);
         if (ensureResult != 0)
         {
             if (!quiet)
@@ -322,7 +327,7 @@ internal static class Program
         return 0;
     }
 
-    private static int Complete(Uri uri, bool quiet, bool openBrowser = false)
+    private static int Complete(Uri uri, bool quiet, bool openBrowser = false, bool headless = false)
     {
         if (!quiet)
         {
@@ -330,20 +335,19 @@ internal static class Program
             Console.WriteLine(uri.AbsoluteUri.TrimEnd('/'));
         }
 
-        if (openBrowser && !IsHeadless())
+        if (openBrowser && !headless && HasGraphicalSession())
             TryOpenBrowser(uri);
 
         return 0;
     }
 
-    private static bool IsHeadless()
+    private static bool HasGraphicalSession()
     {
         if (OperatingSystem.IsWindows())
-            return false;
+            return true;
 
-        // On Linux/macOS, require a display server to be present.
-        return string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"))
-               && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
+        return !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"))
+               || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
     }
 
     private static void TryOpenBrowser(Uri uri)
@@ -393,7 +397,7 @@ internal static class Program
     private static int InvalidUsage(bool quiet)
     {
         if (!quiet)
-            Console.Error.WriteLine("Usage: Quasar.Bootstrap [ensure-running|serve|activate-release] [options]");
+            Console.Error.WriteLine("Usage: Quasar.Bootstrap [ensure-running|serve|activate-release] [options] [--headless]");
 
         return 2;
     }
@@ -434,7 +438,8 @@ internal static class Program
         }
     }
 
-    private static bool TryBuildBootstrapLaunchSpec(out string fileName, out string arguments, out string workingDirectory)
+    private static bool TryBuildBootstrapLaunchSpec(bool headless, out string fileName, out string arguments,
+        out string workingDirectory)
     {
         var entryAssemblyName = Assembly.GetEntryAssembly()?.GetName().Name;
         var entryAssemblyPath = string.IsNullOrWhiteSpace(entryAssemblyName)
@@ -461,7 +466,7 @@ internal static class Program
             (string.IsNullOrWhiteSpace(processPath) || IsDotNetHost(processPath)))
         {
             fileName = string.IsNullOrWhiteSpace(processPath) ? "dotnet" : processPath;
-            arguments = $"\"{entryAssemblyPath}\" {ServeCommand} --quiet";
+            arguments = $"\"{entryAssemblyPath}\" {ServeCommand} --quiet{HeadlessArgument(headless)}";
             workingDirectory = Path.GetDirectoryName(entryAssemblyPath) ?? AppContext.BaseDirectory;
             return true;
         }
@@ -472,7 +477,7 @@ internal static class Program
         if (!string.IsNullOrWhiteSpace(processPath) && !IsDotNetHost(processPath))
         {
             fileName = processPath;
-            arguments = $"{ServeCommand} --quiet";
+            arguments = $"{ServeCommand} --quiet{HeadlessArgument(headless)}";
             workingDirectory = Path.GetDirectoryName(processPath) ?? AppContext.BaseDirectory;
             return true;
         }
@@ -480,7 +485,7 @@ internal static class Program
         if (!string.IsNullOrWhiteSpace(entryAssemblyPath))
         {
             fileName = entryAssemblyPath;
-            arguments = $"{ServeCommand} --quiet";
+            arguments = $"{ServeCommand} --quiet{HeadlessArgument(headless)}";
             workingDirectory = Path.GetDirectoryName(entryAssemblyPath) ?? AppContext.BaseDirectory;
             return true;
         }
@@ -490,6 +495,8 @@ internal static class Program
         workingDirectory = string.Empty;
         return false;
     }
+
+    private static string HeadlessArgument(bool headless) => headless ? " --headless" : string.Empty;
 
     private static string? GetOptionValue(IReadOnlyList<string> args, string optionName)
     {
@@ -1270,7 +1277,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             {
                 _logger.LogInformation("Spawning detached replacement launcher {Path}.", launcherPath);
                 var serviceFlag = _foregroundOptions.IsService ? " --service" : "";
-                Program.StartDetachedProcess(launcherPath, $"serve --quiet{serviceFlag}", AppContext.BaseDirectory);
+                var headlessFlag = _foregroundOptions.Headless ? " --headless" : "";
+                Program.StartDetachedProcess(launcherPath, $"serve --quiet{serviceFlag}{headlessFlag}", AppContext.BaseDirectory);
                 Environment.Exit(0);
                 return;
             }
@@ -1823,6 +1831,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         };
 
         startInfo.Environment["QUASAR_OPEN_BROWSER_ON_START"] = "false";
+        startInfo.Environment["QUASAR_HEADLESS"] = _foregroundOptions.Headless ? "true" : "false";
         startInfo.Environment["QUASAR_MODE"] = "service";
         startInfo.Environment["QUASAR_LAUNCHER_TOKEN"] = _launcherToken;
         startInfo.Environment["QUASAR_BOOTSTRAP_VERSION"] = _options.Version;
@@ -2611,4 +2620,4 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private sealed record WorkerProcessHandle(Process Process, Uri BaseUri, QuasarActiveReleasePointer Release, DateTimeOffset StartedAtUtc);
 }
 
-internal sealed record LauncherForegroundOptions(bool IsForeground, bool IsService = false);
+internal sealed record LauncherForegroundOptions(bool IsForeground, bool IsService = false, bool Headless = false);

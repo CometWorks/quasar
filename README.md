@@ -1,7 +1,7 @@
 # Quasar
 
-Quasar is a supervisor and management stack for **Space Engineers** (version 1)
-dedicated servers. It runs as a Blazor Server web app that supervises multiple DS
+Quasar is an API-first supervisor and management stack for **Space Engineers** (version 1)
+dedicated servers, with an optional Blazor Server UI. It supervises multiple DS
 processes on a single host — starting, stopping, health-checking, configuring, and
 auto-updating them through goal-state reconciliation — while an in-process plugin
 (`Quasar.Agent`) attaches to each server to report telemetry and execute commands.
@@ -30,7 +30,7 @@ from the terminal, and install it as a background service.
 | --- | --- |
 | [Quick Start](Docs/QuickStart.md) | Download, run from the terminal, and install as a background service (systemd / Scheduled Task). |
 | [Architecture](Docs/QuasarArchitecture.md) | Supervisor design, runtime ownership, process supervision, configuration model, and self-update. |
-| [Configuration](Docs/Configuration.md) | Web UI host/port (how to change the listening port) and browser auto-open behavior. |
+| [Configuration](Docs/Configuration.md) | API/UI host and port, API-only headless mode, and browser auto-open behavior. |
 | [Quasar Plugin System](Docs/QuasarPluginSystem.md) | Planned UI plugin loader, hub manifest model, component replacement points, companion data channel, and MudBlazor expectations. |
 | [Entity Viewer](https://github.com/CometWorks/viewer/blob/main/Docs/EntityViewer.md) | Fullscreen metadata-only entity viewer, local Space Engineers `Content` folder requirement, and fallback behavior. |
 | [Building & Development](Docs/BuildingAndDevelopment.md) | Project layout, build setup, managed-runtime selection, and developer utilities. |

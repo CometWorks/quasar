@@ -428,3 +428,23 @@ controls whether an **interactive console** worker auto-opens the browser. It ha
 no effect in service mode (services force it off). The developer launch profile
 (`Quasar.Bootstrap/Properties/launchSettings.json`) still requests auto-open via
 `ensure-running --open-browser` for convenience when running from an IDE.
+
+## API-only headless mode
+
+Use `Quasar serve --headless` for dark-factory and other unattended automation.
+The launcher propagates the mode across worker launches and self-updates. The same
+mode can be configured with `Quasar:Headless=true` or `QUASAR_HEADLESS=true`.
+
+Headless mode runs the normal supervisor, catalogs, background jobs, HTTP APIs,
+and `/ws/agent`, but does not load Razor components, UI plugins, branding assets,
+or static web assets. It does not open a browser. Existing configuration profiles,
+world templates, server definitions, and data paths are unchanged, so switching
+between UI and headless operation does not convert or duplicate state.
+
+- `GET /api/health` is process liveness and reports `headless`.
+- `GET /api/ready` confirms that the API worker and its durable server catalog are
+  ready for queries.
+- `GET /` returns a small JSON discovery document instead of the UI.
+
+Authentication and authorization remain enabled exactly as configured; headless
+mode is not an authentication bypass.
