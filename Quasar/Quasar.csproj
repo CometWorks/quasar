@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Magnetar.Protocol\Magnetar.Protocol.csproj" />
+    <ProjectReference Include="..\Quasar.Host.Contract\Quasar.Host.Contract.csproj" />
     <ProjectReference Include="..\Quasar.Plugin.Abstractions\Quasar.Plugin.Abstractions.csproj" />
   </ItemGroup>
 

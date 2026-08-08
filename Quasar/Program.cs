@@ -170,6 +170,8 @@ public class Program
             builder.Services.AddHttpClient();
             builder.Services.AddHttpClient<ClusterGatewayClient>(client =>
                 client.Timeout = TimeSpan.FromSeconds(30));
+            builder.Services.AddHttpClient<ClusterHostClient>(client =>
+                client.Timeout = TimeSpan.FromSeconds(30));
             builder.Services.AddSingleton(webServiceOptions);
             builder.Services.AddSingleton(managedRuntimeOptions);
             builder.Services.AddSingleton(updateOptions);

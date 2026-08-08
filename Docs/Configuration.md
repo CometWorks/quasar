@@ -479,6 +479,8 @@ variable at query time.
   "displayName": "Production cluster",
   "gatewayUrl": "https://cluster-gateway.internal:8443",
   "gatewayAdminTokenEnvironmentVariable": "PRODUCTION_GATEWAY_ADMIN_TOKEN",
+  "hostCommandUrl": "http://127.0.0.1:28400",
+  "hostCommandTokenEnvironmentVariable": "PRODUCTION_HOST_COMMAND_TOKEN",
   "configProfileId": "survival",
   "worldTemplateId": "main-world"
 }
@@ -494,6 +496,8 @@ and headless operation:
 - `GET /api/v1/clusters/{uniqueName}/recovery-readiness`
 - `GET /api/v1/clusters/{uniqueName}/config`
 - `PUT /api/v1/clusters/{uniqueName}/config`
+- `GET /api/v1/clusters/{uniqueName}/host`
+- `PUT /api/v1/clusters/{uniqueName}/host/attachment`
 - `GET /api/v1/clusters/{uniqueName}/operations/{operationId}`
 
 Responses preserve the Gateway envelope, capture time, string enum values, and
@@ -557,6 +561,10 @@ environment. One process may attach to multiple clusters:
   "hostId": "host-a",
   "pollIntervalSeconds": 2,
   "stateDirectory": "/var/lib/quasar-host",
+  "command": {
+    "url": "http://127.0.0.1:28400",
+    "tokenEnvironmentVariable": "PRODUCTION_HOST_COMMAND_TOKEN"
+  },
   "attachments": [
     {
       "clusterId": "production",
@@ -574,6 +582,13 @@ Run `Quasar.Host run --config host.json`; `--once` performs one deterministic
 plan/heartbeat cycle for deployment checks. Omitting all three bundle/run-root fields
 keeps an attachment in commissioning mode: it authenticates and heartbeats but does not
 claim process state.
+
+The optional `command` listener is the Quasar-to-Host control seam. It accepts only an
+HTTP loopback origin and bearer authentication from the named environment variable; the
+raw token is never stored in either JSON file. Quasar uses it for Host status and durable,
+idempotent attachment updates. Operators can inspect the same contract directly with
+`Quasar.Host status --url URL --token-env ENV` or apply an attachment file with
+`Quasar.Host attachment apply --url URL --token-env ENV --file FILE`.
 
 With a bundle configured, Host verifies the pinned manifest SHA-256 and every file hash,
 then uses its per-slot immutable spawn specifications. Each specification declares the

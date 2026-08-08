@@ -3,6 +3,7 @@ using Quasar.Services.Auth;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Admin = CometWorks.ClusterGateway.AdminContract.V1;
+using HostContract = global::Quasar.Host.Contract.V1;
 
 namespace Quasar.Services;
 
@@ -52,12 +53,16 @@ internal static class ClusterApi
         routes.MapGet("/{uniqueName}/config", (string uniqueName, HttpContext context,
             ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken cancellationToken) =>
             Query(uniqueName, context, catalog, client.GetPolicyAsync, cancellationToken));
+        routes.MapGet("/{uniqueName}/host", GetHostStatus);
         RouteHandlerBuilder setConfig = routes.MapPut("/{uniqueName}/config", SetPolicy);
+        RouteHandlerBuilder applyAttachment = routes.MapPut(
+            "/{uniqueName}/host/attachment", ApplyHostAttachment);
         routes.MapGet("/{uniqueName}/operations/{operationId}", GetOperation);
         if (authOptions.Enabled)
         {
             routes.RequireAuthorization(QuasarPolicyNames.ClusterQuery);
             setConfig.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            applyAttachment.RequireAuthorization(QuasarPolicyNames.ClusterManage);
         }
     }
 
@@ -99,6 +104,68 @@ internal static class ClusterApi
                 context.Request.Headers["Idempotency-Key"].ToString(),
                 context.User.Identity?.Name ?? "anonymous", policy,
                 token => client.SetPolicyAsync(cluster, policy, token), cancellationToken);
+            context.Response.Headers.Location = $"/api/v1/clusters/{Uri.EscapeDataString(uniqueName)}"
+                + $"/operations/{operation.OperationId}";
+            return Results.Json(Envelope(operation), JsonOptions, statusCode: StatusCodes.Status202Accepted);
+        }
+        catch (ClusterOperationConflictException exception)
+        {
+            return Error(exception.StatusCode, exception.Code, exception.Message);
+        }
+        catch (ClusterOperationStoreUnavailableException exception)
+        {
+            return Error(StatusCodes.Status503ServiceUnavailable, "operation_store_unavailable", exception.Message);
+        }
+    }
+
+    private static async Task<IResult> GetHostStatus(string uniqueName, HttpContext context,
+        ClusterCatalog catalog, ClusterHostClient client, CancellationToken cancellationToken)
+    {
+        SetProtocolHeader(context);
+        ClusterDefinition? cluster = catalog.GetCluster(uniqueName);
+        if (cluster == null)
+            return Error(StatusCodes.Status404NotFound, "unknown_cluster", $"Unknown cluster '{uniqueName}'.");
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(StatusCodes.Status403Forbidden, "cluster_forbidden",
+                "The credential cannot access this cluster.");
+        try
+        {
+            HostContract.HostEnvelope<HostContract.HostStatus> result =
+                await client.GetStatusAsync(cluster, cancellationToken);
+            return Results.Json(new Admin.AdminEnvelope<HostContract.HostStatus>(
+                Admin.AdminProtocol.Version, result.CapturedAt, result.Data), JsonOptions);
+        }
+        catch (ClusterHostException exception)
+        {
+            return Error((int)exception.StatusCode, exception.Code, exception.Message);
+        }
+    }
+
+    private static async Task<IResult> ApplyHostAttachment(string uniqueName,
+        HostContract.HostAttachmentSpec attachment, HttpContext context, ClusterCatalog catalog,
+        ClusterHostClient client, ClusterOperationStore operations, CancellationToken cancellationToken)
+    {
+        SetProtocolHeader(context);
+        ClusterDefinition? cluster = catalog.GetCluster(uniqueName);
+        if (cluster == null)
+            return Error(StatusCodes.Status404NotFound, "unknown_cluster", $"Unknown cluster '{uniqueName}'.");
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(StatusCodes.Status403Forbidden, "cluster_forbidden",
+                "The credential cannot access this cluster.");
+        if (!string.Equals(attachment.ClusterId, uniqueName, StringComparison.OrdinalIgnoreCase))
+            return Error(StatusCodes.Status400BadRequest, "cluster_id_mismatch",
+                "Host attachment cluster ID must match the route cluster.");
+        try
+        {
+            ClusterOperation operation = await operations.ExecuteAsync(uniqueName,
+                "cluster.host.attachment.apply", context.Request.Headers["Idempotency-Key"].ToString(),
+                context.User.Identity?.Name ?? "anonymous", attachment, async token =>
+                {
+                    HostContract.HostEnvelope<HostContract.HostAttachmentStatus> result =
+                        await client.ApplyAttachmentAsync(cluster, attachment, token);
+                    return new Admin.AdminEnvelope<HostContract.HostAttachmentStatus>(
+                        Admin.AdminProtocol.Version, result.CapturedAt, result.Data);
+                }, cancellationToken);
             context.Response.Headers.Location = $"/api/v1/clusters/{Uri.EscapeDataString(uniqueName)}"
                 + $"/operations/{operation.OperationId}";
             return Results.Json(Envelope(operation), JsonOptions, statusCode: StatusCodes.Status202Accepted);

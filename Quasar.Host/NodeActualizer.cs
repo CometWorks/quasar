@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Admin = CometWorks.ClusterGateway.AdminContract.V1;
+using HostContract = global::Quasar.Host.Contract.V1;
 
 namespace Quasar.Host;
 
@@ -27,7 +28,7 @@ internal sealed class NodeActualizer
         _hostId = hostId;
     }
 
-    public async Task<Admin.ExecutorObservation[]> ReconcileAsync(ClusterAttachment attachment,
+    public async Task<Admin.ExecutorObservation[]> ReconcileAsync(HostContract.HostAttachmentSpec attachment,
         Admin.NodePlan[] plan, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(attachment.BundleManifestPath))
@@ -42,7 +43,7 @@ internal sealed class NodeActualizer
         return observations.ToArray();
     }
 
-    private async Task<Admin.ExecutorObservation> ReconcileSlotAsync(ClusterAttachment attachment,
+    private async Task<Admin.ExecutorObservation> ReconcileSlotAsync(HostContract.HostAttachmentSpec attachment,
         Admin.NodePlan plan, CancellationToken cancellationToken)
     {
         LaunchRecord? record;
@@ -142,7 +143,7 @@ internal sealed class NodeActualizer
         return await SpawnAsync(attachment, plan, cancellationToken);
     }
 
-    private Task<Admin.ExecutorObservation> SpawnAsync(ClusterAttachment attachment,
+    private Task<Admin.ExecutorObservation> SpawnAsync(HostContract.HostAttachmentSpec attachment,
         Admin.NodePlan plan, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -255,7 +256,7 @@ internal sealed class NodeActualizer
         }
     }
 
-    private static ProcessStartInfo CreateStartInfo(ClusterAttachment attachment, Admin.NodePlan plan,
+    private static ProcessStartInfo CreateStartInfo(HostContract.HostAttachmentSpec attachment, Admin.NodePlan plan,
         NodeSpawnSpec spec, string bundleRoot, string runDirectory, string readyPath,
         string attemptKey, string executablePath)
     {
@@ -298,7 +299,7 @@ internal sealed class NodeActualizer
         return start;
     }
 
-    private Bundle LoadAndVerifyBundle(ClusterAttachment attachment)
+    private Bundle LoadAndVerifyBundle(HostContract.HostAttachmentSpec attachment)
     {
         BundleManifest manifest = ReadManifest(attachment);
         string root = Path.GetDirectoryName(Path.GetFullPath(attachment.BundleManifestPath!))!;
@@ -319,7 +320,7 @@ internal sealed class NodeActualizer
         return new Bundle(root, manifest, files);
     }
 
-    private static BundleManifest? TryReadManifest(ClusterAttachment attachment)
+    private static BundleManifest? TryReadManifest(HostContract.HostAttachmentSpec attachment)
     {
         try
         {
@@ -332,7 +333,7 @@ internal sealed class NodeActualizer
         }
     }
 
-    private static BundleManifest ReadManifest(ClusterAttachment attachment)
+    private static BundleManifest ReadManifest(HostContract.HostAttachmentSpec attachment)
     {
         byte[] bytes = File.ReadAllBytes(Path.GetFullPath(attachment.BundleManifestPath!));
         string actual = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
@@ -362,7 +363,7 @@ internal sealed class NodeActualizer
             throw new InvalidDataException("Ready timeout must be between 1 and 1800 seconds");
     }
 
-    private string EnsureRunDirectory(ClusterAttachment attachment, string slotKey)
+    private string EnsureRunDirectory(HostContract.HostAttachmentSpec attachment, string slotKey)
     {
         string root = Path.GetFullPath(attachment.RunRoot!);
         Directory.CreateDirectory(root);
@@ -395,7 +396,7 @@ internal sealed class NodeActualizer
         return port == 0 ? null : port;
     }
 
-    private ReadyReceipt? ReadReadyReceipt(ClusterAttachment attachment, string slotKey)
+    private ReadyReceipt? ReadReadyReceipt(HostContract.HostAttachmentSpec attachment, string slotKey)
     {
         string path = Path.Combine(Path.GetFullPath(attachment.RunRoot!), SafeName(slotKey), ReadyFileName);
         if (!File.Exists(path))
@@ -512,12 +513,20 @@ internal sealed class NodeActualizer
     private static string ResolveBundlePath(string root, string relative)
     {
         string normalized = NormalizeRelativePath(relative);
-        string path = Path.GetFullPath(Path.Combine(root, normalized));
-        string prefix = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar)
+        string fullRoot = Path.GetFullPath(root);
+        string path = Path.GetFullPath(Path.Combine(fullRoot, normalized));
+        string prefix = fullRoot.TrimEnd(Path.DirectorySeparatorChar)
             + Path.DirectorySeparatorChar;
         if (!path.StartsWith(prefix, OperatingSystem.IsWindows()
                 ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
             throw new InvalidDataException("Bundle path escapes its root");
+        string current = fullRoot;
+        foreach (string segment in normalized.Split('/'))
+        {
+            current = Path.Combine(current, segment);
+            if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("Bundle paths must not contain symbolic links");
+        }
         return path;
     }
 

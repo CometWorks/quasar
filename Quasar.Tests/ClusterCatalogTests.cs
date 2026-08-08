@@ -22,6 +22,8 @@ public sealed class ClusterCatalogTests : IDisposable
           "displayName": "",
           "gatewayUrl": "https://gateway.test/",
           "gatewayAdminTokenEnvironmentVariable": null,
+          "hostCommandUrl": "http://host.test:28400/",
+          "hostCommandTokenEnvironmentVariable": " HOST_TOKEN ",
           "configProfileId": " survival ",
           "worldTemplateId": null
         }
@@ -34,6 +36,8 @@ public sealed class ClusterCatalogTests : IDisposable
         Assert.Equal("demo", cluster.DisplayName);
         Assert.Equal("https://gateway.test", cluster.GatewayUrl);
         Assert.Equal(string.Empty, cluster.GatewayAdminTokenEnvironmentVariable);
+        Assert.Equal("http://host.test:28400", cluster.HostCommandUrl);
+        Assert.Equal("HOST_TOKEN", cluster.HostCommandTokenEnvironmentVariable);
         Assert.Equal("survival", cluster.ConfigProfileId);
         Assert.Equal(string.Empty, cluster.WorldTemplateId);
     }

@@ -6,6 +6,8 @@ public sealed class ClusterDefinition
     public string DisplayName { get; set; } = string.Empty;
     public string GatewayUrl { get; set; } = string.Empty;
     public string GatewayAdminTokenEnvironmentVariable { get; set; } = string.Empty;
+    public string HostCommandUrl { get; set; } = string.Empty;
+    public string HostCommandTokenEnvironmentVariable { get; set; } = string.Empty;
     public string ConfigProfileId { get; set; } = string.Empty;
     public string WorldTemplateId { get; set; } = string.Empty;
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
@@ -16,6 +18,8 @@ public sealed class ClusterDefinition
         DisplayName = DisplayName,
         GatewayUrl = GatewayUrl,
         GatewayAdminTokenEnvironmentVariable = GatewayAdminTokenEnvironmentVariable,
+        HostCommandUrl = HostCommandUrl,
+        HostCommandTokenEnvironmentVariable = HostCommandTokenEnvironmentVariable,
         ConfigProfileId = ConfigProfileId,
         WorldTemplateId = WorldTemplateId,
         UpdatedAtUtc = UpdatedAtUtc,

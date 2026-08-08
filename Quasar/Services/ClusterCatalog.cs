@@ -81,6 +81,15 @@ public sealed class ClusterCatalog : IDisposable
             throw new InvalidDataException("Cluster Gateway URL must be an absolute HTTP or HTTPS URL.");
         cluster.GatewayAdminTokenEnvironmentVariable =
             (cluster.GatewayAdminTokenEnvironmentVariable ?? string.Empty).Trim();
+        cluster.HostCommandUrl = (cluster.HostCommandUrl ?? string.Empty).Trim().TrimEnd('/');
+        cluster.HostCommandTokenEnvironmentVariable =
+            (cluster.HostCommandTokenEnvironmentVariable ?? string.Empty).Trim();
+        if (cluster.HostCommandUrl.Length != 0
+            && (!Uri.TryCreate(cluster.HostCommandUrl, UriKind.Absolute, out Uri? hostCommand)
+                || hostCommand.Scheme is not ("http" or "https")))
+            throw new InvalidDataException("Cluster Host command URL must be an absolute HTTP or HTTPS URL.");
+        if (cluster.HostCommandUrl.Length != 0 && cluster.HostCommandTokenEnvironmentVariable.Length == 0)
+            throw new InvalidDataException("Cluster Host command credential environment variable is required.");
         cluster.ConfigProfileId = (cluster.ConfigProfileId ?? string.Empty).Trim();
         cluster.WorldTemplateId = (cluster.WorldTemplateId ?? string.Empty).Trim();
     }

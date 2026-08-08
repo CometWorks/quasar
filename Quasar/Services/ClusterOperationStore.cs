@@ -105,6 +105,15 @@ public sealed class ClusterOperationStore
                     Error = new ClusterOperationError(exception.Code, exception.Message),
                 };
             }
+            catch (ClusterHostException exception)
+            {
+                existing = existing with
+                {
+                    State = ClusterOperationState.Failed,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                    Error = new ClusterOperationError(exception.Code, exception.Message),
+                };
+            }
             _operations[existing.OperationId] = existing;
             await PersistAsync(existing, cancellationToken);
             return existing;

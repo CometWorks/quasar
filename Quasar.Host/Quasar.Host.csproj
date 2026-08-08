@@ -8,5 +8,6 @@
 
   <ItemGroup>
     <PackageReference Include="CometWorks.ClusterGateway.AdminContract" Version="0.4.0" />
+    <ProjectReference Include="..\Quasar.Host.Contract\Quasar.Host.Contract.csproj" />
   </ItemGroup>
 </Project>

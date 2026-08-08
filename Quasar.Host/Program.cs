@@ -7,12 +7,14 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Admin = CometWorks.ClusterGateway.AdminContract.V1;
+using HostContract = global::Quasar.Host.Contract.V1;
 
 namespace Quasar.Host;
 
 internal static class Program
 {
-    private const string Usage = "Usage: Quasar.Host run --config FILE [--once] | --self-test";
+    private const string Usage = "Usage: Quasar.Host run --config FILE [--once] | status ..."
+        + " | attachment apply ... | --self-test";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() },
@@ -27,6 +29,9 @@ internal static class Program
             await Task.Delay(Timeout.InfiniteTimeSpan);
             return 0;
         }
+        int? hostCommand = await HostCommandCli.TryRunAsync(args);
+        if (hostCommand.HasValue)
+            return hostCommand.Value;
         if (!TryParse(args, out string? path, out bool once))
         {
             Console.Error.WriteLine(Usage);
@@ -52,48 +57,69 @@ internal static class Program
         };
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
         var actualizer = new NodeActualizer(config.StateDirectory, config.HostId);
-        var connected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        do
+        AttachmentStore attachments;
+        HostCommandServer? commandServer = null;
+        try
         {
-            foreach (ClusterAttachment attachment in config.Attachments)
+            attachments = new AttachmentStore(config.StateDirectory, config.Attachments);
+            if (config.Command is not null)
             {
-                try
-                {
-                    await PollAsync(client, actualizer, config, attachment, shutdown.Token);
-                    if (once || connected.Add(attachment.ClusterId))
-                        Console.WriteLine($"cluster={attachment.ClusterId} executor={config.ExecutorId} heartbeat=accepted");
-                }
-                catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
-                {
-                    return 0;
-                }
-                catch (Exception exception) when (exception is HttpRequestException or IOException
-                    or JsonException or InvalidOperationException or UnauthorizedAccessException
-                    or CryptographicException)
-                {
-                    connected.Remove(attachment.ClusterId);
-                    Console.Error.WriteLine($"cluster={attachment.ClusterId} error={exception.Message}");
-                    if (once)
-                        return 4;
-                }
+                commandServer = new HostCommandServer(config.Command, config, attachments);
+                commandServer.Start(shutdown.Token);
             }
-            if (!once)
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException
+            or InvalidOperationException or UnauthorizedAccessException or HttpListenerException)
+        {
+            Console.Error.WriteLine(exception.Message);
+            commandServer?.Dispose();
+            return 2;
+        }
+        using (commandServer)
+        {
+            var connected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            do
             {
-                try
+                foreach (HostContract.HostAttachmentSpec attachment in attachments.GetAll())
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(config.PollIntervalSeconds), shutdown.Token);
+                    try
+                    {
+                        await PollAsync(client, actualizer, config, attachment, shutdown.Token);
+                        if (once || connected.Add(attachment.ClusterId))
+                            Console.WriteLine($"cluster={attachment.ClusterId} executor={config.ExecutorId} heartbeat=accepted");
+                    }
+                    catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+                    {
+                        return 0;
+                    }
+                    catch (Exception exception) when (exception is HttpRequestException or IOException
+                        or JsonException or InvalidOperationException or UnauthorizedAccessException
+                        or CryptographicException)
+                    {
+                        connected.Remove(attachment.ClusterId);
+                        Console.Error.WriteLine($"cluster={attachment.ClusterId} error={exception.Message}");
+                        if (once)
+                            return 4;
+                    }
                 }
-                catch (OperationCanceledException)
+                if (!once)
                 {
-                    return 0;
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(config.PollIntervalSeconds), shutdown.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return 0;
+                    }
                 }
-            }
-        } while (!once);
+            } while (!once);
+        }
         return 0;
     }
 
     private static async Task PollAsync(HttpClient client, NodeActualizer actualizer, HostExecutorConfig config,
-        ClusterAttachment attachment, CancellationToken cancellationToken)
+        HostContract.HostAttachmentSpec attachment, CancellationToken cancellationToken)
     {
         string? token = Environment.GetEnvironmentVariable(attachment.TokenEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(token))
@@ -114,7 +140,7 @@ internal static class Program
     }
 
     private static async Task<Admin.AdminEnvelope<T>> SendAsync<T>(HttpClient client,
-        ClusterAttachment attachment, string token, HttpMethod method, string route,
+        HostContract.HostAttachmentSpec attachment, string token, HttpMethod method, string route,
         object? body, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(method, attachment.GatewayUrl.TrimEnd('/') + route);
@@ -160,10 +186,10 @@ internal static class Program
             throw new ArgumentException("ExecutorId and HostId are required");
         if (config.PollIntervalSeconds is < 1 or > 300)
             throw new ArgumentException("PollIntervalSeconds must be between 1 and 300");
-        ClusterAttachment[] attachments = config.Attachments ?? [];
+        HostContract.HostAttachmentSpec[] attachments = config.Attachments ?? [];
         if (attachments.Length == 0)
             throw new ArgumentException("At least one cluster attachment is required");
-        foreach (ClusterAttachment attachment in attachments)
+        foreach (HostContract.HostAttachmentSpec attachment in attachments)
         {
             if (string.IsNullOrWhiteSpace(attachment.ClusterId)
                 || string.IsNullOrWhiteSpace(attachment.TokenEnvironmentVariable)
@@ -187,14 +213,32 @@ internal static class Program
         string stateDirectory = string.IsNullOrWhiteSpace(config.StateDirectory)
             ? Path.Combine(configDirectory, "host-state")
             : ResolvePath(configDirectory, config.StateDirectory);
+        HostCommandConfig? command = config.Command;
+        if (command is not null)
+        {
+            string url = command.Url?.Trim().TrimEnd('/') ?? string.Empty;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? commandUri)
+                || commandUri.Scheme != "http" || commandUri.AbsolutePath != "/"
+                || !IsLoopbackHost(commandUri.Host))
+                throw new ArgumentException("Host command URL must be an HTTP loopback origin");
+            string tokenVariable = command.TokenEnvironmentVariable?.Trim() ?? string.Empty;
+            if (tokenVariable.Length == 0)
+                throw new ArgumentException("Host command credential environment variable is required");
+            command = command with { Url = url, TokenEnvironmentVariable = tokenVariable };
+        }
         return config with
         {
             ExecutorId = executorId,
             HostId = hostId,
             StateDirectory = stateDirectory,
             Attachments = attachments,
+            Command = command,
         };
     }
+
+    private static bool IsLoopbackHost(string host) =>
+        host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+        || IPAddress.TryParse(host, out IPAddress? address) && IPAddress.IsLoopback(address);
 
     private static string? ResolveOptionalPath(string directory, string? path) =>
         string.IsNullOrWhiteSpace(path) ? null : ResolvePath(directory, path);
@@ -223,7 +267,7 @@ internal static class Program
     private static async Task<int> SelfTestAsync()
     {
         HostExecutorConfig config = Normalize(new HostExecutorConfig("executor-a", "host-a", 2,
-            [new ClusterAttachment("demo", "http://127.0.0.1:28016", "DEMO_EXECUTOR_TOKEN")]),
+            [new HostContract.HostAttachmentSpec("demo", "http://127.0.0.1:28016", "DEMO_EXECUTOR_TOKEN")]),
             Path.GetTempPath());
         if (config.Attachments.Single().ClusterId != "demo"
             || !TryParse(["run", "--config", "host.json", "--once"], out string? path, out bool once)
@@ -231,9 +275,47 @@ internal static class Program
             throw new InvalidOperationException("self-test failed");
 
         string root = Path.Combine(Path.GetTempPath(), "quasar-host-selftest-" + Guid.NewGuid().ToString("N"));
+        const string commandTokenVariable = "QUASAR_HOST_SELF_TEST_TOKEN";
+        string? previousCommandToken = Environment.GetEnvironmentVariable(commandTokenVariable);
         int? childProcessId = null;
         try
         {
+            int commandPort;
+            var commandProbe = new TcpListener(IPAddress.Loopback, 0);
+            commandProbe.Start();
+            commandPort = ((IPEndPoint)commandProbe.LocalEndpoint).Port;
+            commandProbe.Stop();
+            string commandToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+            Environment.SetEnvironmentVariable(commandTokenVariable, commandToken);
+            string commandUrl = $"http://127.0.0.1:{commandPort}";
+            HostExecutorConfig commandConfig = config with
+            {
+                StateDirectory = Path.Combine(root, "command-state"),
+                Command = new HostCommandConfig(commandUrl, commandTokenVariable),
+            };
+            var attachmentStore = new AttachmentStore(commandConfig.StateDirectory, commandConfig.Attachments);
+            using (var commandShutdown = new CancellationTokenSource())
+            using (var commandServer = new HostCommandServer(commandConfig.Command, commandConfig, attachmentStore))
+            {
+                commandServer.Start(commandShutdown.Token);
+                using var commandClient = new HttpClient();
+                commandClient.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", commandToken);
+                using HttpResponseMessage status = await commandClient.GetAsync(
+                    commandUrl + HostContract.HostProtocol.StatusRoute);
+                if (!status.IsSuccessStatusCode
+                    || status.Headers.GetValues(HostContract.HostProtocol.HeaderName).Single() != "1")
+                    throw new InvalidOperationException("self-test host command status failed");
+                var updatedAttachment = new HostContract.HostAttachmentSpec("demo",
+                    "http://127.0.0.1:29000", "DEMO_EXECUTOR_TOKEN");
+                using HttpResponseMessage applied = await commandClient.PutAsJsonAsync(
+                    commandUrl + HostContract.HostProtocol.AttachmentRoute("demo"), updatedAttachment, JsonOptions);
+                if (!applied.IsSuccessStatusCode
+                    || attachmentStore.GetAll().Single().GatewayUrl != "http://127.0.0.1:29000")
+                    throw new InvalidOperationException("self-test host attachment apply failed");
+                commandShutdown.Cancel();
+            }
+
             string bundleRoot = Path.Combine(root, "bundle");
             string runRoot = Path.Combine(root, "runs");
             string stateRoot = Path.Combine(root, "state");
@@ -267,7 +349,7 @@ internal static class Program
             ]);
             string manifestPath = Path.Combine(bundleRoot, "manifest.json");
             File.WriteAllBytes(manifestPath, JsonSerializer.SerializeToUtf8Bytes(manifest, JsonOptions));
-            var attachment = new ClusterAttachment("demo", "http://127.0.0.1:28016",
+            var attachment = new HostContract.HostAttachmentSpec("demo", "http://127.0.0.1:28016",
                 "DEMO_EXECUTOR_TOKEN", manifestPath, ComputeSha256(manifestPath), runRoot);
             var wanted = new Admin.NodePlan("slot-a", "host-a", null, Admin.NodeRole.Regular,
                 Admin.NodeGoal.Wanted, Admin.NodeObservation.Missing, null, Admin.IncumbentAction.None,
@@ -317,9 +399,37 @@ internal static class Program
             if (blocked.State != Admin.NodeObservation.Failed
                 || !blocked.Failure!.StartsWith("unmanaged_conflict:", StringComparison.Ordinal))
                 throw new InvalidOperationException("self-test port conflict was not fail-closed");
+
+            if (!OperatingSystem.IsWindows())
+            {
+                const string linkedExecutable = "linked-host";
+                File.CreateSymbolicLink(Path.Combine(bundleRoot, linkedExecutable), executable);
+                var linkedManifest = manifest with
+                {
+                    Revision = "self-test-linked",
+                    Files = [.. files, new BundleFile(linkedExecutable, ComputeSha256(copiedExecutable))],
+                    Nodes =
+                    [
+                        new NodeSpawnSpec("slot-a", Admin.NodeRole.Regular, "node-a", linkedExecutable,
+                            string.Empty, ["--self-test-child"], [], [reservedPort], 30),
+                    ],
+                };
+                File.WriteAllBytes(manifestPath,
+                    JsonSerializer.SerializeToUtf8Bytes(linkedManifest, JsonOptions));
+                HostContract.HostAttachmentSpec linkedAttachment = attachment with
+                {
+                    BundleManifestSha256 = ComputeSha256(manifestPath),
+                };
+                Admin.ExecutorObservation linked = (await actualizer.ReconcileAsync(
+                    linkedAttachment, [wanted], CancellationToken.None)).Single();
+                if (linked.State != Admin.NodeObservation.Failed
+                    || !linked.Failure!.Contains("symbolic links", StringComparison.Ordinal))
+                    throw new InvalidOperationException("self-test bundle symlink was not rejected");
+            }
         }
         finally
         {
+            Environment.SetEnvironmentVariable(commandTokenVariable, previousCommandToken);
             if (childProcessId is int pid)
             {
                 try
@@ -350,13 +460,8 @@ internal sealed record HostExecutorConfig(
     string ExecutorId,
     string HostId,
     int PollIntervalSeconds,
-    ClusterAttachment[] Attachments,
-    string StateDirectory = "");
+    HostContract.HostAttachmentSpec[] Attachments,
+    string StateDirectory = "",
+    HostCommandConfig? Command = null);
 
-internal sealed record ClusterAttachment(
-    string ClusterId,
-    string GatewayUrl,
-    string TokenEnvironmentVariable,
-    string? BundleManifestPath = null,
-    string? BundleManifestSha256 = null,
-    string? RunRoot = null);
+internal sealed record HostCommandConfig(string Url, string TokenEnvironmentVariable);
