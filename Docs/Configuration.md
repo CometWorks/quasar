@@ -450,3 +450,37 @@ companions remain deployable; their UI assemblies are not loaded.
 
 Authentication and authorization remain enabled exactly as configured; headless
 mode is not an authentication bypass.
+
+## Cluster query catalog
+
+Quasar discovers clusters from `<quasar-root>/Clusters/<unique-name>/cluster.json`.
+Set `Quasar:ClusterCatalogPath` to override that directory for development or an
+external configuration deployment. A definition contains management metadata;
+Gateway credentials stay outside the file and are read from the named environment
+variable at query time.
+
+```json
+{
+  "uniqueName": "production",
+  "displayName": "Production cluster",
+  "gatewayUrl": "https://cluster-gateway.internal:8443",
+  "gatewayAdminTokenEnvironmentVariable": "PRODUCTION_GATEWAY_ADMIN_TOKEN",
+  "configProfileId": "survival",
+  "worldTemplateId": "main-world"
+}
+```
+
+The first Phase 4 API slice is read-only and uses Gateway admin contract version
+1. It is available in normal and headless operation:
+
+- `GET /api/v1/clusters`
+- `GET /api/v1/clusters/{uniqueName}/health`
+- `GET /api/v1/clusters/{uniqueName}/status`
+- `GET /api/v1/clusters/{uniqueName}/plan`
+
+Responses preserve the Gateway envelope, capture time, string enum values, and
+stable error codes. When Quasar authentication is enabled, these routes require
+the existing `CanView` policy. `/api/health` and `/api/ready` include
+`configuredClusters`; they do not contact Gateway and remain usable if a Gateway
+is down. Command operations, service-principal scopes, and UI editing are later
+Phase 4 slices; this query surface does not imply them.

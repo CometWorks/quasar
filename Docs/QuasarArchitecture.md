@@ -253,11 +253,23 @@ Razor components, UI-plugin assemblies, branding, static assets, and browser
 launch are omitted. Plugin manifests are still inspected so owned server
 companions can be prepared without loading their UI code.
 
-The current headless foundation exposes process liveness, readiness, discovery,
-and the existing authenticated APIs. Phase 4 adds the versioned cluster query
-and command contract, durable idempotent operations, scoped service principals,
-and deterministic CLI on this same host. The browser UI must consume that
-contract too; it may not gain UI-only cluster behavior or validation.
+The headless foundation exposes process liveness, readiness, discovery, and the
+same authenticated APIs as the UI host. The first Phase 4 vertical slice adds a
+durable cluster catalog and proxies Gateway contract-version-1 health, status,
+and desired-node-plan queries without referencing Gateway implementation types.
+Gateway responses retain their capture time and stable error envelope so dark-
+factory callers can distinguish unavailable, rejected, and incompatible peers.
+
+The contract assembly is published by Cluster Gateway as
+`CometWorks.ClusterGateway.AdminContract`; Quasar, Gateway, and automation clients
+consume that implementation-free package. The catalog stores only the Gateway
+URL and the name of the environment variable holding its credential. Quasar
+readiness reports catalog availability without contacting Gateway, so a failed
+cluster does not make the management plane itself unready.
+
+Later Phase 4 slices add durable idempotent commands, scoped service principals,
+and UI editing on this same API-first host. The browser UI must consume those
+contracts too; it may not gain UI-only cluster behavior or validation.
 
 ## UI Theme
 

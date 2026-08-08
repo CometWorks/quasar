@@ -8,6 +8,7 @@ on:
     paths:
       - ".github/workflows/release.yml"
       - "Directory.Build.props"
+      - "NuGet.Config"
       - "Magnetar.Protocol/**"
       - "Quasar/**"
       - "Quasar.Agent/**"
@@ -29,6 +30,7 @@ on:
     paths:
       - ".github/workflows/release.yml"
       - "Directory.Build.props"
+      - "NuGet.Config"
       - "Magnetar.Protocol/**"
       - "Quasar/**"
       - "Quasar.Agent/**"
@@ -155,6 +157,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
+      NuGetPackageSourceCredentials_cometworks: Username=${{ secrets.COMETWORKS_PACKAGES_USER }};Password=${{ secrets.COMETWORKS_PACKAGES_TOKEN }};ValidAuthenticationTypes=Basic
     steps:
       - uses: actions/checkout@v4
         with:
@@ -313,6 +316,7 @@ jobs:
     runs-on: windows-latest
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
+      NuGetPackageSourceCredentials_cometworks: Username=${{ secrets.COMETWORKS_PACKAGES_USER }};Password=${{ secrets.COMETWORKS_PACKAGES_TOKEN }};ValidAuthenticationTypes=Basic
     steps:
       - uses: actions/checkout@v4
         with:
