@@ -30,6 +30,21 @@ The solution file is `Quasar.sln`.
 
 ## Build setup
 
+Quasar consumes the private
+`CometWorks.ClusterGateway.AdminContract` package from the `cometworks` source in
+the repository `NuGet.Config`. Supply a Forgejo package-reader account or token
+through NuGet's source-credential environment variable before restore; never add
+credentials to `NuGet.Config`:
+
+```bash
+export NuGetPackageSourceCredentials_cometworks='Username=<user>;Password=<token>;ValidAuthenticationTypes=Basic'
+dotnet restore Quasar.sln
+unset NuGetPackageSourceCredentials_cometworks
+```
+
+The release workflow expects equivalent repository secrets named
+`COMETWORKS_PACKAGES_USER` and `COMETWORKS_PACKAGES_TOKEN`.
+
 - `Quasar.Agent` depends on a local `DS64` path for Space Engineers Dedicated
   Server assemblies.
 - `Quasar.Agent` must not use Magnetar or Quasar release version stamping.

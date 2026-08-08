@@ -134,6 +134,19 @@ public static class MagnetarPaths
         Path.Combine(GetQuasarServerDirectory(uniqueName), "analytics.jsonl");
 
     // -------------------------------------------------------------------------
+    // Clusters  (<quasar-root>/Clusters/<unique-name>/)
+    // -------------------------------------------------------------------------
+
+    public static string GetQuasarClustersDirectory() =>
+        Path.Combine(GetQuasarDirectory(), "Clusters");
+
+    public static string GetQuasarClusterDirectory(string uniqueName) =>
+        Path.Combine(GetQuasarClustersDirectory(), SanitizePathSegment(uniqueName));
+
+    public static string GetQuasarClusterDefinitionPath(string uniqueName) =>
+        Path.Combine(GetQuasarClusterDirectory(uniqueName), "cluster.json");
+
+    // -------------------------------------------------------------------------
     // World templates  (<quasar-root>/WorldTemplates/<id>/)
     // -------------------------------------------------------------------------
 

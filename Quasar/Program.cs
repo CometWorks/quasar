@@ -148,6 +148,8 @@ public class Program
                 .SetApplicationName("Quasar")
                 .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyringDirectory));
             builder.Services.AddHttpClient();
+            builder.Services.AddHttpClient<ClusterGatewayClient>(client =>
+                client.Timeout = TimeSpan.FromSeconds(30));
             builder.Services.AddSingleton(webServiceOptions);
             builder.Services.AddSingleton(managedRuntimeOptions);
             builder.Services.AddSingleton(updateOptions);
@@ -181,6 +183,7 @@ public class Program
             builder.Services.AddSingleton<ManagedRuntimeWarmupService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ManagedRuntimeWarmupService>());
             builder.Services.AddSingleton<DedicatedServerCatalog>();
+            builder.Services.AddSingleton<ClusterCatalog>();
             builder.Services.AddSingleton<DedicatedServerSupervisor>();
             builder.Services.AddSingleton<DedicatedServerRuntimePreparer>();
             builder.Services.AddSingleton<FileBrowserService>();
@@ -254,7 +257,8 @@ public class Program
             if (!webServiceOptions.Headless)
                 app.UseAntiforgery();
 
-            app.MapGet("/api/health", (WebServiceState state, DedicatedServerCatalog catalog) => Results.Json(new
+            app.MapGet("/api/health", (WebServiceState state, DedicatedServerCatalog catalog,
+                ClusterCatalog clusterCatalog) => Results.Json(new
             {
                 status = "ok",
                 state.Options.WorkerId,
@@ -267,6 +271,7 @@ public class Program
                     : state.CurrentManifest.BaseUrl,
                 connectedAgents = state.Registry.GetAgents().Count(agent => agent.IsConnected),
                 configuredServers = catalog.GetServers().Count,
+                configuredClusters = clusterCatalog.GetClusters().Count,
                 runningServers = state.Supervisor.GetSnapshots().Count(snapshot =>
                     snapshot.State is DedicatedServerProcessState.Starting
                         or DedicatedServerProcessState.Running
@@ -274,17 +279,20 @@ public class Program
                         or DedicatedServerProcessState.Stopping),
             }));
 
-            app.MapGet("/api/ready", (WebServiceState state, DedicatedServerCatalog catalog) => Results.Json(new
+            app.MapGet("/api/ready", (WebServiceState state, DedicatedServerCatalog catalog,
+                ClusterCatalog clusterCatalog) => Results.Json(new
             {
                 status = "ready",
                 state.Options.WorkerId,
                 state.Options.Version,
                 headless = state.Options.Headless,
                 configuredServers = catalog.GetServers().Count,
+                configuredClusters = clusterCatalog.GetClusters().Count,
             }));
 
             app.MapGet("/api/discovery", (WebServiceState state) =>
                 Results.Json(state.CurrentManifest));
+            app.MapClusterApi(authOptions);
 
             // Analytics chart data, fetched directly by the browser (uPlot) instead of being pushed
             // through the Blazor SignalR circuit. Averaged down to maxPoints per series server-side.
