@@ -556,19 +556,36 @@ environment. One process may attach to multiple clusters:
   "executorId": "executor-a",
   "hostId": "host-a",
   "pollIntervalSeconds": 2,
+  "stateDirectory": "/var/lib/quasar-host",
   "attachments": [
     {
       "clusterId": "production",
       "gatewayUrl": "https://gateway.internal:8443",
-      "tokenEnvironmentVariable": "PRODUCTION_EXECUTOR_TOKEN"
+      "tokenEnvironmentVariable": "PRODUCTION_EXECUTOR_TOKEN",
+      "bundleManifestPath": "/srv/quasar-clusters/production/manifest.json",
+      "bundleManifestSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "runRoot": "/var/lib/quasar-clusters/production"
     }
   ]
 }
 ```
 
 Run `Quasar.Host run --config host.json`; `--once` performs one deterministic
-plan/heartbeat cycle for deployment checks. The current foundation authenticates,
-validates protocol and host scoping, polls each host-filtered NodePlan, and posts an
-empty executor heartbeat. It does not report fabricated process observations.
-Bundle installation, durable launch records, re-adoption, and spawn/kill actualization
-are the next Phase 4 slice.
+plan/heartbeat cycle for deployment checks. Omitting all three bundle/run-root fields
+keeps an attachment in commissioning mode: it authenticates and heartbeats but does not
+claim process state.
+
+With a bundle configured, Host verifies the pinned manifest SHA-256 and every file hash,
+then uses its per-slot immutable spawn specifications. Each specification declares the
+slot, node ID, role, bundle-relative executable, arguments/environment, reserved ports,
+and ready timeout. Host writes the launch intent before starting the process and records
+PID, process start time, executable identity, attempt, and bundle revision afterward.
+Those records let a restarted Host re-adopt an exact process without parenting it.
+
+PID existence is not readiness. Host passes `QUASAR_CLUSTER_READY_PATH` and the stable
+cluster/slot/attempt identity to the node. After Gateway registration and plugin readiness,
+the node atomically writes the versioned receipt at that path with the same identity plus
+its node ID, registry epoch, endpoint, and PID. Host reports `Spawning` until the receipt
+matches. Automatic kill requires the exact launch record and, for a ready node, the
+Gateway-requested node ID and epoch. A mismatched process identity or occupied reserved
+port is reported as `unmanaged_conflict`; Host leaves the process untouched.

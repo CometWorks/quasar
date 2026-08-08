@@ -1,5 +1,9 @@
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Net;
+using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Admin = CometWorks.ClusterGateway.AdminContract.V1;
@@ -17,7 +21,12 @@ internal static class Program
     public static async Task<int> Main(string[] args)
     {
         if (args.SequenceEqual(["--self-test"]))
-            return SelfTest();
+            return await SelfTestAsync();
+        if (args.SequenceEqual(["--self-test-child"]))
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan);
+            return 0;
+        }
         if (!TryParse(args, out string? path, out bool once))
         {
             Console.Error.WriteLine(Usage);
@@ -42,22 +51,27 @@ internal static class Program
             shutdown.Cancel();
         };
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        var actualizer = new NodeActualizer(config.StateDirectory, config.HostId);
+        var connected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         do
         {
             foreach (ClusterAttachment attachment in config.Attachments)
             {
                 try
                 {
-                    await PollAsync(client, config, attachment, shutdown.Token);
-                    Console.WriteLine($"cluster={attachment.ClusterId} executor={config.ExecutorId} heartbeat=accepted");
+                    await PollAsync(client, actualizer, config, attachment, shutdown.Token);
+                    if (once || connected.Add(attachment.ClusterId))
+                        Console.WriteLine($"cluster={attachment.ClusterId} executor={config.ExecutorId} heartbeat=accepted");
                 }
                 catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
                 {
                     return 0;
                 }
                 catch (Exception exception) when (exception is HttpRequestException or IOException
-                    or JsonException or InvalidOperationException)
+                    or JsonException or InvalidOperationException or UnauthorizedAccessException
+                    or CryptographicException)
                 {
+                    connected.Remove(attachment.ClusterId);
                     Console.Error.WriteLine($"cluster={attachment.ClusterId} error={exception.Message}");
                     if (once)
                         return 4;
@@ -78,7 +92,7 @@ internal static class Program
         return 0;
     }
 
-    private static async Task PollAsync(HttpClient client, HostExecutorConfig config,
+    private static async Task PollAsync(HttpClient client, NodeActualizer actualizer, HostExecutorConfig config,
         ClusterAttachment attachment, CancellationToken cancellationToken)
     {
         string? token = Environment.GetEnvironmentVariable(attachment.TokenEnvironmentVariable);
@@ -92,9 +106,11 @@ internal static class Program
         if (plan.Data.Any(slot => !slot.Host.Equals(config.HostId, StringComparison.Ordinal)))
             throw new InvalidOperationException("Gateway returned a slot assigned to another host");
 
+        Admin.ExecutorObservation[] observations = await actualizer.ReconcileAsync(
+            attachment, plan.Data, cancellationToken);
         await SendAsync<Admin.ExecutorHeartbeatAccepted>(client, attachment, token,
             HttpMethod.Post, Admin.AdminProtocol.ExecutorHeartbeatRoute(config.ExecutorId),
-            new Admin.ExecutorHeartbeatRequest([]), cancellationToken);
+            new Admin.ExecutorHeartbeatRequest(observations), cancellationToken);
     }
 
     private static async Task<Admin.AdminEnvelope<T>> SendAsync<T>(HttpClient client,
@@ -133,10 +149,10 @@ internal static class Program
     {
         HostExecutorConfig config = JsonSerializer.Deserialize<HostExecutorConfig>(File.ReadAllText(path), JsonOptions)
             ?? throw new ArgumentException("Host executor config is empty");
-        return Normalize(config);
+        return Normalize(config, Path.GetDirectoryName(Path.GetFullPath(path))!);
     }
 
-    private static HostExecutorConfig Normalize(HostExecutorConfig config)
+    private static HostExecutorConfig Normalize(HostExecutorConfig config, string configDirectory)
     {
         string executorId = config.ExecutorId?.Trim() ?? string.Empty;
         string hostId = config.HostId?.Trim() ?? string.Empty;
@@ -154,12 +170,37 @@ internal static class Program
                 || !Uri.TryCreate(attachment.GatewayUrl, UriKind.Absolute, out Uri? gateway)
                 || gateway.Scheme is not ("http" or "https"))
                 throw new ArgumentException("Each attachment requires a cluster ID, HTTP(S) Gateway URL, and credential variable");
+            bool hasManifest = !string.IsNullOrWhiteSpace(attachment.BundleManifestPath);
+            if (hasManifest != !string.IsNullOrWhiteSpace(attachment.BundleManifestSha256)
+                || hasManifest != !string.IsNullOrWhiteSpace(attachment.RunRoot))
+                throw new ArgumentException(
+                    "BundleManifestPath, BundleManifestSha256, and RunRoot must be configured together");
         }
         if (attachments.Select(attachment => attachment.ClusterId)
             .Distinct(StringComparer.OrdinalIgnoreCase).Count() != attachments.Length)
             throw new ArgumentException("Cluster attachment IDs must be unique");
-        return config with { ExecutorId = executorId, HostId = hostId, Attachments = attachments };
+        attachments = attachments.Select(attachment => attachment with
+        {
+            BundleManifestPath = ResolveOptionalPath(configDirectory, attachment.BundleManifestPath),
+            RunRoot = ResolveOptionalPath(configDirectory, attachment.RunRoot),
+        }).ToArray();
+        string stateDirectory = string.IsNullOrWhiteSpace(config.StateDirectory)
+            ? Path.Combine(configDirectory, "host-state")
+            : ResolvePath(configDirectory, config.StateDirectory);
+        return config with
+        {
+            ExecutorId = executorId,
+            HostId = hostId,
+            StateDirectory = stateDirectory,
+            Attachments = attachments,
+        };
     }
+
+    private static string? ResolveOptionalPath(string directory, string? path) =>
+        string.IsNullOrWhiteSpace(path) ? null : ResolvePath(directory, path);
+
+    private static string ResolvePath(string directory, string path) => Path.GetFullPath(
+        Path.IsPathFullyQualified(path) ? path : Path.Combine(directory, path));
 
     private static bool TryParse(string[] args, out string? path, out bool once)
     {
@@ -179,16 +220,129 @@ internal static class Program
         return !string.IsNullOrWhiteSpace(path);
     }
 
-    private static int SelfTest()
+    private static async Task<int> SelfTestAsync()
     {
         HostExecutorConfig config = Normalize(new HostExecutorConfig("executor-a", "host-a", 2,
-            [new ClusterAttachment("demo", "http://127.0.0.1:28016", "DEMO_EXECUTOR_TOKEN")]));
+            [new ClusterAttachment("demo", "http://127.0.0.1:28016", "DEMO_EXECUTOR_TOKEN")]),
+            Path.GetTempPath());
         if (config.Attachments.Single().ClusterId != "demo"
             || !TryParse(["run", "--config", "host.json", "--once"], out string? path, out bool once)
             || path != "host.json" || !once)
             throw new InvalidOperationException("self-test failed");
+
+        string root = Path.Combine(Path.GetTempPath(), "quasar-host-selftest-" + Guid.NewGuid().ToString("N"));
+        int? childProcessId = null;
+        try
+        {
+            string bundleRoot = Path.Combine(root, "bundle");
+            string runRoot = Path.Combine(root, "runs");
+            string stateRoot = Path.Combine(root, "state");
+            Directory.CreateDirectory(bundleRoot);
+            var files = new List<BundleFile>();
+            foreach (string source in Directory.GetFiles(AppContext.BaseDirectory))
+            {
+                string name = Path.GetFileName(source);
+                string target = Path.Combine(bundleRoot, name);
+                File.Copy(source, target);
+                files.Add(new BundleFile(name, ComputeSha256(target)));
+            }
+            string executable = OperatingSystem.IsWindows() ? "Quasar.Host.exe" : "Quasar.Host";
+            string copiedExecutable = Path.Combine(bundleRoot, executable);
+            if (!File.Exists(copiedExecutable))
+                throw new InvalidOperationException("self-test app host is unavailable");
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(copiedExecutable, UnixFileMode.UserRead | UnixFileMode.UserWrite
+                    | UnixFileMode.UserExecute);
+
+            int reservedPort;
+            var probe = new TcpListener(IPAddress.Loopback, 0);
+            probe.Start();
+            reservedPort = ((IPEndPoint)probe.LocalEndpoint).Port;
+            probe.Stop();
+
+            var manifest = new BundleManifest(1, "self-test", files.ToArray(),
+            [
+                new NodeSpawnSpec("slot-a", Admin.NodeRole.Regular, "node-a", executable, string.Empty,
+                    ["--self-test-child"], [], [reservedPort], 30),
+            ]);
+            string manifestPath = Path.Combine(bundleRoot, "manifest.json");
+            File.WriteAllBytes(manifestPath, JsonSerializer.SerializeToUtf8Bytes(manifest, JsonOptions));
+            var attachment = new ClusterAttachment("demo", "http://127.0.0.1:28016",
+                "DEMO_EXECUTOR_TOKEN", manifestPath, ComputeSha256(manifestPath), runRoot);
+            var wanted = new Admin.NodePlan("slot-a", "host-a", null, Admin.NodeRole.Regular,
+                Admin.NodeGoal.Wanted, Admin.NodeObservation.Missing, null, Admin.IncumbentAction.None,
+                null, 0, null, null, null, null, 0, false, true);
+
+            var actualizer = new NodeActualizer(stateRoot, "host-a");
+            Admin.ExecutorObservation spawning = (await actualizer.ReconcileAsync(
+                attachment, [wanted], CancellationToken.None)).Single();
+            if (spawning.State != Admin.NodeObservation.Spawning)
+                throw new InvalidOperationException("self-test spawn failed: " + spawning.Failure);
+
+            string recordPath = Directory.GetFiles(Path.Combine(stateRoot, "launch-records"), "*.json").Single();
+            LaunchRecord record = JsonSerializer.Deserialize<LaunchRecord>(File.ReadAllText(recordPath), JsonOptions)
+                ?? throw new InvalidOperationException("self-test launch record is empty");
+            childProcessId = record.ProcessId;
+            string slotDirectory = Directory.GetDirectories(runRoot).Single();
+            var receipt = new ReadyReceipt(1, "demo", "slot-a", record.AttemptKey,
+                "node-a", 7, "127.0.0.1:30000", record.ProcessId!.Value);
+            File.WriteAllBytes(Path.Combine(slotDirectory, ".quasar-node-ready.json"),
+                JsonSerializer.SerializeToUtf8Bytes(receipt, JsonOptions));
+
+            actualizer = new NodeActualizer(stateRoot, "host-a");
+            Admin.ExecutorObservation ready = (await actualizer.ReconcileAsync(
+                attachment, [wanted], CancellationToken.None)).Single();
+            if (ready.State != Admin.NodeObservation.Ready || ready.Node != "node-a")
+                throw new InvalidOperationException("self-test re-adoption failed");
+
+            Admin.NodePlan kill = wanted with
+            {
+                Observed = Admin.NodeObservation.Ready,
+                ObservedNode = "node-a",
+                IncumbentAction = Admin.IncumbentAction.Kill,
+                IncumbentNode = "node-a",
+                IncumbentEpoch = 7,
+                SpawnAllowed = false,
+            };
+            Admin.ExecutorObservation gone = (await actualizer.ReconcileAsync(
+                attachment, [kill], CancellationToken.None)).Single();
+            if (gone.State != Admin.NodeObservation.Gone)
+                throw new InvalidOperationException("self-test exact kill failed");
+            childProcessId = null;
+
+            using var conflict = new TcpListener(IPAddress.Loopback, reservedPort);
+            conflict.Start();
+            Admin.ExecutorObservation blocked = (await actualizer.ReconcileAsync(
+                attachment, [wanted], CancellationToken.None)).Single();
+            if (blocked.State != Admin.NodeObservation.Failed
+                || !blocked.Failure!.StartsWith("unmanaged_conflict:", StringComparison.Ordinal))
+                throw new InvalidOperationException("self-test port conflict was not fail-closed");
+        }
+        finally
+        {
+            if (childProcessId is int pid)
+            {
+                try
+                {
+                    using Process process = Process.GetProcessById(pid);
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                }
+                catch (ArgumentException)
+                {
+                }
+            }
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
         Console.Error.WriteLine("self-test ok");
         return 0;
+    }
+
+    private static string ComputeSha256(string path)
+    {
+        using FileStream file = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant();
     }
 }
 
@@ -196,9 +350,13 @@ internal sealed record HostExecutorConfig(
     string ExecutorId,
     string HostId,
     int PollIntervalSeconds,
-    ClusterAttachment[] Attachments);
+    ClusterAttachment[] Attachments,
+    string StateDirectory = "");
 
 internal sealed record ClusterAttachment(
     string ClusterId,
     string GatewayUrl,
-    string TokenEnvironmentVariable);
+    string TokenEnvironmentVariable,
+    string? BundleManifestPath = null,
+    string? BundleManifestSha256 = null,
+    string? RunRoot = null);
