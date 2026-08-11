@@ -5,6 +5,7 @@
 @inject QuasarAuthSettingsService AuthSettingsService
 @inject DataHandlingConsentCatalog DataHandlingConsent
 @inject RbacConfigCatalog RbacConfigCatalog
+@inject QuasarPermissionService Permissions
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
@@ -315,6 +316,9 @@
 
     private async Task SaveTrustedNetworkSettingsAsync()
     {
+        if (!await EnsureAuthorizedAsync())
+            return;
+
         _savingAuthSettings = true;
         try
         {
@@ -335,6 +339,9 @@
 
     private async Task SaveDataHandlingConsentAsync(bool consentGranted)
     {
+        if (!await EnsureAuthorizedAsync())
+            return;
+
         try
         {
             await DataHandlingConsent.SaveAsync(consentGranted);
@@ -377,9 +384,32 @@
 
     private async Task SaveAsync(string message)
     {
-        await RbacConfigCatalog.SaveAsync(_config);
-        _config = RbacConfigCatalog.GetConfig();
-        Snackbar.Add(message, Severity.Success);
+        if (!await EnsureAuthorizedAsync())
+        {
+            Reload();
+            return;
+        }
+
+        try
+        {
+            await RbacConfigCatalog.SaveAsync(_config);
+            _config = RbacConfigCatalog.GetConfig();
+            Snackbar.Add(message, Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Reload();
+            Snackbar.Add($"Failed saving RBAC settings: {exception.Message}", Severity.Error);
+        }
+    }
+
+    private async Task<bool> EnsureAuthorizedAsync()
+    {
+        if (await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
+            return true;
+
+        Snackbar.Add("Access denied: administrator permission is required.", Severity.Error);
+        return false;
     }
 
     private static string FormatTrustedProxies(IEnumerable<string> proxies) =>

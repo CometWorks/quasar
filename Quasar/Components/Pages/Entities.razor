@@ -1,4 +1,5 @@
 @page "/entities"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanControlServers)]
 @implements IDisposable
 @inject AgentRegistry Registry
 @inject DedicatedServerCatalog ServerCatalog

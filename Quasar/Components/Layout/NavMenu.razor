@@ -5,39 +5,39 @@
         <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">
             Dashboard
         </MudNavLink>
-        <MudNavLink Href="/configs" Icon="@Icons.Material.Filled.Tune">
-            Configs
-        </MudNavLink>
-        <MudNavLink Href="/world-templates" Icon="@Icons.Material.Filled.Public">
-            Worlds
-        </MudNavLink>
-        <MudNavLink Href="/players" Icon="@Icons.Material.Filled.Groups">
-            Players
-        </MudNavLink>
-        <MudNavLink Href="/chat" Icon="@Icons.Material.Filled.Chat">
-            Chat
-        </MudNavLink>
-        <MudNavLink Href="/entities" Icon="@Icons.Material.Filled.ViewInAr">
-            Entities
-        </MudNavLink>
-        <MudNavLink Href="/plugins" Icon="@Icons.Material.Filled.Extension">
-            Plugins
-        </MudNavLink>
+        <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs">
+            <Authorized>
+                <MudNavLink Href="/configs" Icon="@Icons.Material.Filled.Tune">Configs</MudNavLink>
+                <MudNavLink Href="/world-templates" Icon="@Icons.Material.Filled.Public">Worlds</MudNavLink>
+                <MudNavLink Href="/plugins" Icon="@Icons.Material.Filled.Extension">Plugins</MudNavLink>
+            </Authorized>
+        </AuthorizeView>
+        <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers">
+            <Authorized>
+                <MudNavLink Href="/players" Icon="@Icons.Material.Filled.Groups">Players</MudNavLink>
+                <MudNavLink Href="/chat" Icon="@Icons.Material.Filled.Chat">Chat</MudNavLink>
+                <MudNavLink Href="/entities" Icon="@Icons.Material.Filled.ViewInAr">Entities</MudNavLink>
+            </Authorized>
+        </AuthorizeView>
         <MudNavLink Href="/analytics" Icon="@Icons.Material.Filled.QueryStats">
             Analytics
         </MudNavLink>
-        <MudNavLink Href="/discord" Icon="@Icons.Material.Filled.Forum">
-            Discord
-        </MudNavLink>
+        <AuthorizeView Policy="@QuasarPolicyNames.CanManageDiscord">
+            <Authorized>
+                <MudNavLink Href="/discord" Icon="@Icons.Material.Filled.Forum">Discord</MudNavLink>
+            </Authorized>
+        </AuthorizeView>
         <PluginNavItems Items="@UiPlugins.NavItems" Zone="@QuasarNavZones.Main" />
     </MudNavMenu>
 
     <MudDivider />
 
     <MudNavMenu Class="magnetar-nav-menu">
-        <MudNavLink Href="/settings/appearance" Icon="@Icons.Material.Filled.Palette">
-            Appearance
-        </MudNavLink>
+        <AuthorizeView Policy="@QuasarPolicyNames.CanManageAppearance">
+            <Authorized>
+                <MudNavLink Href="/settings/appearance" Icon="@Icons.Material.Filled.Palette">Appearance</MudNavLink>
+            </Authorized>
+        </AuthorizeView>
         <PluginNavItems Items="@UiPlugins.NavItems" Zone="@QuasarNavZones.Settings" />
         <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
             <Authorized>

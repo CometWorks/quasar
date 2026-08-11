@@ -353,7 +353,8 @@ as unhealthy. They are fine only when running the worker directly (e.g.
 
 ## Reverse proxy auth
 
-Quasar can grant a trusted-network session to loopback or same-subnet clients.
+Quasar can grant a trusted-network session to loopback or explicitly enabled
+same-subnet clients. Same-subnet bypass is disabled by default.
 When Quasar sits behind NGINX Proxy Manager, Caddy, Traefik, or another reverse
 proxy, the TCP peer seen by Quasar is the proxy, not the browser. Without proxy
 handling this can make every proxied browser look like a local or LAN client.
@@ -381,7 +382,7 @@ proxy host, add the proxy container/host address or bridge CIDR:
     "Auth": {
       "TrustedNetworkBypass": {
         "AllowLoopback": true,
-        "AllowSameSubnet": true,
+        "AllowSameSubnet": false,
         "TrustedProxies": [ "172.18.0.0/16" ],
         "Roles": [ "admin" ]
       }
@@ -390,8 +391,8 @@ proxy host, add the proxy container/host address or bridge CIDR:
 }
 ```
 
-For public deployments, prefer disabling same-subnet bypass so browser access is
-always tied to Steam/RBAC identity:
+Keep same-subnet bypass disabled whenever browser access should be tied to
+Steam/RBAC identity:
 
 ```json
 {
@@ -409,6 +410,37 @@ always tied to Steam/RBAC identity:
 
 Keep Quasar's port private to the proxy when exposing it to the internet. Do not
 trust broad networks unless every host in that range is under your control.
+
+### RBAC enforcement
+
+Steam users receive roles from the runtime `rbac.json` catalog. Quasar supports
+three roles: `viewer`, `editor`, and `admin`. Viewer access is read-only: it can
+open the dashboard, analytics, host status, and protected read APIs, but cannot
+open configuration, world, plugin, player-control, chat-command, entity-control,
+Discord, appearance, cluster-management, backup, update, or security editors.
+
+Role changes take effect immediately. Quasar re-evaluates cookie roles on each
+HTTP request, reloads active Blazor sessions when `rbac.json` changes, and checks
+the current role again at sensitive dashboard and security actions. Runtime RBAC
+saves that remove the last `admin` mapping are rejected to prevent accidental
+lockout. Direct filesystem edits remain an operator-controlled recovery path.
+
+Default policy grants are:
+
+| Policy | Roles |
+| --- | --- |
+| `CanView` | viewer, editor, admin |
+| `CanEditConfigs` | editor, admin |
+| `CanEditServers` | editor, admin |
+| `CanControlServers` | editor, admin |
+| `CanManageDiscord` | editor, admin |
+| `CanManageAppearance` | editor, admin |
+| `CanManageSecurity` | admin |
+| `CanShutdownQuasar` | admin |
+
+Trusted-network access uses the roles configured under
+`Quasar:Auth:TrustedNetworkBypass:Roles`; it defaults to `admin`. Treat every
+trusted address as a full operator unless that role list is reduced explicitly.
 
 ### Development port
 

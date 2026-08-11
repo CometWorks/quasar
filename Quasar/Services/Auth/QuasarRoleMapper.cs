@@ -57,4 +57,42 @@ public sealed class QuasarRoleMapper
 
         return new ClaimsPrincipal(new ClaimsIdentity(claims, QuasarAuthSchemes.TrustedNetwork));
     }
+
+    public ClaimsPrincipal RefreshRoles(ClaimsPrincipal principal)
+    {
+        var provider = principal.FindFirst(QuasarClaimTypes.Provider)?.Value;
+        IReadOnlyList<string>? roles = provider switch
+        {
+            QuasarAuthSchemes.Steam => GetSteamRoles(
+                principal.FindFirst(QuasarClaimTypes.SteamId)?.Value ??
+                principal.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty),
+            QuasarAuthSchemes.TrustedNetwork => _options.TrustedNetworkBypass.Roles,
+            _ => null,
+        };
+
+        return roles is null ? principal : ReplaceRoles(principal, roles);
+    }
+
+    internal static ClaimsPrincipal ReplaceRoles(ClaimsPrincipal principal, IEnumerable<string> roles)
+    {
+        var identities = principal.Identities
+            .Select(identity => new ClaimsIdentity(
+                identity.Claims.Where(claim => claim.Type != identity.RoleClaimType),
+                identity.AuthenticationType,
+                identity.NameClaimType,
+                identity.RoleClaimType))
+            .ToList();
+        var roleIdentity = identities.FirstOrDefault(identity => identity.IsAuthenticated) ?? identities.FirstOrDefault();
+
+        if (roleIdentity is null)
+        {
+            roleIdentity = new ClaimsIdentity();
+            identities.Add(roleIdentity);
+        }
+
+        foreach (var role in roles.Distinct(StringComparer.OrdinalIgnoreCase))
+            roleIdentity.AddClaim(new Claim(roleIdentity.RoleClaimType, role));
+
+        return new ClaimsPrincipal(identities);
+    }
 }

@@ -2,6 +2,7 @@
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject QuasarPermissionService Permissions
 
 @{
     IReadOnlyList<string> modDownloadFailures = Runtime is null
@@ -240,6 +241,12 @@ else
 
     private async Task SendCommandAsync(ServerCommandType commandType, string text = "", long? steamId = null)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers))
+        {
+            Snackbar.Add("Access denied: your current role cannot control servers.", Severity.Error);
+            return;
+        }
+
         if (Agent is null)
             return;
 
