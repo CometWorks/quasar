@@ -3,6 +3,7 @@ using Magnetar.Protocol.Runtime;
 using MudBlazor;
 using Quasar.Components.Pages;
 using Quasar.Models;
+using Quasar.Services.Auth;
 
 namespace Quasar.Services;
 
@@ -12,6 +13,7 @@ public sealed class ServerManagementActions(
     WebServiceOptions options,
     AgentRegistry registry,
     QuasarWorldTemplateCatalog worldTemplates,
+    QuasarPermissionService permissions,
     IDialogService dialogService,
     ISnackbar snackbar)
 {
@@ -44,6 +46,9 @@ public sealed class ServerManagementActions(
 
     public async Task OpenCreateDialogAsync(string configProfileId = "", string worldTemplateId = "")
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditServers))
+            return;
+
         var initial = CreateBlank();
         initial.ConfigProfileId = configProfileId;
         initial.WorldTemplateId = worldTemplateId;
@@ -57,6 +62,9 @@ public sealed class ServerManagementActions(
 
     public async Task OpenEditDialogAsync(DedicatedServerDefinition definition)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditServers))
+            return;
+
         var updated = await ShowEditorDialogAsync(definition, isEditing: true, isClone: false);
         if (updated is null)
             return;
@@ -66,6 +74,9 @@ public sealed class ServerManagementActions(
 
     public async Task OpenCloneDialogAsync(DedicatedServerDefinition definition)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditServers))
+            return;
+
         var cloned = definition.Clone();
         cloned.DisplayName = NormalizeWhitespace($"{GetDisplayName(definition)} Copy");
         cloned.UniqueName = MakeCopyIdentifier(definition.UniqueName);
@@ -113,6 +124,9 @@ public sealed class ServerManagementActions(
 
     public async Task CreateWorldTemplateAsync(DedicatedServerDefinition definition)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditConfigs))
+            return;
+
         if (!CanCreateWorldTemplate(definition))
         {
             snackbar.Add("Stop the server before creating a world template from its current state.", Severity.Warning);
@@ -167,6 +181,9 @@ public sealed class ServerManagementActions(
 
     public async Task DeleteAsync(string uniqueName)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditServers))
+            return;
+
         if (IsRunning(uniqueName))
         {
             snackbar.Add("Stop the server before deleting its definition.", Severity.Warning);
@@ -211,6 +228,15 @@ public sealed class ServerManagementActions(
 
         var state = GetRuntime(definition.UniqueName)?.State ?? DedicatedServerProcessState.Stopped;
         return state == DedicatedServerProcessState.Stopped;
+    }
+
+    private async Task<bool> EnsureAuthorizedAsync(string policyName)
+    {
+        if (await permissions.IsAuthorizedAsync(policyName))
+            return true;
+
+        snackbar.Add("Access denied: your current role cannot perform this action.", Severity.Error);
+        return false;
     }
 
     private async Task<DedicatedServerDefinition?> ShowEditorDialogAsync(DedicatedServerDefinition definition, bool isEditing, bool isClone)

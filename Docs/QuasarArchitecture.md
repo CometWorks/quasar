@@ -789,13 +789,23 @@ But once a server is under Quasar management, the primary model is no longer "ro
 
 ## Security and Trust
 
-First delivery may remain host-local and pragmatic, but the protocol shape should leave room for:
+Browser access uses cookie authentication with Steam identities or a synthetic
+trusted-network principal. Role claims are refreshed from the live RBAC catalog
+on requests; RBAC changes force active Blazor circuits through a full reload so a
+demoted user cannot retain a privileged circuit. Sensitive dashboard and security
+mutations also re-check current roles at execution time.
+
+UI routes and HTTP endpoints use named authorization policies. Viewer access is
+read-only; editor policies cover configuration and normal server operations;
+security, backup, update, UI-plugin, and Quasar shutdown controls require admin.
+Runtime RBAC saves reject removal of the last administrator mapping; direct file
+edits remain an explicit operator recovery path.
+
+The agent and launcher remain separate trust boundaries:
 
 - per-server tokens
 - authenticated agent attachment
 - future multi-host trust boundaries
-
-Security hardening is not the first blocking stage, but identity and attachment should not be left completely undefined.
 
 ## What Is Required Now
 

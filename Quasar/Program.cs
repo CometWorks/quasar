@@ -98,6 +98,21 @@ public class Program
                             ? ClusterApi.WriteAuthorizationErrorAsync(context.HttpContext, 403,
                                 "scope_forbidden", "The credential cannot access this cluster operation.")
                             : Redirect(context.Response, context.RedirectUri);
+                    options.Events.OnValidatePrincipal = context =>
+                    {
+                        if (context.Principal is null)
+                            return Task.CompletedTask;
+
+                        var roleMapper = context.HttpContext.RequestServices.GetRequiredService<QuasarRoleMapper>();
+                        var refreshed = roleMapper.RefreshRoles(context.Principal);
+                        if (!HaveSameRoles(context.Principal, refreshed))
+                        {
+                            context.ReplacePrincipal(refreshed);
+                            context.ShouldRenew = true;
+                        }
+
+                        return Task.CompletedTask;
+                    };
                 })
                 .AddSteam(options =>
                 {
@@ -180,6 +195,7 @@ public class Program
             builder.Services.AddSingleton<RbacConfigCatalog>();
             builder.Services.AddSingleton(analyticsStoreOptions);
             builder.Services.AddSingleton<QuasarRoleMapper>();
+            builder.Services.AddScoped<QuasarPermissionService>();
             builder.Services.AddSingleton<TrustedNetworkEvaluator>();
             builder.Services.AddSingleton<ServicePrincipalAuthenticator>();
             builder.Services.AddSingleton<QuasarAuthSettingsService>();
@@ -698,6 +714,16 @@ public class Program
     private static void AddRolePolicy(AuthorizationOptions options, string policyName, params string[] roles)
     {
         options.AddPolicy(policyName, policy => policy.RequireRole(roles));
+    }
+
+    private static bool HaveSameRoles(ClaimsPrincipal left, ClaimsPrincipal right)
+    {
+        static HashSet<string> Roles(ClaimsPrincipal principal) => principal.Claims
+            .Where(claim => claim.Type == ClaimTypes.Role)
+            .Select(claim => claim.Value)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return Roles(left).SetEquals(Roles(right));
     }
 
     private static bool IsClusterApi(PathString path) => path.StartsWithSegments("/api/v1/clusters");

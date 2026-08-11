@@ -13,6 +13,7 @@
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject QuasarPermissionService Permissions
 
 @if (!Embedded)
 {
@@ -457,6 +458,9 @@
 
     private async Task StartAsync(string uniqueName)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanControlServers))
+            return;
+
         try
         {
             if (LaunchBlocked)
@@ -485,6 +489,9 @@
 
     private async Task StopAsync(string uniqueName)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanControlServers))
+            return;
+
         if (!await ConfirmDestructiveActionAsync(
                 "Stop server?",
                 $"Server '{uniqueName}' will save and shut down normally.",
@@ -506,6 +513,9 @@
 
     private async Task StartClusterAsync(string uniqueName)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.ClusterManage))
+            return;
+
         try
         {
             await ClusterCommands.SetGoalAsync(uniqueName,
@@ -521,6 +531,9 @@
 
     private async Task StopClusterAsync(string uniqueName)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.ClusterManage))
+            return;
+
         if (!await ConfirmDestructiveActionAsync(
                 "Stop cluster?",
                 $"Cluster '{uniqueName}' will disconnect players, save every partition and global state, then stop the Gateway last.",
@@ -541,6 +554,9 @@
 
     private async Task KillStartingAsync(string uniqueName)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanControlServers))
+            return;
+
         if (!await ConfirmDestructiveActionAsync(
                 "Kill starting server?",
                 $"Server '{uniqueName}' will be killed while it is starting. Unsaved startup progress can be lost.",
@@ -573,6 +589,9 @@
 
     private async Task RestartAsync(string uniqueName)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanControlServers))
+            return;
+
         try
         {
             await Supervisor.RestartServerAsync(uniqueName);
@@ -585,6 +604,15 @@
     }
 
     private Task DeleteAsync(string uniqueName) => ServerActions.DeleteAsync(uniqueName);
+
+    private async Task<bool> EnsureAuthorizedAsync(string policyName)
+    {
+        if (await Permissions.IsAuthorizedAsync(policyName))
+            return true;
+
+        Snackbar.Add("Access denied: your current role cannot perform this action.", Severity.Error);
+        return false;
+    }
 
     private string GetAttachmentStatus(string uniqueName)
     {

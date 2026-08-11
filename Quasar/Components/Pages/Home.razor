@@ -14,6 +14,7 @@
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
 @inject BrowserStorageService BrowserStorage
+@inject QuasarPermissionService Permissions
 
 <PageTitle>@(IsListView ? "Servers" : "Dashboard")</PageTitle>
 
@@ -829,6 +830,9 @@ else
 
     private async Task SaveDataHandlingConsentAsync(bool consentGranted)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
+            return;
+
         try
         {
             await DataHandlingConsent.SaveAsync(consentGranted);
@@ -842,6 +846,9 @@ else
 
     private async Task OpenSetupWorldTemplateDialogAsync()
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditConfigs))
+            return;
+
         var parameters = new DialogParameters
         {
             [nameof(WorldTemplateQuickImportDialog.TemplateOnly)] = true,
@@ -871,6 +878,9 @@ else
 
     private async Task OpenSetupConfigProfileDialogAsync()
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditConfigs))
+            return;
+
         if (SetupConfigProfile is { } existingProfile)
         {
             await OpenConfigProfileFromServerListAsync(existingProfile.ConfigProfileId);
@@ -945,14 +955,17 @@ else
             : summary;
     }
 
-    private Task OpenConfigProfileFromServerListAsync(string configProfileId)
+    private async Task OpenConfigProfileFromServerListAsync(string configProfileId)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditConfigs))
+            return;
+
         var parameters = new DialogParameters
         {
             [nameof(ConfigsPageDialog.InitialProfileId)] = configProfileId,
         };
 
-        return ShowFullScreenPageDialogAsync<ConfigsPageDialog>("Config Profiles", parameters);
+        await ShowFullScreenPageDialogAsync<ConfigsPageDialog>("Config Profiles", parameters);
     }
 
     private async Task SetServerViewAsync(DashboardServerView view)
@@ -1009,6 +1022,9 @@ else
 
     private async Task StartAsync(string uniqueName)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanControlServers))
+            return;
+
         try
         {
             if (IsLaunchBlocked)
@@ -1035,11 +1051,13 @@ else
         }
     }
 
-    private Task RetryRuntimeWarmupAsync()
+    private async Task RetryRuntimeWarmupAsync()
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditServers))
+            return;
+
         _ = RuntimeWarmup.RetryAsync();
         Snackbar.Add("Dedicated Server download retry started.", Severity.Info);
-        return Task.CompletedTask;
     }
 
     private static string? GetWorldLaunchBlockMessage(DedicatedServerDefinition? definition)
@@ -1061,6 +1079,9 @@ else
 
     private async Task StopAsync(string uniqueName)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanControlServers))
+            return;
+
         if (!await ConfirmDestructiveActionAsync(
                 "Stop server?",
                 $"Server '{uniqueName}' will save and shut down normally.",
@@ -1082,6 +1103,9 @@ else
 
     private async Task ClearErrorStatusAsync(string uniqueName)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanControlServers))
+            return;
+
         try
         {
             var cleared = await Supervisor.ClearErrorStatusAsync(uniqueName);
@@ -1099,6 +1123,9 @@ else
 
     private async Task KillStartingAsync(string uniqueName)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanControlServers))
+            return;
+
         if (!await ConfirmDestructiveActionAsync(
                 "Kill starting server?",
                 $"Server '{uniqueName}' will be killed while it is starting. Unsaved startup progress can be lost.",
@@ -1131,6 +1158,9 @@ else
 
     private async Task RestartAsync(string uniqueName)
     {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanControlServers))
+            return;
+
         try
         {
             await Supervisor.RestartServerAsync(uniqueName);
@@ -1140,6 +1170,15 @@ else
         {
             Snackbar.Add(exception.Message, Severity.Error);
         }
+    }
+
+    private async Task<bool> EnsureAuthorizedAsync(string policyName)
+    {
+        if (await Permissions.IsAuthorizedAsync(policyName))
+            return true;
+
+        Snackbar.Add("Access denied: your current role cannot perform this action.", Severity.Error);
+        return false;
     }
 
     private bool IsRunning(string uniqueName)
