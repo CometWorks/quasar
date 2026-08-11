@@ -6,6 +6,8 @@
 @inject WebServiceOptions WebServiceOptions
 @inject BrandingService BrandingService
 @inject QuasarUpdateService UpdateService
+@inject RbacConfigCatalog RbacConfigCatalog
+@inject NavigationManager Navigation
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @inject IDialogService DialogService
@@ -152,6 +154,7 @@
     {
         BrandingService.Changed += OnBrandingChanged;
         UpdateService.Changed += OnUpdatesChanged;
+        RbacConfigCatalog.Changed += OnRbacChanged;
         _updateSnapshot = UpdateService.GetSnapshot();
     }
 
@@ -159,11 +162,17 @@
     {
         BrandingService.Changed -= OnBrandingChanged;
         UpdateService.Changed -= OnUpdatesChanged;
+        RbacConfigCatalog.Changed -= OnRbacChanged;
     }
 
     private void OnBrandingChanged()
     {
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void OnRbacChanged()
+    {
+        _ = InvokeAsync(() => Navigation.NavigateTo(Navigation.Uri, forceLoad: true));
     }
 
     private void OnUpdatesChanged()

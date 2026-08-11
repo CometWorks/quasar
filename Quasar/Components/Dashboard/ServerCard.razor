@@ -21,73 +21,38 @@
                                        Size="Size.Small"
                                        OnClick="OpenConsoleAsync" />
                     </MudTooltip>
-                    <MudTooltip Text="Clone server">
-                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
-                                       Color="Color.Default"
-                                       Size="Size.Small"
-                                       OnClick="CloneAsync" />
-                    </MudTooltip>
-                    <MudTooltip Text="Create world template">
-                        <MudIconButton Icon="@Icons.Material.Filled.Public"
-                                       Color="Color.Default"
-                                       Size="Size.Small"
-                                       Disabled="@(!CanCreateTemplate)"
-                                       OnClick="CreateTemplateAsync" />
-                    </MudTooltip>
-                    <MudTooltip Text="Edit server">
-                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
-                                       Color="Color.Default"
-                                       Size="Size.Small"
-                                       OnClick="EditAsync" />
-                    </MudTooltip>
-                    <MudTooltip Text="Delete server">
-                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                       Color="Color.Error"
-                                       Size="Size.Small"
-                                       Disabled="@IsProcessActive"
-                                       OnClick="DeleteAsync" />
-                    </MudTooltip>
-                    @if (CanStart)
-                    {
-                        <MudButton Variant="Variant.Filled"
-                                   Color="Color.Success"
-                                   Size="Size.Small"
-                                   Disabled="@IsStartDisabled"
-                                   StartIcon="@Icons.Material.Filled.PlayArrow"
-                                   OnClick="StartAsync">
-                            Start
-                        </MudButton>
-                    }
-                    @if (CanRestart)
-                    {
-                        <MudButton Variant="Variant.Outlined"
-                                   Color="Color.Primary"
-                                   Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.RestartAlt"
-                                   OnClick="RestartAsync">
-                            Restart
-                        </MudButton>
-                    }
-                    @if (CanStop)
-                    {
-                        <MudButton Variant="Variant.Filled"
-                                   Color="Color.Error"
-                                   Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.Stop"
-                                   OnClick="StopAsync">
-                            Stop
-                        </MudButton>
-                    }
-                    @if (CanKillStarting)
-                    {
-                        <MudButton Variant="Variant.Outlined"
-                                   Color="Color.Error"
-                                   Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.StopCircle"
-                                   OnClick="KillStartingAsync">
-                            Kill
-                        </MudButton>
-                    }
+                    <AuthorizeView Policy="@QuasarPolicyNames.CanEditServers">
+                        <Authorized>
+                            <MudTooltip Text="Clone server"><MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Color="Color.Default" Size="Size.Small" OnClick="CloneAsync" /></MudTooltip>
+                            <MudTooltip Text="Edit server"><MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Default" Size="Size.Small" OnClick="EditAsync" /></MudTooltip>
+                            <MudTooltip Text="Delete server"><MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" Disabled="@IsProcessActive" OnClick="DeleteAsync" /></MudTooltip>
+                        </Authorized>
+                    </AuthorizeView>
+                    <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs">
+                        <Authorized>
+                            <MudTooltip Text="Create world template"><MudIconButton Icon="@Icons.Material.Filled.Public" Color="Color.Default" Size="Size.Small" Disabled="@(!CanCreateTemplate)" OnClick="CreateTemplateAsync" /></MudTooltip>
+                        </Authorized>
+                    </AuthorizeView>
+                    <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers">
+                        <Authorized>
+                            @if (CanStart)
+                            {
+                                <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small" Disabled="@IsStartDisabled" StartIcon="@Icons.Material.Filled.PlayArrow" OnClick="StartAsync">Start</MudButton>
+                            }
+                            @if (CanRestart)
+                            {
+                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="RestartAsync">Restart</MudButton>
+                            }
+                            @if (CanStop)
+                            {
+                                <MudButton Variant="Variant.Filled" Color="Color.Error" Size="Size.Small" StartIcon="@Icons.Material.Filled.Stop" OnClick="StopAsync">Stop</MudButton>
+                            }
+                            @if (CanKillStarting)
+                            {
+                                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" StartIcon="@Icons.Material.Filled.StopCircle" OnClick="KillStartingAsync">Kill</MudButton>
+                            }
+                        </Authorized>
+                    </AuthorizeView>
                 </MudStack>
             </MudStack>
             <MudStack Spacing="0">

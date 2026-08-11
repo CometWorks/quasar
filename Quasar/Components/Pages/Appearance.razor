@@ -1,4 +1,5 @@
 @page "/settings/appearance"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanManageAppearance)]
 @using MudBlazor.Utilities
 @implements IDisposable
 @inject BrandingService BrandingService

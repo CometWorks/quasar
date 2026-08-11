@@ -65,7 +65,7 @@ public sealed class ServicePrincipalOptions
 public sealed class TrustedNetworkBypassOptions
 {
     public bool AllowLoopback { get; set; } = true;
-    public bool AllowSameSubnet { get; set; } = true;
+    public bool AllowSameSubnet { get; set; }
     public List<string> TrustedProxies { get; set; } = [];
     public List<string> Roles { get; set; } = [QuasarRoles.Admin];
 

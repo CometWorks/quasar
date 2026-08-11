@@ -45,6 +45,12 @@ public sealed class RbacConfigCatalog : IDisposable
     public async Task SaveAsync(RbacConfig config, CancellationToken cancellationToken = default)
     {
         var normalized = RbacConfig.Normalize(config);
+        lock (_sync)
+        {
+            if (HasAdminMapping(_config) && !HasAdminMapping(normalized))
+                throw new InvalidOperationException("Cannot remove the last runtime administrator mapping.");
+        }
+
         var json = JsonSerializer.Serialize(normalized, JsonOptions);
         var path = GetPath();
 
@@ -136,6 +142,12 @@ public sealed class RbacConfigCatalog : IDisposable
 
     private static string CreateSnapshot(RbacConfig config) =>
         JsonSerializer.Serialize(RbacConfig.Normalize(config), JsonOptions);
+
+    internal static bool HasAdminMapping(RbacConfig config) =>
+        config.SubjectRoleMappings.Any(mapping =>
+            mapping.Roles.Contains(QuasarRoles.Admin, StringComparer.OrdinalIgnoreCase)) ||
+        config.ClaimRoleMappings.Any(mapping =>
+            mapping.Roles.Contains(QuasarRoles.Admin, StringComparer.OrdinalIgnoreCase));
 
     private static string GetPath() =>
         Path.Combine(MagnetarPaths.GetQuasarDirectory(), "rbac.json");

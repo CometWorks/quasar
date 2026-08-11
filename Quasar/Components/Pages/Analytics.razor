@@ -11,6 +11,7 @@
 @inject IDialogService DialogService
 @inject ThemePreferenceService ThemePreference
 @inject IJSRuntime JS
+@inject QuasarPermissionService Permissions
 
 <PageTitle>Analytics</PageTitle>
 
@@ -530,6 +531,12 @@ else
 
     private async Task HandleProfilerModeChanged(string uniqueName, string? value)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers))
+        {
+            Snackbar.Add("Access denied: your current role cannot change profiler mode.", Severity.Error);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(uniqueName))
             return;
 
