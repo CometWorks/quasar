@@ -42,6 +42,57 @@ curl http://127.0.0.1:8080/api/ready
 This keeps the supervisor, APIs, background jobs, and agent socket active while
 skipping Razor, UI plugins, branding, and static-file hosting.
 
+## Set the first RBAC administrator from the CLI
+
+Before signing in with Steam, create `rbac.json` in the Quasar install directory,
+next to `appsettings.json`. Replace `YOUR_17_DIGIT_STEAM_ID` with the
+administrator's SteamID64.
+
+**Linux**
+
+```bash
+cd "$QUASAR_INSTALL_DIR"
+cat > rbac.json <<'EOF'
+{
+  "subjectRoleMappings": [
+    {
+      "provider": "Steam",
+      "subject": "YOUR_17_DIGIT_STEAM_ID",
+      "roles": ["admin"]
+    }
+  ],
+  "claimRoleMappings": [],
+  "policyOverrides": {}
+}
+EOF
+```
+
+For the default user-service installation, the install directory is
+`~/.local/share/Quasar`. If `QUASAR_INSTALL_DIR` is not set in the current
+shell, `cd` to the directory where Quasar was extracted or installed instead.
+
+**Windows** (PowerShell, run from the Quasar install directory)
+
+```powershell
+@'
+{
+  "subjectRoleMappings": [
+    {
+      "provider": "Steam",
+      "subject": "YOUR_17_DIGIT_STEAM_ID",
+      "roles": ["admin"]
+    }
+  ],
+  "claimRoleMappings": [],
+  "policyOverrides": {}
+}
+'@ | Set-Content -Encoding UTF8 .\rbac.json
+```
+
+Quasar watches `rbac.json`, so an already-running instance applies the mapping
+without a restart. This RBAC administrator controls access to Quasar; it is
+separate from the Space Engineers server's `Administrators` list.
+
 ## First server setup
 
 The dashboard setup wizard starts from a world shipped with Space Engineers
