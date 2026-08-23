@@ -200,18 +200,21 @@ public sealed class DiscordBotService : IHostedService, IDisposable
             var botLifetime = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
             client.Log += HandleClientLogAsync;
             client.MessageReceived += _commandRouter.HandleAsync;
+            client.SlashCommandExecuted += _commandRouter.HandleSlashCommandAsync;
+            client.Ready += HandleClientReadyAsync;
 
             try
             {
                 SetState("Starting", string.Empty);
-                await client.LoginAsync(TokenType.Bot, options.BotToken);
-                await client.StartAsync();
 
                 lock (_sync)
                 {
                     _client = client;
                     _botLifetime = botLifetime;
                 }
+
+                await client.LoginAsync(TokenType.Bot, options.BotToken);
+                await client.StartAsync();
 
                 _chatRelayService.Reset();
                 _deathRelayService.Reset();
@@ -231,7 +234,18 @@ public sealed class DiscordBotService : IHostedService, IDisposable
             {
                 botLifetime.Cancel();
                 client.MessageReceived -= _commandRouter.HandleAsync;
+                client.SlashCommandExecuted -= _commandRouter.HandleSlashCommandAsync;
+                client.Ready -= HandleClientReadyAsync;
                 client.Log -= HandleClientLogAsync;
+
+                lock (_sync)
+                {
+                    if (ReferenceEquals(_client, client))
+                    {
+                        _client = null;
+                        _botLifetime = null;
+                    }
+                }
 
                 try
                 {
@@ -283,6 +297,8 @@ public sealed class DiscordBotService : IHostedService, IDisposable
         }
 
         client.MessageReceived -= _commandRouter.HandleAsync;
+        client.SlashCommandExecuted -= _commandRouter.HandleSlashCommandAsync;
+        client.Ready -= HandleClientReadyAsync;
         client.Log -= HandleClientLogAsync;
 
         try
@@ -332,6 +348,23 @@ public sealed class DiscordBotService : IHostedService, IDisposable
 
         _logger.Log(level, message.Exception, "Discord.Net {Source}: {Message}", message.Source, message.Message);
         return Task.CompletedTask;
+    }
+
+    private async Task HandleClientReadyAsync()
+    {
+        var client = GetClient();
+        if (client is null)
+            return;
+
+        try
+        {
+            await _commandRouter.RegisterSlashCommandsAsync(client);
+            _logger.LogInformation("Registered Discord slash commands.");
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed registering Discord slash commands.");
+        }
     }
 
     private async Task UpdatePresenceAsync(DiscordSocketClient client, CancellationToken cancellationToken)

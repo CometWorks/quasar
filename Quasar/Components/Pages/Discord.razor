@@ -44,7 +44,7 @@
                 }
 
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                    Create a Discord app and bot in the Developer Portal, copy the bot token here, enable Message Content Intent if using text commands, then invite the bot with bot scope. Required channel permissions: View Channel, Send Messages, Read Message History, Attach Files, and Embed Links.
+                    Create a Discord app and bot in the Developer Portal, copy the bot token here, enable Message Content Intent if using text commands, then invite the bot with <code>bot</code> and <code>applications.commands</code> scopes. Required permissions: View Channel, Send Messages, Read Message History, Attach Files, Embed Links, and Manage Channels (for <code>/faction-channel</code>).
                     <MudLink Href="https://docs.discord.com/developers/docs/getting-started" Target="_blank">Bot setup</MudLink>
                     ·
                     <MudLink Href="https://docs.discord.com/developers/platform/oauth2-and-permissions" Target="_blank">OAuth2 permissions</MudLink>
@@ -112,6 +112,26 @@
                                                      Label="Chat relay channel ID"
                                                      Variant="Variant.Outlined"
                                                      Min="0" />
+                                    <MudNumericField T="ulong?"
+                                                     @bind-Value="serverOptions.AdminChannelId"
+                                                     Label="Admin whisper channel ID"
+                                                     HelperText="Must deny View Channel to the Everyone role. Private game whispers are dropped unless this channel is admin-only."
+                                                     Variant="Variant.Outlined"
+                                                     Min="0" />
+                                    @if (serverOptions.FactionChannels.Count > 0)
+                                    {
+                                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                                            @foreach (var factionChannel in serverOptions.FactionChannels)
+                                            {
+                                                <MudChip T="string" Variant="Variant.Outlined">
+                                                    @($"{factionChannel.FactionTag}: {factionChannel.ChannelId}")
+                                                </MudChip>
+                                            }
+                                        </MudStack>
+                                    }
+                                    <MudText Typo="Typo.caption">
+                                        Discord administrators can run <code>/faction-channel</code> to create and bind an admin-only channel. Game faction chat is relayed into it; administrator messages posted there are delivered privately to every online member of that in-game faction.
+                                    </MudText>
                                     <MudNumericField T="ulong?"
                                                      @bind-Value="serverOptions.LogChannelId"
                                                      Label="Log channel ID"

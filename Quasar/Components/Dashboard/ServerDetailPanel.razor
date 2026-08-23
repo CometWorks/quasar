@@ -164,7 +164,7 @@ else
         {
             <div class="chat-row">
                 <MudText Typo="Typo.caption" Class="mono">@FormatTimestamp(message.TimestampTicksUtc)</MudText>
-                <MudText Typo="Typo.body2"><strong>@FormatChatAuthor(message)</strong>: @TextSanitizer.CleanGameText(message.Content)</MudText>
+                <MudText Typo="Typo.body2"><span class="mono">[@FormatChatChannel(message)]</span> <strong>@FormatChatAuthor(message)</strong>: @TextSanitizer.CleanGameText(message.Content)</MudText>
             </div>
         }
     </div>
@@ -494,6 +494,14 @@ else
         var author = TextSanitizer.CleanGameText(message.AuthorName);
         return string.IsNullOrWhiteSpace(author) ? message.SteamId.ToString() : author;
     }
+
+    private static string FormatChatChannel(ChatMessageSnapshot message) => message.Channel switch
+    {
+        ChatMessageChannel.Faction => string.IsNullOrWhiteSpace(message.FactionTag) ? "Faction" : $"Faction {message.FactionTag}",
+        ChatMessageChannel.Whisper => "Whisper",
+        ChatMessageChannel.Global => "Global",
+        _ => message.Channel.ToString(),
+    };
 
     private static bool IsServerMessage(ChatMessageSnapshot message)
     {
