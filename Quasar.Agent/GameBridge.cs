@@ -27,6 +27,7 @@ using Sandbox.Game.Multiplayer;
 using Sandbox.Game.Screens.Helpers;
 using Sandbox.Game.World;
 using VRage.Game;
+using VRage.GameServices;
 using VRage.Game.ModAPI;
 using VRage.Plugins;
 
@@ -62,7 +63,11 @@ namespace Quasar.Agent
         private readonly string _pluginVersion;
         private readonly AgentOptions _options;
         private readonly ConcurrentQueue<DeathEventSnapshot> _deathQueue = new ConcurrentQueue<DeathEventSnapshot>();
+        private readonly object _chatSync = new object();
+        private readonly Queue<ChatMessageSnapshot> _recentChat = new Queue<ChatMessageSnapshot>();
         private readonly object _saveSync = new object();
+        private MyMultiplayerBase _chatSource;
+        private long _lastChatTimestampTicksUtc;
         private string _worldSavePath = string.Empty;
         private bool _worldSaveStateLoaded;
         private bool _lastSaveInProgress;
@@ -101,6 +106,8 @@ namespace Quasar.Agent
         public void Dispose()
         {
             MySession.OnSaved -= OnWorldSaved;
+            if (_chatSource != null)
+                _chatSource.ChatMessageReceived -= OnChatMessageReceived;
         }
 
         private static string GetAgentVersion()
@@ -114,6 +121,7 @@ namespace Quasar.Agent
         {
             AgentProfiler.MarkGameThread();
             AgentProfiler.Update();
+            RefreshChatSubscription();
 
             if ((DateTime.UtcNow - _lastSnapshotUtc) < SnapshotInterval)
                 return;
@@ -1036,32 +1044,85 @@ namespace Quasar.Agent
 
         private List<ChatMessageSnapshot> GetRecentChat()
         {
-            var result = new List<ChatMessageSnapshot>();
-            if (!(MyMultiplayer.Static is MyDedicatedServer dedicatedServer))
-                return result;
-
-            try
+            lock (_chatSync)
             {
-                foreach (var message in dedicatedServer.GlobalChatHistory.Skip(Math.Max(0, dedicatedServer.GlobalChatHistory.Count - 100)))
-                {
-                    var steamId = (long)message.SteamId;
-                    var authorName = message.AuthorName ?? string.Empty;
-                    var isServerMessage = IsServerChatMessage(steamId, authorName);
-                    result.Add(new ChatMessageSnapshot
-                    {
-                        SteamId = steamId,
-                        AuthorName = isServerMessage ? ServerChatAuthorName : authorName,
-                        Content = message.Text ?? string.Empty,
-                        TimestampTicksUtc = message.Timestamp.Ticks,
-                        IsServerMessage = isServerMessage,
-                    });
-                }
+                return _recentChat.ToList();
             }
-            catch
-            {
-            }
+        }
 
-            return result;
+        private void RefreshChatSubscription()
+        {
+            var multiplayer = MyMultiplayer.Static;
+            if (ReferenceEquals(_chatSource, multiplayer))
+                return;
+
+            if (_chatSource != null)
+                _chatSource.ChatMessageReceived -= OnChatMessageReceived;
+
+            _chatSource = multiplayer;
+            if (_chatSource != null)
+                _chatSource.ChatMessageReceived += OnChatMessageReceived;
+        }
+
+        private void OnChatMessageReceived(
+            ulong steamId,
+            string content,
+            ChatChannel channel,
+            long targetId,
+            ChatMessageCustomData? customData)
+        {
+            var session = MySession.Static;
+            var authorName = customData.HasValue ? customData.Value.AuthorName : null;
+            if (string.IsNullOrWhiteSpace(authorName))
+                authorName = session?.Players?.TryGetIdentityNameFromSteamId(steamId) ?? string.Empty;
+
+            var numericSteamId = (long)steamId;
+            var isServerMessage = IsServerChatMessage(numericSteamId, authorName);
+            var snapshot = new ChatMessageSnapshot
+            {
+                SteamId = numericSteamId,
+                AuthorName = isServerMessage ? ServerChatAuthorName : authorName,
+                Content = content ?? string.Empty,
+                Channel = MapChatChannel(channel),
+                TargetId = targetId,
+                TargetName = channel == ChatChannel.Private
+                    ? session?.Players?.TryGetIdentity(targetId)?.DisplayName ?? string.Empty
+                    : string.Empty,
+                FactionTag = channel == ChatChannel.Faction
+                    ? session?.Factions?.TryGetFactionById(targetId)?.Tag ?? string.Empty
+                    : string.Empty,
+                IsServerMessage = isServerMessage,
+            };
+
+            lock (_chatSync)
+            {
+                snapshot.TimestampTicksUtc = Math.Max(DateTime.UtcNow.Ticks, _lastChatTimestampTicksUtc + 1);
+                _lastChatTimestampTicksUtc = snapshot.TimestampTicksUtc;
+                _recentChat.Enqueue(snapshot);
+                while (_recentChat.Count > 100)
+                    _recentChat.Dequeue();
+            }
+        }
+
+        private static ChatMessageChannel MapChatChannel(ChatChannel channel)
+        {
+            switch (channel)
+            {
+                case ChatChannel.Global:
+                    return ChatMessageChannel.Global;
+                case ChatChannel.GlobalScripted:
+                    return ChatMessageChannel.GlobalScripted;
+                case ChatChannel.Faction:
+                    return ChatMessageChannel.Faction;
+                case ChatChannel.Private:
+                    return ChatMessageChannel.Whisper;
+                case ChatChannel.ChatBot:
+                    return ChatMessageChannel.ChatBot;
+                case ChatChannel.BroadcastController:
+                    return ChatMessageChannel.BroadcastController;
+                default:
+                    return ChatMessageChannel.Unknown;
+            }
         }
 
         private static bool IsServerChatMessage(long steamId, string authorName)
@@ -1425,6 +1486,12 @@ namespace Quasar.Agent
                 case ServerCommandType.SendChat:
                     return SendChat(command);
 
+                case ServerCommandType.SendWhisper:
+                    return SendWhisper(command);
+
+                case ServerCommandType.SendFactionChat:
+                    return SendFactionChat(command);
+
                 case ServerCommandType.SaveWorld:
                     return SaveWorldIfReady()
                         ? CreateResult(command, true, "World saved.")
@@ -1514,6 +1581,61 @@ namespace Quasar.Agent
             MyMultiplayer.Static?.SendChatMessage(text, ChatChannel.Global, 0L);
 
             return CreateResult(command, true, "Chat message sent.");
+        }
+
+        private ServerCommandResult SendWhisper(ServerCommandEnvelope command)
+        {
+            var text = (command.Text ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(text))
+                return CreateResult(command, false, "Whisper message is empty.");
+            if (!command.SteamId.HasValue || command.SteamId.Value <= 0)
+                return CreateResult(command, false, "Whisper recipient is missing.");
+
+            var session = MySession.Static;
+            var multiplayer = MyMultiplayer.Static;
+            if (session == null || multiplayer == null)
+                return CreateResult(command, false, "Game session is not ready.");
+
+            var identityId = session.Players.TryGetIdentityId((ulong)command.SteamId.Value);
+            if (identityId == 0 || !session.Players.IsPlayerOnline(identityId))
+                return CreateResult(command, false, "Whisper recipient is not online.");
+
+            multiplayer.SendChatMessage(text, ChatChannel.Private, identityId);
+            return CreateResult(command, true, "Whisper sent.");
+        }
+
+        private ServerCommandResult SendFactionChat(ServerCommandEnvelope command)
+        {
+            var text = (command.Text ?? string.Empty).Trim();
+            var factionTag = (command.Payload ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(text))
+                return CreateResult(command, false, "Faction message is empty.");
+            if (string.IsNullOrWhiteSpace(factionTag))
+                return CreateResult(command, false, "Faction tag is missing.");
+
+            var session = MySession.Static;
+            var multiplayer = MyMultiplayer.Static;
+            if (session == null || multiplayer == null)
+                return CreateResult(command, false, "Game session is not ready.");
+
+            var faction = session.Factions.TryGetFactionByTag(factionTag);
+            if (faction == null)
+                return CreateResult(command, false, $"Faction '{factionTag}' was not found.");
+
+            var sent = 0;
+            var customData = new ChatMessageCustomData($"Discord [{faction.Tag}]");
+            foreach (var member in faction.Members.Values)
+            {
+                if (!session.Players.IsPlayerOnline(member.PlayerId))
+                    continue;
+
+                multiplayer.SendChatMessage(text, ChatChannel.Private, member.PlayerId, customData);
+                sent++;
+            }
+
+            return sent > 0
+                ? CreateResult(command, true, $"Faction message sent to {sent} online member(s).")
+                : CreateResult(command, false, $"Faction '{faction.Tag}' has no online members.");
         }
 
         private ServerCommandResult ListEntities(ServerCommandEnvelope command)

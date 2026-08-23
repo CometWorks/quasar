@@ -280,6 +280,49 @@ deep patch becomes suspect. Deep patch groups log failures and continue with the
 remaining profiler surface; entity call-site misses fall back to high-level
 timing only.
 
+## Discord chat privacy and slash commands
+
+Quasar keeps Space Engineers chat channels separate when relaying them to Discord:
+
+- global game chat goes only to the server's **Chat relay channel ID**
+- whispers go only to the server's **Admin whisper channel ID**
+- faction chat is dropped unless that faction has a channel binding created with
+  `/faction-channel`
+- scripted, chatbot, broadcast-controller, and unknown chat types never fall
+  through to the global relay
+
+The admin whisper channel and generated faction channels must deny **View Channel**
+to the guild's Everyone role. Quasar checks this before sending private traffic and
+also rejects any non-administrator role or non-bot user overwrite that explicitly
+allows viewing. A bad or public binding is therefore logged and the message is
+dropped instead of leaked.
+
+Invite the bot with both the `bot` and `applications.commands` OAuth scopes. It needs
+View Channel, Send Messages, Read Message History, Attach Files, and Embed Links in
+relay channels. It also needs Manage Channels to create faction channels.
+
+Available guild slash commands:
+
+- `/whisper server:<unique-name> user:<online name or Steam ID> message:<text>` sends
+  an ephemeral-confirmed private message to an online game player. Run it from a
+  command, global relay, admin, or faction channel bound to that server.
+- `/faction-channel server:<unique-name> faction:<tag>` requires Discord
+  Administrator permission. It creates a text channel in the invoking channel's
+  category, denies View Channel to Everyone, explicitly grants the bot its relay
+  permissions, and saves the faction/channel binding in `discord-options.json`.
+  Discord administrators can see the channel because Discord's Administrator
+  permission bypasses channel overwrites. Running the command again reapplies the
+  private permission overwrites to the existing bound channel.
+
+Messages posted by Discord administrators in a bound faction channel are delivered
+to every online member of that in-game faction as server-authored private chat,
+labeled `Discord [TAG]`. There is no global fallback. The dedicated server's normal
+faction-send path requires its sender to be a faction member, so Quasar uses the
+server's supported per-player private delivery rather than impersonating a player.
+
+Slash commands are guild-scoped and refresh when the bot connects. Server values
+use Quasar's stable unique names, not display names.
+
 ## Discord simspeed alerts
 
 The Discord page stores per-server alert rules in `discord-options.json`.
