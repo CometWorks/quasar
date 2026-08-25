@@ -746,6 +746,7 @@ jobs:
           platforms: linux/amd64
           push: true
           pull: true
+          provenance: false
           build-args: |
             QUASAR_VERSION=${{ needs.metadata.outputs.version }}
           tags: |
