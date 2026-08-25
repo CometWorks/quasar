@@ -113,7 +113,13 @@ same mapping only when persistent `rbac.json` does not exist.
 
 ## First server setup
 
-The dashboard setup wizard starts from a world shipped with Space Engineers
+When no server is configured, the dashboard automatically opens the first-server
+setup dialog once in that browser. Choose **Create New Server** to continue into
+the normal setup flow, or **Import Existing Server** to continue in the same
+dialog with the vanilla/Torch importer. The dashboard buttons can reopen either
+path later.
+
+The create-new setup flow starts from a world shipped with Space Engineers
 Dedicated Server:
 
 1. Choose a predefined Dedicated Server world. Quasar copies it into managed
@@ -134,8 +140,9 @@ and skips the profile-creation step.
 
 ## Import an existing server
 
-Use **Import Existing Server** beside **First Setup Wizard** on the dashboard
-to migrate a stopped vanilla Dedicated Server or Torch instance:
+Choose **Import Existing Server** from the automatic first-server dialog, or use
+the matching button beside **First Setup Wizard** later, to migrate a stopped
+vanilla Dedicated Server or Torch instance:
 
 1. Choose **Vanilla Dedicated Server** or **Torch**. For vanilla, select the
    app-data folder containing `SpaceEngineers-Dedicated.cfg` (or a parent up to
