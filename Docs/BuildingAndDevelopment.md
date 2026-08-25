@@ -134,7 +134,8 @@ secret. The Gateway package settings grant `CometWorks/quasar` read access under
 Full releases publish `ghcr.io/cometworks/quasar` with `latest`, numeric version,
 and `v`-prefixed version tags. The Dockerfile consumes the already-packaged Linux
 worker archive and verifies `SHA256SUMS`, keeping release packaging as the single
-source of truth:
+source of truth. Container publishing runs only for pushes to `main`; pull
+requests, tags, and manual workflow runs never publish images:
 
 ```bash
 docker build --build-arg QUASAR_VERSION=1.1.0.31 -t quasar:1.1.0.31 .

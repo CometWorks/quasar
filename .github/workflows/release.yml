@@ -718,7 +718,11 @@ jobs:
 
   publish-container:
     needs: [metadata, release]
-    if: needs.metadata.outputs.draft == 'false' && needs.metadata.outputs.prerelease == 'false'
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.metadata.outputs.draft == 'false' &&
+      needs.metadata.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     permissions:
       contents: read
