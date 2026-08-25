@@ -135,7 +135,9 @@ Full releases publish `ghcr.io/cometworks/quasar` with `latest`, numeric version
 and `v`-prefixed version tags. The Dockerfile consumes the already-packaged Linux
 worker archive and verifies `SHA256SUMS`, keeping release packaging as the single
 source of truth. Container publishing runs only for pushes to `main`; pull
-requests, tags, and manual workflow runs never publish images:
+requests, tags, and manual workflow runs never publish images. Build provenance
+is disabled because GHCR otherwise lists the single-platform image, attestation,
+and their index as three separate package versions:
 
 ```bash
 docker build --build-arg QUASAR_VERSION=1.1.0.31 -t quasar:1.1.0.31 .
