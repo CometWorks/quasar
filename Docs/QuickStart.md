@@ -132,6 +132,34 @@ Both template and matching profile are required. If a profile was already
 created from the selected template, the wizard recognizes that relationship
 and skips the profile-creation step.
 
+## Import an existing server
+
+Use **Import Existing Server** beside **First Setup Wizard** on the dashboard
+to migrate a stopped vanilla Dedicated Server or Torch instance:
+
+1. Choose **Vanilla Dedicated Server** or **Torch**. For vanilla, select the
+   app-data folder containing `SpaceEngineers-Dedicated.cfg` (or a parent up to
+   two levels above it). For Torch, select the folder containing `Torch.cfg`;
+   Quasar follows its instance path and also recognizes the usual `Instance`
+   subfolder.
+2. Choose **Copy** to leave source worlds intact, or **Move** to remove only
+   selected source world folders after the managed import commits. Move keeps
+   the old install, DS/Torch config, plugins, and logs for recovery.
+3. Review detected worlds. The primary selection becomes the new managed
+   server save; other selected worlds become reusable world templates.
+4. Choose transfer categories with the checkboxes: server/world names,
+   network and online mode, server options and MOTD, DS `GroupID` whitelist,
+   administrators, reserved players, banned players, gameplay settings, mods,
+   and Torch crash-restart behavior. The source server must be stopped so its
+   world files form a consistent snapshot.
+
+Imported servers remain stopped for review. Existing DS password hashes cannot
+be reversed, so set a new password in the imported config profile. Torch
+plugins and Torch's independent player whitelist are not compatible with
+Magnetar; the wizard reports them but does not mis-map them. Vanilla DS
+`GroupID`, administrator, reserved, and ban lists are transferred when their
+access-list checkbox is selected.
+
 ## Install as a background service
 
 If .NET 10 is missing, the Linux installer detects the available package manager
