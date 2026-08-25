@@ -215,6 +215,7 @@ public class Program
             builder.Services.AddSingleton<ManagedRuntimeWarmupService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ManagedRuntimeWarmupService>());
             builder.Services.AddSingleton<DedicatedServerCatalog>();
+            builder.Services.AddSingleton<ExistingServerImportService>();
             builder.Services.AddSingleton<ClusterCatalog>();
             builder.Services.AddSingleton<DedicatedServerSupervisor>();
             builder.Services.AddSingleton<DedicatedServerRuntimePreparer>();

@@ -179,7 +179,7 @@ public sealed class DedicatedServerRuntimePreparer
             ? "127.0.0.1"
             : definition.ServerIP;
         if (!string.IsNullOrWhiteSpace(serverIp))
-            UpsertElement(root, "ServerIP", serverIp.Trim());
+            UpsertElement(root, "IP", serverIp.Trim());
 
         ApplyConfigProfile(root, configProfile);
         UpsertElement(root, "ServerName", GetServerDisplayName(definition));

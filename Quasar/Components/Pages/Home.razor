@@ -48,14 +48,21 @@
     </MudPaper>
 }
 
-@if (!ShowSetupWizard)
-{
-    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Spacing="2" Class="mb-2">
-        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="ShowSetupWizardAgain">
-            Restart Setup Wizard
-        </MudButton>
-    </MudStack>
-}
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Spacing="2" Class="mb-2">
+    <MudButton Variant="@(ShowSetupWizard ? Variant.Filled : Variant.Outlined)"
+               Color="Color.Primary"
+               Disabled="@ShowSetupWizard"
+               StartIcon="@Icons.Material.Filled.RestartAlt"
+               OnClick="ShowSetupWizardAgain">
+        First Setup Wizard
+    </MudButton>
+    <MudButton Variant="Variant.Outlined"
+               Color="Color.Secondary"
+               StartIcon="@Icons.Material.Filled.MoveToInbox"
+               OnClick="OpenExistingServerImportDialogAsync">
+        Import Existing Server
+    </MudButton>
+</MudStack>
 
 @if (Supervisor.HealthMonitoringDisabled)
 {
@@ -914,6 +921,32 @@ else
     }
 
     private Task OpenCreateServerDialogAsync() => ServerActions.OpenCreateDialogAsync();
+
+    private async Task OpenExistingServerImportDialogAsync()
+    {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditServers) ||
+            !await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditConfigs))
+        {
+            return;
+        }
+
+        var dialog = await DialogService.ShowAsync<ExistingServerImportDialog>(
+            "Import Existing Server",
+            new DialogParameters(),
+            new DialogOptions
+            {
+                CloseOnEscapeKey = false,
+                FullWidth = true,
+                MaxWidth = MaxWidth.ExtraLarge,
+            });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not ExistingServerImportResult imported)
+            return;
+
+        HideSetupWizard();
+        Snackbar.Add($"Imported server '{imported.Server.DisplayName}'. Review it before starting.", Severity.Success);
+        await InvokeAsync(StateHasChanged);
+    }
 
     private Task OpenSetupCreateServerDialogAsync() =>
         ServerActions.OpenCreateDialogAsync(
