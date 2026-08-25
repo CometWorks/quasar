@@ -4,21 +4,50 @@
 <MudDialog>
     <TitleContent>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" OnClick="Cancel" title="Cancel import" />
-            <MudText Typo="Typo.h6">Import Existing Server</MudText>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" OnClick="Cancel" title="Close setup" />
+            <MudText Typo="Typo.h6">@DialogHeading</MudText>
         </MudStack>
     </TitleContent>
     <DialogContent>
         <MudStack Spacing="3" Style="min-width: min(760px, 80vw);">
-            <MudProgressLinear Value="@Progress" Color="Color.Primary" />
-            <MudText Typo="Typo.caption">Step @Math.Min(_step + 1, 4) of 4 · @StepTitle</MudText>
+            @if (_step >= 0)
+            {
+                <MudProgressLinear Value="@Progress" Color="Color.Primary" />
+                <MudText Typo="Typo.caption">Step @Math.Min(_step + 1, 4) of 4 · @StepTitle</MudText>
+            }
 
             @if (!string.IsNullOrWhiteSpace(_error))
             {
                 <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
             }
 
-            @if (_step == 0)
+            @if (_step == -1)
+            {
+                <MudText Typo="Typo.subtitle1">How should Quasar set up its first server?</MudText>
+                <MudText Typo="Typo.body2">Create a fresh managed server, or bring an existing vanilla Dedicated Server or Torch instance under Quasar management.</MudText>
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.AddCircle"
+                                   Style="width: 100%; min-height: 88px;"
+                                   OnClick="ChooseCreateNew">
+                            Create New Server
+                        </MudButton>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Secondary"
+                                   StartIcon="@Icons.Material.Filled.MoveToInbox"
+                                   Style="width: 100%; min-height: 88px;"
+                                   OnClick="ChooseImport">
+                            Import Existing Server
+                        </MudButton>
+                    </MudItem>
+                </MudGrid>
+                <MudText Typo="Typo.caption">Create New continues through Quasar's normal world, profile, server, and launch setup.</MudText>
+            }
+            else if (_step == 0)
             {
                 <MudText Typo="Typo.subtitle1">What currently runs this server?</MudText>
                 <MudText Typo="Typo.body2">Choose source format before Quasar reads any files.</MudText>
@@ -206,23 +235,29 @@
         else
         {
             <MudButton Variant="Variant.Text" Color="Color.Default" Disabled="@_busy" OnClick="Cancel">Cancel</MudButton>
-            @if (_step > 0)
+            @if (_step > 0 || (_step == 0 && OfferCreateNew))
             {
                 <MudButton Variant="Variant.Outlined" Color="Color.Default" Disabled="@_busy" OnClick="Back">Back</MudButton>
             }
-            <MudButton Variant="Variant.Filled"
-                       Color="@(_step == 3 ? Color.Success : Color.Primary)"
-                       Disabled="@(_busy || !CanContinue)"
-                       StartIcon="@(_step == 3 ? Icons.Material.Filled.MoveToInbox : Icons.Material.Filled.ArrowForward)"
-                       OnClick="NextAsync">
-                @(_busy ? "Working…" : _step == 3 ? "Import" : _step == 1 ? "Analyze" : "Next")
-            </MudButton>
+            @if (_step >= 0)
+            {
+                <MudButton Variant="Variant.Filled"
+                           Color="@(_step == 3 ? Color.Success : Color.Primary)"
+                           Disabled="@(_busy || !CanContinue)"
+                           StartIcon="@(_step == 3 ? Icons.Material.Filled.MoveToInbox : Icons.Material.Filled.ArrowForward)"
+                           OnClick="NextAsync">
+                    @(_busy ? "Working…" : _step == 3 ? "Import" : _step == 1 ? "Analyze" : "Next")
+                </MudButton>
+            }
         }
     </DialogActions>
 </MudDialog>
 
 @code
 {
+    [Parameter]
+    public bool OfferCreateNew { get; set; }
+
     [CascadingParameter]
     private IMudDialogInstance MudDialog { get; set; } = default!;
 
@@ -241,7 +276,11 @@
     private bool _busy;
     private string _error = string.Empty;
 
+    public sealed record DialogOutcome(bool StartNewSetup, ExistingServerImportResult? ImportResult);
+
     private int Progress => _step >= 4 ? 100 : (_step + 1) * 25;
+
+    private string DialogHeading => _step == -1 ? "Set Up First Server" : "Import Existing Server";
 
     private string StepTitle => _step switch
     {
@@ -272,6 +311,12 @@
         _ => false,
     };
 
+    protected override void OnInitialized()
+    {
+        if (OfferCreateNew)
+            _step = -1;
+    }
+
     private Variant KindVariant(ExistingServerKind kind) =>
         _kind == kind ? Variant.Filled : Variant.Outlined;
 
@@ -299,7 +344,14 @@
         _error = string.Empty;
         if (_step > 0)
             _step--;
+        else if (_step == 0 && OfferCreateNew)
+            _step = -1;
     }
+
+    private void ChooseCreateNew() =>
+        MudDialog.Close(DialogResult.Ok(new DialogOutcome(StartNewSetup: true, ImportResult: null)));
+
+    private void ChooseImport() => _step = 0;
 
     private async Task BrowseAsync()
     {
@@ -411,5 +463,6 @@
 
     private void Cancel() => MudDialog.Cancel();
 
-    private void Close() => MudDialog.Close(DialogResult.Ok(_result));
+    private void Close() =>
+        MudDialog.Close(DialogResult.Ok(new DialogOutcome(StartNewSetup: false, ImportResult: _result)));
 }

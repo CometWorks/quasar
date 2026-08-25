@@ -543,6 +543,7 @@ else
 @code
 {
     private const string ServerViewStorageKey = "quasar.dashboard.serverView";
+    private const string FirstSetupChoiceStorageKey = "quasar.dashboard.firstSetupChoiceShown";
 
     private enum DashboardServerView
     {
@@ -572,6 +573,8 @@ else
     private bool ShowDataHandlingConsentPrompt => DataHandlingConsent.GetSettings().ConsentGranted is null;
     private DashboardServerView _serverView = DashboardServerView.Cards;
     private bool _serverViewLoadedFromStorage;
+    private bool _firstSetupChoiceAttempted;
+    private bool _serverSetupDialogOpen;
     private DashboardServerView ServerView => _serverView;
     private bool IsCardsView => ServerView == DashboardServerView.Cards;
     private bool IsListView => ServerView == DashboardServerView.List;
@@ -706,20 +709,12 @@ else
         _setupStepOverride = step - 1;
     }
 
-    // The wizard opens automatically only while no dedicated server has been created yet.
-    // Server existence is the authoritative, persisted signal, so once the first server
-    // exists the wizard never opens automatically again - it can still be reopened with the
-    // "Restart Setup Wizard" button. Once shown it stays visible for the rest of the session
-    // so the remaining steps (start server, attach agent) can be followed even after the
-    // first server is created.
+    // First-time users choose import or create-new in a modal. Create-new activates this
+    // existing inline flow, which stays visible while they complete launch and agent attach.
     private bool ShowSetupWizard =>
         (_setupWizardActive || _setupWizardRequested) && !_setupWizardDismissed;
 
-    private void ShowSetupWizardAgain()
-    {
-        _setupWizardRequested = true;
-        _setupWizardDismissed = false;
-    }
+    private Task ShowSetupWizardAgain() => OpenFirstServerSetupDialogAsync();
 
     private void HideSetupWizard()
     {
@@ -738,8 +733,7 @@ else
         RuntimeWarmup.Changed += HandleRegistryChanged;
         DataHandlingConsent.Changed += HandleRegistryChanged;
 
-        // Auto-open the first-setup wizard until the first server has been created.
-        _setupWizardActive = ConfiguredServerCount == 0;
+        _setupWizardActive = false;
     }
 
     protected override void OnParametersSet()
@@ -754,7 +748,16 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || _serverViewLoadedFromStorage || TryParseServerView(ServerViewQuery, out _))
+        if (!firstRender)
+            return;
+
+        await LoadServerViewPreferenceAsync();
+        await ShowFirstSetupChoiceOnceAsync();
+    }
+
+    private async Task LoadServerViewPreferenceAsync()
+    {
+        if (_serverViewLoadedFromStorage || TryParseServerView(ServerViewQuery, out _))
             return;
 
         _serverViewLoadedFromStorage = true;
@@ -773,6 +776,42 @@ else
         catch (JSDisconnectedException)
         {
         }
+    }
+
+    private async Task ShowFirstSetupChoiceOnceAsync()
+    {
+        if (_firstSetupChoiceAttempted || ConfiguredServerCount > 0)
+            return;
+
+        _firstSetupChoiceAttempted = true;
+        try
+        {
+            var stored = await BrowserStorage.GetStringAsync(FirstSetupChoiceStorageKey);
+            if (string.Equals(stored, "shown", StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+
+        if (!await EnsureServerSetupAuthorizedAsync())
+            return;
+
+        try
+        {
+            await BrowserStorage.SetStringAsync(FirstSetupChoiceStorageKey, "shown");
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+
+        await OpenServerSetupDialogCoreAsync(offerCreateNew: true);
     }
 
     public void Dispose()
@@ -924,28 +963,74 @@ else
 
     private async Task OpenExistingServerImportDialogAsync()
     {
-        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditServers) ||
-            !await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditConfigs))
+        if (!await EnsureServerSetupAuthorizedAsync())
+            return;
+
+        await OpenServerSetupDialogCoreAsync(offerCreateNew: false);
+    }
+
+    private async Task OpenFirstServerSetupDialogAsync()
+    {
+        if (!await EnsureServerSetupAuthorizedAsync())
+            return;
+
+        await OpenServerSetupDialogCoreAsync(offerCreateNew: true);
+    }
+
+    private async Task<bool> EnsureServerSetupAuthorizedAsync() =>
+        await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditServers) &&
+        await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditConfigs);
+
+    private async Task OpenServerSetupDialogCoreAsync(bool offerCreateNew)
+    {
+        if (_serverSetupDialogOpen)
+            return;
+
+        _serverSetupDialogOpen = true;
+        var parameters = new DialogParameters
         {
-            return;
-        }
+            [nameof(ExistingServerImportDialog.OfferCreateNew)] = offerCreateNew,
+        };
 
-        var dialog = await DialogService.ShowAsync<ExistingServerImportDialog>(
-            "Import Existing Server",
-            new DialogParameters(),
-            new DialogOptions
+        try
+        {
+            var dialog = await DialogService.ShowAsync<ExistingServerImportDialog>(
+                offerCreateNew ? "Set Up First Server" : "Import Existing Server",
+                parameters,
+                new DialogOptions
+                {
+                    CloseOnEscapeKey = false,
+                    FullWidth = true,
+                    MaxWidth = MaxWidth.ExtraLarge,
+                });
+            var result = await dialog.Result;
+            if (result is null || result.Canceled ||
+                result.Data is not ExistingServerImportDialog.DialogOutcome outcome)
             {
-                CloseOnEscapeKey = false,
-                FullWidth = true,
-                MaxWidth = MaxWidth.ExtraLarge,
-            });
-        var result = await dialog.Result;
-        if (result is null || result.Canceled || result.Data is not ExistingServerImportResult imported)
-            return;
+                return;
+            }
 
-        HideSetupWizard();
-        Snackbar.Add($"Imported server '{imported.Server.DisplayName}'. Review it before starting.", Severity.Success);
-        await InvokeAsync(StateHasChanged);
+            if (outcome.StartNewSetup)
+            {
+                _setupWizardRequested = true;
+                _setupWizardActive = true;
+                _setupWizardDismissed = false;
+                _setupStepOverride = null;
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+
+            if (outcome.ImportResult is not { } imported)
+                return;
+
+            HideSetupWizard();
+            Snackbar.Add($"Imported server '{imported.Server.DisplayName}'. Review it before starting.", Severity.Success);
+            await InvokeAsync(StateHasChanged);
+        }
+        finally
+        {
+            _serverSetupDialogOpen = false;
+        }
     }
 
     private Task OpenSetupCreateServerDialogAsync() =>
