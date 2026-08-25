@@ -42,6 +42,21 @@ curl http://127.0.0.1:8080/api/ready
 This keeps the supervisor, APIs, background jobs, and agent socket active while
 skipping Razor, UI plugins, branding, and static-file hosting.
 
+## Run with Docker Compose
+
+Quasar publishes `ghcr.io/cometworks/quasar` for Linux AMD64. Copy
+`.env.example` to `.env`, set `QUASAR_ADMIN_STEAM_ID` to the first
+administrator's SteamID64, then run:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+The manifest keeps all state in `./quasar-data` and passes additional `.env`
+settings into the container. See [Docker Deployment](Docker.md) for networking,
+configuration, version pinning, backup, and upgrade details.
+
 ## Set the first RBAC administrator from the CLI
 
 Before signing in with Steam, create `rbac.json` in the Quasar install directory,
@@ -92,6 +107,9 @@ shell, `cd` to the directory where Quasar was extracted or installed instead.
 Quasar watches `rbac.json`, so an already-running instance applies the mapping
 without a restart. This RBAC administrator controls access to Quasar; it is
 separate from the Space Engineers server's `Administrators` list.
+
+Container deployments can instead set `QUASAR_ADMIN_STEAM_ID`. Quasar writes the
+same mapping only when persistent `rbac.json` does not exist.
 
 ## First server setup
 

@@ -85,11 +85,22 @@ public sealed class RbacConfigCatalog : IDisposable
     {
         var path = GetPath();
 
-        try
+        if (!File.Exists(path))
         {
-            if (!File.Exists(path))
+            var initialConfig = CreateInitialAdminConfig(
+                Environment.GetEnvironmentVariable("QUASAR_ADMIN_STEAM_ID"));
+            if (initialConfig is null)
                 return RbacConfig.Normalize(null);
 
+            var initialJson = CreateSnapshot(initialConfig);
+            AtomicFileWriter.WriteTextAsync(path, initialJson).GetAwaiter().GetResult();
+            _logger.LogInformation(
+                "Created initial RBAC config from QUASAR_ADMIN_STEAM_ID at {Path}", path);
+            return initialConfig;
+        }
+
+        try
+        {
             var json = File.ReadAllText(path);
             var config = JsonSerializer.Deserialize<RbacConfig>(json, JsonOptions);
             return RbacConfig.Normalize(config);
@@ -148,6 +159,33 @@ public sealed class RbacConfigCatalog : IDisposable
             mapping.Roles.Contains(QuasarRoles.Admin, StringComparer.OrdinalIgnoreCase)) ||
         config.ClaimRoleMappings.Any(mapping =>
             mapping.Roles.Contains(QuasarRoles.Admin, StringComparer.OrdinalIgnoreCase));
+
+    internal static RbacConfig? CreateInitialAdminConfig(string? steamId)
+    {
+        if (string.IsNullOrWhiteSpace(steamId))
+            return null;
+
+        var normalizedSteamId = steamId.Trim();
+        if (normalizedSteamId.Length != 17 ||
+            normalizedSteamId.Any(character => !char.IsAsciiDigit(character)))
+        {
+            throw new InvalidOperationException(
+                "QUASAR_ADMIN_STEAM_ID must be a 17-digit SteamID64.");
+        }
+
+        return RbacConfig.Normalize(new RbacConfig
+        {
+            SubjectRoleMappings =
+            [
+                new SubjectRoleMapping
+                {
+                    Provider = QuasarAuthSchemes.Steam,
+                    Subject = normalizedSteamId,
+                    Roles = [QuasarRoles.Admin],
+                },
+            ],
+        });
+    }
 
     private static string GetPath() =>
         Path.Combine(MagnetarPaths.GetQuasarDirectory(), "rbac.json");
