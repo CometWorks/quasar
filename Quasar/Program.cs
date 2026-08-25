@@ -261,6 +261,7 @@ public class Program
             }
 
             var app = builder.Build();
+            _ = app.Services.GetRequiredService<RbacConfigCatalog>();
 
             if (!webServiceOptions.Headless && !app.Environment.IsDevelopment())
                 app.UseExceptionHandler("/Error");

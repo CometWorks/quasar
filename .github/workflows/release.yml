@@ -7,13 +7,17 @@ on:
       - main
     paths:
       - ".github/workflows/release.yml"
+      - ".dockerignore"
+      - ".env.example"
       - "Directory.Build.props"
+      - "Dockerfile"
       - "NuGet.Config"
       - "Magnetar.Protocol/**"
       - "Quasar/**"
       - "Quasar.Agent/**"
       - "Quasar.Bootstrap/**"
       - "Quasar.sln"
+      - "docker-compose.yml"
       - "install.sh"
       - "uninstall.sh"
       - "scripts/install.ps1"
@@ -30,13 +34,17 @@ on:
       - main
     paths:
       - ".github/workflows/release.yml"
+      - ".dockerignore"
+      - ".env.example"
       - "Directory.Build.props"
+      - "Dockerfile"
       - "NuGet.Config"
       - "Magnetar.Protocol/**"
       - "Quasar/**"
       - "Quasar.Agent/**"
       - "Quasar.Bootstrap/**"
       - "Quasar.sln"
+      - "docker-compose.yml"
       - "install.sh"
       - "uninstall.sh"
       - "scripts/install.ps1"
@@ -48,7 +56,7 @@ on:
 
 permissions:
   contents: write
-  packages: read
+  packages: write
 
 concurrency:
   group: release-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
@@ -179,11 +187,13 @@ jobs:
           # The release is always named "Quasar v<version>" with no extra suffix.
           name="Quasar v${version}"
 
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "name=$name" >> "$GITHUB_OUTPUT"
-          echo "draft=$draft" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "name=$name"
+            echo "draft=$draft"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
           echo "Resolved release: tag=$tag version=$version draft=$draft prerelease=$prerelease"
 
   build-linux:
@@ -562,6 +572,10 @@ jobs:
             | **Linux** (x64) | **`quasar-installer-linux.tar.gz`** |
             | **Windows** (x64) | **`quasar-installer-windows.zip`** |
 
+            The same full release is also published as
+            `ghcr.io/cometworks/quasar:${{ needs.metadata.outputs.version }}` and
+            `ghcr.io/cometworks/quasar:latest`. See the [Docker deployment guide](https://github.com/CometWorks/quasar/blob/main/Docs/Docker.md).
+
             Download the archive with **installer** in its name. It contains one top-level `Quasar` folder with the Quasar **Bootstrap launcher**, the install/uninstall scripts, and a default `appsettings.json`. Follow the [Linux](https://github.com/CometWorks/quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md) or [Windows](https://github.com/CometWorks/quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md) deployment guide to install it. The web UI is available on http://127.0.0.1:8080 by default (the web server listens on all interfaces at 0.0.0.0:8080).
 
             The other two archives (`quasar-web-linux-x64.tar.gz` and `quasar-web-win-x64.zip`) are updates that Quasar downloads and applies automatically — you never download them by hand.
@@ -701,3 +715,50 @@ jobs:
             echo "Deleting old release and tag: $tag"
             gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
           done < releases-to-delete.txt
+
+  publish-container:
+    needs: [metadata, release]
+    if: needs.metadata.outputs.draft == 'false' && needs.metadata.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and publish Quasar image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          pull: true
+          build-args: |
+            QUASAR_VERSION=${{ needs.metadata.outputs.version }}
+          tags: |
+            ghcr.io/cometworks/quasar:${{ needs.metadata.outputs.version }}
+            ghcr.io/cometworks/quasar:v${{ needs.metadata.outputs.version }}
+            ghcr.io/cometworks/quasar:latest
+          labels: |
+            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
+          cache-from: type=gha,scope=quasar-container
+          cache-to: type=gha,mode=max,scope=quasar-container
+
+      - name: Verify anonymous image pull
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io
+          docker buildx imagetools inspect \
+            "ghcr.io/cometworks/quasar:${{ needs.metadata.outputs.version }}"

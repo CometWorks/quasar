@@ -58,6 +58,36 @@ public sealed class RbacAuthorizationTests
         }));
     }
 
+    [Fact]
+    public void InitialAdministratorUsesSteamIdEnvironmentValue()
+    {
+        var config = RbacConfigCatalog.CreateInitialAdminConfig(" 76561198000000000 ");
+
+        var mapping = Assert.Single(config!.SubjectRoleMappings);
+        Assert.Equal(QuasarAuthSchemes.Steam, mapping.Provider);
+        Assert.Equal("76561198000000000", mapping.Subject);
+        Assert.Equal([QuasarRoles.Admin], mapping.Roles);
+    }
+
+    [Fact]
+    public void MissingInitialAdministratorDoesNotCreateConfig()
+    {
+        Assert.Null(RbacConfigCatalog.CreateInitialAdminConfig(null));
+        Assert.Null(RbacConfigCatalog.CreateInitialAdminConfig(" "));
+    }
+
+    [Theory]
+    [InlineData("not-a-steam-id")]
+    [InlineData("7656119800000000")]
+    [InlineData("7656119800000000a")]
+    [InlineData("765611980000000000")]
+    public void InitialAdministratorRejectsInvalidSteamId(string value)
+    {
+        var error = Assert.Throws<InvalidOperationException>(
+            () => RbacConfigCatalog.CreateInitialAdminConfig(value));
+        Assert.Contains("17-digit SteamID64", error.Message);
+    }
+
     [Theory]
     [InlineData(typeof(Quasar.Components.Pages.Appearance), QuasarPolicyNames.CanManageAppearance)]
     [InlineData(typeof(Quasar.Components.Pages.Chat), QuasarPolicyNames.CanControlServers)]

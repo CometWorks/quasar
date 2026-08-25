@@ -129,6 +129,26 @@ secret. The Gateway package settings grant `CometWorks/quasar` read access under
   initialization work on fresh headless hosts that do not have a desktop Steam
   install under `~/.local/share/Steam`.
 
+## Docker image
+
+Full releases publish `ghcr.io/cometworks/quasar` with `latest`, numeric version,
+and `v`-prefixed version tags. The Dockerfile consumes the already-packaged Linux
+worker archive and verifies `SHA256SUMS`, keeping release packaging as the single
+source of truth:
+
+```bash
+docker build --build-arg QUASAR_VERSION=1.1.0.31 -t quasar:1.1.0.31 .
+```
+
+See [Docker Deployment](Docker.md) for runtime use. The Dockerfile is not the
+local source-build path; use `dotnet` commands below when testing code changes.
+
+GitHub creates a new GHCR package as private even when its source repository is
+public. After the first workflow publish, a CometWorks organization owner must
+change the `quasar` container package visibility to **Public** once. The workflow
+logs out of GHCR and verifies an anonymous pull, so it fails visibly until this
+one-time package setting is correct.
+
 ## Utilities
 
 For local web UI development, run the worker directly:

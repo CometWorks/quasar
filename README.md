@@ -21,7 +21,7 @@ Quasar UI plugins are discovered and managed through [QuasarHub](https://github.
 ## Getting started
 
 See the [Quick Start](Docs/QuickStart.md) guide to download a release, run Quasar
-from the terminal, and install it as a background service.
+from the terminal, install it as a background service, or run the GHCR image.
 <!-- END packaged install instructions -->
 
 ## Documentation
@@ -29,6 +29,7 @@ from the terminal, and install it as a background service.
 | Page | What it covers |
 | --- | --- |
 | [Quick Start](Docs/QuickStart.md) | Download, run from the terminal, and install as a background service (systemd / Scheduled Task). |
+| [Docker Deployment](Docs/Docker.md) | Run the versioned GHCR image with Compose, persistent state, environment configuration, and upgrades. |
 | [Architecture](Docs/QuasarArchitecture.md) | Supervisor design, runtime ownership, process supervision, configuration model, and self-update. |
 | [Configuration](Docs/Configuration.md) | API/UI host and port, API-only headless mode, and browser auto-open behavior. |
 | [Quasar Plugin System](Docs/QuasarPluginSystem.md) | Planned UI plugin loader, hub manifest model, component replacement points, companion data channel, and MudBlazor expectations. |

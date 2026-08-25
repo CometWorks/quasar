@@ -8,6 +8,11 @@ same `appsettings.json` under the `Quasar` section; the update settings are
 documented in [Windows](WindowsDeploymentAndUpdates.md) and
 [Linux](LinuxDeploymentAndUpdates.md) deployment guides.
 
+All .NET configuration keys can also use environment variables with `__` as the
+section separator, such as `QUASAR__AUTH__ENABLED=false`. Quasar's shorter
+`QUASAR_*` deployment overrides take precedence where documented. Docker users
+should also see [Docker Deployment](Docker.md).
+
 ## Managed runtime startup check
 
 When Quasar starts, it immediately checks the managed SteamCMD install and the
@@ -467,6 +472,12 @@ HTTP request, reloads active Blazor sessions when `rbac.json` changes, and check
 the current role again at sensitive dashboard and security actions. Runtime RBAC
 saves that remove the last `admin` mapping are rejected to prevent accidental
 lockout. Direct filesystem edits remain an operator-controlled recovery path.
+
+On first startup, `QUASAR_ADMIN_STEAM_ID` can seed the initial Steam administrator.
+Quasar accepts only a 17-digit SteamID64 and writes the mapping to `rbac.json`
+only when that file is absent. Existing RBAC state is never replaced by the
+environment value. This is primarily intended for container manifests and other
+unattended provisioning.
 
 Default policy grants are:
 
