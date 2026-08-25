@@ -129,6 +129,12 @@ stateDiagram-v2
   oxygen-capable blocks or definitions such as O2/H2 generators, Quasar faults
   before starting the DS process. Enable oxygen or remove the oxygen blocks to
   start the world.
+- Launch preparation validates Steam's per-instance `appworkshop_244850.acf`
+  against installed mod `metadata.mod` files. A malformed manifest, or an item
+  recorded as installed whose content is missing, causes Quasar to move the
+  manifest and partial `downloads` directory into `WorkshopCacheQuarantine`.
+  Steam then rebuilds its cache and downloads the world's required mods during
+  the same launch instead of failing every retry on stale Workshop state.
 - Clear error status is an explicit operator acknowledgement for a non-running
   `Crashed`/`Faulted` server. It sets the goal `Off`, resets health/restart
   counters and mod-download failure details, and returns the process state to
