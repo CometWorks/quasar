@@ -146,10 +146,10 @@ The `/settings/ui-plugins` page now manages the QuasarHub catalog:
   update availability stays current
 - automatically installs or updates reviewed hub entries that opt into
   `ImplicitLoading`; disabled installed plugins stay disabled across implicit
-  updates
+  updates, while explicitly removed plugins stay removed
 - shows installed, update-available, hidden, and invalid package states
 - enables or disables installed packages for the next restart
-- clones/fetches the plugin repository and checks out the pinned commit
+- downloads the pinned GitHub source archive over HTTPS; Git is not required
 - checks for the matching .NET SDK before building source packages
 - builds the declared plugin project with `dotnet build`
 - passes `QuasarPluginAbstractionsAssembly` to the build so the plugin compiles
@@ -159,7 +159,7 @@ The `/settings/ui-plugins` page now manages the QuasarHub catalog:
   so they compile against the protocol and Dedicated Server assemblies used by
   the Quasar-managed host; if Quasar cannot resolve a valid DS64 directory, the
   companion project's own `DS64` fallback remains in effect
-- removes local plugin packages
+- removes local plugin packages and records an opt-out from implicit reinstall
 - links back to the plugin repository and QuasarHub
 
 Installed UI plugin source packages live under:
@@ -174,13 +174,7 @@ Installer staging lives under:
 {Quasar install directory}/Caches/ui-plugin-installer
 ```
 
-Git source cache lives under:
-
-```text
-{Quasar install directory}/Caches/ui-plugin-sources
-```
-
-Enabled/disabled state lives under:
+Enabled/disabled state and explicit implicit-install opt-outs live under:
 
 ```text
 {Quasar install directory}/ui-plugins.state.json
@@ -231,12 +225,16 @@ watcher is stored in browser session storage, so refreshing the page resumes the
 same progress overlay and health polling. Managed Space Engineers server
 processes stay detached during the Quasar worker restart and are adopted as
 running by the replacement worker when their process id is still alive.
+Removing a hub plugin records its catalog ID in `ui-plugins.state.json`, so an
+`ImplicitLoading` entry is not downloaded again. A later manual install clears
+that opt-out.
 
 QuasarHub descriptors can set `<ImplicitLoading>true</ImplicitLoading>` for
 reviewed plugins that should be present by default. Quasar installs or updates
 those entries during hub refresh, except in safe mode. A first implicit install
 is enabled for the next restart; if an already-installed plugin was explicitly
-disabled, implicit updates keep it disabled.
+disabled, implicit updates keep it disabled. Explicitly removed entries are
+skipped until an operator installs them again.
 
 ## Plugin Abstractions
 
@@ -584,8 +582,8 @@ plugin's static asset root under a deterministic path:
 
 The Entity Viewer can keep its JavaScript/Three.js-heavy surface in its own
 repository and serve it from that plugin path. Quasar core no longer copies
-viewer assets into `Quasar/wwwroot`; the QuasarHub installer clones the pinned
-viewer repository commit, builds the adapter project, and loads the package from
+viewer assets into `Quasar/wwwroot`; the QuasarHub installer downloads the pinned
+viewer repository archive, builds the adapter project, and loads the package from
 the Quasar install directory.
 
 Plugins can also ask Quasar to inject package stylesheets into the host page by

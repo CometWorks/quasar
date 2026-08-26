@@ -272,7 +272,9 @@
                                 }
                                 @if (context.ImplicitLoading)
                                 {
-                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Implicit loading</MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                        @(installState.ImplicitInstallSuppressed ? "Implicit loading suppressed" : "Implicit loading")
+                                    </MudText>
                                 }
                             </MudStack>
                         </MudTd>
@@ -814,7 +816,8 @@
 
         var confirmed = await DialogService.ShowMessageBoxAsync(
             "Remove UI plugin?",
-            $"Remove {GetHubDisplayName(entry)} from the local Quasar UI plugin directory? Restart Quasar to unload active assemblies.",
+            $"Remove {GetHubDisplayName(entry)} from the local Quasar UI plugin directory? " +
+            $"Restart Quasar to unload active assemblies.{(entry.ImplicitLoading ? " It will stay removed until manually installed." : string.Empty)}",
             yesText: "Remove",
             cancelText: "Cancel");
         if (confirmed != true)
@@ -1090,6 +1093,9 @@
 
         if (!installState.Installed)
         {
+            if (installState.ImplicitInstallSuppressed)
+                return Color.Default;
+
             if (entry.ImplicitLoading)
                 return Color.Info;
 
@@ -1111,6 +1117,9 @@
 
         if (!installState.Installed)
         {
+            if (installState.ImplicitInstallSuppressed)
+                return "Removed";
+
             if (entry.ImplicitLoading)
                 return "Implicit";
 
