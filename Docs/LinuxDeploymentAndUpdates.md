@@ -217,7 +217,8 @@ not installed, `/settings/ui-plugins` disables install/update actions and shows
 installs the SDK and exits; it does not rewrite the service or reinstall Quasar.
 It still uses the system package manager, so it can fail under a service account
 unless `sudo -n` can install packages without a password or Quasar is already
-running with sufficient privileges.
+running with sufficient privileges. Plugin sources are downloaded as pinned
+GitHub archives; Git is not required on the host.
 
 ```bash
 mkdir -p ~/.local/share/Quasar

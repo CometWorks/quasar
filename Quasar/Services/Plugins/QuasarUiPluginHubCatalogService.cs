@@ -341,6 +341,7 @@ public sealed class QuasarUiPluginHubCatalogService
             InstalledCommit = metadata?.Commit ?? string.Empty,
             InstalledAtUtc = metadata?.InstalledAtUtc,
             Enabled = pluginState.Enabled,
+            ImplicitInstallSuppressed = _pluginStates.IsImplicitInstallSuppressed(entry.CatalogId),
             Error = error,
         };
     }
@@ -397,6 +398,10 @@ public sealed class QuasarUiPluginHubCatalogService
             installDirectoryReplaced = true;
             await WriteInstallMetadataAsync(installDirectory, entry, manifest, cancellationToken);
             await _pluginStates.SetEnabledAsync(manifest.Id, enableAfterInstall, cancellationToken);
+            await _pluginStates.SetImplicitInstallSuppressedAsync(
+                entry.CatalogId,
+                suppressed: false,
+                cancellationToken: cancellationToken);
 
             if (Directory.Exists(backupDirectory))
                 Directory.Delete(backupDirectory, recursive: true);
@@ -438,7 +443,7 @@ public sealed class QuasarUiPluginHubCatalogService
         if (_uiPluginCatalog.SafeMode)
             return;
 
-        foreach (var entry in entries.Where(entry => entry.ImplicitLoading))
+        foreach (var entry in entries.Where(entry => ShouldInstallImplicitPlugin(entry, _pluginStates)))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -479,6 +484,10 @@ public sealed class QuasarUiPluginHubCatalogService
         cancellationToken.ThrowIfCancellationRequested();
         var installState = GetInstallState(entry);
         var installDirectory = GetInstallDirectory(entry);
+        await _pluginStates.SetImplicitInstallSuppressedAsync(
+            entry.CatalogId,
+            suppressed: true,
+            cancellationToken: cancellationToken);
         if (Directory.Exists(installDirectory))
             Directory.Delete(installDirectory, recursive: true);
 
@@ -526,74 +535,12 @@ public sealed class QuasarUiPluginHubCatalogService
         string stagingDirectory,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            return await PrepareRepositoryRootFromGitAsync(entry, stagingDirectory, cancellationToken);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            _logger.LogWarning(exception, "Git checkout failed for Quasar UI plugin {Plugin}; falling back to GitHub archive download.", entry.FriendlyName);
-            return await PrepareRepositoryRootFromArchiveAsync(entry, stagingDirectory, cancellationToken);
-        }
-    }
-
-    private async Task<string> PrepareRepositoryRootFromGitAsync(
-        QuasarUiPluginHubEntry entry,
-        string stagingDirectory,
-        CancellationToken cancellationToken)
-    {
-        var repositoryUrl = GetRepositoryUrl(entry.RepoId);
-        if (string.IsNullOrWhiteSpace(repositoryUrl))
-            throw new InvalidOperationException("QuasarHub entry has an invalid repository.");
-
-        var sourceCacheRoot = GetSourceCacheDirectory();
-        var sourceCacheDirectory = Path.Combine(sourceCacheRoot, SanitizePathSegment(entry.RepoId.Replace('/', '_').Replace('\\', '_')));
-        Directory.CreateDirectory(sourceCacheRoot);
-
-        if (Directory.Exists(Path.Combine(sourceCacheDirectory, ".git")))
-        {
-            await RunGitAsync(sourceCacheDirectory, cancellationToken, "fetch", "--tags", "--prune", "origin");
-        }
-        else
-        {
-            TryDeleteDirectory(sourceCacheDirectory);
-            await RunGitAsync(sourceCacheRoot, cancellationToken, "clone", "--no-checkout", repositoryUrl, sourceCacheDirectory);
-        }
-
-        await RunGitAsync(sourceCacheDirectory, cancellationToken, "checkout", "--force", entry.Commit.Trim());
-        await RunGitAsync(sourceCacheDirectory, cancellationToken, "clean", "-xdf");
-
-        var sourceCopyDirectory = Path.Combine(stagingDirectory, "source");
-        CopyDirectory(sourceCacheDirectory, sourceCopyDirectory, excludeGitDirectory: true);
-        return sourceCopyDirectory;
-    }
-
-    private async Task<string> PrepareRepositoryRootFromArchiveAsync(
-        QuasarUiPluginHubEntry entry,
-        string stagingDirectory,
-        CancellationToken cancellationToken)
-    {
         var archivePath = Path.Combine(stagingDirectory, "source.zip");
         await DownloadArchiveAsync(entry, archivePath, cancellationToken);
 
         var extractDirectory = Path.Combine(stagingDirectory, "extract");
         ZipFile.ExtractToDirectory(archivePath, extractDirectory);
         return GetExtractedRepositoryRoot(extractDirectory);
-    }
-
-    private static Task RunGitAsync(string workingDirectory, CancellationToken cancellationToken, params string[] arguments)
-    {
-        var startInfo = new ProcessStartInfo("git")
-        {
-            WorkingDirectory = workingDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        foreach (var argument in arguments)
-            startInfo.ArgumentList.Add(argument);
-
-        return RunProcessAsync(startInfo, "git", cancellationToken);
     }
 
     private async Task BuildOwnedCompanionPluginsAsync(
@@ -910,6 +857,11 @@ public sealed class QuasarUiPluginHubCatalogService
     private static string GetEntryLogName(QuasarUiPluginHubEntry entry) =>
         string.IsNullOrWhiteSpace(entry.FriendlyName) ? entry.CatalogId : entry.FriendlyName;
 
+    internal static bool ShouldInstallImplicitPlugin(
+        QuasarUiPluginHubEntry entry,
+        QuasarUiPluginStateStore pluginStates) =>
+        entry.ImplicitLoading && !pluginStates.IsImplicitInstallSuppressed(entry.CatalogId);
+
     private static string GetInstallKey(QuasarUiPluginHubEntry entry)
     {
         if (!string.IsNullOrWhiteSpace(entry.CatalogId))
@@ -1089,31 +1041,6 @@ public sealed class QuasarUiPluginHubCatalogService
     private static string GetCachePath() =>
         Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Caches", "ui-plugin-hub-catalog.json");
 
-    private static string GetSourceCacheDirectory() =>
-        Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Caches", "ui-plugin-sources");
-
-    private static void CopyDirectory(string sourceDirectory, string destinationDirectory, bool excludeGitDirectory)
-    {
-        Directory.CreateDirectory(destinationDirectory);
-        foreach (var sourceFile in Directory.EnumerateFiles(sourceDirectory))
-        {
-            var destinationFile = Path.Combine(destinationDirectory, Path.GetFileName(sourceFile));
-            File.Copy(sourceFile, destinationFile, overwrite: true);
-        }
-
-        foreach (var sourceChildDirectory in Directory.EnumerateDirectories(sourceDirectory))
-        {
-            if (excludeGitDirectory &&
-                string.Equals(Path.GetFileName(sourceChildDirectory), ".git", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var destinationChildDirectory = Path.Combine(destinationDirectory, Path.GetFileName(sourceChildDirectory));
-            CopyDirectory(sourceChildDirectory, destinationChildDirectory, excludeGitDirectory);
-        }
-    }
-
     private sealed class QuasarUiPluginHubCatalogCache
     {
         public int SchemaVersion { get; set; } = CacheSchemaVersion;
@@ -1194,6 +1121,8 @@ public sealed class QuasarUiPluginInstallState
     public bool Installed { get; set; }
 
     public bool Enabled { get; set; } = true;
+
+    public bool ImplicitInstallSuppressed { get; set; }
 
     public string ManifestPath { get; set; } = string.Empty;
 

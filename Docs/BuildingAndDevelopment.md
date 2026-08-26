@@ -74,10 +74,10 @@ secret. The Gateway package settings grant `CometWorks/quasar` read access under
   missing-configuration failures.
 - Building `Quasar/Quasar.csproj` no longer requires the Entity Viewer source tree
   or its npm packages. The viewer plugin is installed from QuasarHub, where the
-  catalog pins a commit in `https://github.com/CometWorks/viewer.git`. The plugin
-  installer clones that repository, builds the adapter project against the
-  running Quasar worker's `Quasar.Plugin.Abstractions.dll`, and serves the viewer
-  static assets from `/_quasar/plugins/{pluginId}/`. Single-file release
+  catalog pins a commit in `https://github.com/CometWorks/viewer`. The plugin
+  installer downloads that commit's GitHub archive, builds the adapter project
+  against the running Quasar worker's `Quasar.Plugin.Abstractions.dll`, and serves
+  the viewer static assets from `/_quasar/plugins/{pluginId}/`. Single-file release
   packaging leaves `Quasar.Plugin.Abstractions.dll` beside the worker executable
   so packaged installs have the same physical contract path as source builds.
   When the UI plugin manifest owns a Magnetar companion project, the installer

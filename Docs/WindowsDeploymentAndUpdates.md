@@ -169,7 +169,8 @@ compiles source with `dotnet build` and requires the **.NET 10 SDK**; when the S
 is missing, `/settings/ui-plugins` shows `.NET SDK required to build UI plugins`
 and disables install/update buttons. Automatic SDK install from the UI is a
 Linux `install.sh` feature; Windows operators should install the .NET SDK
-manually and refresh the SDK check.
+manually and refresh the SDK check. Plugin sources are downloaded as pinned
+GitHub archives, so Git is not an installation prerequisite.
 
 ```powershell
 # From an extracted quasar-installer-windows.zip, in an elevated PowerShell:
