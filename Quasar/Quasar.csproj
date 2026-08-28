@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Magnetar.Protocol\Magnetar.Protocol.csproj" />
     <ProjectReference Include="..\Quasar.Plugin.Abstractions\Quasar.Plugin.Abstractions.csproj" />
+    <Compile Include="..\Shared\Networking\GitHubRetryHandler.cs" Link="Networking\GitHubRetryHandler.cs" />
   </ItemGroup>
 
   <ItemGroup>

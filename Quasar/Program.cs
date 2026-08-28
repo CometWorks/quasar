@@ -1,5 +1,6 @@
 using Quasar.Components;
 using Quasar.Models;
+using Quasar.Networking;
 using Quasar.Services;
 using Quasar.Services.Analytics;
 using Quasar.Services.Auth;
@@ -177,7 +178,13 @@ public class Program
             builder.Services.AddDataProtection()
                 .SetApplicationName("Quasar")
                 .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyringDirectory));
-            builder.Services.AddHttpClient();
+            builder.Services.AddHttpClient(string.Empty)
+                .AddHttpMessageHandler(serviceProvider =>
+                {
+                    var logger = serviceProvider.GetRequiredService<ILogger<GitHubRetryHandler>>();
+                    return new GitHubRetryHandler((message, exception) =>
+                        logger.LogWarning(exception, "{Message}", message));
+                });
             builder.Services.AddHttpClient<ClusterGatewayClient>(client =>
                 client.Timeout = TimeSpan.FromSeconds(30));
             builder.Services.AddSingleton(webServiceOptions);

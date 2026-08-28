@@ -48,6 +48,12 @@ stateDiagram-v2
 | `Activating` | Promoting the staged payload into `ManagedRuntime/WebService/<version>/` and writing `Updates/active-release.json`. |
 | `Failed` | A check/download error or an unresolved `appsettings.json` merge conflict; cleared when the conflict is resolved or settings change. |
 
+GitHub release checks and downloads retry transient transport failures, HTTP
+`408`, `429`, and `5xx` responses up to four times after the initial request.
+Retries use 1, 2, 4, and 8 second delays, honor GitHub's `Retry-After` header,
+and cap any delay at 30 seconds. Permanent failures still enter `Failed`; the
+running worker and Bootstrap monitor remain available for a later retry.
+
 ---
 
 ## Bootstrap launcher / worker cutover

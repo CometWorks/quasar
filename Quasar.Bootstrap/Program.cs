@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Quasar.Networking;
 
 namespace Quasar.Bootstrap;
 
@@ -826,7 +827,12 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         {
             Timeout = TimeSpan.FromSeconds(2),
         };
-        _downloadClient = new HttpClient
+        var githubRetryHandler = new GitHubRetryHandler((message, exception) =>
+            _logger.LogWarning(exception, "{Message}", message))
+        {
+            InnerHandler = new HttpClientHandler(),
+        };
+        _downloadClient = new HttpClient(githubRetryHandler)
         {
             Timeout = TimeSpan.FromMinutes(10),
         };
