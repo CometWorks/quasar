@@ -249,6 +249,12 @@ limit. The Updates page lets an admin save a GitHub token for release checks.
 It is stored in `github-updates.json` under the Quasar install directory with the
 same Data Protection encryption model used for the Steam Workshop API key.
 
+All GitHub update, runtime, and plugin-catalog GET requests retry transient
+network failures and HTTP `408`, `429`, or `5xx` responses up to four times.
+Backoff starts at one second, honors `Retry-After`, and is capped at 30 seconds.
+A persistent outage is reported without stopping Quasar; scheduled checks can
+recover when connectivity returns.
+
 Use a classic personal access token without any permissions:
 
 1. Open GitHub's classic token creation page:

@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Magnetar.Protocol\Magnetar.Protocol.csproj" />
+    <Compile Include="..\Shared\Networking\GitHubRetryHandler.cs" Link="Networking\GitHubRetryHandler.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -327,6 +327,12 @@ It is stored in `github-updates.json` under the Quasar install directory with th
 same Data Protection encryption model and owner-only Unix permissions used for
 the Steam Workshop API key.
 
+All GitHub update, runtime, and plugin-catalog GET requests retry transient
+network failures and HTTP `408`, `429`, or `5xx` responses up to four times.
+Backoff starts at one second, honors `Retry-After`, and is capped at 30 seconds.
+A persistent outage is reported without stopping Quasar; scheduled checks can
+recover when connectivity returns.
+
 Use a classic personal access token without any permissions:
 
 1. Open GitHub's classic token creation page:
