@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 
 namespace Quasar.Services;
 
@@ -7,31 +8,64 @@ internal static class SteamWorkshopCacheRepairer
     private const int SpaceEngineersAppId = 244850;
     private const string InstalledItemsSection = "WorkshopItemsInstalled";
 
-    public static SteamWorkshopCacheRepairResult RepairIfNeeded(string dedicatedServerAppDataPath)
+    public static async Task<SteamWorkshopCacheRepairResult> RepairIfNeededAsync(
+        string dedicatedServerAppDataPath,
+        CancellationToken cancellationToken = default)
     {
         var manifestPath = Path.Combine(dedicatedServerAppDataPath, $"appworkshop_{SpaceEngineersAppId}.acf");
         if (!File.Exists(manifestPath))
             return SteamWorkshopCacheRepairResult.NotNeeded;
 
-        List<ulong> missingItemIds = [];
-        string issue;
+        var manifest = await File.ReadAllTextAsync(manifestPath, cancellationToken);
+        List<InstalledItemRecord> installedItems;
         try
         {
-            var installedItemIds = ParseInstalledItemIds(File.ReadAllText(manifestPath));
-            var contentRoot = Path.Combine(dedicatedServerAppDataPath, "content", SpaceEngineersAppId.ToString(CultureInfo.InvariantCulture));
-            missingItemIds = installedItemIds
-                .Where(itemId => !File.Exists(Path.Combine(contentRoot, itemId.ToString(CultureInfo.InvariantCulture), "metadata.mod")))
-                .ToList();
-            if (missingItemIds.Count == 0)
-                return SteamWorkshopCacheRepairResult.NotNeeded;
-
-            issue = $"installed items missing content: {string.Join(", ", missingItemIds)}";
+            installedItems = ParseInstalledItems(manifest);
         }
         catch (InvalidDataException exception)
         {
-            issue = $"invalid manifest: {exception.Message}";
+            var quarantinePath = QuarantineInvalidManifest(dedicatedServerAppDataPath, manifestPath);
+            return new SteamWorkshopCacheRepairResult(
+                true,
+                true,
+                quarantinePath,
+                [],
+                $"invalid manifest: {exception.Message}");
         }
 
+        var contentRoot = Path.Combine(
+            dedicatedServerAppDataPath,
+            "content",
+            SpaceEngineersAppId.ToString(CultureInfo.InvariantCulture));
+        var missingItems = installedItems
+            .Where(item => !HasContent(Path.Combine(contentRoot, item.ItemId.ToString(CultureInfo.InvariantCulture))))
+            .ToList();
+        if (missingItems.Count == 0)
+            return SteamWorkshopCacheRepairResult.NotNeeded;
+
+        var repairedManifest = new StringBuilder(manifest);
+        foreach (var item in missingItems.OrderByDescending(item => item.Start))
+            repairedManifest.Remove(item.Start, item.End - item.Start);
+
+        await AtomicFileWriter.WriteTextAsync(manifestPath, repairedManifest.ToString(), cancellationToken);
+
+        var missingItemIds = missingItems
+            .Select(item => item.ItemId)
+            .Distinct()
+            .ToList();
+        return new SteamWorkshopCacheRepairResult(
+            true,
+            false,
+            string.Empty,
+            missingItemIds,
+            $"removed stale installed state for items missing content: {string.Join(", ", missingItemIds)}");
+    }
+
+    private static bool HasContent(string itemPath) =>
+        Directory.Exists(itemPath) && Directory.EnumerateFileSystemEntries(itemPath).Any();
+
+    private static string QuarantineInvalidManifest(string dedicatedServerAppDataPath, string manifestPath)
+    {
         var quarantinePath = Path.Combine(
             dedicatedServerAppDataPath,
             "WorkshopCacheQuarantine",
@@ -43,20 +77,21 @@ internal static class SteamWorkshopCacheRepairer
         if (Directory.Exists(downloadsPath))
             Directory.Move(downloadsPath, Path.Combine(quarantinePath, "downloads"));
 
-        return new SteamWorkshopCacheRepairResult(true, quarantinePath, missingItemIds, issue);
+        return quarantinePath;
     }
 
-    private static List<ulong> ParseInstalledItemIds(string manifest)
+    private static List<InstalledItemRecord> ParseInstalledItems(string manifest)
     {
-        using var reader = new StringReader(manifest);
-        var itemIds = new List<ulong>();
+        var itemRecords = new List<InstalledItemRecord>();
         var awaitingSectionBrace = false;
         var inSection = false;
         var depth = 0;
+        ulong? pendingItemId = null;
+        var pendingItemStart = 0;
 
-        while (reader.ReadLine() is { } line)
+        foreach (var line in ReadLines(manifest))
         {
-            var text = line.Trim();
+            var text = line.Text.Trim();
             if (!inSection)
             {
                 if (awaitingSectionBrace)
@@ -78,28 +113,63 @@ internal static class SteamWorkshopCacheRepairer
 
             if (text == "{")
             {
+                if (depth == 1 && pendingItemId is null)
+                    throw new InvalidDataException($"unexpected block in {InstalledItemsSection}");
+
                 depth++;
                 continue;
             }
 
             if (text == "}")
             {
+                if (depth == 2 && pendingItemId is { } itemId)
+                {
+                    itemRecords.Add(new InstalledItemRecord(itemId, pendingItemStart, line.End));
+                    pendingItemId = null;
+                }
+
                 depth--;
                 if (depth == 0)
-                    return itemIds;
+                {
+                    if (pendingItemId is not null)
+                        throw new InvalidDataException($"incomplete item in {InstalledItemsSection}");
+                    return itemRecords;
+                }
                 if (depth < 0)
                     break;
                 continue;
             }
 
-            if (depth == 1 && TryReadQuotedToken(text, out var itemIdText) &&
-                ulong.TryParse(itemIdText, NumberStyles.None, CultureInfo.InvariantCulture, out var itemId))
+            if (depth != 1)
+                continue;
+            if (pendingItemId is not null)
+                throw new InvalidDataException($"expected '{{' after item {pendingItemId}");
+
+            if (TryReadQuotedToken(text, out var itemIdText) &&
+                ulong.TryParse(itemIdText, NumberStyles.None, CultureInfo.InvariantCulture, out var parsedItemId))
             {
-                itemIds.Add(itemId);
+                pendingItemId = parsedItemId;
+                pendingItemStart = line.Start;
             }
         }
 
         throw new InvalidDataException($"missing or incomplete {InstalledItemsSection} section");
+    }
+
+    private static IEnumerable<ManifestLine> ReadLines(string value)
+    {
+        var start = 0;
+        while (start < value.Length)
+        {
+            var newline = value.IndexOf('\n', start);
+            var end = newline < 0 ? value.Length : newline + 1;
+            var contentEnd = newline < 0 ? value.Length : newline;
+            if (contentEnd > start && value[contentEnd - 1] == '\r')
+                contentEnd--;
+
+            yield return new ManifestLine(value[start..contentEnd], start, end);
+            start = end;
+        }
     }
 
     private static bool TryReadQuotedToken(string text, out string token)
@@ -115,13 +185,18 @@ internal static class SteamWorkshopCacheRepairer
         token = text[1..closingQuote];
         return true;
     }
+
+    private sealed record InstalledItemRecord(ulong ItemId, int Start, int End);
+
+    private readonly record struct ManifestLine(string Text, int Start, int End);
 }
 
 internal sealed record SteamWorkshopCacheRepairResult(
     bool Repaired,
+    bool ManifestQuarantined,
     string QuarantinePath,
     IReadOnlyList<ulong> MissingItemIds,
     string Issue)
 {
-    public static SteamWorkshopCacheRepairResult NotNeeded { get; } = new(false, string.Empty, [], string.Empty);
+    public static SteamWorkshopCacheRepairResult NotNeeded { get; } = new(false, false, string.Empty, [], string.Empty);
 }
