@@ -75,14 +75,26 @@ public sealed class DedicatedServerRuntimePreparer
         Directory.CreateDirectory(magnetarAppDataPath);
         Directory.CreateDirectory(Path.Combine(dedicatedServerAppDataPath, "Saves"));
 
-        var workshopCacheRepair = SteamWorkshopCacheRepairer.RepairIfNeeded(dedicatedServerAppDataPath);
+        var workshopCacheRepair = await SteamWorkshopCacheRepairer.RepairIfNeededAsync(
+            dedicatedServerAppDataPath,
+            cancellationToken);
         if (workshopCacheRepair.Repaired)
         {
-            _logger.LogWarning(
-                "Quarantined inconsistent Steam Workshop cache for server {UniqueName} ({Issue}). Steam will rebuild required mods on launch. Quarantine: {QuarantinePath}",
-                definition.UniqueName,
-                workshopCacheRepair.Issue,
-                workshopCacheRepair.QuarantinePath);
+            if (workshopCacheRepair.ManifestQuarantined)
+            {
+                _logger.LogWarning(
+                    "Quarantined invalid Steam Workshop manifest for server {UniqueName} ({Issue}). Steam will rebuild required item state on launch. Quarantine: {QuarantinePath}",
+                    definition.UniqueName,
+                    workshopCacheRepair.Issue,
+                    workshopCacheRepair.QuarantinePath);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Repaired inconsistent Steam Workshop cache for server {UniqueName} ({Issue}). Steam will fetch only missing required items on launch.",
+                    definition.UniqueName,
+                    workshopCacheRepair.Issue);
+            }
         }
 
         await PrepareRuntimeConfigAsync(definition, configProfile, worldPath, runtimeConfigPath, cancellationToken);
