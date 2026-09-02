@@ -260,6 +260,7 @@ public class Program
                 builder.Services.AddScoped<WorldTemplateImportLocationService>();
                 builder.Services.AddScoped<ServerManagementActions>();
                 builder.Services.AddSingleton<QuasarUiPluginStateStore>();
+                builder.Services.AddSingleton<QuasarManagedDotNetSdkService>();
                 builder.Services.AddSingleton<QuasarUiPluginHubCatalogService>();
                 builder.Services.AddSingleton<QuasarUiPluginHubRefreshService>();
                 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUiPluginHubRefreshService>());

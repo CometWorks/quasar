@@ -88,9 +88,12 @@ secret. The Gateway package settings grant `CometWorks/quasar` read access under
   generated profile beside `Quasar.Agent.dll`. Viewer scene data is requested
   through `IQuasarCompanionChannel` from the viewer's Magnetar companion plugin;
   Quasar core does not carry viewer scene DTOs or a viewer-specific HTTP API.
-  Runtime-only packaged installs can run Quasar, but QuasarHub source-built UI
-  plugin install/update requires a matching .NET SDK on `PATH`; the UI disables
-  those build actions when the SDK preflight fails.
+  Runtime-only packaged installs can run Quasar. When a QuasarHub source-built
+  UI plugin is installed or updated, Quasar first uses a matching .NET SDK on
+  `PATH`, then a previously downloaded private SDK. If neither is available, the
+  admin can approve an on-demand download of the pinned SDK into Quasar's
+  managed data directory, choose to install it with the system package manager,
+  or cancel the plugin operation.
 
 ## Managed runtime selection
 

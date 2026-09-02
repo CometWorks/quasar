@@ -26,6 +26,10 @@ it locally. The listening port is configurable — see [Configuration](Docs/Conf
 ### Install as a background service (Scheduled Task)
 
 Install the **.NET 10 runtime** before running `install.ps1`.
+Packaged Quasar can run with the runtime alone. When an administrator installs a
+source-built QuasarHub UI plugin, Quasar uses a suitable .NET 10 SDK on `PATH`
+or offers a confirmed download of its pinned private SDK. The administrator can
+cancel and install the SDK with WinGet or another package manager instead.
 
 Run from an **elevated PowerShell** (Administrator):
 

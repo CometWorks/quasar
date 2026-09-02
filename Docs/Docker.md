@@ -10,6 +10,10 @@ from that release. Available tags are:
 
 Pull-request and manual draft releases do not publish container images.
 
+The final image is based on the .NET 10 SDK image, not the runtime-only image.
+QuasarHub UI plugin builds therefore use the SDK already on `PATH` and do not
+prompt to download Quasar's private managed SDK inside the container.
+
 ## Start with Docker Compose
 
 Docker Engine on Linux and Docker Compose 2.24 or newer are required. From the

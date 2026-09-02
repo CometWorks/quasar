@@ -165,12 +165,13 @@ Install the **.NET 10 runtime** before running `install.ps1`. The installer chec
 for `Microsoft.NETCore.App` 10.x before staging files, publishing, or registering
 the Scheduled Task, and exits with install instructions if it is missing.
 The runtime is enough to run packaged Quasar. QuasarHub UI plugin install/update
-compiles source with `dotnet build` and requires the **.NET 10 SDK**; when the SDK
-is missing, `/settings/ui-plugins` shows `.NET SDK required to build UI plugins`
-and disables install/update buttons. Automatic SDK install from the UI is a
-Linux `install.sh` feature; Windows operators should install the .NET SDK
-manually and refresh the SDK check. Plugin sources are downloaded as pinned
-GitHub archives, so Git is not an installation prerequisite.
+compiles source with `dotnet build` and requires the **.NET 10 SDK**. Quasar
+prefers a compatible SDK already on `PATH`, then a previously downloaded private
+SDK. If neither exists, the UI asks whether to download the pinned SDK into
+Quasar's managed data directory. The administrator can instead cancel, install
+the SDK through a package manager such as WinGet, and retry. The private SDK does
+not alter `PATH` or the system package database. Plugin sources are downloaded
+as pinned GitHub archives, so Git is not an installation prerequisite.
 
 ```powershell
 # From an extracted quasar-installer-windows.zip, in an elevated PowerShell:
