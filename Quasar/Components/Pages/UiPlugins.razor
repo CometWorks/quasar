@@ -43,34 +43,26 @@
 
     @if (!CanBuildUiPlugins)
     {
-        var sdkInstallAvailability = HubCatalog.GetDotNetSdkInstallAvailability();
         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
             <MudStack Spacing="2">
                 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-                    <span><strong>.NET SDK required to build UI plugins.</strong> @_dotNetSdkStatus.Message Install the .NET SDK to install or update source-built Quasar UI plugins.</span>
-                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" AlignItems="AlignItems.Center">
-                        <MudTooltip Text="@sdkInstallAvailability.Message" Disabled="@sdkInstallAvailability.CanInstall">
-                            <span>
-                                <MudButton Variant="Variant.Filled"
-                                           Color="Color.Warning"
-                                           Size="Size.Small"
-                                           StartIcon="@Icons.Material.Filled.Download"
-                                           Disabled="@(!sdkInstallAvailability.CanInstall || DotNetSdkInstallerBusy)"
-                                           OnClick="InstallDotNetSdkAsync">
-                                    @(DotNetSdkInstallerBusy ? "Installing SDK..." : "Install SDK")
-                                </MudButton>
-                            </span>
-                        </MudTooltip>
-                        <MudButton Variant="Variant.Outlined"
-                                   Color="Color.Warning"
-                                   Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.Refresh"
-                                   Disabled="@DotNetSdkInstallerBusy"
-                                   OnClick="RefreshDotNetSdkStatus">
-                            Refresh SDK check
-                        </MudButton>
-                    </MudStack>
+                    <span><strong>.NET SDK not currently available.</strong> Starting a UI plugin install will offer a pinned private download, manual package-manager instructions, or cancellation without changes.</span>
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Warning"
+                               Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Refresh"
+                               Disabled="@DotNetSdkInstallerBusy"
+                               OnClick="RefreshDotNetSdkStatus">
+                        Refresh SDK check
+                    </MudButton>
                 </MudStack>
+                @if (DotNetSdkInstallerBusy)
+                {
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.body2">Downloading and verifying the private .NET SDK...</MudText>
+                        <MudProgressLinear Indeterminate="true" Color="Color.Warning" />
+                    </MudStack>
+                }
                 @if (_lastDotNetSdkInstallResult is not null)
                 {
                     <MudAlert Severity="@(_lastDotNetSdkInstallResult.Succeeded ? Severity.Success : Severity.Error)" Variant="Variant.Outlined" Dense="true">
@@ -269,6 +261,12 @@
                                 @if (context.Hidden)
                                 {
                                     <MudText Typo="Typo.caption" Class="mud-text-secondary">Hidden in hub</MudText>
+                                }
+                                @if (context.Recommended)
+                                {
+                                    <MudChip T="string" Color="Color.Info" Variant="Variant.Outlined" Size="Size.Small">
+                                        Recommended
+                                    </MudChip>
                                 }
                                 @if (context.ImplicitLoading)
                                 {
@@ -589,10 +587,14 @@
     private string _hubBusyCatalogId = string.Empty;
     private QuasarDotNetSdkInstallResult? _lastDotNetSdkInstallResult;
     private QuasarDotNetSdkStatus _dotNetSdkStatus = new(
-        Environment.Version.Major,
+        QuasarManagedDotNetSdkService.RequiredSdkMajor,
+        QuasarManagedDotNetSdkService.PinnedSdkVersion,
+        QuasarDotNetSdkSource.None,
         DotNetOnPath: false,
         RequiredSdkAvailable: false,
         [],
+        string.Empty,
+        string.Empty,
         "SDK check pending.");
 
     private string SafeModeMarkerPath => QuasarUiPluginCatalog.SafeModeMarkerPath;
@@ -745,7 +747,7 @@
         if (HubOperationInProgress)
             return;
 
-        if (!EnsureDotNetSdkForPluginBuild())
+        if (!await EnsureDotNetSdkForPluginBuildAsync())
             return;
 
         _hubBusyCatalogId = entry.CatalogId;
@@ -765,25 +767,33 @@
         }
     }
 
-    private async Task InstallDotNetSdkAsync()
+    private async Task<bool> EnsureDotNetSdkForPluginBuildAsync()
     {
-        if (DotNetSdkInstallerBusy)
-            return;
+        _dotNetSdkStatus = HubCatalog.RefreshDotNetSdkStatus();
+        if (CanBuildUiPlugins)
+            return true;
 
         var availability = HubCatalog.GetDotNetSdkInstallAvailability();
         if (!availability.CanInstall)
         {
             Snackbar.Add(availability.Message, Severity.Warning);
-            return;
+            return false;
         }
 
-        var confirmed = await DialogService.ShowMessageBoxAsync(
-            "Install .NET SDK?",
-            "Quasar will run install.sh to install the .NET SDK required for source-built UI plugins. This may install system packages and can fail if sudo needs a password.",
-            yesText: "Install SDK",
+        var choice = await DialogService.ShowMessageBoxAsync(
+            ".NET SDK required",
+            $"This UI plugin must be compiled with .NET {_dotNetSdkStatus.RequiredMajorVersion}. " +
+            $"Quasar can download verified SDK {_dotNetSdkStatus.PinnedManagedSdkVersion} into {availability.InstallDirectory} without changing system packages or PATH. " +
+            "Choose Install manually to cancel this plugin install and use your operating system's package manager instead.",
+            yesText: "Download private SDK",
+            noText: "Install manually",
             cancelText: "Cancel");
-        if (confirmed != true)
-            return;
+        if (choice != true)
+        {
+            if (choice == false)
+                Snackbar.Add(GetManualSdkInstallMessage(), Severity.Info);
+            return false;
+        }
 
         _dotNetSdkInstallerBusy = true;
         _lastDotNetSdkInstallResult = null;
@@ -793,6 +803,7 @@
             _lastDotNetSdkInstallResult = result;
             _dotNetSdkStatus = HubCatalog.GetDotNetSdkStatus();
             Snackbar.Add(result.Message, result.Succeeded ? Severity.Success : Severity.Error);
+            return result.Succeeded;
         }
         catch (Exception exception)
         {
@@ -801,6 +812,7 @@
                 exception.Message,
                 string.Empty);
             Snackbar.Add(exception.Message, Severity.Error);
+            return false;
         }
         finally
         {
@@ -1037,19 +1049,19 @@
         string.Equals(_hubBusyCatalogId, entry.CatalogId, StringComparison.OrdinalIgnoreCase);
 
     private bool IsHubInstallDisabled(QuasarUiPluginHubEntry entry) =>
-        !CanBuildUiPlugins ||
         HubOperationInProgress ||
+        DotNetSdkInstallerBusy ||
         _hubRefreshing ||
         string.IsNullOrWhiteSpace(entry.RepoId) ||
         string.IsNullOrWhiteSpace(entry.Commit);
 
     private string GetHubInstallDisabledReason(QuasarUiPluginHubEntry entry)
     {
-        if (!CanBuildUiPlugins)
-            return $".NET SDK required to build UI plugins. Install .NET {_dotNetSdkStatus.RequiredMajorVersion} SDK.";
-
         if (HubOperationInProgress)
             return "Another QuasarHub operation is running.";
+
+        if (DotNetSdkInstallerBusy)
+            return "The managed .NET SDK is being installed.";
 
         if (_hubRefreshing)
             return "QuasarHub catalog refresh is running.";
@@ -1099,6 +1111,9 @@
             if (entry.ImplicitLoading)
                 return Color.Info;
 
+            if (entry.Recommended)
+                return Color.Info;
+
             return entry.Hidden ? Color.Secondary : Color.Default;
         }
 
@@ -1123,6 +1138,9 @@
             if (entry.ImplicitLoading)
                 return "Implicit";
 
+            if (entry.Recommended)
+                return "Recommended";
+
             return entry.Hidden ? "Hidden" : "Not installed";
         }
 
@@ -1144,7 +1162,12 @@
         CanBuildUiPlugins ? Color.Success : Color.Warning;
 
     private string GetDotNetSdkChipText() =>
-        CanBuildUiPlugins ? $".NET {_dotNetSdkStatus.RequiredMajorVersion} SDK ready" : ".NET SDK missing";
+        _dotNetSdkStatus.Source switch
+        {
+            QuasarDotNetSdkSource.Global => $".NET {_dotNetSdkStatus.RequiredMajorVersion} SDK global",
+            QuasarDotNetSdkSource.Managed => $".NET {_dotNetSdkStatus.RequiredMajorVersion} SDK managed",
+            _ => ".NET SDK on demand",
+        };
 
     private void RefreshDotNetSdkStatus()
     {
@@ -1152,15 +1175,9 @@
         Snackbar.Add(_dotNetSdkStatus.Message, CanBuildUiPlugins ? Severity.Success : Severity.Warning);
     }
 
-    private bool EnsureDotNetSdkForPluginBuild()
-    {
-        _dotNetSdkStatus = HubCatalog.RefreshDotNetSdkStatus();
-        if (CanBuildUiPlugins)
-            return true;
-
-        Snackbar.Add(_dotNetSdkStatus.Message, Severity.Warning);
-        return false;
-    }
+    private static string GetManualSdkInstallMessage() => OperatingSystem.IsWindows()
+        ? "Plugin installation cancelled. Install the .NET 10 SDK with winget or another Windows package manager, then use Refresh SDK check."
+        : "Plugin installation cancelled. Install the .NET 10 SDK with your distribution package manager, then use Refresh SDK check.";
 
     private static string TrimInstallerOutput(string output)
     {

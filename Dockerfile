@@ -16,6 +16,7 @@ RUN apt-get update \
     && mkdir /opt/quasar \
     && tar -xzf quasar-web-linux-x64.tar.gz -C /opt/quasar
 
+# The SDK is intentional: Quasar compiles reviewed UI plugin sources on demand.
 FROM mcr.microsoft.com/dotnet/sdk:10.0
 
 ARG QUASAR_VERSION
