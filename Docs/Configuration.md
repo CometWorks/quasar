@@ -31,9 +31,18 @@ Magnetar's anonymous plugin-usage statistics are opt-in. Quasar stores the
 operator's decision in `data-handling-consent.json` under the Quasar data
 directory and passes that decision to every managed Magnetar start:
 
-- `YES` -> Quasar appends `-consent`
-- `NO` -> Quasar appends `-noconsent`
-- no stored decision -> Quasar appends `-noconsent`
+- `YES` -> Quasar appends `-consent accept`
+- `NO` -> Quasar appends `-consent deny`
+- no stored decision -> Quasar appends `-consent deny`
+
+Any `-consent`, `-noconsent`, or `-withdraw-consent` flag typed into a server's
+launch arguments is removed before start; only the stored decision reaches
+Magnetar.
+
+Magnetar builds older than 2.3.3.0 only understand the bare `-consent` /
+`-noconsent` flags, so Quasar sends those when it detects such a build (by the
+launcher name on Linux, by the executable version on Windows). This fallback is
+temporary and will be removed in the first Quasar release of 2027.
 
 The Dashboard shows a top-of-page YES/NO consent prompt until a decision is
 stored. The same decision can be changed later from **Settings -> Security**.

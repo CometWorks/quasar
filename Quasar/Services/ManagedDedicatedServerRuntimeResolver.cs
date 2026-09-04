@@ -23,6 +23,8 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     private static readonly TimeSpan MagnetarReleaseCheckCooldown = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan SteamCmdKillWaitTimeout = TimeSpan.FromSeconds(10);
     private const string MagnetarLauncherName = "MagnetarInterim";
+    // Apphost at the root of the pulsar-based Linux bundle (next to Libraries/).
+    private const string LinuxMagnetarLauncherFileName = "MagnetarInterim.bin";
     private const string MagnetarReleaseMarkerFileName = ".quasar-magnetar-release.json";
     private const string DedicatedServerAppId = "298740";
     private const string DedicatedServerExecutableName = "SpaceEngineersDedicated";
@@ -30,6 +32,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     private static readonly string[] MagnetarLauncherFileNames =
     [
         "MagnetarInterim",
+        LinuxMagnetarLauncherFileName,
         "MagnetarInterim.exe",
     ];
 
@@ -305,9 +308,10 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         CancellationToken cancellationToken)
     {
         // Windows ships both Magnetar builds side-by-side (exes + per-runtime Libraries
-        // subfolders, no Bin/ wrapper); Linux ships a single Interim build behind a
-        // top-level wrapper with the apphost under Bin/. The two layouts need different
-        // install logic, but both paths compare the installed marker against latest first.
+        // subfolders); Linux ships a single Interim build as MagnetarInterim.bin at the
+        // archive root next to Libraries/ (older archives wrapped the apphost under Bin/).
+        // The two layouts need different install logic, but both paths compare the
+        // installed marker against latest first.
         return OperatingSystem.IsWindows()
             ? EnsureWindowsManagedMagnetarInstallAsync(runtime, progress, cancellationToken)
             : EnsureLinuxManagedMagnetarInstallAsync(progress, cancellationToken);
@@ -328,12 +332,12 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 "Checking Magnetar runtime install.",
                 Path: installDirectory));
 
-            // Resolve to the actual apphost binary under Bin/, never the top-level
-            // MagnetarInterim wrapper script. The wrapper only `cd`s into Bin/ and execs
-            // this binary; Quasar runs the binary directly with Bin/ as the working
-            // directory (Path.GetDirectoryName of the returned path), so no extra shell
-            // is spawned to set up the environment and the tracked PID is the server's.
-            var binaryLauncherPath = FindImmediateFile(Path.Combine(installDirectory, "Bin"), MagnetarLauncherFileNames);
+            // Resolve to the apphost binary itself: MagnetarInterim.bin at the install root
+            // for the current layout, or the Bin/ apphost of an older install that has not
+            // been migrated yet. Quasar runs the binary directly with its own directory as
+            // the working directory (Path.GetDirectoryName of the returned path), so no
+            // wrapper shell is involved and the tracked PID is the server's.
+            var binaryLauncherPath = FindInstalledLinuxMagnetarLauncherPath(installDirectory);
             var archive = await ResolveMagnetarArchiveReferenceOrUseExistingAsync(
                 binaryLauncherPath ?? string.Empty,
                 cancellationToken);
@@ -365,13 +369,16 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 await DownloadAndExtractMagnetarArchiveAsync(archive, extractRoot, progress, cancellationToken);
 
                 var source = FindMagnetarSource(extractRoot)
-                             ?? throw new InvalidOperationException("Downloaded Magnetar archive did not contain MagnetarInterim with a Bin payload.");
+                             ?? throw new InvalidOperationException(
+                                 "Downloaded Magnetar archive did not contain MagnetarInterim with a Libraries or Bin payload.");
 
                 if (!File.Exists(source.LauncherPath))
                     throw new InvalidOperationException($"Magnetar launcher not found in extracted archive: {source.LauncherPath}");
-                if (!Directory.Exists(source.BinDirectory))
-                    throw new InvalidOperationException($"Magnetar Bin directory not found in extracted archive: {source.BinDirectory}");
+                if (!Directory.Exists(source.PayloadDirectory))
+                    throw new InvalidOperationException($"Magnetar payload directory not found in extracted archive: {source.PayloadDirectory}");
 
+                // Deleting the whole install root also removes any wrapper script or Bin/
+                // tree left behind by an older layout, so the migration needs no special case.
                 if (Directory.Exists(installDirectory))
                     Directory.Delete(installDirectory, recursive: true);
 
@@ -381,11 +388,14 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                     $"Installing Magnetar runtime {archive.DisplayName}.",
                     Path: installDirectory));
                 Directory.CreateDirectory(installDirectory);
-                CopyDirectory(source.BinDirectory, Path.Combine(installDirectory, "Bin"));
-                binaryLauncherPath = FindImmediateFile(Path.Combine(installDirectory, "Bin"), MagnetarLauncherFileNames)
+                var installPayloadDirectory = source.Layout == MagnetarSourceLayout.Root
+                    ? installDirectory
+                    : Path.Combine(installDirectory, "Bin");
+                CopyDirectory(source.PayloadDirectory, installPayloadDirectory);
+                binaryLauncherPath = FindInstalledLinuxMagnetarLauncherPath(installDirectory)
                     ?? throw new InvalidOperationException(
-                        $"Magnetar apphost binary not found under {Path.Combine(installDirectory, "Bin")} after install.");
-                EnsureExecutableBit(binaryLauncherPath);
+                        $"Magnetar apphost binary not found under {installDirectory} after install.");
+                EnsureLinuxMagnetarExecutableBits(installDirectory, binaryLauncherPath);
                 await WriteInstalledMagnetarReleaseAsync(installDirectory, archive, cancellationToken);
 
                 _logger.LogInformation("Installed managed Magnetar runtime {Release} into {Path}.", archive.DisplayName, installDirectory);
@@ -767,7 +777,37 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             return File.Exists(netFrameworkPath) ? netFrameworkPath : string.Empty;
         }
 
-        return FindImmediateFile(Path.Combine(_options.MagnetarInstallDirectory, "Bin"), MagnetarLauncherFileNames) ?? string.Empty;
+        return FindInstalledLinuxMagnetarLauncherPath(_options.MagnetarInstallDirectory) ?? string.Empty;
+    }
+
+    // Current layout first (MagnetarInterim.bin at the install root, payload under
+    // Libraries/), then the Bin/ apphost of an older install awaiting migration.
+    internal static string? FindInstalledLinuxMagnetarLauncherPath(string installDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(installDirectory))
+            return null;
+
+        var rootLauncherPath = Path.Combine(installDirectory, LinuxMagnetarLauncherFileName);
+        if (File.Exists(rootLauncherPath))
+            return rootLauncherPath;
+
+        return FindImmediateFile(Path.Combine(installDirectory, "Bin"), MagnetarLauncherFileNames);
+    }
+
+    // PluginSdk.dll location under the Linux layouts, matching the MagnetarBin default in
+    // Directory.Build.props: Libraries/MagnetarInterim for the current bundle, Bin/ for an
+    // older install. Returns null when neither exists.
+    internal static string? FindLinuxPluginSdkPath(string installDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(installDirectory))
+            return null;
+
+        var candidates = new[]
+        {
+            Path.Combine(installDirectory, "Libraries", MagnetarLauncherName, "PluginSdk.dll"),
+            Path.Combine(installDirectory, "Bin", "PluginSdk.dll"),
+        };
+        return candidates.FirstOrDefault(File.Exists);
     }
 
     public string ResolveInstalledDedicatedServer64Path()
@@ -783,10 +823,10 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     }
 
     // Managed Magnetar install root that companion plugin builds feed to $(Magnetar), but only
-    // when PluginSdk.dll is actually present under the layout the companion csproj expects
-    // ($(Magnetar)/Libraries/MagnetarLegacy on Windows, $(Magnetar)/Bin elsewhere). Returns
-    // empty otherwise so the build falls back to the project's own $(Magnetar) default.
-    // Symmetric with ResolveInstalledDedicatedServer64Path.
+    // when PluginSdk.dll is actually present under a layout the companion csproj expects
+    // ($(Magnetar)/Libraries/MagnetarLegacy on Windows; $(Magnetar)/Libraries/MagnetarInterim
+    // or the older $(Magnetar)/Bin elsewhere). Returns empty otherwise so the build falls back
+    // to the project's own $(Magnetar) default. Symmetric with ResolveInstalledDedicatedServer64Path.
     public string ResolveInstalledMagnetarInstallDirectory()
     {
         var installDirectory = _options.MagnetarInstallDirectory;
@@ -795,9 +835,9 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
         var pluginSdkPath = OperatingSystem.IsWindows()
             ? Path.Combine(installDirectory, "Libraries", "MagnetarLegacy", "PluginSdk.dll")
-            : Path.Combine(installDirectory, "Bin", "PluginSdk.dll");
+            : FindLinuxPluginSdkPath(installDirectory);
 
-        return File.Exists(pluginSdkPath) ? installDirectory : string.Empty;
+        return pluginSdkPath is not null && File.Exists(pluginSdkPath) ? installDirectory : string.Empty;
     }
 
     /// <summary>Current launch-time DS update policy (read fresh on each server launch).</summary>
@@ -1869,21 +1909,35 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         return ".archive";
     }
 
-    private static MagnetarSource? FindMagnetarSource(string extractionRoot)
+    // The Linux archive comes in two layouts. The pulsar-based bundle is a Magnetar/ root
+    // holding MagnetarInterim.bin next to Libraries/{MagnetarInterim,Compiler,MagnetarConfig};
+    // the whole root is the payload. The older main-branch bundle put a wrapper script at the
+    // root and the apphost with its flat payload under Bin/. The root layout wins when both
+    // are present; Bin/ acceptance stays so an old archive still installs during the transition.
+    internal static MagnetarSource? FindMagnetarSource(string extractionRoot)
     {
-        return Directory.GetFiles(extractionRoot, "*", SearchOption.AllDirectories)
+        if (!Directory.Exists(extractionRoot))
+            return null;
+
+        MagnetarSource? binLayoutSource = null;
+        var launcherPaths = Directory.GetFiles(extractionRoot, "*", SearchOption.AllDirectories)
             .Where(IsMagnetarLauncherFileName)
-            .Select(path => new { LauncherPath = path, Directory = Path.GetDirectoryName(path) })
-            .Where(path => !string.IsNullOrWhiteSpace(path.Directory))
-            .Select(path => new
-            {
-                path.LauncherPath,
-                Directory = path.Directory!,
-                BinDirectory = FindImmediateDirectory(path.Directory!, "Bin"),
-            })
-            .Where(path => !string.IsNullOrWhiteSpace(path.BinDirectory))
-            .Select(path => new MagnetarSource(path.Directory, path.LauncherPath, path.BinDirectory!))
-            .FirstOrDefault();
+            .OrderBy(path => path.Count(character => character == Path.DirectorySeparatorChar))
+            .ThenBy(path => path, StringComparer.Ordinal);
+        foreach (var launcherPath in launcherPaths)
+        {
+            var directory = Path.GetDirectoryName(launcherPath);
+            if (string.IsNullOrWhiteSpace(directory))
+                continue;
+
+            if (FindImmediateDirectory(directory, "Libraries") is not null)
+                return new MagnetarSource(directory, launcherPath, directory, MagnetarSourceLayout.Root);
+
+            if (binLayoutSource is null && FindImmediateDirectory(directory, "Bin") is { } binDirectory)
+                binLayoutSource = new MagnetarSource(directory, launcherPath, binDirectory, MagnetarSourceLayout.Bin);
+        }
+
+        return binLayoutSource;
     }
 
     private static bool IsMagnetarLauncherFileName(string path)
@@ -1916,10 +1970,23 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 StringComparison.OrdinalIgnoreCase)));
     }
 
-    private sealed record MagnetarSource(
+    internal enum MagnetarSourceLayout
+    {
+        /// <summary>Apphost at the archive root next to Libraries/; the root is copied as-is.</summary>
+        Root,
+
+        /// <summary>Legacy layout: wrapper at the root, apphost and flat payload under Bin/.</summary>
+        Bin,
+    }
+
+    /// <param name="Directory">Directory holding the launcher.</param>
+    /// <param name="LauncherPath">Launcher found in the archive (wrapper script for the Bin layout).</param>
+    /// <param name="PayloadDirectory">Directory to copy into the install: the root itself or its Bin/ child.</param>
+    internal sealed record MagnetarSource(
         string Directory,
         string LauncherPath,
-        string BinDirectory);
+        string PayloadDirectory,
+        MagnetarSourceLayout Layout);
 
     private sealed record MagnetarArchiveReference(
         string SourceKind,
@@ -2000,6 +2067,29 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             File.Copy(file, destinationPath, overwrite: true);
         }
     }
+
+    // Archive extraction does not preserve Unix permissions. Besides the launcher itself,
+    // the out-of-process Roslyn compiler (Libraries/Compiler/Compiler.bin, the same ".bin"
+    // apphost suffix Pulsar uses for every Linux executable) and the config tool
+    // (MagnetarConfig.bin) are apphosts that Magnetar executes, so they need the bit too.
+    // Without it Magnetar fails to start the compiler (EACCES) and cannot load a single
+    // plugin. Missing files (older layout) are skipped by EnsureExecutableBit.
+    internal static void EnsureLinuxMagnetarExecutableBits(string installDirectory, string launcherPath)
+    {
+        EnsureExecutableBit(launcherPath);
+        foreach (var relativePath in LinuxMagnetarExecutableRelativePaths)
+            EnsureExecutableBit(Path.Combine(installDirectory, relativePath));
+    }
+
+    // Apphosts shipped next to the launcher in the current Linux bundle, relative to the
+    // install root. The extension-less compiler name is kept for bundles built before the
+    // apphost suffix was unified.
+    internal static readonly string[] LinuxMagnetarExecutableRelativePaths =
+    [
+        Path.Combine("Libraries", "Compiler", "Compiler.bin"),
+        Path.Combine("Libraries", "Compiler", "Compiler"),
+        "MagnetarConfig.bin",
+    ];
 
     private static void EnsureExecutableBit(string path)
     {

@@ -64,7 +64,9 @@ secret. The Gateway package settings grant `CometWorks/quasar` read access under
   auto-resolves `DS64` from the Steam registry `InstallLocation` (falling back to
   the default `C:\Program Files (x86)\Steam\...\DedicatedServer64` library) and
   `MagnetarBin` to `$(Magnetar)\Libraries\MagnetarLegacy`. On Linux `MagnetarBin`
-  resolves to `$(Magnetar)/Bin`.
+  resolves to `$(Magnetar)/Libraries/MagnetarInterim`, falling back to
+  `$(Magnetar)/Bin` only while an older Magnetar install with that layout is
+  still present.
 - A local-only override can live at `Quasar.Agent/Directory.Build.props`. This
   repo keeps the machine-specific override out of source control.
 - The Linux release workflow probes the Space Engineers Dedicated Server public

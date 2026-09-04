@@ -33,6 +33,9 @@ static int is_allowed_nice(int nice)
 static int is_allowed_magnetar_executable(const char *path)
 {
     static const char *names[] = {
+        /* Linux: pulsar-based bundles (2.3.3.0+) ship the apphost as
+           MagnetarInterim.bin; older bundles used the bare name. */
+        "MagnetarInterim.bin",
         "MagnetarInterim",
         "MagnetarInterim.exe",
         "MagnetarLegacy.exe",

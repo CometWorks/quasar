@@ -1083,11 +1083,24 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             return;
         }
 
+        // LEGACY-MAGNETAR-COMPAT: choose the launch-argument dialect from the resolved
+        // launcher so a pre-2.3.3.0 Magnetar still gets flags it understands. Remove in the
+        // first 2027 Quasar release and always prepare with MagnetarLaunchArgumentStyle.Current.
+        var launchArgumentStyle = MagnetarLegacyLaunchCompatibility.Detect(executablePath);
+        if (launchArgumentStyle == MagnetarLaunchArgumentStyle.Legacy)
+        {
+            _logger.LogInformation(
+                "Server {UniqueName} runs a Magnetar build older than {FirstCurrentVersion} ({ExecutablePath}); using legacy consent and GitHub token launch arguments.",
+                state.UniqueName,
+                MagnetarLegacyLaunchCompatibility.FirstCurrentVersion,
+                executablePath);
+        }
+
         PreparedDedicatedServerLaunch launch;
         SetRuntimeMessage(state.UniqueName, "Preparing dedicated server runtime.");
         try
         {
-            launch = await _runtimePreparer.PrepareAsync(definition, runtime.DedicatedServer64Path, cancellationToken);
+            launch = await _runtimePreparer.PrepareAsync(definition, runtime.DedicatedServer64Path, launchArgumentStyle, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1143,6 +1156,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         process.StartInfo.Environment["QUASAR_DS_CONFIG_PATH"] = launch.RuntimeConfigPath;
         process.StartInfo.Environment["QUASAR_LAST_SESSION_PATH"] = launch.LastSessionPath;
         ConfigureNativeLibrarySearchPath(process.StartInfo, runtime.NativeLibrarySearchPaths);
+
+        // Pulsar (inside Magnetar) authenticates its plugin-hub fetches with the token from
+        // PULSAR_GITHUB_TOKEN. The environment is only readable by the process owner, unlike
+        // /proc/<pid>/cmdline, so the token must never be added to the launch arguments.
+        if (!string.IsNullOrWhiteSpace(launch.GitHubToken))
+            process.StartInfo.Environment[PulsarGitHubTokenVariableName] = launch.GitHubToken;
 
         // How the agent should behave when it loses contact with Quasar: keep the
         // server running and reconnect, and only save+stop after the configured
@@ -1277,37 +1296,56 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             paths.Distinct(StringComparer.Ordinal));
     }
 
+    private const string PulsarGitHubTokenVariableName = "PULSAR_GITHUB_TOKEN";
+    private const string RedactedValue = "<redacted>";
+
+    // Environment variables whose values are secrets and must be masked whenever the
+    // launch environment is written to a log.
+    private static readonly HashSet<string> SecretEnvironmentVariableNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        PulsarGitHubTokenVariableName,
+    };
+
     private void LogManagedServerLaunchEnvironment(DedicatedServerDefinition definition, ProcessStartInfo startInfo)
     {
         if (!definition.LogLaunchEnvironment)
             return;
 
+        _logger.LogWarning(
+            "Managed server launch environment logging is enabled. These logs may contain secrets.{NewLine}{LaunchEnvironment}",
+            Environment.NewLine,
+            DescribeLaunchEnvironment(definition.UniqueName, startInfo));
+    }
+
+    internal static string DescribeLaunchEnvironment(string uniqueName, ProcessStartInfo startInfo)
+    {
         var environment = string.Join(
             Environment.NewLine,
             startInfo.Environment
                 .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(pair => $"{pair.Key}={pair.Value}"));
+                .Select(pair => $"{pair.Key}={RedactEnvironmentValue(pair.Key, pair.Value)}"));
 
-        var launchEnvironment = string.Join(
+        return string.Join(
             Environment.NewLine,
-            $"Server={definition.UniqueName}",
+            $"Server={uniqueName}",
             $"FileName={startInfo.FileName}",
             $"Arguments={RedactLaunchArguments(startInfo.Arguments)}",
             $"WorkingDirectory={startInfo.WorkingDirectory}",
             "Environment:",
             environment);
-
-        _logger.LogWarning(
-            "Managed server launch environment logging is enabled. These logs may contain secrets.{NewLine}{LaunchEnvironment}",
-            Environment.NewLine,
-            launchEnvironment);
     }
 
+    private static string? RedactEnvironmentValue(string name, string? value) =>
+        SecretEnvironmentVariableNames.Contains(name) && !string.IsNullOrEmpty(value) ? RedactedValue : value;
+
+    // Quasar strips -github-token from user-supplied arguments, but the LEGACY-MAGNETAR-COMPAT
+    // path still emits it for pre-2.3.3.0 builds, so it must stay redacted in this log. Keep
+    // the redaction even after the compat code is removed, as a safety net.
     private static string RedactLaunchArguments(string arguments) =>
         Regex.Replace(
             arguments,
             @"(?<!\S)(-github-token)(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?",
-            "$1 <redacted>",
+            $"$1 {RedactedValue}",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private void SetRuntimeMessage(string uniqueName, string message)
