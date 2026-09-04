@@ -250,6 +250,15 @@ limit. The Updates page lets an admin save a GitHub token for release checks.
 It is stored in `github-updates.json` under the Quasar install directory with the
 same Data Protection encryption model used for the Steam Workshop API key.
 
+The same token is handed to every managed Magnetar start through the
+`PULSAR_GITHUB_TOKEN` environment variable so Pulsar's plugin-hub downloads are
+authenticated too. It is never placed on the server command line, and a
+`-github-token` flag typed into a server's launch arguments is removed before
+start. The token is masked in the launch-environment log that
+`LogLaunchEnvironment` prints. Magnetar builds older than 2.3.3.0 still receive
+the token as `-github-token` on the command line; this fallback is temporary and
+will be removed in the first Quasar release of 2027.
+
 All GitHub update, runtime, and plugin-catalog GET requests retry transient
 network failures and HTTP `408`, `429`, or `5xx` responses up to four times.
 Backoff starts at one second, honors `Retry-After`, and is capped at 30 seconds.
