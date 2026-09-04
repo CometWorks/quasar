@@ -22,6 +22,8 @@ public sealed class ManagedRuntimeOptions
 
     public string SteamCmdInstallDirectory { get; init; } = MagnetarPaths.GetQuasarManagedSteamCmdInstallDirectory();
 
+    public string SteamCmdHomeDirectory { get; init; } = MagnetarPaths.GetQuasarManagedSteamCmdHomeDirectory();
+
     public string DedicatedServerInstallDirectory { get; init; } = MagnetarPaths.GetQuasarManagedDedicatedServerInstallDirectory();
 
     public string DedicatedServer64OverridePath { get; init; } = string.Empty;
@@ -67,6 +69,11 @@ public sealed class ManagedRuntimeOptions
         if (string.IsNullOrWhiteSpace(steamCmdInstallDirectory))
             steamCmdInstallDirectory = MagnetarPaths.GetQuasarManagedSteamCmdInstallDirectory();
 
+        var steamCmdHomeDirectory = Environment.GetEnvironmentVariable("QUASAR_STEAMCMD_HOME_DIR")
+                                    ?? section["SteamCmdHomeDirectory"];
+        if (string.IsNullOrWhiteSpace(steamCmdHomeDirectory))
+            steamCmdHomeDirectory = MagnetarPaths.GetQuasarManagedSteamCmdHomeDirectory();
+
         var dedicatedServerInstallDirectory = Environment.GetEnvironmentVariable("QUASAR_DS_INSTALL_DIR")
                                               ?? section["DedicatedServerInstallDirectory"];
         if (string.IsNullOrWhiteSpace(dedicatedServerInstallDirectory))
@@ -100,6 +107,7 @@ public sealed class ManagedRuntimeOptions
             MagnetarInstallDirectory = magnetarInstallDirectory.Trim(),
             SteamCmdArchiveUrl = steamCmdArchiveUrl.Trim(),
             SteamCmdInstallDirectory = steamCmdInstallDirectory.Trim(),
+            SteamCmdHomeDirectory = steamCmdHomeDirectory.Trim(),
             DedicatedServerInstallDirectory = dedicatedServerInstallDirectory.Trim(),
             DedicatedServer64OverridePath = dedicatedServer64OverridePath.Trim(),
             SteamCmdPath = steamCmdPath.Trim(),

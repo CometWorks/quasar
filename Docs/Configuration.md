@@ -25,6 +25,11 @@ SteamCMD's `linux64` native runtime directory so Quasar can pass it through
 before it is marked failed; the Dashboard then shows a retry button on the
 Dedicated Server row.
 
+On Linux the managed SteamCMD runs with its own `HOME` under
+`{Quasar data}/ManagedRuntime/Tools/SteamCmdHome` (override with
+`QUASAR_STEAMCMD_HOME_DIR` or `Quasar:ManagedRuntime:SteamCmdHomeDirectory`), so it
+never reads or rewrites the desktop Steam client's configuration under `~/.steam`.
+
 ## Magnetar data handling consent
 
 Magnetar's anonymous plugin-usage statistics are opt-in. Quasar stores the

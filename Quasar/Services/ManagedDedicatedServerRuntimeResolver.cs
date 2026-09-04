@@ -1224,7 +1224,8 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 {
                     StartInfo = CreateSteamCmdStartInfo(
                         steamCmdPath,
-                        BuildDedicatedServerUpdateArguments(_options.DedicatedServerInstallDirectory, validate)),
+                        BuildDedicatedServerUpdateArguments(_options.DedicatedServerInstallDirectory, validate),
+                        _options.SteamCmdHomeDirectory),
                 };
 
                 try
@@ -1460,7 +1461,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     {
         using var process = new Process
         {
-            StartInfo = CreateSteamCmdStartInfo(steamCmdPath, arguments),
+            StartInfo = CreateSteamCmdStartInfo(steamCmdPath, arguments, _options.SteamCmdHomeDirectory),
         };
 
         try
@@ -1546,7 +1547,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         }
     }
 
-    private static string BuildDedicatedServerUpdateArguments(string installDirectory, bool validate)
+    internal static string BuildDedicatedServerUpdateArguments(string installDirectory, bool validate)
     {
         var forcePlatform = OperatingSystem.IsWindows()
             ? string.Empty
@@ -1556,7 +1557,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         return $"+force_install_dir {QuoteArgument(installDirectory)} {forcePlatform}+login anonymous +app_update {DedicatedServerAppId}{validateToken} +quit";
     }
 
-    private static ProcessStartInfo CreateSteamCmdStartInfo(string steamCmdPath, string arguments)
+    internal static ProcessStartInfo CreateSteamCmdStartInfo(string steamCmdPath, string arguments, string steamCmdHomeDirectory)
     {
         var workingDirectory = Path.GetDirectoryName(steamCmdPath) ?? AppContext.BaseDirectory;
         var fileName = steamCmdPath;
@@ -1577,7 +1578,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             processArguments = $"{QuoteArgument(steamCmdPath)} {arguments}";
         }
 
-        return new ProcessStartInfo
+        var startInfo = new ProcessStartInfo
         {
             FileName = fileName,
             Arguments = processArguments,
@@ -1587,6 +1588,31 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
+
+        ApplyIsolatedSteamCmdHome(startInfo, steamCmdHomeDirectory);
+        return startInfo;
+    }
+
+    // On Linux SteamCMD locates its Steam root through ~/.steam/root and ~/.steam/steam.
+    // With the desktop Steam client installed those point at the real client install, so
+    // SteamCMD writes its bootstrap log there and, on +quit, rewrites the client's
+    // config/libraryfolders.vdf and steamapps/libraryfolders.vdf keeping only the app ids
+    // it touched itself. Pointing HOME (and the XDG base dirs) at a Quasar-owned directory
+    // keeps every SteamCMD side effect out of the user's Steam client. +force_install_dir
+    // still selects the DS install location, so the existing managed install is reused.
+    // SteamCMD on Windows does not use HOME, so Windows is left untouched.
+    internal static void ApplyIsolatedSteamCmdHome(ProcessStartInfo startInfo, string steamCmdHomeDirectory)
+    {
+        if (OperatingSystem.IsWindows() || string.IsNullOrWhiteSpace(steamCmdHomeDirectory))
+            return;
+
+        var home = Path.GetFullPath(steamCmdHomeDirectory.Trim());
+        Directory.CreateDirectory(home);
+
+        startInfo.Environment["HOME"] = home;
+        startInfo.Environment["XDG_DATA_HOME"] = Path.Combine(home, ".local", "share");
+        startInfo.Environment["XDG_CONFIG_HOME"] = Path.Combine(home, ".config");
+        startInfo.Environment["XDG_CACHE_HOME"] = Path.Combine(home, ".cache");
     }
 
     private static bool LooksLikeDedicatedServerExecutable(string path)
@@ -1632,6 +1658,9 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             yield return Path.Combine(home, ".steam", "steam", "steamapps", "common", "SpaceEngineersDedicatedServer", "DedicatedServer64");
             yield return Path.Combine(home, ".local", "share", "Steam", "steamapps", "common", "SpaceEngineersDedicatedServer", "DedicatedServer64");
             yield return Path.Combine(home, "Steam", "steamapps", "common", "SpaceEngineersDedicatedServer", "DedicatedServer64");
+            // Default install location of a distro-packaged steamcmd (Debian/Ubuntu wrapper).
+            // Quasar's own SteamCMD always runs with +force_install_dir and an isolated HOME,
+            // so nothing of Quasar's ever lands here; this only finds a manual install.
             yield return Path.Combine(home, ".steam", "steamcmd", "steamapps", "common", "SpaceEngineersDedicatedServer", "DedicatedServer64");
         }
     }
