@@ -2069,15 +2069,27 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     }
 
     // Archive extraction does not preserve Unix permissions. Besides the launcher itself,
-    // the out-of-process Roslyn compiler (Libraries/Compiler/Compiler) and the config tool
+    // the out-of-process Roslyn compiler (Libraries/Compiler/Compiler.bin, the same ".bin"
+    // apphost suffix Pulsar uses for every Linux executable) and the config tool
     // (MagnetarConfig.bin) are apphosts that Magnetar executes, so they need the bit too.
-    // Missing files (older layout) are skipped by EnsureExecutableBit.
-    private static void EnsureLinuxMagnetarExecutableBits(string installDirectory, string launcherPath)
+    // Without it Magnetar fails to start the compiler (EACCES) and cannot load a single
+    // plugin. Missing files (older layout) are skipped by EnsureExecutableBit.
+    internal static void EnsureLinuxMagnetarExecutableBits(string installDirectory, string launcherPath)
     {
         EnsureExecutableBit(launcherPath);
-        EnsureExecutableBit(Path.Combine(installDirectory, "Libraries", "Compiler", "Compiler"));
-        EnsureExecutableBit(Path.Combine(installDirectory, "MagnetarConfig.bin"));
+        foreach (var relativePath in LinuxMagnetarExecutableRelativePaths)
+            EnsureExecutableBit(Path.Combine(installDirectory, relativePath));
     }
+
+    // Apphosts shipped next to the launcher in the current Linux bundle, relative to the
+    // install root. The extension-less compiler name is kept for bundles built before the
+    // apphost suffix was unified.
+    internal static readonly string[] LinuxMagnetarExecutableRelativePaths =
+    [
+        Path.Combine("Libraries", "Compiler", "Compiler.bin"),
+        Path.Combine("Libraries", "Compiler", "Compiler"),
+        "MagnetarConfig.bin",
+    ];
 
     private static void EnsureExecutableBit(string path)
     {

@@ -94,6 +94,31 @@ public sealed class ManagedMagnetarInstallLayoutTests : IDisposable
         Assert.Null(ManagedDedicatedServerRuntimeResolver.FindLinuxPluginSdkPath(Path.Combine(_root, "missing")));
     }
 
+    [Fact]
+    public void ExecutableBitsCoverEveryApphostOfTheRootLayout()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var install = CreateRootLayout(Path.Combine(_root, "install-root"));
+        var launcherPath = Path.Combine(install, "MagnetarInterim.bin");
+        // Archive extraction leaves plain files behind; none of them may be executable yet.
+        foreach (var relativePath in new[] { "MagnetarInterim.bin", "MagnetarConfig.bin", Path.Combine("Libraries", "Compiler", "Compiler.bin") })
+            File.SetUnixFileMode(Path.Combine(install, relativePath), UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
+        ManagedDedicatedServerRuntimeResolver.EnsureLinuxMagnetarExecutableBits(install, launcherPath);
+
+        foreach (var relativePath in new[] { "MagnetarInterim.bin", "MagnetarConfig.bin", Path.Combine("Libraries", "Compiler", "Compiler.bin") })
+        {
+            var mode = File.GetUnixFileMode(Path.Combine(install, relativePath));
+            Assert.True(mode.HasFlag(UnixFileMode.UserExecute), $"{relativePath} must be executable, mode was {mode}");
+        }
+
+        // Plain assemblies stay untouched; a missing legacy-named compiler is skipped, not an error.
+        Assert.False(File.GetUnixFileMode(Path.Combine(install, "Libraries", "Compiler", "Compiler.dll")).HasFlag(UnixFileMode.UserExecute));
+        Assert.False(File.Exists(Path.Combine(install, "Libraries", "Compiler", "Compiler")));
+    }
+
     // pulsar-based bundle: apphost + framework files at the root, payload under Libraries/.
     private static string CreateRootLayout(string root)
     {
@@ -115,7 +140,8 @@ public sealed class ManagedMagnetarInstallLayoutTests : IDisposable
         Directory.CreateDirectory(Path.Combine(root, "Libraries", "MagnetarInterim"));
         File.WriteAllText(Path.Combine(root, "Libraries", "MagnetarInterim", "PluginSdk.dll"), string.Empty);
         Directory.CreateDirectory(Path.Combine(root, "Libraries", "Compiler"));
-        File.WriteAllText(Path.Combine(root, "Libraries", "Compiler", "Compiler"), string.Empty);
+        File.WriteAllText(Path.Combine(root, "Libraries", "Compiler", "Compiler.bin"), string.Empty);
+        File.WriteAllText(Path.Combine(root, "Libraries", "Compiler", "Compiler.dll"), string.Empty);
         Directory.CreateDirectory(Path.Combine(root, "Libraries", "MagnetarConfig"));
         return root;
     }
