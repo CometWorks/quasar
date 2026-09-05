@@ -49,6 +49,15 @@ Magnetar builds older than 2.3.3.0 only understand the bare `-consent` /
 launcher name on Linux, by the executable version on Windows). This fallback is
 temporary and will be removed in the first Quasar release of 2027.
 
+The same detection decides how the core compatibility plugins reach Magnetar.
+Magnetar force-loads `dotnet-compat` (plus `linux-compat` on Linux) by id from
+any configured source; they never appear in the profile. For 2.3.3.0 and later
+Quasar always writes the MagnetarHub `RemoteHub` source into the server's
+`sources.xml`, the same as a standalone Magnetar, because Pulsar keys per-file
+`RemotePlugin` sources by repository and two hub manifests would collapse into
+one. Older builds ask for the `se-` prefixed ids and still get per-file sources
+pointing at the `*LegacyId.xml` manifests.
+
 The Dashboard shows a top-of-page YES/NO consent prompt until a decision is
 stored. The same decision can be changed later from **Settings -> Security**.
 Changes apply to the next server start or restart; running servers keep their

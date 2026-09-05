@@ -10,13 +10,22 @@ namespace Quasar.Services;
 public sealed class QuasarPluginCatalogService
 {
     private const int CacheSchemaVersion = 7;
-    public const string DotNetCompatPluginId = "se-dotnet-compat";
-    public const string LinuxCompatPluginId = "se-linux-compat";
+    // Core compatibility plugins Magnetar force-loads by id on start (see GetCorePlugins in
+    // Magnetar's Pulsar/Legacy/Program.cs) from whatever source lists them; they never need
+    // to appear in the profile. Magnetar 2.3.3.0 and later finds them in the hub source.
+    public const string DotNetCompatPluginId = "dotnet-compat";
+    public const string LinuxCompatPluginId = "linux-compat";
+    // LEGACY-MAGNETAR-COMPAT: Magnetar before 2.3.3.0 force-loads the se- prefixed ids,
+    // which the hub keeps in the *LegacyId.xml manifests. Remove with the Legacy style in
+    // the first 2027 Quasar release.
+    public const string LegacyDotNetCompatPluginId = "se-dotnet-compat";
+    public const string LegacyLinuxCompatPluginId = "se-linux-compat";
     public const string DefaultHubName = "MagnetarHub";
     public const string DefaultHubRepo = "CometWorks/magnetar-hub";
     public const string DefaultHubBranch = "main";
-    public const string DotNetCompatManifestFile = "Plugins/DotNetCompat.xml";
-    public const string LinuxCompatManifestFile = "Plugins/LinuxCompat.xml";
+    // LEGACY-MAGNETAR-COMPAT: remove with the legacy ids above.
+    public const string LegacyDotNetCompatManifestFile = "Plugins/DotNetCompatLegacyId.xml";
+    public const string LegacyLinuxCompatManifestFile = "Plugins/LinuxCompatLegacyId.xml";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -69,8 +78,28 @@ public sealed class QuasarPluginCatalogService
             .ToList();
     }
 
-    public static bool IsManualSelectionAllowed(string pluginId) =>
-        !string.Equals(pluginId?.Trim(), DotNetCompatPluginId, StringComparison.OrdinalIgnoreCase);
+    public static bool IsManualSelectionAllowed(string pluginId)
+    {
+        var id = pluginId?.Trim();
+        return !string.Equals(id, DotNetCompatPluginId, StringComparison.OrdinalIgnoreCase) &&
+               !string.Equals(id, LegacyDotNetCompatPluginId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // LEGACY-MAGNETAR-COMPAT: pre-2.3.3.0 Magnetar builds get the se- prefixed core plugins
+    // as per-file RemotePlugin sources, the way Quasar always configured them. Remove with
+    // the Legacy style in the first 2027 Quasar release.
+    public static IReadOnlyList<CorePluginManifest> GetLegacyCorePluginManifests(bool isLinux)
+    {
+        var manifests = new List<CorePluginManifest>
+        {
+            new(LegacyDotNetCompatPluginId, LegacyDotNetCompatManifestFile),
+        };
+        if (isLinux)
+            manifests.Add(new(LegacyLinuxCompatPluginId, LegacyLinuxCompatManifestFile));
+        return manifests;
+    }
+
+    public sealed record CorePluginManifest(string PluginId, string ManifestFile);
 
     public static string GetRepositoryUrl(string sourceRepo)
     {

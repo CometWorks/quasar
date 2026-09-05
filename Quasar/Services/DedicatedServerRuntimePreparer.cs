@@ -109,7 +109,7 @@ public sealed class DedicatedServerRuntimePreparer
         }
 
         await PrepareRuntimeConfigAsync(definition, configProfile, worldPath, runtimeConfigPath, cancellationToken);
-        await PrepareMagnetarConfigAsync(definition, configProfile, magnetarAppDataPath, cancellationToken);
+        await PrepareMagnetarConfigAsync(definition, configProfile, magnetarAppDataPath, launchArgumentStyle, cancellationToken);
         await PrepareWorldConfigAsync(definition, configProfile, worldPath, cancellationToken);
         await WriteLastSessionAsync(definition, worldPath, dedicatedServerAppDataPath, lastSessionPath, cancellationToken);
 
@@ -249,6 +249,7 @@ public sealed class DedicatedServerRuntimePreparer
         DedicatedServerDefinition definition,
         QuasarConfigProfile configProfile,
         string magnetarAppDataPath,
+        MagnetarLaunchArgumentStyle launchArgumentStyle,
         CancellationToken cancellationToken)
     {
         var sourcesDirectory = Path.Combine(magnetarAppDataPath, "Sources");
@@ -269,7 +270,7 @@ public sealed class DedicatedServerRuntimePreparer
         var currentTemplateName = string.IsNullOrWhiteSpace(configProfile.Name)
             ? "Quasar Current"
             : configProfile.Name.Trim();
-        var remotePluginSources = await BuildRemotePluginSourcesAsync(configProfile, cancellationToken);
+        var remotePluginSources = await BuildRemotePluginSourcesAsync(configProfile, launchArgumentStyle, cancellationToken);
         var devFolders = _devFolderCatalog.GetDevFolders();
         var localDevFolderIds = GetDevFolderPluginIdSet(devFolders);
         var selectedPluginIds = GetSelectedPluginIdSet(configProfile);
@@ -352,6 +353,7 @@ public sealed class DedicatedServerRuntimePreparer
 
     private async Task<RemotePluginSourceSet> BuildRemotePluginSourcesAsync(
         QuasarConfigProfile configProfile,
+        MagnetarLaunchArgumentStyle launchArgumentStyle,
         CancellationToken cancellationToken)
     {
         var catalogEntries = _pluginCatalog.GetEntries();
@@ -393,9 +395,23 @@ public sealed class DedicatedServerRuntimePreparer
             useDefaultHub = true;
         }
 
-        AddCoreRemotePluginSource(entries, catalogById, QuasarPluginCatalogService.DotNetCompatPluginId, QuasarPluginCatalogService.DotNetCompatManifestFile);
-        if (OperatingSystem.IsLinux())
-            AddCoreRemotePluginSource(entries, catalogById, QuasarPluginCatalogService.LinuxCompatPluginId, QuasarPluginCatalogService.LinuxCompatManifestFile);
+        if (launchArgumentStyle == MagnetarLaunchArgumentStyle.Legacy)
+        {
+            // LEGACY-MAGNETAR-COMPAT: pre-2.3.3.0 builds force-load the se- prefixed core
+            // plugins and got them as per-file sources. Remove in the first 2027 Quasar release.
+            foreach (var core in QuasarPluginCatalogService.GetLegacyCorePluginManifests(OperatingSystem.IsLinux()))
+                AddCoreRemotePluginSource(entries, catalogById, core.PluginId, core.ManifestFile);
+        }
+        else
+        {
+            // Magnetar 2.3.3.0+ force-loads dotnet-compat (and linux-compat on Linux) by id
+            // from any configured source; they never need to be in the profile. They must come
+            // from the hub source rather than per-file RemotePlugin entries: Pulsar keys those
+            // by repository, so two manifests from the hub repo would collapse into one and the
+            // server would exit with "Failed to load core plugin". This mirrors a standalone
+            // Magnetar, whose default sources.xml carries only the hub.
+            useDefaultHub = true;
+        }
 
         return new RemotePluginSourceSet(useDefaultHub, entries.Values.OrderBy(entry => entry.Hidden).ThenBy(entry => entry.FriendlyName, StringComparer.OrdinalIgnoreCase).ToList());
     }
