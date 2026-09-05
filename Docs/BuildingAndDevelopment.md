@@ -133,6 +133,14 @@ secret. The Gateway package settings grant `CometWorks/quasar` read access under
   `libtier0_s.so`, and `libvstdlib_s.so`. This lets Steam GameServer
   initialization work on fresh headless hosts that do not have a desktop Steam
   install under `~/.local/share/Steam`.
+- On Linux, Quasar runs its managed SteamCMD with a private `HOME` (and XDG base
+  directories) under `{Quasar data}/ManagedRuntime/Tools/SteamCmdHome`, overridable
+  with `QUASAR_STEAMCMD_HOME_DIR` or `Quasar:ManagedRuntime:SteamCmdHomeDirectory`.
+  SteamCMD resolves its Steam root through `~/.steam`, and with the desktop Steam
+  client installed it would otherwise log into the client's directory and rewrite
+  the client's `libraryfolders.vdf` files on every run, dropping every app it did
+  not touch itself. The Dedicated Server install location is still passed with
+  `+force_install_dir`, so the isolated home only holds SteamCMD's own state.
 
 ## Docker image
 
