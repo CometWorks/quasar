@@ -326,7 +326,7 @@ jobs:
           )"
           curl -fL "$MAGNETAR_URL" -o /tmp/magnetar.7z
           7z x /tmp/magnetar.7z "-o$HOME/.local/share/Magnetar" -y
-          PLUGIN_SDK="$(find "$HOME/.local/share/Magnetar" -path "*/Bin/PluginSdk.dll" -print -quit)"
+          PLUGIN_SDK="$(find "$HOME/.local/share/Magnetar" -type f -name "PluginSdk.dll" -print -quit)"
           if [ -z "$PLUGIN_SDK" ]; then
             echo "PluginSdk.dll not found in Magnetar archive" >&2
             exit 1
