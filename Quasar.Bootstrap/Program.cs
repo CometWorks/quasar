@@ -24,7 +24,8 @@ internal static class Program
     private const string ServeCommand = "serve";
     private const string ActivateReleaseCommand = "activate-release";
     private const string SpawnMutexName = "Quasar.Bootstrap";
-    private static readonly HttpClient HealthHttpClient = new()
+    // Local worker discovery must bypass outbound proxy settings.
+    private static readonly HttpClient HealthHttpClient = new(new HttpClientHandler { UseProxy = false })
     {
         Timeout = TimeSpan.FromSeconds(2),
     };
@@ -823,7 +824,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         _options = options;
         _foregroundOptions = foregroundOptions;
         _logger = logger;
-        _healthClient = new HttpClient
+        // Health checks and drain requests go directly to the local worker.
+        _healthClient = new HttpClient(new HttpClientHandler { UseProxy = false })
         {
             Timeout = TimeSpan.FromSeconds(2),
         };
