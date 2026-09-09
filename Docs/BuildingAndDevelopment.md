@@ -67,6 +67,9 @@ secret. The Gateway package settings grant `CometWorks/quasar` read access under
   resolves to `$(Magnetar)/Libraries/MagnetarInterim`, falling back to
   `$(Magnetar)/Bin` only while an older Magnetar install with that layout is
   still present.
+- Release CI locates `PluginSdk.dll` recursively in the extracted Magnetar
+  archive and sets `MagnetarBin` to its directory. This supports both the older
+  Linux `Bin/` layout and the current `Libraries/MagnetarInterim/` layout.
 - A local-only override can live at `Quasar.Agent/Directory.Build.props`. This
   repo keeps the machine-specific override out of source control.
 - The Linux release workflow probes the Space Engineers Dedicated Server public
