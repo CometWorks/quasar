@@ -422,6 +422,17 @@ as unhealthy. They are fine only when running the worker directly (e.g.
 > collide with the UI by default. If you run other software on `8080`, or point a
 > server's Remote API at `8080` manually, pick a different `Quasar:Port`.
 
+## Outbound proxies
+
+Bootstrap's local worker discovery, startup health checks, and graceful-drain
+requests bypass HTTP proxies explicitly. Corporate proxy settings therefore
+cannot redirect these control requests and cause Bootstrap to kill a healthy
+worker when its 60-second startup health-check window expires.
+
+Bootstrap's GitHub release queries, checksum downloads, and worker/bootstrap
+archive downloads continue to use the configured outbound proxy. Disabling proxy
+use for local control requests does not change proxy settings for downloads.
+
 ## Reverse proxy auth
 
 Quasar can grant a trusted-network session to loopback or explicitly enabled
