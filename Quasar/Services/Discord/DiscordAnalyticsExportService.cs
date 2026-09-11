@@ -84,13 +84,15 @@ public sealed class DiscordAnalyticsExportService
             var snapshot = _supervisor.GetSnapshots()
                 .FirstOrDefault(item => string.Equals(item.UniqueName, serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
             var latest = samples[^1];
+            var simCpu = samples.Average(item => item.SimCpuPercent);
             var embed = new EmbedBuilder()
                 .WithTitle($"{snapshot?.UniqueName ?? serverOptions.UniqueName} analytics")
                 .WithColor(Color.DarkBlue)
                 .WithTimestamp(DateTimeOffset.FromUnixTimeSeconds(latest.TimestampUnixSeconds))
                 .AddField("Window", $"{intervalMinutes} minute(s)", inline: true)
                 .AddField("Avg SimSpeed", Average(samples, item => item.SimSpeed).ToString("0.000"), inline: true)
-                .AddField("Avg CPU", $"{Average(samples, item => item.CpuPercent):0.0}%", inline: true)
+                .AddField("Avg Process CPU (100% = 1 logical CPU)", $"{Average(samples, item => item.CpuPercent):0.0}%", inline: true)
+                .AddField("Avg Server Simulation CPU (frame budget)", simCpu.HasValue ? $"{simCpu:0.0}%" : "n/a", inline: true)
                 .AddField("Avg Memory", $"{Average(samples, item => item.MemoryMb):0.0} MB", inline: true)
                 .AddField("Max Players", samples.Max(item => item.PlayersOnline).ToString(), inline: true)
                 .AddField("Latest PCU", latest.UsedPcu.ToString(), inline: true)

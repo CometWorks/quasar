@@ -195,7 +195,8 @@ profile deliberately does not set `applicationUrl`, so host/port come from that
 install root's `appsettings.json`. Packaged assets and helper scripts are also
 probed from the same install root.
 
-Generate synthetic analytics data for local testing:
+Generate synthetic analytics data for local testing, including separate process CPU
+(`Cpu`, potentially above 100%) and simulation CPU (`Scpu`) values:
 
 ```bash
 python3 scripts/generate-analytics-data.py

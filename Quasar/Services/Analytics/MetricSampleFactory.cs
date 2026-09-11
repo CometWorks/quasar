@@ -23,6 +23,7 @@ internal static class MetricSampleFactory
             playersOnline: metrics.PlayersOnline,
             usedPcu: metrics.UsedPcu,
             activeGridCount: metrics.ActiveGridCount ?? -1,
-            activeEntityCount: metrics.ActiveEntityCount ?? -1);
+            activeEntityCount: metrics.ActiveEntityCount ?? -1,
+            simCpuPercent: metrics.SimCpuLoadPercent);
     }
 }
