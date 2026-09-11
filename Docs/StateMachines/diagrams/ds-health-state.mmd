@@ -1,8 +1,8 @@
 stateDiagram-v2
     [*] --> Unknown
     Unknown --> Healthy: agent attached, heartbeat fresh, sim progress OK
-    Unknown --> Warning: within agent startup grace / goal Off but still running
-    Unknown --> Unhealthy: attach grace expired / not running while goal On
+    Unknown --> Warning: startup logs active / goal Off but still running
+    Unknown --> Unhealthy: startup inactivity/hard limit / not running while goal On
     Healthy --> Warning: uptime > warn threshold
     Healthy --> Unhealthy: heartbeat stale / sim progress stalled / uptime > recycle
     Warning --> Healthy: condition clears

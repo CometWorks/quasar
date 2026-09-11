@@ -78,7 +78,7 @@ stateDiagram-v2
     Stopped --> Starting: goal On (no restart pending)
     Stopped --> Restarting: goal On (restart pending)
     Starting --> Running: agent attached, snapshot ready
-    Starting --> Restarting: attach grace expired, retry budget remains
+    Starting --> Restarting: startup inactivity/hard limit, retry budget remains
     Starting --> Stopping: operator Kill (cancel launch)
     Starting --> Faulted: launch preflight/prep failure / attach retries exhausted
     Running --> Stopping: goal Off
@@ -141,10 +141,12 @@ stateDiagram-v2
   counters and mod-download failure details, and returns the process state to
   `Stopped`.
 - Agent attach retries: while a process is still `Starting`, health monitoring
-  waits `AgentStartupGraceSeconds` for Quasar.Agent. A socket `hello` is not
-  considered fully attached until the first telemetry snapshot arrives, so
-  rollover/reconnect startup stays under the startup grace instead of the shorter
-  heartbeat timeout. If the agent does not attach and
+  waits up to `AgentStartupHardLimitSeconds` for Quasar.Agent. During that
+  window, writes to the Dedicated Server or Magnetar logs reset the
+  `AgentStartupGraceSeconds` inactivity timer. A socket `hello` is not considered
+  fully attached until the first telemetry snapshot arrives, so rollover and
+  adopted-process reconnects use the same activity-aware policy instead of the
+  shorter heartbeat timeout. If the agent does not attach and
   `AutoRestartOnUnhealthy` is enabled, the supervisor kills the starting process,
   waits `AgentAttachRetryDelaySeconds`, and relaunches. After
   `AgentAttachRetryAttempts` consecutive attach retries, the server becomes
@@ -180,8 +182,8 @@ recovery: an `Unhealthy` server with `AutoRestartOnUnhealthy` is restarted;
 stateDiagram-v2
     [*] --> Unknown
     Unknown --> Healthy: agent snapshot received, heartbeat fresh, sim progress OK
-    Unknown --> Warning: within agent startup grace / waiting for first snapshot / goal Off but still running
-    Unknown --> Unhealthy: attach/snapshot grace expired / not running while goal On
+    Unknown --> Warning: startup logs active / waiting for first snapshot / goal Off but still running
+    Unknown --> Unhealthy: startup inactivity or hard limit / not running while goal On
     Healthy --> Warning: uptime > warn threshold
     Healthy --> Unhealthy: heartbeat stale / sim progress stalled / uptime > recycle
     Warning --> Healthy: condition clears
@@ -200,8 +202,8 @@ stateDiagram-v2
 | --- | --- | --- |
 | `Unknown` | Monitoring disabled, or transitional (starting/restarting), or `goal Off` and stopped. | None. |
 | `Healthy` | Agent telemetry snapshot received, heartbeat fresh, simulation progress above threshold, uptime under warn threshold. | None. |
-| `Warning` | Within agent startup grace, waiting for the first telemetry snapshot, uptime past the warn threshold, or `goal Off` but process still running. | Surfaced in UI/Discord only. |
-| `Unhealthy` | Agent attach/snapshot grace expired, heartbeat stale beyond `AgentHeartbeatTimeoutSeconds`, simulation-frame progress stalled, uptime past recycle threshold, or process not running while `goal On`. | Auto-restart if `AutoRestartOnUnhealthy`. |
+| `Warning` | Agent startup logs remain active within the hard limit, waiting for the first telemetry snapshot, uptime past the warn threshold, or `goal Off` but process still running. | Surfaced in UI/Discord only. |
+| `Unhealthy` | Agent startup log inactivity or hard limit expired, an established agent disconnected, heartbeat stale beyond `AgentHeartbeatTimeoutSeconds`, simulation-frame progress stalled, uptime past recycle threshold, or process not running while `goal On`. | Auto-restart if `AutoRestartOnUnhealthy`. |
 
 The simulation-frame check mirrors the dedicated server's own watcher:
 `frameProgressScore = deltaFrames / (elapsedSeconds * 60)` is compared against a
