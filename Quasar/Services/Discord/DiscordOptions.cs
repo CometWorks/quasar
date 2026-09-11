@@ -51,6 +51,12 @@ public sealed class DiscordServerOptions
 
     public ulong? ChatRelayChannelId { get; set; }
 
+    public ulong? StatusChannelId { get; set; }
+
+    public bool EnablePlayerNotifications { get; set; } = true;
+
+    public bool EnableServerNotifications { get; set; } = true;
+
     public ulong? AdminChannelId { get; set; }
 
     public List<DiscordFactionChannelOptions> FactionChannels { get; set; } = [];
@@ -110,6 +116,9 @@ public sealed class DiscordServerOptions
             CommandPrefix = CommandPrefix,
             CommandChannelId = CommandChannelId,
             ChatRelayChannelId = ChatRelayChannelId,
+            StatusChannelId = StatusChannelId,
+            EnablePlayerNotifications = EnablePlayerNotifications,
+            EnableServerNotifications = EnableServerNotifications,
             AdminChannelId = AdminChannelId,
             FactionChannels = FactionChannels.Select(channel => channel.Clone()).ToList(),
             LogChannelId = LogChannelId,
@@ -147,6 +156,9 @@ public sealed class DiscordServerOptions
             CommandPrefix = options.CommandPrefix?.Trim() ?? string.Empty,
             CommandChannelId = NormalizeChannelId(options.CommandChannelId),
             ChatRelayChannelId = NormalizeChannelId(options.ChatRelayChannelId),
+            StatusChannelId = NormalizeChannelId(options.StatusChannelId),
+            EnablePlayerNotifications = options.EnablePlayerNotifications,
+            EnableServerNotifications = options.EnableServerNotifications,
             AdminChannelId = NormalizeChannelId(options.AdminChannelId),
             FactionChannels = (options.FactionChannels ?? [])
                 .Select(DiscordFactionChannelOptions.Normalize)

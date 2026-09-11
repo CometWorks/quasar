@@ -373,6 +373,41 @@ server's supported per-player private delivery rather than impersonating a playe
 Slash commands are guild-scoped and refresh when the bot connects. Server values
 use Quasar's stable unique names, not display names.
 
+## Discord player and server notifications
+
+The Discord page includes two independent per-server switches, both enabled by
+default: **Enable player connection notifications** and **Enable server lifecycle
+notifications**. Set **Status channel ID** to choose their destination; when empty,
+Quasar uses **Chat relay channel ID**. Without either channel, no notifications are
+sent. These switches work independently of **Enable chat relay**.
+
+Messages include the server's unique name so several servers can share a channel:
+
+- `[survival] 🚀 **artur** connected to the server!`
+- `[survival] ☄️ **artur** disconnected from server!`
+- `[survival] ✅ Server Started!`
+- `[survival] 🔄 Server is going to Restart!`
+- `[survival] ❌ Server Closed!`
+
+Start notifications follow the supervisor's transition to Running, once the agent
+reports the game running. Restart notifications follow each new pending supervisor
+restart request, including manual, scheduled, policy, and in-game requests. Closure
+notifications follow a transition to Stopped, Crashed, or Faulted. A restart can
+produce a closure message if the supervisor observes the stopped/crashed process.
+An agent transport disconnect alone does not mean the server closed.
+
+Player changes are detected between consecutive connected, running agent snapshots.
+The first snapshot after bot startup, reconnect, or server startup establishes a
+baseline without announcing existing players. Agent reconnection and shutdown do
+not generate a wave of player disconnect/join messages. Connections that begin and
+end between snapshots cannot be reported. Notifications missed while the bot is
+offline are not replayed. Player names are escaped and notifications cannot ping
+Discord users or roles.
+
+These settings are stored in `discord-options.json` as `statusChannelId`,
+`enablePlayerNotifications`, and `enableServerNotifications`. Existing configurations
+default to both notification types enabled, using their existing chat relay channel.
+
 ## Discord simspeed alerts
 
 The Discord page stores per-server alert rules in `discord-options.json`.
