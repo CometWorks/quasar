@@ -31,6 +31,16 @@ announcements plus the final 10 seconds), then reports `AdminRestart`, keeps the
 goal `On`, moves the observed process to `Restarting`, and lets Quasar relaunch
 after the process exits.
 
+Discord bridge `start` and `stop` commands persist the same `On` / `Off` goal
+and `AutoStart` setting as the UI before driving the process transition. `start`
+also explicitly retries a `Crashed` or `Faulted` server. Repeating `start` on a
+running server or `stop` on a stopped server does not request a restart. This
+behavior also applies to container deployments; commands control the managed
+Dedicated Server, not the Quasar container. Discord message handling runs off
+the gateway task, in arrival order, so runtime preparation, graceful shutdown,
+and agent replies do not block gateway processing. Command names use the
+configured per-server prefix (for example, `;;start` and `;;stop`).
+
 ```mermaid
 stateDiagram-v2
     [*] --> Off
@@ -49,7 +59,8 @@ stateDiagram-v2
 | `On → Off` | Operator/API `SetGoalStateAsync(Off)` | `DedicatedServerSupervisor.SetGoalStateAsync` |
 | `On → Off` | Quasar Agent `!stop` / `!quit` → agent `AdminStop` | `AgentSocketHandler.ProcessMessageAsync` (`AdminStop` case) |
 | `On → On` | Quasar Agent `!restart [seconds]` countdown → agent `AdminRestart` | `AgentSocketHandler.ProcessMessageAsync` (`AdminRestart` case), `DedicatedServerSupervisor.BeginAdminRestartAsync` |
-| `On → Off` | Discord `!stop` command | `DiscordCommandDispatcher.DispatchAsync` |
+| `Off → On` | Discord `start` command | `DiscordCommandDispatcher.DispatchAsync` |
+| `On → Off` | Discord `stop` command | `DiscordCommandDispatcher.DispatchAsync` |
 
 ---
 

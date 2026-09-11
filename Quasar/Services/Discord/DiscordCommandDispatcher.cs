@@ -1,5 +1,4 @@
 using Discord;
-using Discord.WebSocket;
 using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Transport;
 using Quasar.Models;
@@ -33,7 +32,7 @@ public sealed class DiscordCommandDispatcher
         DiscordServerOptions serverOptions,
         string verb,
         string args,
-        SocketMessage message,
+        IMessage message,
         CancellationToken cancellationToken = default)
     {
         try
@@ -59,11 +58,12 @@ public sealed class DiscordCommandDispatcher
                     return;
 
                 case "stop":
-                    await _supervisor.StopServerAsync(serverOptions.UniqueName, cancellationToken);
+                    await _supervisor.SetGoalStateAsync(serverOptions.UniqueName, DedicatedServerGoalState.Off, cancellationToken);
                     await ReplyAsync(message, "Stop requested.");
                     return;
 
                 case "start":
+                    await _supervisor.SetGoalStateAsync(serverOptions.UniqueName, DedicatedServerGoalState.On, reconcile: false, cancellationToken);
                     await _supervisor.StartServerAsync(serverOptions.UniqueName, cancellationToken);
                     await ReplyAsync(message, "Start requested.");
                     return;
@@ -117,7 +117,7 @@ public sealed class DiscordCommandDispatcher
     public async Task RelayChatAsync(
         DiscordServerOptions serverOptions,
         string text,
-        SocketMessage message,
+        IMessage message,
         CancellationToken cancellationToken = default)
     {
         try
@@ -164,7 +164,7 @@ public sealed class DiscordCommandDispatcher
         DiscordServerOptions serverOptions,
         string factionTag,
         string text,
-        SocketMessage message,
+        IMessage message,
         CancellationToken cancellationToken = default)
     {
         try
@@ -192,7 +192,7 @@ public sealed class DiscordCommandDispatcher
     }
 
     private async Task DispatchSteamIdCommandAsync(
-        SocketMessage message,
+        IMessage message,
         string uniqueName,
         string args,
         ServerCommandType commandType,
@@ -363,7 +363,7 @@ public sealed class DiscordCommandDispatcher
         };
     }
 
-    private static string FormatDiscordGameMessage(SocketMessage message, string text)
+    private static string FormatDiscordGameMessage(IMessage message, string text)
     {
         return FormatDiscordGameMessage(ResolveDiscordAuthorName(message), text);
     }
@@ -378,7 +378,7 @@ public sealed class DiscordCommandDispatcher
         return $"[Discord] {(string.IsNullOrWhiteSpace(normalizedAuthor) ? "Discord user" : normalizedAuthor)}: {content}";
     }
 
-    private static string ResolveDiscordAuthorName(SocketMessage message)
+    private static string ResolveDiscordAuthorName(IMessage message)
     {
         var author = message.Author?.Username?.Trim();
         return string.IsNullOrWhiteSpace(author) ? "Discord user" : author;
@@ -403,7 +403,7 @@ public sealed class DiscordCommandDispatcher
         return $"{Math.Max(0, duration.Seconds)}s";
     }
 
-    private static Task ReplyAsync(SocketMessage message, string text)
+    private static Task ReplyAsync(IMessage message, string text)
     {
         return message.Channel.SendMessageAsync(text: text);
     }
