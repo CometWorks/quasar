@@ -48,7 +48,8 @@ public static class AnalyticsMetrics
     public static readonly IReadOnlyList<AnalyticsMetric> All =
     [
         new("simspeed", "SimSpeed", "Simulation ratio", static s => s.SimSpeed, static _ => true, RequiresZero: true, Decimals: 2, Kilo: false, FixedMax: 1.0, DynamicMaxStep5: false),
-        new("cpu", "CPU %", "Server process load", static s => s.CpuPercent, static _ => true, RequiresZero: true, Decimals: 1, Kilo: false, FixedMax: null, DynamicMaxStep5: false),
+        new("cpu", "Process CPU %", "All server process threads. 100% = one logical CPU; can exceed 100%.", static s => s.CpuPercent, static _ => true, RequiresZero: true, Decimals: 1, Kilo: false, FixedMax: null, DynamicMaxStep5: false),
+        new("simcpu", "Server Simulation CPU %", "Server update time / 16.67 ms frame budget. Compare Shift+F11: Server simulation CPU Load (smoothing differs). Can exceed 100% when updates run over budget.", static s => s.SimCpuPercent ?? double.NaN, static s => s.SimCpuPercent.HasValue, RequiresZero: true, Decimals: 1, Kilo: false, FixedMax: null, DynamicMaxStep5: false),
         new("memory", "Memory GB", "Working set", static s => s.MemoryMb / 1024f, static s => s.MemoryMb > 0f, RequiresZero: false, Decimals: 1, Kilo: false, FixedMax: null, DynamicMaxStep5: false),
         new("players", "Player Count", "Players online", static s => s.PlayersOnline, static _ => true, RequiresZero: true, Decimals: 0, Kilo: false, FixedMax: null, DynamicMaxStep5: true),
         new("frametime", "Frame Time ms", "Derived from sim speed", static s => s.FrameTimeMs, static s => s.FrameTimeMs > 0f, RequiresZero: true, Decimals: 1, Kilo: false, FixedMax: 100, DynamicMaxStep5: false),

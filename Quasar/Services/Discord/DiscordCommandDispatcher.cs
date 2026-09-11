@@ -302,7 +302,7 @@ public sealed class DiscordCommandDispatcher
             builder
                 .AddField("Players", $"{metrics.PlayersOnline}/{metrics.MaxPlayers}", inline: true)
                 .AddField("SimSpeed", metrics.SimSpeed.ToString("0.000"), inline: true)
-                .AddField("CPU", $"{metrics.ServerCpuLoadPercent:0.0}%", inline: true)
+                .AddField("Process CPU (100% = 1 logical CPU)", $"{metrics.ServerCpuLoadPercent:0.0}%", inline: true)
                 .AddField("Memory", metrics.MemoryWorkingSetMb is > 0 ? $"{metrics.MemoryWorkingSetMb.Value} MB" : "n/a", inline: true)
                 .AddField("PCU", $"{metrics.UsedPcu}/{metrics.TotalPcu}", inline: true)
                 .AddField("Grids", metrics.ActiveGridCount?.ToString() ?? "n/a", inline: true)

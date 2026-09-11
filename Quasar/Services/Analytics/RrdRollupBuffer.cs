@@ -11,6 +11,8 @@ public sealed class RrdRollupBuffer
     private int _sampleCount;
     private float _sumSimSpeed;
     private float _sumCpuPercent;
+    private float _sumSimCpuPercent;
+    private int _simCpuSampleCount;
     private float _sumMemoryMb;
     private float _sumFrameTimeMs;
     private int _maxPlayersOnline;
@@ -85,6 +87,11 @@ public sealed class RrdRollupBuffer
         _sampleCount++;
         _sumSimSpeed += sample.SimSpeed;
         _sumCpuPercent += sample.CpuPercent;
+        if (sample.SimCpuPercent is { } simCpuPercent)
+        {
+            _sumSimCpuPercent += simCpuPercent;
+            _simCpuSampleCount++;
+        }
         _sumMemoryMb += sample.MemoryMb;
         _sumFrameTimeMs += sample.FrameTimeMs;
         _maxPlayersOnline = Math.Max(_maxPlayersOnline, sample.PlayersOnline);
@@ -117,7 +124,8 @@ public sealed class RrdRollupBuffer
             playersOnline: _maxPlayersOnline,
             usedPcu: _maxUsedPcu,
             activeGridCount: _activeGridCountSamples > 0 ? (int)MathF.Round((float)_sumActiveGridCount / _activeGridCountSamples) : -1,
-            activeEntityCount: _activeEntityCountSamples > 0 ? (int)MathF.Round((float)_sumActiveEntityCount / _activeEntityCountSamples) : -1);
+            activeEntityCount: _activeEntityCountSamples > 0 ? (int)MathF.Round((float)_sumActiveEntityCount / _activeEntityCountSamples) : -1,
+            simCpuPercent: _simCpuSampleCount > 0 ? _sumSimCpuPercent / _simCpuSampleCount : null);
 
         _buffer.Push(consolidated);
     }
@@ -129,6 +137,8 @@ public sealed class RrdRollupBuffer
         _sampleCount = 0;
         _sumSimSpeed = 0f;
         _sumCpuPercent = 0f;
+        _sumSimCpuPercent = 0f;
+        _simCpuSampleCount = 0;
         _sumMemoryMb = 0f;
         _sumFrameTimeMs = 0f;
         _maxPlayersOnline = 0;
