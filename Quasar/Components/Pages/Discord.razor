@@ -163,6 +163,14 @@
                                                      Variant="Variant.Outlined"
                                                      Min="1" />
 
+                                    <MudNumericField T="ulong?"
+                                                     @bind-Value="serverOptions.StatusChannelId"
+                                                     Label="Status channel ID"
+                                                     HelperText="Player and server notifications. Uses the chat relay channel when empty."
+                                                     Variant="Variant.Outlined"
+                                                     Min="0" />
+                                    <MudCheckBox T="bool" @bind-Value="serverOptions.EnablePlayerNotifications" Label="Enable player connection notifications" />
+                                    <MudCheckBox T="bool" @bind-Value="serverOptions.EnableServerNotifications" Label="Enable server lifecycle notifications" />
                                     <MudCheckBox T="bool" @bind-Value="serverOptions.EnableChatRelay" Label="Enable chat relay" />
                                     <MudCheckBox T="bool" @bind-Value="serverOptions.EnableLogExport" Label="Enable log export" />
                                     <MudCheckBox T="bool" @bind-Value="serverOptions.EnableAnalyticsExport" Label="Enable analytics export" />

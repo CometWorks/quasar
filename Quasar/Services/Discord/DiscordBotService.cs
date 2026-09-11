@@ -15,6 +15,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
     private readonly DiscordCommandRouter _commandRouter;
     private readonly DiscordChatRelayService _chatRelayService;
     private readonly DiscordDeathRelayService _deathRelayService;
+    private readonly DiscordStatusRelayService _statusRelayService;
     private readonly DiscordSimSpeedAlertService _simSpeedAlertService;
     private readonly DiscordLogRelayService _logRelayService;
     private readonly DiscordAnalyticsExportService _analyticsExportService;
@@ -27,6 +28,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
     private string _stateText = "Stopped";
     private string _lastError = string.Empty;
     private PresenceSnapshot? _lastPresence;
+    private bool _statusReady;
 
     public DiscordBotService(
         DiscordOptionsCatalog optionsCatalog,
@@ -35,6 +37,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
         DiscordCommandRouter commandRouter,
         DiscordChatRelayService chatRelayService,
         DiscordDeathRelayService deathRelayService,
+        DiscordStatusRelayService statusRelayService,
         DiscordSimSpeedAlertService simSpeedAlertService,
         DiscordLogRelayService logRelayService,
         DiscordAnalyticsExportService analyticsExportService,
@@ -46,6 +49,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
         _commandRouter = commandRouter;
         _chatRelayService = chatRelayService;
         _deathRelayService = deathRelayService;
+        _statusRelayService = statusRelayService;
         _simSpeedAlertService = simSpeedAlertService;
         _logRelayService = logRelayService;
         _analyticsExportService = analyticsExportService;
@@ -123,6 +127,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
 
     private void HandleRegistryChanged()
     {
+        HandleStatusChanged();
         _ = Task.Run(async () =>
         {
             try
@@ -150,6 +155,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
 
     private void HandleSupervisorChanged()
     {
+        HandleStatusChanged();
         _ = Task.Run(async () =>
         {
             try
@@ -169,6 +175,24 @@ public sealed class DiscordBotService : IHostedService, IDisposable
                 _logger.LogDebug(exception, "Discord presence update failed after supervisor change.");
             }
         }, CancellationToken.None);
+    }
+
+    private void HandleStatusChanged()
+    {
+        try
+        {
+            lock (_sync)
+            {
+                if (!_statusReady || _client is null || _botLifetime is null)
+                    return;
+
+                _ = _statusRelayService.HandleChangedAsync(_client, _optionsCatalog.GetOptions(), _botLifetime.Token);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Discord status observation failed.");
+        }
     }
 
     private async Task TryRestartBotAsync(CancellationToken cancellationToken)
@@ -281,6 +305,8 @@ public sealed class DiscordBotService : IHostedService, IDisposable
             _client = null;
             _botLifetime = null;
             _lastPresence = null;
+            _statusReady = false;
+            _statusRelayService.Reset();
         }
 
         botLifetime?.Cancel();
@@ -352,6 +378,13 @@ public sealed class DiscordBotService : IHostedService, IDisposable
 
     private async Task HandleClientReadyAsync()
     {
+        lock (_sync)
+        {
+            _statusRelayService.Reset();
+            _statusReady = true;
+            HandleStatusChanged();
+        }
+
         var client = GetClient();
         if (client is null)
             return;
