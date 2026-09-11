@@ -10,6 +10,8 @@ public sealed class DiscordCommandRouter
     private readonly DiscordOptionsCatalog _optionsCatalog;
     private readonly DiscordCommandDispatcher _dispatcher;
     private readonly ILogger<DiscordCommandRouter> _logger;
+    private readonly object _messageSync = new();
+    private Task _messageTask = Task.CompletedTask;
 
     public DiscordCommandRouter(
         DiscordOptionsCatalog optionsCatalog,
@@ -21,7 +23,23 @@ public sealed class DiscordCommandRouter
         _logger = logger;
     }
 
-    public async Task HandleAsync(SocketMessage message)
+    public Task HandleAsync(SocketMessage message)
+    {
+        // Keep arrival order (especially start/stop) without making the gateway
+        // wait for lifecycle operations or agent replies. The handler logs failures.
+        lock (_messageSync)
+        {
+            var previous = _messageTask;
+            _messageTask = Task.Run(async () =>
+            {
+                await previous;
+                await HandleMessageAsync(message);
+            });
+        }
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleMessageAsync(SocketMessage message)
     {
         try
         {
