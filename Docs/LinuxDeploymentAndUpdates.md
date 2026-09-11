@@ -143,8 +143,10 @@ prunes inactive managed web-release directories.
 This intentionally accepts a short web/agent disconnect. `Quasar.Agent`
 reconnects, and managed Magnetar processes stay alive because Quasar launches
 them detached with `-daemon`. Reconnect is startup-pending until the first
-telemetry snapshot arrives, so health recovery uses the startup grace instead of
-the shorter heartbeat timeout during rollover. Running DS processes keep the
+telemetry snapshot arrives, so health recovery uses the activity-aware startup
+timeout instead of the shorter heartbeat timeout during rollover. Dedicated
+Server and Magnetar log writes reset that 60-second inactivity timer, while a
+10-minute hard limit still bounds the reconnect attempt. Running DS processes keep the
 agent assembly they already loaded until that server process is stopped. On
 worker startup and each reconcile after reconnect, the supervisor compares the
 bundled `Agent/Quasar.Agent.dll` hash with the deployed Magnetar local DLL hash. When

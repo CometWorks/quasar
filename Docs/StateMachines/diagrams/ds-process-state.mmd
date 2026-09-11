@@ -4,7 +4,7 @@ stateDiagram-v2
     Stopped --> Starting: goal On (no restart pending)
     Stopped --> Restarting: goal On (restart pending)
     Starting --> Running: agent attached, snapshot ready
-    Starting --> Restarting: attach grace expired, retry budget remains
+    Starting --> Restarting: startup inactivity/hard limit, retry budget remains
     Starting --> Stopping: operator Stop/Kill (cancel launch)
     Starting --> Faulted: launch prep failure / attach retries exhausted
     Running --> Stopping: goal Off

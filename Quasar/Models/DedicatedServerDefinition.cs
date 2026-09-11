@@ -8,6 +8,9 @@ public sealed class DedicatedServerDefinition
     public const int MinimumDsLogFilesToKeep = 1;
     public const int MaximumDsLogFilesToKeep = 1000;
     public const int DefaultMaxRestartAttempts = 3;
+    public const int LegacyAgentStartupGraceSeconds = 180;
+    public const int DefaultAgentStartupGraceSeconds = 60;
+    public const int DefaultAgentStartupHardLimitSeconds = 600;
     public const int DefaultAgentAttachRetryAttempts = 3;
     public const int DefaultAgentAttachRetryDelaySeconds = 5;
 
@@ -67,7 +70,11 @@ public sealed class DedicatedServerDefinition
 
     public bool AutoRestartOnUnhealthy { get; set; } = true;
 
-    public int AgentStartupGraceSeconds { get; set; } = 180;
+    public int AgentStartupGraceSeconds { get; set; } = DefaultAgentStartupGraceSeconds;
+
+    // Zero identifies definitions written before the activity-aware startup policy.
+    // DedicatedServerCatalog normalizes it to the default and migrates the old 180s grace.
+    public int AgentStartupHardLimitSeconds { get; set; }
 
     public int AgentAttachRetryAttempts { get; set; } = DefaultAgentAttachRetryAttempts;
 
@@ -138,6 +145,7 @@ public sealed class DedicatedServerDefinition
             EnableHealthMonitoring = EnableHealthMonitoring,
             AutoRestartOnUnhealthy = AutoRestartOnUnhealthy,
             AgentStartupGraceSeconds = AgentStartupGraceSeconds,
+            AgentStartupHardLimitSeconds = AgentStartupHardLimitSeconds,
             AgentAttachRetryAttempts = AgentAttachRetryAttempts,
             AgentAttachRetryDelaySeconds = AgentAttachRetryDelaySeconds,
             AgentHeartbeatTimeoutSeconds = AgentHeartbeatTimeoutSeconds,

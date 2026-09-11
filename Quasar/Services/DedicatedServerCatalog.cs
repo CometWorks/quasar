@@ -222,7 +222,7 @@ public sealed class DedicatedServerCatalog : IDisposable
         _logger.LogInformation("Deleted active Quasar server definition at {Path}", currentPath);
     }
 
-    private static DedicatedServerDefinition Normalize(DedicatedServerDefinition server)
+    internal static DedicatedServerDefinition Normalize(DedicatedServerDefinition server)
     {
         server.UniqueName = server.UniqueName?.Trim() ?? string.Empty;
         ValidateUniqueName(server.UniqueName);
@@ -248,8 +248,19 @@ public sealed class DedicatedServerCatalog : IDisposable
             : Math.Min(server.DsLogFilesToKeep, DedicatedServerDefinition.MaximumDsLogFilesToKeep);
         server.AutoStart = server.GoalState == DedicatedServerGoalState.On || server.AutoStart;
         server.GoalState = server.AutoStart ? DedicatedServerGoalState.On : DedicatedServerGoalState.Off;
+        var legacyStartupPolicy = server.AgentStartupHardLimitSeconds < 1;
+        if (legacyStartupPolicy &&
+            server.AgentStartupGraceSeconds == DedicatedServerDefinition.LegacyAgentStartupGraceSeconds)
+        {
+            server.AgentStartupGraceSeconds = DedicatedServerDefinition.DefaultAgentStartupGraceSeconds;
+        }
         if (server.AgentStartupGraceSeconds < 0)
             server.AgentStartupGraceSeconds = 0;
+        if (legacyStartupPolicy)
+            server.AgentStartupHardLimitSeconds = DedicatedServerDefinition.DefaultAgentStartupHardLimitSeconds;
+        server.AgentStartupHardLimitSeconds = Math.Max(
+            server.AgentStartupGraceSeconds,
+            server.AgentStartupHardLimitSeconds);
         if (server.AgentAttachRetryAttempts < 1)
             server.AgentAttachRetryAttempts = DedicatedServerDefinition.DefaultAgentAttachRetryAttempts;
         if (server.AgentAttachRetryDelaySeconds < 0)
@@ -319,6 +330,7 @@ public sealed class DedicatedServerCatalog : IDisposable
             EnableHealthMonitoring = server.EnableHealthMonitoring,
             AutoRestartOnUnhealthy = server.AutoRestartOnUnhealthy,
             AgentStartupGraceSeconds = server.AgentStartupGraceSeconds,
+            AgentStartupHardLimitSeconds = server.AgentStartupHardLimitSeconds,
             AgentAttachRetryAttempts = server.AgentAttachRetryAttempts,
             AgentAttachRetryDelaySeconds = server.AgentAttachRetryDelaySeconds,
             AgentHeartbeatTimeoutSeconds = server.AgentHeartbeatTimeoutSeconds,

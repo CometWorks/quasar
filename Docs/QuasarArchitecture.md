@@ -331,7 +331,7 @@ It needs:
 - desired state tracking
 - crash detection
 - server health assessment
-- agent attach grace handling
+- activity-aware agent startup inactivity and hard-limit handling
 - agent heartbeat freshness checks
 - long-uptime warning and recycle policy
 - automated health recovery actions
@@ -565,12 +565,12 @@ Practical guarantee:
 
 - browser sessions may briefly reconnect
 - `Quasar.Agent` sockets may briefly reconnect; the supervisor waits for the
-  first telemetry snapshot under startup grace before applying the normal
-  heartbeat timeout
+  first telemetry snapshot under the activity-aware startup timeout before
+  applying the normal heartbeat timeout
 - the supervisor must preserve enough state that reconnect is operationally seamless
 - when the replacement supervisor adopts a still-live server process by id, it
-  reports the process as running (except during startup grace) instead of
-  carrying stale stopping/restarting UI state from the old worker
+  reports the process as running (except during the startup monitoring window)
+  instead of carrying stale stopping/restarting UI state from the old worker
 - managed DS processes continue running independently during the rollover
 - already-running DS processes keep their loaded `Quasar.Agent` assembly until
   that server process exits; after reconnect, the supervisor compares the
@@ -816,7 +816,8 @@ Required for the first meaningful delivery:
 - isolated DS and Magnetar app-data per server
 - goal-state reconciliation (`On` / `Off`)
 - DS process start/stop/restart supervision
-- strong server health monitoring with agent attach grace, heartbeat freshness, uptime policy, and automated recovery
+- strong server health monitoring with activity-aware agent startup timeouts,
+  heartbeat freshness, uptime policy, and automated recovery
 - simulation-frame progress scoring aligned with the dedicated server watcher formula (`deltaFrames / (elapsedSeconds * 60)` versus a configurable minimum threshold)
 - `LastSession.sbl` preparation by Quasar
 - JSON file-backed authoritative config store
@@ -954,7 +955,10 @@ As of this document:
   agent still writes plugin output into the active per-server Magnetar
   `info_*.log`, but formats the PluginSdk JSON sink lines as normal text log
   lines first.
-- first health-monitoring and auto-recovery pass exists for agent attach grace, heartbeat freshness, simulation-frame progress scoring aligned with the DS watcher, and uptime-based warning/recycle policy
+- first health-monitoring and auto-recovery pass exists for an activity-aware
+  agent startup timeout (60-second log inactivity and 10-minute hard limit),
+  heartbeat freshness, simulation-frame progress scoring aligned with the DS
+  watcher, and uptime-based warning/recycle policy
 - restart supervision retains the latest cause, reason, request/completion
   times, and outcome across worker turnover. Health-policy restart reasons are
   logged in Quasar, shown in Dashboard card/list views, and—when Quasar.Agent

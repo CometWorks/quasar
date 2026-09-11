@@ -193,6 +193,28 @@ The server console dialog can view **Most recent** or a specific older DS /
 Magnetar log file. Auto-refresh and the Refresh button are active only for
 **Most recent**; selecting an older file keeps that snapshot fixed for review.
 
+## Agent startup timeouts
+
+Each server has two agent-startup limits under **Edit Server -> Runtime**:
+
+- **Agent startup log inactivity timeout** (`AgentStartupGraceSeconds`) defaults
+  to `60`. While Quasar is waiting for Quasar.Agent to attach and send its first
+  telemetry snapshot, a newer write to a `SpaceEngineersDedicated*.log` or
+  Magnetar `info*.log` file restarts this soft inactivity timer.
+- **Agent startup hard limit** (`AgentStartupHardLimitSeconds`) defaults to
+  `600`. It is measured from process launch, or from adoption when a replacement
+  Quasar worker discovers an existing process, and log activity never extends it.
+
+Log files last written before the startup/adoption watch began do not count as
+progress. Reaching either limit makes the server unhealthy and follows the
+existing agent-attach retry and automatic-recovery policy.
+
+Legacy server definitions that still contain the former default
+`AgentStartupGraceSeconds = 180` and do not contain the hard-limit field are
+normalized to `60` and `600` when loaded. This intentionally overrides that old
+persisted default. Definitions that already contain a hard limit keep an
+operator-configured `180`-second inactivity timeout.
+
 ## Where configuration is read from
 
 Both the **Bootstrap launcher** (`Quasar`/`Quasar.exe`) and the replaceable **web

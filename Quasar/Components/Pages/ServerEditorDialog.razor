@@ -230,7 +230,20 @@
                                     <MudCheckBox @bind-Value="_editor.AutoRestartOnUnhealthy" Label="Auto-restart when unhealthy" Disabled="@(!_editor.EnableHealthMonitoring)" />
                                 </MudItem>
                                 <MudItem xs="12" md="6" lg="4">
-                                    <MudNumericField T="int" @bind-Value="_editor.AgentStartupGraceSeconds" Label="Agent startup grace (seconds)" Variant="Variant.Outlined" Min="0" />
+                                    <MudNumericField T="int"
+                                                     @bind-Value="_editor.AgentStartupGraceSeconds"
+                                                     Label="Agent startup log inactivity timeout (seconds)"
+                                                     HelperText="Restart if neither Magnetar nor Dedicated Server logs change for this long before the first agent snapshot."
+                                                     Variant="Variant.Outlined"
+                                                     Min="0" />
+                                </MudItem>
+                                <MudItem xs="12" md="6" lg="4">
+                                    <MudNumericField T="int"
+                                                     @bind-Value="_editor.AgentStartupHardLimitSeconds"
+                                                     Label="Agent startup hard limit (seconds)"
+                                                     HelperText="Absolute wait limit even while startup logs remain active."
+                                                     Variant="Variant.Outlined"
+                                                     Min="1" />
                                 </MudItem>
                                 <MudItem xs="12" md="6" lg="4">
                                     <MudNumericField T="int" @bind-Value="_editor.AgentAttachRetryAttempts" Label="Agent attach retry attempts" Variant="Variant.Outlined" Min="1" />
