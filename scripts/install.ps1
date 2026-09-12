@@ -303,7 +303,7 @@ $startHint
 The task starts at boot and restarts the launcher on failure (keep-alive). On
 first start the launcher downloads the Quasar web UI from GitHub and then serves
 it at $uiUrl.
-UI Shutdown Quasar drains the worker; stop and start the task to bring it back.
+UI Shutdown Quasar stops the worker and Bootstrap; start the task to bring it back.
 
 UI plugin SDK:
   Packaged installation does not install an SDK. When an administrator first

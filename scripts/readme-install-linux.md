@@ -14,8 +14,8 @@ cd Quasar
 
 Quasar starts, opens `http://localhost:8080` in your browser, and prints log
 output to the console. Press `Ctrl+C` to stop the launcher. The UI **Shutdown
-Quasar** action drains the web worker and leaves the foreground launcher idle;
-press `Ctrl+C`, then run `./Quasar serve` again when you want the UI back. On
+Quasar** action drains the web worker and fully stops Bootstrap, returning to
+the terminal. Run `./Quasar serve` again when you want the UI back. On
 first start the launcher downloads the Quasar web UI from GitHub and caches it
 locally. The listening port is configurable — see [Configuration](Docs/Configuration.md).
 
@@ -39,8 +39,9 @@ This installs Quasar in the extracted folder and starts the user
 `quasar.service`. Pass `--system` with `sudo` for a machine-wide service or
 `--install-dir <dir>` to install Quasar elsewhere. The web UI is then served at
 `http://localhost:8080`. In the installed user service, the UI **Shutdown
-Quasar** action drains the web worker and leaves `quasar.service` running without
-respawning it. Restart the service to bring the UI and supervisor back:
+Quasar** action drains the web worker and stops Bootstrap with exit code `0`.
+The installed `Restart=on-failure` policy leaves the service inactive. Start the
+service to bring the UI and supervisor back:
 
 ```bash
 systemctl --user status  quasar.service

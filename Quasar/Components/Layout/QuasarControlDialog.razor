@@ -127,7 +127,7 @@
         QuasarControlAction.ShutdownAllServers =>
             "Quasar stays online. Each running server receives a normal save-and-stop request, and its goal state is set to Off so Quasar does not restart it.",
         _ =>
-            $"The web UI and supervisor stop, and the launcher stays drained so it will not restart them until the service, task, or foreground launcher is restarted. Running servers are left detached and can continue for {FormatOfflineGrace()} without Quasar before their agent offline policy takes over.",
+            $"The web UI, supervisor, and Bootstrap launcher stop. The installed service or task will not restart them automatically; start Quasar again when needed. Running servers are left detached and can continue for {FormatOfflineGrace()} without Quasar before their agent offline policy takes over.",
     };
 
     private void Select(QuasarControlAction action)

@@ -113,8 +113,8 @@ public sealed class QuasarShutdownService
 
     /// <summary>
     /// Stops Quasar while preserving managed servers. When launched by Bootstrap,
-    /// the worker asks the launcher to enter a drained state so it does not
-    /// respawn the worker until the external service/task is restarted.
+    /// the worker asks the launcher to exit successfully after the worker stops,
+    /// so the external service/task restart-on-failure policy leaves it stopped.
     /// </summary>
     public void ShutdownQuasarPreservingServers(IProgress<string>? progress = null)
     {
@@ -135,7 +135,7 @@ public sealed class QuasarShutdownService
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Failed writing Quasar launcher drain request.");
+            _logger.LogWarning(exception, "Failed writing Quasar launcher shutdown request.");
         }
     }
 

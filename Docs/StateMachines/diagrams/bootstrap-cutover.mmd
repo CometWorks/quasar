@@ -12,7 +12,7 @@ stateDiagram-v2
     ForceKilled --> WorkerLaunching: start target worker
     Running --> Restarting: worker exits unexpectedly
     Restarting --> WorkerLaunching: relaunch (force)
-    Running --> Drained: UI Shutdown Quasar / launcher drain request
-    Drained --> [*]: service/task/foreground launcher restarted
+    Running --> Stopping: UI shutdown request + worker exits
+    Stopping --> [*]: Bootstrap cleanup + exit 0 (no automatic restart)
     Running --> SelfUpgrade: newer Bootstrap asset applied
     SelfUpgrade --> [*]: exit 75 (Linux) / detached relaunch + exit 0 (Windows)

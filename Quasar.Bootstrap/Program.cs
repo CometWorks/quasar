@@ -246,7 +246,7 @@ internal static class Program
             if (!quiet)
                 Console.WriteLine($"{BootstrapOptions.SupervisorName} worker launching on {options.BaseUrl}");
 
-            await Task.Delay(Timeout.InfiniteTimeSpan, shutdown.Token).ConfigureAwait(false);
+            await coordinator.ShutdownRequested.WaitAsync(shutdown.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -798,6 +798,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private readonly HttpClient _downloadClient;
     private readonly SemaphoreSlim _activationLock = new(1, 1);
     private readonly object _sync = new();
+    private readonly TaskCompletionSource _shutdownRequested = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private static readonly TimeSpan WorkerCrashLoopWindow = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan WorkerQuickFailureWindow = TimeSpan.FromMinutes(2);
     private const int WorkerCrashLoopSafeModeThreshold = 3;
@@ -818,6 +819,10 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private bool _isStopping;
     private bool _isRestartingForBootstrapUpdate;
     private bool _isDrained;
+
+    // Complete only for intentional shutdown. ServeAsync then cleans up and exits
+    // successfully, so systemd/Task Scheduler restart-on-failure stays inactive.
+    public Task ShutdownRequested => _shutdownRequested.Task;
 
     public LauncherCoordinator(BootstrapOptions options, LauncherForegroundOptions foregroundOptions, ILogger<LauncherCoordinator> logger)
     {
@@ -901,7 +906,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         Directory.CreateDirectory(MagnetarPaths.GetWebServiceDirectory());
         Directory.CreateDirectory(MagnetarPaths.GetQuasarUpdatesDirectory());
         if (TryConsumeLauncherShutdownRequest())
-            _logger.LogInformation("Cleared stale Quasar launcher drain request on startup.");
+            _logger.LogInformation("Cleared stale Quasar launcher shutdown request on startup.");
         if (TryConsumeWorkerRestartRequest())
             _logger.LogInformation("Cleared stale Quasar worker restart request on startup.");
 
@@ -1245,7 +1250,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             if (worker is not null)
                 await DrainAndRetireWorkerAsync(worker, TimeSpan.FromSeconds(20), stopManagedServers: false, cancellationToken).ConfigureAwait(false);
 
-            RestartBootstrap();
+            if (!IsDrained())
+                RestartBootstrap();
         }
         finally
         {
@@ -2010,8 +2016,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 _isDrained = true;
             }
 
-            _logger.LogInformation("Quasar worker requested launcher drain; Bootstrap remains running without a worker until the service or task is restarted.");
+            _logger.LogInformation("Quasar worker requested shutdown; Bootstrap is exiting successfully without restarting the worker.");
             TryDisposeProcess(worker.Process);
+            _shutdownRequested.TrySetResult();
             return;
         }
 
