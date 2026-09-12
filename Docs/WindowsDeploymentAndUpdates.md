@@ -75,9 +75,12 @@ it to the Bootstrap process console, so Quasar web UI warnings and errors are
 available from the launcher side in addition to the configured Quasar log files.
 
 The UI **Shutdown Quasar** action drains the web worker, preserves managed
-servers, and leaves Bootstrap running without a worker. Because the task process
-is still alive, Task Scheduler does not restart the worker by itself. Stop and
-start the `Quasar` Scheduled Task to start the UI and supervisor again.
+servers, and fully stops Bootstrap with exit code `0`. The Scheduled Task
+completes successfully, so its restart-on-failure policy does not relaunch Quasar.
+Run `Start-ScheduledTask -TaskName Quasar` to start the UI and supervisor again.
+In foreground mode, the launcher exits and returns control to the terminal.
+Install the updated Bootstrap launcher for this behavior; updating only the web
+worker leaves older launchers using the previous drained/idle behavior.
 
 If Bootstrap has no usable `Updates/active-release.json` and no packaged
 `WebService/Quasar.exe`, it downloads the latest Windows web asset from GitHub and

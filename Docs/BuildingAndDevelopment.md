@@ -181,6 +181,21 @@ direct worker uses its app base directory as the install root. The Bootstrap
 launcher and release/update cutover paths are covered by the packaged installer
 and release workflows rather than a local deploy helper.
 
+To check Bootstrap shutdown without starting the Quasar web service or any
+dedicated servers:
+
+```bash
+dotnet build Quasar.Bootstrap/Quasar.Bootstrap.csproj
+python3 scripts/test-bootstrap-shutdown.py
+```
+
+This dependency-free Python check runs an isolated Bootstrap build with a fake
+HTTP worker in foreground and service modes. It verifies stale-request cleanup,
+worker crash recovery, and intentional shutdown of both processes with Bootstrap
+exit code `0`. Windows Task Scheduler and Linux systemd policy still need native
+deployment validation; the installed restart-on-failure policies must remain in
+place for intentional shutdown to stay stopped.
+
 To run the UI worker from Rider against an installed service/deployed tree,
 write that root path into `.quasar-install-dir` at the repository root. The file
 is ignored by git and is read through `QUASAR_INSTALL_DIR_FILE` from the worker

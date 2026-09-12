@@ -101,11 +101,14 @@ therefore appear in the service journal as well as in the configured Quasar log
 files.
 
 The UI **Shutdown Quasar** action drains the web worker, preserves managed
-servers, and leaves Bootstrap running without a worker. Because Bootstrap is
-still alive and exits successfully only when the service is stopped, systemd does
-not restart the worker by itself. Run `systemctl --user restart quasar.service`
-for the default user service, or `sudo systemctl restart quasar.service` for a
-system service, to start the UI and supervisor again.
+servers, and fully stops Bootstrap with exit code `0`. The installed user and
+system units use `Restart=on-failure`, so systemd leaves the service inactive
+without restarting it. No `systemctl` permissions are needed by the web worker.
+Run `systemctl --user start quasar.service` for the default user service, or
+`sudo systemctl start quasar.service` for a system service, to start Quasar again.
+Custom units must also use `Restart=on-failure` (not `Restart=always`).
+Install the updated Bootstrap launcher for this behavior; updating only the web
+worker leaves older launchers using the previous drained/idle behavior.
 
 ## UI Worker Updates
 
