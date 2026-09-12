@@ -31,7 +31,7 @@
                            Class="quasar-control-action">
                     <span>
                         <span class="quasar-control-action-title">Shutdown Quasar</span>
-                        <span class="quasar-control-action-body">Drain the web UI; servers continue without supervision.</span>
+                        <span class="quasar-control-action-body">Stop Quasar and Bootstrap; servers continue without supervision.</span>
                     </span>
                 </MudButton>
 
@@ -117,7 +117,7 @@
     {
         QuasarControlAction.RestartQuasar => "Running servers continue to run.",
         QuasarControlAction.ShutdownAllServers => "Every running server will save and stop.",
-        _ => "Quasar will drain, but running servers continue.",
+        _ => "Quasar will stop. Running servers continue.",
     };
 
     private string ConfirmationBody => _pendingAction switch

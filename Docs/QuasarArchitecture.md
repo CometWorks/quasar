@@ -430,6 +430,17 @@ Quasar should minimize background-start clutter:
 - Quasar should pass explicit `-ds64` so Magnetar targets the intended DS install
 - `-nosplash` is no longer required for current Magnetar builds
 
+## Quasar power actions
+
+Power actions await `DedicatedServerSupervisor.BeginLauncherDrainAsync` before
+stopping or restarting the web worker. This preserves the runtime snapshot without
+blocking Blazor's dispatcher on asynchronous file I/O. The power menu, UI plugin
+restart, and authenticated Bootstrap drain endpoint all use this asynchronous
+path. Full Quasar shutdown writes `launcher-shutdown-request` after saving state
+and before stopping the host; a write failure is reported to the administrator
+and leaves the worker running. Informational shutdown logs record the request,
+state-save completion, and handoff to Bootstrap.
+
 ## Logging
 
 `Quasar` must have its own dedicated logging configuration.

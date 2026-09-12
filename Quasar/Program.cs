@@ -448,7 +448,7 @@ public class Program
                     .AllowAnonymous();
             }
 
-            app.MapPost("/api/internal/drain", (HttpContext context, DedicatedServerSupervisor supervisor, QuasarShutdownService shutdownService, IHostApplicationLifetime lifetime, TrustedNetworkEvaluator trustedNetworkEvaluator) =>
+            app.MapPost("/api/internal/drain", async (HttpContext context, DedicatedServerSupervisor supervisor, QuasarShutdownService shutdownService, IHostApplicationLifetime lifetime, TrustedNetworkEvaluator trustedNetworkEvaluator) =>
             {
                 var expectedToken = context.RequestServices.GetRequiredService<WebServiceOptions>().LauncherToken;
                 if (string.IsNullOrWhiteSpace(expectedToken) ||
@@ -466,7 +466,7 @@ public class Program
 
                 var stopServers = bool.TryParse(context.Request.Query["stopServers"], out var parsedStopServers) && parsedStopServers;
                 if (!stopServers)
-                    supervisor.BeginLauncherDrain();
+                    await supervisor.BeginLauncherDrainAsync();
 
                 _ = Task.Run(async () =>
                 {

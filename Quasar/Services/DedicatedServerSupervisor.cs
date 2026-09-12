@@ -630,10 +630,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _shutdown.Dispose();
     }
 
-    public void BeginLauncherDrain()
+    public Task BeginLauncherDrainAsync()
     {
         _preserveManagedServersOnShutdown = true;
-        PersistStateSnapshotAsync(CancellationToken.None).GetAwaiter().GetResult();
+        // Power actions run on the Blazor dispatcher. Blocking here prevents the
+        // asynchronous file-save continuation from returning to that dispatcher.
+        return PersistStateSnapshotAsync(CancellationToken.None);
     }
 
     private async Task ReconcileLoopAsync(CancellationToken cancellationToken)
