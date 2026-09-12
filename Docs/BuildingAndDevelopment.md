@@ -196,6 +196,18 @@ exit code `0`. Windows Task Scheduler and Linux systemd policy still need native
 deployment validation; the installed restart-on-failure policies must remain in
 place for intentional shutdown to stay stopped.
 
+The worker-side regression checks run without a web service as well:
+
+```bash
+dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~QuasarShutdownTests|FullyQualifiedName~QuasarControlDialogTests'
+```
+
+bUnit exercises the power dialog's confirmation buttons. The shutdown tests run
+the real state-save and shutdown methods on a Blazor dispatcher, check that state
+is saved before host shutdown, and verify that a failed Bootstrap request leaves
+the worker running. The dispatcher test catches the synchronous-wait deadlock
+that a fake-worker Bootstrap test cannot exercise.
+
 To run the UI worker from Rider against an installed service/deployed tree,
 write that root path into `.quasar-install-dir` at the repository root. The file
 is ignored by git and is read through `QUASAR_INSTALL_DIR_FILE` from the worker

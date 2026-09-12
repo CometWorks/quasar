@@ -82,6 +82,13 @@ In foreground mode, the launcher exits and returns control to the terminal.
 Install the updated Bootstrap launcher for this behavior; updating only the web
 worker leaves older launchers using the previous drained/idle behavior.
 
+The web worker awaits its managed-server state save before requesting Bootstrap
+shutdown. This must remain asynchronous: blocking on the save from a Blazor power
+action can deadlock the UI before Bootstrap receives any request. Install the
+updated web worker for this fix, alongside a Bootstrap version that exits on
+shutdown. If the shutdown request cannot be written, Quasar remains online and
+shows an error instead of stopping a worker that Bootstrap would restart.
+
 If Bootstrap has no usable `Updates/active-release.json` and no packaged
 `WebService/Quasar.exe`, it downloads the latest Windows web asset from GitHub and
 extracts it under:

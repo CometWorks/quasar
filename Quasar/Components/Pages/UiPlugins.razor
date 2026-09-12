@@ -711,7 +711,7 @@
                 timeoutMessage = "Still waiting for Quasar. Reloading UI Plugins now.",
             });
             Snackbar.Add("Restarting Quasar. The page will reconnect when it is back.", Severity.Info);
-            ShutdownService.RestartWorker();
+            await ShutdownService.RestartWorkerAsync();
         }
         catch (Exception exception)
         {
