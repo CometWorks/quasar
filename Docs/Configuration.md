@@ -738,7 +738,7 @@ export QUASAR_API_TOKEN='<service-principal token>'
   --idempotency-key deploy-2026-08-09-stop --wait --wait-timeout 1800
 ./Quasar cluster operation production <operation-id> --url https://quasar.internal --wait
 ./Quasar cluster gateway-restart production --url https://quasar.internal \
-  --request-id <guid> --idempotency-key deploy-2026-08-09-gateway --wait
+  --idempotency-key deploy-2026-08-09-gateway --wait
 ```
 
 Read commands are `list`, `health`, `status`, `lifecycle`, `plan`,
@@ -784,6 +784,10 @@ versioned JSON errors instead of redirects. Identical token values assigned to
 multiple principals fail closed.
 
 ## Host executor attachments
+
+Current Gateway node execution is gated by `executor_contract_unavailable` until
+the public versioned reporting contract is available. The attachment and local
+actualizer described here are retained for integration development.
 
 `Quasar.Host` is packaged under the release's `Host` directory. Its persisted
 attachment file contains stable executor/host IDs, Gateway URLs, and credential
@@ -860,7 +864,7 @@ and `trigger`. `parameters` contains the current pinned Gateway request DTO;
 For example, write `{ "action": "config-set", "parameters": { "expectedRevision": 4,
 "slots": [] } }` to a JSON file, then invoke Bootstrap's `cluster command NAME FILE`
 with the usual connection/auth options and `--idempotency-key KEY --wait`.
-An empty slot array requests removal of capacity; load current config before editing.
+Slots are upserted; load current config before editing.
 `cluster events NAME --cursor N --limit 100` and `cluster chat-history NAME` expose
 cursor-based observation. JSON command input also accepts `-` for standard input.
 
@@ -875,3 +879,35 @@ for development tests. Automatic node actualization is disabled with
 `executor_contract_unavailable`: Gateway `0546d1a` publishes NodePlan but no public
 versioned executor report contract. The legacy registry heartbeat is not used.
 Packaged lifecycle integration and live executor acceptance remain pending.
+
+## Cluster Agent identity and fleet observation
+
+`GET /api/v1/clusters/{name}/fleet` (CLI: `cluster fleet NAME`) joins a single
+Registry status snapshot with Agent telemetry. Matching requires the exact cluster ID,
+slot, node ID and positive 64-bit epoch. Missing identity or multiple claimants yields
+no matched Agent. Registry player/admission, node state and leases remain authoritative.
+Disconnected telemetry never changes the cluster's desired state.
+
+The Agent publishes `clusterSlot` and `clusterEpoch` in hello/snapshot messages. Cluster
+processes use a random lifetime Agent ID, preventing PID reuse from reusing Agent state.
+The retained development launcher supplies `QUASAR_CLUSTER_SLOT`,
+`QUASAR_CLUSTER_ATTEMPT` and `QUASAR_CLUSTER_READY_PATH`. If the runtime writes the
+existing readiness receipt, the Agent checks schema, cluster, slot, attempt and PID
+before reading its Registry-issued node ID and epoch. Epoch zero means unknown; it is
+never derived from entity IDs. Current package/runtime publication of this receipt
+still needs integration verification. Agent observation alone is not a prerequisite
+for cluster operation.
+
+Metrics, profiler samples, plugin statistics and logs use a filesystem-safe hash of
+cluster/slot/node/epoch. Unknown incarnations additionally include the process Agent ID.
+Existing standalone history retains its original server key. Plugin configuration
+snapshots and edits are bound to a connection; reconnecting clears prior snapshots,
+and an editor from the old connection cannot apply to its replacement. The ordinary
+Plugins page and log selector display cluster/slot/node/epoch labels.
+
+The cluster detail page includes fleet process telemetry, plugin runtime state,
+statistics/profiler snapshots, recent logs, Registry players with kick/ban controls,
+and an event tail capped at 200 rows with truncation/reset indication. Drain and force
+removal use the shared command service; force removal includes the displayed epoch.
+Profile and world-template links reuse the existing catalogs. Applying those references,
+generating boot images and converting worlds remain part of packaged provisioning.

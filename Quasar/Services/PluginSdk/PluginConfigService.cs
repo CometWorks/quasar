@@ -14,7 +14,7 @@ public sealed class PluginConfigService : IHostedService
     private readonly AgentRegistry _registry;
     private readonly ILogger<PluginConfigService> _logger;
     private readonly object _sync = new();
-    private readonly Dictionary<string, List<PluginConfigData>> _byAgent = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (string ConnectionId, List<PluginConfigData> Plugins)> _byAgent = new(StringComparer.OrdinalIgnoreCase);
 
     public PluginConfigService(AgentRegistry registry, ILogger<PluginConfigService> logger)
     {
@@ -40,14 +40,14 @@ public sealed class PluginConfigService : IHostedService
     /// Records the configs reported by an agent. Called from the agent
     /// WebSocket handler when a <c>plugin-config-snapshot</c> arrives.
     /// </summary>
-    public void IngestSnapshot(PluginConfigSnapshot snapshot)
+    public void IngestSnapshot(PluginConfigSnapshot snapshot, string connectionId)
     {
-        if (snapshot is null || string.IsNullOrWhiteSpace(snapshot.AgentId))
+        if (snapshot is null || !_registry.IsCurrentConnection(snapshot.AgentId, connectionId))
             return;
 
         lock (_sync)
         {
-            _byAgent[snapshot.AgentId] = snapshot.Plugins ?? new List<PluginConfigData>();
+            _byAgent[snapshot.AgentId] = (connectionId, snapshot.Plugins ?? new List<PluginConfigData>());
         }
 
         _logger.LogDebug("Ingested {Count} plugin config(s) from agent {AgentId}.",
@@ -64,8 +64,8 @@ public sealed class PluginConfigService : IHostedService
 
         lock (_sync)
         {
-            return _byAgent.TryGetValue(agentId, out var list)
-                ? list.Select(Clone).ToList()
+            return _byAgent.TryGetValue(agentId, out var item) && _registry.IsCurrentConnection(agentId, item.ConnectionId)
+                ? item.Plugins.Select(Clone).ToList()
                 : Array.Empty<PluginConfigData>();
         }
     }
@@ -78,7 +78,7 @@ public sealed class PluginConfigService : IHostedService
 
         lock (_sync)
         {
-            return _byAgent.TryGetValue(agentId, out var list) && list.Count > 0;
+            return _byAgent.TryGetValue(agentId, out var item) && _registry.IsCurrentConnection(agentId, item.ConnectionId) && item.Plugins.Count > 0;
         }
     }
 
@@ -87,6 +87,7 @@ public sealed class PluginConfigService : IHostedService
         string agentId,
         string pluginId,
         string valuesJson,
+        string connectionId,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(agentId) || string.IsNullOrWhiteSpace(pluginId))
@@ -100,7 +101,7 @@ public sealed class PluginConfigService : IHostedService
                 PluginId = pluginId,
                 ValuesJson = valuesJson ?? string.Empty,
             },
-        }, cancellationToken);
+        }, cancellationToken, expectedConnectionId: connectionId);
     }
 
     private void HandleRegistryChanged()

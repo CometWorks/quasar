@@ -78,6 +78,7 @@ namespace Quasar.Agent
         private DateTime _lastProcessCpuSampleUtc = DateTime.MinValue;
         private float _lastProcessCpuLoadPercent;
         private DateTime _lastSnapshotUtc = DateTime.MinValue;
+        private readonly string _clusterProcessIdentity = Guid.NewGuid().ToString("N");
         private AgentHello _latestHello;
         private AgentSnapshot _latestSnapshot;
         private volatile bool _quasarRequestedStop;
@@ -258,7 +259,8 @@ namespace Quasar.Agent
             var serverName = GetServerName(session);
             var worldName = GetWorldName(session);
             var serverId = _uniqueName;
-            var agentId = $"{serverId}:{_processId}";
+            _options.RefreshClusterIdentity(_processId);
+            var agentId = _options.ClusterMode ? $"{serverId}:{_clusterProcessIdentity}" : $"{serverId}:{_processId}";
 
             return new AgentHello
             {
@@ -273,6 +275,8 @@ namespace Quasar.Agent
                 ClusterId = _options.ClusterId,
                 ClusterNodeId = _options.ClusterNodeId,
                 ClusterNodeRole = _options.ClusterNodeRole,
+                ClusterSlot = _options.ClusterSlot,
+                ClusterEpoch = _options.ClusterEpoch,
                 PluginId = "quasar-agent",
                 PluginVersion = _pluginVersion,
                 ProcessId = _processId,
@@ -300,6 +304,8 @@ namespace Quasar.Agent
                 ClusterId = hello.ClusterId,
                 ClusterNodeId = hello.ClusterNodeId,
                 ClusterNodeRole = hello.ClusterNodeRole,
+                ClusterSlot = hello.ClusterSlot,
+                ClusterEpoch = hello.ClusterEpoch,
                 IsRunning = session != null && session.Ready,
                 CapturedAtUtc = DateTimeOffset.UtcNow,
                 Metrics = BuildMetrics(session),

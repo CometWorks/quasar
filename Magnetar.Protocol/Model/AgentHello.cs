@@ -26,6 +26,10 @@ public class AgentHello
 
     public string ClusterNodeRole { get; set; } = string.Empty;
 
+    public string ClusterSlot { get; set; } = string.Empty;
+
+    public long ClusterEpoch { get; set; }
+
     public string PluginId { get; set; } = string.Empty;
 
     public string PluginVersion { get; set; } = string.Empty;

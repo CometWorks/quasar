@@ -166,7 +166,7 @@ internal static class ClusterCli
             "plan" when values.Length == 2 => ClusterRoute("plan"),
             "recovery-readiness" when values.Length == 2 => ClusterRoute("recovery-readiness"),
             "config" when values.Length == 2 => ClusterRoute("config"),
-            "capabilities" or "nodes" or "world-authority" or "snapshots" or "partitions" or "clients" or "gateway-operations" when values.Length == 2 => ClusterRoute(command),
+            "capabilities" or "fleet" or "nodes" or "world-authority" or "snapshots" or "partitions" or "clients" or "gateway-operations" when values.Length == 2 => ClusterRoute(command),
             "bans" when values.Length == 2 => ClusterRoute("admission/bans"),
             "events" when values.Length == 2 => ClusterRoute($"events?cursor={options.Cursor}&limit={options.Limit}"),
             "chat-history" when values.Length == 2 => ClusterRoute($"chat/history?cursor={options.Cursor}&limit={options.Limit}"),
@@ -305,7 +305,7 @@ internal static class ClusterCli
     }
 
     private static void WriteUsage(TextWriter writer) => writer.WriteLine(
-        "Usage: Quasar cluster <list|health|status|lifecycle|plan|recovery-readiness|config|operation|goal|gateway-restart> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command takes a JSON file or - for stdin)");
+        "Usage: Quasar cluster <list|health|status|lifecycle|plan|recovery-readiness|config|capabilities|fleet|nodes|world-authority|snapshots|partitions|clients|events|chat-history|bans|gateway-operations|operation|goal|gateway-restart|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command takes a JSON file or - for stdin)");
 
     private sealed record Options(string? BaseUrl, string TokenEnvironmentVariable,
         string? IdempotencyKey, Guid? RequestId, int TimeoutSeconds, bool Wait,

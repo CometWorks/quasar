@@ -234,6 +234,7 @@ public class Program
             builder.Services.AddSingleton<ClusterOperationStore>();
             builder.Services.AddHostedService<ClusterOperationReconciler>();
             builder.Services.AddSingleton<ClusterCommandService>();
+            builder.Services.AddSingleton<ClusterFleetService>();
             builder.Services.AddSingleton<ClusterReconciler>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ClusterReconciler>());
             builder.Services.AddSingleton<DedicatedServerSupervisor>();

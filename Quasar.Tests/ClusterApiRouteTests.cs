@@ -12,6 +12,29 @@ namespace Quasar.Tests;
 
 public sealed class ClusterApiRouteTests
 {
+    [Theory]
+    [InlineData("/api/v1/clusters/{uniqueName}/fleet", false)]
+    [InlineData("/api/v1/clusters/{uniqueName}/events", false)]
+    [InlineData("/api/v1/clusters/{uniqueName}/commands", true)]
+    public void ExpandedRoutesRetainQueryAndManageSeparation(string path, bool manage)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddSingleton<ClusterCatalog>(_ => null!);
+        builder.Services.AddSingleton<ClusterGatewayClient>(_ => null!);
+        builder.Services.AddSingleton<ClusterHostClient>(_ => null!);
+        builder.Services.AddSingleton<ClusterOperationStore>(_ => null!);
+        builder.Services.AddSingleton<ClusterCommandService>(_ => null!);
+        builder.Services.AddSingleton<ClusterReconciler>(_ => null!);
+        builder.Services.AddSingleton<ClusterFleetService>(_ => null!);
+        var app = builder.Build();
+        app.MapClusterApi(new QuasarAuthOptions { Enabled = true });
+        var endpoint = Assert.Single(((IEndpointRouteBuilder)app).DataSources.SelectMany(s => s.Endpoints)
+            .OfType<RouteEndpoint>(), e => e.RoutePattern.RawText == path);
+        var policies = endpoint.Metadata.GetOrderedMetadata<Microsoft.AspNetCore.Authorization.IAuthorizeData>().Select(p => p.Policy).ToArray();
+        Assert.Contains(QuasarPolicyNames.ClusterQuery, policies);
+        Assert.Equal(manage, policies.Contains(QuasarPolicyNames.ClusterManage));
+    }
+
     [Fact]
     public void GatewayApplyRouteIsPut()
     {

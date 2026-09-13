@@ -4,6 +4,8 @@
 @inject ClusterGatewayClient GatewayClient
 @inject ClusterHostClient HostClient
 @inject ClusterReconciler Reconciler
+@inject QuasarConfigProfileCatalog Profiles
+@inject QuasarWorldTemplateCatalog Worlds
 
 <MudStack Spacing="3">
     @if (_loading && _status is null)
@@ -74,6 +76,19 @@
                 @string.Join(" · ", _status.ReasonCodes)
             </MudAlert>
         }
+    </MudPaper>
+
+    <MudPaper Class="pa-4 server-card" Elevation="0">
+        <MudText Typo="Typo.h6">World and configuration</MudText>
+        <MudText>Active world: @(_status?.WorldId ?? "Unknown")</MudText>
+        <MudText>Profile: @(Profiles.GetProfile(Cluster.ConfigProfileId)?.Name ?? ValueOrDash(Cluster.ConfigProfileId))</MudText>
+        <MudText>World template: @(Worlds.GetTemplate(Cluster.WorldTemplateId)?.Name ?? ValueOrDash(Cluster.WorldTemplateId))</MudText>
+        <MudText Typo="Typo.caption">Profile and template references describe provisioning inputs. Applying them requires packaged world provisioning.</MudText>
+        <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs">
+            <MudButton Href="/configs">Configuration profiles</MudButton>
+            <MudButton Href="/world-templates">World templates</MudButton>
+            <MudButton Href="/plugins">Node plugin configuration</MudButton>
+        </AuthorizeView>
     </MudPaper>
 
     <MudExpansionPanels>

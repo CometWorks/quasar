@@ -52,7 +52,7 @@ else
                         {
                             // Construct the editor only while its panel is open. Keeping every
                             // plugin's editor mounted at once is too many DOM nodes.
-                            <PluginConfigEditor AgentId="@selectedAgent.AgentId" Plugin="@plugin" />
+                            <PluginConfigEditor @key="(selectedAgent.AgentId, selectedAgent.ConnectionId, plugin.PluginId)" AgentId="@selectedAgent.AgentId" ConnectionId="@selectedAgent.ConnectionId" Plugin="@plugin" />
                         }
                     </MudExpansionPanel>
                 }
@@ -105,6 +105,7 @@ else
     // "Space Engineers {pid}"). Matches how the Servers/dashboard cards resolve it.
     private string ResolveServerName(AgentRuntimeState agent)
     {
+        if (agent.IsCluster) return $"{agent.ClusterId} / {agent.ClusterSlot} / {agent.ClusterNodeId} / epoch {agent.ClusterEpoch}";
         var configuredName = ServerCatalog.GetServer(agent.UniqueNameKey)?.DisplayName;
         return string.IsNullOrWhiteSpace(configuredName) ? agent.ServerDisplayName : configuredName;
     }

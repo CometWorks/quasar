@@ -78,6 +78,9 @@ internal static class ClusterApi
                 ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken token) =>
                 Query(uniqueName, context, catalog, (c, t) => read(client, c, t), token));
 
+        routes.MapGet("/{uniqueName}/fleet", (string uniqueName, HttpContext context,
+            ClusterCatalog catalog, [FromServices] ClusterFleetService fleet, CancellationToken token) =>
+            Query(uniqueName, context, catalog, (c, t) => fleet.GetAsync(c, t), token));
         routes.MapGet("/{uniqueName}/host", GetHostStatus);
         routes.MapGet("/{uniqueName}/lifecycle", GetLifecycleStatus);
         RouteHandlerBuilder submitCommand = routes.MapPost("/{uniqueName}/commands", SubmitCommand);

@@ -58,6 +58,8 @@ else
 }
 
 @code {
+    [Parameter, EditorRequired] public string ConnectionId { get; set; } = string.Empty;
+
     [Parameter, EditorRequired] public string AgentId { get; set; } = string.Empty;
 
     [Parameter, EditorRequired] public PluginConfigData Plugin { get; set; } = default!;
@@ -1148,7 +1150,7 @@ else
         try
         {
             var json = _values.ToJsonString();
-            await Service.UpdatePluginConfigAsync(AgentId, Plugin.PluginId, json);
+            await Service.UpdatePluginConfigAsync(AgentId, Plugin.PluginId, json, ConnectionId);
             _dirty = false;
             Snackbar.Add($"Applied configuration to {Plugin.DisplayName}.", Severity.Success);
         }

@@ -32,8 +32,9 @@ else
         shown for visibility; the Registry remains authoritative for fleet decisions.
     </MudAlert>
 
-    <ClusterDetailPanel Cluster="Cluster" />
-    <ClusterAdminPanel @key="Cluster.UniqueName" Cluster="Cluster" />
+    <ClusterDetailPanel @key="Cluster.UniqueName" Cluster="Cluster" />
+    <ClusterAdminPanel @key="Cluster.UniqueName" @ref="_admin" Cluster="Cluster" />
+    <ClusterFleetPanel @key="Cluster.UniqueName" Cluster="Cluster" Command="ExecuteCommandAsync" />
 }
 
 @code
@@ -42,6 +43,8 @@ else
     public string UniqueName { get; set; } = string.Empty;
 
     private ClusterDefinition? Cluster { get; set; }
+    private ClusterAdminPanel? _admin;
+    private Task ExecuteCommandAsync(ClusterAdminCommand command) => _admin?.SubmitAsync(command) ?? Task.CompletedTask;
 
     protected override async Task OnParametersSetAsync()
     {

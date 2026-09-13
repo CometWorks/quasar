@@ -27,6 +27,10 @@ public class AgentSnapshot
 
     public string ClusterNodeRole { get; set; } = string.Empty;
 
+    public string ClusterSlot { get; set; } = string.Empty;
+
+    public long ClusterEpoch { get; set; }
+
     public bool IsRunning { get; set; }
 
     public DateTimeOffset CapturedAtUtc { get; set; } = DateTimeOffset.UtcNow;

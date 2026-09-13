@@ -23,6 +23,10 @@ namespace Quasar.Agent
 
         public string ClusterNodeRole { get; set; } = string.Empty;
 
+        public string ClusterSlot { get; set; } = string.Empty;
+
+        public long ClusterEpoch { get; set; }
+
         /// <summary>
         /// How long, in seconds, to keep the server running after losing contact
         /// with Quasar before saving the world and stopping it. Zero or negative
@@ -55,6 +59,7 @@ namespace Quasar.Agent
                 ClusterId = ReadString("SE_CLUSTER_ID"),
                 ClusterNodeId = ReadString("SE_CLUSTER_NODE_ID"),
                 ClusterNodeRole = ReadString("SE_CLUSTER_NODE_ROLE"),
+                ClusterSlot = ReadString("QUASAR_CLUSTER_SLOT"),
                 // Zero/negative is meaningful here (stop promptly), so it is kept as-is.
                 OfflineShutdownSeconds = ReadInt("QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS", 3600),
                 ReconnectIntervalSeconds = ReadInt("QUASAR_AGENT_RECONNECT_INTERVAL_SECONDS", 10),
@@ -69,6 +74,30 @@ namespace Quasar.Agent
                 options.ReconnectJitterSeconds = 3;
 
             return options;
+        }
+
+        // The runtime writes the Registry-issued epoch after registration. Never
+        // derive it from entity IDs, PID, or slot name. Missing receipts stay unknown.
+        internal void RefreshClusterIdentity(int processId)
+        {
+            if (!ClusterMode || ClusterEpoch > 0) return;
+            var path = ReadString("QUASAR_CLUSTER_READY_PATH");
+            var attempt = ReadString("QUASAR_CLUSTER_ATTEMPT");
+            if (path.Length == 0 || attempt.Length == 0) return;
+            try
+            {
+                var receipt = Newtonsoft.Json.Linq.JObject.Parse(System.IO.File.ReadAllText(path));
+                if ((int?)receipt["schemaVersion"] != 1 || (int?)receipt["processId"] != processId
+                    || (string)receipt["attemptKey"] != attempt || (string)receipt["clusterId"] != ClusterId
+                    || (string)receipt["slotKey"] != ClusterSlot || (long?)receipt["epoch"] is not long epoch || epoch <= 0)
+                    return;
+                var node = (string)receipt["nodeId"];
+                if (string.IsNullOrWhiteSpace(node) || (ClusterNodeId.Length > 0 && ClusterNodeId != node)) return;
+                ClusterNodeId = node;
+                ClusterEpoch = epoch;
+            }
+            catch (Exception error) when (error is System.IO.IOException || error is UnauthorizedAccessException
+                || error is Newtonsoft.Json.JsonException || error is FormatException || error is InvalidCastException || error is OverflowException) { }
         }
 
         internal bool ShouldSelfStop(DateTime disconnectedSinceUtc, DateTime nowUtc)

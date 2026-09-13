@@ -5,6 +5,8 @@
 @inject ClusterGatewayClient Gateway
 @inject QuasarPermissionService Permissions
 @inject IDialogService Dialogs
+@inject AuthenticationStateProvider AuthenticationState
+@inject QuasarRoleMapper RoleMapper
 
 <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
     <Authorized Context="authorization">
@@ -101,12 +103,14 @@
         if (await Dialogs.ShowMessageBoxAsync("Restart Gateway?", "Clients will reconnect; nodes keep simulating.", yesText: "Restart", cancelText: "Cancel") == true)
             await SubmitAsync(new("gateway-restart"));
     }
-    private async Task SubmitAsync(ClusterAdminCommand command)
+    public async Task SubmitAsync(ClusterAdminCommand command)
     {
         if (Busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        if (!user.CanQueryCluster(Cluster.UniqueName)) return;
         _submitting = true;
         _error = null;
-        try { _operation = await Commands.SubmitAsync(Cluster.UniqueName, command, Guid.NewGuid().ToString("N"), "web-ui", _shutdown.Token); }
+        try { _operation = await Commands.SubmitAsync(Cluster.UniqueName, command, Guid.NewGuid().ToString("N"), user.Identity?.Name ?? "web-ui", _shutdown.Token); }
         catch (Exception error) when (error is ClusterOperationConflictException or ClusterOperationStoreUnavailableException or ClusterGatewayException) { _error = error.Message; }
         finally { _submitting = false; }
     }

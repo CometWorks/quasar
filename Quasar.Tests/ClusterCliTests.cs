@@ -9,6 +9,43 @@ namespace Quasar.Tests;
 
 public sealed class ClusterCliTests
 {
+    [Theory]
+    [InlineData("fleet", "/api/v1/clusters/demo/fleet")]
+    [InlineData("events", "/api/v1/clusters/demo/events?cursor=42&limit=10")]
+    [InlineData("chat-history", "/api/v1/clusters/demo/chat/history?cursor=42&limit=10")]
+    public async Task ExpandedQueriesPreserveCursor(string command, string expected)
+    {
+        var handler = new Handler((request, _) =>
+        {
+            Assert.Equal(expected, request.RequestUri!.PathAndQuery);
+            return Response(HttpStatusCode.OK, """{"protocolVersion":1,"data":[]}""");
+        });
+        int result = await ClusterCli.RunAsync(["cluster", command, "demo", "--url", "http://quasar.test",
+            "--cursor", "42", "--limit", "10"], handler, new StringWriter(), new StringWriter());
+        Assert.Equal(0, result);
+    }
+
+    [Fact]
+    public async Task JsonCommandUsesSharedMutationRoute()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, """{"action":"save-all"}""");
+            var handler = new Handler((request, _) =>
+            {
+                Assert.Equal(HttpMethod.Post, request.Method);
+                Assert.Equal("/api/v1/clusters/demo/commands", request.RequestUri!.AbsolutePath);
+                Assert.Equal("save-42", request.Headers.GetValues("Idempotency-Key").Single());
+                Assert.Contains("save-all", request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                return Response(HttpStatusCode.Accepted, """{"protocolVersion":1,"data":{"operationId":"op-a","state":"Running"}}""");
+            });
+            Assert.Equal(0, await ClusterCli.RunAsync(["cluster", "command", "demo", path, "--url", "http://quasar.test",
+                "--idempotency-key", "save-42"], handler, new StringWriter(), new StringWriter()));
+        }
+        finally { File.Delete(path); }
+    }
+
     [Fact]
     public async Task QueryUsesServicePrincipalTokenAndWritesJsonOnly()
     {

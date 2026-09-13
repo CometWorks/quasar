@@ -3,7 +3,8 @@
 Updated 2026-09-13. Step 1 complete: upstream baseline refresh and plan reconciliation.
 Step 2 complete: current source-pinned contract, expanded queries, authoritative health,
 and observation without host provisioning. Step 3 implementation is complete with
-the public executor report contract recorded as an activation gap. Step 4 is next.
+the public executor report contract recorded as an activation gap. Step 4 local
+implementation is complete. Steps 5–6 are deferred at the user’s request.
 
 ## Plan authority
 
@@ -194,3 +195,32 @@ were restored. Closing this gap requires an upstream report/credential contract.
 Validation: solution build passed; 199 tests passed, including durable operation
 restart/replay, lost-response key reuse and terminal revision conflicts. Host self-test
 passed. These are local implementation checks; live acceptance remains deferred.
+
+## Step 4 result
+
+Agent hello/snapshot now carry slot and 64-bit incarnation epoch, with runtime readiness
+receipts accepted only for the matching launch attempt and PID. Cluster Agent IDs are
+unique per process lifetime. Unknown epochs stay uncorrelated pending runtime identity
+publication; the package must still verify that publication seam. Registry status alone
+supplies current cluster/node identity for fleet correlation. Ambiguous or stale incarnations
+cannot become current by arriving later.
+
+Metrics, profiler, plugin statistics and logs use incarnation-specific keys. Config caches
+and edits carry connection identity; late snapshots, config updates and command results
+from superseded connections are rejected. Cluster admin-stop/restart notifications cannot
+enter standalone supervision, and cluster Agents are excluded from its telemetry lookup.
+Standalone Agent behavior remains covered by the existing tests.
+
+The GUI adds fleet/process/plugin details, Registry players with moderation, node drain
+and fenced force removal, and a bounded event tail with retention/reset indication. CLI
+`fleet` returns the same joined observations. Existing profile/world catalogs are linked
+from cluster details, and ordinary plugin tools label each node incarnation. Actual
+profile/world application, boot-image creation and conversion await step 5 packaging.
+
+Steps 5–6 remain unstarted. No web service or game cluster was launched. Upstream phase 3
+stabilization and packaging remain independent work; live P4-QSR-01…06 acceptance is deferred.
+
+Final local validation: solution build succeeded with zero errors; all 215 tests passed
+with none skipped. Added coverage includes 64-bit launch receipts, stale connection/config
+fencing, exact Registry/Agent matching, CLI fleet/cursor/command routes, and query/manage
+route authorization. Existing assembly-reference and NuGet advisory warnings remain.
