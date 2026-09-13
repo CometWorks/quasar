@@ -375,3 +375,6 @@ MigrationBackup/
 .claude
 
 graphify-out/cache/
+
+/.env
+/quasar-data/

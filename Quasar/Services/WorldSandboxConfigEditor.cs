@@ -23,7 +23,7 @@ public static class WorldSandboxConfigEditor
         return ReadMods(root);
     }
 
-    public static ConfigProfileImport ReadConfigProfile(string sandboxConfigPath)
+    public static ConfigProfileImport ReadConfigProfile(string sandboxConfigPath, bool includeOnlineMode = false)
     {
         var document = LoadDocument(sandboxConfigPath);
         var root = GetRoot(document, sandboxConfigPath);
@@ -33,7 +33,7 @@ public static class WorldSandboxConfigEditor
             Mods = ReadMods(root).ToList(),
         };
 
-        var sessionSettingCount = ApplyImportedSessionSettings(root, profile.SessionSettings);
+        var sessionSettingCount = ApplyImportedSessionSettings(root, profile.SessionSettings, includeOnlineMode);
         return new ConfigProfileImport(profile, sessionSettingCount, profile.Mods.Count);
     }
 
@@ -128,7 +128,10 @@ public static class WorldSandboxConfigEditor
         parent.Elements().FirstOrDefault(element =>
             string.Equals(element.Name.LocalName, name, StringComparison.OrdinalIgnoreCase));
 
-    private static int ApplyImportedSessionSettings(XElement root, QuasarSessionSettings sessionSettings)
+    private static int ApplyImportedSessionSettings(
+        XElement root,
+        QuasarSessionSettings sessionSettings,
+        bool includeOnlineMode)
     {
         var settingsElement = ElementIgnoreCase(root, "Settings");
         if (settingsElement is null)
@@ -139,7 +142,7 @@ public static class WorldSandboxConfigEditor
         {
             if (string.IsNullOrWhiteSpace(option.ElementName))
                 continue;
-            if (option.PropertyName == nameof(QuasarSessionSettings.OnlineMode))
+            if (!includeOnlineMode && option.PropertyName == nameof(QuasarSessionSettings.OnlineMode))
                 continue;
 
             var element = ElementIgnoreCase(settingsElement, option.ElementName);
@@ -147,7 +150,7 @@ public static class WorldSandboxConfigEditor
                 continue;
 
             var property = QuasarConfigMetadata.GetProperty(option);
-            if (!TryReadValue(option, property, element, out var value))
+            if (!TryReadConfigOptionValue(option, property, element, out var value))
                 continue;
 
             property.SetValue(sessionSettings, value);
@@ -157,7 +160,7 @@ public static class WorldSandboxConfigEditor
         return count;
     }
 
-    private static bool TryReadValue(
+    internal static bool TryReadConfigOptionValue(
         QuasarConfigOptionDefinition option,
         PropertyInfo property,
         XElement element,
@@ -197,6 +200,13 @@ public static class WorldSandboxConfigEditor
                 }
 
                 return false;
+
+            case QuasarConfigOptionKind.SelectText
+                when property.PropertyType == typeof(QuasarNetworkType):
+                value = string.Equals(text, "EOS", StringComparison.OrdinalIgnoreCase)
+                    ? QuasarNetworkType.EOS
+                    : QuasarNetworkType.Steam;
+                return true;
 
             case QuasarConfigOptionKind.KeyValueText
                 when property.PropertyType == typeof(Dictionary<string, int>):

@@ -128,7 +128,7 @@
                 </MudStack>
 
                 <MudText Typo="Typo.body2">
-                    Controls the consent flag Quasar passes to Magnetar on the next server start. YES starts Magnetar with <code>-consent</code>; NO and undecided start it with <code>-noconsent</code>.
+                    Controls the consent flag Quasar passes to Magnetar on the next server start. YES starts Magnetar with <code>-consent accept</code>; NO and undecided start it with <code>-consent deny</code>. Magnetar builds older than 2.3.3.0 receive the legacy <code>-consent</code> / <code>-noconsent</code> flags instead.
                 </MudText>
                 <MudText Typo="Typo.caption" Color="Color.Secondary">
                     Stored at <CopyablePath Value="@DataHandlingConsent.SettingsPath" Inline="true" TextClass="" />.

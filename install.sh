@@ -13,8 +13,6 @@ START_SERVICE=false
 SKIP_BUILD=false
 INSTALL_MODE="user"
 INSTALL_RENICE_HELPER=false
-INSTALL_UI_PLUGIN_SDK=false
-INSTALL_UI_PLUGIN_SDK_ONLY=false
 ASSUME_YES=false
 RENICE_HELPER_PATH="/usr/local/bin/quasar-renice"
 RUN_USER="${USER:-}"
@@ -34,9 +32,10 @@ For machine-wide service installation, pass --system and run with sudo.
 If the required .NET 10 SDK/runtime is missing, the installer detects apt, dnf,
 yum, pacman, or zypper, prints the exact install commands, and prompts before
 running them. On Debian 13, apt installs first add Microsoft's Debian 13 package
-feed. Packaged installs need only the runtime to run Quasar; pass
---install-ui-plugin-sdk to also install the SDK used for source-built QuasarHub
-UI plugin installs and updates.
+feed. Packaged installs need only the runtime. When an administrator later
+installs a source-built UI plugin, Quasar prefers a suitable SDK on PATH and can
+otherwise download a pinned private SDK into its managed data directory after
+confirmation. The administrator can cancel and install the SDK manually instead.
 
 Options:
   --install-dir <dir>       Install directory (default: extracted installer root; source installs use <run-user-home>/.local/share/Quasar)
@@ -50,9 +49,6 @@ Options:
   --no-enable               Do not enable the service at boot
   --start                   Restart/start the service after installing
   --no-build                Install from an existing publish directory
-  --install-ui-plugin-sdk   Install .NET SDK for QuasarHub UI plugin builds
-  --install-ui-plugin-sdk-only
-                            Only install .NET SDK for QuasarHub UI plugin builds, then exit
   --yes                     Run package install commands without confirmation
   -h, --help                Show this help
 EOF
@@ -269,51 +265,24 @@ build_dotnet_install_commands() {
 prompt_and_install_dotnet() {
     local label="$1"
     local package_kind="$2"
-    local required="${3:-true}"
-    local required_message="${4:-$label is required before installing Quasar.}"
     local package_manager
     package_manager="$(detect_package_manager)"
 
     if [[ -z "$package_manager" ]]; then
-        if [[ "$required" == "true" ]]; then
-            echo "$label is required before installing Quasar." >&2
-        else
-            echo "$label was not installed." >&2
-        fi
+        echo "$label is required before installing Quasar." >&2
         echo "No supported package manager found. Install it first: https://dotnet.microsoft.com/download/dotnet/$REQUIRED_DOTNET_MAJOR.0" >&2
-        if [[ "$required" == "true" ]]; then
-            exit 1
-        fi
-        return 1
+        exit 1
     fi
 
     local packages
     packages="$(dotnet_package_for_manager "$package_kind" "$package_manager")"
-    if [[ "$required" != "true" && "${EUID}" -ne 0 ]] && ! have sudo; then
-        echo "$label was not installed." >&2
-        echo "sudo is required to install system packages. Install it manually: https://dotnet.microsoft.com/download/dotnet/$REQUIRED_DOTNET_MAJOR.0" >&2
-        return 1
-    fi
-
     if ! build_dotnet_install_commands "$package_manager" "$packages"; then
-        if [[ "$required" == "true" ]]; then
-            echo "$label is required before installing Quasar." >&2
-        else
-            echo "$label was not installed." >&2
-        fi
+        echo "$label is required before installing Quasar." >&2
         echo "Unsupported package manager '$package_manager'. Install it first: https://dotnet.microsoft.com/download/dotnet/$REQUIRED_DOTNET_MAJOR.0" >&2
-        if [[ "$required" == "true" ]]; then
-            exit 1
-        fi
-        return 1
+        exit 1
     fi
 
-    if [[ "$required" == "true" ]]; then
-        echo "$required_message"
-    else
-        echo "$label is optional for QuasarHub UI plugin builds."
-        echo "The runtime can run Quasar; the SDK is needed when Quasar compiles source-built UI plugins."
-    fi
+    echo "$label is required before installing Quasar."
     echo "Quasar can install it with the detected package manager: $package_manager"
     echo
     echo "Exact commands to run:"
@@ -327,13 +296,8 @@ prompt_and_install_dotnet() {
         echo "Running commands without confirmation because --yes was passed."
     else
     if [[ ! -t 0 ]]; then
-        if [[ "$required" == "true" ]]; then
-            echo "Non-interactive terminal; refusing automatic .NET installation." >&2
-            exit 1
-        fi
-
-        echo "Non-interactive terminal; skipping optional $label installation." >&2
-        return 1
+        echo "Non-interactive terminal; refusing automatic .NET installation." >&2
+        exit 1
     fi
 
     local answer
@@ -342,13 +306,8 @@ prompt_and_install_dotnet() {
         y|Y|yes|YES|Yes)
             ;;
         *)
-            if [[ "$required" == "true" ]]; then
-                echo "Cancelled. Install $label manually, then rerun install.sh." >&2
-                exit 1
-            fi
-
-            echo "Skipped optional $label installation." >&2
-            return 1
+            echo "Cancelled. Install $label manually, then rerun install.sh." >&2
+            exit 1
             ;;
     esac
     fi
@@ -399,54 +358,6 @@ require_dotnet_installation() {
     echo ".NET $REQUIRED_DOTNET_MAJOR ASP.NET Core runtime is still missing after installation attempt." >&2
     print_installed_dotnet_state
     exit 1
-}
-
-ensure_optional_ui_plugin_sdk() {
-    if [[ "$SKIP_BUILD" == "false" ]]; then
-        return
-    fi
-
-    if dotnet_has_sdk; then
-        echo ".NET $REQUIRED_DOTNET_MAJOR SDK available for QuasarHub UI plugin builds."
-        return
-    fi
-
-    if [[ "$INSTALL_UI_PLUGIN_SDK" == "true" ]]; then
-        prompt_and_install_dotnet ".NET $REQUIRED_DOTNET_MAJOR SDK for QuasarHub UI plugin builds" "sdk"
-        if dotnet_has_sdk; then
-            return
-        fi
-
-        echo ".NET $REQUIRED_DOTNET_MAJOR SDK is still missing after installation attempt." >&2
-        print_installed_dotnet_state
-        exit 1
-    fi
-
-    if [[ ! -t 0 ]]; then
-        echo "Optional .NET $REQUIRED_DOTNET_MAJOR SDK not installed; Quasar can run, but QuasarHub UI plugin install/update is disabled until the SDK is installed." >&2
-        echo "Rerun install.sh with --install-ui-plugin-sdk to install it." >&2
-        return
-    fi
-
-    echo
-    echo "Optional .NET $REQUIRED_DOTNET_MAJOR SDK for QuasarHub UI plugin builds is not installed."
-    echo "The ASP.NET Core runtime can run Quasar; source-built UI plugin install/update uses dotnet build."
-
-    local answer
-    read -r -p "Install the SDK for UI plugin builds now? [y/N] " answer
-    case "$answer" in
-        y|Y|yes|YES|Yes)
-            prompt_and_install_dotnet ".NET $REQUIRED_DOTNET_MAJOR SDK for QuasarHub UI plugin builds" "sdk" false || true
-            if dotnet_has_sdk; then
-                echo ".NET $REQUIRED_DOTNET_MAJOR SDK available for QuasarHub UI plugin builds."
-            else
-                echo "Skipped optional SDK install. QuasarHub UI plugin install/update stays disabled until the SDK is installed." >&2
-            fi
-            ;;
-        *)
-            echo "Skipping optional SDK install. QuasarHub UI plugin install/update stays disabled until the SDK is installed."
-            ;;
-    esac
 }
 
 while [[ $# -gt 0 ]]; do
@@ -503,18 +414,6 @@ while [[ $# -gt 0 ]]; do
             SKIP_BUILD=true
             shift
             ;;
-        --install-ui-plugin-sdk)
-            INSTALL_UI_PLUGIN_SDK=true
-            shift
-            ;;
-        --install-ui-plugin-sdk-only)
-            INSTALL_UI_PLUGIN_SDK=true
-            INSTALL_UI_PLUGIN_SDK_ONLY=true
-            SKIP_BUILD=true
-            ENABLE_SERVICE=false
-            START_SERVICE=false
-            shift
-            ;;
         --yes|-y)
             ASSUME_YES=true
             shift
@@ -541,27 +440,6 @@ fi
 
 if [[ "$(uname -s)" != "Linux" ]]; then
     echo "install.sh currently supports Linux/systemd only." >&2
-    exit 1
-fi
-
-if [[ "$INSTALL_UI_PLUGIN_SDK_ONLY" == "true" ]]; then
-    if dotnet_has_sdk; then
-        echo ".NET $REQUIRED_DOTNET_MAJOR SDK available for QuasarHub UI plugin builds."
-        exit 0
-    fi
-
-    prompt_and_install_dotnet \
-        ".NET $REQUIRED_DOTNET_MAJOR SDK for QuasarHub UI plugin builds" \
-        "sdk" \
-        "true" \
-        ".NET $REQUIRED_DOTNET_MAJOR SDK is required to install or update source-built QuasarHub UI plugins."
-    if dotnet_has_sdk; then
-        echo ".NET $REQUIRED_DOTNET_MAJOR SDK available for QuasarHub UI plugin builds."
-        exit 0
-    fi
-
-    echo ".NET $REQUIRED_DOTNET_MAJOR SDK is still missing after installation attempt." >&2
-    print_installed_dotnet_state
     exit 1
 fi
 
@@ -619,7 +497,6 @@ case "$INSTALL_DIR" in
 esac
 
 require_dotnet_installation
-ensure_optional_ui_plugin_sdk
 
 write_service_unit() {
     if [[ "$INSTALL_MODE" == "system" ]]; then
@@ -853,6 +730,13 @@ Run user:    $RUN_USER
 Renice helper:
   $RENICE_HELPER_PATH
   Install when needed: $INSTALL_DIR/install.sh --install-renice-helper --no-build --no-enable
+
+UI plugin SDK:
+  No SDK is downloaded by this installer for packaged installs. When an admin
+  first installs a source-built UI plugin, Quasar uses a .NET 10 SDK on PATH or
+  offers a confirmed private download into
+  $INSTALL_DIR/ManagedRuntime/Tools/DotNetSdk.
+  The admin can cancel and install .NET 10 with the system package manager.
 
 Start/restart when ready:
 EOF

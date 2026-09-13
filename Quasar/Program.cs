@@ -1,5 +1,6 @@
 using Quasar.Components;
 using Quasar.Models;
+using Quasar.Networking;
 using Quasar.Services;
 using Quasar.Services.Analytics;
 using Quasar.Services.Auth;
@@ -182,7 +183,13 @@ public class Program
             builder.Services.AddDataProtection()
                 .SetApplicationName("Quasar")
                 .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyringDirectory));
-            builder.Services.AddHttpClient();
+            builder.Services.AddHttpClient(string.Empty)
+                .AddHttpMessageHandler(serviceProvider =>
+                {
+                    var logger = serviceProvider.GetRequiredService<ILogger<GitHubRetryHandler>>();
+                    return new GitHubRetryHandler((message, exception) =>
+                        logger.LogWarning(exception, "{Message}", message));
+                });
             builder.Services.AddHttpClient<ClusterGatewayClient>(client =>
                 client.Timeout = Timeout.InfiniteTimeSpan);
             builder.Services.AddHttpClient<ClusterHostClient>(client =>
@@ -222,6 +229,7 @@ public class Program
             builder.Services.AddSingleton<ManagedRuntimeWarmupService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ManagedRuntimeWarmupService>());
             builder.Services.AddSingleton<DedicatedServerCatalog>();
+            builder.Services.AddSingleton<ExistingServerImportService>();
             builder.Services.AddSingleton<ClusterCatalog>();
             builder.Services.AddSingleton<ClusterOperationStore>();
             builder.Services.AddSingleton<ClusterCommandService>();
@@ -244,6 +252,7 @@ public class Program
             builder.Services.AddSingleton<DiscordCommandRouter>();
             builder.Services.AddSingleton<DiscordChatRelayService>();
             builder.Services.AddSingleton<DiscordDeathRelayService>();
+            builder.Services.AddSingleton<DiscordStatusRelayService>();
             builder.Services.AddSingleton<DiscordSimSpeedAlertService>();
             builder.Services.AddSingleton<DiscordLogRelayService>();
             builder.Services.AddSingleton<DiscordAnalyticsExportService>();
@@ -263,6 +272,7 @@ public class Program
                 builder.Services.AddScoped<WorldTemplateImportLocationService>();
                 builder.Services.AddScoped<ServerManagementActions>();
                 builder.Services.AddSingleton<QuasarUiPluginStateStore>();
+                builder.Services.AddSingleton<QuasarManagedDotNetSdkService>();
                 builder.Services.AddSingleton<QuasarUiPluginHubCatalogService>();
                 builder.Services.AddSingleton<QuasarUiPluginHubRefreshService>();
                 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUiPluginHubRefreshService>());
@@ -272,6 +282,7 @@ public class Program
             }
 
             var app = builder.Build();
+            _ = app.Services.GetRequiredService<RbacConfigCatalog>();
 
             if (!webServiceOptions.Headless && !app.Environment.IsDevelopment())
                 app.UseExceptionHandler("/Error");
@@ -450,7 +461,7 @@ public class Program
                     .AllowAnonymous();
             }
 
-            app.MapPost("/api/internal/drain", (HttpContext context, DedicatedServerSupervisor supervisor, QuasarShutdownService shutdownService, IHostApplicationLifetime lifetime, TrustedNetworkEvaluator trustedNetworkEvaluator) =>
+            app.MapPost("/api/internal/drain", async (HttpContext context, DedicatedServerSupervisor supervisor, QuasarShutdownService shutdownService, IHostApplicationLifetime lifetime, TrustedNetworkEvaluator trustedNetworkEvaluator) =>
             {
                 var expectedToken = context.RequestServices.GetRequiredService<WebServiceOptions>().LauncherToken;
                 if (string.IsNullOrWhiteSpace(expectedToken) ||
@@ -468,7 +479,7 @@ public class Program
 
                 var stopServers = bool.TryParse(context.Request.Query["stopServers"], out var parsedStopServers) && parsedStopServers;
                 if (!stopServers)
-                    supervisor.BeginLauncherDrain();
+                    await supervisor.BeginLauncherDrainAsync();
 
                 _ = Task.Run(async () =>
                 {

@@ -18,9 +18,12 @@
          references (and the host provides at runtime). The Magnetar release lays
          the binaries out differently per OS: on Windows the SE1 (legacy) SDK and
          its dependencies live under $(Magnetar)\Libraries\MagnetarLegacy, while
-         Linux releases stage them under $(Magnetar)/Bin. -->
+         Linux releases stage them under $(Magnetar)/Libraries/MagnetarInterim.
+         Older Linux installs used $(Magnetar)/Bin; keep building against one of
+         those until it is migrated, but default to the current layout otherwise. -->
     <MagnetarBin Condition="'$(MagnetarBin)' == '' AND '$(Magnetar)' != '' AND $([MSBuild]::IsOSPlatform('Windows'))">$([System.IO.Path]::Combine('$(Magnetar)', 'Libraries', 'MagnetarLegacy'))</MagnetarBin>
-    <MagnetarBin Condition="'$(MagnetarBin)' == '' AND '$(Magnetar)' != '' AND !$([MSBuild]::IsOSPlatform('Windows'))">$([System.IO.Path]::Combine('$(Magnetar)', 'Bin'))</MagnetarBin>
+    <MagnetarBin Condition="'$(MagnetarBin)' == '' AND '$(Magnetar)' != '' AND !$([MSBuild]::IsOSPlatform('Windows')) AND !Exists('$(Magnetar)/Libraries/MagnetarInterim') AND Exists('$(Magnetar)/Bin')">$([System.IO.Path]::Combine('$(Magnetar)', 'Bin'))</MagnetarBin>
+    <MagnetarBin Condition="'$(MagnetarBin)' == '' AND '$(Magnetar)' != '' AND !$([MSBuild]::IsOSPlatform('Windows'))">$([System.IO.Path]::Combine('$(Magnetar)', 'Libraries', 'MagnetarInterim'))</MagnetarBin>
 
     <!-- Folder containing SpaceEngineersDedicated.exe on Windows -->
     <DS64 Condition="'$(DS64)' == '' AND $([MSBuild]::IsOSPlatform('Windows'))">$(registry:HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 298740@InstallLocation)\DedicatedServer64</DS64>

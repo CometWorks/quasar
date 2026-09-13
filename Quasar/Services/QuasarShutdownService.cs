@@ -94,13 +94,13 @@ public sealed class QuasarShutdownService
     /// When Quasar runs standalone (no launcher) the worker simply stops and is not
     /// brought back.
     /// </summary>
-    public void RestartWorker(IProgress<string>? progress = null)
+    public async Task RestartWorkerAsync(IProgress<string>? progress = null)
     {
-        // BeginLauncherDrain marks the supervisor to preserve servers on this stop and
+        // BeginLauncherDrainAsync marks the supervisor to preserve servers on this stop and
         // persists the runtime snapshot (including PIDs) so the next worker can adopt
         // them.
         progress?.Report("Restarting Quasar worker…");
-        _supervisor.BeginLauncherDrain();
+        await _supervisor.BeginLauncherDrainAsync();
 
         if (TryRequestLauncherWorkerRestart())
         {
@@ -113,14 +113,16 @@ public sealed class QuasarShutdownService
 
     /// <summary>
     /// Stops Quasar while preserving managed servers. When launched by Bootstrap,
-    /// the worker asks the launcher to enter a drained state so it does not
-    /// respawn the worker until the external service/task is restarted.
+    /// the worker asks the launcher to exit successfully after the worker stops,
+    /// so the external service/task restart-on-failure policy leaves it stopped.
     /// </summary>
-    public void ShutdownQuasarPreservingServers(IProgress<string>? progress = null)
+    public async Task ShutdownQuasarPreservingServersAsync(IProgress<string>? progress = null)
     {
         progress?.Report("Shutting down Quasar…");
-        _supervisor.BeginLauncherDrain();
+        _logger.LogInformation("Quasar shutdown requested; preserving managed server state before stopping.");
+        await _supervisor.BeginLauncherDrainAsync();
         RequestLauncherShutdown();
+        _logger.LogInformation("Managed server state saved; stopping the Quasar web worker.");
         _lifetime.StopApplication();
     }
 
@@ -132,10 +134,12 @@ public sealed class QuasarShutdownService
         try
         {
             File.WriteAllText(GetLauncherShutdownRequestPath(), DateTimeOffset.UtcNow.ToString("O"));
+            _logger.LogInformation("Requested Bootstrap shutdown after the web worker exits.");
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Failed writing Quasar launcher drain request.");
+            _logger.LogError(exception, "Failed writing Quasar launcher shutdown request; Quasar remains running.");
+            throw new InvalidOperationException("Could not request Bootstrap shutdown. Check write access to the Quasar install directory.", exception);
         }
     }
 

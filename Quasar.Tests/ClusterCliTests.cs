@@ -1,6 +1,8 @@
+extern alias Bootstrap;
+
 using System.Net;
 using System.Text;
-using Quasar.Bootstrap;
+using Bootstrap::Quasar.Bootstrap;
 using Xunit;
 
 namespace Quasar.Tests;

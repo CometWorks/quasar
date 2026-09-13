@@ -18,4 +18,6 @@ public enum ServerCommandType
     ClearKickCooldown = 13,
     SetProfilerMode = 14,
     PluginRequest = 15,
+    SendWhisper = 16,
+    SendFactionChat = 17,
 }

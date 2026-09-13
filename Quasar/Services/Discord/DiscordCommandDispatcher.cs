@@ -1,5 +1,4 @@
 using Discord;
-using Discord.WebSocket;
 using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Transport;
 using Quasar.Models;
@@ -33,7 +32,7 @@ public sealed class DiscordCommandDispatcher
         DiscordServerOptions serverOptions,
         string verb,
         string args,
-        SocketMessage message,
+        IMessage message,
         CancellationToken cancellationToken = default)
     {
         try
@@ -59,11 +58,12 @@ public sealed class DiscordCommandDispatcher
                     return;
 
                 case "stop":
-                    await _supervisor.StopServerAsync(serverOptions.UniqueName, cancellationToken);
+                    await _supervisor.SetGoalStateAsync(serverOptions.UniqueName, DedicatedServerGoalState.Off, cancellationToken);
                     await ReplyAsync(message, "Stop requested.");
                     return;
 
                 case "start":
+                    await _supervisor.SetGoalStateAsync(serverOptions.UniqueName, DedicatedServerGoalState.On, reconcile: false, cancellationToken);
                     await _supervisor.StartServerAsync(serverOptions.UniqueName, cancellationToken);
                     await ReplyAsync(message, "Start requested.");
                     return;
@@ -117,7 +117,7 @@ public sealed class DiscordCommandDispatcher
     public async Task RelayChatAsync(
         DiscordServerOptions serverOptions,
         string text,
-        SocketMessage message,
+        IMessage message,
         CancellationToken cancellationToken = default)
     {
         try
@@ -139,8 +139,60 @@ public sealed class DiscordCommandDispatcher
         }
     }
 
+    public async Task SendWhisperAsync(
+        DiscordServerOptions serverOptions,
+        string recipient,
+        string text,
+        string discordAuthor,
+        CancellationToken cancellationToken = default)
+    {
+        var player = ResolveOnlinePlayer(serverOptions.UniqueName, recipient);
+        var gameText = FormatDiscordGameMessage(discordAuthor, text);
+        if (string.IsNullOrWhiteSpace(gameText))
+            throw new InvalidOperationException("Whisper message is empty.");
+
+        _chatRelayService.TrackDiscordToGameMessage(serverOptions.UniqueName, gameText);
+        await SendAgentCommandAsync(
+            serverOptions.UniqueName,
+            ServerCommandType.SendWhisper,
+            text: gameText,
+            steamId: player.SteamId,
+            cancellationToken: cancellationToken);
+    }
+
+    public async Task RelayFactionChatAsync(
+        DiscordServerOptions serverOptions,
+        string factionTag,
+        string text,
+        IMessage message,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var gameText = FormatDiscordGameMessage(message, text);
+            if (string.IsNullOrWhiteSpace(gameText))
+                return;
+
+            await SendAgentCommandAsync(
+                serverOptions.UniqueName,
+                ServerCommandType.SendFactionChat,
+                text: gameText,
+                payload: factionTag,
+                cancellationToken: cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Discord faction chat relay failed for server {UniqueName}, faction {FactionTag}",
+                serverOptions.UniqueName,
+                factionTag);
+            await ReplyAsync(message, $"Error: {exception.Message}");
+        }
+    }
+
     private async Task DispatchSteamIdCommandAsync(
-        SocketMessage message,
+        IMessage message,
         string uniqueName,
         string args,
         ServerCommandType commandType,
@@ -162,6 +214,7 @@ public sealed class DiscordCommandDispatcher
         ServerCommandType commandType,
         string text = "",
         long? steamId = null,
+        string payload = "",
         CancellationToken cancellationToken = default)
     {
         var agent = ResolveConnectedAgent(uniqueName);
@@ -176,8 +229,34 @@ public sealed class DiscordCommandDispatcher
             CommandType = commandType,
             Text = text,
             SteamId = steamId,
+            Payload = payload,
             IssuedAtUtc = DateTimeOffset.UtcNow,
         }, cancellationToken);
+    }
+
+    private PlayerSnapshot ResolveOnlinePlayer(string uniqueName, string recipient)
+    {
+        var agent = ResolveConnectedAgent(uniqueName)
+            ?? throw new InvalidOperationException("Server not connected.");
+        var query = (recipient ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(query))
+            throw new InvalidOperationException("Whisper recipient is missing.");
+
+        var matches = (agent.Snapshot?.Players ?? [])
+            .Where(player => player.SteamId > 0 &&
+                (string.Equals(player.SteamId.ToString(), query, StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(player.DisplayName, query, StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(player.PlatformDisplayName, query, StringComparison.OrdinalIgnoreCase)))
+            .GroupBy(player => player.SteamId)
+            .Select(group => group.First())
+            .ToList();
+
+        return matches.Count switch
+        {
+            1 => matches[0],
+            0 => throw new InvalidOperationException($"Online player '{query}' was not found."),
+            _ => throw new InvalidOperationException($"Player name '{query}' is ambiguous; use the Steam ID."),
+        };
     }
 
     private AgentRuntimeState? ResolveConnectedAgent(string uniqueName)
@@ -223,7 +302,7 @@ public sealed class DiscordCommandDispatcher
             builder
                 .AddField("Players", $"{metrics.PlayersOnline}/{metrics.MaxPlayers}", inline: true)
                 .AddField("SimSpeed", metrics.SimSpeed.ToString("0.000"), inline: true)
-                .AddField("CPU", $"{metrics.ServerCpuLoadPercent:0.0}%", inline: true)
+                .AddField("Process CPU (100% = 1 logical CPU)", $"{metrics.ServerCpuLoadPercent:0.0}%", inline: true)
                 .AddField("Memory", metrics.MemoryWorkingSetMb is > 0 ? $"{metrics.MemoryWorkingSetMb.Value} MB" : "n/a", inline: true)
                 .AddField("PCU", $"{metrics.UsedPcu}/{metrics.TotalPcu}", inline: true)
                 .AddField("Grids", metrics.ActiveGridCount?.ToString() ?? "n/a", inline: true)
@@ -284,16 +363,22 @@ public sealed class DiscordCommandDispatcher
         };
     }
 
-    private static string FormatDiscordGameMessage(SocketMessage message, string text)
+    private static string FormatDiscordGameMessage(IMessage message, string text)
+    {
+        return FormatDiscordGameMessage(ResolveDiscordAuthorName(message), text);
+    }
+
+    private static string FormatDiscordGameMessage(string author, string text)
     {
         var content = NormalizeDiscordContent(text);
         if (string.IsNullOrWhiteSpace(content))
             return string.Empty;
 
-        return $"[Discord] {ResolveDiscordAuthorName(message)}: {content}";
+        var normalizedAuthor = NormalizeDiscordContent(author);
+        return $"[Discord] {(string.IsNullOrWhiteSpace(normalizedAuthor) ? "Discord user" : normalizedAuthor)}: {content}";
     }
 
-    private static string ResolveDiscordAuthorName(SocketMessage message)
+    private static string ResolveDiscordAuthorName(IMessage message)
     {
         var author = message.Author?.Username?.Trim();
         return string.IsNullOrWhiteSpace(author) ? "Discord user" : author;
@@ -318,7 +403,7 @@ public sealed class DiscordCommandDispatcher
         return $"{Math.Max(0, duration.Seconds)}s";
     }
 
-    private static Task ReplyAsync(SocketMessage message, string text)
+    private static Task ReplyAsync(IMessage message, string text)
     {
         return message.Channel.SendMessageAsync(text: text);
     }

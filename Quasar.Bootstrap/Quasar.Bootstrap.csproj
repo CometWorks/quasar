@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Magnetar.Protocol\Magnetar.Protocol.csproj" />
     <PackageReference Include="CometWorks.ClusterGateway.AdminContract" Version="0.5.0" />
+    <Compile Include="..\Shared\Networking\GitHubRetryHandler.cs" Link="Networking\GitHubRetryHandler.cs" />
   </ItemGroup>
 
   <ItemGroup>

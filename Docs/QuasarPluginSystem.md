@@ -146,11 +146,13 @@ The `/settings/ui-plugins` page now manages the QuasarHub catalog:
   update availability stays current
 - automatically installs or updates reviewed hub entries that opt into
   `ImplicitLoading`; disabled installed plugins stay disabled across implicit
-  updates
-- shows installed, update-available, hidden, and invalid package states
+  updates, while explicitly removed plugins stay removed
+- shows installed, update-available, recommended, hidden, and invalid package
+  states
 - enables or disables installed packages for the next restart
-- clones/fetches the plugin repository and checks out the pinned commit
-- checks for the matching .NET SDK before building source packages
+- downloads the pinned GitHub source archive over HTTPS; Git is not required
+- prefers a matching .NET SDK on `PATH`, then Quasar's private managed SDK,
+  before building source packages
 - builds the declared plugin project with `dotnet build`
 - passes `QuasarPluginAbstractionsAssembly` to the build so the plugin compiles
   against the contract DLL loaded by the running Quasar worker
@@ -159,7 +161,7 @@ The `/settings/ui-plugins` page now manages the QuasarHub catalog:
   so they compile against the protocol and Dedicated Server assemblies used by
   the Quasar-managed host; if Quasar cannot resolve a valid DS64 directory, the
   companion project's own `DS64` fallback remains in effect
-- removes local plugin packages
+- removes local plugin packages and records an opt-out from implicit reinstall
 - links back to the plugin repository and QuasarHub
 
 Installed UI plugin source packages live under:
@@ -174,13 +176,7 @@ Installer staging lives under:
 {Quasar install directory}/Caches/ui-plugin-installer
 ```
 
-Git source cache lives under:
-
-```text
-{Quasar install directory}/Caches/ui-plugin-sources
-```
-
-Enabled/disabled state lives under:
+Enabled/disabled state and explicit implicit-install opt-outs live under:
 
 ```text
 {Quasar install directory}/ui-plugins.state.json
@@ -195,16 +191,25 @@ The installer passes the running worker's physical
 `QuasarPluginAbstractionsAssembly`. Release packaging keeps that DLL beside the
 single-file worker so Bootstrap-managed installs can build UI plugins from
 QuasarHub without needing a NuGet package.
-The web worker must still have a matching .NET SDK on `PATH`; the ASP.NET Core
-runtime is enough to run Quasar, but not enough to compile source-built UI
-plugins. At startup Quasar checks `dotnet --list-sdks`; if the required SDK is
-missing, `/settings/ui-plugins` shows `.NET SDK required to build UI plugins`
-and disables QuasarHub install/update buttons until the SDK is installed and the
-check is refreshed. On Linux, the warning includes an **Install SDK** action that
-runs `install.sh --install-ui-plugin-sdk-only --yes`, captures the installer
-output, refreshes the SDK preflight, and leaves Quasar service files untouched.
-This can still fail if package installation requires an interactive sudo
-password.
+The ASP.NET Core runtime is enough to run Quasar, but not enough to compile
+source-built UI plugins. Quasar checks for a compatible .NET 10 SDK on `PATH`
+first. If one is present, Quasar uses it and never downloads a private copy. If
+not, Quasar checks its managed SDK directory:
+
+```text
+{Quasar data}/ManagedRuntime/Tools/DotNetSdk/{pinned version}
+```
+
+When an administrator starts an install or update and neither SDK is available,
+the UI offers three outcomes: download the pinned private SDK, install the SDK
+manually through the operating system's package manager, or cancel. The private
+archive has a platform-specific pinned URL and SHA-512, is verified before
+extraction, and is used without changing the process `PATH` or installing system
+packages. Downloads are staged below
+`{Quasar data}/ManagedRuntime/Cache/DotNetSdk` and only begin after explicit
+approval. The pinned SDK is currently `10.0.111` for Windows and Linux on x64 and
+Arm64.
+
 Owned companion build output is written under
 `{installed package}/.quasar/companions/{companion id}`. Quasar passes
 `MagnetarProtocolAssembly` from the running worker or staged `Agent/` directory
@@ -231,12 +236,22 @@ watcher is stored in browser session storage, so refreshing the page resumes the
 same progress overlay and health polling. Managed Space Engineers server
 processes stay detached during the Quasar worker restart and are adopted as
 running by the replacement worker when their process id is still alive.
+Removing a hub plugin records its catalog ID in `ui-plugins.state.json`, so an
+`ImplicitLoading` entry is not downloaded again. A later manual install clears
+that opt-out.
 
 QuasarHub descriptors can set `<ImplicitLoading>true</ImplicitLoading>` for
 reviewed plugins that should be present by default. Quasar installs or updates
 those entries during hub refresh, except in safe mode. A first implicit install
 is enabled for the next restart; if an already-installed plugin was explicitly
-disabled, implicit updates keep it disabled.
+disabled, implicit updates keep it disabled. Explicitly removed entries are
+skipped until an operator installs them again.
+
+Descriptors can independently set `<Recommended>true</Recommended>` to feature
+an opt-in plugin without installing it automatically. Recommended entries sort
+near the top of `/settings/ui-plugins` and display a recommendation badge. The
+Entity Viewer uses this state and is no longer implicitly installed for every
+Quasar instance.
 
 ## Plugin Abstractions
 
@@ -584,8 +599,8 @@ plugin's static asset root under a deterministic path:
 
 The Entity Viewer can keep its JavaScript/Three.js-heavy surface in its own
 repository and serve it from that plugin path. Quasar core no longer copies
-viewer assets into `Quasar/wwwroot`; the QuasarHub installer clones the pinned
-viewer repository commit, builds the adapter project, and loads the package from
+viewer assets into `Quasar/wwwroot`; the QuasarHub installer downloads the pinned
+viewer repository archive, builds the adapter project, and loads the package from
 the Quasar install directory.
 
 Plugins can also ask Quasar to inject package stylesheets into the host page by

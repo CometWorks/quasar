@@ -36,9 +36,7 @@ public sealed class DiscordChatRelayService
 
         var agents = _registry.GetAgents();
 
-        foreach (var serverOptions in options.Servers.Where(server =>
-                     server.EnableChatRelay &&
-                     server.ChatRelayChannelId.HasValue))
+        foreach (var serverOptions in options.Servers.Where(server => server.EnableChatRelay))
         {
             var agent = agents.FirstOrDefault(item =>
                 item.IsConnected &&
@@ -48,9 +46,20 @@ public sealed class DiscordChatRelayService
             if (agent?.Snapshot is null)
                 continue;
 
-            var freshMessages = CollectFreshMessages(serverOptions.UniqueName, agent.Snapshot.RecentChat);
+            var freshMessages = CollectFreshMessages(serverOptions, agent.Snapshot.RecentChat);
             foreach (var freshMessage in freshMessages)
-                Enqueue(client, serverOptions.ChatRelayChannelId!.Value, freshMessage, cancellationToken);
+            {
+                if (freshMessage.RequiresAdminOnlyChannel && !IsAdminOnlyChannel(client, freshMessage.ChannelId))
+                {
+                    _logger.LogWarning(
+                        "Refused to relay private {ChatChannel} chat to Discord channel {ChannelId}; channel is not admin-only.",
+                        freshMessage.ChatChannel,
+                        freshMessage.ChannelId);
+                    continue;
+                }
+
+                Enqueue(client, freshMessage.ChannelId, freshMessage.Content, cancellationToken);
+            }
         }
 
         return Task.CompletedTask;
@@ -92,8 +101,11 @@ public sealed class DiscordChatRelayService
         }
     }
 
-    private IReadOnlyList<string> CollectFreshMessages(string uniqueName, IReadOnlyList<ChatMessageSnapshot> recentChat)
+    private IReadOnlyList<RelayMessage> CollectFreshMessages(
+        DiscordServerOptions serverOptions,
+        IReadOnlyList<ChatMessageSnapshot> recentChat)
     {
+        var uniqueName = serverOptions.UniqueName;
         lock (_sync)
         {
             if (!_dedup.TryGetValue(uniqueName, out var dedupState))
@@ -117,7 +129,7 @@ public sealed class DiscordChatRelayService
                 return [];
             }
 
-            var fresh = new List<string>();
+            var fresh = new List<RelayMessage>();
             foreach (var message in recentChat.OrderBy(item => item.TimestampTicksUtc))
             {
                 if (!AddSeen(dedupState, message.TimestampTicksUtc))
@@ -132,16 +144,86 @@ public sealed class DiscordChatRelayService
                 if (TryConsumeSuppressedDiscordEcho(uniqueName, message.Content))
                     continue;
 
+                var channelId = ResolveRelayChannelId(serverOptions, message);
+                if (!channelId.HasValue)
+                    continue;
+
                 var author = TextSanitizer.CleanGameText(message.AuthorName);
                 if (string.IsNullOrWhiteSpace(author))
                     author = "Unknown";
 
                 var content = TextSanitizer.CleanGameText(message.Content);
-                fresh.Add($"**{author}**: {content}");
+                fresh.Add(new RelayMessage(
+                    channelId.Value,
+                    FormatRelayMessage(message, author, content),
+                    message.Channel,
+                    RequiresAdminOnlyChannel(message.Channel)));
             }
 
             return fresh;
         }
+    }
+
+    internal static ulong? ResolveRelayChannelId(DiscordServerOptions serverOptions, ChatMessageSnapshot message)
+    {
+        return message.Channel switch
+        {
+            ChatMessageChannel.Global => serverOptions.ChatRelayChannelId,
+            ChatMessageChannel.Whisper => serverOptions.AdminChannelId,
+            ChatMessageChannel.Faction => serverOptions.FactionChannels
+                .FirstOrDefault(channel => string.Equals(
+                    channel.FactionTag,
+                    message.FactionTag,
+                    StringComparison.OrdinalIgnoreCase))
+                ?.ChannelId,
+            _ => null,
+        };
+    }
+
+    internal static bool RequiresAdminOnlyChannel(ChatMessageChannel channel) =>
+        channel is ChatMessageChannel.Faction or ChatMessageChannel.Whisper;
+
+    private static string FormatRelayMessage(ChatMessageSnapshot message, string author, string content)
+    {
+        if (message.Channel == ChatMessageChannel.Whisper)
+        {
+            var target = TextSanitizer.CleanGameText(message.TargetName);
+            if (string.IsNullOrWhiteSpace(target))
+                target = message.TargetId > 0 ? message.TargetId.ToString() : "Unknown";
+
+            return $"🔒 **{author}** → **{target}**: {content}";
+        }
+
+        if (message.Channel == ChatMessageChannel.Faction)
+        {
+            var factionTag = TextSanitizer.CleanGameText(message.FactionTag);
+            return $"[{factionTag}] **{author}**: {content}";
+        }
+
+        return $"**{author}**: {content}";
+    }
+
+    private static bool IsAdminOnlyChannel(DiscordSocketClient client, ulong channelId)
+    {
+        if (client.GetChannel(channelId) is not SocketGuildChannel channel)
+            return false;
+
+        var everyoneDenied = channel.PermissionOverwrites.Any(overwrite =>
+            overwrite.TargetType == PermissionTarget.Role &&
+            overwrite.TargetId == channel.Guild.EveryoneRole.Id &&
+            overwrite.Permissions.ViewChannel == PermValue.Deny);
+        if (!everyoneDenied)
+            return false;
+
+        return channel.PermissionOverwrites.All(overwrite =>
+        {
+            if (overwrite.Permissions.ViewChannel != PermValue.Allow)
+                return true;
+            if (overwrite.TargetType == PermissionTarget.User)
+                return overwrite.TargetId == channel.Guild.CurrentUser.Id;
+
+            return channel.Guild.GetRole(overwrite.TargetId)?.Permissions.Administrator == true;
+        });
     }
 
     private static bool AddSeen(DedupState dedupState, long timestampTicksUtc)
@@ -265,6 +347,12 @@ public sealed class DiscordChatRelayService
     }
 
     private sealed record SuppressedMessage(string Content, DateTimeOffset ExpiresAtUtc);
+
+    private sealed record RelayMessage(
+        ulong ChannelId,
+        string Content,
+        ChatMessageChannel ChatChannel,
+        bool RequiresAdminOnlyChannel);
 
     private sealed class RelayChannelState
     {

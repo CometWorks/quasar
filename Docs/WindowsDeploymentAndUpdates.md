@@ -75,9 +75,19 @@ it to the Bootstrap process console, so Quasar web UI warnings and errors are
 available from the launcher side in addition to the configured Quasar log files.
 
 The UI **Shutdown Quasar** action drains the web worker, preserves managed
-servers, and leaves Bootstrap running without a worker. Because the task process
-is still alive, Task Scheduler does not restart the worker by itself. Stop and
-start the `Quasar` Scheduled Task to start the UI and supervisor again.
+servers, and fully stops Bootstrap with exit code `0`. The Scheduled Task
+completes successfully, so its restart-on-failure policy does not relaunch Quasar.
+Run `Start-ScheduledTask -TaskName Quasar` to start the UI and supervisor again.
+In foreground mode, the launcher exits and returns control to the terminal.
+Install the updated Bootstrap launcher for this behavior; updating only the web
+worker leaves older launchers using the previous drained/idle behavior.
+
+The web worker awaits its managed-server state save before requesting Bootstrap
+shutdown. This must remain asynchronous: blocking on the save from a Blazor power
+action can deadlock the UI before Bootstrap receives any request. Install the
+updated web worker for this fix, alongside a Bootstrap version that exits on
+shutdown. If the shutdown request cannot be written, Quasar remains online and
+shows an error instead of stopping a worker that Bootstrap would restart.
 
 If Bootstrap has no usable `Updates/active-release.json` and no packaged
 `WebService/Quasar.exe`, it downloads the latest Windows web asset from GitHub and
@@ -165,11 +175,13 @@ Install the **.NET 10 runtime** before running `install.ps1`. The installer chec
 for `Microsoft.NETCore.App` 10.x before staging files, publishing, or registering
 the Scheduled Task, and exits with install instructions if it is missing.
 The runtime is enough to run packaged Quasar. QuasarHub UI plugin install/update
-compiles source with `dotnet build` and requires the **.NET 10 SDK**; when the SDK
-is missing, `/settings/ui-plugins` shows `.NET SDK required to build UI plugins`
-and disables install/update buttons. Automatic SDK install from the UI is a
-Linux `install.sh` feature; Windows operators should install the .NET SDK
-manually and refresh the SDK check.
+compiles source with `dotnet build` and requires the **.NET 10 SDK**. Quasar
+prefers a compatible SDK already on `PATH`, then a previously downloaded private
+SDK. If neither exists, the UI asks whether to download the pinned SDK into
+Quasar's managed data directory. The administrator can instead cancel, install
+the SDK through a package manager such as WinGet, and retry. The private SDK does
+not alter `PATH` or the system package database. Plugin sources are downloaded
+as pinned GitHub archives, so Git is not an installation prerequisite.
 
 ```powershell
 # From an extracted quasar-installer-windows.zip, in an elevated PowerShell:
@@ -247,6 +259,21 @@ NAT gateways, and public cloud IP ranges can hit GitHub's unauthenticated rate
 limit. The Updates page lets an admin save a GitHub token for release checks.
 It is stored in `github-updates.json` under the Quasar install directory with the
 same Data Protection encryption model used for the Steam Workshop API key.
+
+The same token is handed to every managed Magnetar start through the
+`PULSAR_GITHUB_TOKEN` environment variable so Pulsar's plugin-hub downloads are
+authenticated too. It is never placed on the server command line, and a
+`-github-token` flag typed into a server's launch arguments is removed before
+start. The token is masked in the launch-environment log that
+`LogLaunchEnvironment` prints. Magnetar builds older than 2.3.3.0 still receive
+the token as `-github-token` on the command line; this fallback is temporary and
+will be removed in the first Quasar release of 2027.
+
+All GitHub update, runtime, and plugin-catalog GET requests retry transient
+network failures and HTTP `408`, `429`, or `5xx` responses up to four times.
+Backoff starts at one second, honors `Retry-After`, and is capped at 30 seconds.
+A persistent outage is reported without stopping Quasar; scheduled checks can
+recover when connectivity returns.
 
 Use a classic personal access token without any permissions:
 

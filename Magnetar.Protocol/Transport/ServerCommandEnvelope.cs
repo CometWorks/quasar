@@ -23,7 +23,8 @@ public class ServerCommandEnvelope
     /// (e.g. <see cref="ServerCommandType.SetPlayerPromoteLevel"/> target level,
     /// <see cref="ServerCommandType.ListEntities"/> filter,
     /// <see cref="ServerCommandType.DeleteEntity"/> target,
-    /// <see cref="ServerCommandType.PluginRequest"/> companion request). Empty for simple commands.
+    /// <see cref="ServerCommandType.PluginRequest"/> companion request, or
+    /// <see cref="ServerCommandType.SendFactionChat"/> faction tag). Empty for simple commands.
     /// </summary>
     public string Payload { get; set; } = string.Empty;
 

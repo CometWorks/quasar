@@ -249,6 +249,12 @@
     }
 </MudStack>
 
+<MudText Typo="Typo.body2" Class="mb-4">
+    Process CPU adds usage across all server threads: 150% means about 1.5 logical CPUs in use.
+    Server Simulation CPU measures the update frame budget: 25% means about 4.2 ms of the 16.67 ms available.
+    These readings can coexist with smooth gameplay. Neither CPU percentage triggers automatic alerts or restarts.
+</MudText>
+
 @if (_chartCards.Count == 0)
 {
     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
@@ -1238,7 +1244,8 @@ else
         if (latestSamples.Count == 0)
         {
             _summaryChips.Add(new SummaryChipModel("SimSpeed", "-"));
-            _summaryChips.Add(new SummaryChipModel("CPU", "-"));
+            _summaryChips.Add(new SummaryChipModel("Process CPU", "-"));
+            _summaryChips.Add(new SummaryChipModel("Server Simulation CPU", "-"));
             _summaryChips.Add(new SummaryChipModel("Memory", "-"));
             _summaryChips.Add(new SummaryChipModel("Players", "-"));
             _summaryChips.Add(new SummaryChipModel("PCU", "-"));
@@ -1249,6 +1256,7 @@ else
 
         var simSpeed = latestSamples.Average(sample => sample.SimSpeed);
         var cpu = latestSamples.Average(sample => sample.CpuPercent);
+        var simCpu = latestSamples.Average(sample => sample.SimCpuPercent);
         var memory = latestSamples.Sum(sample => sample.MemoryMb > 0f ? sample.MemoryMb : 0f);
         var players = latestSamples.Sum(sample => sample.PlayersOnline);
         var pcu = latestSamples.Sum(sample => sample.UsedPcu);
@@ -1256,7 +1264,8 @@ else
         var entities = latestSamples.Where(sample => sample.ActiveEntityCount >= 0).Sum(sample => sample.ActiveEntityCount);
 
         _summaryChips.Add(new SummaryChipModel("SimSpeed", simSpeed.ToString("0.000")));
-        _summaryChips.Add(new SummaryChipModel("CPU", $"{cpu:0.0}%"));
+        _summaryChips.Add(new SummaryChipModel("Process CPU", $"{cpu:0.0}%"));
+        _summaryChips.Add(new SummaryChipModel("Server Simulation CPU", simCpu.HasValue ? $"{simCpu:0.0}%" : "-"));
         _summaryChips.Add(new SummaryChipModel("Memory", $"{memory:0} MB"));
         _summaryChips.Add(new SummaryChipModel("Players", players.ToString()));
         _summaryChips.Add(new SummaryChipModel("PCU", pcu.ToString()));

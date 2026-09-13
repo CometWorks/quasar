@@ -340,15 +340,23 @@
             timeoutMessage = "Still waiting for Quasar. Reloading Dashboard now.",
         });
 
-        ShutdownService.RestartWorker();
+        await ShutdownService.RestartWorkerAsync();
     }
 
     private async Task ShutdownQuasarAsync()
     {
         _isShuttingDown = true;
-        _shutdownStatus = "Draining Quasar… restart the service or task to bring the UI back.";
+        _shutdownStatus = "Shutting down Quasar… start Quasar again to bring the UI back.";
         await InvokeAsync(StateHasChanged);
-        ShutdownService.ShutdownQuasarPreservingServers();
+        try
+        {
+            await ShutdownService.ShutdownQuasarPreservingServersAsync();
+        }
+        catch (Exception exception)
+        {
+            _isShuttingDown = false;
+            Snackbar.Add($"Failed shutting down Quasar: {exception.Message}", Severity.Error);
+        }
     }
 
     private void ShutdownAllServers()

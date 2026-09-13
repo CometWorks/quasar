@@ -51,6 +51,16 @@ public sealed class DiscordServerOptions
 
     public ulong? ChatRelayChannelId { get; set; }
 
+    public ulong? StatusChannelId { get; set; }
+
+    public bool EnablePlayerNotifications { get; set; } = true;
+
+    public bool EnableServerNotifications { get; set; } = true;
+
+    public ulong? AdminChannelId { get; set; }
+
+    public List<DiscordFactionChannelOptions> FactionChannels { get; set; } = [];
+
     public ulong? LogChannelId { get; set; }
 
     public ulong? AnalyticsChannelId { get; set; }
@@ -106,6 +116,11 @@ public sealed class DiscordServerOptions
             CommandPrefix = CommandPrefix,
             CommandChannelId = CommandChannelId,
             ChatRelayChannelId = ChatRelayChannelId,
+            StatusChannelId = StatusChannelId,
+            EnablePlayerNotifications = EnablePlayerNotifications,
+            EnableServerNotifications = EnableServerNotifications,
+            AdminChannelId = AdminChannelId,
+            FactionChannels = FactionChannels.Select(channel => channel.Clone()).ToList(),
             LogChannelId = LogChannelId,
             AnalyticsChannelId = AnalyticsChannelId,
             DeathChannelId = DeathChannelId,
@@ -141,6 +156,17 @@ public sealed class DiscordServerOptions
             CommandPrefix = options.CommandPrefix?.Trim() ?? string.Empty,
             CommandChannelId = NormalizeChannelId(options.CommandChannelId),
             ChatRelayChannelId = NormalizeChannelId(options.ChatRelayChannelId),
+            StatusChannelId = NormalizeChannelId(options.StatusChannelId),
+            EnablePlayerNotifications = options.EnablePlayerNotifications,
+            EnableServerNotifications = options.EnableServerNotifications,
+            AdminChannelId = NormalizeChannelId(options.AdminChannelId),
+            FactionChannels = (options.FactionChannels ?? [])
+                .Select(DiscordFactionChannelOptions.Normalize)
+                .Where(channel => !string.IsNullOrWhiteSpace(channel.FactionTag) && channel.ChannelId > 0)
+                .GroupBy(channel => channel.FactionTag, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.Last())
+                .OrderBy(channel => channel.FactionTag, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
             LogChannelId = NormalizeChannelId(options.LogChannelId),
             AnalyticsChannelId = NormalizeChannelId(options.AnalyticsChannelId),
             DeathChannelId = NormalizeChannelId(options.DeathChannelId),
@@ -187,5 +213,28 @@ public sealed class DiscordServerOptions
             value = fallback;
 
         return Math.Clamp(value, minimum, maximum);
+    }
+}
+
+public sealed class DiscordFactionChannelOptions
+{
+    public string FactionTag { get; set; } = string.Empty;
+
+    public ulong ChannelId { get; set; }
+
+    public DiscordFactionChannelOptions Clone() => new()
+    {
+        FactionTag = FactionTag,
+        ChannelId = ChannelId,
+    };
+
+    public static DiscordFactionChannelOptions Normalize(DiscordFactionChannelOptions? options)
+    {
+        options ??= new DiscordFactionChannelOptions();
+        return new DiscordFactionChannelOptions
+        {
+            FactionTag = options.FactionTag?.Trim().ToUpperInvariant() ?? string.Empty,
+            ChannelId = options.ChannelId,
+        };
     }
 }

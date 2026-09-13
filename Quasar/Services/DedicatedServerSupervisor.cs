@@ -630,10 +630,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _shutdown.Dispose();
     }
 
-    public void BeginLauncherDrain()
+    public Task BeginLauncherDrainAsync()
     {
         _preserveManagedServersOnShutdown = true;
-        PersistStateSnapshotAsync(CancellationToken.None).GetAwaiter().GetResult();
+        // Power actions run on the Blazor dispatcher. Blocking here prevents the
+        // asynchronous file-save continuation from returning to that dispatcher.
+        return PersistStateSnapshotAsync(CancellationToken.None);
     }
 
     private async Task ReconcileLoopAsync(CancellationToken cancellationToken)
@@ -673,6 +675,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         List<(string UniqueName, DedicatedServerRestartInfo Restart)> recoveredRestarts = new();
         var agents = BuildAgentLookup();
         var now = DateTimeOffset.UtcNow;
+        RefreshStartupLogActivity(agents, now);
         var healthChanged = false;
 
         lock (_sync)
@@ -735,6 +738,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     state.LatestErrorLogLine = string.Empty;
                     state.LatestErrorLogKind = string.Empty;
                     state.AgentAttachRetryAttempts = 0;
+                    state.AgentWatchSinceUtc = null;
+                    state.LastStartupLogActivityUtc = null;
+                    state.LastStartupLogActivityKind = string.Empty;
                     healthChanged = true;
                 }
 
@@ -1083,11 +1089,24 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             return;
         }
 
+        // LEGACY-MAGNETAR-COMPAT: choose the launch-argument dialect from the resolved
+        // launcher so a pre-2.3.3.0 Magnetar still gets flags it understands. Remove in the
+        // first 2027 Quasar release and always prepare with MagnetarLaunchArgumentStyle.Current.
+        var launchArgumentStyle = MagnetarLegacyLaunchCompatibility.Detect(executablePath);
+        if (launchArgumentStyle == MagnetarLaunchArgumentStyle.Legacy)
+        {
+            _logger.LogInformation(
+                "Server {UniqueName} runs a Magnetar build older than {FirstCurrentVersion} ({ExecutablePath}); using legacy consent and GitHub token launch arguments.",
+                state.UniqueName,
+                MagnetarLegacyLaunchCompatibility.FirstCurrentVersion,
+                executablePath);
+        }
+
         PreparedDedicatedServerLaunch launch;
         SetRuntimeMessage(state.UniqueName, "Preparing dedicated server runtime.");
         try
         {
-            launch = await _runtimePreparer.PrepareAsync(definition, runtime.DedicatedServer64Path, cancellationToken);
+            launch = await _runtimePreparer.PrepareAsync(definition, runtime.DedicatedServer64Path, launchArgumentStyle, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1144,6 +1163,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         process.StartInfo.Environment["QUASAR_LAST_SESSION_PATH"] = launch.LastSessionPath;
         ConfigureNativeLibrarySearchPath(process.StartInfo, runtime.NativeLibrarySearchPaths);
 
+        // Pulsar (inside Magnetar) authenticates its plugin-hub fetches with the token from
+        // PULSAR_GITHUB_TOKEN. The environment is only readable by the process owner, unlike
+        // /proc/<pid>/cmdline, so the token must never be added to the launch arguments.
+        if (!string.IsNullOrWhiteSpace(launch.GitHubToken))
+            process.StartInfo.Environment[PulsarGitHubTokenVariableName] = launch.GitHubToken;
+
         // How the agent should behave when it loses contact with Quasar: keep the
         // server running and reconnect, and only save+stop after the configured
         // offline window (zero/negative = stop promptly once Quasar is gone).
@@ -1166,6 +1191,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         process.Exited += async (_, _) => await HandleProcessExitedAsync(state.UniqueName);
         LogManagedServerLaunchEnvironment(definition, process.StartInfo);
 
+        var processStartedAtUtc = DateTimeOffset.UtcNow;
         try
         {
             if (!process.Start())
@@ -1202,8 +1228,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 current.Process = process;
                 current.State = DedicatedServerProcessState.Starting;
                 current.ProcessId = process.Id;
-                current.StartedAtUtc = DateTimeOffset.UtcNow;
+                current.StartedAtUtc = processStartedAtUtc;
                 current.AgentWatchSinceUtc = current.StartedAtUtc;
+                current.LastStartupLogActivityUtc = null;
+                current.LastStartupLogActivityKind = string.Empty;
                 current.StoppedAtUtc = null;
                 current.LastExitCode = null;
                 current.LastMessage = restartPending
@@ -1277,37 +1305,56 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             paths.Distinct(StringComparer.Ordinal));
     }
 
+    private const string PulsarGitHubTokenVariableName = "PULSAR_GITHUB_TOKEN";
+    private const string RedactedValue = "<redacted>";
+
+    // Environment variables whose values are secrets and must be masked whenever the
+    // launch environment is written to a log.
+    private static readonly HashSet<string> SecretEnvironmentVariableNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        PulsarGitHubTokenVariableName,
+    };
+
     private void LogManagedServerLaunchEnvironment(DedicatedServerDefinition definition, ProcessStartInfo startInfo)
     {
         if (!definition.LogLaunchEnvironment)
             return;
 
+        _logger.LogWarning(
+            "Managed server launch environment logging is enabled. These logs may contain secrets.{NewLine}{LaunchEnvironment}",
+            Environment.NewLine,
+            DescribeLaunchEnvironment(definition.UniqueName, startInfo));
+    }
+
+    internal static string DescribeLaunchEnvironment(string uniqueName, ProcessStartInfo startInfo)
+    {
         var environment = string.Join(
             Environment.NewLine,
             startInfo.Environment
                 .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(pair => $"{pair.Key}={pair.Value}"));
+                .Select(pair => $"{pair.Key}={RedactEnvironmentValue(pair.Key, pair.Value)}"));
 
-        var launchEnvironment = string.Join(
+        return string.Join(
             Environment.NewLine,
-            $"Server={definition.UniqueName}",
+            $"Server={uniqueName}",
             $"FileName={startInfo.FileName}",
             $"Arguments={RedactLaunchArguments(startInfo.Arguments)}",
             $"WorkingDirectory={startInfo.WorkingDirectory}",
             "Environment:",
             environment);
-
-        _logger.LogWarning(
-            "Managed server launch environment logging is enabled. These logs may contain secrets.{NewLine}{LaunchEnvironment}",
-            Environment.NewLine,
-            launchEnvironment);
     }
 
+    private static string? RedactEnvironmentValue(string name, string? value) =>
+        SecretEnvironmentVariableNames.Contains(name) && !string.IsNullOrEmpty(value) ? RedactedValue : value;
+
+    // Quasar strips -github-token from user-supplied arguments, but the LEGACY-MAGNETAR-COMPAT
+    // path still emits it for pre-2.3.3.0 builds, so it must stay redacted in this log. Keep
+    // the redaction even after the compat code is removed, as a safety net.
     private static string RedactLaunchArguments(string arguments) =>
         Regex.Replace(
             arguments,
             @"(?<!\S)(-github-token)(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?",
-            "$1 <redacted>",
+            $"$1 {RedactedValue}",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private void SetRuntimeMessage(string uniqueName, string message)
@@ -1860,6 +1907,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     // worker before health monitoring can judge the adopted server
                     // unhealthy and restart (kill) it.
                     state.AgentWatchSinceUtc = DateTimeOffset.UtcNow;
+                    state.LastStartupLogActivityUtc = null;
+                    state.LastStartupLogActivityKind = string.Empty;
                     state.State = persistedState.State is DedicatedServerProcessState.Starting
                         ? DedicatedServerProcessState.Starting
                         : DedicatedServerProcessState.Running;
@@ -2386,6 +2435,106 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 StringComparer.OrdinalIgnoreCase);
     }
 
+    private void RefreshStartupLogActivity(
+        IReadOnlyDictionary<string, AgentRuntimeState> agents,
+        DateTimeOffset now)
+    {
+        List<StartupLogWatch> watches;
+        lock (_sync)
+        {
+            watches = _states.Values
+                .Where(state => IsProcessActive(state.Process) && state.AgentWatchSinceUtc.HasValue)
+                .Where(state => !agents.TryGetValue(state.UniqueName, out var agent) || agent.Snapshot is null)
+                .Select(state => new StartupLogWatch(
+                    state.UniqueName,
+                    state.AgentWatchSinceUtc!.Value,
+                    ResolveDedicatedServerAppDataPath(state.Definition),
+                    ResolveMagnetarAppDataPath(state.Definition)))
+                .ToList();
+        }
+
+        foreach (var watch in watches)
+        {
+            var activity = FindLatestStartupLogActivity(
+                watch.DedicatedServerAppDataPath,
+                watch.MagnetarAppDataPath,
+                watch.WatchStartedAtUtc,
+                now);
+            if (activity is null)
+                continue;
+
+            lock (_sync)
+            {
+                if (!_states.TryGetValue(watch.UniqueName, out var state) ||
+                    state.AgentWatchSinceUtc != watch.WatchStartedAtUtc ||
+                    state.LastStartupLogActivityUtc >= activity.Value.ObservedAtUtc)
+                {
+                    continue;
+                }
+
+                state.LastStartupLogActivityUtc = activity.Value.ObservedAtUtc;
+                state.LastStartupLogActivityKind = activity.Value.Kind;
+            }
+        }
+    }
+
+    internal static StartupLogActivity? FindLatestStartupLogActivity(
+        string dedicatedServerAppDataPath,
+        string magnetarAppDataPath,
+        DateTimeOffset watchStartedAtUtc,
+        DateTimeOffset now)
+    {
+        var dedicatedServer = FindLatestLogWrite(
+            dedicatedServerAppDataPath,
+            "SpaceEngineersDedicated*.log",
+            "Dedicated Server",
+            watchStartedAtUtc,
+            now);
+        var magnetar = FindLatestLogWrite(
+            magnetarAppDataPath,
+            "info*.log",
+            "Magnetar",
+            watchStartedAtUtc,
+            now);
+
+        if (dedicatedServer is null)
+            return magnetar;
+        if (magnetar is null)
+            return dedicatedServer;
+        return dedicatedServer.Value.ObservedAtUtc >= magnetar.Value.ObservedAtUtc
+            ? dedicatedServer
+            : magnetar;
+    }
+
+    private static StartupLogActivity? FindLatestLogWrite(
+        string directory,
+        string searchPattern,
+        string kind,
+        DateTimeOffset watchStartedAtUtc,
+        DateTimeOffset now)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+                return null;
+
+            var lastWriteUtc = Directory.EnumerateFiles(directory, searchPattern, SearchOption.TopDirectoryOnly)
+                .Select(File.GetLastWriteTimeUtc)
+                .Where(lastWrite => lastWrite >= watchStartedAtUtc.UtcDateTime)
+                .DefaultIfEmpty()
+                .Max();
+            if (lastWriteUtc == default)
+                return null;
+
+            var observedAtUtc = new DateTimeOffset(lastWriteUtc, TimeSpan.Zero);
+            return new StartupLogActivity(observedAtUtc > now ? now : observedAtUtc, kind);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private void WarnIfAgentDeploymentMismatch(string uniqueName, DedicatedServerDefinition definition)
     {
         var comparison = _runtimePreparer.GetAgentDeploymentComparison(definition);
@@ -2490,40 +2639,36 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         if (agent is null || !agent.IsConnected)
         {
-            // Count the attach grace from when we started watching for the agent
-            // (adoption time for a re-adopted process), not the original start — an
-            // adopted long-running server must get time for its agent to reconnect.
-            var agentWatch = state.AgentWatchSinceUtc ?? state.StartedAtUtc;
-            var agentWait = agentWatch.HasValue ? now - agentWatch.Value : uptime;
-            if (agentWait < TimeSpan.FromSeconds(state.Definition.AgentStartupGraceSeconds))
+            if (!state.AgentWatchSinceUtc.HasValue && state.State == DedicatedServerProcessState.Running)
             {
                 return new ServerHealthAssessment(
-                    DedicatedServerHealthState.Warning,
-                    "Waiting for Quasar.Agent to attach.");
+                    DedicatedServerHealthState.Unhealthy,
+                    "Quasar.Agent disconnected.");
             }
 
-            return new ServerHealthAssessment(
-                DedicatedServerHealthState.Unhealthy,
-                "Quasar.Agent did not attach within the configured startup grace period.");
+            // Count startup monitoring from when we started watching for the agent
+            // (adoption time for a re-adopted process), not the original start. An
+            // adopted long-running server receives a fresh activity-aware window.
+            return EvaluateAgentStartupHealth(state, now, "attach", "Waiting for Quasar.Agent to attach.");
         }
 
         if (agent.Snapshot is null)
         {
-            // Hello only proves the socket opened. Keep startup/adoption grace in
-            // force until the first telemetry snapshot proves the agent can poll
-            // the DS runtime and the supervisor can evaluate normal health.
-            var agentWatch = state.AgentWatchSinceUtc ?? state.StartedAtUtc;
-            var agentWait = agentWatch.HasValue ? now - agentWatch.Value : uptime;
-            if (agentWait < TimeSpan.FromSeconds(state.Definition.AgentStartupGraceSeconds))
+            if (!state.AgentWatchSinceUtc.HasValue && state.State == DedicatedServerProcessState.Running)
             {
                 return new ServerHealthAssessment(
-                    DedicatedServerHealthState.Warning,
-                    "Waiting for Quasar.Agent telemetry snapshot.");
+                    DedicatedServerHealthState.Unhealthy,
+                    "Quasar.Agent telemetry snapshot unavailable.");
             }
 
-            return new ServerHealthAssessment(
-                DedicatedServerHealthState.Unhealthy,
-                "Quasar.Agent did not send a telemetry snapshot within the configured startup grace period.");
+            // Hello only proves the socket opened. Keep startup/adoption monitoring
+            // in force until the first telemetry snapshot proves the agent can poll
+            // the DS runtime and the supervisor can evaluate normal health.
+            return EvaluateAgentStartupHealth(
+                state,
+                now,
+                "send a telemetry snapshot",
+                "Waiting for Quasar.Agent telemetry snapshot.");
         }
 
         var silence = now - agent.LastSeenUtc;
@@ -2567,6 +2712,64 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             state.SimulationProgressScore,
             state.SimulationProgressWindowSeconds,
             state.SimulationFramesAdvanced);
+    }
+
+    private static ServerHealthAssessment EvaluateAgentStartupHealth(
+        ManagedServerState state,
+        DateTimeOffset now,
+        string expectedAction,
+        string waitingSummary)
+    {
+        var watchStartedAtUtc = state.AgentWatchSinceUtc ?? state.StartedAtUtc;
+        if (!watchStartedAtUtc.HasValue)
+            return new ServerHealthAssessment(DedicatedServerHealthState.Warning, waitingSummary);
+
+        var timeout = EvaluateAgentStartupTimeout(
+            watchStartedAtUtc.Value,
+            state.LastStartupLogActivityUtc,
+            now,
+            state.Definition.AgentStartupGraceSeconds,
+            state.Definition.AgentStartupHardLimitSeconds);
+        if (timeout == AgentStartupTimeoutKind.Waiting)
+        {
+            if (state.LastStartupLogActivityUtc.HasValue)
+            {
+                var idleSeconds = Math.Max(0, (int)(now - state.LastStartupLogActivityUtc.Value).TotalSeconds);
+                return new ServerHealthAssessment(
+                    DedicatedServerHealthState.Warning,
+                    $"{waitingSummary} {state.LastStartupLogActivityKind} log activity observed {idleSeconds}s ago; hard limit {state.Definition.AgentStartupHardLimitSeconds}s.");
+            }
+
+            return new ServerHealthAssessment(DedicatedServerHealthState.Warning, waitingSummary);
+        }
+
+        return timeout == AgentStartupTimeoutKind.HardLimitExpired
+            ? new ServerHealthAssessment(
+                DedicatedServerHealthState.Unhealthy,
+                $"Quasar.Agent did not {expectedAction} within the {state.Definition.AgentStartupHardLimitSeconds}s hard startup limit.")
+            : new ServerHealthAssessment(
+                DedicatedServerHealthState.Unhealthy,
+                $"Quasar.Agent did not {expectedAction}; startup logs were inactive for {state.Definition.AgentStartupGraceSeconds}s.");
+    }
+
+    internal static AgentStartupTimeoutKind EvaluateAgentStartupTimeout(
+        DateTimeOffset watchStartedAtUtc,
+        DateTimeOffset? lastLogActivityUtc,
+        DateTimeOffset now,
+        int inactivityTimeoutSeconds,
+        int hardLimitSeconds)
+    {
+        var inactivityTimeout = TimeSpan.FromSeconds(Math.Max(0, inactivityTimeoutSeconds));
+        var hardLimit = TimeSpan.FromSeconds(Math.Max(0, Math.Max(inactivityTimeoutSeconds, hardLimitSeconds)));
+        if (now - watchStartedAtUtc >= hardLimit)
+            return AgentStartupTimeoutKind.HardLimitExpired;
+
+        var lastProgressUtc = lastLogActivityUtc.HasValue && lastLogActivityUtc.Value > watchStartedAtUtc
+            ? lastLogActivityUtc.Value
+            : watchStartedAtUtc;
+        return now - lastProgressUtc >= inactivityTimeout
+            ? AgentStartupTimeoutKind.InactivityExpired
+            : AgentStartupTimeoutKind.Waiting;
     }
 
     private static ServerHealthAssessment EvaluateSimulationProgress(
@@ -3033,6 +3236,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             EnableHealthMonitoring = definition.EnableHealthMonitoring,
             AutoRestartOnUnhealthy = definition.AutoRestartOnUnhealthy,
             AgentStartupGraceSeconds = definition.AgentStartupGraceSeconds,
+            AgentStartupHardLimitSeconds = definition.AgentStartupHardLimitSeconds,
             AgentAttachRetryAttempts = definition.AgentAttachRetryAttempts,
             AgentAttachRetryDelaySeconds = definition.AgentAttachRetryDelaySeconds,
             AgentHeartbeatTimeoutSeconds = definition.AgentHeartbeatTimeoutSeconds,
@@ -3154,9 +3358,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         // When the supervisor began expecting an agent connection for the current
         // process. Equals StartedAtUtc for a fresh launch, but is reset to "now" when
-        // a surviving process is adopted after a worker restart — so the agent-attach
-        // grace counts from adoption, not the (possibly hours-old) original start.
+        // a surviving process is adopted after a worker restart — so startup timeout
+        // monitoring counts from adoption, not the (possibly hours-old) original start.
         public DateTimeOffset? AgentWatchSinceUtc { get; set; }
+
+        public DateTimeOffset? LastStartupLogActivityUtc { get; set; }
+
+        public string LastStartupLogActivityKind { get; set; } = string.Empty;
 
         public DateTimeOffset? StoppedAtUtc { get; set; }
 
@@ -3207,6 +3415,23 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         Restart = 2,
         RetryAttach = 3,
     }
+
+    internal enum AgentStartupTimeoutKind
+    {
+        Waiting = 0,
+        InactivityExpired = 1,
+        HardLimitExpired = 2,
+    }
+
+    internal readonly record struct StartupLogActivity(
+        DateTimeOffset ObservedAtUtc,
+        string Kind);
+
+    private readonly record struct StartupLogWatch(
+        string UniqueName,
+        DateTimeOffset WatchStartedAtUtc,
+        string DedicatedServerAppDataPath,
+        string MagnetarAppDataPath);
 
     private readonly record struct ReconcileRequest(
         string UniqueName,

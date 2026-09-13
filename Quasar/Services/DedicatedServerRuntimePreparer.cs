@@ -22,7 +22,15 @@ public sealed class DedicatedServerRuntimePreparer
     private static readonly Regex NoSplashPattern = new(@"(?<!\S)-nosplash(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex DaemonPattern = new(@"(?<!\S)-daemon(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex NoImplicitModPattern = new(@"(?<!\S)-noimplicitmod(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex ConsentOptionPattern = new(@"(?<!\S)-(?:no)?consent(?!\S)|(?<!\S)-withdraw-consent(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    // Quasar owns the consent choice, so every user-supplied form is stripped: the
+    // value-taking -consent <accept|deny|withdraw> (the value is only consumed when it
+    // does not look like another option) plus the legacy bare -consent, -noconsent and
+    // -withdraw-consent flags.
+    private static readonly Regex ConsentOptionPattern = new(@"(?<!\S)-consent(?!\S)(?:\s+(?!-)(?:""(?:""""|\\.|[^""])*""|\S+))?|(?<!\S)-(?:noconsent|withdraw-consent)(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    // Magnetar no longer takes the GitHub token on the command line (it reads
+    // PULSAR_GITHUB_TOKEN from the environment, which the supervisor sets). This pattern
+    // stays permanently so a token pasted into LaunchArguments never reaches a command
+    // line, where /proc/<pid>/cmdline would expose it to every local user.
     private static readonly Regex GitHubTokenOptionPattern = new(@"(?<!\S)-github-token(?!\S)(?:\s+(?:""(?:""""|\\.|[^""])*""|\S+))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly XNamespace XsiNamespace = "http://www.w3.org/2001/XMLSchema-instance";
     private static readonly XNamespace XsdNamespace = "http://www.w3.org/2001/XMLSchema";
@@ -56,9 +64,12 @@ public sealed class DedicatedServerRuntimePreparer
         _githubCredentials = githubCredentials;
     }
 
+    // LEGACY-MAGNETAR-COMPAT: the launchArgumentStyle parameter exists only to support
+    // pre-2.3.3.0 Magnetar builds. Remove it in the first 2027 Quasar release.
     public async Task<PreparedDedicatedServerLaunch> PrepareAsync(
         DedicatedServerDefinition definition,
         string dedicatedServer64Path,
+        MagnetarLaunchArgumentStyle launchArgumentStyle,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(definition);
@@ -75,11 +86,34 @@ public sealed class DedicatedServerRuntimePreparer
         Directory.CreateDirectory(magnetarAppDataPath);
         Directory.CreateDirectory(Path.Combine(dedicatedServerAppDataPath, "Saves"));
 
+        var workshopCacheRepair = await SteamWorkshopCacheRepairer.RepairIfNeededAsync(
+            dedicatedServerAppDataPath,
+            cancellationToken);
+        if (workshopCacheRepair.Repaired)
+        {
+            if (workshopCacheRepair.ManifestQuarantined)
+            {
+                _logger.LogWarning(
+                    "Quarantined invalid Steam Workshop manifest for server {UniqueName} ({Issue}). Steam will rebuild required item state on launch. Quarantine: {QuarantinePath}",
+                    definition.UniqueName,
+                    workshopCacheRepair.Issue,
+                    workshopCacheRepair.QuarantinePath);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Repaired inconsistent Steam Workshop cache for server {UniqueName} ({Issue}). Steam will fetch only missing required items on launch.",
+                    definition.UniqueName,
+                    workshopCacheRepair.Issue);
+            }
+        }
+
         await PrepareRuntimeConfigAsync(definition, configProfile, worldPath, runtimeConfigPath, cancellationToken);
-        await PrepareMagnetarConfigAsync(definition, configProfile, magnetarAppDataPath, cancellationToken);
+        await PrepareMagnetarConfigAsync(definition, configProfile, magnetarAppDataPath, launchArgumentStyle, cancellationToken);
         await PrepareWorldConfigAsync(definition, configProfile, worldPath, cancellationToken);
         await WriteLastSessionAsync(definition, worldPath, dedicatedServerAppDataPath, lastSessionPath, cancellationToken);
 
+        var gitHubToken = _githubCredentials.GetCredentials().Token?.Trim() ?? string.Empty;
         var arguments = BuildLaunchArguments(
             definition,
             dedicatedServerAppDataPath,
@@ -89,7 +123,8 @@ public sealed class DedicatedServerRuntimePreparer
             runtimeConfigPath,
             _options,
             _dataHandlingConsent.GetSettings().ConsentGranted,
-            _githubCredentials.GetCredentials().Token);
+            launchArgumentStyle,
+            gitHubToken);
 
         return new PreparedDedicatedServerLaunch(
             dedicatedServerAppDataPath,
@@ -98,7 +133,8 @@ public sealed class DedicatedServerRuntimePreparer
             worldPath,
             runtimeConfigPath,
             lastSessionPath,
-            arguments);
+            arguments,
+            gitHubToken);
     }
 
     public AgentDeploymentComparison GetAgentDeploymentComparison(DedicatedServerDefinition definition)
@@ -169,7 +205,7 @@ public sealed class DedicatedServerRuntimePreparer
             ? "127.0.0.1"
             : definition.ServerIP;
         if (!string.IsNullOrWhiteSpace(serverIp))
-            UpsertElement(root, "ServerIP", serverIp.Trim());
+            UpsertElement(root, "IP", serverIp.Trim());
 
         ApplyConfigProfile(root, configProfile);
         UpsertElement(root, "ServerName", GetServerDisplayName(definition));
@@ -213,6 +249,7 @@ public sealed class DedicatedServerRuntimePreparer
         DedicatedServerDefinition definition,
         QuasarConfigProfile configProfile,
         string magnetarAppDataPath,
+        MagnetarLaunchArgumentStyle launchArgumentStyle,
         CancellationToken cancellationToken)
     {
         var sourcesDirectory = Path.Combine(magnetarAppDataPath, "Sources");
@@ -233,7 +270,7 @@ public sealed class DedicatedServerRuntimePreparer
         var currentTemplateName = string.IsNullOrWhiteSpace(configProfile.Name)
             ? "Quasar Current"
             : configProfile.Name.Trim();
-        var remotePluginSources = await BuildRemotePluginSourcesAsync(configProfile, cancellationToken);
+        var remotePluginSources = await BuildRemotePluginSourcesAsync(configProfile, launchArgumentStyle, cancellationToken);
         var devFolders = _devFolderCatalog.GetDevFolders();
         var localDevFolderIds = GetDevFolderPluginIdSet(devFolders);
         var selectedPluginIds = GetSelectedPluginIdSet(configProfile);
@@ -316,6 +353,7 @@ public sealed class DedicatedServerRuntimePreparer
 
     private async Task<RemotePluginSourceSet> BuildRemotePluginSourcesAsync(
         QuasarConfigProfile configProfile,
+        MagnetarLaunchArgumentStyle launchArgumentStyle,
         CancellationToken cancellationToken)
     {
         var catalogEntries = _pluginCatalog.GetEntries();
@@ -357,9 +395,23 @@ public sealed class DedicatedServerRuntimePreparer
             useDefaultHub = true;
         }
 
-        AddCoreRemotePluginSource(entries, catalogById, QuasarPluginCatalogService.DotNetCompatPluginId, QuasarPluginCatalogService.DotNetCompatManifestFile);
-        if (OperatingSystem.IsLinux())
-            AddCoreRemotePluginSource(entries, catalogById, QuasarPluginCatalogService.LinuxCompatPluginId, QuasarPluginCatalogService.LinuxCompatManifestFile);
+        if (launchArgumentStyle == MagnetarLaunchArgumentStyle.Legacy)
+        {
+            // LEGACY-MAGNETAR-COMPAT: pre-2.3.3.0 builds force-load the se- prefixed core
+            // plugins and got them as per-file sources. Remove in the first 2027 Quasar release.
+            foreach (var core in QuasarPluginCatalogService.GetLegacyCorePluginManifests(OperatingSystem.IsLinux()))
+                AddCoreRemotePluginSource(entries, catalogById, core.PluginId, core.ManifestFile);
+        }
+        else
+        {
+            // Magnetar 2.3.3.0+ force-loads dotnet-compat (and linux-compat on Linux) by id
+            // from any configured source; they never need to be in the profile. They must come
+            // from the hub source rather than per-file RemotePlugin entries: Pulsar keys those
+            // by repository, so two manifests from the hub repo would collapse into one and the
+            // server would exit with "Failed to load core plugin". This mirrors a standalone
+            // Magnetar, whose default sources.xml carries only the hub.
+            useDefaultHub = true;
+        }
 
         return new RemotePluginSourceSet(useDefaultHub, entries.Values.OrderBy(entry => entry.Hidden).ThenBy(entry => entry.FriendlyName, StringComparer.OrdinalIgnoreCase).ToList());
     }
@@ -793,7 +845,7 @@ public sealed class DedicatedServerRuntimePreparer
         UpsertElement(root, "ServerPasswordSalt", Convert.ToBase64String(salt));
     }
 
-    private static string BuildLaunchArguments(
+    internal static string BuildLaunchArguments(
         DedicatedServerDefinition definition,
         string dedicatedServerAppDataPath,
         string magnetarAppDataPath,
@@ -802,6 +854,9 @@ public sealed class DedicatedServerRuntimePreparer
         string runtimeConfigPath,
         WebServiceOptions options,
         bool? dataHandlingConsent,
+        // LEGACY-MAGNETAR-COMPAT: both parameters below exist only for pre-2.3.3.0 Magnetar
+        // builds. Remove them in the first 2027 Quasar release.
+        MagnetarLaunchArgumentStyle launchArgumentStyle,
         string gitHubToken)
     {
         var baseArguments = ExpandLaunchArguments(
@@ -831,9 +886,22 @@ public sealed class DedicatedServerRuntimePreparer
         additions.Add($"-path {QuoteArgument(dedicatedServerAppDataPath)}");
         additions.Add($"-config {QuoteArgument(magnetarAppDataPath)}");
         additions.Add($"-ds64 {QuoteArgument(dedicatedServer64Path)}");
-        additions.Add(dataHandlingConsent == true ? "-consent" : "-noconsent");
-        if (!string.IsNullOrWhiteSpace(gitHubToken))
-            additions.Add($"-github-token {QuoteArgument(gitHubToken.Trim())}");
+        if (launchArgumentStyle == MagnetarLaunchArgumentStyle.Legacy)
+        {
+            // LEGACY-MAGNETAR-COMPAT: Magnetar before 2.3.3.0 only understands the bare
+            // consent flags and reads the GitHub token from the command line. Remove this
+            // branch in the first 2027 Quasar release.
+            additions.Add(dataHandlingConsent == true ? "-consent" : "-noconsent");
+            if (!string.IsNullOrWhiteSpace(gitHubToken))
+                additions.Add($"-github-token {QuoteArgument(gitHubToken.Trim())}");
+        }
+        else
+        {
+            // Telemetry consent is a single value-taking flag on Magnetar; an undecided
+            // operator counts as a denial. The GitHub token deliberately never appears here:
+            // the supervisor delivers it through the PULSAR_GITHUB_TOKEN environment variable.
+            additions.Add(dataHandlingConsent == true ? "-consent accept" : "-consent deny");
+        }
 
         if (string.IsNullOrWhiteSpace(sanitizedArguments))
             return string.Join(" ", additions);
@@ -862,7 +930,7 @@ public sealed class DedicatedServerRuntimePreparer
             .Replace("{worldPath}", QuoteArgument(worldPath), StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string StripManagedArguments(string arguments)
+    internal static string StripManagedArguments(string arguments)
     {
         if (string.IsNullOrWhiteSpace(arguments))
             return string.Empty;
@@ -1015,7 +1083,8 @@ public sealed record PreparedDedicatedServerLaunch(
     string WorldPath,
     string RuntimeConfigPath,
     string LastSessionPath,
-    string Arguments);
+    string Arguments,
+    string GitHubToken);
 
 public sealed record AgentDeploymentComparison(
     string BundledPath,

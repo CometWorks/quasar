@@ -55,7 +55,7 @@ else
     <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-3">
         <MudChip T="string" Variant="Variant.Outlined">Players @Agent.Snapshot.Metrics.PlayersOnline/@GetMaxPlayers()</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">Sim @Agent.Snapshot.Metrics.SimSpeed.ToString("0.00")</MudChip>
-        <MudChip T="string" Variant="Variant.Outlined">CPU @Agent.Snapshot.Metrics.ServerCpuLoadPercent.ToString("0.0")%</MudChip>
+        <MudChip T="string" Variant="Variant.Outlined">Process CPU @Agent.Snapshot.Metrics.ServerCpuLoadPercent.ToString("0.0")%</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">PCU @Agent.Snapshot.Metrics.UsedPcu/@Agent.Snapshot.Metrics.TotalPcu</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">Mods @Agent.Snapshot.Metrics.ModsLoaded</MudChip>
         <MudChip T="string" Variant="Variant.Outlined" Color="@GetPluginLoadColor(pluginLoadSummary)">Plugins @GetPluginLoadText(pluginLoadSummary)</MudChip>
@@ -164,7 +164,7 @@ else
         {
             <div class="chat-row">
                 <MudText Typo="Typo.caption" Class="mono">@FormatTimestamp(message.TimestampTicksUtc)</MudText>
-                <MudText Typo="Typo.body2"><strong>@FormatChatAuthor(message)</strong>: @TextSanitizer.CleanGameText(message.Content)</MudText>
+                <MudText Typo="Typo.body2"><span class="mono">[@FormatChatChannel(message)]</span> <strong>@FormatChatAuthor(message)</strong>: @TextSanitizer.CleanGameText(message.Content)</MudText>
             </div>
         }
     </div>
@@ -494,6 +494,14 @@ else
         var author = TextSanitizer.CleanGameText(message.AuthorName);
         return string.IsNullOrWhiteSpace(author) ? message.SteamId.ToString() : author;
     }
+
+    private static string FormatChatChannel(ChatMessageSnapshot message) => message.Channel switch
+    {
+        ChatMessageChannel.Faction => string.IsNullOrWhiteSpace(message.FactionTag) ? "Faction" : $"Faction {message.FactionTag}",
+        ChatMessageChannel.Whisper => "Whisper",
+        ChatMessageChannel.Global => "Global",
+        _ => message.Channel.ToString(),
+    };
 
     private static bool IsServerMessage(ChatMessageSnapshot message)
     {

@@ -1,0 +1,26 @@
+name: quasar
+
+services:
+  quasar:
+    image: ghcr.io/cometworks/quasar:${QUASAR_VERSION:-latest}
+    container_name: quasar
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    # Required for Quasar to raise managed Magnetar processes above Quasar's
+    # own nice level. Do not add cpu_shares, cpus, cpuset, or CPU quotas here:
+    # container CPU controls also throttle every managed game server.
+    cap_add:
+      - SYS_NICE
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      QUASAR_ADMIN_STEAM_ID: ${QUASAR_ADMIN_STEAM_ID:?Set QUASAR_ADMIN_STEAM_ID in .env}
+      QUASAR_HOST_ID: ${QUASAR_HOST_ID:-quasar-docker}
+      QUASAR_PUBLIC_BASE_URL: ${QUASAR_PUBLIC_BASE_URL:-http://127.0.0.1:8080}
+      QUASAR_LOG_FORMAT: ${QUASAR_LOG_FORMAT:-text}
+      QUASAR_LOG_MIN_LEVEL: ${QUASAR_LOG_MIN_LEVEL:-Warn}
+    volumes:
+      - ./quasar-data:/data
+    stop_grace_period: 30m

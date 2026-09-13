@@ -27,9 +27,9 @@ Quasar.exe serve
 
 Quasar starts, opens `http://localhost:8080` in your browser, and prints log
 output to the console. Press `Ctrl+C` to stop the launcher. The UI **Shutdown
-Quasar** action drains the web worker and leaves the foreground launcher idle;
-press `Ctrl+C`, then run `./Quasar serve` or `Quasar.exe serve` again when you
-want the UI back. The web UI port is configurable — see
+Quasar** action drains the web worker and fully stops Bootstrap, returning to
+the terminal. Run `./Quasar serve` or `Quasar.exe serve` again when you want
+the UI back. The web UI port is configurable — see
 [Configuration](Configuration.md).
 
 For an API-only automation worker, add `--headless`:
@@ -43,9 +43,84 @@ curl http://127.0.0.1:8080/api/ready
 This keeps the supervisor, APIs, background jobs, and agent socket active while
 skipping Razor, UI plugins, branding, and static-file hosting.
 
+## Run with Docker Compose
+
+Quasar publishes `ghcr.io/cometworks/quasar` for Linux AMD64. Copy
+`.env.example` to `.env`, set `QUASAR_ADMIN_STEAM_ID` to the first
+administrator's SteamID64, then run:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+The manifest keeps all state in `./quasar-data` and passes additional `.env`
+settings into the container. See [Docker Deployment](Docker.md) for networking,
+configuration, version pinning, backup, and upgrade details.
+
+## Set the first RBAC administrator from the CLI
+
+Before signing in with Steam, create `rbac.json` in the Quasar install directory,
+next to `appsettings.json`. Replace `YOUR_17_DIGIT_STEAM_ID` with the
+administrator's SteamID64.
+
+**Linux**
+
+```bash
+cd "$QUASAR_INSTALL_DIR"
+cat > rbac.json <<'EOF'
+{
+  "subjectRoleMappings": [
+    {
+      "provider": "Steam",
+      "subject": "YOUR_17_DIGIT_STEAM_ID",
+      "roles": ["admin"]
+    }
+  ],
+  "claimRoleMappings": [],
+  "policyOverrides": {}
+}
+EOF
+```
+
+For the default user-service installation, the install directory is
+`~/.local/share/Quasar`. If `QUASAR_INSTALL_DIR` is not set in the current
+shell, `cd` to the directory where Quasar was extracted or installed instead.
+
+**Windows** (PowerShell, run from the Quasar install directory)
+
+```powershell
+@'
+{
+  "subjectRoleMappings": [
+    {
+      "provider": "Steam",
+      "subject": "YOUR_17_DIGIT_STEAM_ID",
+      "roles": ["admin"]
+    }
+  ],
+  "claimRoleMappings": [],
+  "policyOverrides": {}
+}
+'@ | Set-Content -Encoding UTF8 .\rbac.json
+```
+
+Quasar watches `rbac.json`, so an already-running instance applies the mapping
+without a restart. This RBAC administrator controls access to Quasar; it is
+separate from the Space Engineers server's `Administrators` list.
+
+Container deployments can instead set `QUASAR_ADMIN_STEAM_ID`. Quasar writes the
+same mapping only when persistent `rbac.json` does not exist.
+
 ## First server setup
 
-The dashboard setup wizard starts from a world shipped with Space Engineers
+When no server is configured, the dashboard automatically opens the first-server
+setup dialog once in that browser. Choose **Create New Server** to continue into
+the normal setup flow, or **Import Existing Server** to continue in the same
+dialog with the vanilla/Torch importer. The dashboard buttons can reopen either
+path later.
+
+The create-new setup flow starts from a world shipped with Space Engineers
 Dedicated Server:
 
 1. Choose a predefined Dedicated Server world. Quasar copies it into managed
@@ -64,6 +139,35 @@ Both template and matching profile are required. If a profile was already
 created from the selected template, the wizard recognizes that relationship
 and skips the profile-creation step.
 
+## Import an existing server
+
+Choose **Import Existing Server** from the automatic first-server dialog, or use
+the matching button beside **First Setup Wizard** later, to migrate a stopped
+vanilla Dedicated Server or Torch instance:
+
+1. Choose **Vanilla Dedicated Server** or **Torch**. For vanilla, select the
+   app-data folder containing `SpaceEngineers-Dedicated.cfg` (or a parent up to
+   two levels above it). For Torch, select the folder containing `Torch.cfg`;
+   Quasar follows its instance path and also recognizes the usual `Instance`
+   subfolder.
+2. Choose **Copy** to leave source worlds intact, or **Move** to remove only
+   selected source world folders after the managed import commits. Move keeps
+   the old install, DS/Torch config, plugins, and logs for recovery.
+3. Review detected worlds. The primary selection becomes the new managed
+   server save; other selected worlds become reusable world templates.
+4. Choose transfer categories with the checkboxes: server/world names,
+   network and online mode, server options and MOTD, DS `GroupID` whitelist,
+   administrators, reserved players, banned players, gameplay settings, mods,
+   and Torch crash-restart behavior. The source server must be stopped so its
+   world files form a consistent snapshot.
+
+Imported servers remain stopped for review. Existing DS password hashes cannot
+be reversed, so set a new password in the imported config profile. Torch
+plugins and Torch's independent player whitelist are not compatible with
+Magnetar; the wizard reports them but does not mis-map them. Vanilla DS
+`GroupID`, administrator, reserved, and ban lists are transferred when their
+access-list checkbox is selected.
+
 ## Install as a background service
 
 If .NET 10 is missing, the Linux installer detects the available package manager
@@ -74,11 +178,13 @@ Declining the prompt exits before files or services are changed.
 On Debian 13, the prompt also includes the Microsoft package feed bootstrap
 commands needed before installing the .NET packages.
 
-Packaged installs need only the runtime to run Quasar. QuasarHub UI plugin
-install/update compiles source with `dotnet build`, so install the .NET 10 SDK
-too by accepting the optional prompt or passing `--install-ui-plugin-sdk` when
-you want source-built UI plugins from QuasarHub. On Linux, the UI Plugins page
-can also run the install script's SDK-only path when the SDK is missing.
+Packaged installs need only the runtime to run Quasar. The installer does not
+proactively add an SDK for QuasarHub plugins. When an administrator first
+installs a source-built UI plugin, Quasar uses a compatible .NET 10 SDK already
+on `PATH`. If none is available, the UI offers to download the pinned SDK into
+Quasar's managed data directory, lets the administrator install it manually
+through the system package manager, or cancels the plugin installation. The
+private SDK does not modify `PATH` or the system package database.
 
 **Linux — systemd**
 
@@ -86,8 +192,6 @@ can also run the install script's SDK-only path when the SDK is missing.
 mkdir -p ~/.local/share/Quasar
 tar -xzf quasar-installer-linux.tar.gz -C ~/.local/share/Quasar --strip-components=1
 ~/.local/share/Quasar/install.sh --start        # installs in place and starts quasar.service
-# Optional SDK for QuasarHub source-built UI plugin installs:
-# ~/.local/share/Quasar/install.sh --start --install-ui-plugin-sdk
 ```
 
 The Linux installer defaults to a user systemd service, uses the extracted
@@ -95,9 +199,9 @@ folder as the install root, and writes that path to the unit as
 `QUASAR_INSTALL_DIR`. Pass `--system` with `sudo` for a machine-wide service or
 `--install-dir <dir>` to install Quasar elsewhere.
 When Quasar is running from the installed user service, the UI **Shutdown
-Quasar** action drains the web worker and leaves `quasar.service` running idle
-without respawning it. Managed servers stay detached by default. Restart the
-service to bring the UI and supervisor back.
+Quasar** action drains the web worker and stops Bootstrap with exit code `0`.
+The installed `Restart=on-failure` policy leaves the service inactive. Managed
+servers stay detached. Start the service to bring the UI and supervisor back.
 
 Manage the service with the usual systemd commands:
 
@@ -133,8 +237,9 @@ The task starts at boot, restarts on failure, and runs as the installing user by
 default. Quasar state is stored in the same folder by default. Pass
 `-InstallDir <dir>` to copy Quasar elsewhere, or `-User <account>` to run as a
 specific service account instead.
-The UI **Shutdown Quasar** action drains the web worker and leaves the Scheduled
-Task running idle. Stop and start the task to bring the UI and supervisor back.
+The UI **Shutdown Quasar** action drains the web worker and stops Bootstrap
+successfully, so the Scheduled Task completes without restarting it. Run
+`Start-ScheduledTask -TaskName Quasar` to bring the UI and supervisor back.
 
 To remove:
 

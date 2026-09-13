@@ -303,7 +303,14 @@ $startHint
 The task starts at boot and restarts the launcher on failure (keep-alive). On
 first start the launcher downloads the Quasar web UI from GitHub and then serves
 it at $uiUrl.
-UI Shutdown Quasar drains the worker; stop and start the task to bring it back.
+UI Shutdown Quasar stops the worker and Bootstrap; start the task to bring it back.
+
+UI plugin SDK:
+  Packaged installation does not install an SDK. When an administrator first
+  installs a source-built UI plugin, Quasar uses a .NET 10 SDK on PATH or offers
+  a confirmed private download under the Quasar managed data directory. The
+  administrator can cancel and install .NET 10 with winget or another package
+  manager instead.
 
 Manage the task:
   Get-ScheduledTask -TaskName '$TaskName'

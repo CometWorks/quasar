@@ -8,6 +8,11 @@ same `appsettings.json` under the `Quasar` section; the update settings are
 documented in [Windows](WindowsDeploymentAndUpdates.md) and
 [Linux](LinuxDeploymentAndUpdates.md) deployment guides.
 
+All .NET configuration keys can also use environment variables with `__` as the
+section separator, such as `QUASAR__AUTH__ENABLED=false`. Quasar's shorter
+`QUASAR_*` deployment overrides take precedence where documented. Docker users
+should also see [Docker Deployment](Docker.md).
+
 ## Managed runtime startup check
 
 When Quasar starts, it immediately checks the managed SteamCMD install and the
@@ -20,15 +25,38 @@ SteamCMD's `linux64` native runtime directory so Quasar can pass it through
 before it is marked failed; the Dashboard then shows a retry button on the
 Dedicated Server row.
 
+On Linux the managed SteamCMD runs with its own `HOME` under
+`{Quasar data}/ManagedRuntime/Tools/SteamCmdHome` (override with
+`QUASAR_STEAMCMD_HOME_DIR` or `Quasar:ManagedRuntime:SteamCmdHomeDirectory`), so it
+never reads or rewrites the desktop Steam client's configuration under `~/.steam`.
+
 ## Magnetar data handling consent
 
 Magnetar's anonymous plugin-usage statistics are opt-in. Quasar stores the
 operator's decision in `data-handling-consent.json` under the Quasar data
 directory and passes that decision to every managed Magnetar start:
 
-- `YES` -> Quasar appends `-consent`
-- `NO` -> Quasar appends `-noconsent`
-- no stored decision -> Quasar appends `-noconsent`
+- `YES` -> Quasar appends `-consent accept`
+- `NO` -> Quasar appends `-consent deny`
+- no stored decision -> Quasar appends `-consent deny`
+
+Any `-consent`, `-noconsent`, or `-withdraw-consent` flag typed into a server's
+launch arguments is removed before start; only the stored decision reaches
+Magnetar.
+
+Magnetar builds older than 2.3.3.0 only understand the bare `-consent` /
+`-noconsent` flags, so Quasar sends those when it detects such a build (by the
+launcher name on Linux, by the executable version on Windows). This fallback is
+temporary and will be removed in the first Quasar release of 2027.
+
+The same detection decides how the core compatibility plugins reach Magnetar.
+Magnetar force-loads `dotnet-compat` (plus `linux-compat` on Linux) by id from
+any configured source; they never appear in the profile. For 2.3.3.0 and later
+Quasar always writes the MagnetarHub `RemoteHub` source into the server's
+`sources.xml`, the same as a standalone Magnetar, because Pulsar keys per-file
+`RemotePlugin` sources by repository and two hub manifests would collapse into
+one. Older builds ask for the `se-` prefixed ids and still get per-file sources
+pointing at the `*LegacyId.xml` manifests.
 
 The Dashboard shows a top-of-page YES/NO consent prompt until a decision is
 stored. The same decision can be changed later from **Settings -> Security**.
@@ -165,6 +193,28 @@ The server console dialog can view **Most recent** or a specific older DS /
 Magnetar log file. Auto-refresh and the Refresh button are active only for
 **Most recent**; selecting an older file keeps that snapshot fixed for review.
 
+## Agent startup timeouts
+
+Each server has two agent-startup limits under **Edit Server -> Runtime**:
+
+- **Agent startup log inactivity timeout** (`AgentStartupGraceSeconds`) defaults
+  to `60`. While Quasar is waiting for Quasar.Agent to attach and send its first
+  telemetry snapshot, a newer write to a `SpaceEngineersDedicated*.log` or
+  Magnetar `info*.log` file restarts this soft inactivity timer.
+- **Agent startup hard limit** (`AgentStartupHardLimitSeconds`) defaults to
+  `600`. It is measured from process launch, or from adoption when a replacement
+  Quasar worker discovers an existing process, and log activity never extends it.
+
+Log files last written before the startup/adoption watch began do not count as
+progress. Reaching either limit makes the server unhealthy and follows the
+existing agent-attach retry and automatic-recovery policy.
+
+Legacy server definitions that still contain the former default
+`AgentStartupGraceSeconds = 180` and do not contain the hard-limit field are
+normalized to `60` and `600` when loaded. This intentionally overrides that old
+persisted default. Definitions that already contain a hard limit keep an
+operator-configured `180`-second inactivity timeout.
+
 ## Where configuration is read from
 
 Both the **Bootstrap launcher** (`Quasar`/`Quasar.exe`) and the replaceable **web
@@ -280,6 +330,84 @@ deep patch becomes suspect. Deep patch groups log failures and continue with the
 remaining profiler surface; entity call-site misses fall back to high-level
 timing only.
 
+## Discord chat privacy and slash commands
+
+Quasar keeps Space Engineers chat channels separate when relaying them to Discord:
+
+- global game chat goes only to the server's **Chat relay channel ID**
+- whispers go only to the server's **Admin whisper channel ID**
+- faction chat is dropped unless that faction has a channel binding created with
+  `/faction-channel`
+- scripted, chatbot, broadcast-controller, and unknown chat types never fall
+  through to the global relay
+
+The admin whisper channel and generated faction channels must deny **View Channel**
+to the guild's Everyone role. Quasar checks this before sending private traffic and
+also rejects any non-administrator role or non-bot user overwrite that explicitly
+allows viewing. A bad or public binding is therefore logged and the message is
+dropped instead of leaked.
+
+Invite the bot with both the `bot` and `applications.commands` OAuth scopes. It needs
+View Channel, Send Messages, Read Message History, Attach Files, and Embed Links in
+relay channels. It also needs Manage Channels to create faction channels.
+
+Available guild slash commands:
+
+- `/whisper server:<unique-name> user:<online name or Steam ID> message:<text>` sends
+  an ephemeral-confirmed private message to an online game player. Run it from a
+  command, global relay, admin, or faction channel bound to that server.
+- `/faction-channel server:<unique-name> faction:<tag>` requires Discord
+  Administrator permission. It creates a text channel in the invoking channel's
+  category, denies View Channel to Everyone, explicitly grants the bot its relay
+  permissions, and saves the faction/channel binding in `discord-options.json`.
+  Discord administrators can see the channel because Discord's Administrator
+  permission bypasses channel overwrites. Running the command again reapplies the
+  private permission overwrites to the existing bound channel.
+
+Messages posted by Discord administrators in a bound faction channel are delivered
+to every online member of that in-game faction as server-authored private chat,
+labeled `Discord [TAG]`. There is no global fallback. The dedicated server's normal
+faction-send path requires its sender to be a faction member, so Quasar uses the
+server's supported per-player private delivery rather than impersonating a player.
+
+Slash commands are guild-scoped and refresh when the bot connects. Server values
+use Quasar's stable unique names, not display names.
+
+## Discord player and server notifications
+
+The Discord page includes two independent per-server switches, both enabled by
+default: **Enable player connection notifications** and **Enable server lifecycle
+notifications**. Set **Status channel ID** to choose their destination; when empty,
+Quasar uses **Chat relay channel ID**. Without either channel, no notifications are
+sent. These switches work independently of **Enable chat relay**.
+
+Messages include the server's unique name so several servers can share a channel:
+
+- `[survival] 🚀 **artur** connected to the server!`
+- `[survival] ☄️ **artur** disconnected from server!`
+- `[survival] ✅ Server Started!`
+- `[survival] 🔄 Server is going to Restart!`
+- `[survival] ❌ Server Closed!`
+
+Start notifications follow the supervisor's transition to Running, once the agent
+reports the game running. Restart notifications follow each new pending supervisor
+restart request, including manual, scheduled, policy, and in-game requests. Closure
+notifications follow a transition to Stopped, Crashed, or Faulted. A restart can
+produce a closure message if the supervisor observes the stopped/crashed process.
+An agent transport disconnect alone does not mean the server closed.
+
+Player changes are detected between consecutive connected, running agent snapshots.
+The first snapshot after bot startup, reconnect, or server startup establishes a
+baseline without announcing existing players. Agent reconnection and shutdown do
+not generate a wave of player disconnect/join messages. Connections that begin and
+end between snapshots cannot be reported. Notifications missed while the bot is
+offline are not replayed. Player names are escaped and notifications cannot ping
+Discord users or roles.
+
+These settings are stored in `discord-options.json` as `statusChannelId`,
+`enablePlayerNotifications`, and `enableServerNotifications`. Existing configurations
+default to both notification types enabled, using their existing chat relay channel.
+
 ## Discord simspeed alerts
 
 The Discord page stores per-server alert rules in `discord-options.json`.
@@ -350,6 +478,17 @@ as unhealthy. They are fine only when running the worker directly (e.g.
 > non-default Remote API port (`ServerPort + 2000`), so managed servers do not
 > collide with the UI by default. If you run other software on `8080`, or point a
 > server's Remote API at `8080` manually, pick a different `Quasar:Port`.
+
+## Outbound proxies
+
+Bootstrap's local worker discovery, startup health checks, and graceful-drain
+requests bypass HTTP proxies explicitly. Corporate proxy settings therefore
+cannot redirect these control requests and cause Bootstrap to kill a healthy
+worker when its 60-second startup health-check window expires.
+
+Bootstrap's GitHub release queries, checksum downloads, and worker/bootstrap
+archive downloads continue to use the configured outbound proxy. Disabling proxy
+use for local control requests does not change proxy settings for downloads.
 
 ## Reverse proxy auth
 
@@ -424,6 +563,12 @@ HTTP request, reloads active Blazor sessions when `rbac.json` changes, and check
 the current role again at sensitive dashboard and security actions. Runtime RBAC
 saves that remove the last `admin` mapping are rejected to prevent accidental
 lockout. Direct filesystem edits remain an operator-controlled recovery path.
+
+On first startup, `QUASAR_ADMIN_STEAM_ID` can seed the initial Steam administrator.
+Quasar accepts only a 17-digit SteamID64 and writes the mapping to `rbac.json`
+only when that file is absent. Existing RBAC state is never replaced by the
+environment value. This is primarily intended for container manifests and other
+unattended provisioning.
 
 Default policy grants are:
 

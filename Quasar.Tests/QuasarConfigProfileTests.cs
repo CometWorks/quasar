@@ -35,6 +35,24 @@ public sealed class QuasarConfigProfileTests
         }
     }
 
+    [Fact]
+    public void ExistingServerProfile_CanImportOnlineMode()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"quasar-import-{Guid.NewGuid():N}.sbc");
+        try
+        {
+            File.WriteAllText(path, "<MyObjectBuilder_WorldConfiguration><Settings><OnlineMode>PRIVATE</OnlineMode></Settings></MyObjectBuilder_WorldConfiguration>");
+
+            var import = WorldSandboxConfigEditor.ReadConfigProfile(path, includeOnlineMode: true);
+
+            Assert.Equal(3, import.Profile.SessionSettings.OnlineMode);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Theory]
     [InlineData("earthlike", "earthlike", true)]
     [InlineData("earthlike", "EARTHLIKE", true)]

@@ -47,6 +47,7 @@ def create_line(bucket: str, t: int, sample: dict) -> str:
         "T": t,
         "Ss": sample["Ss"],
         "Cpu": sample["Cpu"],
+        "Scpu": sample["Scpu"],
         "Mem": sample["Mem"],
         "Ft": sample["Ft"],
         "P": sample["P"],
@@ -71,11 +72,14 @@ def generate_sample(t: int, rng: random.Random) -> dict[str, float | int]:
 
     sim = clamp(0.65 + 0.25 * day_wave + rng.gauss(0, 0.05), 0.2, 1.35)
 
-    cpu = clamp(
+    sim_cpu = clamp(
         22 + 28 * day_wave + 1.4 * players + 7 * burst + rng.uniform(-5, 6),
         1,
-        99,
+        140,
     )
+
+    # Process CPU includes all threads and can exceed one logical CPU.
+    cpu = sim_cpu + 110 + 30 * burst
 
     mem = clamp(
         4200 + 700 * day_wave + 18 * players + rng.uniform(-140, 180),
@@ -98,6 +102,7 @@ def generate_sample(t: int, rng: random.Random) -> dict[str, float | int]:
     return {
         "Ss": float(round(sim, 4)),
         "Cpu": float(round(cpu, 4)),
+        "Scpu": float(round(sim_cpu, 4)),
         "Mem": float(round(mem, 4)),
         "Ft": float(round(frame, 4)),
         "P": int(players),

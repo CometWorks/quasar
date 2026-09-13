@@ -48,6 +48,12 @@ stateDiagram-v2
 | `Activating` | Promoting the staged payload into `ManagedRuntime/WebService/<version>/` and writing `Updates/active-release.json`. |
 | `Failed` | A check/download error or an unresolved `appsettings.json` merge conflict; cleared when the conflict is resolved or settings change. |
 
+GitHub release checks and downloads retry transient transport failures, HTTP
+`408`, `429`, and `5xx` responses up to four times after the initial request.
+Retries use 1, 2, 4, and 8 second delays, honor GitHub's `Retry-After` header,
+and cap any delay at 30 seconds. Permanent failures still enter `Failed`; the
+running worker and Bootstrap monitor remain available for a later retry.
+
 ---
 
 ## Bootstrap launcher / worker cutover
@@ -72,8 +78,8 @@ stateDiagram-v2
     ForceKilled --> WorkerLaunching: start target worker
     Running --> Restarting: worker exits unexpectedly
     Restarting --> WorkerLaunching: relaunch (force)
-    Running --> Drained: UI Shutdown Quasar / launcher drain request
-    Drained --> [*]: service/task/foreground launcher restarted
+    Running --> Stopping: UI shutdown request + worker exits
+    Stopping --> [*]: Bootstrap cleanup + exit 0 (no automatic restart)
     Running --> SelfUpgrade: newer Bootstrap asset applied
     SelfUpgrade --> [*]: exit 75 (Linux) / detached relaunch + exit 0 (Windows)
 ```
@@ -88,7 +94,7 @@ stateDiagram-v2
 | `Draining` | Pointer change or `Updates/worker-restart-request.json` detected; the launcher posts `/api/internal/drain` (authenticated with the per-session launcher token) and waits for graceful exit. Pointer changes start the new active release; worker-restart requests start the same active release again. |
 | `Retired` / `ForceKilled` | Old worker exited within the grace window, or was killed after timeout. |
 | `Restarting` | Worker exited unexpectedly (not a launcher request); relaunched with `force`. |
-| `Drained` | UI **Shutdown Quasar** requested a launcher drain; Bootstrap stays alive without respawning a worker until the service, task, or foreground launcher is restarted. |
+| `Stopping` | UI **Shutdown Quasar** wrote `launcher-shutdown-request` and the worker exited; Bootstrap prevents worker respawn, cleans up its watchers/update monitor, and exits **0**. The installed service/task restart-on-failure policy leaves it stopped until explicitly started again. |
 | `SelfUpgrade` | A newer Bootstrap asset was applied by the periodic monitor or by a consumed `Updates/bootstrap-update-request.json` request from the Updates page; forced requests target the detected version and platform asset. Linux exits **75** so systemd restarts it; Windows spawns a detached `Quasar.exe serve --quiet` replacement and exits **0**. |
 
 The pointer is `Updates/active-release.json`

@@ -212,6 +212,13 @@ public static class MagnetarPaths
     public static string GetQuasarManagedSteamCmdInstallDirectory() =>
         Path.Combine(GetQuasarManagedRuntimeToolsDirectory(), "SteamCMD");
 
+    // Private HOME for the managed SteamCMD process. On Linux SteamCMD resolves its Steam
+    // root through ~/.steam, which on a machine with the desktop Steam client installed
+    // points at the real client install and gets its library config rewritten on every
+    // run. Kept persistent (not a temp dir) so SteamCMD's own update and appcache survive.
+    public static string GetQuasarManagedSteamCmdHomeDirectory() =>
+        Path.Combine(GetQuasarManagedRuntimeToolsDirectory(), "SteamCmdHome");
+
     public static string GetQuasarManagedDedicatedServerInstallDirectory() =>
         Path.Combine(GetQuasarManagedRuntimeToolsDirectory(), "SpaceEngineersDedicatedServer");
 

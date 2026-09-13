@@ -12,8 +12,10 @@ public class ServerMetrics
 
     public float SimSpeed { get; set; }
 
+    /// <summary>Server update time as a percentage of the 16.67 ms frame budget; may exceed 100%.</summary>
     public float SimCpuLoadPercent { get; set; }
 
+    /// <summary>Total process CPU usage across threads; 100% equals one logical CPU.</summary>
     public float ServerCpuLoadPercent { get; set; }
 
     public bool IsSaveInProgress { get; set; }

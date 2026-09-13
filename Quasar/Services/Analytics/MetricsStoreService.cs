@@ -524,7 +524,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         public bool HasOutOfRetentionData { get; set; }
     }
 
-    private sealed class PersistedMetricLogLine
+    internal sealed class PersistedMetricLogLine
     {
         [JsonPropertyName("b")]
         public string Bucket { get; set; } = string.Empty;
@@ -537,6 +537,9 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
 
         [JsonPropertyName("Cpu")]
         public float CpuPercent { get; set; }
+
+        [JsonPropertyName("Scpu")]
+        public float? SimCpuPercent { get; set; }
 
         [JsonPropertyName("Mem")]
         public float MemoryMb { get; set; }
@@ -564,6 +567,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
                 TimestampUnixSeconds = sample.TimestampUnixSeconds,
                 SimSpeed = sample.SimSpeed,
                 CpuPercent = sample.CpuPercent,
+                SimCpuPercent = sample.SimCpuPercent,
                 MemoryMb = sample.MemoryMb,
                 FrameTimeMs = sample.FrameTimeMs,
                 PlayersOnline = sample.PlayersOnline,
@@ -584,7 +588,8 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
                 playersOnline: PlayersOnline,
                 usedPcu: UsedPcu,
                 activeGridCount: ActiveGridCount,
-                activeEntityCount: ActiveEntityCount);
+                activeEntityCount: ActiveEntityCount,
+                simCpuPercent: SimCpuPercent);
         }
     }
 

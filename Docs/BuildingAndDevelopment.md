@@ -64,7 +64,12 @@ secret. The Gateway package settings grant `CometWorks/quasar` read access under
   auto-resolves `DS64` from the Steam registry `InstallLocation` (falling back to
   the default `C:\Program Files (x86)\Steam\...\DedicatedServer64` library) and
   `MagnetarBin` to `$(Magnetar)\Libraries\MagnetarLegacy`. On Linux `MagnetarBin`
-  resolves to `$(Magnetar)/Bin`.
+  resolves to `$(Magnetar)/Libraries/MagnetarInterim`, falling back to
+  `$(Magnetar)/Bin` only while an older Magnetar install with that layout is
+  still present.
+- Release CI locates `PluginSdk.dll` recursively in the extracted Magnetar
+  archive and sets `MagnetarBin` to its directory. This supports both the older
+  Linux `Bin/` layout and the current `Libraries/MagnetarInterim/` layout.
 - A local-only override can live at `Quasar.Agent/Directory.Build.props`. This
   repo keeps the machine-specific override out of source control.
 - The Linux release workflow probes the Space Engineers Dedicated Server public
@@ -74,10 +79,10 @@ secret. The Gateway package settings grant `CometWorks/quasar` read access under
   missing-configuration failures.
 - Building `Quasar/Quasar.csproj` no longer requires the Entity Viewer source tree
   or its npm packages. The viewer plugin is installed from QuasarHub, where the
-  catalog pins a commit in `https://github.com/CometWorks/viewer.git`. The plugin
-  installer clones that repository, builds the adapter project against the
-  running Quasar worker's `Quasar.Plugin.Abstractions.dll`, and serves the viewer
-  static assets from `/_quasar/plugins/{pluginId}/`. Single-file release
+  catalog pins a commit in `https://github.com/CometWorks/viewer`. The plugin
+  installer downloads that commit's GitHub archive, builds the adapter project
+  against the running Quasar worker's `Quasar.Plugin.Abstractions.dll`, and serves
+  the viewer static assets from `/_quasar/plugins/{pluginId}/`. Single-file release
   packaging leaves `Quasar.Plugin.Abstractions.dll` beside the worker executable
   so packaged installs have the same physical contract path as source builds.
   When the UI plugin manifest owns a Magnetar companion project, the installer
@@ -88,9 +93,12 @@ secret. The Gateway package settings grant `CometWorks/quasar` read access under
   generated profile beside `Quasar.Agent.dll`. Viewer scene data is requested
   through `IQuasarCompanionChannel` from the viewer's Magnetar companion plugin;
   Quasar core does not carry viewer scene DTOs or a viewer-specific HTTP API.
-  Runtime-only packaged installs can run Quasar, but QuasarHub source-built UI
-  plugin install/update requires a matching .NET SDK on `PATH`; the UI disables
-  those build actions when the SDK preflight fails.
+  Runtime-only packaged installs can run Quasar. When a QuasarHub source-built
+  UI plugin is installed or updated, Quasar first uses a matching .NET SDK on
+  `PATH`, then a previously downloaded private SDK. If neither is available, the
+  admin can approve an on-demand download of the pinned SDK into Quasar's
+  managed data directory, choose to install it with the system package manager,
+  or cancel the plugin operation.
 
 ## Managed runtime selection
 
@@ -128,6 +136,37 @@ secret. The Gateway package settings grant `CometWorks/quasar` read access under
   `libtier0_s.so`, and `libvstdlib_s.so`. This lets Steam GameServer
   initialization work on fresh headless hosts that do not have a desktop Steam
   install under `~/.local/share/Steam`.
+- On Linux, Quasar runs its managed SteamCMD with a private `HOME` (and XDG base
+  directories) under `{Quasar data}/ManagedRuntime/Tools/SteamCmdHome`, overridable
+  with `QUASAR_STEAMCMD_HOME_DIR` or `Quasar:ManagedRuntime:SteamCmdHomeDirectory`.
+  SteamCMD resolves its Steam root through `~/.steam`, and with the desktop Steam
+  client installed it would otherwise log into the client's directory and rewrite
+  the client's `libraryfolders.vdf` files on every run, dropping every app it did
+  not touch itself. The Dedicated Server install location is still passed with
+  `+force_install_dir`, so the isolated home only holds SteamCMD's own state.
+
+## Docker image
+
+Full releases publish `ghcr.io/cometworks/quasar` with `latest`, numeric version,
+and `v`-prefixed version tags. The Dockerfile consumes the already-packaged Linux
+worker archive and verifies `SHA256SUMS`, keeping release packaging as the single
+source of truth. Container publishing runs only for pushes to `main`; pull
+requests, tags, and manual workflow runs never publish images. Build provenance
+is disabled because GHCR otherwise lists the single-platform image, attestation,
+and their index as three separate package versions:
+
+```bash
+docker build --build-arg QUASAR_VERSION=1.1.0.31 -t quasar:1.1.0.31 .
+```
+
+See [Docker Deployment](Docker.md) for runtime use. The Dockerfile is not the
+local source-build path; use `dotnet` commands below when testing code changes.
+
+GitHub creates a new GHCR package as private even when its source repository is
+public. After the first workflow publish, a CometWorks organization owner must
+change the `quasar` container package visibility to **Public** once. The workflow
+logs out of GHCR and verifies an anonymous pull, so it fails visibly until this
+one-time package setting is correct.
 
 ## Utilities
 
@@ -141,6 +180,33 @@ This uses the development launch profile. Without `QUASAR_INSTALL_DIR`, the
 direct worker uses its app base directory as the install root. The Bootstrap
 launcher and release/update cutover paths are covered by the packaged installer
 and release workflows rather than a local deploy helper.
+
+To check Bootstrap shutdown without starting the Quasar web service or any
+dedicated servers:
+
+```bash
+dotnet build Quasar.Bootstrap/Quasar.Bootstrap.csproj
+python3 scripts/test-bootstrap-shutdown.py
+```
+
+This dependency-free Python check runs an isolated Bootstrap build with a fake
+HTTP worker in foreground and service modes. It verifies stale-request cleanup,
+worker crash recovery, and intentional shutdown of both processes with Bootstrap
+exit code `0`. Windows Task Scheduler and Linux systemd policy still need native
+deployment validation; the installed restart-on-failure policies must remain in
+place for intentional shutdown to stay stopped.
+
+The worker-side regression checks run without a web service as well:
+
+```bash
+dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~QuasarShutdownTests|FullyQualifiedName~QuasarControlDialogTests'
+```
+
+bUnit exercises the power dialog's confirmation buttons. The shutdown tests run
+the real state-save and shutdown methods on a Blazor dispatcher, check that state
+is saved before host shutdown, and verify that a failed Bootstrap request leaves
+the worker running. The dispatcher test catches the synchronous-wait deadlock
+that a fake-worker Bootstrap test cannot exercise.
 
 To run the UI worker from Rider against an installed service/deployed tree,
 write that root path into `.quasar-install-dir` at the repository root. The file
@@ -156,7 +222,8 @@ profile deliberately does not set `applicationUrl`, so host/port come from that
 install root's `appsettings.json`. Packaged assets and helper scripts are also
 probed from the same install root.
 
-Generate synthetic analytics data for local testing:
+Generate synthetic analytics data for local testing, including separate process CPU
+(`Cpu`, potentially above 100%) and simulation CPU (`Scpu`) values:
 
 ```bash
 python3 scripts/generate-analytics-data.py

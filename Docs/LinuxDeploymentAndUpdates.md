@@ -68,7 +68,9 @@ retention compare them by numeric build first instead of treating `-pr` or
 
 After publishing, the workflow prunes older GitHub releases with their tags. It
 keeps the newest two full active releases, plus the newest two draft/prerelease
-review builds per PR/manual stream.
+review builds per PR/manual stream. Closing or merging a pull request cancels any
+in-progress release build for that PR, then deletes all remaining draft releases
+and tags whose names begin with that PR's exact `pr-<number>/` prefix.
 
 ## First Start
 
@@ -99,11 +101,14 @@ therefore appear in the service journal as well as in the configured Quasar log
 files.
 
 The UI **Shutdown Quasar** action drains the web worker, preserves managed
-servers, and leaves Bootstrap running without a worker. Because Bootstrap is
-still alive and exits successfully only when the service is stopped, systemd does
-not restart the worker by itself. Run `systemctl --user restart quasar.service`
-for the default user service, or `sudo systemctl restart quasar.service` for a
-system service, to start the UI and supervisor again.
+servers, and fully stops Bootstrap with exit code `0`. The installed user and
+system units use `Restart=on-failure`, so systemd leaves the service inactive
+without restarting it. No `systemctl` permissions are needed by the web worker.
+Run `systemctl --user start quasar.service` for the default user service, or
+`sudo systemctl start quasar.service` for a system service, to start Quasar again.
+Custom units must also use `Restart=on-failure` (not `Restart=always`).
+Install the updated Bootstrap launcher for this behavior; updating only the web
+worker leaves older launchers using the previous drained/idle behavior.
 
 ## UI Worker Updates
 
@@ -141,8 +146,10 @@ prunes inactive managed web-release directories.
 This intentionally accepts a short web/agent disconnect. `Quasar.Agent`
 reconnects, and managed Magnetar processes stay alive because Quasar launches
 them detached with `-daemon`. Reconnect is startup-pending until the first
-telemetry snapshot arrives, so health recovery uses the startup grace instead of
-the shorter heartbeat timeout during rollover. Running DS processes keep the
+telemetry snapshot arrives, so health recovery uses the activity-aware startup
+timeout instead of the shorter heartbeat timeout during rollover. Dedicated
+Server and Magnetar log writes reset that 60-second inactivity timer, while a
+10-minute hard limit still bounds the reconnect attempt. Running DS processes keep the
 agent assembly they already loaded until that server process is stopped. On
 worker startup and each reconcile after reconnect, the supervisor compares the
 bundled `Agent/Quasar.Agent.dll` hash with the deployed Magnetar local DLL hash. When
@@ -205,17 +212,16 @@ first adds Microsoft's Debian 13 package feed with
 `packages-microsoft-prod.deb`, then runs `apt-get update` and installs the
 selected .NET package.
 
-Packaged installs can run Quasar with only the runtime, but QuasarHub UI plugin
-install/update builds source projects with `dotnet build` and requires the .NET
-10 SDK. `install.sh` offers that SDK as an optional step for package/no-build
-installs; pass `--install-ui-plugin-sdk` to request it explicitly. If the SDK is
-not installed, `/settings/ui-plugins` disables install/update actions and shows
-`.NET SDK required to build UI plugins`. On Linux, that warning can also invoke
-`install.sh --install-ui-plugin-sdk-only --yes` from the UI. The action only
-installs the SDK and exits; it does not rewrite the service or reinstall Quasar.
-It still uses the system package manager, so it can fail under a service account
-unless `sudo -n` can install packages without a password or Quasar is already
-running with sufficient privileges.
+Packaged installs can run Quasar with only the runtime. `install.sh` does not
+proactively install an SDK for QuasarHub. When an administrator installs or
+updates a source-built UI plugin, Quasar first uses a compatible .NET 10 SDK on
+`PATH`, then a previously downloaded private SDK. If neither exists, the UI asks
+whether to download the pinned SDK into
+`{Quasar data}/ManagedRuntime/Tools/DotNetSdk/{version}`. The administrator can
+instead cancel, install the SDK through the system package manager, and retry.
+The private install needs no `sudo`, does not alter `PATH`, and does not modify
+the system package database. Plugin sources are downloaded as pinned GitHub
+archives; Git is not required on the host.
 
 ```bash
 mkdir -p ~/.local/share/Quasar
@@ -323,6 +329,21 @@ limit. The Updates page lets an admin save a GitHub token for release checks.
 It is stored in `github-updates.json` under the Quasar install directory with the
 same Data Protection encryption model and owner-only Unix permissions used for
 the Steam Workshop API key.
+
+The same token is handed to every managed Magnetar start through the
+`PULSAR_GITHUB_TOKEN` environment variable so Pulsar's plugin-hub downloads are
+authenticated too. It is never placed on the server command line, and a
+`-github-token` flag typed into a server's launch arguments is removed before
+start. The token is masked in the launch-environment log that
+`LogLaunchEnvironment` prints. Magnetar builds older than 2.3.3.0 still receive
+the token as `-github-token` on the command line; this fallback is temporary and
+will be removed in the first Quasar release of 2027.
+
+All GitHub update, runtime, and plugin-catalog GET requests retry transient
+network failures and HTTP `408`, `429`, or `5xx` responses up to four times.
+Backoff starts at one second, honors `Retry-After`, and is capped at 30 seconds.
+A persistent outage is reported without stopping Quasar; scheduled checks can
+recover when connectivity returns.
 
 Use a classic personal access token without any permissions:
 

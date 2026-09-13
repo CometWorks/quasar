@@ -16,7 +16,24 @@ public sealed class QuasarUiPluginStateStore
     };
 
     private readonly object _sync = new();
-    private Dictionary<string, QuasarUiPluginPackageState> _states = LoadSnapshot();
+    private readonly string _stateFilePath;
+    private readonly Dictionary<string, QuasarUiPluginPackageState> _states;
+    private readonly HashSet<string> _suppressedImplicitInstallCatalogIds;
+
+    public QuasarUiPluginStateStore()
+        : this(StateFilePath)
+    {
+    }
+
+    internal QuasarUiPluginStateStore(string stateFilePath)
+    {
+        _stateFilePath = stateFilePath;
+        var document = LoadDocument(stateFilePath);
+        _states = CreateStateLookup(document.Plugins);
+        _suppressedImplicitInstallCatalogIds = new HashSet<string>(
+            document.SuppressedImplicitInstallCatalogIds.Where(id => !string.IsNullOrWhiteSpace(id)),
+            StringComparer.OrdinalIgnoreCase);
+    }
 
     public event Action? Changed;
 
@@ -80,31 +97,70 @@ public sealed class QuasarUiPluginStateStore
         Changed?.Invoke();
     }
 
-    public static Dictionary<string, QuasarUiPluginPackageState> LoadSnapshot()
+    public bool IsImplicitInstallSuppressed(string catalogId)
+    {
+        if (string.IsNullOrWhiteSpace(catalogId))
+            return false;
+
+        lock (_sync)
+            return _suppressedImplicitInstallCatalogIds.Contains(catalogId);
+    }
+
+    public async Task SetImplicitInstallSuppressedAsync(
+        string catalogId,
+        bool suppressed,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(catalogId))
+            throw new InvalidOperationException("Plugin catalog ID is empty.");
+
+        bool changed;
+        lock (_sync)
+        {
+            changed = suppressed
+                ? _suppressedImplicitInstallCatalogIds.Add(catalogId)
+                : _suppressedImplicitInstallCatalogIds.Remove(catalogId);
+        }
+
+        if (!changed)
+            return;
+
+        await SaveAsync(cancellationToken);
+        Changed?.Invoke();
+    }
+
+    public static Dictionary<string, QuasarUiPluginPackageState> LoadSnapshot() =>
+        CreateStateLookup(LoadDocument(StateFilePath).Plugins);
+
+    private static QuasarUiPluginStateDocument LoadDocument(string path)
     {
         try
         {
-            if (!File.Exists(StateFilePath))
-                return new Dictionary<string, QuasarUiPluginPackageState>(StringComparer.OrdinalIgnoreCase);
+            if (!File.Exists(path))
+                return new QuasarUiPluginStateDocument();
 
-            var json = File.ReadAllText(StateFilePath);
+            var json = File.ReadAllText(path);
             var document = JsonSerializer.Deserialize<QuasarUiPluginStateDocument>(json, JsonOptions);
             if (document?.SchemaVersion != SchemaVersion)
-                return new Dictionary<string, QuasarUiPluginPackageState>(StringComparer.OrdinalIgnoreCase);
+                return new QuasarUiPluginStateDocument();
 
-            return document.Plugins
-                .Where(state => !string.IsNullOrWhiteSpace(state.PluginId))
-                .GroupBy(state => state.PluginId, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(
-                    group => group.Key,
-                    group => Clone(group.Last()),
-                    StringComparer.OrdinalIgnoreCase);
+            return document;
         }
         catch
         {
-            return new Dictionary<string, QuasarUiPluginPackageState>(StringComparer.OrdinalIgnoreCase);
+            return new QuasarUiPluginStateDocument();
         }
     }
+
+    private static Dictionary<string, QuasarUiPluginPackageState> CreateStateLookup(
+        IEnumerable<QuasarUiPluginPackageState> states) =>
+        states
+            .Where(state => !string.IsNullOrWhiteSpace(state.PluginId))
+            .GroupBy(state => state.PluginId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => Clone(group.Last()),
+                StringComparer.OrdinalIgnoreCase);
 
     public static bool IsEnabled(IReadOnlyDictionary<string, QuasarUiPluginPackageState> states, string pluginId) =>
         string.IsNullOrWhiteSpace(pluginId) ||
@@ -114,11 +170,15 @@ public sealed class QuasarUiPluginStateStore
     private async Task SaveAsync(CancellationToken cancellationToken)
     {
         List<QuasarUiPluginPackageState> states;
+        List<string> suppressedImplicitInstallCatalogIds;
         lock (_sync)
         {
             states = _states.Values
                 .Select(Clone)
                 .OrderBy(state => state.PluginId, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            suppressedImplicitInstallCatalogIds = _suppressedImplicitInstallCatalogIds
+                .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
 
@@ -126,9 +186,10 @@ public sealed class QuasarUiPluginStateStore
         {
             SchemaVersion = SchemaVersion,
             Plugins = states,
+            SuppressedImplicitInstallCatalogIds = suppressedImplicitInstallCatalogIds,
         };
         var json = JsonSerializer.Serialize(payload, JsonOptions);
-        await AtomicFileWriter.WriteTextAsync(StateFilePath, json, cancellationToken);
+        await AtomicFileWriter.WriteTextAsync(_stateFilePath, json, cancellationToken);
     }
 
     private static QuasarUiPluginPackageState Clone(QuasarUiPluginPackageState state) =>
@@ -144,6 +205,8 @@ public sealed class QuasarUiPluginStateStore
         public int SchemaVersion { get; set; } = QuasarUiPluginStateStore.SchemaVersion;
 
         public List<QuasarUiPluginPackageState> Plugins { get; set; } = [];
+
+        public List<string> SuppressedImplicitInstallCatalogIds { get; set; } = [];
     }
 }
 

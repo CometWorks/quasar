@@ -21,7 +21,7 @@ Quasar UI plugins are discovered and managed through [QuasarHub](https://github.
 ## Getting started
 
 See the [Quick Start](Docs/QuickStart.md) guide to download a release, run Quasar
-from the terminal, and install it as a background service.
+from the terminal, install it as a background service, or run the GHCR image.
 <!-- END packaged install instructions -->
 
 ## Documentation
@@ -29,11 +29,14 @@ from the terminal, and install it as a background service.
 | Page | What it covers |
 | --- | --- |
 | [Quick Start](Docs/QuickStart.md) | Download, run from the terminal, and install as a background service (systemd / Scheduled Task). |
+| [Docker Deployment](Docs/Docker.md) | Run the versioned GHCR image with Compose, persistent state, environment configuration, and upgrades. |
 | [Architecture](Docs/QuasarArchitecture.md) | Supervisor design, runtime ownership, process supervision, configuration model, and self-update. |
 | [Configuration](Docs/Configuration.md) | API/UI host and port, API-only headless mode, and browser auto-open behavior. |
+| [Analytics CPU Usage](Docs/AnalyticsCpuLoad.md) | Why CPU usage can exceed 100% and how it differs from Shift+F11 simulation CPU load. |
 | [Quasar Plugin System](Docs/QuasarPluginSystem.md) | Planned UI plugin loader, hub manifest model, component replacement points, companion data channel, and MudBlazor expectations. |
 | [Entity Viewer](https://github.com/CometWorks/viewer/blob/main/Docs/EntityViewer.md) | Fullscreen metadata-only entity viewer, local Space Engineers `Content` folder requirement, and fallback behavior. |
 | [Building & Development](Docs/BuildingAndDevelopment.md) | Project layout, build setup, managed-runtime selection, and developer utilities. |
+| [Phase 4 Integration](Docs/Phase4IntegrationPlan.md) | Upstream clustering plan authority, integration baseline, validation, and remaining work. |
 | [Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) | systemd install, release assets, and the auto-updater flow. |
 | [Windows Deployment & Updates](Docs/WindowsDeploymentAndUpdates.md) | Scheduled Task install, release assets, and the auto-updater flow. |
 | [State Machine Diagrams](Docs/StateMachines/Index.md) | Object states and state machines (server lifecycle, agent connection, self-update, runtime provisioning, backups, …) as Mermaid + PNG. |
