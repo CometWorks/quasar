@@ -166,6 +166,11 @@ internal static class ClusterCli
             "plan" when values.Length == 2 => ClusterRoute("plan"),
             "recovery-readiness" when values.Length == 2 => ClusterRoute("recovery-readiness"),
             "config" when values.Length == 2 => ClusterRoute("config"),
+            "capabilities" or "nodes" or "world-authority" or "snapshots" or "partitions" or "clients" or "gateway-operations" when values.Length == 2 => ClusterRoute(command),
+            "bans" when values.Length == 2 => ClusterRoute("admission/bans"),
+            "events" when values.Length == 2 => ClusterRoute($"events?cursor={options.Cursor}&limit={options.Limit}"),
+            "chat-history" when values.Length == 2 => ClusterRoute($"chat/history?cursor={options.Cursor}&limit={options.Limit}"),
+            "command" when values.Length == 3 => ClusterRoute("commands"),
             "operation" when values.Length == 3 => ClusterRoute(
                 "operations/" + Uri.EscapeDataString(values[2])),
             "goal" when values.Length == 3 => ClusterRoute("goal"),
@@ -200,6 +205,20 @@ internal static class ClusterCli
             body = new { };
             mutation = true;
         }
+        else if (command == "command")
+        {
+            try
+            {
+                string json = values[2] == "-" ? Console.In.ReadToEnd() : File.ReadAllText(values[2]);
+                body = JsonSerializer.Deserialize<JsonElement>(json);
+                mutation = true;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+            {
+                stderr.WriteLine("Cannot read command JSON: " + error.Message);
+                return false;
+            }
+        }
         if (mutation && string.IsNullOrWhiteSpace(options.IdempotencyKey))
         {
             stderr.WriteLine("Mutations require --idempotency-key <key>.");
@@ -212,7 +231,7 @@ internal static class ClusterCli
         }
 
         request = new HttpRequestMessage(mutation ? HttpMethod.Put : HttpMethod.Get, baseUrl + route);
-        if (command == "gateway-restart") request.Method = HttpMethod.Post;
+        if (command is "gateway-restart" or "command") request.Method = HttpMethod.Post;
         if (body != null) request.Content = JsonContent.Create(body, options: JsonOptions);
         return true;
     }
@@ -221,7 +240,8 @@ internal static class ClusterCli
     {
         string? baseUrl = null, tokenVariable = DefaultTokenVariable, idempotencyKey = null;
         Guid? requestId = null;
-        int timeout = 30, waitTimeout = 900;
+        int timeout = 30, waitTimeout = 900, limit = 100;
+        long cursor = 0;
         bool wait = false;
         var positionals = new List<string>();
         for (int index = 1; index < args.Length; index++)
@@ -242,6 +262,8 @@ internal static class ClusterCli
             string value = args[++index];
             switch (argument)
             {
+                case "--cursor" when long.TryParse(value, out long parsedCursor) && parsedCursor >= 0: cursor = parsedCursor; break;
+                case "--limit" when int.TryParse(value, out int parsedLimit) && parsedLimit is >= 1 and <= 500: limit = parsedLimit; break;
                 case "--url": baseUrl = value; break;
                 case "--token-env": tokenVariable = value; break;
                 case "--idempotency-key": idempotencyKey = value; break;
@@ -257,7 +279,7 @@ internal static class ClusterCli
             }
         }
         options = new Options(baseUrl, tokenVariable, idempotencyKey, requestId,
-            timeout, wait, waitTimeout, positionals.ToArray());
+            timeout, wait, waitTimeout, positionals.ToArray(), cursor, limit);
         return true;
     }
 
@@ -283,11 +305,11 @@ internal static class ClusterCli
     }
 
     private static void WriteUsage(TextWriter writer) => writer.WriteLine(
-        "Usage: Quasar cluster <list|health|status|lifecycle|plan|recovery-readiness|config|operation|goal|gateway-restart> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--request-id GUID] [--wait]");
+        "Usage: Quasar cluster <list|health|status|lifecycle|plan|recovery-readiness|config|operation|goal|gateway-restart> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command takes a JSON file or - for stdin)");
 
     private sealed record Options(string? BaseUrl, string TokenEnvironmentVariable,
         string? IdempotencyKey, Guid? RequestId, int TimeoutSeconds, bool Wait,
-        int WaitTimeoutSeconds, string[] Positionals);
+        int WaitTimeoutSeconds, string[] Positionals, long Cursor, int Limit);
     private sealed record Response(HttpStatusCode StatusCode, string Json, string? OperationState,
         string? OperationRoute, int ExitCode);
 }

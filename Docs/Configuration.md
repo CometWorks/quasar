@@ -847,3 +847,31 @@ its node ID, registry epoch, endpoint, and PID. Host reports `Spawning` until th
 matches. Automatic kill requires the exact launch record and, for a ready node, the
 Gateway-requested node ID and epoch. A mismatched process identity or occupied reserved
 port is reported as `unmanaged_conflict`; Host leaves the process untouched.
+
+## Current Gateway commands and operation recovery
+
+`POST /api/v1/clusters/{name}/commands` accepts `{ "action": "save-all" }` and
+requires cluster-manage access and an `Idempotency-Key`. GUI actions use the same
+command service. Supported actions are `save-all`, `shutdown`, `gateway-restart`,
+`config-set`, `node-close`, `node-kill`, `wa-move`, `kick`, `ban`, `unban`, `chat`
+and `trigger`. `parameters` contains the current pinned Gateway request DTO;
+`target` identifies a slot, player or maintenance task as appropriate.
+
+For example, write `{ "action": "config-set", "parameters": { "expectedRevision": 4,
+"slots": [] } }` to a JSON file, then invoke Bootstrap's `cluster command NAME FILE`
+with the usual connection/auth options and `--idempotency-key KEY --wait`.
+An empty slot array requests removal of capacity; load current config before editing.
+`cluster events NAME --cursor N --limit 100` and `cluster chat-history NAME` expose
+cursor-based observation. JSON command input also accepts `-` for standard input.
+
+Gateway operations remain Running on HTTP 202. Quasar persists the remote ID and a
+stable forwarded key before sending, resumes after restart, and records the remote
+terminal result. A transport outage leaves the outcome pending. Keep the original
+Gateway URL while an operation is pending. Local `goal` success means the desired
+state was saved; query `lifecycle` separately for actual convergence.
+
+The host's local process adoption and exact-incarnation execution remain available
+for development tests. Automatic node actualization is disabled with
+`executor_contract_unavailable`: Gateway `0546d1a` publishes NodePlan but no public
+versioned executor report contract. The legacy registry heartbeat is not used.
+Packaged lifecycle integration and live executor acceptance remain pending.

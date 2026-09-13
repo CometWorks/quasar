@@ -138,17 +138,13 @@ internal static class Program
             throw new InvalidOperationException(
                 $"credential environment variable '{attachment.TokenEnvironmentVariable}' is not set");
 
-        Admin.AdminEnvelope<Admin.NodePlan[]> plan = await SendAsync<Admin.NodePlan[]>(client, attachment,
-            token, HttpMethod.Get, Admin.AdminProtocol.ExecutorPlanRoute(config.ExecutorId),
-            null, cancellationToken);
-        if (plan.Data.Any(slot => !slot.Host.Equals(config.HostId, StringComparison.Ordinal)))
-            throw new InvalidOperationException("Gateway returned a slot assigned to another host");
-
-        Admin.ExecutorObservation[] observations = await actualizer.ReconcileAsync(
-            attachment, plan.Data, cancellationToken);
-        await SendAsync<Admin.ExecutorHeartbeatAccepted>(client, attachment, token,
-            HttpMethod.Post, Admin.AdminProtocol.ExecutorHeartbeatRoute(config.ExecutorId),
-            new Admin.ExecutorHeartbeatRequest(observations), cancellationToken);
+        // The current source-pinned Gateway exposes NodePlan but has no public,
+        // incarnation-fenced executor report contract. Never actualize a plan when
+        // its outcome cannot be safely reported to the Registry.
+        await SendAsync<Admin.NodePlan[]>(client, attachment, token, HttpMethod.Get,
+            Admin.AdminProtocol.RoutePrefix + "/plan", null, cancellationToken);
+        throw new InvalidOperationException(
+            "executor_contract_unavailable: Gateway has no versioned executor reporting contract; node execution is disabled");
     }
 
     private static async Task<Admin.AdminEnvelope<T>> SendAsync<T>(HttpClient client,
@@ -392,12 +388,12 @@ internal static class Program
 
             var attachment = new HostContract.HostAttachmentSpec("demo", "http://127.0.0.1:28016",
                 "DEMO_EXECUTOR_TOKEN", manifestPath, ComputeSha256(manifestPath), runRoot);
-            var wanted = new Admin.NodePlan("slot-a", "host-a", null, Admin.NodeRole.Regular,
+            var wanted = new Admin.NodePlan("slot-a", "host-a", Admin.NodeRole.Regular,
                 Admin.NodeGoal.Wanted, Admin.NodeObservation.Missing, null, Admin.IncumbentAction.None,
                 null, 0, null, null, null, null, 0, false, true);
 
             var actualizer = new NodeActualizer(stateRoot, "host-a");
-            Admin.ExecutorObservation spawning = (await actualizer.ReconcileAsync(
+            NodeExecutionObservation spawning = (await actualizer.ReconcileAsync(
                 attachment, [wanted], CancellationToken.None)).Single();
             if (spawning.State != Admin.NodeObservation.Spawning)
                 throw new InvalidOperationException("self-test spawn failed: " + spawning.Failure);
@@ -413,7 +409,7 @@ internal static class Program
                 JsonSerializer.SerializeToUtf8Bytes(receipt, JsonOptions));
 
             actualizer = new NodeActualizer(stateRoot, "host-a");
-            Admin.ExecutorObservation ready = (await actualizer.ReconcileAsync(
+            NodeExecutionObservation ready = (await actualizer.ReconcileAsync(
                 attachment, [wanted], CancellationToken.None)).Single();
             if (ready.State != Admin.NodeObservation.Ready || ready.Node != "node-a")
                 throw new InvalidOperationException("self-test re-adoption failed");
@@ -427,7 +423,7 @@ internal static class Program
                 IncumbentEpoch = 7,
                 SpawnAllowed = false,
             };
-            Admin.ExecutorObservation gone = (await actualizer.ReconcileAsync(
+            NodeExecutionObservation gone = (await actualizer.ReconcileAsync(
                 attachment, [kill], CancellationToken.None)).Single();
             if (gone.State != Admin.NodeObservation.Gone)
                 throw new InvalidOperationException("self-test exact kill failed");
@@ -435,7 +431,7 @@ internal static class Program
 
             using var conflict = new TcpListener(IPAddress.Loopback, reservedPort);
             conflict.Start();
-            Admin.ExecutorObservation blocked = (await actualizer.ReconcileAsync(
+            NodeExecutionObservation blocked = (await actualizer.ReconcileAsync(
                 attachment, [wanted], CancellationToken.None)).Single();
             if (blocked.State != Admin.NodeObservation.Failed
                 || !blocked.Failure!.StartsWith("unmanaged_conflict:", StringComparison.Ordinal))
@@ -461,7 +457,7 @@ internal static class Program
                 {
                     BundleManifestSha256 = ComputeSha256(manifestPath),
                 };
-                Admin.ExecutorObservation linked = (await actualizer.ReconcileAsync(
+                NodeExecutionObservation linked = (await actualizer.ReconcileAsync(
                     linkedAttachment, [wanted], CancellationToken.None)).Single();
                 if (linked.State != Admin.NodeObservation.Failed
                     || !linked.Failure!.Contains("symbolic links", StringComparison.Ordinal))

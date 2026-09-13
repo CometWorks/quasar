@@ -232,6 +232,7 @@ public class Program
             builder.Services.AddSingleton<ExistingServerImportService>();
             builder.Services.AddSingleton<ClusterCatalog>();
             builder.Services.AddSingleton<ClusterOperationStore>();
+            builder.Services.AddHostedService<ClusterOperationReconciler>();
             builder.Services.AddSingleton<ClusterCommandService>();
             builder.Services.AddSingleton<ClusterReconciler>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ClusterReconciler>());

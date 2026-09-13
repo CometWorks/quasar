@@ -30,11 +30,9 @@ The solution file is `Quasar.sln`.
 
 ## Build setup
 
-Quasar and Bootstrap compile the exact current Gateway contract source pinned under
+Quasar, Bootstrap and Quasar.Host compile the exact current Gateway contract source pinned under
 `Contracts/ClusterGateway.AdminContract`. `SOURCE.md` records its upstream revision and
-checksum. No neighboring Gateway checkout is needed. The retained `Quasar.Host` prototype
-still uses its older package until executor contract alignment; its private GitHub feed
-is configured in `NuGet.Config`.
+checksum. No neighboring Gateway checkout or private contract package is needed.
 
 - `Quasar.Agent` depends on a local `DS64` path for Space Engineers Dedicated
   Server assemblies.

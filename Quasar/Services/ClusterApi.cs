@@ -80,6 +80,7 @@ internal static class ClusterApi
 
         routes.MapGet("/{uniqueName}/host", GetHostStatus);
         routes.MapGet("/{uniqueName}/lifecycle", GetLifecycleStatus);
+        RouteHandlerBuilder submitCommand = routes.MapPost("/{uniqueName}/commands", SubmitCommand);
         RouteHandlerBuilder setConfig = routes.MapPut("/{uniqueName}/config", SetPolicy);
         RouteHandlerBuilder setGoal = routes.MapPut("/{uniqueName}/goal", SetGoal);
         RouteHandlerBuilder setGatewaySpec = routes.MapPut("/{uniqueName}/gateway-spec", SetGatewaySpec);
@@ -92,6 +93,7 @@ internal static class ClusterApi
         if (authOptions.Enabled)
         {
             routes.RequireAuthorization(QuasarPolicyNames.ClusterQuery);
+            submitCommand.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setConfig.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setGoal.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setGatewaySpec.RequireAuthorization(QuasarPolicyNames.ClusterManage);
@@ -180,37 +182,26 @@ internal static class ClusterApi
         }
     }
 
-    private static async Task<IResult> RestartGateway(string uniqueName,
-        HttpContext context,
-        [FromServices] ClusterCatalog catalog, [FromServices] ClusterGatewayClient client,
-        [FromServices] ClusterOperationStore operations, CancellationToken cancellationToken)
+    private static Task<IResult> RestartGateway(string uniqueName, HttpContext context,
+        ClusterCatalog catalog, ClusterCommandService commands, CancellationToken token) =>
+        SubmitCommand(uniqueName, new ClusterAdminCommand("gateway-restart"), context, catalog, commands, token);
+
+    private static async Task<IResult> SubmitCommand(string uniqueName, [FromBody] ClusterAdminCommand command,
+        HttpContext context, ClusterCatalog catalog, ClusterCommandService commands, CancellationToken token)
     {
         SetProtocolHeader(context);
-        ClusterDefinition? cluster = catalog.GetCluster(uniqueName);
-        if (cluster == null)
-            return Error(StatusCodes.Status404NotFound, "unknown_cluster", $"Unknown cluster '{uniqueName}'.");
+        if (catalog.GetCluster(uniqueName) is null)
+            return Error(404, "unknown_cluster", "Cluster was not found.");
         if (!context.User.CanQueryCluster(uniqueName))
-            return Error(StatusCodes.Status403Forbidden, "cluster_forbidden",
-                "The credential cannot access this cluster.");
-        if (cluster.GoalState != DedicatedServerGoalState.On)
-            return Error(StatusCodes.Status409Conflict, "cluster_not_on",
-                "Gateway restart requires cluster goal On.");
+            return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
         try
         {
-            ClusterOperation operation = await operations.ExecuteAsync(uniqueName, "cluster.gateway.restart",
-                context.Request.Headers["Idempotency-Key"].ToString(),
-                context.User.Identity?.Name ?? "anonymous", new { },
-                token => client.RestartGatewayAsync(cluster, context.Request.Headers["Idempotency-Key"].ToString(), token), cancellationToken);
+            var operation = await commands.SubmitAsync(uniqueName, command,
+                context.Request.Headers["Idempotency-Key"].ToString(), context.User.Identity?.Name ?? "anonymous", token);
             return AcceptedOperation(uniqueName, context, operation);
         }
-        catch (ClusterOperationConflictException exception)
-        {
-            return Error(exception.StatusCode, exception.Code, exception.Message);
-        }
-        catch (ClusterOperationStoreUnavailableException exception)
-        {
-            return Error(StatusCodes.Status503ServiceUnavailable, "operation_store_unavailable", exception.Message);
-        }
+        catch (ClusterOperationConflictException error) { return Error(error.StatusCode, error.Code, error.Message); }
+        catch (ClusterOperationStoreUnavailableException error) { return Error(503, "operation_store_unavailable", error.Message); }
     }
 
     private static async Task<IResult> Query<T>(string uniqueName, HttpContext context, ClusterCatalog catalog,
@@ -234,36 +225,9 @@ internal static class ClusterApi
         }
     }
 
-    private static async Task<IResult> SetPolicy(string uniqueName, Admin.AdminConfigUpdate policy,
-        HttpContext context, ClusterCatalog catalog, ClusterGatewayClient client,
-        ClusterOperationStore operations, CancellationToken cancellationToken)
-    {
-        SetProtocolHeader(context);
-        ClusterDefinition? cluster = catalog.GetCluster(uniqueName);
-        if (cluster == null)
-            return Error(StatusCodes.Status404NotFound, "unknown_cluster", $"Unknown cluster '{uniqueName}'.");
-        if (!context.User.CanQueryCluster(uniqueName))
-            return Error(StatusCodes.Status403Forbidden, "cluster_forbidden",
-                "The credential cannot access this cluster.");
-        try
-        {
-            ClusterOperation operation = await operations.ExecuteAsync(uniqueName, "cluster.config.set",
-                context.Request.Headers["Idempotency-Key"].ToString(),
-                context.User.Identity?.Name ?? "anonymous", policy,
-                token => client.SetPolicyAsync(cluster, policy, context.Request.Headers["Idempotency-Key"].ToString(), token), cancellationToken);
-            context.Response.Headers.Location = $"/api/v1/clusters/{Uri.EscapeDataString(uniqueName)}"
-                + $"/operations/{operation.OperationId}";
-            return Results.Json(Envelope(operation), JsonOptions, statusCode: StatusCodes.Status202Accepted);
-        }
-        catch (ClusterOperationConflictException exception)
-        {
-            return Error(exception.StatusCode, exception.Code, exception.Message);
-        }
-        catch (ClusterOperationStoreUnavailableException exception)
-        {
-            return Error(StatusCodes.Status503ServiceUnavailable, "operation_store_unavailable", exception.Message);
-        }
-    }
+    private static Task<IResult> SetPolicy(string uniqueName, Admin.AdminConfigUpdate policy,
+        HttpContext context, ClusterCatalog catalog, ClusterCommandService commands, CancellationToken token) =>
+        SubmitCommand(uniqueName, ClusterAdminCommand.Create("config-set", policy), context, catalog, commands, token);
 
     private static async Task<IResult> GetHostStatus(string uniqueName, HttpContext context,
         ClusterCatalog catalog, ClusterHostClient client, CancellationToken cancellationToken)
@@ -315,7 +279,8 @@ internal static class ClusterApi
                 }, cancellationToken);
             context.Response.Headers.Location = $"/api/v1/clusters/{Uri.EscapeDataString(uniqueName)}"
                 + $"/operations/{operation.OperationId}";
-            return Results.Json(Envelope(operation), JsonOptions, statusCode: StatusCodes.Status202Accepted);
+            return Results.Json(Envelope(operation), JsonOptions, statusCode: operation.State == ClusterOperationState.Running
+            ? StatusCodes.Status202Accepted : StatusCodes.Status200OK);
         }
         catch (ClusterOperationConflictException exception)
         {
@@ -363,7 +328,8 @@ internal static class ClusterApi
                 }, cancellationToken);
             context.Response.Headers.Location = $"/api/v1/clusters/{Uri.EscapeDataString(uniqueName)}"
                 + $"/operations/{operation.OperationId}";
-            return Results.Json(Envelope(operation), JsonOptions, statusCode: StatusCodes.Status202Accepted);
+            return Results.Json(Envelope(operation), JsonOptions, statusCode: operation.State == ClusterOperationState.Running
+            ? StatusCodes.Status202Accepted : StatusCodes.Status200OK);
         }
         catch (ClusterOperationConflictException exception)
         {
@@ -402,7 +368,8 @@ internal static class ClusterApi
     {
         context.Response.Headers.Location = $"/api/v1/clusters/{Uri.EscapeDataString(uniqueName)}"
             + $"/operations/{operation.OperationId}";
-        return Results.Json(Envelope(operation), JsonOptions, statusCode: StatusCodes.Status202Accepted);
+        return Results.Json(Envelope(operation), JsonOptions, statusCode: operation.State == ClusterOperationState.Running
+            ? StatusCodes.Status202Accepted : StatusCodes.Status200OK);
     }
 
     private static Admin.AdminEnvelope<T> Envelope<T>(T data) =>

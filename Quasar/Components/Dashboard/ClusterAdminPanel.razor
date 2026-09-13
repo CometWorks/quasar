@@ -1,0 +1,129 @@
+@implements IAsyncDisposable
+@using Admin = CometWorks.ClusterGateway.AdminContract.V1
+@inject ClusterCommandService Commands
+@inject ClusterOperationStore Operations
+@inject ClusterGatewayClient Gateway
+@inject QuasarPermissionService Permissions
+@inject IDialogService Dialogs
+
+<AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+    <Authorized Context="authorization">
+        <MudPaper Class="pa-4 server-card">
+            <MudText Typo="Typo.h6">Cluster administration</MudText>
+            @if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Warning">@_error</MudAlert>
+            }
+            <MudStack Row="true" Spacing="2" Class="my-2">
+                <MudButton Disabled="@(!CanRun("POST /admin/v1/save-all"))" OnClick="SaveAsync">Save world</MudButton>
+                <MudButton Disabled="@(!CanRun("POST /admin/v1/shutdown"))" OnClick="ShutdownAsync" Color="Color.Warning">Shut down cluster</MudButton>
+                <MudButton Disabled="@(!CanRun("POST /admin/v1/gateway/restart") || Cluster.Gateway is null)" OnClick="RestartAsync">Restart Gateway</MudButton>
+            </MudStack>
+            @if (_capabilities?.Scope == Admin.AdminScope.Query)
+            {
+                <MudText>Gateway credentials allow observation only.</MudText>
+            }
+            @if (_operation is not null)
+            {
+                <MudText Typo="Typo.body2">@_operation.Kind · @_operation.State · @_operation.OperationId</MudText>
+                @if (_operation.Error is { } error)
+                {
+                    <MudText Color="Color.Warning">@error.Code: @error.Message</MudText>
+                }
+            }
+            <MudExpansionPanels>
+                <MudExpansionPanel Text="Advanced capacity configuration">
+                    <MudButton OnClick="LoadConfigAsync" Disabled="@Busy">Load current configuration</MudButton>
+                    @if (_config is not null)
+                    {
+                        <MudText Typo="Typo.caption">Policy revision @_config.PolicyRevision. Registry owns placement and drain decisions.</MudText>
+                        <MudTable T="Admin.AdminSlotSpec" Items="_config.Slots" Dense="true">
+                            <HeaderContent><MudTh>Slot</MudTh><MudTh>Host</MudTh><MudTh>Role</MudTh><MudTh>Desired state</MudTh></HeaderContent>
+                            <RowTemplate>
+                                <MudTd>@context.SlotKey</MudTd><MudTd>@context.Host</MudTd><MudTd>@context.Role</MudTd>
+                                <MudTd>
+                                    <MudSelect T="Admin.NodeGoal" Value="context.Goal" ValueChanged="@(value => ChangeGoal(context.SlotKey, value))" Disabled="@Busy">
+                                        <MudSelectItem Value="Admin.NodeGoal.Wanted">Wanted</MudSelectItem>
+                                        <MudSelectItem Value="Admin.NodeGoal.Draining">Draining</MudSelectItem>
+                                    </MudSelect>
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                        <MudButton OnClick="ApplyConfigAsync" Disabled="@(!CanRun("PUT /admin/v1/config"))">Apply configuration</MudButton>
+                    }
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+        </MudPaper>
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = new();
+    private readonly CancellationTokenSource _shutdown = new();
+    private Admin.AdminCapabilities? _capabilities;
+    private Admin.AdminConfig? _config;
+    private ClusterOperation? _operation;
+    private string? _error;
+    private Task? _poll;
+    private bool _submitting;
+    private bool Busy => _submitting || _operation?.State == ClusterOperationState.Running;
+    private bool CanRun(string operation) => !Busy && _capabilities?.Scope == Admin.AdminScope.Manage
+        && _capabilities.Operations.Contains(operation, StringComparer.Ordinal);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _capabilities = (await Gateway.GetCapabilitiesAsync(Cluster, _shutdown.Token)).Data; }
+        catch (ClusterGatewayException error) { _error = error.Message; }
+        _poll = PollAsync();
+    }
+    private async Task PollAsync()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            while (await timer.WaitForNextTickAsync(_shutdown.Token))
+                await InvokeAsync(() =>
+                {
+                    if (_operation is not null) _operation = Operations.Get(_operation.OperationId);
+                    StateHasChanged();
+                });
+        }
+        catch (OperationCanceledException) { }
+    }
+    private Task SaveAsync() => SubmitAsync(new("save-all"));
+    private async Task ShutdownAsync()
+    {
+        if (await Dialogs.ShowMessageBoxAsync("Shut down cluster?", "Players will disconnect while the cluster saves and drains.", yesText: "Shut down", cancelText: "Cancel") == true)
+            await SubmitAsync(ClusterAdminCommand.Create("shutdown", new Admin.ShutdownRequest()));
+    }
+    private async Task RestartAsync()
+    {
+        if (await Dialogs.ShowMessageBoxAsync("Restart Gateway?", "Clients will reconnect; nodes keep simulating.", yesText: "Restart", cancelText: "Cancel") == true)
+            await SubmitAsync(new("gateway-restart"));
+    }
+    private async Task SubmitAsync(ClusterAdminCommand command)
+    {
+        if (Busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
+        _submitting = true;
+        _error = null;
+        try { _operation = await Commands.SubmitAsync(Cluster.UniqueName, command, Guid.NewGuid().ToString("N"), "web-ui", _shutdown.Token); }
+        catch (Exception error) when (error is ClusterOperationConflictException or ClusterOperationStoreUnavailableException or ClusterGatewayException) { _error = error.Message; }
+        finally { _submitting = false; }
+    }
+    private async Task LoadConfigAsync()
+    {
+        try { _config = (await Gateway.GetPolicyAsync(Cluster, _shutdown.Token)).Data; _error = null; }
+        catch (ClusterGatewayException error) { _error = error.Message; }
+    }
+    private void ChangeGoal(string slot, Admin.NodeGoal goal)
+    {
+        if (_config is not null) _config = _config with { Slots = _config.Slots.Select(s => s.SlotKey == slot ? s with { Goal = goal } : s).ToArray() };
+    }
+    private Task ApplyConfigAsync() => SubmitAsync(ClusterAdminCommand.Create("config-set", new Admin.AdminConfigUpdate(_config!.PolicyRevision, _config.Slots)));
+    public async ValueTask DisposeAsync()
+    {
+        await _shutdown.CancelAsync();
+        if (_poll is not null) await _poll;
+        _shutdown.Dispose();
+    }
+}

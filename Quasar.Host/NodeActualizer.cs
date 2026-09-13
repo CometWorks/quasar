@@ -28,13 +28,13 @@ internal sealed class NodeActualizer
         _hostId = hostId;
     }
 
-    public async Task<Admin.ExecutorObservation[]> ReconcileAsync(HostContract.HostAttachmentSpec attachment,
+    public async Task<NodeExecutionObservation[]> ReconcileAsync(HostContract.HostAttachmentSpec attachment,
         Admin.NodePlan[] plan, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(attachment.BundleManifestPath))
             return [];
 
-        var observations = new List<Admin.ExecutorObservation>(plan.Length);
+        var observations = new List<NodeExecutionObservation>(plan.Length);
         foreach (Admin.NodePlan slot in plan)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -43,7 +43,7 @@ internal sealed class NodeActualizer
         return observations.ToArray();
     }
 
-    private async Task<Admin.ExecutorObservation> ReconcileSlotAsync(HostContract.HostAttachmentSpec attachment,
+    private async Task<NodeExecutionObservation> ReconcileSlotAsync(HostContract.HostAttachmentSpec attachment,
         Admin.NodePlan plan, CancellationToken cancellationToken)
     {
         LaunchRecord? record;
@@ -143,7 +143,7 @@ internal sealed class NodeActualizer
         return await SpawnAsync(attachment, plan, cancellationToken);
     }
 
-    private Task<Admin.ExecutorObservation> SpawnAsync(HostContract.HostAttachmentSpec attachment,
+    private Task<NodeExecutionObservation> SpawnAsync(HostContract.HostAttachmentSpec attachment,
         Admin.NodePlan plan, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -215,7 +215,7 @@ internal sealed class NodeActualizer
         }
     }
 
-    private async Task<Admin.ExecutorObservation> KillAsync(Admin.NodePlan plan, LaunchRecord record,
+    private async Task<NodeExecutionObservation> KillAsync(Admin.NodePlan plan, LaunchRecord record,
         Process process, CancellationToken cancellationToken)
     {
         using (process)
@@ -569,7 +569,7 @@ internal sealed class NodeActualizer
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 
-    private static Admin.ExecutorObservation Observation(string slotKey, string attemptKey,
+    private static NodeExecutionObservation Observation(string slotKey, string attemptKey,
         Admin.NodeObservation state, string? node, string? failure) =>
         new(slotKey, attemptKey, state, node, failure);
 
@@ -633,3 +633,7 @@ internal sealed record RunRootProvenance(int SchemaVersion, string ClusterId, st
 internal enum LaunchStatus { Launching, Running, Ready, Failed, Gone }
 
 internal sealed class UnmanagedConflictException(string message) : InvalidOperationException(message);
+
+// Local execution result only; this is not a Gateway wire contract.
+internal sealed record NodeExecutionObservation(string SlotKey, string AttemptKey,
+    Admin.NodeObservation State, string? Node, string? Failure);

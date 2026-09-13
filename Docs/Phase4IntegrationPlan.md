@@ -2,7 +2,8 @@
 
 Updated 2026-09-13. Step 1 complete: upstream baseline refresh and plan reconciliation.
 Step 2 complete: current source-pinned contract, expanded queries, authoritative health,
-and observation without host provisioning. Step 3 is next.
+and observation without host provisioning. Step 3 implementation is complete with
+the public executor report contract recorded as an activation gap. Step 4 is next.
 
 ## Plan authority
 
@@ -74,7 +75,7 @@ implementation history is merged as part of this baseline refresh.
 
 Validation results are recorded below. Contract migration remains step 2.
 
-## Remaining implementation gaps
+## Baseline gaps reviewed in steps 2–3
 
 1. Quasar pins the historical `0.5.0` admin-contract package; current Forgejo source
    declares `0.3.0` of a different lineage. Both use wire protocol v1. Select a reproducible
@@ -174,3 +175,22 @@ renumbering or replacing their acceptance contract.
 
 These checks validate the refreshed implementation baseline, not current-Gateway wire
 compatibility or live phase 4 acceptance. No Quasar web service or game cluster was launched.
+
+## Step 3 result
+
+GUI and headless commands share a validated command service. CAS configuration,
+save/shutdown, node administration, player moderation, chat and maintenance forward
+stable keys through persisted operations. Running Gateway operations resume by ID;
+a lost initial response replays the same persisted key. Local goal acknowledgement
+is distinct from lifecycle convergence. Quasar.Host now uses the same pinned source
+contract as the worker and Bootstrap, with local execution results kept private.
+
+Current Gateway has no public executor report route. The host reads the current plan
+but refuses automatic actualization before any node process action. This explicit gap
+avoids relying on the legacy unfenced heartbeat or inventing a public protocol. Retained
+local actualizer tests cover re-adoption and exact process kills. No data-plane patches
+were restored. Closing this gap requires an upstream report/credential contract.
+
+Validation: solution build passed; 199 tests passed, including durable operation
+restart/replay, lost-response key reuse and terminal revision conflicts. Host self-test
+passed. These are local implementation checks; live acceptance remains deferred.

@@ -124,6 +124,107 @@ public sealed class ClusterOperationStore
         }
     }
 
+    public async Task<ClusterOperation> ExecuteGatewayAsync(Quasar.Models.ClusterDefinition cluster,
+        string kind, string method, string route, object? request, string idempotencyKey, string actor,
+        ClusterGatewayClient client, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 128)
+            throw new ClusterOperationConflictException(400, "idempotency_key_required", "Idempotency-Key is required (maximum 128 characters).");
+        if (!IsReady) throw new ClusterOperationStoreUnavailableException();
+        var pending = new GatewayOperationRequest(cluster.GatewayUrl, method, route,
+            JsonSerializer.SerializeToElement(request, JsonOptions));
+        string hash = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(pending, JsonOptions)));
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var operation = _operations.Values.FirstOrDefault(o =>
+                o.Cluster.Equals(cluster.UniqueName, StringComparison.OrdinalIgnoreCase)
+                && o.Kind == kind && o.IdempotencyKey == idempotencyKey.Trim());
+            if (operation is not null && operation.RequestHash != hash)
+                throw new ClusterOperationConflictException(409, "idempotency_key_conflict", "The key is bound to different request content.");
+            if (operation is null)
+            {
+                var now = DateTimeOffset.UtcNow;
+                operation = new ClusterOperation(Guid.NewGuid().ToString("N"), cluster.UniqueName, kind,
+                    idempotencyKey.Trim(), hash, actor, ClusterOperationState.Running, now, now, null, null,
+                    GatewayRequest: pending);
+                await SaveAsync(operation, cancellationToken);
+            }
+            return await ResumeGatewayAsync(operation, cluster, client, cancellationToken);
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task ReconcileGatewayAsync(ClusterCatalog catalog, ClusterGatewayClient client,
+        CancellationToken cancellationToken)
+    {
+        if (!IsReady) return;
+        foreach (var pending in _operations.Values.Where(o => o.State == ClusterOperationState.Running && o.GatewayRequest is not null))
+        {
+            var cluster = catalog.GetCluster(pending.Cluster);
+            if (cluster is null) continue;
+            await _gate.WaitAsync(cancellationToken);
+            try { await ResumeGatewayAsync(_operations[pending.OperationId], cluster, client, cancellationToken); }
+            finally { _gate.Release(); }
+        }
+    }
+
+    private async Task<ClusterOperation> ResumeGatewayAsync(ClusterOperation operation,
+        Quasar.Models.ClusterDefinition cluster, ClusterGatewayClient client, CancellationToken token)
+    {
+        if (operation.State != ClusterOperationState.Running) return operation;
+        var request = operation.GatewayRequest!;
+        if (!request.GatewayUrl.Equals(cluster.GatewayUrl, StringComparison.Ordinal))
+            return await SaveAsync(operation with { Error = new("gateway_changed", "Restore the original Gateway URL to resume this operation.") }, token);
+        try
+        {
+            Admin.AdminOperation remote;
+            if (operation.GatewayOperationId is { } id)
+                remote = (await client.GetOperationAsync(cluster, id, token)).Data;
+            else
+            {
+                remote = (await client.MutateAsync(cluster, request.Route, new HttpMethod(request.Method),
+                    request.Body, "quasar-" + operation.OperationId, token)).Data;
+            }
+            if (remote.IdempotencyKey != "quasar-" + operation.OperationId
+                || (operation.GatewayOperationId is { } expectedId && remote.OperationId != expectedId))
+                throw new ClusterGatewayException(System.Net.HttpStatusCode.BadGateway, "protocol_mismatch", "Gateway returned a different operation identity.");
+            operation = operation with
+            {
+                GatewayOperationId = remote.OperationId,
+                State = remote.State switch
+                {
+                    Admin.AdminOperationState.Succeeded => ClusterOperationState.Succeeded,
+                    Admin.AdminOperationState.Failed => ClusterOperationState.Failed,
+                    _ => ClusterOperationState.Running,
+                },
+                Result = JsonSerializer.SerializeToElement(remote, JsonOptions),
+                Error = remote.Error is null ? null : new(remote.Error.Code, remote.Error.Message),
+                UpdatedAt = DateTimeOffset.UtcNow,
+            };
+        }
+        catch (ClusterGatewayException error)
+        {
+            // A timeout or unavailable Gateway leaves the outcome unknown. Resume with the
+            // same persisted key/ID; never turn a lost response into a second mutation.
+            bool retry = (int)error.StatusCode >= 500 || (int)error.StatusCode is 408 or 429
+                || (operation.GatewayOperationId is not null && (int)error.StatusCode is 401 or 403);
+            operation = operation with
+            {
+                State = retry ? ClusterOperationState.Running : ClusterOperationState.Failed,
+                Error = new(error.Code, error.Message), UpdatedAt = DateTimeOffset.UtcNow,
+            };
+        }
+        return await SaveAsync(operation, token);
+    }
+
+    private async Task<ClusterOperation> SaveAsync(ClusterOperation operation, CancellationToken token)
+    {
+        await PersistAsync(operation, token);
+        _operations[operation.OperationId] = operation;
+        return operation;
+    }
+
     private async Task PersistAsync(ClusterOperation operation, CancellationToken cancellationToken)
     {
         try
@@ -152,7 +253,9 @@ public sealed record ClusterOperation(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     JsonElement? Result,
-    ClusterOperationError? Error);
+    ClusterOperationError? Error,
+    string? GatewayOperationId = null,
+    GatewayOperationRequest? GatewayRequest = null);
 
 public sealed record ClusterOperationError(string Code, string Message);
 
@@ -166,5 +269,22 @@ public sealed class ClusterOperationStoreUnavailableException : Exception
 {
     public ClusterOperationStoreUnavailableException() : base("Cluster operation store is unavailable.")
     {
+    }
+}
+
+public sealed record GatewayOperationRequest(string GatewayUrl, string Method, string Route, JsonElement Body);
+
+public sealed class ClusterOperationReconciler(ClusterOperationStore operations, ClusterCatalog catalog,
+    ClusterGatewayClient client, ILogger<ClusterOperationReconciler> logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        do
+        {
+            try { await operations.ReconcileGatewayAsync(catalog, client, stoppingToken); }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
+            catch (Exception error) { logger.LogWarning(error, "Cluster operation reconciliation failed."); }
+        } while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 }
