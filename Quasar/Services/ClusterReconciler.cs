@@ -76,8 +76,9 @@ public sealed class ClusterReconciler : BackgroundService
     {
         if (cluster.Gateway == null)
         {
-            Set(cluster, ClusterReconcileState.ConfigurationRequired, null, null,
-                "gateway_spec_required", "Configure the cluster Gateway executor spec.");
+            Admin.ClusterStatus observed = (await _gatewayClient.GetStatusAsync(cluster, cancellationToken)).Data;
+            Set(cluster, ClusterReconcileState.Observing, null, observed.Phase,
+                null, "Observing an existing cluster; process lifecycle is not configured.");
             return;
         }
 
@@ -134,17 +135,16 @@ public sealed class ClusterReconciler : BackgroundService
 
         if (gateway.Phase != Admin.ClusterPhase.Down)
         {
-            Admin.ShutdownRequest request = new(
-                LifecycleRequestId(cluster),
-                Admin.ShutdownMode.Graceful,
-                cluster.ShutdownGracePeriodSeconds,
-                CompletionTimeoutSeconds: 900,
+            Admin.ShutdownRequest request = new(GraceSeconds: cluster.ShutdownGracePeriodSeconds,
                 ForceAfterSeconds: 900);
-            Admin.GatewayLifecycleResult result =
-                (await _gatewayClient.ShutdownAsync(cluster, request, cancellationToken)).Data;
-            if (result.Phase != Admin.ClusterPhase.Down)
+            Admin.AdminOperation result =
+                (await _gatewayClient.ShutdownAsync(cluster, request, LifecycleRequestId(cluster).ToString("N"), cancellationToken)).Data;
+            if (result.State == Admin.AdminOperationState.Failed)
+                throw new ClusterGatewayException(System.Net.HttpStatusCode.Conflict,
+                    result.Error?.Code ?? "shutdown_failed", result.Error?.Message ?? "Cluster shutdown failed.");
+            if (result.State == Admin.AdminOperationState.Running)
             {
-                Set(cluster, ClusterReconcileState.Converging, hostGateway.Observed, result.Phase,
+                Set(cluster, ClusterReconcileState.Converging, hostGateway.Observed, gateway.Phase,
                     null, "Graceful cluster shutdown is still running.");
                 return;
             }
@@ -197,7 +197,7 @@ public sealed class ClusterReconciler : BackgroundService
             DateTimeOffset.UtcNow, code, message);
 }
 
-public enum ClusterReconcileState { Pending, ConfigurationRequired, Converging, Converged, Failed }
+public enum ClusterReconcileState { Pending, Observing, ConfigurationRequired, Converging, Converged, Failed }
 
 public sealed record ClusterReconcileStatus(
     string ClusterId,

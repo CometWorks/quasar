@@ -1,6 +1,7 @@
 @page "/clusters/{UniqueName}"
-@attribute [Authorize(Policy = QuasarPolicyNames.ClusterManage)]
+@attribute [Authorize(Policy = QuasarPolicyNames.ClusterQuery)]
 @inject ClusterCatalog ClusterCatalog
+@inject AuthenticationStateProvider AuthenticationState
 
 <PageTitle>@(Cluster?.DisplayName ?? "Cluster")</PageTitle>
 
@@ -41,5 +42,9 @@ else
 
     private ClusterDefinition? Cluster { get; set; }
 
-    protected override void OnParametersSet() => Cluster = ClusterCatalog.GetCluster(UniqueName);
+    protected override async Task OnParametersSetAsync()
+    {
+        var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+        Cluster = user.CanQueryCluster(UniqueName) ? ClusterCatalog.GetCluster(UniqueName) : null;
+    }
 }

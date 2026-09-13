@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PackageId>CometWorks.ClusterGateway.AdminContract</PackageId>
+    <Version>0.3.0</Version>
+    <Description>Versioned implementation-free admin contract for CometWorks Cluster Gateway.</Description>
+    <RepositoryUrl>https://git.cometworks.se/CometWorks/cluster-gateway</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

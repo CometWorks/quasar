@@ -197,12 +197,7 @@ internal static class ClusterCli
         }
         else if (command == "gateway-restart")
         {
-            if (options.RequestId is not Guid requestId || requestId == Guid.Empty)
-            {
-                stderr.WriteLine("Gateway restart requires --request-id <guid>.");
-                return false;
-            }
-            body = new GatewayRestartRequest(requestId);
+            body = new { };
             mutation = true;
         }
         if (mutation && string.IsNullOrWhiteSpace(options.IdempotencyKey))

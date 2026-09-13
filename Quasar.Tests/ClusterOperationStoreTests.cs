@@ -11,7 +11,7 @@ public sealed class ClusterOperationStoreTests
     public async Task PersistsAndReplaysIdempotentOperation()
     {
         string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());
-        var policy = new ClusterPolicy("revision-1", 1, ["host-a"], "host-a");
+        var policy = new AdminConfigUpdate(1, []);
         int calls = 0;
         try
         {
@@ -20,8 +20,8 @@ public sealed class ClusterOperationStoreTests
                 "factory", policy, _ =>
                 {
                     calls++;
-                    return Task.FromResult(new AdminEnvelope<ClusterPolicyApplied>(AdminProtocol.Version,
-                        DateTimeOffset.UtcNow, new ClusterPolicyApplied(policy.Revision, true, [])));
+                    return Task.FromResult(new AdminEnvelope<string>(AdminProtocol.Version,
+                        DateTimeOffset.UtcNow, "applied"));
                 }, CancellationToken.None);
 
             Assert.Equal(ClusterOperationState.Succeeded, first.State);
@@ -29,15 +29,15 @@ public sealed class ClusterOperationStoreTests
             Assert.NotNull(store.Get(first.OperationId)?.Result);
 
             var recovered = new ClusterOperationStore(directory);
-            ClusterOperation replay = await recovered.ExecuteAsync<ClusterPolicy, ClusterPolicyApplied>(
+            ClusterOperation replay = await recovered.ExecuteAsync<AdminConfigUpdate, string>(
                 "demo", "cluster.config.set", "request-1",
                 "factory", policy, _ => throw new InvalidOperationException("must not repeat"), CancellationToken.None);
             Assert.Equal(first.OperationId, replay.OperationId);
 
             ClusterOperationConflictException conflict = await Assert.ThrowsAsync<ClusterOperationConflictException>(() =>
-                recovered.ExecuteAsync<ClusterPolicy, ClusterPolicyApplied>(
+                recovered.ExecuteAsync<AdminConfigUpdate, string>(
                     "demo", "cluster.config.set", "request-1", "factory",
-                    policy with { NodeTargetCount = 2 }, _ => throw new InvalidOperationException(), CancellationToken.None));
+                    policy with { ExpectedRevision = 2 }, _ => throw new InvalidOperationException(), CancellationToken.None));
             Assert.Equal("idempotency_key_conflict", conflict.Code);
         }
         finally
@@ -54,9 +54,9 @@ public sealed class ClusterOperationStoreTests
         try
         {
             var store = new ClusterOperationStore(directory);
-            ClusterOperation failed = await store.ExecuteAsync<ClusterPolicy, ClusterPolicyApplied>(
+            ClusterOperation failed = await store.ExecuteAsync<AdminConfigUpdate, string>(
                 "demo", "cluster.config.set", "request-2",
-                "factory", new ClusterPolicy("bad", 1, ["host-a"], "host-a"),
+                "factory", new AdminConfigUpdate(1, []),
                 _ => throw new ClusterGatewayException(
                     HttpStatusCode.Conflict, "registry_conflict", "Rejected."), CancellationToken.None);
 

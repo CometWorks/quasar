@@ -74,9 +74,9 @@ public sealed class ClusterReconcilerTests : IDisposable
             {
                 order.Add("gateway-shutdown");
                 phase = Admin.ClusterPhase.Down;
-                var result = new Admin.GatewayLifecycleResult(Guid.NewGuid(),
-                    Admin.GatewayLifecycleAction.GracefulShutdown,
-                    Admin.GatewayOperationDisposition.Accepted, phase, DateTimeOffset.UtcNow);
+                var result = new Admin.AdminOperation("shutdown-1", "shutdown", Admin.AdminOperationState.Succeeded,
+                    "test", request.Headers.GetValues("Idempotency-Key").Single(), DateTimeOffset.UtcNow,
+                    DateTimeOffset.UtcNow, null, null, null);
                 return GatewayResponse(result);
             }
             order.Add("gateway-status");
@@ -142,13 +142,29 @@ public sealed class ClusterReconcilerTests : IDisposable
         Assert.Equal("gateway_api_starting", status.ErrorCode);
     }
 
+    [Fact]
+    public async Task ObservationNeedsNoHostAndDoesNotApplyDefaultOffGoal()
+    {
+        using ClusterCatalog catalog = CreateCatalog(DedicatedServerGoalState.Off, observeOnly: true);
+        var host = new ContractHandler((_, _) => throw new InvalidOperationException("must not contact host"));
+        var gateway = new ContractHandler((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Get, request.Method);
+            return GatewayResponse(Status(Admin.ClusterPhase.Serving));
+        });
+        var reconciler = CreateReconciler(catalog, gateway, host);
+        await reconciler.ReconcileAllAsync(CancellationToken.None);
+        Assert.Equal(ClusterReconcileState.Observing, reconciler.GetStatus("demo").State);
+        Assert.Equal(Admin.ClusterPhase.Serving, reconciler.GetStatus("demo").ClusterPhase);
+    }
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable(_tokenVariable, null);
         if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
     }
 
-    private ClusterCatalog CreateCatalog(DedicatedServerGoalState goal)
+    private ClusterCatalog CreateCatalog(DedicatedServerGoalState goal, bool observeOnly = false)
     {
         string directory = Path.Combine(_directory, "demo");
         Directory.CreateDirectory(directory);
@@ -161,7 +177,7 @@ public sealed class ClusterReconcilerTests : IDisposable
             HostCommandTokenEnvironmentVariable = _tokenVariable,
             GoalState = goal,
             ShutdownGracePeriodSeconds = 0,
-            Gateway = Spec(),
+            Gateway = observeOnly ? null : Spec(),
             UpdatedAtUtc = DateTimeOffset.UnixEpoch,
         };
         File.WriteAllText(Path.Combine(directory, "cluster.json"), JsonSerializer.Serialize(cluster, JsonOptions));
@@ -189,7 +205,7 @@ public sealed class ClusterReconcilerTests : IDisposable
         "demo", "world", phase, Admin.StartupKind.Recovery, null,
         phase == Admin.ClusterPhase.Down ? DateTimeOffset.UnixEpoch : null,
         false, false, [], new Admin.ClusterCounts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-        new Admin.WorldAuthorityStatus(null, 0, 0, DateTimeOffset.UnixEpoch), [], []);
+        new Admin.WorldAuthorityStatus(null, 0, 0, DateTimeOffset.UnixEpoch), [], [], false, Admin.AdminHealth.Healthy, [], DateTimeOffset.UtcNow);
 
     private static HttpResponseMessage HostResponse<T>(T value) => Response(
         new HostEnvelope<T>(HostProtocol.Version, DateTimeOffset.UtcNow, value),

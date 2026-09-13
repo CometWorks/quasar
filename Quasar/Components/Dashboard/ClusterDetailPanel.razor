@@ -15,6 +15,15 @@
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
     }
 
+    @if (_observedAt is { } observed)
+    {
+        <MudText Typo="Typo.caption">@(_stale ? "Stale observation" : "Observed") · @observed.ToString("u") · Health: @(_stale ? "Unknown" : _status?.Health.ToString())</MudText>
+    }
+    @if (_capabilities?.Scope == Admin.AdminScope.Query)
+    {
+        <MudAlert Severity="Severity.Info">Gateway access is query-only.</MudAlert>
+    }
+
     <MudGrid Spacing="2">
         <MudItem xs="12" sm="6" lg="3">
             <MudPaper Class="pa-3 server-card" Elevation="0">
@@ -59,10 +68,10 @@
                 Nodes · @CapacityText
             </MudChip>
         </MudStack>
-        @if (_status?.DegradedReasons.Length > 0)
+        @if (_status?.ReasonCodes.Length > 0)
         {
             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
-                @string.Join(" · ", _status.DegradedReasons)
+                @string.Join(" · ", _status.ReasonCodes)
             </MudAlert>
         }
     </MudPaper>
@@ -115,6 +124,9 @@
     private Task? _refreshLoop;
     private string? _error;
     private bool _loading;
+    private bool _stale;
+    private DateTimeOffset? _observedAt;
+    private Admin.AdminCapabilities? _capabilities;
 
     [Parameter, EditorRequired]
     public ClusterDefinition Cluster { get; set; } = new();
@@ -143,14 +155,15 @@
         _loading = true;
         try
         {
+            _capabilities = (await GatewayClient.GetCapabilitiesAsync(Cluster, cancellationToken)).Data;
             Task<Admin.AdminEnvelope<Admin.ClusterStatus>> status =
                 GatewayClient.GetStatusAsync(Cluster, cancellationToken);
             Task<Admin.AdminEnvelope<Admin.NodePlan[]>> plan =
                 GatewayClient.GetPlanAsync(Cluster, cancellationToken);
             Task<Admin.AdminEnvelope<Admin.RecoveryReadiness>> recovery =
                 GatewayClient.GetRecoveryReadinessAsync(Cluster, cancellationToken);
-            Task<HostContract.HostEnvelope<HostContract.HostStatus>> host =
-                HostClient.GetStatusAsync(Cluster, cancellationToken);
+            Task<HostContract.HostEnvelope<HostContract.HostStatus>>? host =
+                string.IsNullOrWhiteSpace(Cluster.HostCommandUrl) ? null : HostClient.GetStatusAsync(Cluster, cancellationToken);
             Admin.ClusterStatus? nextStatus = null;
             Admin.NodePlan[] nextPlan = [];
             Admin.RecoveryReadiness? nextRecovery = null;
@@ -158,7 +171,9 @@
             var errors = new List<string>();
             try
             {
-                nextStatus = (await status).Data;
+                var response = await status;
+                nextStatus = response.Data;
+                _observedAt = response.CapturedAt;
             }
             catch (ClusterGatewayException exception)
             {
@@ -182,17 +197,24 @@
             }
             try
             {
-                nextHost = (await host).Data;
+                nextHost = host is null ? null : (await host).Data;
             }
             catch (ClusterHostException exception)
             {
                 errors.Add(exception.Message);
             }
-            _status = nextStatus;
+            _stale = nextStatus is null;
+            _status = nextStatus ?? _status;
             _plan = nextPlan;
             _recovery = nextRecovery;
             _host = nextHost;
             _error = errors.Count == 0 ? null : string.Join(" ", errors.Distinct());
+        }
+        catch (ClusterGatewayException exception)
+        {
+            _stale = true;
+            _capabilities = null;
+            _error = exception.Message;
         }
         finally
         {
@@ -200,20 +222,19 @@
         }
     }
 
-    private string PhaseText => _status?.Phase.ToString() ?? "Unavailable";
-    private Color PhaseColor => _status?.Phase switch
+    private string PhaseText => _stale ? "Unavailable" : _status?.Phase.ToString() ?? "Unavailable";
+    private Color PhaseColor => _stale ? Color.Default : _status?.Health switch
     {
-        Admin.ClusterPhase.Serving => Color.Success,
-        Admin.ClusterPhase.Degraded => Color.Warning,
-        Admin.ClusterPhase.Bootstrapping => Color.Info,
-        Admin.ClusterPhase.Draining => Color.Warning,
+        Admin.AdminHealth.Healthy => Color.Success,
+        Admin.AdminHealth.Warning => Color.Warning,
+        Admin.AdminHealth.Unhealthy => Color.Error,
         _ => Color.Default,
     };
-    private string GatewayText => _status is null ? "Unavailable" : "Online";
-    private Color GatewayColor => _status is null ? Color.Error : Color.Success;
+    private string GatewayText => _stale || _status is null ? "Unavailable" : "Online";
+    private Color GatewayColor => _stale || _status is null ? Color.Error : Color.Success;
     private string PlayerText => _status is null ? "-" : $"{_status.Counts.ConnectedClients} connected";
-    private string JoinText => _status?.Phase == Admin.ClusterPhase.Serving
-        ? "Player entry point is serving." : "Player entry point is not serving yet.";
+    private string JoinText => _status?.AcceptingPlayers == true && !_stale
+        ? "Accepting players." : "Player entry point is not serving yet.";
     private int ReadyNodes => _plan.Count(item => item.Observed == Admin.NodeObservation.Ready);
     private int WantedNodes => _plan.Count(item => item.Goal == Admin.NodeGoal.Wanted);
     private string CapacityText => _status is null ? "-" : $"{ReadyNodes}/{WantedNodes} ready";
@@ -234,7 +255,7 @@
     private string RecoveryDetail => _recovery?.LatestPoint is null
         ? "No reconstructible cut reported."
         : $"{_recovery.LatestPoint.Consistency} · cluster time {_recovery.LatestPoint.ClusterTime}";
-    private string HostText => _host is null ? "Unavailable"
+    private string HostText => _host is null ? (string.IsNullOrWhiteSpace(Cluster.HostCommandUrl) ? "Not configured (observation only)" : "Unavailable")
         : $"{_host.HostId} · {_host.Attachments.Length} attachment(s)";
     private string GatewayExecutorText => _host?.Gateways?.FirstOrDefault(gateway =>
             gateway.ClusterId.Equals(Cluster.UniqueName, StringComparison.OrdinalIgnoreCase)) is { } gateway

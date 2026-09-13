@@ -54,6 +54,30 @@ internal static class ClusterApi
         routes.MapGet("/{uniqueName}/config", (string uniqueName, HttpContext context,
             ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken cancellationToken) =>
             Query(uniqueName, context, catalog, client.GetPolicyAsync, cancellationToken));
+        MapRead("capabilities", (c, d, t) => c.GetCapabilitiesAsync(d, t));
+        MapRead("nodes", (c, d, t) => c.GetNodesAsync(d, t));
+        MapRead("world-authority", (c, d, t) => c.GetWorldAuthorityAsync(d, t));
+        MapRead("snapshots", (c, d, t) => c.GetSnapshotsAsync(d, t));
+        MapRead("partitions", (c, d, t) => c.GetPartitionsAsync(d, t));
+        MapRead("clients", (c, d, t) => c.GetClientsAsync(d, t));
+        MapRead("admission/bans", (c, d, t) => c.GetBansAsync(d, t));
+        MapRead("gateway-operations", (c, d, t) => c.GetOperationsAsync(d, t));
+        routes.MapGet("/{uniqueName}/gateway-operations/{id}", (string uniqueName, string id,
+            HttpContext context, ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken token) =>
+            Query(uniqueName, context, catalog, (c, t) => client.GetOperationAsync(c, id, t), token));
+        routes.MapGet("/{uniqueName}/events", (string uniqueName, long? cursor, int? limit,
+            HttpContext context, ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken token) =>
+            Query(uniqueName, context, catalog, (c, t) => client.GetEventsAsync(c, cursor ?? 0, limit ?? 100, t), token));
+        routes.MapGet("/{uniqueName}/chat/history", (string uniqueName, long? cursor, int? limit,
+            HttpContext context, ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken token) =>
+            Query(uniqueName, context, catalog, (c, t) => client.GetChatAsync(c, cursor ?? 0, limit ?? 100, t), token));
+
+        void MapRead<T>(string path,
+            Func<ClusterGatewayClient, ClusterDefinition, CancellationToken, Task<Admin.AdminEnvelope<T>>> read) =>
+            routes.MapGet("/{uniqueName}/" + path, (string uniqueName, HttpContext context,
+                ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken token) =>
+                Query(uniqueName, context, catalog, (c, t) => read(client, c, t), token));
+
         routes.MapGet("/{uniqueName}/host", GetHostStatus);
         routes.MapGet("/{uniqueName}/lifecycle", GetLifecycleStatus);
         RouteHandlerBuilder setConfig = routes.MapPut("/{uniqueName}/config", SetPolicy);
@@ -157,7 +181,7 @@ internal static class ClusterApi
     }
 
     private static async Task<IResult> RestartGateway(string uniqueName,
-        [FromBody] Admin.GatewayRestartRequest request, HttpContext context,
+        HttpContext context,
         [FromServices] ClusterCatalog catalog, [FromServices] ClusterGatewayClient client,
         [FromServices] ClusterOperationStore operations, CancellationToken cancellationToken)
     {
@@ -171,15 +195,12 @@ internal static class ClusterApi
         if (cluster.GoalState != DedicatedServerGoalState.On)
             return Error(StatusCodes.Status409Conflict, "cluster_not_on",
                 "Gateway restart requires cluster goal On.");
-        if (request.RequestId == Guid.Empty)
-            return Error(StatusCodes.Status400BadRequest, "request_id_required",
-                "A Gateway restart request ID is required.");
         try
         {
             ClusterOperation operation = await operations.ExecuteAsync(uniqueName, "cluster.gateway.restart",
                 context.Request.Headers["Idempotency-Key"].ToString(),
-                context.User.Identity?.Name ?? "anonymous", request,
-                token => client.RestartGatewayAsync(cluster, request, token), cancellationToken);
+                context.User.Identity?.Name ?? "anonymous", new { },
+                token => client.RestartGatewayAsync(cluster, context.Request.Headers["Idempotency-Key"].ToString(), token), cancellationToken);
             return AcceptedOperation(uniqueName, context, operation);
         }
         catch (ClusterOperationConflictException exception)
@@ -213,7 +234,7 @@ internal static class ClusterApi
         }
     }
 
-    private static async Task<IResult> SetPolicy(string uniqueName, Admin.ClusterPolicy policy,
+    private static async Task<IResult> SetPolicy(string uniqueName, Admin.AdminConfigUpdate policy,
         HttpContext context, ClusterCatalog catalog, ClusterGatewayClient client,
         ClusterOperationStore operations, CancellationToken cancellationToken)
     {
@@ -229,7 +250,7 @@ internal static class ClusterApi
             ClusterOperation operation = await operations.ExecuteAsync(uniqueName, "cluster.config.set",
                 context.Request.Headers["Idempotency-Key"].ToString(),
                 context.User.Identity?.Name ?? "anonymous", policy,
-                token => client.SetPolicyAsync(cluster, policy, token), cancellationToken);
+                token => client.SetPolicyAsync(cluster, policy, context.Request.Headers["Idempotency-Key"].ToString(), token), cancellationToken);
             context.Response.Headers.Location = $"/api/v1/clusters/{Uri.EscapeDataString(uniqueName)}"
                 + $"/operations/{operation.OperationId}";
             return Results.Json(Envelope(operation), JsonOptions, statusCode: StatusCodes.Status202Accepted);

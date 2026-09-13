@@ -25,5 +25,5 @@ public sealed class ClusterLifecycleSafetyTests
         "demo", "world", phase, Admin.StartupKind.Recovery, null,
         hasMarker ? DateTimeOffset.UtcNow : null, false, false, [],
         new Admin.ClusterCounts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-        new Admin.WorldAuthorityStatus(null, 0, 0, DateTimeOffset.MinValue), [], []);
+        new Admin.WorldAuthorityStatus(null, 0, 0, DateTimeOffset.MinValue), [], [], false, Admin.AdminHealth.Healthy, [], DateTimeOffset.UtcNow);
 }

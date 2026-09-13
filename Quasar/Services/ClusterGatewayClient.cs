@@ -12,6 +12,7 @@ public sealed class ClusterGatewayClient
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() },
+        RespectRequiredConstructorParameters = true,
     };
     private readonly HttpClient _http;
 
@@ -33,34 +34,64 @@ public sealed class ClusterGatewayClient
         ClusterDefinition cluster, CancellationToken cancellationToken) =>
         GetAsync<Admin.RecoveryReadiness>(cluster, "recovery-readiness", cancellationToken);
 
-    public Task<Admin.AdminEnvelope<Admin.ClusterPolicy?>> GetPolicyAsync(
-        ClusterDefinition cluster, CancellationToken cancellationToken) =>
-        GetAsync<Admin.ClusterPolicy?>(cluster, "config", cancellationToken);
+    public Task<Admin.AdminEnvelope<Admin.AdminCapabilities>> GetCapabilitiesAsync(
+        ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.AdminCapabilities>(cluster, "capabilities", token);
+    public Task<Admin.AdminEnvelope<Admin.NodeStatus[]>> GetNodesAsync(
+        ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.NodeStatus[]>(cluster, "nodes", token);
+    public Task<Admin.AdminEnvelope<Admin.WorldAuthorityStatus>> GetWorldAuthorityAsync(
+        ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.WorldAuthorityStatus>(cluster, "world-authority", token);
+    public Task<Admin.AdminEnvelope<Admin.SnapshotSummary[]>> GetSnapshotsAsync(
+        ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.SnapshotSummary[]>(cluster, "snapshots", token);
+    public Task<Admin.AdminEnvelope<Admin.PartitionSummary[]>> GetPartitionsAsync(
+        ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.PartitionSummary[]>(cluster, "partitions", token);
+    public Task<Admin.AdminEnvelope<Admin.AdminConfig>> GetPolicyAsync(
+        ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.AdminConfig>(cluster, "config", token);
+    public Task<Admin.AdminEnvelope<Admin.ClientSummary[]>> GetClientsAsync(
+        ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.ClientSummary[]>(cluster, "clients", token);
+    public Task<Admin.AdminEnvelope<Admin.AdmissionBans>> GetBansAsync(
+        ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.AdmissionBans>(cluster, "admission/bans", token);
+    public Task<Admin.AdminEnvelope<Admin.AdminEventPage>> GetEventsAsync(
+        ClusterDefinition cluster, long cursor, int limit, CancellationToken token) =>
+        GetAsync<Admin.AdminEventPage>(cluster, $"events?cursor={cursor}&limit={Math.Clamp(limit, 1, 500)}", token);
+    public Task<Admin.AdminEnvelope<Admin.ChatHistory>> GetChatAsync(
+        ClusterDefinition cluster, long cursor, int limit, CancellationToken token) =>
+        GetAsync<Admin.ChatHistory>(cluster, $"chat/history?cursor={cursor}&limit={Math.Clamp(limit, 1, 500)}", token);
+    public Task<Admin.AdminEnvelope<Admin.AdminOperationPage>> GetOperationsAsync(
+        ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.AdminOperationPage>(cluster, "operations", token);
+    public Task<Admin.AdminEnvelope<Admin.AdminOperation>> GetOperationAsync(
+        ClusterDefinition cluster, string id, CancellationToken token) =>
+        GetAsync<Admin.AdminOperation>(cluster, "operations/" + Uri.EscapeDataString(id), token);
 
-    public Task<Admin.AdminEnvelope<Admin.ClusterPolicyApplied>> SetPolicyAsync(
-        ClusterDefinition cluster, Admin.ClusterPolicy policy, CancellationToken cancellationToken) =>
-        SendAsync<Admin.ClusterPolicyApplied>(cluster, "config", HttpMethod.Put, policy, cancellationToken);
+    public Task<Admin.AdminEnvelope<Admin.AdminOperation>> SetPolicyAsync(
+        ClusterDefinition cluster, Admin.AdminConfigUpdate policy, string key, CancellationToken token) =>
+        SendAsync<Admin.AdminOperation>(cluster, "config", HttpMethod.Put, policy, token, key);
+    public Task<Admin.AdminEnvelope<Admin.AdminOperation>> ShutdownAsync(
+        ClusterDefinition cluster, Admin.ShutdownRequest request, string key, CancellationToken token) =>
+        SendAsync<Admin.AdminOperation>(cluster, "shutdown", HttpMethod.Post, request, token, key);
+    public Task<Admin.AdminEnvelope<Admin.AdminOperation>> RestartGatewayAsync(
+        ClusterDefinition cluster, string key, CancellationToken token) =>
+        SendAsync<Admin.AdminOperation>(cluster, "gateway/restart", HttpMethod.Post, new { }, token, key);
 
-    public Task<Admin.AdminEnvelope<Admin.GatewayLifecycleResult>> ShutdownAsync(
-        ClusterDefinition cluster, Admin.ShutdownRequest request, CancellationToken cancellationToken) =>
-        SendAsync<Admin.GatewayLifecycleResult>(cluster, "shutdown", HttpMethod.Post, request,
-            cancellationToken, TimeSpan.FromSeconds(
-                request.GracePeriodSeconds + request.CompletionTimeoutSeconds + 30));
-
-    public Task<Admin.AdminEnvelope<Admin.GatewayLifecycleResult>> RestartGatewayAsync(
-        ClusterDefinition cluster, Admin.GatewayRestartRequest request, CancellationToken cancellationToken) =>
-        SendAsync<Admin.GatewayLifecycleResult>(cluster, "gateway/restart", HttpMethod.Post, request,
-            cancellationToken);
+    internal Task<Admin.AdminEnvelope<Admin.AdminOperation>> MutateAsync(
+        ClusterDefinition cluster, string route, HttpMethod method, object? body, string key, CancellationToken token) =>
+        SendAsync<Admin.AdminOperation>(cluster, route, method, body, token, key);
 
     private async Task<Admin.AdminEnvelope<T>> GetAsync<T>(
         ClusterDefinition cluster, string route, CancellationToken cancellationToken)
         => await SendAsync<T>(cluster, route, HttpMethod.Get, null, cancellationToken);
 
     private async Task<Admin.AdminEnvelope<T>> SendAsync<T>(ClusterDefinition cluster, string route,
-        HttpMethod method, object? body, CancellationToken cancellationToken, TimeSpan? timeout = null)
+        HttpMethod method, object? body, CancellationToken cancellationToken, string? idempotencyKey = null)
     {
         using var request = new HttpRequestMessage(method,
             $"{cluster.GatewayUrl}{Admin.AdminProtocol.RoutePrefix}/{route}");
+        if (method != HttpMethod.Get)
+        {
+            if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 128)
+                throw new ClusterGatewayException(HttpStatusCode.BadRequest, "idempotency_key_required",
+                    "A stable Idempotency-Key is required for Gateway mutations.");
+            request.Headers.Add("Idempotency-Key", idempotencyKey);
+        }
         if (body != null)
             request.Content = JsonContent.Create(body, options: JsonOptions);
         if (!string.IsNullOrWhiteSpace(cluster.GatewayAdminTokenEnvironmentVariable))
@@ -75,7 +106,7 @@ public sealed class ClusterGatewayClient
         try
         {
             using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutSource.CancelAfter(timeout ?? TimeSpan.FromSeconds(30));
+            timeoutSource.CancelAfter(TimeSpan.FromSeconds(30));
             using HttpResponseMessage response = await _http.SendAsync(
                 request, HttpCompletionOption.ResponseContentRead, timeoutSource.Token);
             string json = await response.Content.ReadAsStringAsync(timeoutSource.Token);
@@ -89,7 +120,7 @@ public sealed class ClusterGatewayClient
             }
 
             Admin.AdminEnvelope<T>? envelope = JsonSerializer.Deserialize<Admin.AdminEnvelope<T>>(json, JsonOptions);
-            return envelope ?? throw ProtocolMismatch();
+            return envelope is not null && envelope.Data is not null ? envelope : throw ProtocolMismatch();
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -115,7 +146,7 @@ public sealed class ClusterGatewayClient
             throw ProtocolMismatch();
         using JsonDocument document = JsonDocument.Parse(json);
         if (!document.RootElement.TryGetProperty("protocolVersion", out JsonElement version)
-            || version.GetInt32() != Admin.AdminProtocol.Version)
+            || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out int protocol) || protocol != Admin.AdminProtocol.Version)
             throw ProtocolMismatch();
     }
 

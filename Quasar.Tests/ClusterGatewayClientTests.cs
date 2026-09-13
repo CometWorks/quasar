@@ -89,57 +89,62 @@ public sealed class ClusterGatewayClientTests
         Assert.Equal("http://gateway.test/admin/v1/recovery-readiness", handler.RequestUri?.ToString());
     }
 
-    [Fact]
-    public async Task PolicyMutationUsesVersionedGatewayPut()
+    [Theory]
+    [InlineData("config", "PUT")]
+    [InlineData("shutdown", "POST")]
+    [InlineData("gateway/restart", "POST")]
+    public async Task MutationsSendStableKeyAndReadRunningOperation(string route, string method)
     {
-        var applied = new ClusterPolicyApplied("revision-2", true, []);
-        var handler = new StubHandler(_ => Response(HttpStatusCode.OK,
-            new AdminEnvelope<ClusterPolicyApplied>(AdminProtocol.Version, DateTimeOffset.UtcNow, applied)));
+        const string json = """{"protocolVersion":1,"capturedAt":"2026-09-01T00:00:00Z","data":{"operationId":"op-1","kind":"test","state":"Running","actor":"test","idempotencyKey":"request-1","createdAt":"2026-09-01T00:00:00Z","updatedAt":"2026-09-01T00:00:00Z","target":null,"result":null,"error":null}}""";
+        var handler = new StubHandler(request =>
+        {
+            Assert.Equal("request-1", request.Headers.GetValues("Idempotency-Key").Single());
+            var response = new HttpResponseMessage(HttpStatusCode.Accepted) { Content = new StringContent(json) };
+            response.Headers.Add("X-Cluster-Gateway-Protocol", "1");
+            return response;
+        });
         var client = new ClusterGatewayClient(new HttpClient(handler));
-        var policy = new ClusterPolicy("revision-2", 2, ["host-a", "host-b"], "host-a");
-
-        AdminEnvelope<ClusterPolicyApplied> result = await client.SetPolicyAsync(
-            Definition(), policy, CancellationToken.None);
-
-        Assert.True(result.Data.Changed);
-        Assert.Equal(HttpMethod.Put, handler.Method);
-        Assert.Equal("http://gateway.test/admin/v1/config", handler.RequestUri?.ToString());
-        Assert.Contains("\"nodeTargetCount\":2", handler.RequestBody);
+        var result = route switch
+        {
+            "config" => await client.SetPolicyAsync(Definition(), new AdminConfigUpdate(2, []), "request-1", CancellationToken.None),
+            "shutdown" => await client.ShutdownAsync(Definition(), new ShutdownRequest(GraceSeconds: 0), "request-1", CancellationToken.None),
+            _ => await client.RestartGatewayAsync(Definition(), "request-1", CancellationToken.None),
+        };
+        Assert.Equal(AdminOperationState.Running, result.Data.State);
+        Assert.Equal(method, handler.Method?.Method);
+        Assert.Equal("http://gateway.test/admin/v1/" + route, handler.RequestUri?.ToString());
+        if (route == "config") Assert.Contains("\"expectedRevision\":2", handler.RequestBody);
     }
 
     [Fact]
-    public async Task ShutdownUsesStableIdempotentLifecycleRoute()
+    public async Task CurrentStatusPreservesHealthIndependentOfLifecyclePhase()
     {
-        Guid requestId = Guid.NewGuid();
-        var result = new GatewayLifecycleResult(requestId, GatewayLifecycleAction.GracefulShutdown,
-            GatewayOperationDisposition.Accepted, ClusterPhase.Down, DateTimeOffset.UtcNow);
-        var handler = new StubHandler(_ => Response(HttpStatusCode.OK,
-            new AdminEnvelope<GatewayLifecycleResult>(AdminProtocol.Version, DateTimeOffset.UtcNow, result)));
-        var client = new ClusterGatewayClient(new HttpClient(handler));
-
-        await client.ShutdownAsync(Definition(), new ShutdownRequest(requestId,
-            ShutdownMode.Graceful, 0, 10, 10), CancellationToken.None);
-
-        Assert.Equal(HttpMethod.Post, handler.Method);
-        Assert.Equal("http://gateway.test/admin/v1/shutdown", handler.RequestUri?.ToString());
-        Assert.Contains(requestId.ToString(), handler.RequestBody, StringComparison.OrdinalIgnoreCase);
+        const string json = """{"protocolVersion":1,"capturedAt":"2026-09-01T00:00:00Z","data":{"clusterId":"demo","worldId":"world","phase":"Serving","startup":"Warm","shutdownStarted":null,"lastCleanShutdown":null,"executorSilent":true,"globalSpawnHalted":false,"degradedReasons":[],"counts":{"connectedClients":3,"nodes":2,"partitions":4,"saves":4,"handovers":0,"incompleteHandovers":0,"snapshots":1,"voxelBases":0,"voxelJournals":0,"pendingDeletes":0,"walRecords":3,"walBytes":123},"worldAuthority":{"node":"wa-1","epoch":300,"generation":2,"leaseExpires":"2026-09-01T00:01:00Z"},"nodes":[],"executors":[],"acceptingPlayers":false,"health":"Warning","reasonCodes":["executorSilence"],"observedAt":"2026-09-01T00:00:00Z"}}""";
+        var client = WireClient(json);
+        var result = await client.GetStatusAsync(Definition(), CancellationToken.None);
+        Assert.Equal(ClusterPhase.Serving, result.Data.Phase);
+        Assert.Equal(AdminHealth.Warning, result.Data.Health);
+        Assert.False(result.Data.AcceptingPlayers);
+        Assert.Equal(["executorSilence"], result.Data.ReasonCodes);
+        Assert.Equal(300, result.Data.WorldAuthority.Epoch);
     }
 
-    [Fact]
-    public async Task GatewayRestartUsesStableLifecycleRoute()
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("null")]
+    public async Task MissingRequiredCurrentFieldsAreRejected(string data)
     {
-        Guid requestId = Guid.NewGuid();
-        var result = new GatewayLifecycleResult(requestId, GatewayLifecycleAction.Restart,
-            GatewayOperationDisposition.Accepted, ClusterPhase.Serving, DateTimeOffset.UtcNow);
-        var handler = new StubHandler(_ => Response(HttpStatusCode.OK,
-            new AdminEnvelope<GatewayLifecycleResult>(AdminProtocol.Version, DateTimeOffset.UtcNow, result)));
-        var client = new ClusterGatewayClient(new HttpClient(handler));
-
-        await client.RestartGatewayAsync(Definition(), new GatewayRestartRequest(requestId), CancellationToken.None);
-
-        Assert.Equal(HttpMethod.Post, handler.Method);
-        Assert.Equal("http://gateway.test/admin/v1/gateway/restart", handler.RequestUri?.ToString());
+        var client = WireClient("{\"protocolVersion\":1,\"capturedAt\":\"2026-09-01T00:00:00Z\",\"data\":" + data + "}");
+        var error = await Assert.ThrowsAsync<ClusterGatewayException>(() => client.GetStatusAsync(Definition(), CancellationToken.None));
+        Assert.Equal("protocol_mismatch", error.Code);
     }
+
+    private static ClusterGatewayClient WireClient(string json) => new(new HttpClient(new StubHandler(_ =>
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) };
+        response.Headers.Add("X-Cluster-Gateway-Protocol", "1");
+        return response;
+    })));
 
     private static ClusterDefinition Definition() => new()
     {

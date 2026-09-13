@@ -1,7 +1,8 @@
 # Phase 4 Quasar integration — continuation plan
 
 Updated 2026-09-13. Step 1 complete: upstream baseline refresh and plan reconciliation.
-Step 2 has not started.
+Step 2 complete: current source-pinned contract, expanded queries, authoritative health,
+and observation without host provisioning. Step 3 is next.
 
 ## Plan authority
 
@@ -159,6 +160,8 @@ renumbering or replacing their acceptance contract.
 
 ## Validation
 
+- Step 2: 196 tests passed, including current-wire health/admission, incompatible response
+  rejection, idempotency headers and observation without host actions.
 - Before merge: 55 focused prototype tests passed.
 - After merge and Bootstrap reference fix: all 192 `Quasar.Tests` tests passed; none skipped.
 - `dotnet build Quasar.sln --verbosity minimal` succeeded with zero errors. Existing
