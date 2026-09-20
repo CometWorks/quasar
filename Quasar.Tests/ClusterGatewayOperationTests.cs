@@ -114,6 +114,28 @@ public sealed class ClusterGatewayOperationTests : IDisposable
             () => store.CancelGatewayAsync("demo", accepted.OperationId, "operator", default))).Code);
     }
 
+    [Fact]
+    public async Task FailedAutomaticRequestGetsANewAttemptKeyAfterTheRetryDelay()
+    {
+        var store = new ClusterOperationStore(_directory);
+        const string kind = "cluster.lifecycle.shutdown", lifecycle = "lifecycle-1";
+        Assert.Equal(lifecycle, store.AttemptKey("demo", kind, lifecycle, TimeSpan.FromMinutes(1)));
+        var failed = await store.ExecuteGatewayAsync(_cluster, kind, "POST", "shutdown", new ShutdownRequest(), lifecycle, "reconciler",
+            Client(_ => Response(HttpStatusCode.Conflict, new AdminErrorEnvelope(1, DateTimeOffset.UtcNow, new AdminError("shutdown_failed", "players still connected")))), default);
+        Assert.Equal(ClusterOperationState.Failed, failed.State);
+
+        // Within the delay the failure is replayed; afterwards the next attempt can reach the Gateway.
+        Assert.Equal(lifecycle, store.AttemptKey("demo", kind, lifecycle, TimeSpan.FromMinutes(1)));
+        string retry = store.AttemptKey("demo", kind, lifecycle, TimeSpan.Zero);
+        Assert.Equal(lifecycle + ":2", retry);
+        string? key = null;
+        var running = await store.ExecuteGatewayAsync(_cluster, kind, "POST", "shutdown", new ShutdownRequest(), retry, "reconciler",
+            Client(request => { key = request.Headers.GetValues("Idempotency-Key").Single(); return Operation(key, AdminOperationState.Running); }), default);
+        Assert.Equal(ClusterOperationState.Running, running.State);
+        Assert.Equal(retry, store.AttemptKey("demo", kind, lifecycle, TimeSpan.Zero)); // an attempt in flight is never doubled
+        Assert.Equal("lifecycle-2", store.AttemptKey("demo", kind, "lifecycle-2", TimeSpan.Zero));
+    }
+
     private Task<ClusterOperation> Execute(ClusterOperationStore store, ClusterGatewayClient client) =>
         store.ExecuteGatewayAsync(_cluster, "cluster.save-all", "POST", "save-all", new SaveAllRequest(),
             "request-1", "test", client, CancellationToken.None);

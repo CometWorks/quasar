@@ -296,6 +296,59 @@ public sealed class ClusterDeploymentTests : IDisposable
         Assert.Equal(ClusterUpdatePhase.Complete, recovered.GetCluster("demo")!.Update!.Phase);
     }
 
+    [Fact]
+    public async Task StuckUpdateReportsItsDeadlineAndCanBeAbandonedUnlessHostsAreHalfActivated()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var operations = new ClusterOperationStore(Path.Combine(root, "abandon-operations"));
+        var client = new ClusterHostClient(new HttpClient(handler));
+        await new ClusterDeploymentService(catalog, client, operations).ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var update = new ClusterUpdateService(catalog, new ClusterDeploymentService(catalog, client, operations),
+            new ClusterGatewayClient(new HttpClient(new GatewayHandler())), client, operations, NullLogger<ClusterUpdateService>.Instance);
+        handler.Revision = "candidate";
+        var candidate = new ClusterDeploymentRequest("revision", "candidate", Request().Hosts.Select(h => h with {
+            Activation = h.Activation with { ExpectedBundleManifestSha256 = h.Activation.BundleManifestSha256,
+                BundleManifestSha256 = new string('b', 64) } }).ToArray());
+        await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin", "test", default);
+
+        // The clean shutdown never arrives: past the deadline the reason is recorded once.
+        await update.AdvanceAllAsync(default);
+        Assert.Null(catalog.GetCluster("demo")!.Update!.LastError);
+        var waiting = catalog.GetCluster("demo")!;
+        await catalog.RecordUpdateAsync(waiting, waiting.Update! with { StartedAt = DateTimeOffset.UtcNow - ClusterUpdateService.StoppingDeadline - TimeSpan.FromSeconds(1) }, default);
+        await update.AdvanceAllAsync(default);
+        Assert.Contains("abandon the update", catalog.GetCluster("demo")!.Update!.LastError);
+        Assert.Equal(ClusterUpdatePhase.Stopping, catalog.GetCluster("demo")!.Update!.Phase);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On));
+
+        var abandoned = await update.AbandonAsync("demo", "abandon", "operator", default);
+
+        Assert.Equal(ClusterOperationState.Succeeded, abandoned.State);
+        var cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
+        Assert.StartsWith("Abandoned by operator while Stopping", cluster.Update.LastError);
+        Assert.Equal("revision", cluster.ActiveDeployment!.Revision);
+        Assert.Equal(DedicatedServerGoalState.Off, cluster.GoalState);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On); // the lifecycle tools are unlocked again
+        await update.AdvanceAllAsync(default);
+        Assert.Equal(ClusterUpdatePhase.Complete, catalog.GetCluster("demo")!.Update!.Phase);
+
+        // A half-activated fleet must be settled by the deployment's own resume or recovery.
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off);
+        await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin-2", "test", default);
+        var stopped = catalog.GetCluster("demo")!;
+        await catalog.RecordShutdownProofAsync(stopped, new(stopped.GetLifecycleId(), DateTimeOffset.UtcNow,
+            new GatewayStopFence(123, DateTimeOffset.UtcNow)), default);
+        await update.AdvanceAllAsync(default);
+        handler.FailSecond = true;
+        await update.AdvanceAllAsync(default);
+        Assert.NotNull(catalog.GetCluster("demo")!.PendingDeploymentHash);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => update.AbandonAsync("demo", "abandon-2", "operator", default));
+        Assert.Equal(ClusterUpdatePhase.Activating, catalog.GetCluster("demo")!.Update!.Phase);
+    }
+
     private sealed class GatewayHandler : HttpMessageHandler
     {
         internal bool Ready;

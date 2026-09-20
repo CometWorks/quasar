@@ -148,6 +148,7 @@ internal static class ClusterApi
                 : Results.Json(Envelope(cluster.Update), JsonOptions);
         });
         RouteHandlerBuilder beginUpdate = routes.MapPost("/{uniqueName}/update", BeginUpdate);
+        RouteHandlerBuilder abandonUpdate = routes.MapPost("/{uniqueName}/update/abandon", AbandonUpdate);
         RouteHandlerBuilder archiveExport = routes.MapPost("/{uniqueName}/artifacts/{id}/backup", (string uniqueName, string id,
             HttpContext context, [FromServices] ClusterBackupService backups, CancellationToken token) => RunBackup(uniqueName, context,
                 () => backups.ArchiveExportAsync(uniqueName, id, context.Request.Headers["Idempotency-Key"].ToString(),
@@ -239,6 +240,7 @@ internal static class ClusterApi
             captureBackup.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             archiveExport.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             beginUpdate.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            abandonUpdate.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             restoreBackup.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             deploymentInputs.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setConfig.RequireAuthorization(QuasarPolicyNames.ClusterManage);
@@ -368,6 +370,19 @@ internal static class ClusterApi
         SetProtocolHeader(context);
         if (!context.User.CanQueryCluster(uniqueName)) return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
         try { return AcceptedOperation(uniqueName, context, await updates.BeginAsync(uniqueName, request,
+            context.Request.Headers["Idempotency-Key"].ToString(), context.User.Identity?.Name ?? "anonymous", token)); }
+        catch (ClusterOperationConflictException error) { return Error(error.StatusCode, error.Code, error.Message); }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException or IOException)
+        { return Error(409, "update_conflict", error.Message); }
+        catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Cluster was not found."); }
+    }
+
+    private static async Task<IResult> AbandonUpdate(string uniqueName, HttpContext context,
+        [FromServices] ClusterUpdateService updates, CancellationToken token)
+    {
+        SetProtocolHeader(context);
+        if (!context.User.CanQueryCluster(uniqueName)) return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+        try { return AcceptedOperation(uniqueName, context, await updates.AbandonAsync(uniqueName,
             context.Request.Headers["Idempotency-Key"].ToString(), context.User.Identity?.Name ?? "anonymous", token)); }
         catch (ClusterOperationConflictException error) { return Error(error.StatusCode, error.Code, error.Message); }
         catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException or IOException)

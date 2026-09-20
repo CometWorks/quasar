@@ -44,6 +44,8 @@ public sealed class ClusterReconciler : BackgroundService
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
     }
 
+    internal static readonly TimeSpan ShutdownRetryDelay = TimeSpan.FromSeconds(60);
+
     internal async Task ReconcileAllAsync(CancellationToken cancellationToken)
     {
         foreach (ClusterDefinition cluster in _catalog.GetClusters())
@@ -224,10 +226,15 @@ public sealed class ClusterReconciler : BackgroundService
         {
             if (cluster.ShutdownProof is not null)
                 await _catalog.RecordShutdownProofAsync(cluster, null, cancellationToken);
+            // The Gateway drains for GraceSeconds and fails the shutdown 30 s later; it ignores
+            // ForceAfterSeconds (kept so a pending request keeps its content hash). A failed drain
+            // (players still connected) is tried again under a new key, otherwise goal Off could
+            // never be reached for this lifecycle.
             Admin.ShutdownRequest request = new(GraceSeconds: cluster.ShutdownGracePeriodSeconds,
                 ForceAfterSeconds: 900);
             ClusterOperation result = await _operations.ExecuteGatewayAsync(cluster,
-                "cluster.lifecycle.shutdown", "POST", "shutdown", request, cluster.GetLifecycleId(),
+                "cluster.lifecycle.shutdown", "POST", "shutdown", request,
+                _operations.AttemptKey(cluster.UniqueName, "cluster.lifecycle.shutdown", cluster.GetLifecycleId(), ShutdownRetryDelay),
                 "reconciler", _gatewayClient, cancellationToken);
             if (result.State == ClusterOperationState.Failed)
                 throw new ClusterGatewayException(System.Net.HttpStatusCode.Conflict,

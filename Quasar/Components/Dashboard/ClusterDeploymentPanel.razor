@@ -23,6 +23,11 @@
         {
             <MudText>Update @update.Id: @update.Phase</MudText>
             @if (update.LastError is not null) { <MudAlert Severity="Severity.Warning">@update.LastError</MudAlert> }
+            @if (update.Phase != ClusterUpdatePhase.Complete)
+            {
+                <MudButton OnClick="AbandonUpdateAsync" Disabled="_busy" Color="Color.Warning" Variant="Variant.Outlined">Abandon update</MudButton>
+                <MudText Typo="Typo.caption">Abandoning unlocks the cluster controls without rolling anything back: before activation the cluster stays stopped on its current deployment, afterwards it keeps the new one.</MudText>
+            }
         }
         <MudExpansionPanels>
             <MudExpansionPanel Text="Prepare or import a deployment">
@@ -166,6 +171,7 @@
             ?? throw new InvalidDataException("Activation request is required.")), Guid.NewGuid().ToString("N"), actor, default));
     private Task RollbackAsync() => ExecuteAsync(actor => Updates.BeginAsync(Cluster.UniqueName,
         new(Guid.NewGuid(), Rollback: true), Guid.NewGuid().ToString("N"), actor, default));
+    private Task AbandonUpdateAsync() => ExecuteAsync(actor => Updates.AbandonAsync(Cluster.UniqueName, Guid.NewGuid().ToString("N"), actor, default));
     private Task ActivateAsync() => ExecuteAsync(actor => Deployments.ActivateAsync(Cluster.UniqueName,
         JsonSerializer.Deserialize<ClusterDeploymentRequest>(_activation, Json) ?? throw new InvalidDataException("Activation request is required."),
         Guid.NewGuid().ToString("N"), actor, default));

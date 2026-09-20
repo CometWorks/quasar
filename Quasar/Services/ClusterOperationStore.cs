@@ -116,6 +116,20 @@ public sealed class ClusterOperationStore
         && operation.State == ClusterOperationState.Running
         && operation.Kind is "cluster.lifecycle.shutdown" or "cluster.shutdown");
 
+    // Idempotency key for an automatic request that is retried when it fails. A Failed operation is
+    // terminal for its key, so a fixed key would replay the first failure forever. The first attempt
+    // uses baseKey itself; after a failure older than retryAfter the next attempt gets a new key.
+    internal string AttemptKey(string cluster, string kind, string baseKey, TimeSpan retryAfter)
+    {
+        var attempts = _operations.Values.Where(o => o.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase) && o.Kind == kind
+            && (o.IdempotencyKey == baseKey || o.IdempotencyKey.StartsWith(baseKey + ":", StringComparison.Ordinal)))
+            .OrderBy(o => o.CreatedAt).ToArray();
+        if (attempts.Length == 0) return baseKey;
+        var latest = attempts[^1];
+        return latest.State == ClusterOperationState.Failed && DateTimeOffset.UtcNow - latest.UpdatedAt >= retryAfter
+            ? baseKey + ":" + (attempts.Length + 1) : latest.IdempotencyKey;
+    }
+
     // The lifecycle owner calls this only after verifying clean Down AND the matching
     // fenced Host stop. A remote operation may remain Running if its final reply was lost.
     internal async Task CompleteShutdownAsync(Quasar.Models.ClusterDefinition cluster, CancellationToken token)
