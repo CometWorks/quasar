@@ -3,8 +3,13 @@
 @inject AgentRegistry Registry
 @inject ClusterCatalog ClusterCatalog
 @inject ClusterHostClient ClusterHostClient
+@inject ClusterHostCatalog EnrolledHosts
 
 <PageTitle>Hosts</PageTitle>
+
+<AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
+    <MudButton Href="/hosts/enroll" Variant="Variant.Filled" Color="Color.Primary" Class="mb-3">Add cluster machine</MudButton>
+</AuthorizeView>
 
 <MudText Typo="Typo.h5" Class="mb-2">Hosts</MudText>
 <MudText Typo="Typo.body2" Class="mb-4">Process agents report standalone-server health. Enrolled Quasar.Host executors independently keep cluster Gateways and node slots reconciled while the central Quasar worker restarts.</MudText>
@@ -128,7 +133,9 @@
     {
         ClusterDefinition[] clusters = ClusterCatalog.GetClusters()
             .Where(cluster => !string.IsNullOrWhiteSpace(cluster.HostCommandUrl))
-            .ToArray();
+            .Concat(EnrolledHosts.GetAll().Select(host => new ClusterDefinition { UniqueName = "", HostCommandUrl = host.CommandUrl,
+                HostCommandTokenEnvironmentVariable = host.CredentialReference }))
+            .GroupBy(cluster => cluster.HostCommandUrl).Select(group => group.First()).ToArray();
         ExecutorHostRow[] queried = await Task.WhenAll(clusters.Select(cluster =>
             QueryExecutorAsync(cluster, cancellationToken)));
         if (cancellationToken.IsCancellationRequested)
@@ -159,7 +166,7 @@
         catch (ClusterHostException exception)
         {
             return new ExecutorHostRow(cluster.HostCommandUrl, "-", false,
-                [cluster.UniqueName], 0, 1, [], exception.Message);
+                string.IsNullOrEmpty(cluster.UniqueName) ? [] : [cluster.UniqueName], 0, 0, [], exception.Message);
         }
     }
 

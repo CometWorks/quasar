@@ -28,12 +28,15 @@ public sealed class ClusterDependencyService
         => (_sources, _directory, _packages) = (sources, directory, packages);
 
     public async Task<ClusterDependencyCandidate> InspectAsync(ClusterDefinition cluster, CancellationToken token)
+        => await InspectAsync(cluster, null, token);
+
+    internal async Task<ClusterDependencyCandidate> InspectAsync(ClusterDefinition cluster, Dictionary<string, string>? sources, CancellationToken token)
     {
         await _gate.WaitAsync(token);
         try
         {
             var selected = await VerifyPackageAsync(cluster, token);
-            var manifest = await InspectSourcesAsync(selected, ResolveSourcePaths(), token);
+            var manifest = await InspectSourcesAsync(selected, ResolveSourcePaths(sources), token);
             return Candidate(selected.Revision, manifest);
         }
         finally { _gate.Release(); }
@@ -41,6 +44,10 @@ public sealed class ClusterDependencyService
 
     public async Task<ClusterDependencyCandidate> StageAsync(ClusterDefinition cluster,
         ClusterDependencyRequest request, CancellationToken token)
+        => await StageAsync(cluster, request, null, token);
+
+    internal async Task<ClusterDependencyCandidate> StageAsync(ClusterDefinition cluster,
+        ClusterDependencyRequest request, Dictionary<string, string>? preparedSources, CancellationToken token)
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("Cluster dependency provisioning requires Linux.");
         ValidateRequest(request);
@@ -55,7 +62,7 @@ public sealed class ClusterDependencyService
             if (Directory.Exists(destination))
                 return await VerifyAsyncCore(selected, request.ManifestSha256, token);
 
-            var sources = ResolveSourcePaths();
+            var sources = ResolveSourcePaths(preparedSources);
             var manifest = await InspectSourcesAsync(selected, sources, token);
             var candidate = Candidate(selected.Revision, manifest);
             if (candidate.ManifestSha256 != request.ManifestSha256)
@@ -170,9 +177,9 @@ public sealed class ClusterDependencyService
         return selected;
     }
 
-    private Dictionary<string, string> ResolveSourcePaths()
+    private Dictionary<string, string> ResolveSourcePaths(Dictionary<string, string>? preparedSources = null)
     {
-        var paths = _sources();
+        var paths = preparedSources is null ? _sources() : new Dictionary<string, string>(preparedSources);
         string[] required = ["DedicatedServer/DedicatedServer64", "DedicatedServer/Content", "Magnetar", "DirectTransport", "CommonPlugins"];
         if (paths.Count != required.Length || required.Any(key => !paths.ContainsKey(key)))
             throw new InvalidDataException("DS, Content, Magnetar, Direct Transport and common plugin bundles are required.");

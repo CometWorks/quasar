@@ -378,6 +378,13 @@ internal sealed class HostCommandServer : IDisposable
         }
 
         string path = context.Request.Url?.AbsolutePath.TrimEnd('/') ?? string.Empty;
+        if (context.Request.HttpMethod == "PUT" && path == HostContract.HostProtocol.RoutePrefix + "/managed-credentials")
+        {
+            var credentials = await ReadJsonAsync<HostContract.HostManagedCredentials>(context.Request, cancellationToken);
+            HostCredentials.Install(_config.StateDirectory, credentials);
+            await WriteAsync(context, 200, new { installed = true }, cancellationToken);
+            return;
+        }
         if (context.Request.HttpMethod == "GET"
             && path.Equals(HostContract.HostProtocol.StatusRoute, StringComparison.OrdinalIgnoreCase))
         {

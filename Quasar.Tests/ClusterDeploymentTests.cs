@@ -16,6 +16,93 @@ public sealed class ClusterDeploymentTests : IDisposable
     private readonly string credential = "ACTIVATION_TEST_" + Guid.NewGuid().ToString("N");
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    [Fact]
+    public async Task DeleteObservationArchivesDefinitionAndPreservesData()
+    {
+        using var catalog = Catalog();
+        string data = Path.Combine(root, "clusters", "demo", "world.dat");
+        await File.WriteAllTextAsync(data, "world data");
+        bool notified = false;
+        catalog.Changed += () => notified = true;
+        await Service(catalog, new Handler(credential)).DeleteAsync("demo");
+        Assert.Null(catalog.GetCluster("demo"));
+        Assert.True(notified);
+        Assert.Equal("world data", await File.ReadAllTextAsync(data));
+        Assert.Single(Directory.GetFiles(Path.Combine(root, "clusters", "demo", "History"), "*-deleted.json"));
+        using var reloaded = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(root, "clusters") }).Build());
+        Assert.Null(reloaded.GetCluster("demo"));
+    }
+
+    [Fact]
+    public async Task ForgetRequiresExactConfirmationAndPreventsIdentityReuse()
+    {
+        using var catalog = Catalog();
+        var service = Service(catalog, new Handler(credential));
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ForgetAsync("demo", "DEMO"));
+        var definition = catalog.GetCluster("demo")!;
+        await service.ForgetAsync("demo", "demo");
+        Assert.Null(catalog.GetCluster("demo"));
+        foreach (string id in new[] { "demo", "DEMO" })
+            await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.CreateAsync(new(id, definition.DisplayName,
+                definition.GatewayUrl, definition.GatewayAdminTokenEnvironmentVariable), default));
+    }
+
+    [Theory]
+    [InlineData("stopped")]
+    [InlineData("gateway-running")]
+    [InlineData("node-running")]
+    [InlineData("host-offline")]
+    [InlineData("goal-on")]
+    [InlineData("deployment-pending")]
+    public async Task DeleteManagedRequiresStoppedFleet(string state)
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var service = Service(catalog, handler);
+        await service.ActivateAsync("demo", Request(), "initial", "test", default);
+        handler.Deletion = state;
+        if (state == "goal-on") await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        if (state == "deployment-pending") await catalog.RecordPendingDeploymentAsync(catalog.GetCluster("demo")!, "pending", default);
+        if (state == "stopped")
+        {
+            await service.DeleteAsync("demo");
+            Assert.Null(catalog.GetCluster("demo"));
+            Assert.Equal(new[] { "one", "two" }, handler.DeletePreviews);
+        }
+        else
+        {
+            var error = await Record.ExceptionAsync(() => service.DeleteAsync("demo"));
+            Assert.True(error is InvalidOperationException or ClusterHostException, error?.ToString());
+            Assert.NotNull(catalog.GetCluster("demo"));
+        }
+        Assert.Equal(2, handler.Applied.Count); // Deletion never activates or erases Host data.
+    }
+
+    [Fact]
+    public async Task DeleteRefusesPendingOperations()
+    {
+        using var catalog = Catalog();
+        var operations = new ClusterOperationStore(Path.Combine(root, "operations"));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = operations.ExecuteAsync("demo", "test.operation", "pending", "test", new { }, async token =>
+        {
+            entered.SetResult();
+            await finish.Task;
+            return new CometWorks.ClusterGateway.AdminContract.V1.AdminEnvelope<bool>(1, DateTimeOffset.UtcNow, true);
+        }, default);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            var service = new ClusterDeploymentService(catalog, new ClusterHostClient(new HttpClient(new Handler(credential))), operations);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteAsync("demo"));
+            Assert.NotNull(catalog.GetCluster("demo"));
+        }
+        finally { finish.TrySetResult(); await pending; }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -252,13 +339,20 @@ public sealed class ClusterDeploymentTests : IDisposable
         private readonly DateTimeOffset launched = DateTimeOffset.UtcNow;
         private readonly Guid startGeneration = Guid.NewGuid();
         internal string Revision = "revision";
+        internal string? Deletion;
+        internal readonly List<string> DeletePreviews = [];
         private readonly Dictionary<string, string> active = [];
         internal readonly List<string> Applied = [];
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             string host = request.RequestUri!.Host;
             object data;
-            if (request.RequestUri.AbsolutePath.Contains("/recovery-readiness/"))
+            if (Deletion == "host-offline") throw new HttpRequestException("Host unreachable");
+            if (Deletion is not null && request.Method == HttpMethod.Get)
+                data = new HostStatus(host, host, [], host == "one" ? [new("demo", GatewayGoal.Off,
+                    Deletion == "gateway-running" ? GatewayObservedState.Running : GatewayObservedState.Missing,
+                    active[host], Revision, [29416], "/runs/one/gateway", null, null, null)] : [], true);
+            else if (request.RequestUri.AbsolutePath.Contains("/recovery-readiness/"))
             {
                 if (host == "two" && RefuseRecovery) throw new HttpRequestException("nodes still running");
                 data = new HostRecoveryReadiness(host, active[host]);
@@ -280,6 +374,11 @@ public sealed class ClusterDeploymentTests : IDisposable
                 ? [new("demo", "http://gateway.test", true, hash, "/runs/" + host)] : []);
             else
             {
+                if (Deletion is not null && request.Method == HttpMethod.Post)
+                {
+                    DeletePreviews.Add(host);
+                    if (Deletion == "node-running" && host == "two") throw new HttpRequestException("Node still running");
+                }
                 if (Recovery && RefusePreview && request.Method == HttpMethod.Post)
                     throw new HttpRequestException("node appeared during Gateway stop");
                 if (request.Method == HttpMethod.Put)

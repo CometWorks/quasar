@@ -15,11 +15,24 @@ public sealed class ClusterHostClient
     };
     private readonly HttpClient _http;
 
-    public ClusterHostClient(HttpClient http) => _http = http;
+    private readonly ClusterCredentialStore? _credentials;
+    public ClusterHostClient(HttpClient http, ClusterCredentialStore? credentials = null)
+        => (_http, _credentials) = (http, credentials);
+
+    private string? ResolveCredential(string reference) => _credentials?.Resolve(reference) ?? Environment.GetEnvironmentVariable(reference);
+    private static void TunnelAuthority(HttpRequestMessage request)
+    {
+        if (request.RequestUri!.Host.EndsWith(".quasar-host.invalid", StringComparison.Ordinal))
+            request.Headers.Host = "127.0.0.1:" + request.RequestUri.Port;
+    }
 
     public Task<HostContract.HostEnvelope<HostContract.HostStatus>> GetStatusAsync(
         ClusterDefinition cluster, CancellationToken cancellationToken) => SendAsync<HostContract.HostStatus>(
         cluster, HttpMethod.Get, HostContract.HostProtocol.StatusRoute, null, cancellationToken);
+
+    public Task<HostContract.HostEnvelope<JsonElement>> InstallCredentialsAsync(ClusterDefinition target,
+        HostContract.HostManagedCredentials credentials, CancellationToken token) => SendAsync<JsonElement>(target,
+            HttpMethod.Put, HostContract.HostProtocol.RoutePrefix + "/managed-credentials", credentials, token);
 
     public Task<HostContract.HostEnvelope<HostContract.HostAttachmentStatus>> ApplyAttachmentAsync(
         ClusterDefinition cluster, HostContract.HostAttachmentSpec attachment,
@@ -80,7 +93,8 @@ public sealed class ClusterHostClient
             .Equals(artifact.ManifestSha256, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Artifact manifest checksum mismatch.");
         using var request = new HttpRequestMessage(HttpMethod.Get, cluster.HostCommandUrl + HostContract.HostProtocol.RoutePrefix
             + "/artifacts/" + Uri.EscapeDataString(cluster.UniqueName) + "/" + Uri.EscapeDataString(artifact.ArtifactId));
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Environment.GetEnvironmentVariable(cluster.HostCommandTokenEnvironmentVariable)
+        TunnelAuthority(request);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ResolveCredential(cluster.HostCommandTokenEnvironmentVariable)
             ?? throw new InvalidOperationException("Host credential is unavailable."));
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
         response.EnsureSuccessStatusCode();
@@ -115,8 +129,9 @@ public sealed class ClusterHostClient
         string url = cluster.HostCommandUrl + HostContract.HostProtocol.RoutePrefix + "/snapshots/"
             + Uri.EscapeDataString(cluster.UniqueName) + "/" + snapshot.SnapshotId + (upload ? "?sha256=" + snapshot.ArchiveSha256 : "");
         using var request = new HttpRequestMessage(upload ? HttpMethod.Put : HttpMethod.Get, url);
-        string credential = Environment.GetEnvironmentVariable(cluster.HostCommandTokenEnvironmentVariable)
+        string credential = ResolveCredential(cluster.HostCommandTokenEnvironmentVariable)
             ?? throw new InvalidOperationException("Host credential is unavailable.");
+        TunnelAuthority(request);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
         if (upload) request.Content = new StreamContent(File.OpenRead(file));
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
@@ -156,11 +171,12 @@ public sealed class ClusterHostClient
         if (string.IsNullOrWhiteSpace(cluster.HostCommandUrl))
             throw new ClusterHostException(HttpStatusCode.ServiceUnavailable, "host_command_unconfigured",
                 "Cluster Host command endpoint is not configured.");
-        string? token = Environment.GetEnvironmentVariable(cluster.HostCommandTokenEnvironmentVariable);
+        string? token = ResolveCredential(cluster.HostCommandTokenEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(token))
             throw new ClusterHostException(HttpStatusCode.ServiceUnavailable, "host_credential_missing",
                 $"Host credential environment variable '{cluster.HostCommandTokenEnvironmentVariable}' is not set.");
         using var request = new HttpRequestMessage(method, cluster.HostCommandUrl + route);
+        TunnelAuthority(request);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         if (body is not null)
             request.Content = body as HttpContent ?? JsonContent.Create(body, options: JsonOptions);
@@ -191,7 +207,7 @@ public sealed class ClusterHostClient
         catch (HttpRequestException exception)
         {
             throw new ClusterHostException(HttpStatusCode.ServiceUnavailable, "host_unavailable",
-                "Host command failed.", exception);
+                $"Cannot reach the Host executor at {new Uri(cluster.HostCommandUrl).GetComponents(UriComponents.SchemeAndServer, UriFormat.SafeUnescaped)} ({exception.HttpRequestError}). Install or start Quasar.Host on that machine and check its control port.", exception);
         }
         catch (JsonException exception)
         {

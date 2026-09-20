@@ -1,40 +1,157 @@
 @page "/clusters/new"
+@implements IDisposable
 @attribute [Authorize(Policy = QuasarPolicyNames.ClusterManage)]
 @inject ClusterCatalog Catalog
+@inject ClusterSetupService Setup
+@inject ClusterHostCatalog Hosts
+@inject ClusterHostTunnels Tunnels
+@inject QuasarWorldTemplateCatalog Worlds
+@inject QuasarConfigProfileCatalog Profiles
 @inject QuasarPermissionService Permissions
 @inject AuthenticationStateProvider AuthenticationState
 @inject QuasarRoleMapper RoleMapper
 @inject NavigationManager Navigation
 
-<PageTitle>Create or import cluster</PageTitle>
-<MudPaper Class="pa-4">
-    <MudText Typo="Typo.h5">Create or import cluster</MudText>
-    <MudText>Register the cluster and select its verified release and dependencies. To use an existing server, open its Convert to cluster action from the server list; the wizard backs up and converts its world, then prepares every Host.</MudText>
-    <MudTextField T="string" Label="Cluster ID" @bind-Value="_id" Required="true" />
-    <MudTextField T="string" Label="Display name" @bind-Value="_name" />
-    <MudTextField T="string" Label="Gateway control URL" @bind-Value="_url" Required="true" />
-    <MudTextField T="string" Label="Gateway admin token environment variable" @bind-Value="_credential" Required="true" />
-    <MudButton OnClick="CreateAsync" Disabled="_busy" Color="Color.Primary">Create cluster</MudButton>
-    @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
-</MudPaper>
+<PageTitle>Set up cluster</PageTitle>
+<MudCard Class="server-card"><MudCardContent>
+    <MudText Typo="Typo.h5" Class="mb-3">Set up cluster</MudText>
+    <MudTabs>
+        <MudTabPanel Text="Create and deploy">
+            <MudStack Spacing="3" Class="pt-4">
+                <MudText>Quasar downloads the verified cluster release, prepares identical plugins and configuration, copies your world, and deploys it to the selected machines. The finished cluster remains stopped until you choose Start.</MudText>
+                <MudTextField T="string" Label="Cluster ID" @bind-Value="_id" Disabled="Locked" HelperText="A unique name for stored data, using letters, numbers, hyphens or underscores. Removed IDs cannot be reused." />
+                <MudTextField T="string" Label="Server name" @bind-Value="_name" Disabled="Locked" HelperText="The name shown to players and in Quasar." />
+                <MudSelect T="string" Label="World template" @bind-Value="_world" Disabled="Locked" HelperText="Quasar converts a copy. The original template is preserved.">
+                    @foreach (var world in Worlds.GetTemplates()) { <MudSelectItem Value="world.WorldTemplateId">@world.Name</MudSelectItem> }
+                </MudSelect>
+                <MudSelect T="string" Label="Configuration profile" @bind-Value="_profile" Disabled="Locked" HelperText="Game settings, mods and plugin selection. New clusters start with the selected plugins' SDK defaults, shared across every node.">
+                    @foreach (var profile in Profiles.GetProfiles()) { <MudSelectItem Value="profile.ConfigProfileId">@profile.Name</MudSelectItem> }
+                </MudSelect>
+                <MudText Typo="Typo.h6">Machines and node placement</MudText>
+                <MudText Typo="Typo.body2">Choose at least two regular nodes in total. The Gateway machine also runs the World Authority. All machines need mutually reachable LAN/VPN addresses; Quasar also needs to reach the Gateway's control port.</MudText>
+                <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
+                    <MudButton Href="/hosts/enroll" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add">Add machine — local, command or SSH</MudButton>
+                </AuthorizeView>
+                @if (_machines.Count == 0) { <MudAlert Severity="Severity.Info">Enroll a machine from Hosts before deploying. Administrators can install locally, generate a one-time command, or install over SSH.</MudAlert> }
+                @foreach (var machine in _machines)
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="3">
+                        <MudCheckBox T="bool" @bind-Value="machine.Selected" Disabled="Locked" Label="@($"{machine.Host.Name} ({machine.Host.Address})")" />
+                        <MudChip T="string" Size="Size.Small" Color="@(Tunnels.IsConnected(machine.Host.Id) ? Color.Success : Color.Warning)">@(Tunnels.IsConnected(machine.Host.Id) ? "Connected" : "Offline")</MudChip>
+                        <MudNumericField T="int" Label="Regular nodes" @bind-Value="machine.Nodes" Min="0" Max="32" Disabled="@(!machine.Selected || Locked)" />
+                    </MudStack>
+                }
+                <MudSelect T="string" Label="Gateway and World Authority machine" @bind-Value="_gateway" Disabled="Locked" HelperText="Players connect to this machine. Quasar generates and installs the Gateway credentials automatically.">
+                    @foreach (var machine in _machines.Where(m => m.Selected)) { <MudSelectItem Value="machine.Host.Id">@machine.Host.Name</MudSelectItem> }
+                </MudSelect>
+                <MudNumericField T="int" Label="Player port" @bind-Value="_port" Min="1024" Max="65000" Disabled="Locked" HelperText="UDP port players use, usually 28000. Setup also reserves this port through port +264 for Gateway control and node communication; keep that range free on these machines." />
+                <MudText Typo="Typo.body2">Allow the player UDP port through your firewall. Keep internal cluster traffic on your LAN/VPN. The Host command listener stays on loopback and connects back to Quasar over HTTPS.</MudText>
+                <MudButton OnClick="DeployAsync" Disabled="@(_busy || _machines.Count == 0)" Variant="Variant.Filled" Color="Color.Primary">@(_request is null ? "Create and deploy cluster" : "Resume setup")</MudButton>
+                @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
+                @if (_status is not null)
+                {
+                    <MudAlert Severity="@(_status.Error is null ? Severity.Info : Severity.Warning)">@_status.Phase @(_status.Error is null ? "" : ": " + _status.Error)</MudAlert>
+                    <MudButton Href="@($"/clusters/{Uri.EscapeDataString(_status.Request.UniqueName)}")">Open cluster controls</MudButton>
+                }
+            </MudStack>
+        </MudTabPanel>
+        <MudTabPanel Text="Connect existing Gateway (advanced)">
+            <MudStack Spacing="3" Class="pt-4">
+                <MudText>Use this only for a Gateway already installed and running. Connecting registers it for monitoring and administration; it does not provision machines or deploy a new cluster.</MudText>
+                <MudTextField T="string" Label="Cluster ID" @bind-Value="_importId" HelperText="A unique Quasar registration name, using letters, numbers, hyphens or underscores." />
+                <MudTextField T="string" Label="Display name" @bind-Value="_importName" />
+                <MudTextField T="string" Label="Gateway control URL" @bind-Value="_url" Placeholder="http://10.0.0.10:28016" HelperText="The Gateway's HTTP administration endpoint, reachable from the Quasar machine. This is separate from the player UDP port and the Quasar website address." />
+                <MudTextField T="string" Label="Admin token environment variable name" @bind-Value="_credential" Placeholder="MY_CLUSTER_ADMIN_TOKEN" HelperText="Enter the variable name, not the token itself. Set that variable on the Quasar service to the same admin token configured on this Gateway, then restart Quasar. Guided creation manages credentials automatically." />
+                <MudButton OnClick="ImportAsync" Disabled="_busy" Variant="Variant.Filled" Color="Color.Primary">Connect existing Gateway</MudButton>
+            </MudStack>
+        </MudTabPanel>
+    </MudTabs>
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning" Class="mt-3">@_error</MudAlert> }
+</MudCardContent></MudCard>
 
 @code {
-    private string _id = "", _name = "", _url = "", _credential = "";
+    [SupplyParameterFromQuery] public string? Resume { get; set; }
+    private readonly CancellationTokenSource _stop = new();
+    private string _id = "", _name = "", _world = "", _profile = "", _gateway = "";
+    private string _importId = "", _importName = "", _url = "", _credential = "";
+    private int _port = 28000;
+    private bool _busy, _disposed;
     private string? _error;
-    private bool _busy;
-    private async Task CreateAsync()
+    private ClusterSetupRequest? _request;
+    private ClusterSetupStatus? _status;
+    private List<MachineRow> _machines = [];
+    private bool Locked => _busy || _request is not null;
+    protected override void OnInitialized()
     {
-        if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
-        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
-        if (!user.CanQueryCluster(_id)) { _error = "Your credentials cannot manage this cluster ID."; return; }
-        _busy = true;
+        _machines = Hosts.GetAll().Select(h => new MachineRow(h)).ToList();
+        if (_machines.Count == 1) { _machines[0].Selected = true; _machines[0].Nodes = 2; _gateway = _machines[0].Host.Id; }
+        _ = RefreshAsync();
+    }
+    protected override async Task OnParametersSetAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Resume) || _request is not null) return;
+        if (!await AuthorizedAsync(Resume, configurations: true)) return;
         try
         {
-            var created = await Catalog.CreateAsync(new(_id, _name, _url, _credential), default);
+            _status = Setup.GetStatus(Resume); _request = _status?.Request;
+            if (_request is null) return;
+            _id = _request.UniqueName; _name = _request.DisplayName; _world = _request.WorldTemplateId;
+            _profile = _request.ConfigProfileId; _gateway = _request.GatewayHost; _port = _request.PlayerPort;
+            foreach (var row in _machines)
+            { var placement = _request.Machines.SingleOrDefault(m => m.HostId == row.Host.Id); row.Selected = placement is not null; row.Nodes = placement?.RegularNodes ?? 0; }
+        }
+        catch (ArgumentException error) { _error = error.Message; }
+    }
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            while (await timer.WaitForNextTickAsync(_stop.Token))
+                await InvokeAsync(() => { if (_request is not null) _status = Setup.GetStatus(_request.UniqueName); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) { }
+    }
+    private async Task<bool> AuthorizedAsync(string id, bool configurations = false)
+    {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)
+            || configurations && !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs))
+        { _error = "Cluster management and configuration permissions are required for guided setup."; return false; }
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        if (!user.CanQueryCluster(id)) { _error = "Your credentials cannot manage this cluster ID."; return false; }
+        return true;
+    }
+    private async Task DeployAsync()
+    {
+        if (_busy || !await AuthorizedAsync(_id, true)) return;
+        _busy = true; _error = null;
+        var request = _request ?? new(_id, _name, _world, _profile, _gateway, _port,
+            _machines.Where(m => m.Selected).Select(m => new ClusterSetupPlacement(m.Host.Id, m.Nodes)).ToArray());
+        try
+        {
+            var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+            _request = request;
+            var result = await Setup.RunAsync(request, Guid.NewGuid().ToString("N"), user.Identity?.Name ?? "ui", default);
+            _status = Setup.GetStatus(request.UniqueName);
+            if (result.State == ClusterOperationState.Succeeded && !_disposed) Navigation.NavigateTo("/clusters/" + Uri.EscapeDataString(request.UniqueName));
+            else _error = result.Error?.Message;
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or IOException) { _error = error.Message; }
+        finally { if (_status is null) _request = null; _busy = false; }
+    }
+    private async Task ImportAsync()
+    {
+        if (_busy || !await AuthorizedAsync(_importId)) return;
+        _busy = true; _error = null;
+        try
+        {
+            var created = await Catalog.CreateAsync(new(_importId, _importName, _url, _credential), default);
             Navigation.NavigateTo("/clusters/" + Uri.EscapeDataString(created.UniqueName));
         }
-        catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException)
-        { _error = error.Message; }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException) { _error = error.Message; }
         finally { _busy = false; }
     }
+    public void Dispose() { _disposed = true; _stop.Cancel(); _stop.Dispose(); }
+    private sealed class MachineRow(EnrolledClusterHost host)
+    { public EnrolledClusterHost Host { get; } = host; public bool Selected { get; set; } public int Nodes { get; set; } = 1; }
 }

@@ -643,6 +643,23 @@ companions remain deployable; their UI assemblies are not loaded.
 Authentication and authorization remain enabled exactly as configured; headless
 mode is not an authentication bypass.
 
+## Guided cluster creation and machine enrollment
+
+Use **Create and deploy** at `/clusters/new` to select a world/profile, machines and
+node placement. Quasar generates credentials and provisions the verified deployment;
+no Gateway URL, token environment variable or hand-written specification is needed.
+The separate **Connect existing Gateway** tab is for an already installed Gateway.
+Its control URL is the HTTP admin endpoint, not the player UDP port. Its credential
+field names an environment variable on the Quasar service, not the secret value.
+
+**Hosts → Add cluster machine** supports local installation, a one-time command, and
+SSH installation with strict host-key checking. Machines need Linux x64, Python 3,
+.NET 10 and a systemd user session; remote Hosts connect back over HTTPS while their
+command listeners stay on loopback. See [Guided cluster setup](ClusterGuidedSetupPlan.md)
+for topology, ports, API, resume behavior and release prerequisites. Guided creation
+requires Magnetar's new preparation/export command and a matching cluster SDK pin;
+older released packages fail explicitly before game startup.
+
 ## Cluster query catalog
 
 Quasar discovers clusters from `<quasar-root>/Clusters/<unique-name>/cluster.json`.
@@ -1267,7 +1284,8 @@ available for explicit recovery.
 
 Cluster cards use compact header controls. Configuration profiles, world templates
 and node plugin configuration are accessible through the navigation bar rather than
-duplicated as card shortcuts. Start changes the managed goal to On; Stop confirms a graceful
+duplicated as shortcuts on cluster cards or the cluster control page. Start changes
+the managed goal to On; Stop confirms a graceful
 cluster shutdown and changes the goal to Off. Restart Gateway only restarts the
 Gateway, with a reconnect warning. Save uses the cluster-wide save command. These
 actions retain cluster permissions and Gateway capability checks. Statistics and
@@ -1281,6 +1299,23 @@ logs, refreshed every five seconds. It preserves displayed entries during an out
 and marks them stale; full server/launcher process logs remain on their Hosts. Console
 access requires cluster query permission and the caller's cluster scope. Deployment
 configuration is available from the cluster details page.
+
+The delete icon on the cluster card and detail page removes its Quasar definition
+after confirmation. It requires cluster-manage permission and the caller's cluster
+scope. Stop managed clusters first: Quasar checks every Host for stopped node and
+Gateway processes, and refuses deletion while operations, deployment or restore work
+remain pending, or a Host cannot be verified. Observation-only entries can be removed
+without stopping their independently managed processes. The definition is archived
+under `Clusters/<name>/History/*-deleted.json`; world files, Host deployments, plugin
+data and backups remain on disk. The API equivalent is
+`DELETE /api/v1/clusters/{name}` (204 on success, 409 when deletion is blocked).
+
+For an unreachable or stale registration, the same dialog provides **Forget
+registration without checking remote processes**, with exact cluster-ID confirmation.
+This leaves any remote processes running and retains all data. Its API is
+`DELETE /api/v1/clusters/{name}/registration?confirmation={name}` with the same manage
+and scope checks. Removed IDs, including case variants, cannot be reused. This avoids
+silently attaching a new registration to retained runtime or operation state.
 
 The control page places administration first, followed by status, fleet observations
 and deployment. Sections use consistent cards and spacing; recovery and conversion

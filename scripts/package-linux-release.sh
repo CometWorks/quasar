@@ -156,12 +156,15 @@ dotnet publish "$REPO_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj" \
     -v minimal
 
 cp -a "$PUBLISH_DIR/WebService/." "$WEB_DIR/"
+mkdir -p "$WEB_DIR/Host"
+cp -a "$PUBLISH_DIR/Host/." "$WEB_DIR/Host/"
 mkdir -p "$WEB_DIR/wwwroot"
 cp -a "$REPO_DIR/Quasar/wwwroot/." "$WEB_DIR/wwwroot/"
 chmod +x "$WEB_DIR/Quasar"
 
 required_web_files=(
     "Quasar"
+    "Host/Quasar.Host"
     "wwwroot"
     "wwwroot/_framework/blazor.web.js"
     "wwwroot/_content/MudBlazor/MudBlazor.min.css"

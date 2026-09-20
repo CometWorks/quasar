@@ -193,7 +193,15 @@ public class Program
             builder.Services.AddHttpClient<ClusterGatewayClient>(client =>
                 client.Timeout = Timeout.InfiniteTimeSpan);
             builder.Services.AddHttpClient<ClusterHostClient>(client =>
-                client.Timeout = Timeout.InfiniteTimeSpan);
+                client.Timeout = Timeout.InfiniteTimeSpan)
+                .ConfigurePrimaryHttpMessageHandler(services => new SocketsHttpHandler
+                { ConnectCallback = services.GetRequiredService<ClusterHostTunnels>().OpenAsync, UseProxy = false,
+                    MaxConnectionsPerServer = 8, PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1) });
+            builder.Services.AddSingleton<ClusterCredentialStore>();
+            builder.Services.AddSingleton<ClusterHostCatalog>();
+            builder.Services.AddSingleton<ClusterHostTunnels>();
+            builder.Services.AddSingleton<ClusterHostInstaller>();
+            builder.Services.AddSingleton<ClusterSetupService>();
             builder.Services.AddSingleton(webServiceOptions);
             builder.Services.AddSingleton(managedRuntimeOptions);
             builder.Services.AddSingleton(updateOptions);
@@ -363,6 +371,7 @@ public class Program
             app.MapGet("/api/discovery", (WebServiceState state) =>
                 Results.Json(state.CurrentManifest));
             app.MapClusterApi(authOptions);
+            app.MapClusterHostEnrollmentApi();
 
             // Analytics chart data, fetched directly by the browser (uPlot) instead of being pushed
             // through the Blazor SignalR circuit. Averaged down to maxPoints per series server-side.

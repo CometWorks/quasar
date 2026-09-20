@@ -239,6 +239,9 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
 
     internal static void ApplySecrets(System.Diagnostics.ProcessStartInfo start, Dictionary<string, string>? references)
     {
+        // Enrollment and other clusters' credentials belong to the Host, never its child processes.
+        foreach (string name in start.Environment.Keys.Where(name => name.StartsWith("QSR_MANAGED_", StringComparison.Ordinal)).ToArray())
+            start.Environment.Remove(name);
         foreach (var (target, source) in references ?? [])
         {
             string? value = Environment.GetEnvironmentVariable(source);

@@ -2,6 +2,14 @@ using System.Text.Json.Serialization;
 
 namespace Quasar.Host.Contract.V1;
 
+public sealed record HostManagedCredentials(string ClusterId, string AdminToken, string JoinToken, Dictionary<string, string> ExecutorTokens);
+
+public static class ManagedCredentialReference
+{
+    public static string Cluster(string cluster, string purpose) => "QSR_MANAGED_" + Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("cluster:" + cluster + ":" + purpose)));
+}
+
 public static class HostProtocol
 {
     public const int Version = 1;

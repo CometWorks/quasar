@@ -38,6 +38,7 @@ from the terminal, install it as a background service, or run the GHCR image.
 | [Building & Development](Docs/BuildingAndDevelopment.md) | Project layout, build setup, managed-runtime selection, and developer utilities. |
 | [Phase 4 Integration](Docs/Phase4IntegrationPlan.md) | Cluster release integration, verified package staging, upstream requirements, and acceptance plan. |
 | [Cluster Integration Verification](Docs/ClusterIntegrationVerification.md) | Implementation checks, review package provenance and remaining live acceptance gates. |
+| [Guided Cluster Setup](Docs/ClusterGuidedSetupPlan.md) | Machine enrollment, local/SSH/command installation, automatic provisioning and release prerequisites. |
 | [Cluster Conversion](Docs/ClusterConversion.md) | Guided standalone/cluster conversion, backups, resume and plugin configuration limits. |
 | [Cluster Plugins](Docs/ClusterPlugins.md) | One-server plugin/config consistency, Agent monitoring, existing SDK compatibility and remaining integration work. |
 | [Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) | systemd install, release assets, and the auto-updater flow. |

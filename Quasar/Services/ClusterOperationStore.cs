@@ -50,6 +50,10 @@ public sealed class ClusterOperationStore
     public ClusterOperation? Get(string operationId) =>
         _operations.GetValueOrDefault(operationId);
 
+    internal bool HasPendingOperations(string cluster) => _operations.Values.Any(operation =>
+        operation.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase)
+        && operation.State == ClusterOperationState.Running);
+
     internal bool HasPendingShutdown(string cluster) => _operations.Values.Any(operation =>
         operation.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase)
         && operation.State == ClusterOperationState.Running

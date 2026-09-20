@@ -8,6 +8,7 @@ internal static class DeploymentSelfTest
 {
     internal static void Run()
     {
+        CredentialInstallation();
         string root = Path.Combine(Path.GetTempPath(), "host-deployment-" + Guid.NewGuid());
         try
         {
@@ -120,6 +121,35 @@ internal static class DeploymentSelfTest
             AssertThrows(() => ExecutionBundle.Load(path, hash));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    private static void CredentialInstallation()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "host-credentials-" + Guid.NewGuid().ToString("N"));
+        string cluster = "test-" + Guid.NewGuid().ToString("N");
+        string Ref(string purpose) => HostContract.ManagedCredentialReference.Cluster(cluster, purpose);
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var request = new HostContract.HostManagedCredentials(cluster, new('a', 64), new('b', 64),
+                new() { ["one"] = new('c', 64), ["two"] = new('d', 64) });
+            HostCredentials.Install(directory, request);
+            byte[] original = File.ReadAllBytes(Path.Combine(directory, "credentials.json"));
+            HostCredentials.Install(directory, request);
+            Assert(original.SequenceEqual(File.ReadAllBytes(Path.Combine(directory, "credentials.json"))), "credential replay changed file");
+            AssertThrows(() => HostCredentials.Install(directory, request with { ExecutorTokens = new() { ["one"] = new('c', 64) } }));
+            AssertThrows(() => HostCredentials.Install(directory, request with { AdminToken = new('f', 64) }));
+            var start = new System.Diagnostics.ProcessStartInfo();
+            ExecutionBundle.ApplySecrets(start, new() { ["CLUSTER_JOIN_TOKEN"] = Ref("join") });
+            Assert(start.Environment["CLUSTER_JOIN_TOKEN"] == request.JoinToken, "required child credential missing");
+            Assert(!start.Environment.Keys.Any(name => name.StartsWith("QSR_MANAGED_", StringComparison.Ordinal)), "Host credential inherited by child");
+        }
+        finally
+        {
+            foreach (string purpose in new[] { "admin", "join", "executor:one", "executor:two", "token-file" })
+                Environment.SetEnvironmentVariable(Ref(purpose), null);
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
     }
 
     private static void Assert(bool condition, string message)

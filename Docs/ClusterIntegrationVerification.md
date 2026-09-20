@@ -247,8 +247,15 @@ expanded forms have consistent spacing; recovery and conversion sit under deploy
 
 After this audit, the redundant cluster-card edit shortcut was removed. Deployment
 configuration remains on the cluster details page; standalone edit controls are unchanged.
-The three cluster-card shortcuts to configuration profiles, world templates and node
-plugin configuration were also removed; these destinations remain in the navigation bar.
+The three shortcuts to configuration profiles, world templates and node plugin
+configuration were also removed from both the cluster card and control page; these
+destinations remain in the navigation bar.
+
+Cluster deletion was subsequently added to the card and detail header, with a matching
+manage-protected DELETE API. The focused deployment/API suite passes 45 tests, including
+definition archival and retained data, stopped-fleet verification, rejection of running
+or unreachable Hosts, pending operations and incomplete deployment checks. These are
+automated checks; the removed verification deployment was not relaunched for this change.
 
 Playwright verified the installed candidate at 1600px desktop and 390px mobile widths:
 
@@ -270,3 +277,41 @@ Screenshots and test output are retained in the candidate's `live/evidence/ui-au
 and `live/evidence/ui-audit-tests.log`. This verifies UI behavior, not full integration
 acceptance: the 1.1.1 Gateway remains Draining after the failed warm-start/shutdown
 sequence described above, and the published LiteNetLib correction still needs a live run.
+
+## Guided provisioning and machine enrollment — 2026-09-20
+
+The branch adds guided setup with local, one-time-command and SSH Host installation,
+authenticated outbound Host control tunnels, generated credentials, verified plugin
+preparation and stopped deployment activation. Stale registrations can be explicitly
+forgotten without contacting unreachable Hosts. See [Guided cluster setup](ClusterGuidedSetupPlan.md)
+for the contract, prerequisites and remaining acceptance work.
+
+After the final preparation-world isolation and Host Agent environment changes:
+
+- The focused Quasar suite passed **88 tests**, covering enrollment, streaming tunnels,
+  setup validation, preparation capability detection, Agent provenance, deletion,
+  conversion, dependency handling and API authorization.
+- A Linux x64 self-contained, single-file Host publish succeeded with native libraries
+  embedded. Its `--self-test` passed, including immutable credential replay and child
+  secret isolation.
+- The release packaging script passed `bash -n`; `git diff --check` passed. A complete
+  Quasar release package was not rebuilt for this change.
+
+Evidence is retained under `artifacts/guided-setup-verification/` in this checkout.
+Magnetar PR #58's implementation commit `af4c6674bfe7ab4d8cdd89927f19ba3db54d8f2d`
+passed Linux and Windows CI builds. The subsequent argument-parser revision uses
+Pulsar's existing command-line library for Magnetar's server options as well. Its
+local launcher build passed with no warnings or errors, and all **157 Magnetar tests**
+passed, including 15 parser cases. A real preparation run selected an external profile
+whose path contained spaces while the isolated `Current.xml` selected a nonexistent
+plugin. Export succeeded with the external profile; a missing profile file failed
+without publishing an export. Quasar now passes its isolated profile path explicitly;
+all **14 focused setup tests** passed after that change. Parser/build/export evidence
+is in the Magnetar worktree's `artifacts/server-arguments-*.log` and
+`artifacts/profile-cli-check/`; Quasar's focused log is retained with its evidence above.
+
+These checks do not prove full fresh-cluster provisioning. Released-package acceptance
+requires Magnetar 2.4.2.2 with the preparation command and a cluster package pinned to
+that released SDK binary, followed by fresh-world Serving and real remote-machine
+checks. No Quasar web service, temporary game server or live cluster was launched.
+The user's installed deployment and removed verification deployment remain untouched.

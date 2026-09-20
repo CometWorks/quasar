@@ -12,6 +12,17 @@ update/restore and client/multi-host scenarios. See the
 [verification record](ClusterIntegrationVerification.md#local-managed-run--2026-09-20)
 for evidence and limits.
 
+## Guided setup follow-up
+
+The seven stages below supplied deployment primitives; they did not supply turnkey
+machine enrollment or fresh cluster creation. The branch now includes local,
+one-time-command and SSH Host enrollment, protected outbound control tunnels,
+generated credentials, resumable world/profile preparation and verified stopped
+activation. [Guided setup](ClusterGuidedSetupPlan.md) records the workflow and its
+separate acceptance gate. It depends on [Magnetar #58](https://github.com/CometWorks/magnetar/pull/58)
+and a cluster release with the matching SDK binary pin. Existing live evidence does
+not establish acceptance of this new workflow.
+
 ## Authority and ownership
 
 Baseline: `clustering-plan` at `6621d1b7324a6b7da4285f87b354ef974fcb0a9f`,

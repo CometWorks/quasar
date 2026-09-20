@@ -48,6 +48,13 @@ internal static class Program
         try
         {
             config = Load(path!);
+            HostCredentials.Load(config.StateDirectory);
+            if (config.Connection is not null)
+            {
+                // Agent discovery uses the same reachable origin as the enrolled Host.
+                Environment.SetEnvironmentVariable("QUASAR_BASE_URL", config.Connection.QuasarUrl);
+                Environment.SetEnvironmentVariable("MAGNETAR_HOST_ID", config.HostId);
+            }
         }
         catch (Exception exception) when (exception is IOException or JsonException or ArgumentException)
         {
@@ -97,9 +104,13 @@ internal static class Program
         }
         using (commandServer)
         {
+            Task? connection = config.Connection is null ? null : HostConnection.RunAsync(config, shutdown.Token);
+            try
+            {
             var connected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             do
             {
+                if (connection is { IsFaulted: true }) await connection;
                 await executionGate.WaitAsync(shutdown.Token);
                 try
                 {
@@ -149,6 +160,12 @@ internal static class Program
                     }
                 }
             } while (!once);
+            }
+            finally
+            {
+                await shutdown.CancelAsync();
+                if (connection is not null) await connection;
+            }
         }
         return 0;
     }
@@ -214,7 +231,7 @@ internal static class Program
         if (config.PollIntervalSeconds is < 1 or > 15)
             throw new ArgumentException("PollIntervalSeconds must be between 1 and 15 (executor leases last 60 seconds)");
         HostContract.HostAttachmentSpec[] attachments = config.Attachments ?? [];
-        if (attachments.Length == 0)
+        if (attachments.Length == 0 && config.Command is null)
             throw new ArgumentException("At least one cluster attachment is required");
         foreach (HostContract.HostAttachmentSpec attachment in attachments)
         {
@@ -565,6 +582,7 @@ internal sealed record HostExecutorConfig(
     int PollIntervalSeconds,
     HostContract.HostAttachmentSpec[] Attachments,
     string StateDirectory = "",
-    HostCommandConfig? Command = null);
+    HostCommandConfig? Command = null,
+    HostConnectionConfig? Connection = null);
 
 internal sealed record HostCommandConfig(string Url, string TokenEnvironmentVariable);

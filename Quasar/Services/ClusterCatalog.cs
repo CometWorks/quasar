@@ -31,6 +31,30 @@ public sealed class ClusterCatalog : IDisposable
 
     public event Action? Changed;
 
+    // Caller holds the lifecycle gate and either verified stopped processes or confirmed explicit forget.
+    internal async Task DeleteDefinitionAsync(ClusterDefinition expected, CancellationToken token, bool forget = false)
+    {
+        await _writeGate.WaitAsync(token);
+        try
+        {
+            var current = GetCluster(expected.UniqueName) ?? throw new KeyNotFoundException(expected.UniqueName);
+            if (current.GetLifecycleId() != expected.GetLifecycleId()
+                || JsonSerializer.Serialize(current.ActiveDeployment, JsonOptions) != JsonSerializer.Serialize(expected.ActiveDeployment, JsonOptions)
+                || !forget && (current.PendingDeploymentHash is not null || current.PendingRestoreHash is not null
+                    || current.Update is { Phase: not ClusterUpdatePhase.Complete }))
+                throw new InvalidOperationException("Cluster changed while deletion was being checked.");
+            string path = ResolvePath(current.UniqueName);
+            string history = Path.Combine(Path.GetDirectoryName(path)!, "History");
+            Directory.CreateDirectory(history);
+            await AtomicFileWriter.WriteTextAsync(RemovedPath(current.UniqueName), current.UniqueName, token);
+            File.Move(path, Path.Combine(history, $"{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}-deleted.json"));
+            lock (_sync) _clusters.RemoveAll(c => string.Equals(c.UniqueName, current.UniqueName, StringComparison.OrdinalIgnoreCase));
+            _logger.LogInformation("Deleted cluster definition {Cluster}; runtime data retained", current.UniqueName);
+        }
+        finally { _writeGate.Release(); }
+        Changed?.Invoke();
+    }
+
     public IReadOnlyList<ClusterDefinition> GetClusters()
     {
         lock (_sync)
@@ -59,6 +83,9 @@ public sealed class ClusterCatalog : IDisposable
                     && existing.GatewayAdminTokenEnvironmentVariable == candidate.GatewayAdminTokenEnvironmentVariable) return existing;
                 throw new InvalidOperationException("A different cluster already uses this name.");
             }
+            if (File.Exists(RemovedPath(candidate.UniqueName)) || Directory.Exists(Path.Combine(_directory, candidate.UniqueName, "History"))
+                && Directory.EnumerateFiles(Path.Combine(_directory, candidate.UniqueName, "History"), "*-deleted.json").Any())
+                throw new InvalidOperationException("This cluster ID was removed. Choose a new ID to avoid reusing retained Host state or operation history.");
             await SaveAsync(candidate, token);
             return candidate;
         }
@@ -163,11 +190,12 @@ public sealed class ClusterCatalog : IDisposable
         finally { _writeGate.Release(); }
     }
 
-    internal Task<ClusterDefinition> RecordConversionProfileAsync(ClusterDefinition expected, string profileId, CancellationToken token) =>
+    internal Task<ClusterDefinition> RecordConversionProfileAsync(ClusterDefinition expected, string profileId, CancellationToken token, string? worldTemplateId = null) =>
         UpdateCoreAsync(expected.UniqueName, cluster =>
         {
             if (cluster.GetLifecycleId() != expected.GetLifecycleId()) throw new InvalidOperationException("Cluster changed during conversion.");
             cluster.ConfigProfileId = profileId;
+            if (worldTemplateId is not null) cluster.WorldTemplateId = worldTemplateId;
         }, token);
 
     internal Task<ClusterDefinition> RecordRecoveryAsync(ClusterDefinition expected, Guid generation, CancellationToken token) =>
@@ -326,6 +354,8 @@ public sealed class ClusterCatalog : IDisposable
         }
         return conventional;
     }
+
+    private string RemovedPath(string uniqueName) => Path.Combine(_directory, ".removed", uniqueName.ToLowerInvariant());
 
     private List<ClusterDefinition> Load()
     {

@@ -20,7 +20,8 @@ public sealed record ClusterConversionHost(string HostId, string CommandUrl, str
     string ExecutorTokenEnvironmentVariable, string Address, int RegularNodes = 1);
 public sealed record ServerToClusterRequest(Guid Id, string Server, string SourceRevision, string BinaryVersion,
     string GatewayHost, int SteamPort, string JoinTokenEnvironmentVariable, string AdminTokensFileEnvironmentVariable,
-    string[] InternalNetworks, ClusterConversionHost[] Hosts, string? DependencySha256 = null, long? PackageRevision = null);
+    string[] InternalNetworks, ClusterConversionHost[] Hosts, string? DependencySha256 = null, long? PackageRevision = null,
+    int? NodePortBase = null);
 public sealed record ClusterToServerRequest(Guid Id, string UniqueName, string DisplayName, int Port,
     string ConfigProfileId, string SourceLifecycle);
 public sealed record ClusterConversionReview(string SourceRevision, string ProfileName, string[] Plugins,
@@ -281,7 +282,7 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
         return await ClusterDeploymentFiles.PrepareAsync(bytes, hash, Path.Combine(work, "installation"), token);
     }
 
-    private static async Task ConvertOnceAsync(string installation, string command, string source, string destination, string[] roots, CancellationToken token)
+    internal static async Task ConvertOnceAsync(string installation, string command, string source, string destination, string[] roots, CancellationToken token)
     {
         string receipt = destination + ".json";
         if (File.Exists(receipt))
@@ -342,7 +343,8 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
             || request.Hosts.Select(h => h.HostId).Distinct().Count() != request.Hosts.Length
             || request.Hosts.Select(h => h.CommandUrl.TrimEnd('/')).Distinct(StringComparer.OrdinalIgnoreCase).Count() != request.Hosts.Length
             || !request.Hosts.Any(h => h.HostId == request.GatewayHost) || request.SteamPort is < 1 or > 65535
-            || string.IsNullOrWhiteSpace(request.BinaryVersion) || request.InternalNetworks is null || request.InternalNetworks.Length == 0)
+            || string.IsNullOrWhiteSpace(request.BinaryVersion) || request.InternalNetworks is null || request.InternalNetworks.Length == 0
+            || request.NodePortBase is < 1024 or > 65300)
             throw new InvalidDataException("Choose a Gateway Host, at least two regular nodes, game build and internal networks.");
         foreach (var host in request.Hosts)
         {
@@ -384,9 +386,11 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
         {
             for (int i = 0; i < host.RegularNodes; i++) nodes.Add(new { slotKey = host.HostId + "-node-" + i,
                 nodeId = host.HostId + "-node-" + i, host = host.HostId, role = "regular", catalogSlot = slot++,
-                backend = Endpoint(host.Address, 28417 + i), control = Endpoint(host.Address, 29417 + i) });
+                backend = Endpoint(host.Address, (request.NodePortBase ?? 28417) + i), control = Endpoint(host.Address, (request.NodePortBase is { } port ? port + 100 : 29417) + i) });
             if (host.HostId == request.GatewayHost) nodes.Add(new { slotKey = "world-authority", nodeId = "world-authority",
-                host = host.HostId, role = "WA", catalogSlot = request.Hosts.Sum(h => h.RegularNodes) + 1, backend = Endpoint(host.Address, 28700), control = Endpoint(host.Address, 29700) });
+                host = host.HostId, role = "WA", catalogSlot = request.Hosts.Sum(h => h.RegularNodes) + 1,
+                backend = Endpoint(host.Address, request.NodePortBase is { } waPort ? waPort + 64 : 28700),
+                control = Endpoint(host.Address, request.NodePortBase is { } waControl ? waControl + 164 : 29700) });
         }
         var gateway = new Uri(cluster.GatewayUrl);
         return JsonSerializer.Serialize(new { schemaVersion = 1, clusterId = cluster.UniqueName, worldId = cluster.UniqueName,

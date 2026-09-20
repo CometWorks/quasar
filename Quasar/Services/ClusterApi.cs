@@ -29,6 +29,26 @@ internal static class ClusterApi
                 statusCode: operations.IsReady ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
         });
         RouteGroupBuilder routes = app.MapGroup("/api/v1/clusters");
+        var setupStatus = routes.MapGet("/{uniqueName}/setup", (string uniqueName, HttpContext context,
+            [FromServices] ClusterSetupService setup) =>
+        {
+            if (!context.User.CanQueryCluster(uniqueName)) return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+            try { return Results.Json(Envelope(setup.GetStatus(uniqueName)), JsonOptions); }
+            catch (ArgumentException error) { return Error(400, "invalid_cluster", error.Message); }
+        });
+        var setupCluster = routes.MapPost("/setup", async (ClusterSetupRequest request, HttpContext context,
+            [FromServices] ClusterSetupService setup, CancellationToken token) =>
+        {
+            if (!context.User.CanQueryCluster(request.UniqueName)) return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+            try { return Results.Json(Envelope(await setup.RunAsync(request, context.Request.Headers["Idempotency-Key"].ToString(), context.User.Identity?.Name ?? "anonymous", token)), JsonOptions); }
+            catch (ClusterOperationConflictException error) { return Error(error.StatusCode, error.Code, error.Message); }
+            catch (ArgumentException error) { return Error(400, "invalid_setup", error.Message); }
+        });
+        if (authOptions.Enabled)
+        {
+            setupStatus.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
+            setupCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
+        }
         routes.MapGet("", (HttpContext context, ClusterCatalog catalog) =>
         {
             SetProtocolHeader(context);
@@ -155,6 +175,8 @@ internal static class ClusterApi
             foreach (var route in new[] { convertToCluster, convertToServer, conversionReview, conversionPlugins, conversionStatus })
                 route.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditServers, QuasarPolicyNames.CanEditConfigs);
         RouteHandlerBuilder createCluster = routes.MapPost("/", CreateCluster);
+        RouteHandlerBuilder deleteCluster = routes.MapDelete("/{uniqueName}", DeleteCluster);
+        RouteHandlerBuilder forgetCluster = routes.MapDelete("/{uniqueName}/registration", ForgetCluster);
         RouteHandlerBuilder prepareDeployment = routes.MapPost("/{uniqueName}/deployment-preparation", PrepareDeployment);
         RouteHandlerBuilder recoverCluster = routes.MapPost("/{uniqueName}/recover", (string uniqueName, ClusterRecoveryRequest request,
             HttpContext context, [FromServices] ClusterDeploymentService deployments, CancellationToken token) => RunBackup(uniqueName, context,
@@ -193,6 +215,8 @@ internal static class ClusterApi
             recoverDeployment.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             prepareDeployment.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             createCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            deleteCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            forgetCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             captureBackup.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             archiveExport.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             beginUpdate.RequireAuthorization(QuasarPolicyNames.ClusterManage);
@@ -350,6 +374,33 @@ internal static class ClusterApi
         catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException or IOException)
         { return Error(409, "backup_conflict", error.Message); }
         catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Cluster was not found."); }
+    }
+
+    private static async Task<IResult> ForgetCluster(string uniqueName, string confirmation, HttpContext context,
+        [FromServices] ClusterDeploymentService deployments, CancellationToken token)
+    {
+        SetProtocolHeader(context);
+        if (!context.User.CanQueryCluster(uniqueName)) return Error(403, "cluster_forbidden", "Cluster access denied.");
+        try { await deployments.ForgetAsync(uniqueName, confirmation, token); return Results.NoContent(); }
+        catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Cluster was not found."); }
+        catch (Exception error) when (error is InvalidOperationException or IOException)
+        { return Error(409, "cluster_forget_conflict", error.Message); }
+    }
+
+    private static async Task<IResult> DeleteCluster(string uniqueName, HttpContext context,
+        [FromServices] ClusterDeploymentService deployments, CancellationToken token)
+    {
+        SetProtocolHeader(context);
+        if (!context.User.CanQueryCluster(uniqueName)) return Error(403, "cluster_forbidden", "Cluster access denied.");
+        try
+        {
+            await deployments.DeleteAsync(uniqueName, token);
+            return Results.NoContent();
+        }
+        catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Cluster was not found."); }
+        catch (ClusterHostException error) { return Error(409, "cluster_delete_unverified", error.Message); }
+        catch (Exception error) when (error is InvalidOperationException or IOException)
+        { return Error(409, "cluster_delete_conflict", error.Message); }
     }
 
     private static async Task<IResult> CreateCluster(ClusterCreateRequest request, HttpContext context,

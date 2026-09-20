@@ -16,7 +16,9 @@ public sealed class ClusterGatewayClient
     };
     private readonly HttpClient _http;
 
-    public ClusterGatewayClient(HttpClient http) => _http = http;
+    private readonly ClusterCredentialStore? _credentials;
+    public ClusterGatewayClient(HttpClient http, ClusterCredentialStore? credentials = null)
+        => (_http, _credentials) = (http, credentials);
 
     public Task<Admin.AdminEnvelope<Admin.GatewayHealth>> GetHealthAsync(
         ClusterDefinition cluster, CancellationToken cancellationToken) =>
@@ -105,7 +107,8 @@ public sealed class ClusterGatewayClient
             request.Content = JsonContent.Create(body, options: JsonOptions);
         if (!string.IsNullOrWhiteSpace(cluster.GatewayAdminTokenEnvironmentVariable))
         {
-            string? token = Environment.GetEnvironmentVariable(cluster.GatewayAdminTokenEnvironmentVariable);
+            string? token = _credentials?.Resolve(cluster.GatewayAdminTokenEnvironmentVariable)
+                ?? Environment.GetEnvironmentVariable(cluster.GatewayAdminTokenEnvironmentVariable);
             if (string.IsNullOrWhiteSpace(token))
                 throw new ClusterGatewayException(HttpStatusCode.ServiceUnavailable, "gateway_credential_missing",
                     $"Gateway credential environment variable '{cluster.GatewayAdminTokenEnvironmentVariable}' is not set.");
@@ -139,7 +142,7 @@ public sealed class ClusterGatewayClient
         catch (HttpRequestException exception)
         {
             throw new ClusterGatewayException(HttpStatusCode.ServiceUnavailable, "gateway_unavailable",
-                "Gateway request failed.", exception);
+                $"Cannot reach the Gateway at {new Uri(cluster.GatewayUrl).GetComponents(UriComponents.SchemeAndServer, UriFormat.SafeUnescaped)} ({exception.HttpRequestError}). Check that the Gateway is installed and running, and that its control port is reachable from Quasar.", exception);
         }
         catch (JsonException exception)
         {

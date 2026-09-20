@@ -3,6 +3,7 @@
 @attribute [Authorize(Policy = QuasarPolicyNames.ClusterQuery)]
 @inject ClusterCatalog ClusterCatalog
 @inject AuthenticationStateProvider AuthenticationState
+@inject ClusterSetupService Setup
 
 <PageTitle>@(Cluster?.DisplayName ?? "Cluster")</PageTitle>
 
@@ -25,6 +26,7 @@ else
         </div>
         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
         <ClusterConsoleButton Cluster="Cluster" />
+        <ClusterDeleteButton Cluster="Cluster" ReturnToServers="true" />
         <MudButton Href="/" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack">
             Servers
         </MudButton>
@@ -32,7 +34,23 @@ else
     </MudStack>
 
     <MudStack @key="Cluster.UniqueName" Spacing="4" Class="cluster-control-page">
-        <ClusterConfigurationLinks />
+        @if (Cluster.ActiveDeployment is null)
+        {
+            <MudAlert Severity="Severity.Info">
+                @if (Setup.GetStatus(Cluster.UniqueName) is { } setup)
+                {
+                    <MudText>@setup.Phase @setup.Error</MudText>
+                    <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+                        <MudButton Href="@($"/clusters/new?resume={Uri.EscapeDataString(Cluster.UniqueName)}")">Resume guided setup</MudButton>
+                    </AuthorizeView>
+                }
+                else
+                {
+                    <MudText>This registration has no active managed deployment. If its Gateway is unavailable, check the machine running it. For a fresh deployment, use guided setup with a new cluster ID. The Delete button also offers an explicitly confirmed Forget registration option for unreachable or stale installations.</MudText>
+                    <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage"><MudButton Href="/clusters/new">Set up a new cluster</MudButton></AuthorizeView>
+                }
+            </MudAlert>
+        }
         <ClusterAdminPanel @ref="_admin" Cluster="Cluster" />
         <ClusterDetailPanel Cluster="Cluster" ShowConfigurationLinks="false" />
         <ClusterFleetPanel Cluster="Cluster" Command="ExecuteCommandAsync" />

@@ -8,6 +8,56 @@ namespace Quasar.Services;
 
 public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHostClient hosts, ClusterOperationStore operations)
 {
+    public Task ForgetAsync(string clusterId, string confirmation, CancellationToken token = default) =>
+        catalog.WithLifecycleAsync(clusterId, async cluster =>
+        {
+            if (!string.Equals(confirmation, cluster.UniqueName, StringComparison.Ordinal))
+                throw new InvalidOperationException("Enter the exact cluster ID to forget its registration.");
+            await catalog.DeleteDefinitionAsync(cluster, token, forget: true);
+            return true;
+        }, token);
+
+    public Task DeleteAsync(string clusterId, CancellationToken token = default) =>
+        catalog.WithLifecycleAsync(clusterId, async cluster =>
+        {
+            if (!operations.IsReady) throw new InvalidOperationException("Operation history is unavailable; deletion cannot be verified.");
+            if (operations.HasPendingOperations(clusterId))
+                throw new InvalidOperationException("Wait for pending cluster operations to finish before deleting its definition.");
+            if (cluster.GoalState != DedicatedServerGoalState.Off || cluster.PendingDeploymentHash is not null
+                || cluster.PendingRestoreHash is not null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete })
+                throw new InvalidOperationException("Stop the cluster and complete any deployment or restore before deleting its definition.");
+            if (cluster.Gateway is not null || cluster.ActiveDeployment is not null)
+            {
+                if (cluster.ActiveDeployment is not { Hosts.Length: > 0 } active || cluster.Gateway is null)
+                    throw new InvalidOperationException("A complete managed deployment is required to verify that every process has stopped.");
+                foreach (var host in active.Hosts)
+                {
+                    var target = cluster.Clone();
+                    target.HostCommandUrl = host.CommandUrl;
+                    target.HostCommandTokenEnvironmentVariable = host.TokenEnvironmentVariable;
+                    var status = (await hosts.GetStatusAsync(target, token)).Data;
+                    if (status.HostId != host.HostId
+                        || host.Deployment.Gateway is not null && (!status.GatewayStopFencing
+                            || status.Gateways?.Count(g => g.ClusterId == clusterId) != 1)
+                        || status.Gateways?.Any(g => g.ClusterId == clusterId
+                        && (g.Goal != HostContract.GatewayGoal.Off || g.Observed != HostContract.GatewayObservedState.Missing)) == true)
+                        throw new InvalidOperationException("Every Host must report the cluster Gateway stopped with goal Off before deletion.");
+                    // Offline activation preview checks node and Gateway process identities under
+                    // the Host execution gate, without changing the deployment or its data.
+                    var preview = (await hosts.PreviewDeploymentAsync(target, new(clusterId,
+                        host.Deployment.BundleManifestSha256, host.Deployment.Attachment.BundleManifestPath!,
+                        host.Deployment.BundleManifestSha256, host.Deployment.Attachment.GatewayUrl,
+                        host.Deployment.Attachment.TokenEnvironmentVariable), token)).Data;
+                    if (preview.ClusterId != clusterId || preview.Revision != active.Revision
+                        || preview.BundleManifestSha256 != host.Deployment.BundleManifestSha256)
+                        throw new InvalidOperationException("Host deployment changed while checking deletion.");
+                }
+            }
+            // Observation-only entries own no processes; removing them only stops observation.
+            await catalog.DeleteDefinitionAsync(cluster, token);
+            return true;
+        }, token);
+
     public Task<ClusterOperation> ActivateAsync(string clusterId, ClusterDeploymentRequest request,
         string idempotencyKey, string actor, CancellationToken token) =>
         operations.ExecuteAsync(clusterId, "cluster.deployment.activate", idempotencyKey, actor, request,
