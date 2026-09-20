@@ -141,6 +141,7 @@ internal sealed class GatewayActualizer
     private HostContract.GatewayStatus Spawn(HostContract.GatewaySpec spec)
     {
         bool processStarted = false;
+        Process? process = null;
         try
         {
             VerifiedBundle bundle = LoadAndVerifyBundle(spec);
@@ -160,7 +161,7 @@ internal sealed class GatewayActualizer
                 GatewayLaunchStatus.Launching, null, spec.StartGeneration);
             WriteRecord(record);
 
-            using var process = new Process
+            process = new Process
             {
                 StartInfo = CreateStartInfo(spec, spawn, bundle.Root, executablePath),
             };
@@ -182,11 +183,13 @@ internal sealed class GatewayActualizer
             or InvalidOperationException or UnauthorizedAccessException or CryptographicException
             or ArgumentException or System.ComponentModel.Win32Exception)
         {
-            if (processStarted)
+            // Still ours through this handle: stop it rather than leave a permanent conflict.
+            if (processStarted && !NodeActualizer.TryStop(process!))
                 return Status(spec, HostContract.GatewayObservedState.UnmanagedConflict,
                     null, null, "started_process_identity_not_committed");
             string failure = exception is UnmanagedConflictException
                 ? "unmanaged_conflict:" + exception.Message
+                : processStarted ? "spawn_commit_failed:" + exception.Message
                 : "spawn_preflight_failed:" + exception.Message;
             WriteRecord(new GatewayLaunchRecord(SchemaVersion, spec.ClusterId, string.Empty,
                 spec.BundleManifestSha256, spec.ConfigRevision, string.Empty, string.Empty,
@@ -197,6 +200,7 @@ internal sealed class GatewayActualizer
                     : HostContract.GatewayObservedState.Failed,
                 null, null, failure);
         }
+        finally { process?.Dispose(); }
     }
 
     private static ProcessStartInfo CreateStartInfo(HostContract.GatewaySpec spec,

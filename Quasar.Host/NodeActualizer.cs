@@ -197,6 +197,7 @@ internal sealed class NodeActualizer
         cancellationToken.ThrowIfCancellationRequested();
         string attemptKey = Guid.NewGuid().ToString("N");
         bool processStarted = false;
+        Process? process = null;
         try
         {
             Bundle bundle = verified.Value;
@@ -223,14 +224,16 @@ internal sealed class NodeActualizer
                 attemptKey, spec.NodeId, null, null, bundle.Manifest.Revision,
                 attachment.BundleManifestSha256!, executablePath, executableHash, runDirectory,
                 null, null, DateTimeOffset.UtcNow, LaunchStatus.Launching, null);
+            // Verifying the bundle can outlast the executor lease. Give up before the Launching
+            // record exists; nothing may cancel between that record and the committed identity.
+            cancellationToken.ThrowIfCancellationRequested();
             WriteRecord(record);
 
-            using var process = new Process
+            process = new Process
             {
                 StartInfo = CreateStartInfo(attachment, plan, spec, bundle.Root, runDirectory,
                     readyPath, attemptKey, executablePath, bundle.Manifest.Revision),
             };
-            cancellationToken.ThrowIfCancellationRequested();
             if (!process.Start())
                 throw new InvalidOperationException("Process start returned false");
             processStarted = true;
@@ -250,12 +253,15 @@ internal sealed class NodeActualizer
             or InvalidOperationException or UnauthorizedAccessException or CryptographicException
             or ArgumentException or System.ComponentModel.Win32Exception)
         {
-            if (processStarted)
+            // The identity of a started process could not be committed. It is still ours through
+            // this handle: stop it so the slot fails cleanly instead of becoming a permanent conflict.
+            if (processStarted && !TryStop(process!))
                 return Task.FromResult(Observation(plan.SlotKey, attemptKey,
                     Admin.NodeObservation.Failed, null,
                     "unmanaged_conflict:started process identity could not be committed"));
             string failure = exception is UnmanagedConflictException
                 ? "unmanaged_conflict:" + exception.Message
+                : processStarted ? "spawn_commit_failed:" + exception.Message
                 : "spawn_preflight_failed:" + exception.Message;
             WriteRecord(new LaunchRecord(SchemaVersion, attachment.ClusterId, plan.SlotKey,
                 attemptKey, null, null, null, string.Empty, attachment.BundleManifestSha256!,
@@ -263,6 +269,22 @@ internal sealed class NodeActualizer
                 LaunchStatus.Failed, failure));
             return Task.FromResult(Observation(plan.SlotKey, attemptKey,
                 Admin.NodeObservation.Failed, null, failure));
+        }
+        finally { process?.Dispose(); }
+    }
+
+    internal static bool TryStop(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+            return process.WaitForExit(TimeSpan.FromSeconds(10));
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException
+            or System.ComponentModel.Win32Exception)
+        {
+            return false;
         }
     }
 
