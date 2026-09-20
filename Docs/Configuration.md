@@ -713,6 +713,15 @@ and headless operation:
 - `PUT /api/v1/clusters/{uniqueName}/host/attachment`
 - `PUT /api/v1/clusters/{uniqueName}/host/gateway`
 - `GET /api/v1/clusters/{uniqueName}/operations/{operationId}`
+- `DELETE /api/v1/clusters/{uniqueName}/operations/{operationId}`
+
+`DELETE` withdraws a Gateway request (shutdown, Gateway restart, kick, ...) that was submitted
+while the Gateway was unreachable and has not been acknowledged yet. A request the Gateway
+already accepted cannot be withdrawn and answers `operation_already_accepted`. Without a
+cancel, an unacknowledged request is retried for ten minutes and then fails with
+`gateway_delivery_expired` instead of being delivered whenever connectivity returns.
+A local operation that was still running when Quasar stopped is reported as Failed with
+`interrupted_by_restart` after the restart; submit it again with a new `Idempotency-Key`.
 
 Responses preserve the Gateway envelope, capture time, string enum values, and
 stable error codes. When Quasar authentication is enabled, these routes require
@@ -1339,6 +1348,13 @@ The individual Agent editor cannot change cluster-owned configuration.
 exact ID to reach Complete. A request contains `id` (UUID) and `deployment` (the result
 of preparation). For rollback use `{"id":"<new UUID>","rollback":true}`. Inspect with
 `cluster update-status NAME`. API equivalents are POST/GET `/api/v1/clusters/{name}/update`.
+An update that cannot finish locks goal changes, commands, backup, restore and deletion. It
+records what it waits for in `lastError` once Stopping exceeds 20 minutes or Starting exceeds
+30 minutes. `POST /api/v1/clusters/{name}/update/abandon` (the **Abandon update** button on
+the deployment panel) closes such an update and unlocks those tools. Nothing is rolled back:
+before activation the cluster stays stopped on its current deployment, afterwards it keeps
+the new one and a rollback is an ordinary new update. Abandon is refused while a deployment
+activation is half applied on the Hosts; resume that activation or recover the cluster instead.
 Preflight checks every Host before goal Off. Stopping, Activating and Starting are
 persistent checkpoints. Errors remain visible/retryable; completion requires matching
 Gateway revision, managed readiness and Host attachments. Previous installations remain
@@ -1359,7 +1375,9 @@ For multiple Hosts, `exportDataRoots` must name paths readable by the Gateway Ho
 Native stopped snapshots capture every Host independently without shared storage.
 
 Automatic native cluster backups reuse the existing server schedule/retention only
-while a cluster is already cleanly stopped. They do not schedule downtime. Manual
+while a cluster is already cleanly stopped. They do not schedule downtime, so a cluster
+that runs around the clock gets no scheduled backups; the deployment panel says so. A failed
+scheduled capture is logged and retried after an hour within the same stopped period. Manual
 native backups and archived vanilla exports are retained. Snapshot capture IDs bind
 the stopped lifecycle. Restore rotates runtime credentials, retains the prior runtime,
 changes plugin store identity and fences old operations before startup is allowed.
