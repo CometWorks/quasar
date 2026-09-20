@@ -42,6 +42,60 @@ public sealed class ClusterOperationStoreTests
     }
 
     [Fact]
+    public async Task UnreadableRecordIsQuarantinedAndStoreStaysReady()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());
+        try
+        {
+            var first = new ClusterOperationStore(directory);
+            var kept = await first.ExecuteAsync("demo", "cluster.goal.set", "goal-1", "factory", "off",
+                _ => Task.FromResult(new AdminEnvelope<string>(1, DateTimeOffset.UtcNow, "off")), default);
+            File.WriteAllBytes(Path.Combine(directory, "zero.json"), []);
+            File.WriteAllText(Path.Combine(directory, "torn.json"), "{\"operationId\":");
+            File.WriteAllText(Path.Combine(directory, "anonymous.json"), "{}");
+
+            var store = new ClusterOperationStore(directory);
+
+            Assert.True(store.IsReady);
+            Assert.Equal(kept.OperationId, store.Get(kept.OperationId)?.OperationId);
+            foreach (string name in new[] { "zero", "torn", "anonymous" })
+            {
+                Assert.False(File.Exists(Path.Combine(directory, name + ".json")));
+                Assert.True(File.Exists(Path.Combine(directory, name + ".json.corrupt")));
+            }
+            var next = await store.ExecuteAsync("demo", "cluster.goal.set", "goal-2", "factory", "on",
+                _ => Task.FromResult(new AdminEnvelope<string>(1, DateTimeOffset.UtcNow, "on")), default);
+            Assert.Equal(ClusterOperationState.Succeeded, next.State);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task StoreRecoversAfterTransientWriteFailure()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root") return;
+        string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());
+        try
+        {
+            var store = new ClusterOperationStore(directory);
+            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            await Assert.ThrowsAnyAsync<Exception>(() => store.ExecuteAsync("demo", "cluster.goal.set", "goal-1", "factory", "off",
+                _ => Task.FromResult(new AdminEnvelope<string>(1, DateTimeOffset.UtcNow, "off")), default));
+            Assert.False(store.IsReady);
+            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            Assert.True(store.IsReady);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                Directory.Delete(directory, true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task PackageFailureIsPersistedAndReplayedAfterRestart()
     {
         string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());

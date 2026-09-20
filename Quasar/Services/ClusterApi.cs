@@ -25,10 +25,21 @@ internal static class ClusterApi
         app.MapGet("/ready", (HttpContext context, ClusterOperationStore operations) =>
         {
             SetProtocolHeader(context);
-            return Results.Json(Envelope(new QuasarServiceReadiness(operations.IsReady)), JsonOptions,
-                statusCode: operations.IsReady ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
+            bool ready = operations.IsReady;
+            return Results.Json(Envelope(new QuasarServiceReadiness(ready)), JsonOptions,
+                statusCode: ready ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
         });
         RouteGroupBuilder routes = app.MapGroup("/api/v1/clusters");
+        // Routes without their own handling still answer with the JSON error envelope, not an HTML 500 page.
+        routes.AddEndpointFilter(async (invocation, next) =>
+        {
+            try { return await next(invocation); }
+            catch (ClusterOperationStoreUnavailableException error)
+            {
+                SetProtocolHeader(invocation.HttpContext);
+                return Error(503, "operation_store_unavailable", error.Message);
+            }
+        });
         var setupStatus = routes.MapGet("/{uniqueName}/setup", (string uniqueName, HttpContext context,
             [FromServices] ClusterSetupService setup) =>
         {

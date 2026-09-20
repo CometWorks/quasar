@@ -18,34 +18,80 @@ public sealed class ClusterOperationStore
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ConcurrentDictionary<(string Cluster, string Kind, string Key), SemaphoreSlim> _localExecutionGates = new();
     private readonly ConcurrentDictionary<string, ClusterOperation> _operations = new(StringComparer.Ordinal);
+    private readonly ILogger<ClusterOperationStore>? _logger;
     private volatile bool _ready = true;
 
-    public ClusterOperationStore() : this(Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Operations", "Clusters"))
+    public ClusterOperationStore(ILogger<ClusterOperationStore> logger)
+        : this(Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Operations", "Clusters"), logger)
     {
     }
 
-    public ClusterOperationStore(string directory)
+    public ClusterOperationStore(string directory, ILogger<ClusterOperationStore>? logger = null)
     {
         _directory = directory;
+        _logger = logger;
         try
         {
             Directory.CreateDirectory(_directory);
             foreach (string path in Directory.EnumerateFiles(_directory, "*.json"))
-            {
-                ClusterOperation? operation = JsonSerializer.Deserialize<ClusterOperation>(File.ReadAllText(path), JsonOptions);
-                if (operation == null || operation.OperationId.Length == 0)
-                    throw new InvalidDataException($"Invalid cluster operation record '{path}'.");
-                _operations[operation.OperationId] = operation;
-            }
+                Load(path);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or JsonException or InvalidDataException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            _logger?.LogError(exception, "Cluster operation store {Directory} is unavailable.", _directory);
             _ready = false;
         }
     }
 
-    public bool IsReady => _ready && Directory.Exists(_directory);
+    // One unreadable record (for example a zero-length file after power loss) must not
+    // disable cluster management; it is set aside and named in the log instead.
+    private void Load(string path)
+    {
+        try
+        {
+            ClusterOperation? operation = JsonSerializer.Deserialize<ClusterOperation>(File.ReadAllText(path), JsonOptions);
+            if (operation == null || string.IsNullOrEmpty(operation.OperationId))
+                throw new InvalidDataException("The record has no operation ID.");
+            _operations[operation.OperationId] = operation;
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidDataException)
+        {
+            string quarantine = path + ".corrupt";
+            try
+            {
+                File.Move(path, quarantine, overwrite: true);
+                _logger?.LogError(exception, "Invalid cluster operation record {Path} was moved to {Quarantine} and ignored.", path, quarantine);
+            }
+            catch (Exception moveError) when (moveError is IOException or UnauthorizedAccessException)
+            {
+                _logger?.LogError(exception, "Invalid cluster operation record {Path} was ignored and could not be moved aside: {Reason}", path, moveError.Message);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _logger?.LogError(exception, "Cluster operation record {Path} could not be read and was ignored.", path);
+        }
+    }
+
+    public bool IsReady => (_ready || Recover()) && Directory.Exists(_directory);
+
+    // A transient write failure (disk full, read-only remount) must not need a restart to clear.
+    private bool Recover()
+    {
+        string probe = Path.Combine(_directory, ".probe-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(_directory);
+            File.WriteAllText(probe, "probe");
+            File.Delete(probe);
+            _logger?.LogInformation("Cluster operation store {Directory} is writable again.", _directory);
+            return _ready = true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 
     public ClusterOperation? Get(string operationId) =>
         _operations.GetValueOrDefault(operationId);
@@ -307,6 +353,7 @@ public sealed class ClusterOperationStore
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            _logger?.LogError(exception, "Cluster operation {OperationId} could not be written to {Directory}.", operation.OperationId, _directory);
             _ready = false;
             throw;
         }
