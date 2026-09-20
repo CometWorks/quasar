@@ -12,6 +12,10 @@ public sealed class ManagedRuntimeOptions
 
     public string MagnetarArchiveUrl { get; init; } = string.Empty;
 
+    // Development and test only: a ClusterForLinux-<version>.tar.gz served from any HTTP(S) URL, with its
+    // SHA256SUMS next to it, replaces the GitHub release lookup. Empty means the published releases.
+    public string ClusterArchiveUrl { get; init; } = string.Empty;
+
     public string MagnetarReleaseApiUrl { get; init; } = DefaultMagnetarReleaseApiUrl;
 
     public string MagnetarArchiveAssetPattern { get; init; } = GetDefaultMagnetarArchiveAssetPattern();
@@ -43,6 +47,10 @@ public sealed class ManagedRuntimeOptions
         var magnetarArchiveUrl = Environment.GetEnvironmentVariable("QUASAR_MAGNETAR_ARCHIVE_URL")
                                  ?? section["MagnetarArchiveUrl"]
                                  ?? string.Empty;
+
+        var clusterArchiveUrl = Environment.GetEnvironmentVariable("QUASAR_CLUSTER_ARCHIVE_URL")
+                                ?? section["ClusterArchiveUrl"]
+                                ?? string.Empty;
 
         var magnetarReleaseApiUrl = Environment.GetEnvironmentVariable("QUASAR_MAGNETAR_RELEASE_API_URL")
                                     ?? section["MagnetarReleaseApiUrl"];
@@ -102,6 +110,7 @@ public sealed class ManagedRuntimeOptions
         return new ManagedRuntimeOptions
         {
             MagnetarArchiveUrl = magnetarArchiveUrl.Trim(),
+            ClusterArchiveUrl = clusterArchiveUrl.Trim(),
             MagnetarReleaseApiUrl = magnetarReleaseApiUrl.Trim(),
             MagnetarArchiveAssetPattern = magnetarArchiveAssetPattern.Trim(),
             MagnetarInstallDirectory = magnetarInstallDirectory.Trim(),

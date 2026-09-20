@@ -305,6 +305,48 @@ export QUASAR_HOST_BINARY="$PWD/artifacts/dev-host/Quasar.Host"
 The variable is a development aid only; releases keep using the packaged `Host/Quasar.Host`,
 which always matches the web worker.
 
+## Testing against local cluster and Magnetar builds
+
+A test Quasar instance normally downloads the cluster package and Magnetar from their GitHub
+releases. Two overrides replace those downloads with files served from any HTTP(S) URL, so a
+change in `cluster` or Magnetar can be tried in Quasar before a release exists, without a
+GitHub token and without network access to GitHub. Both are for development and test installs;
+leave them empty in production.
+
+| Environment variable | Setting under `Quasar:ManagedRuntime` | Value |
+| --- | --- | --- |
+| `QUASAR_CLUSTER_ARCHIVE_URL` | `ClusterArchiveUrl` | URL of a `ClusterForLinux-<version>.tar.gz`; its `SHA256SUMS` must be served from the same directory |
+| `QUASAR_MAGNETAR_ARCHIVE_URL` | `MagnetarArchiveUrl` | URL of a `MagnetarForLinux-<version>.7z` (or the Windows archive) |
+
+The environment variable wins over the setting. Serve the output directory of a local build,
+for example the cluster `Build/dist` folder written by `Build/release.sh`:
+
+```bash
+python3 -m http.server 18999 --bind 127.0.0.1 --directory ../cluster/Build/dist
+```
+
+```bash
+export QUASAR_CLUSTER_ARCHIVE_URL=http://127.0.0.1:18999/ClusterForLinux-1.1.3.tar.gz
+```
+
+Cluster archive rules:
+
+- The version comes from the file name and is the only version offered; asking for another one
+  fails with a message naming the override.
+- Verification is unchanged: the archive must match the SHA-256 in `SHA256SUMS`, carry a valid
+  `manifest.json` for that version and contain every required file. The server must answer
+  `HEAD` with a `Content-Length` (`python3 -m http.server` does).
+- The GitHub token saved under Updates is never sent to this URL.
+- A package staged this way records release and asset ID 0. It is accepted only while the
+  override is set; without it Quasar requires a package staged from a published release.
+- Staged packages live in `ManagedRuntime/Tools/Cluster/<version>`. A rebuilt archive with the
+  same version but other content is refused; give the local build a new version or remove that
+  directory.
+
+The Magnetar archive is installed when the managed runtime is prepared (at start-up warm-up or
+before a server launch). It is downloaded again only when the URL changes, so rename the file or
+change the URL after rebuilding the same version.
+
 ## Cluster integration verification
 
 The seven-stage [integration plan](Phase4IntegrationPlan.md) separates focused checks

@@ -287,6 +287,60 @@ public sealed class ClusterPackageTests
         return output.ToArray();
     }
 
+    [Fact]
+    public async Task ArchiveUrlOverrideStagesAVerifiedLocalBuildWithoutGitHubOrItsToken()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        byte[] archive = CreateArchive();
+        string sha = Convert.ToHexString(SHA256.HashData(archive)).ToLowerInvariant();
+        var server = new LocalServer(archive, sha + "  ClusterForLinux-1.0.3.tar.gz\n");
+        string root = Path.Combine(Path.GetTempPath(), "quasar-package-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var service = new ClusterPackageService(server, () => "private-repo-token", root, "http://build.test/out/ClusterForLinux-1.0.3.tar.gz");
+
+            var release = await service.GetReleaseAsync(null, default);
+            Assert.Equal(new ClusterPackageRelease("1.0.3", 0, 0, archive.Length, sha), release);
+            var installed = await service.StageAsync(new(release.Version, release.Sha256), default);
+            Assert.True(File.Exists(Path.Combine(installed.PackagePath, "manifest.json")));
+            Assert.Equal(["HEAD /out/ClusterForLinux-1.0.3.tar.gz", "GET /out/SHA256SUMS"], server.Requests.Take(2));
+            Assert.Contains("GET /out/ClusterForLinux-1.0.3.tar.gz", server.Requests);
+            await Assert.ThrowsAsync<ClusterPackageException>(() => service.GetReleaseAsync("1.0.4", default));
+            // Staged once, verified offline afterwards, and staging again is a replay.
+            Assert.Equal(installed.Commit, (await service.GetInstalledAsync(new(release.Version, release.Sha256), default)).Commit);
+            Assert.Equal(installed.PackagePath, (await service.StageAsync(new(release.Version, release.Sha256), default)).PackagePath);
+            // Without the override a package that has no GitHub release identity is not accepted.
+            await Assert.ThrowsAsync<InvalidDataException>(() => new ClusterPackageService(server, () => "", root)
+                .GetInstalledAsync(new(release.Version, release.Sha256), default));
+
+            // The archive is still verified against SHA256SUMS.
+            var tampered = new ClusterPackageService(new LocalServer(archive, new string('0', 64) + "  ClusterForLinux-1.0.3.tar.gz\n"),
+                () => "", root + "-tampered", "http://build.test/out/ClusterForLinux-1.0.3.tar.gz");
+            var wrong = await tampered.GetReleaseAsync(null, default);
+            await Assert.ThrowsAsync<InvalidDataException>(() => tampered.StageAsync(new(wrong.Version, wrong.Sha256), default));
+
+            var invalid = new ClusterPackageService(server, () => "", root, "file:///tmp/cluster.tar.gz");
+            Assert.Contains("QUASAR_CLUSTER_ARCHIVE_URL", (await Assert.ThrowsAsync<ClusterPackageException>(() => invalid.GetReleaseAsync(null, default))).Message);
+        }
+        finally { foreach (string path in new[] { root, root + "-tampered" }) if (Directory.Exists(path)) Directory.Delete(path, true); }
+    }
+
+    private sealed class LocalServer(byte[] archive, string checksums) : HttpMessageHandler, IHttpClientFactory
+    {
+        public List<string> Requests { get; } = [];
+        public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Assert.Equal("build.test", request.RequestUri!.Host);
+            Assert.Null(request.Headers.Authorization); // the GitHub token never leaves for a development URL
+            Requests.Add(request.Method + " " + request.RequestUri.AbsolutePath);
+            HttpContent content = request.RequestUri.AbsolutePath.EndsWith("SHA256SUMS") ? new StringContent(checksums)
+                : new ByteArrayContent(request.Method == HttpMethod.Head ? [] : archive);
+            if (request.Method == HttpMethod.Head) content.Headers.ContentLength = archive.Length;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
+        }
+    }
+
     internal sealed class Fixture : HttpMessageHandler, IHttpClientFactory
     {
         private readonly byte[] _archive;
