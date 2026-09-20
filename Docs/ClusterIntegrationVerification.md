@@ -247,6 +247,8 @@ expanded forms have consistent spacing; recovery and conversion sit under deploy
 
 After this audit, the redundant cluster-card edit shortcut was removed. Deployment
 configuration remains on the cluster details page; standalone edit controls are unchanged.
+The three cluster-card shortcuts to configuration profiles, world templates and node
+plugin configuration were also removed; these destinations remain in the navigation bar.
 
 Playwright verified the installed candidate at 1600px desktop and 390px mobile widths:
 

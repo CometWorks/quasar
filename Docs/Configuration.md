@@ -1265,8 +1265,9 @@ available for explicit recovery.
 
 ## Managed cluster workflows
 
-Cluster cards use the same compact header controls and outlined configuration chips
-as standalone cards. Start changes the managed goal to On; Stop confirms a graceful
+Cluster cards use compact header controls. Configuration profiles, world templates
+and node plugin configuration are accessible through the navigation bar rather than
+duplicated as card shortcuts. Start changes the managed goal to On; Stop confirms a graceful
 cluster shutdown and changes the goal to Off. Restart Gateway only restarts the
 Gateway, with a reconnect warning. Save uses the cluster-wide save command. These
 actions retain cluster permissions and Gateway capability checks. Statistics and
