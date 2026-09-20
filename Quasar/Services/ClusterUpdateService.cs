@@ -62,7 +62,9 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
     internal async Task AdvanceAllAsync(CancellationToken token)
     {
         foreach (var snapshot in catalog.GetClusters().Where(c => c.Update is { Phase: not ClusterUpdatePhase.Complete }))
-            await catalog.WithLifecycleAsync(snapshot.UniqueName, async cluster =>
+            await catalog.TryWithLifecycleAsync(snapshot.UniqueName, cluster => AdvanceAsync(cluster), token);
+
+        async Task<bool> AdvanceAsync(ClusterDefinition cluster)
             {
                 if (cluster.Update is not { Phase: not ClusterUpdatePhase.Complete } workflow) return false;
                 try
@@ -106,7 +108,7 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                         await catalog.RecordUpdateAsync(cluster, cluster.Update with { LastError = error.Message, UpdatedAt = DateTimeOffset.UtcNow }, token);
                 }
                 return true;
-            }, token);
+            }
     }
 }
 

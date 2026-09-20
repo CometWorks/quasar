@@ -232,6 +232,23 @@ public sealed class ClusterCatalog : IDisposable
         finally { gate.Release(); }
     }
 
+    // For the background control loops: backup, restore and activation hold a cluster's gate for
+    // up to hours, and waiting for it would stall every other cluster. A busy cluster is skipped
+    // (false) and picked up again on a later pass.
+    internal async Task<bool> TryWithLifecycleAsync(string uniqueName,
+        Func<ClusterDefinition, Task> action, CancellationToken token)
+    {
+        var gate = _lifecycleGates.GetOrAdd(uniqueName, _ => new(1, 1));
+        if (!await gate.WaitAsync(0, token)) return false;
+        try
+        {
+            // Removed since the caller listed it.
+            if (GetCluster(uniqueName) is { } cluster) await action(cluster);
+            return true;
+        }
+        finally { gate.Release(); }
+    }
+
     // Caller holds the lifecycle gate. Preserve candidate package changes made
     // while the Gateway request was in flight, and reject externally edited identity.
     internal async Task RecordShutdownProofAsync(ClusterDefinition expected,

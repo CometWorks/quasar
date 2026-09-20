@@ -50,11 +50,8 @@ public sealed class ClusterReconciler : BackgroundService
         {
             try
             {
-                await _catalog.WithLifecycleAsync(cluster.UniqueName, async current =>
-                {
-                    await ReconcileAsync(current, cancellationToken);
-                    return true;
-                }, cancellationToken);
+                await _catalog.TryWithLifecycleAsync(cluster.UniqueName,
+                    current => ReconcileAsync(current, cancellationToken), cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

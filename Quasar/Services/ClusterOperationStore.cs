@@ -306,10 +306,10 @@ public sealed class ClusterOperationStore
         foreach (var pending in _operations.Values.Where(o => o.State == ClusterOperationState.Running && o.GatewayRequest is not null))
         {
             if (catalog.GetCluster(pending.Cluster) is null) continue;
-            await catalog.WithLifecycleAsync(pending.Cluster, async cluster =>
+            await catalog.TryWithLifecycleAsync(pending.Cluster, async cluster =>
             {
                 await _gate.WaitAsync(cancellationToken);
-                try { return await ResumeGatewayAsync(_operations[pending.OperationId], cluster, client, cancellationToken); }
+                try { await ResumeGatewayAsync(_operations[pending.OperationId], cluster, client, cancellationToken); }
                 finally { _gate.Release(); }
             }, cancellationToken);
         }
