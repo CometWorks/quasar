@@ -153,6 +153,8 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
                 foreach (var host in request.Hosts)
                 {
                     var target = Target(cluster, host);
+                    if (host.HostId == request.GatewayHost)
+                        await ClusterSteamClientLibrary.ProvisionAsync(hosts, target, ClusterTestFrontend.FromEnvironment(), null, ct);
                     var installed = await hosts.TransferConversionInputAsync(target, request.Id, "installation", installationArchive, installation.InputsSha256, ct);
                     var world = await hosts.TransferConversionInputAsync(target, request.Id, "world", worldArchivePath, worldHash, ct);
                     if (installed.HostId != host.HostId || world.HostId != host.HostId) throw new InvalidDataException("Conversion Host identity mismatch.");
@@ -391,6 +393,16 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
 
     internal static async Task<string> SpecificationAsync(ClusterDefinition cluster, DedicatedServerDefinition source,
         QuasarConfigProfile profile, LastKnownPluginConfigSnapshot? snapshot, ServerToClusterRequest request,
+        string world, Dictionary<string, HostContract.HostConversionPaths> paths, CancellationToken token,
+        ClusterTestFrontend? testFrontend = null)
+    {
+        var specification = JsonNode.Parse(await ProductionSpecificationAsync(cluster, source, profile, snapshot, request, world, paths, token))!.AsObject();
+        (testFrontend ?? ClusterTestFrontend.FromEnvironment()).Apply(specification);
+        return specification.ToJsonString(Json);
+    }
+
+    private static async Task<string> ProductionSpecificationAsync(ClusterDefinition cluster, DedicatedServerDefinition source,
+        QuasarConfigProfile profile, LastKnownPluginConfigSnapshot? snapshot, ServerToClusterRequest request,
         string world, Dictionary<string, HostContract.HostConversionPaths> paths, CancellationToken token)
     {
         var nodes = new List<object>(); int slot = 1;
@@ -425,5 +437,38 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
                             ConfigType = p.ConfigType, ConfigJson = p.ConfigJson } }
                         .Concat(p.AdditionalConfigurations!).Select(c => new {
                             configType = c.ConfigType, configuration = JsonNode.Parse(c.ConfigJson) }).ToArray() }) }, Json);
+    }
+}
+
+/// <summary>Test-only client frontends of a managed cluster, taken from the environment of the Quasar process.
+/// Production clusters publish the Steam frontend only. A test cluster may add the Gateway's Direct Transport
+/// frontend, which admits every client, so headless clients can join it; and it may drop Steam, so the Gateway
+/// Host needs no steamclient.so (the cluster bench runs this way). Needs a cluster release that knows
+/// <c>directListen</c>.</summary>
+public sealed record ClusterTestFrontend(string? DirectListen, bool DisableSteam)
+{
+    public const string DirectListenVariable = "QUASAR_CLUSTER_TEST_DIRECT_LISTEN", DisableSteamVariable = "QUASAR_CLUSTER_TEST_DISABLE_STEAM";
+
+    public bool UsesSteam => !DisableSteam;
+
+    public static ClusterTestFrontend FromEnvironment() => Create(Environment.GetEnvironmentVariable(DirectListenVariable),
+        Environment.GetEnvironmentVariable(DisableSteamVariable));
+
+    internal static ClusterTestFrontend Create(string? directListen, string? disableSteam)
+    {
+        directListen = string.IsNullOrWhiteSpace(directListen) ? null : directListen.Trim();
+        bool noSteam = string.Equals(disableSteam?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+        if (directListen is not null && (!IPEndPoint.TryParse(directListen, out var endpoint) || endpoint.Port is < 1024 or > 65535
+            || !ClusterHostCatalog.IsClusterAddress(endpoint.Address.ToString())))
+            throw new InvalidDataException($"{DirectListenVariable} must be IP:PORT on loopback or a private network; the Direct Transport frontend admits every client.");
+        if (noSteam && directListen is null)
+            throw new InvalidDataException($"{DisableSteamVariable} needs {DirectListenVariable}: a cluster without any client frontend cannot be joined.");
+        return new(directListen, noSteam);
+    }
+
+    internal void Apply(System.Text.Json.Nodes.JsonObject specification)
+    {
+        if (DirectListen is not null) specification["directListen"] = DirectListen;
+        if (DisableSteam) specification.Remove("steamListen");
     }
 }

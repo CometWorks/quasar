@@ -175,6 +175,8 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         {
                             var target = Target(cluster, machine);
                             await hosts.InstallCredentialsAsync(target, secretSet, ct);
+                            if (machine.Id == gateway.Id)
+                                await ClusterSteamClientLibrary.ProvisionAsync(hosts, target, ClusterTestFrontend.FromEnvironment(), logger, ct);
                             var remote = await hosts.TransferConversionInputAsync(target, topology.Id, "installation", installationArchive, installed.InputsSha256, ct);
                             var remoteWorld = await hosts.TransferConversionInputAsync(target, topology.Id, "world", worldArchive, worldHash, ct);
                             if (remote.HostId != machine.Id || remoteWorld.HostId != machine.Id) throw new InvalidDataException("Transfer returned another Host identity.");
