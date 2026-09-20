@@ -325,6 +325,59 @@ public sealed class ClusterPackageTests
         finally { foreach (string path in new[] { root, root + "-tampered" }) if (Directory.Exists(path)) Directory.Delete(path, true); }
     }
 
+    [Fact]
+    public async Task FileArchiveUrlStagesALocalBuildWithoutAnyHttpRequest()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string root = Path.Combine(Path.GetTempPath(), "quasar-package-" + Guid.NewGuid().ToString("N"));
+        string dist = Path.Combine(root, "dist with space");
+        Directory.CreateDirectory(dist);
+        try
+        {
+            byte[] archive = CreateArchive();
+            string sha = Convert.ToHexString(SHA256.HashData(archive)).ToLowerInvariant();
+            string archivePath = Path.Combine(dist, "ClusterForLinux-1.0.3.tar.gz");
+            File.WriteAllBytes(archivePath, archive);
+            var offline = new Fixture { Offline = true }; // any HTTP request fails the test
+            var service = new ClusterPackageService(offline, () => "private-repo-token", Path.Combine(root, "staged"), new Uri(archivePath).AbsoluteUri);
+
+            // SHA256SUMS belongs next to the archive, exactly as Build/release.sh writes it.
+            Assert.Contains("SHA256SUMS", (await Assert.ThrowsAsync<ClusterPackageException>(() => service.GetReleaseAsync(null, default))).Message);
+            File.WriteAllText(Path.Combine(dist, "SHA256SUMS"), sha + "  ClusterForLinux-1.0.3.tar.gz\n");
+
+            var release = await service.GetReleaseAsync(null, default);
+            Assert.Equal(new ClusterPackageRelease("1.0.3", 0, 0, archive.Length, sha), release);
+            var installed = await service.StageAsync(new(release.Version, release.Sha256), default);
+            Assert.True(File.Exists(Path.Combine(installed.PackagePath, "manifest.json")));
+
+            // A rebuilt archive under the same version is refused with a message that says what to do.
+            File.WriteAllBytes(archivePath, CreateArchive(wrongManifest: false, extra: null, omitted: null).Concat(new byte[] { 0 }).ToArray());
+            string rebuilt = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(archivePath))).ToLowerInvariant();
+            File.WriteAllText(Path.Combine(dist, "SHA256SUMS"), rebuilt + "  ClusterForLinux-1.0.3.tar.gz\n");
+            Assert.Contains("already staged", (await Assert.ThrowsAsync<InvalidDataException>(() => service.StageAsync(new("1.0.3", rebuilt), default))).Message);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void LocalMagnetarArchiveIsIdentifiedBySizeAndTimeSoARebuildIsInstalledAgain()
+    {
+        string file = Path.Combine(Path.GetTempPath(), "MagnetarForLinux-" + Guid.NewGuid().ToString("N") + ".7z");
+        try
+        {
+            Assert.False(ManagedDedicatedServerRuntimeResolver.TryGetLocalArchivePath("http://127.0.0.1:18999/MagnetarForLinux-2.4.2.2.7z", out _));
+            Assert.True(ManagedDedicatedServerRuntimeResolver.TryGetLocalArchivePath(new Uri(file).AbsoluteUri, out string path));
+            Assert.Equal(file, path);
+            Assert.Throws<InvalidOperationException>(() => ManagedDedicatedServerRuntimeResolver.DescribeLocalArchive(file));
+            File.WriteAllBytes(file, [1, 2, 3]);
+            string first = ManagedDedicatedServerRuntimeResolver.DescribeLocalArchive(file);
+            Assert.Equal(first, ManagedDedicatedServerRuntimeResolver.DescribeLocalArchive(file));
+            File.WriteAllBytes(file, [1, 2, 3, 4]);
+            Assert.NotEqual(first, ManagedDedicatedServerRuntimeResolver.DescribeLocalArchive(file));
+        }
+        finally { File.Delete(file); }
+    }
+
     private sealed class LocalServer(byte[] archive, string checksums) : HttpMessageHandler, IHttpClientFactory
     {
         public List<string> Requests { get; } = [];

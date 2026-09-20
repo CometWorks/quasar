@@ -12,7 +12,7 @@ public sealed class ManagedRuntimeOptions
 
     public string MagnetarArchiveUrl { get; init; } = string.Empty;
 
-    // Development and test only: a ClusterForLinux-<version>.tar.gz served from any HTTP(S) URL, with its
+    // Development and test only: a ClusterForLinux-<version>.tar.gz at a file:// or HTTP(S) URL, with its
     // SHA256SUMS next to it, replaces the GitHub release lookup. Empty means the published releases.
     public string ClusterArchiveUrl { get; init; } = string.Empty;
 

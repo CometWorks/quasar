@@ -43,11 +43,11 @@ public sealed class ClusterPackageService
     {
         (_clients, _token, _directory) = (clients, token, directory);
         if (string.IsNullOrWhiteSpace(archiveUrl)) return;
-        if (!Uri.TryCreate(archiveUrl.Trim(), UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https")
+        if (!Uri.TryCreate(archiveUrl.Trim(), UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https" or "file")
             || !Regex.IsMatch(Path.GetFileName(uri.AbsolutePath), @"\AClusterForLinux-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz\z"))
         {
             // Reported on use: a development misconfiguration must not fail the construction of a singleton.
-            _archiveOverrideError = $"QUASAR_CLUSTER_ARCHIVE_URL must be an http(s) URL of a ClusterForLinux-<version>.tar.gz file, not '{archiveUrl.Trim()}'.";
+            _archiveOverrideError = $"QUASAR_CLUSTER_ARCHIVE_URL must be an http(s) or file URL of a ClusterForLinux-<version>.tar.gz file, not '{archiveUrl.Trim()}'.";
             return;
         }
         _archiveOverride = uri;
@@ -97,14 +97,26 @@ public sealed class ClusterPackageService
             size, ArchiveHash(await sums.Content.ReadAsStringAsync(token), archiveName));
     }
 
-    // Development and test: the archive and its SHA256SUMS come from one directory of a local server.
-    // The archive is verified exactly like a published one; the GitHub token is never sent to this URL.
+    // Development and test: the archive and its SHA256SUMS come from one directory, either of a local
+    // server (http/https) or of the file system (file://). The archive is verified exactly like a
+    // published one; the GitHub token is never sent to this URL.
     private async Task<ClusterPackageRelease> GetOverrideReleaseAsync(string? version, CancellationToken token)
     {
         string archiveName = Path.GetFileName(_archiveOverride!.AbsolutePath);
         string resolved = archiveName["ClusterForLinux-".Length..^".tar.gz".Length];
         if (version is not null && version != resolved)
             throw new ClusterPackageException($"QUASAR_CLUSTER_ARCHIVE_URL serves cluster v{resolved}, not the requested v{version}.");
+        if (_archiveOverride.IsFile)
+        {
+            string path = _archiveOverride.LocalPath, sumsPath = Path.Combine(Path.GetDirectoryName(path)!, "SHA256SUMS");
+            foreach (string required in new[] { path, sumsPath })
+                if (!File.Exists(required))
+                    throw new ClusterPackageException($"QUASAR_CLUSTER_ARCHIVE_URL: '{required}' does not exist. Keep the archive and its SHA256SUMS in the same directory.");
+            long length = new FileInfo(path).Length;
+            if (length <= 0 || length > MaxArchiveBytes)
+                throw new InvalidDataException("Cluster archive size is unknown or exceeds the supported limit.");
+            return new(resolved, 0, 0, length, ArchiveHash(await File.ReadAllTextAsync(sumsPath, token), archiveName));
+        }
         using var client = CreateClient(authenticated: false);
         using var head = await SendOverrideAsync(client, new(HttpMethod.Head, _archiveOverride), HttpCompletionOption.ResponseHeadersRead, token);
         long size = head.Content.Headers.ContentLength ?? 0;
@@ -180,8 +192,9 @@ public sealed class ClusterPackageService
             using (var client = CreateClient(authenticated: _archiveOverride is null))
             using (var response = _archiveOverride is null
                 ? await DownloadAssetAsync(client, release.ArchiveAssetId, $"ClusterForLinux-{release.Version}.tar.gz", token)
+                : _archiveOverride.IsFile ? null
                 : await SendOverrideAsync(client, new(HttpMethod.Get, _archiveOverride), HttpCompletionOption.ResponseHeadersRead, token))
-            await using (var source = await response.Content.ReadAsStreamAsync(token))
+            await using (var source = response is null ? File.OpenRead(_archiveOverride!.LocalPath) : await response.Content.ReadAsStreamAsync(token))
             await using (var target = File.Create(archivePath))
             {
                 byte[] buffer = new byte[81920];

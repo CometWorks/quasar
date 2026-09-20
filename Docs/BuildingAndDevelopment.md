@@ -308,18 +308,29 @@ which always matches the web worker.
 ## Testing against local cluster and Magnetar builds
 
 A test Quasar instance normally downloads the cluster package and Magnetar from their GitHub
-releases. Two overrides replace those downloads with files served from any HTTP(S) URL, so a
-change in `cluster` or Magnetar can be tried in Quasar before a release exists, without a
-GitHub token and without network access to GitHub. Both are for development and test installs;
-leave them empty in production.
+releases. Two overrides replace those downloads with a local file (`file://`) or a file served
+from any HTTP(S) URL, so a change in `cluster` or Magnetar can be tried in Quasar before a
+release exists, without a GitHub token and without network access to GitHub. Both are for
+development and test installs; leave them empty in production.
 
 | Environment variable | Setting under `Quasar:ManagedRuntime` | Value |
 | --- | --- | --- |
-| `QUASAR_CLUSTER_ARCHIVE_URL` | `ClusterArchiveUrl` | URL of a `ClusterForLinux-<version>.tar.gz`; its `SHA256SUMS` must be served from the same directory |
-| `QUASAR_MAGNETAR_ARCHIVE_URL` | `MagnetarArchiveUrl` | URL of a `MagnetarForLinux-<version>.7z` (or the Windows archive) |
+| `QUASAR_CLUSTER_ARCHIVE_URL` | `ClusterArchiveUrl` | `file://`, `http://` or `https://` URL of a `ClusterForLinux-<version>.tar.gz`; its `SHA256SUMS` must be in the same directory |
+| `QUASAR_MAGNETAR_ARCHIVE_URL` | `MagnetarArchiveUrl` | `file://`, `http://` or `https://` URL of a `MagnetarForLinux-<version>.7z` (or the Windows archive) |
 
-The environment variable wins over the setting. Serve the output directory of a local build,
-for example the cluster `Build/dist` folder written by `Build/release.sh`:
+The environment variable wins over the setting. The simplest form points straight at the output
+of a local build, for example the cluster `Build/dist` folder written by `Build/release.sh`. A
+`file://` URL needs an absolute path:
+
+```bash
+export QUASAR_CLUSTER_ARCHIVE_URL="file://$(realpath ../cluster/Build/dist)/ClusterForLinux-1.1.3.tar.gz"
+```
+
+```bash
+export QUASAR_MAGNETAR_ARCHIVE_URL="file://$HOME/builds/MagnetarForLinux-2.4.2.2.7z"
+```
+
+To feed several test machines from one build, serve the same directory over HTTP instead:
 
 ```bash
 python3 -m http.server 18999 --bind 127.0.0.1 --directory ../cluster/Build/dist
@@ -334,7 +345,7 @@ Cluster archive rules:
 - The version comes from the file name and is the only version offered; asking for another one
   fails with a message naming the override.
 - Verification is unchanged: the archive must match the SHA-256 in `SHA256SUMS`, carry a valid
-  `manifest.json` for that version and contain every required file. The server must answer
+  `manifest.json` for that version and contain every required file. An HTTP server must answer
   `HEAD` with a `Content-Length` (`python3 -m http.server` does).
 - The GitHub token saved under Updates is never sent to this URL.
 - A package staged this way records release and asset ID 0. It is accepted only while the
@@ -344,8 +355,9 @@ Cluster archive rules:
   directory.
 
 The Magnetar archive is installed when the managed runtime is prepared (at start-up warm-up or
-before a server launch). It is downloaded again only when the URL changes, so rename the file or
-change the URL after rebuilding the same version.
+before a server launch). A `file://` archive is identified by its size and modification time, so
+a rebuilt file is installed again on the next preparation. An HTTP(S) archive is downloaded again
+only when the URL changes; rename the file or change the URL after rebuilding the same version.
 
 ## Cluster integration verification
 
