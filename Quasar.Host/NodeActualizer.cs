@@ -28,23 +28,40 @@ internal sealed class NodeActualizer
         _hostId = hostId;
     }
 
+    internal void EnsureStopped(string clusterId)
+    {
+        string directory = Path.Combine(_stateDirectory, "launch-records");
+        if (!Directory.Exists(directory)) return;
+        foreach (string path in Directory.EnumerateFiles(directory, "*.json"))
+        {
+            var record = JsonSerializer.Deserialize<LaunchRecord>(File.ReadAllBytes(path), JsonOptions)
+                ?? throw new InvalidDataException("Launch record is empty.");
+            if (record.ClusterId != clusterId) continue;
+            var match = Inspect(record);
+            match.Process?.Dispose();
+            if (match.State != ProcessMatchState.Missing || record.Status == LaunchStatus.Launching)
+                throw new InvalidOperationException("All node processes must be verifiably stopped before activation.");
+        }
+    }
+
     public async Task<NodeExecutionObservation[]> ReconcileAsync(HostContract.HostAttachmentSpec attachment,
         Admin.NodePlan[] plan, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(attachment.BundleManifestPath))
             return [];
 
+        var verified = new Lazy<Bundle>(() => LoadAndVerifyBundle(attachment));
         var observations = new List<NodeExecutionObservation>(plan.Length);
         foreach (Admin.NodePlan slot in plan)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            observations.Add(await ReconcileSlotAsync(attachment, slot, cancellationToken));
+            observations.Add(await ReconcileSlotAsync(attachment, slot, verified, cancellationToken));
         }
         return observations.ToArray();
     }
 
     private async Task<NodeExecutionObservation> ReconcileSlotAsync(HostContract.HostAttachmentSpec attachment,
-        Admin.NodePlan plan, CancellationToken cancellationToken)
+        Admin.NodePlan plan, Lazy<Bundle> verified, CancellationToken cancellationToken)
     {
         LaunchRecord? record;
         try
@@ -66,6 +83,37 @@ internal sealed class NodeActualizer
                 Admin.NodeObservation.Failed, record?.NodeId,
                 "unmanaged_conflict:recorded process identity does not match");
 
+        if (record?.Status == LaunchStatus.Launching && record.ProcessId is null)
+            return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Failed, null,
+                "unmanaged_conflict:launch identity was not committed");
+
+        if (record is not null && match.State == ProcessMatchState.Alive)
+        {
+            BundleManifest? manifest = TryReadManifest(attachment);
+            NodeSpawnSpec? spec = manifest?.Nodes.SingleOrDefault(item => item.SlotKey == plan.SlotKey);
+            if (spec is null || record.BundleManifestSha256 != attachment.BundleManifestSha256
+                || manifest!.Revision != record.BundleRevision || spec.Role != plan.Role)
+            {
+                match.Process!.Dispose();
+                return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Failed, record.NodeId,
+                    "running_deployment_mismatch", record.Epoch ?? 0);
+            }
+            ReadyReceipt? receipt = ReadReadyReceipt(attachment, plan.SlotKey);
+            if (receipt is not null && ReceiptMatches(receipt, attachment.ClusterId, record, spec))
+            {
+                var updated = record with { NodeId = receipt.NodeId, Epoch = receipt.Epoch,
+                    Endpoint = receipt.Endpoint, Failure = receipt.Failure, Status = receipt.Ready ? LaunchStatus.Ready : LaunchStatus.Running };
+                if (updated != record) WriteRecord(updated);
+                record = updated;
+            }
+            if (!killRequested && record.Failure is not null)
+            {
+                match.Process!.Dispose();
+                return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Failed,
+                    record.NodeId, record.Failure, record.Epoch ?? 0);
+            }
+        }
+
         if (killRequested && record is not null && match.State == ProcessMatchState.Alive)
             return await KillAsync(plan, record, match.Process!, cancellationToken);
 
@@ -76,7 +124,7 @@ internal sealed class NodeActualizer
             WriteRecord(record);
             if (!killRequested && plan.Goal == Admin.NodeGoal.Wanted)
                 return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Failed,
-                    record.NodeId, "process_exited");
+                    record.NodeId, "process_exited", record.Epoch ?? 0);
         }
 
         if (killRequested)
@@ -84,7 +132,7 @@ internal sealed class NodeActualizer
             if (record is not null)
                 WriteRecord(record with { Status = LaunchStatus.Gone, Failure = null });
             return Observation(plan.SlotKey, record?.AttemptKey ?? "gone",
-                Admin.NodeObservation.Gone, record?.NodeId, null);
+                Admin.NodeObservation.Gone, record?.NodeId, null, record?.Epoch ?? 0);
         }
 
         if (record is not null && match.State == ProcessMatchState.Alive)
@@ -92,13 +140,13 @@ internal sealed class NodeActualizer
             using Process process = match.Process!;
             if (record.Status == LaunchStatus.Ready)
                 return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Ready,
-                    record.NodeId, null);
+                    record.NodeId, null, record.Epoch ?? 0);
 
             BundleManifest? manifest = TryReadManifest(attachment);
             NodeSpawnSpec? spec = manifest?.Nodes.SingleOrDefault(item =>
                 item.SlotKey.Equals(plan.SlotKey, StringComparison.Ordinal));
             ReadyReceipt? ready = spec is null ? null : ReadReadyReceipt(attachment, plan.SlotKey);
-            if (ready is not null && spec is not null
+            if (ready is { Ready: true } && spec is not null
                 && ReceiptMatches(ready, attachment.ClusterId, record, spec))
             {
                 record = record with
@@ -111,7 +159,7 @@ internal sealed class NodeActualizer
                 };
                 WriteRecord(record);
                 return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Ready,
-                    record.NodeId, null);
+                    record.NodeId, null, record.Epoch ?? 0);
             }
 
             int timeout = spec?.ReadyTimeoutSeconds is > 0 ? spec.ReadyTimeoutSeconds : 120;
@@ -121,10 +169,10 @@ internal sealed class NodeActualizer
                 record = record with { Status = LaunchStatus.Failed, Failure = "ready_timeout" };
                 WriteRecord(record);
                 return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Failed,
-                    record.NodeId, record.Failure);
+                    record.NodeId, record.Failure, record.Epoch ?? 0);
             }
             return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Spawning,
-                record.NodeId, null);
+                record.NodeId, null, record.Epoch ?? 0);
         }
 
         if (record?.Status == LaunchStatus.Launching && record.ProcessId is null)
@@ -135,23 +183,23 @@ internal sealed class NodeActualizer
         {
             if (record?.Status == LaunchStatus.Failed)
                 return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Failed,
-                    record.NodeId, record.Failure);
+                    record.NodeId, record.Failure, record.Epoch ?? 0);
             return Observation(plan.SlotKey, record?.AttemptKey ?? "missing",
                 Admin.NodeObservation.Missing, null, null);
         }
 
-        return await SpawnAsync(attachment, plan, cancellationToken);
+        return await SpawnAsync(attachment, plan, verified, cancellationToken);
     }
 
     private Task<NodeExecutionObservation> SpawnAsync(HostContract.HostAttachmentSpec attachment,
-        Admin.NodePlan plan, CancellationToken cancellationToken)
+        Admin.NodePlan plan, Lazy<Bundle> verified, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         string attemptKey = Guid.NewGuid().ToString("N");
         bool processStarted = false;
         try
         {
-            Bundle bundle = LoadAndVerifyBundle(attachment);
+            Bundle bundle = verified.Value;
             NodeSpawnSpec spec = bundle.Manifest.Nodes.SingleOrDefault(item =>
                     item.SlotKey.Equals(plan.SlotKey, StringComparison.Ordinal))
                 ?? throw new InvalidDataException($"Bundle has no spawn spec for slot '{plan.SlotKey}'");
@@ -164,6 +212,7 @@ internal sealed class NodeActualizer
                 throw new UnmanagedConflictException($"reserved port {busyPort.Value} is already in use");
 
             string runDirectory = EnsureRunDirectory(attachment, plan.SlotKey);
+            ExecutionBundle.PrepareNodeConfiguration(attachment.BundleManifestPath!, bundle.Manifest, spec, runDirectory, attachment.ClusterId);
             string readyPath = Path.Combine(runDirectory, ReadyFileName);
             if (File.Exists(readyPath))
                 File.Delete(readyPath);
@@ -179,8 +228,9 @@ internal sealed class NodeActualizer
             using var process = new Process
             {
                 StartInfo = CreateStartInfo(attachment, plan, spec, bundle.Root, runDirectory,
-                    readyPath, attemptKey, executablePath),
+                    readyPath, attemptKey, executablePath, bundle.Manifest.Revision),
             };
+            cancellationToken.ThrowIfCancellationRequested();
             if (!process.Start())
                 throw new InvalidOperationException("Process start returned false");
             processStarted = true;
@@ -220,11 +270,10 @@ internal sealed class NodeActualizer
     {
         using (process)
         {
-            if (record.Status == LaunchStatus.Ready
-                && (!string.Equals(plan.IncumbentNode, record.NodeId, StringComparison.Ordinal)
-                    || plan.IncumbentEpoch <= 0 || plan.IncumbentEpoch != record.Epoch))
+            if (!string.Equals(plan.IncumbentNode, record.NodeId, StringComparison.Ordinal)
+                    || plan.IncumbentEpoch <= 0 || plan.IncumbentEpoch != record.Epoch)
                 return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Failed,
-                    record.NodeId, "kill_authority_mismatch");
+                    record.NodeId, "kill_authority_mismatch", record.Epoch ?? 0);
             try
             {
                 await KillProcessAsync(process, cancellationToken);
@@ -232,12 +281,12 @@ internal sealed class NodeActualizer
             catch (InvalidOperationException exception)
             {
                 return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Failed,
-                    record.NodeId, "kill_failed:" + exception.Message);
+                    record.NodeId, "kill_failed:" + exception.Message, record.Epoch ?? 0);
             }
         }
         WriteRecord(record with { Status = LaunchStatus.Gone, Failure = null });
         return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Gone,
-            record.NodeId, null);
+            record.NodeId, null, record.Epoch ?? 0);
     }
 
     private static async Task KillProcessAsync(Process process, CancellationToken cancellationToken)
@@ -258,7 +307,7 @@ internal sealed class NodeActualizer
 
     private static ProcessStartInfo CreateStartInfo(HostContract.HostAttachmentSpec attachment, Admin.NodePlan plan,
         NodeSpawnSpec spec, string bundleRoot, string runDirectory, string readyPath,
-        string attemptKey, string executablePath)
+        string attemptKey, string executablePath, string deploymentRevision)
     {
         string role = plan.Role == Admin.NodeRole.WorldAuthority ? "WA" : "Regular";
         string Expand(string value) => value
@@ -286,38 +335,29 @@ internal sealed class NodeActualizer
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        foreach (string name in start.Environment.Keys.Where(name => name.StartsWith("CLUSTER_", StringComparison.Ordinal)).ToArray())
+            start.Environment.Remove(name);
         foreach (string argument in spec.Arguments ?? [])
             start.ArgumentList.Add(Expand(argument));
         foreach ((string name, string value) in spec.Environment ?? [])
             start.Environment[name] = Expand(value);
-        start.Environment["QUASAR_CLUSTER_ID"] = attachment.ClusterId;
-        start.Environment["QUASAR_CLUSTER_SLOT"] = plan.SlotKey;
-        start.Environment["QUASAR_CLUSTER_ATTEMPT"] = attemptKey;
-        start.Environment["QUASAR_CLUSTER_READY_PATH"] = readyPath;
-        start.Environment["SE_CLUSTER_NODE_ID"] = spec.NodeId;
-        start.Environment["SE_CLUSTER_NODE_ROLE"] = role;
+        start.Environment["CLUSTER_DEPLOYMENT_REVISION"] = deploymentRevision;
+        start.Environment["CLUSTER_SLOT_ID"] = plan.SlotKey;
+        start.Environment["CLUSTER_LAUNCH_ATTEMPT"] = attemptKey;
+        start.Environment["CLUSTER_PROCESS_IDENTITY_PATH"] = readyPath;
+        start.Environment["CLUSTER_GATEWAY_REGISTRY"] = attachment.GatewayUrl;
+        start.Environment["CLUSTER_ID"] = attachment.ClusterId;
+        start.Environment["CLUSTER_NODE_ID"] = spec.NodeId;
+        start.Environment["CLUSTER_NODE_ROLE"] = role;
+        ExecutionBundle.ApplySecrets(start, spec.SecretEnvironment);
         return start;
     }
 
     private Bundle LoadAndVerifyBundle(HostContract.HostAttachmentSpec attachment)
     {
-        BundleManifest manifest = ReadManifest(attachment);
-        string root = Path.GetDirectoryName(Path.GetFullPath(attachment.BundleManifestPath!))!;
-        var files = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (BundleFile file in manifest.Files)
-        {
-            string relative = NormalizeRelativePath(file.Path);
-            string expected = NormalizeSha256(file.Sha256);
-            string path = ResolveBundlePath(root, relative);
-            if (!File.Exists(path))
-                throw new InvalidDataException($"Bundle file '{relative}' is missing");
-            string actual = ComputeSha256(path);
-            if (!actual.Equals(expected, StringComparison.Ordinal))
-                throw new CryptographicException($"Bundle file '{relative}' failed SHA-256 verification");
-            if (!files.TryAdd(relative, expected))
-                throw new InvalidDataException($"Bundle file '{relative}' is duplicated");
-        }
-        return new Bundle(root, manifest, files);
+        var verified = ExecutionBundle.Load(attachment.BundleManifestPath!, attachment.BundleManifestSha256!);
+        verified.InitializeData(attachment.ClusterId);
+        return new(verified.Root, verified.Manifest, verified.Files);
     }
 
     private static BundleManifest? TryReadManifest(HostContract.HostAttachmentSpec attachment)
@@ -419,6 +459,7 @@ internal sealed class NodeActualizer
         && receipt.AttemptKey.Equals(record.AttemptKey, StringComparison.Ordinal)
         && receipt.NodeId.Equals(spec.NodeId, StringComparison.Ordinal)
         && receipt.ProcessId == record.ProcessId
+        && receipt.DeploymentRevision == record.BundleRevision
         && receipt.Epoch > 0
         && !string.IsNullOrWhiteSpace(receipt.Endpoint);
 
@@ -448,7 +489,8 @@ internal sealed class NodeActualizer
                 || Math.Abs((started - record.ProcessStartedAt.Value).TotalSeconds) > 1
                 || executable is null
                 || !Path.GetFullPath(executable).Equals(Path.GetFullPath(record.ExecutablePath),
-                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                || !ComputeSha256(executable).Equals(record.ExecutableSha256, StringComparison.OrdinalIgnoreCase))
             {
                 process.Dispose();
                 return new ProcessMatch(ProcessMatchState.Conflict, null);
@@ -570,8 +612,8 @@ internal sealed class NodeActualizer
     }
 
     private static NodeExecutionObservation Observation(string slotKey, string attemptKey,
-        Admin.NodeObservation state, string? node, string? failure) =>
-        new(slotKey, attemptKey, state, node, failure);
+        Admin.NodeObservation state, string? node, string? failure, long epoch = 0) =>
+        new(slotKey, attemptKey, state, node, failure, epoch);
 
     private sealed record Bundle(string Root, BundleManifest Manifest,
         IReadOnlyDictionary<string, string> Files);
@@ -584,7 +626,12 @@ internal sealed record BundleManifest(
     string Revision,
     BundleFile[] Files,
     NodeSpawnSpec[] Nodes,
-    GatewaySpawnSpec? Gateway = null);
+    GatewaySpawnSpec? Gateway = null,
+    string? ArtifactRoot = null,
+    BundleFile[]? ConfigFiles = null,
+    string? RuntimeRoot = null, Dictionary<string, string>? InitialDirectories = null,
+    string? ClusterId = null, string? HostId = null, string[]? RequiredHosts = null,
+    Dictionary<string, string>? StorageFormats = null);
 
 internal sealed record BundleFile(string Path, string Sha256);
 
@@ -597,7 +644,8 @@ internal sealed record NodeSpawnSpec(
     string[] Arguments,
     Dictionary<string, string> Environment,
     int[] ReservedPorts,
-    int ReadyTimeoutSeconds = 120);
+    int ReadyTimeoutSeconds = 120,
+    Dictionary<string, string>? SecretEnvironment = null, string? ConfigurationSeed = null);
 
 internal sealed record ReadyReceipt(
     int SchemaVersion,
@@ -607,7 +655,10 @@ internal sealed record ReadyReceipt(
     string NodeId,
     long Epoch,
     string Endpoint,
-    int ProcessId);
+    int ProcessId,
+    string DeploymentRevision,
+    bool Ready = true,
+    string? Failure = null);
 
 internal sealed record LaunchRecord(
     int SchemaVersion,
@@ -636,4 +687,4 @@ internal sealed class UnmanagedConflictException(string message) : InvalidOperat
 
 // Local execution result only; this is not a Gateway wire contract.
 internal sealed record NodeExecutionObservation(string SlotKey, string AttemptKey,
-    Admin.NodeObservation State, string? Node, string? Failure);
+    Admin.NodeObservation State, string? Node, string? Failure, long Epoch = 0);

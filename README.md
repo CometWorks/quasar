@@ -36,7 +36,10 @@ from the terminal, install it as a background service, or run the GHCR image.
 | [Quasar Plugin System](Docs/QuasarPluginSystem.md) | Planned UI plugin loader, hub manifest model, component replacement points, companion data channel, and MudBlazor expectations. |
 | [Entity Viewer](https://github.com/CometWorks/viewer/blob/main/Docs/EntityViewer.md) | Fullscreen metadata-only entity viewer, local Space Engineers `Content` folder requirement, and fallback behavior. |
 | [Building & Development](Docs/BuildingAndDevelopment.md) | Project layout, build setup, managed-runtime selection, and developer utilities. |
-| [Phase 4 Integration](Docs/Phase4IntegrationPlan.md) | Upstream clustering plan authority, integration baseline, validation, and remaining work. |
+| [Phase 4 Integration](Docs/Phase4IntegrationPlan.md) | Cluster release integration, verified package staging, upstream requirements, and acceptance plan. |
+| [Cluster Integration Verification](Docs/ClusterIntegrationVerification.md) | Implementation checks, review package provenance and remaining live acceptance gates. |
+| [Cluster Conversion](Docs/ClusterConversion.md) | Guided standalone/cluster conversion, backups, resume and plugin configuration limits. |
+| [Cluster Plugins](Docs/ClusterPlugins.md) | One-server plugin/config consistency, Agent monitoring, existing SDK compatibility and remaining integration work. |
 | [Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) | systemd install, release assets, and the auto-updater flow. |
 | [Windows Deployment & Updates](Docs/WindowsDeploymentAndUpdates.md) | Scheduled Task install, release assets, and the auto-updater flow. |
 | [State Machine Diagrams](Docs/StateMachines/Index.md) | Object states and state machines (server lifecycle, agent connection, self-update, runtime provisioning, backups, …) as Mermaid + PNG. |

@@ -143,6 +143,9 @@
                                 <MudTooltip Text="Restart server"><MudIconButton Icon="@Icons.Material.Filled.RestartAlt" Color="Color.Primary" Size="Size.Small" OnClick="@(() => RestartAsync(server.UniqueName))" /></MudTooltip>
                             }
                             <MudTooltip Text="Show console output"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Terminal" Color="Color.Default" OnClick="@(() => OpenConsoleDialogAsync(server.UniqueName))" /></MudTooltip>
+                            <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="conversionAuth">
+                                <MudTooltip Text="Convert to cluster"><MudIconButton Href="@("/servers/" + Uri.EscapeDataString(server.UniqueName) + "/convert-to-cluster")" Icon="@Icons.Material.Filled.AccountTree" Size="Size.Small" /></MudTooltip>
+                            </AuthorizeView>
                             <MudTooltip Text="Clone server"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.ContentCopy" Color="Color.Default" OnClick="@(() => OpenCloneDialogAsync(server))" /></MudTooltip>
                             <MudTooltip Text="Create world template"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Public" Color="Color.Default" Disabled="@(!CanCreateWorldTemplate(server))" OnClick="@(() => CreateWorldTemplateAsync(server))" /></MudTooltip>
                             <MudTooltip Text="Edit server"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" Color="Color.Default" OnClick="@(() => OpenEditDialogAsync(server))" /></MudTooltip>

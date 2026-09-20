@@ -1,12 +1,15 @@
 # Gateway contract source pin
 
-Unmodified contract source from `CometWorks/cluster-gateway` Forgejo main at
-`0546d1a198e78ea9c1f02a686867fd5ebb0b1a56`.
+Admin contract 0.4.0 is mirrored from the upstream integration commit
+`5d2541c` (release baseline v1.0.3: `1cd3a4265749fd932b9ba25ac155166160709a08`).
+It adds the host-scoped executor contract, deployment revision/readiness and handover capabilities; published v1.0.3 does not implement it.
 
-Source: https://git.cometworks.se/CometWorks/cluster-gateway/src/commit/0546d1a198e78ea9c1f02a686867fd5ebb0b1a56/src/ClusterGateway.AdminContract
+Source: https://github.com/CometWorks/cluster/tree/5d2541c/ClusterGateway.AdminContract
 
-This source pin avoids the incompatible historical GitHub package lineage.
-Build it as a project reference; no private feed or neighboring checkout is required.
-Refresh the complete source snapshot and its wire fixtures together.
+Build as a project reference; no private feed or neighboring checkout is required.
+Refresh both DTO sources and wire fixtures together. Release and DTO package versions
+are independent.
 
-AdminContract.cs SHA-256: `b6d5e9269c7629489c9ba0e01a372657d2606e7719eff2235d2b0a0c28a036ad`
+AdminContract.cs SHA-256: `3a7771678de09f3956418df2de605eb4430d8c7fca84352168cd8c7f0a0e15b3`
+
+ExecutorContract.cs SHA-256: `935b12c565216281a27a1ab0dc0a97aac7d7cd570b30ff9a4b3684ebe313bea4`

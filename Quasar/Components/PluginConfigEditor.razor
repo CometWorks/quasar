@@ -51,7 +51,7 @@ else
                        StartIcon="@Icons.Material.Filled.Save"
                        Disabled="@(!_dirty || _applying)"
                        OnClick="ApplyAsync">
-                @(_applying ? "Applying..." : "Apply changes")
+                @(_applying ? "Applying..." : ApplyLabel)
             </MudButton>
         </MudStack>
     </MudStack>
@@ -63,6 +63,10 @@ else
     [Parameter, EditorRequired] public string AgentId { get; set; } = string.Empty;
 
     [Parameter, EditorRequired] public PluginConfigData Plugin { get; set; } = default!;
+
+    [Parameter] public Func<string, Task>? SaveValues { get; set; }
+    [Parameter] public string ApplyLabel { get; set; } = "Apply changes";
+    [Parameter] public string? SuccessMessage { get; set; }
 
     [Inject] private PluginConfigService Service { get; set; } = default!;
 
@@ -1150,9 +1154,10 @@ else
         try
         {
             var json = _values.ToJsonString();
-            await Service.UpdatePluginConfigAsync(AgentId, Plugin.PluginId, json, ConnectionId);
+            if (SaveValues is not null) await SaveValues(json);
+            else await Service.UpdatePluginConfigAsync(AgentId, Plugin.PluginId, json, ConnectionId);
             _dirty = false;
-            Snackbar.Add($"Applied configuration to {Plugin.DisplayName}.", Severity.Success);
+            Snackbar.Add(SuccessMessage ?? $"Applied configuration to {Plugin.DisplayName}.", Severity.Success);
         }
         catch (InvalidOperationException exception)
         {

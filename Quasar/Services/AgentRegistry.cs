@@ -267,6 +267,8 @@ public sealed class AgentRegistry
             if (!_agents.TryGetValue(agentId, out var state) || state.Sender is null || !state.IsConnected)
                 throw new InvalidOperationException($"Agent '{agentId}' is not connected.");
 
+            if (state.IsCluster && message.Kind == WireMessageKind.PluginConfigUpdate)
+                throw new InvalidOperationException("Cluster plugin configuration must be activated for the whole cluster.");
             if (expectedConnectionId is not null && state.ConnectionId != expectedConnectionId)
                 throw new InvalidOperationException("Agent connection changed; reload its configuration before applying edits.");
             sender = state.Sender;

@@ -44,7 +44,16 @@ public sealed class ClusterCommandService
     public Task<ClusterOperation> SubmitAsync(string uniqueName, ClusterAdminCommand command,
         string idempotencyKey, string actor, CancellationToken token = default)
     {
-        var cluster = _catalog.GetCluster(uniqueName) ?? throw Invalid("unknown_cluster", "Cluster was not found.");
+        if (_catalog.GetCluster(uniqueName) is null) throw Invalid("unknown_cluster", "Cluster was not found.");
+        return _catalog.WithLifecycleAsync(uniqueName,
+            cluster => SubmitCoreAsync(cluster, command, idempotencyKey, actor, token), token);
+    }
+
+    private Task<ClusterOperation> SubmitCoreAsync(ClusterDefinition cluster, ClusterAdminCommand command,
+        string idempotencyKey, string actor, CancellationToken token)
+    {
+        if (cluster.Update is { Phase: not ClusterUpdatePhase.Complete } || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
+            throw Invalid("deployment_pending", "Complete the managed update or restore before submitting cluster commands.");
         string action = command.Action?.Trim().ToLowerInvariant() ?? "";
         string method = "POST";
         string route;
@@ -64,6 +73,8 @@ public sealed class ClusterCommandService
                 case "gateway-restart":
                     if (cluster.Gateway is null || cluster.GoalState != DedicatedServerGoalState.On)
                         throw Invalid("gateway_restart_unconfigured", "Gateway restart needs a configured running supervisor.");
+                    if (_operations.HasPendingShutdown(cluster.UniqueName))
+                        throw Invalid("shutdown_pending", "Wait for the pending shutdown before restarting the Gateway.");
                     route = "gateway/restart"; body = new { }; break;
                 case "config-set":
                     method = "PUT"; route = "config";
@@ -90,10 +101,26 @@ public sealed class ClusterCommandService
                     if (chat.Sender == 0 || string.IsNullOrWhiteSpace(chat.Message) || chat.Message.Length > 4096)
                         throw Invalid("invalid_chat", "Chat requires a sender identity and a message of 1–4096 characters.");
                     body = chat; break;
+                case "world-export":
+                    var export = Read(new Admin.WorldExportRequest());
+                    if (export.TtlHours is { } ttl && (!double.IsFinite(ttl) || ttl <= 0 || ttl > 168))
+                        throw Invalid("invalid_export", "Export retention must be between zero and 168 hours.");
+                    route = "world-exports"; body = export; break;
+                case "artifact-release": method = "DELETE"; route = "artifacts/" + Target(); body = new { }; break;
+                case "handover-config-set":
+                    var values = Read<Dictionary<string, string?>>();
+                    if (values.Count is < 1 or > 256 || values.Any(p => string.IsNullOrWhiteSpace(p.Key) || p.Key.Length > 128 || p.Value?.Length > 512))
+                        throw Invalid("invalid_config", "Handover settings exceed supported limits.");
+                    method = "PUT"; route = "handover-config"; body = values; break;
                 case "trigger":
                     if (command.Target is not ("balance" or "save" or "split-sweep" or "membership-eval" or "conceal-eval" or "compact" or "catalog-gc" or "rotation-check"))
                         throw Invalid("invalid_trigger", "Unknown maintenance task.");
-                    route = "triggers/" + command.Target; body = new { }; break;
+                    var scope = Read(new ClusterMaintenanceScope());
+                    if (scope.Node?.Length > 200 || scope.Partition == 0) throw Invalid("invalid_scope", "Invalid maintenance scope.");
+                    route = "triggers/" + command.Target + "?unthrottled=" + (scope.Unthrottled ? "true" : "false")
+                        + (scope.Node is null ? "" : "&node=" + Uri.EscapeDataString(scope.Node))
+                        + (scope.Partition is null ? "" : "&partition=" + scope.Partition.Value);
+                    body = new { }; break;
                 default: throw Invalid("unsupported_command", "Unknown cluster command.");
             }
         }
@@ -125,3 +152,5 @@ public sealed record ClusterAdminCommand(string Action, JsonElement? Parameters 
         new(action, parameters is null ? null : JsonSerializer.SerializeToElement(parameters,
             new JsonSerializerOptions(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } }), target);
 }
+
+public sealed record ClusterMaintenanceScope(string? Node = null, ulong? Partition = null, bool Unthrottled = false);

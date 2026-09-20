@@ -22,11 +22,20 @@ public sealed record HostErrorEnvelope(int ProtocolVersion, DateTimeOffset Captu
 
 public sealed record HostError(string Code, string Message);
 
+// Preparation only: never a spawn specification or permission to activate a cluster.
+public sealed record ClusterDeploymentInputs(string ClusterId, long PackageSelectionRevision,
+    string PackageVersion, string PackageSha256, string PackageCommit, string DependencyManifestSha256,
+    string PackageDirectory, string DependencyDirectory, Dictionary<string, DeploymentFile> Files);
+
+public sealed record DeploymentFile(string Sha256, long Bytes, bool Executable);
+public sealed record PreparedClusterDeployment(string Directory, string InputsSha256, string EnvironmentFile);
+
 public sealed record HostStatus(
     string ExecutorId,
     string HostId,
     HostAttachmentStatus[] Attachments,
-    GatewayStatus[]? Gateways = null);
+    GatewayStatus[]? Gateways = null,
+    bool GatewayStopFencing = false);
 
 public sealed record HostAttachmentStatus(
     string ClusterId,
@@ -56,7 +65,10 @@ public sealed record GatewaySpec(
     string BundleManifestSha256,
     string ConfigRevision,
     int[] Ports,
-    string RunRoot);
+    string RunRoot,
+    GatewayStopFence? StopFence = null, Guid? StartGeneration = null, bool Recover = false);
+
+public sealed record GatewayStopFence(int ProcessId, DateTimeOffset LaunchedAt);
 
 public sealed record GatewayStatus(
     string ClusterId,
@@ -68,4 +80,25 @@ public sealed record GatewayStatus(
     string RunRoot,
     int? ProcessId,
     DateTimeOffset? LaunchedAt,
-    string? Failure);
+    string? Failure,
+    GatewayStopFence? CompletedStopFence = null, Guid? StartGeneration = null);
+
+public sealed record HostDeploymentActivation(string ClusterId, string? ExpectedBundleManifestSha256,
+    string BundleManifestPath, string BundleManifestSha256, string GatewayUrl, string ExecutorTokenEnvironmentVariable);
+public sealed record HostActiveDeployment(string ClusterId, string Revision, string BundleManifestSha256,
+    HostAttachmentSpec Attachment, GatewaySpec? Gateway, string[]? RequiredHosts = null);
+
+public sealed record HostDeploymentPreparation(string ClusterId, string InstallationDirectory,
+    string InputsSha256, string SpecificationJson, string SpecificationSha256, string WorldDirectory,
+    string ConfigurationDirectory);
+public sealed record HostPreparedConfiguration(string HostId, string Revision, string Manifest, string Sha256);
+
+public sealed record HostSnapshotRequest(string ClusterId, Guid SnapshotId, string ExpectedBundleManifestSha256, string CaptureFence);
+public sealed record HostSnapshot(string ClusterId, string HostId, Guid SnapshotId, string Revision,
+    string BundleManifestSha256, string ArchiveSha256, long ArchiveBytes);
+public sealed record HostSnapshotRestore(string ClusterId, Guid RestoreId, Guid SnapshotId, string ArchiveSha256,
+    string CandidateManifestPath, string CandidateManifestSha256, string CandidateExecutorTokenEnvironmentVariable);
+
+public sealed record HostRecoveryReadiness(string HostId, string BundleManifestSha256);
+
+public sealed record HostConversionPaths(string HostId, string Directory, string ConfigurationDirectory, string RuntimeDirectory);

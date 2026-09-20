@@ -8,6 +8,59 @@ namespace Quasar.Tests;
 public sealed class ClusterOperationStoreTests
 {
     [Fact]
+    public async Task SlowLocalOperationDoesNotBlockOtherCommandsAndSameKeyStillExecutesOnce()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            var store = new ClusterOperationStore(directory);
+            var first = store.ExecuteAsync("demo", "cluster.package.stage", "stage-1", "factory", "package",
+                async token =>
+                {
+                    entered.SetResult();
+                    await finish.Task.WaitAsync(token);
+                    return new AdminEnvelope<string>(1, DateTimeOffset.UtcNow, "staged");
+                }, timeout.Token);
+            await entered.Task.WaitAsync(timeout.Token);
+            var replay = store.ExecuteAsync<string, string>("DEMO", "cluster.package.stage", "stage-1", "factory",
+                "package", _ => throw new InvalidOperationException("must not repeat"), timeout.Token);
+            var unrelated = await store.ExecuteAsync("demo", "cluster.goal.set", "goal-1", "factory", "off",
+                _ => Task.FromResult(new AdminEnvelope<string>(1, DateTimeOffset.UtcNow, "off")), timeout.Token);
+            Assert.Equal(ClusterOperationState.Succeeded, unrelated.State);
+            Assert.False(replay.IsCompleted);
+            finish.SetResult();
+            Assert.Equal((await first).OperationId, (await replay).OperationId);
+        }
+        finally
+        {
+            finish.TrySetResult();
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageFailureIsPersistedAndReplayedAfterRestart()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());
+        try
+        {
+            var store = new ClusterOperationStore(directory);
+            var failed = await store.ExecuteAsync<string, string>("demo", "cluster.package.stage", "stage-1",
+                "factory", "package", _ => throw new ClusterPackageException("Invalid archive."), default);
+            var replay = await new ClusterOperationStore(directory).ExecuteAsync<string, string>(
+                "demo", "cluster.package.stage", "stage-1", "factory", "package",
+                _ => throw new InvalidOperationException("must not repeat"), default);
+            Assert.Equal(ClusterOperationState.Failed, replay.State);
+            Assert.Equal("cluster_package_failed", replay.Error?.Code);
+            Assert.Equal(failed.OperationId, replay.OperationId);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task PersistsAndReplaysIdempotentOperation()
     {
         string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());

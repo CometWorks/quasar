@@ -33,8 +33,125 @@ public sealed class ClusterHostClient
         HttpMethod.Put, HostContract.HostProtocol.GatewayRoute(gateway.ClusterId),
         gateway, cancellationToken);
 
+    public Task<HostContract.HostEnvelope<HostContract.HostRecoveryReadiness>> CheckRecoveryAsync(
+        ClusterDefinition cluster, string expectedHash, CancellationToken token) => SendAsync<HostContract.HostRecoveryReadiness>(cluster,
+            HttpMethod.Get, HostContract.HostProtocol.RoutePrefix + "/recovery-readiness/" + Uri.EscapeDataString(cluster.UniqueName)
+                + "?sha256=" + Uri.EscapeDataString(expectedHash), null, token);
+
+    public Task<HostContract.HostEnvelope<HostContract.HostActiveDeployment>> ActivateDeploymentAsync(
+        ClusterDefinition cluster, HostContract.HostDeploymentActivation request, CancellationToken cancellationToken) =>
+        SendAsync<HostContract.HostActiveDeployment>(cluster, HttpMethod.Put,
+            HostContract.HostProtocol.RoutePrefix + "/deployments/" + Uri.EscapeDataString(request.ClusterId), request, cancellationToken, longRunning: true);
+
+    public Task<HostContract.HostEnvelope<HostContract.HostActiveDeployment>> PreviewDeploymentAsync(
+        ClusterDefinition cluster, HostContract.HostDeploymentActivation request, CancellationToken cancellationToken, bool online = false) =>
+        SendAsync<HostContract.HostActiveDeployment>(cluster, HttpMethod.Post,
+            HostContract.HostProtocol.RoutePrefix + "/deployments/" + Uri.EscapeDataString(request.ClusterId) + (online ? "?online=true" : ""), request, cancellationToken, longRunning: true);
+
+    public Task<HostContract.HostEnvelope<HostContract.HostPreparedConfiguration>> PrepareDeploymentAsync(
+        ClusterDefinition cluster, HostContract.HostDeploymentPreparation request, CancellationToken cancellationToken) =>
+        SendAsync<HostContract.HostPreparedConfiguration>(cluster, HttpMethod.Post,
+            HostContract.HostProtocol.RoutePrefix + "/deployment-preparations/" + Uri.EscapeDataString(request.ClusterId), request, cancellationToken, longRunning: true);
+
+    public Task<HostContract.HostEnvelope<HostContract.HostSnapshot>> CaptureSnapshotAsync(ClusterDefinition cluster,
+        HostContract.HostSnapshotRequest request, CancellationToken token) => SendAsync<HostContract.HostSnapshot>(cluster,
+            HttpMethod.Post, HostContract.HostProtocol.RoutePrefix + "/snapshots/" + Uri.EscapeDataString(cluster.UniqueName) + "/" + request.SnapshotId,
+            request, token, longRunning: true);
+
+    public Task<HostContract.HostEnvelope<JsonElement>> RestoreSnapshotAsync(ClusterDefinition cluster,
+        HostContract.HostSnapshotRestore request, CancellationToken token, bool preview = false) => SendAsync<JsonElement>(cluster,
+            preview ? HttpMethod.Put : HttpMethod.Post, HostContract.HostProtocol.RoutePrefix + "/restores/" + Uri.EscapeDataString(cluster.UniqueName), request, token, longRunning: true);
+
+    public Task<HostContract.HostEnvelope<JsonElement>> ReleaseSnapshotAsync(ClusterDefinition cluster, HostContract.HostSnapshot snapshot,
+        CancellationToken token) => SendAsync<JsonElement>(cluster, HttpMethod.Delete,
+            HostContract.HostProtocol.RoutePrefix + "/snapshots/" + Uri.EscapeDataString(cluster.UniqueName) + "/" + snapshot.SnapshotId
+                + "?sha256=" + snapshot.ArchiveSha256, null, token);
+
+    public async Task RetrieveArtifactAsync(ClusterDefinition cluster, CometWorks.ClusterGateway.AdminContract.V1.ArtifactDescriptor artifact,
+        string directory, CancellationToken token)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromHours(2));
+        token = deadline.Token;
+        if (artifact.FileChecksums.Count is < 1 or > 500_000 || artifact.SizeBytes is < 0 or > 1024L * 1024 * 1024 * 1024)
+            throw new InvalidDataException("Artifact exceeds supported bounds.");
+        string manifest = string.Join('\n', artifact.FileChecksums.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => p.Key + ":" + p.Value));
+        if (!Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(manifest)))
+            .Equals(artifact.ManifestSha256, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Artifact manifest checksum mismatch.");
+        using var request = new HttpRequestMessage(HttpMethod.Get, cluster.HostCommandUrl + HostContract.HostProtocol.RoutePrefix
+            + "/artifacts/" + Uri.EscapeDataString(cluster.UniqueName) + "/" + Uri.EscapeDataString(artifact.ArtifactId));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Environment.GetEnvironmentVariable(cluster.HostCommandTokenEnvironmentVariable)
+            ?? throw new InvalidOperationException("Host credential is unavailable."));
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+        response.EnsureSuccessStatusCode();
+        using var input = await response.Content.ReadAsStreamAsync(token);
+        using var reader = new System.Formats.Tar.TarReader(input);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        long bytes = 0;
+        while (await reader.GetNextEntryAsync(cancellationToken: token) is { } entry)
+        {
+            if (entry.EntryType != System.Formats.Tar.TarEntryType.RegularFile || Path.IsPathRooted(entry.Name) || entry.Name.Contains('\\')
+                || entry.Name.Split('/').Any(p => p is "" or "." or "..") || !seen.Add(entry.Name)
+                || !artifact.FileChecksums.TryGetValue(entry.Name, out string? expected) || entry.Length > artifact.SizeBytes - bytes)
+                throw new InvalidDataException("Invalid artifact entry.");
+            bytes += entry.Length;
+            string path = Path.Combine(directory, entry.Name);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using (var output = new FileStream(path, FileMode.CreateNew))
+            { if (entry.DataStream is not null) await entry.DataStream.CopyToAsync(output, token); output.Flush(true); }
+            using var file = File.OpenRead(path);
+            if (!Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(file, token)).Equals(expected, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Artifact content checksum mismatch.");
+        }
+        if (seen.Count != artifact.FileChecksums.Count || bytes != artifact.SizeBytes) throw new InvalidDataException("Incomplete artifact.");
+    }
+
+    public async Task TransferSnapshotAsync(ClusterDefinition cluster, HostContract.HostSnapshot snapshot,
+        string file, bool upload, CancellationToken token)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromHours(2));
+        token = deadline.Token;
+        string url = cluster.HostCommandUrl + HostContract.HostProtocol.RoutePrefix + "/snapshots/"
+            + Uri.EscapeDataString(cluster.UniqueName) + "/" + snapshot.SnapshotId + (upload ? "?sha256=" + snapshot.ArchiveSha256 : "");
+        using var request = new HttpRequestMessage(upload ? HttpMethod.Put : HttpMethod.Get, url);
+        string credential = Environment.GetEnvironmentVariable(cluster.HostCommandTokenEnvironmentVariable)
+            ?? throw new InvalidOperationException("Host credential is unavailable.");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
+        if (upload) request.Content = new StreamContent(File.OpenRead(file));
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+        response.EnsureSuccessStatusCode();
+        if (upload) return;
+        if (response.Content.Headers.ContentLength != snapshot.ArchiveBytes)
+            throw new InvalidDataException("Snapshot download length mismatch.");
+        using var input = await response.Content.ReadAsStreamAsync(token);
+        using var output = new FileStream(file, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        byte[] buffer = new byte[1024 * 1024]; long total = 0; int read;
+        while ((read = await input.ReadAsync(buffer, token)) != 0)
+        {
+            total += read;
+            if (total > snapshot.ArchiveBytes) throw new InvalidDataException("Snapshot download exceeds descriptor size.");
+            hash.AppendData(buffer, 0, read);
+            await output.WriteAsync(buffer.AsMemory(0, read), token);
+        }
+        output.Flush(true);
+        if (total != snapshot.ArchiveBytes || !Convert.ToHexString(hash.GetHashAndReset()).Equals(snapshot.ArchiveSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Snapshot download failed SHA-256 verification.");
+    }
+
+    public async Task<HostContract.HostConversionPaths> TransferConversionInputAsync(ClusterDefinition cluster, Guid id,
+        string kind, string archive, string hash, CancellationToken token)
+    {
+        using var content = new StreamContent(File.OpenRead(archive));
+        var response = await SendAsync<HostContract.HostConversionPaths>(cluster, HttpMethod.Put,
+            HostContract.HostProtocol.RoutePrefix + "/conversion-inputs/" + id + "/" + kind + "?sha256=" + hash,
+            content, token, longRunning: true);
+        return response.Data;
+    }
+
     private async Task<HostContract.HostEnvelope<T>> SendAsync<T>(ClusterDefinition cluster,
-        HttpMethod method, string route, object? body, CancellationToken cancellationToken)
+        HttpMethod method, string route, object? body, CancellationToken cancellationToken, bool longRunning = false)
     {
         if (string.IsNullOrWhiteSpace(cluster.HostCommandUrl))
             throw new ClusterHostException(HttpStatusCode.ServiceUnavailable, "host_command_unconfigured",
@@ -46,12 +163,14 @@ public sealed class ClusterHostClient
         using var request = new HttpRequestMessage(method, cluster.HostCommandUrl + route);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         if (body is not null)
-            request.Content = JsonContent.Create(body, options: JsonOptions);
+            request.Content = body as HttpContent ?? JsonContent.Create(body, options: JsonOptions);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(longRunning ? TimeSpan.FromHours(2) : TimeSpan.FromSeconds(30));
         try
         {
             using HttpResponseMessage response = await _http.SendAsync(request,
-                HttpCompletionOption.ResponseContentRead, cancellationToken);
-            string json = await response.Content.ReadAsStringAsync(cancellationToken);
+                HttpCompletionOption.ResponseContentRead, deadline.Token);
+            string json = await response.Content.ReadAsStringAsync(deadline.Token);
             ValidateProtocol(response, json);
             if (!response.IsSuccessStatusCode)
             {

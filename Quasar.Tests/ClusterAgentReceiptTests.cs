@@ -16,21 +16,21 @@ public sealed class ClusterAgentReceiptTests
     public void ReceiptRequiresMatchingLaunchAndPreserves64BitEpoch(string attempt, int pid, long expectedEpoch)
     {
         string path = Path.GetTempFileName();
-        string? oldPath = Environment.GetEnvironmentVariable("QUASAR_CLUSTER_READY_PATH");
-        string? oldAttempt = Environment.GetEnvironmentVariable("QUASAR_CLUSTER_ATTEMPT");
+        string? oldPath = Environment.GetEnvironmentVariable("CLUSTER_PROCESS_IDENTITY_PATH");
+        string? oldAttempt = Environment.GetEnvironmentVariable("CLUSTER_LAUNCH_ATTEMPT");
         try
         {
             File.WriteAllText(path, """{"schemaVersion":1,"clusterId":"cluster-a","slotKey":"slot-a","attemptKey":"attempt-a","nodeId":"node-a","epoch":4294967296,"processId":500}""");
-            Environment.SetEnvironmentVariable("QUASAR_CLUSTER_READY_PATH", path);
-            Environment.SetEnvironmentVariable("QUASAR_CLUSTER_ATTEMPT", attempt);
+            Environment.SetEnvironmentVariable("CLUSTER_PROCESS_IDENTITY_PATH", path);
+            Environment.SetEnvironmentVariable("CLUSTER_LAUNCH_ATTEMPT", attempt);
             var options = new AgentOptions { ClusterMode = true, ClusterId = "cluster-a", ClusterSlot = "slot-a" };
             options.RefreshClusterIdentity(pid);
             Assert.Equal(expectedEpoch, options.ClusterEpoch);
         }
         finally
         {
-            Environment.SetEnvironmentVariable("QUASAR_CLUSTER_READY_PATH", oldPath);
-            Environment.SetEnvironmentVariable("QUASAR_CLUSTER_ATTEMPT", oldAttempt);
+            Environment.SetEnvironmentVariable("CLUSTER_PROCESS_IDENTITY_PATH", oldPath);
+            Environment.SetEnvironmentVariable("CLUSTER_LAUNCH_ATTEMPT", oldAttempt);
             File.Delete(path);
         }
     }

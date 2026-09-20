@@ -11,5 +11,8 @@ public class PluginConfigData
 
     public string DisplayName { get; set; } = string.Empty;
 
+    /// <summary>Exact SDK configuration type name, or empty when the provider cannot be converted.</summary>
+    public string ConfigType { get; set; } = string.Empty;
+
     public string ConfigJson { get; set; } = string.Empty;
 }

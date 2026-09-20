@@ -1,0 +1,40 @@
+@page "/clusters/new"
+@attribute [Authorize(Policy = QuasarPolicyNames.ClusterManage)]
+@inject ClusterCatalog Catalog
+@inject QuasarPermissionService Permissions
+@inject AuthenticationStateProvider AuthenticationState
+@inject QuasarRoleMapper RoleMapper
+@inject NavigationManager Navigation
+
+<PageTitle>Create or import cluster</PageTitle>
+<MudPaper Class="pa-4">
+    <MudText Typo="Typo.h5">Create or import cluster</MudText>
+    <MudText>Register the cluster and select its verified release and dependencies. To use an existing server, open its Convert to cluster action from the server list; the wizard backs up and converts its world, then prepares every Host.</MudText>
+    <MudTextField T="string" Label="Cluster ID" @bind-Value="_id" Required="true" />
+    <MudTextField T="string" Label="Display name" @bind-Value="_name" />
+    <MudTextField T="string" Label="Gateway control URL" @bind-Value="_url" Required="true" />
+    <MudTextField T="string" Label="Gateway admin token environment variable" @bind-Value="_credential" Required="true" />
+    <MudButton OnClick="CreateAsync" Disabled="_busy" Color="Color.Primary">Create cluster</MudButton>
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+</MudPaper>
+
+@code {
+    private string _id = "", _name = "", _url = "", _credential = "";
+    private string? _error;
+    private bool _busy;
+    private async Task CreateAsync()
+    {
+        if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        if (!user.CanQueryCluster(_id)) { _error = "Your credentials cannot manage this cluster ID."; return; }
+        _busy = true;
+        try
+        {
+            var created = await Catalog.CreateAsync(new(_id, _name, _url, _credential), default);
+            Navigation.NavigateTo("/clusters/" + Uri.EscapeDataString(created.UniqueName));
+        }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException)
+        { _error = error.Message; }
+        finally { _busy = false; }
+    }
+}

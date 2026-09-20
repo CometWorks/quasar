@@ -102,8 +102,9 @@ public sealed class ClusterAgentIdentityTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             configs.UpdatePluginConfigAsync("process-a", "plugin-a", "{}", "old"));
         Assert.Equal(0, sends);
-        await configs.UpdatePluginConfigAsync("process-a", "plugin-a", "{}", "new");
-        Assert.Equal(1, sends);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            configs.UpdatePluginConfigAsync("process-a", "plugin-a", "{}", "new"));
+        Assert.Equal(0, sends);
     }
 
     public void Dispose() => _metrics.Dispose();

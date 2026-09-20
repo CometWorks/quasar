@@ -52,7 +52,15 @@ else
                         {
                             // Construct the editor only while its panel is open. Keeping every
                             // plugin's editor mounted at once is too many DOM nodes.
-                            <PluginConfigEditor @key="(selectedAgent.AgentId, selectedAgent.ConnectionId, plugin.PluginId)" AgentId="@selectedAgent.AgentId" ConnectionId="@selectedAgent.ConnectionId" Plugin="@plugin" />
+                            @if (selectedAgent.IsCluster)
+                            {
+                                <MudAlert Severity="Severity.Info">Plugin configuration is managed for the whole cluster.</MudAlert>
+                                <pre>@plugin.ConfigJson</pre>
+                            }
+                            else
+                            {
+                                <PluginConfigEditor @key="(selectedAgent.AgentId, selectedAgent.ConnectionId, plugin.PluginId)" AgentId="@selectedAgent.AgentId" ConnectionId="@selectedAgent.ConnectionId" Plugin="@plugin" />
+                            }
                         }
                     </MudExpansionPanel>
                 }

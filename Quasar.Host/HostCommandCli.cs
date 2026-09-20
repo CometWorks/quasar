@@ -18,7 +18,8 @@ internal static class HostCommandCli
         bool status = args.Length > 0 && args[0] == "status";
         bool attachmentApply = args.Length > 1 && args[0] == "attachment" && args[1] == "apply";
         bool gatewayApply = args.Length > 1 && args[0] == "gateway" && args[1] == "apply";
-        bool apply = attachmentApply || gatewayApply;
+        bool deploymentApply = args.Length > 1 && args[0] == "deployment" && args[1] == "activate";
+        bool apply = attachmentApply || gatewayApply || deploymentApply;
         if (!status && !apply)
             return null;
         int start = status ? 1 : 2;
@@ -27,7 +28,8 @@ internal static class HostCommandCli
         {
             Console.Error.WriteLine("Usage: Quasar.Host status --url URL --token-env ENV"
                 + " | attachment apply --url URL --token-env ENV --file FILE"
-                + " | gateway apply --url URL --token-env ENV --file FILE");
+                + " | gateway apply --url URL --token-env ENV --file FILE"
+                + " | deployment activate --url URL --token-env ENV --file FILE");
             return 2;
         }
         string? token = Environment.GetEnvironmentVariable(tokenVariable!);
@@ -50,7 +52,15 @@ internal static class HostCommandCli
             else
             {
                 request.Method = HttpMethod.Put;
-                if (attachmentApply)
+                if (deploymentApply)
+                {
+                    var activation = JsonSerializer.Deserialize<HostContract.HostDeploymentActivation>(File.ReadAllText(file!), JsonOptions)
+                        ?? throw new InvalidDataException("Deployment activation file is empty.");
+                    request.RequestUri = new Uri(url!.TrimEnd('/') + HostContract.HostProtocol.RoutePrefix
+                        + "/deployments/" + Uri.EscapeDataString(activation.ClusterId));
+                    request.Content = JsonContent.Create(activation, options: JsonOptions);
+                }
+                else if (attachmentApply)
                 {
                     HostContract.HostAttachmentSpec attachment =
                         JsonSerializer.Deserialize<HostContract.HostAttachmentSpec>(

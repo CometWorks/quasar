@@ -14,7 +14,7 @@ namespace Quasar.Host;
 internal static class Program
 {
     private const string Usage = "Usage: Quasar.Host run --config FILE [--once] | status ..."
-        + " | attachment apply ... | gateway apply ... | --self-test";
+        + " | attachment apply ... | gateway apply ... | deployment prepare --file FILE --sha256 SHA256 --directory DIR | --self-test";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() },
@@ -24,6 +24,12 @@ internal static class Program
     {
         if (args.SequenceEqual(["--self-test"]))
             return await SelfTestAsync();
+        if (args.Length >= 2 && args[0] == "deployment" && args[1] is "export" or "import")
+            return await DeploymentTransfer.RunAsync(args[1], args[2..]);
+        if (args.Length >= 2 && args[0] == "deployment" && args[1] == "prepare")
+            return await DeploymentPreparation.RunAsync(args[2..]);
+        if (args.Length >= 2 && args[0] == "deployment" && args[1] == "configure")
+            return await ManagedPreparation.RunAsync(args[2..]);
         if (args.SequenceEqual(["--self-test-child"]))
         {
             await Task.Delay(Timeout.InfiniteTimeSpan);
@@ -58,6 +64,11 @@ internal static class Program
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
         var actualizer = new NodeActualizer(config.StateDirectory, config.HostId);
         var gatewayActualizer = new GatewayActualizer(config.StateDirectory, config.HostId);
+        Directory.CreateDirectory(config.StateDirectory);
+        using var executionLock = new FileStream(Path.Combine(config.StateDirectory, "executor.lock"),
+            FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        using var executionGate = new SemaphoreSlim(1, 1);
+        var executorSessions = new Dictionary<string, ExecutorSession>(StringComparer.OrdinalIgnoreCase);
         AttachmentStore attachments;
         GatewaySpecStore gateways;
         HostCommandServer? commandServer = null;
@@ -65,10 +76,15 @@ internal static class Program
         {
             attachments = new AttachmentStore(config.StateDirectory, config.Attachments);
             gateways = new GatewaySpecStore(config.StateDirectory);
+            var deployments = new DeploymentActivation(config.StateDirectory, config.HostId,
+                attachments, gateways, actualizer, gatewayActualizer);
+            new DeploymentSnapshots(config.StateDirectory, config.HostId, attachments,
+                new NodeActualizer(config.StateDirectory, config.HostId), gatewayActualizer).Recover();
+            deployments.Recover();
             if (config.Command is not null)
             {
                 commandServer = new HostCommandServer(config.Command, config, attachments,
-                    gateways, gatewayActualizer);
+                    gateways, gatewayActualizer, executionGate, deployments);
                 commandServer.Start(shutdown.Token);
             }
         }
@@ -84,6 +100,9 @@ internal static class Program
             var connected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             do
             {
+                await executionGate.WaitAsync(shutdown.Token);
+                try
+                {
                 foreach (HostContract.GatewaySpec gateway in gateways.GetAll())
                 {
                     HostContract.GatewayStatus status = await gatewayActualizer.ReconcileAsync(
@@ -96,7 +115,9 @@ internal static class Program
                 {
                     try
                     {
-                        await PollAsync(client, actualizer, config, attachment, shutdown.Token);
+                        if (!executorSessions.TryGetValue(attachment.ClusterId, out var session))
+                            executorSessions.Add(attachment.ClusterId, session = new());
+                        await PollAsync(client, actualizer, config, attachment, session, shutdown.Token);
                         if (once || connected.Add(attachment.ClusterId))
                             Console.WriteLine($"cluster={attachment.ClusterId} executor={config.ExecutorId} heartbeat=accepted");
                     }
@@ -114,6 +135,8 @@ internal static class Program
                             return 4;
                     }
                 }
+                }
+                finally { executionGate.Release(); }
                 if (!once)
                 {
                     try
@@ -131,20 +154,16 @@ internal static class Program
     }
 
     private static async Task PollAsync(HttpClient client, NodeActualizer actualizer, HostExecutorConfig config,
-        HostContract.HostAttachmentSpec attachment, CancellationToken cancellationToken)
+        HostContract.HostAttachmentSpec attachment, ExecutorSession session, CancellationToken cancellationToken)
     {
         string? token = Environment.GetEnvironmentVariable(attachment.TokenEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(token))
             throw new InvalidOperationException(
                 $"credential environment variable '{attachment.TokenEnvironmentVariable}' is not set");
 
-        // The current source-pinned Gateway exposes NodePlan but has no public,
-        // incarnation-fenced executor report contract. Never actualize a plan when
-        // its outcome cannot be safely reported to the Registry.
-        await SendAsync<Admin.NodePlan[]>(client, attachment, token, HttpMethod.Get,
-            Admin.AdminProtocol.RoutePrefix + "/plan", null, cancellationToken);
-        throw new InvalidOperationException(
-            "executor_contract_unavailable: Gateway has no versioned executor reporting contract; node execution is disabled");
+        await session.PollAsync(config, attachment, actualizer, async (request, ct) =>
+            (await SendAsync<Admin.ExecutorPollResult>(client, attachment, token, HttpMethod.Post,
+                Admin.ExecutorProtocol.HeartbeatRoute, request, ct)).Data, cancellationToken);
     }
 
     private static async Task<Admin.AdminEnvelope<T>> SendAsync<T>(HttpClient client,
@@ -192,8 +211,8 @@ internal static class Program
         string hostId = config.HostId?.Trim() ?? string.Empty;
         if (executorId.Length == 0 || hostId.Length == 0)
             throw new ArgumentException("ExecutorId and HostId are required");
-        if (config.PollIntervalSeconds is < 1 or > 300)
-            throw new ArgumentException("PollIntervalSeconds must be between 1 and 300");
+        if (config.PollIntervalSeconds is < 1 or > 15)
+            throw new ArgumentException("PollIntervalSeconds must be between 1 and 15 (executor leases last 60 seconds)");
         HostContract.HostAttachmentSpec[] attachments = config.Attachments ?? [];
         if (attachments.Length == 0)
             throw new ArgumentException("At least one cluster attachment is required");
@@ -274,6 +293,7 @@ internal static class Program
 
     private static async Task<int> SelfTestAsync()
     {
+        DeploymentSelfTest.Run();
         HostExecutorConfig config = Normalize(new HostExecutorConfig("executor-a", "host-a", 2,
             [new HostContract.HostAttachmentSpec("demo", "http://127.0.0.1:28016", "DEMO_EXECUTOR_TOKEN")]),
             Path.GetTempPath());
@@ -379,12 +399,46 @@ internal static class Program
                 || Process.GetProcessById(gatewayProcessId.Value).HasExited
                 || new GatewaySpecStore(stateRoot).GetAll().Single().ConfigRevision != "config-self-test")
                 throw new InvalidOperationException("self-test Gateway start/re-adoption failed");
-            HostContract.GatewayStatus gatewayStopped = await new GatewayActualizer(stateRoot, "host-a")
+            var stopFence = new HostContract.GatewayStopFence(gatewayRunning.ProcessId!.Value, gatewayRunning.LaunchedAt!.Value);
+            HostContract.GatewayStatus wrongStop = await new GatewayActualizer(stateRoot, "host-a")
+                .ReconcileAsync(gatewaySpec with { Goal = HostContract.GatewayGoal.Off, StopFence = stopFence, ConfigRevision = "other" }, CancellationToken.None);
+            HostContract.GatewayStatus staleStop = await new GatewayActualizer(stateRoot, "host-a")
+                .ReconcileAsync(gatewaySpec with
+                {
+                    Goal = HostContract.GatewayGoal.Off,
+                    StopFence = stopFence with { LaunchedAt = stopFence.LaunchedAt.AddSeconds(-1) },
+                }, CancellationToken.None);
+            HostContract.GatewayStatus unfencedStop = await new GatewayActualizer(stateRoot, "host-a")
                 .ReconcileAsync(gatewaySpec with { Goal = HostContract.GatewayGoal.Off }, CancellationToken.None);
+            string gatewayRecordPath = Directory.GetFiles(Path.Combine(stateRoot, "gateway-launch-records"), "*.json").Single();
+            byte[] gatewayRecordBytes = File.ReadAllBytes(gatewayRecordPath);
+            var gatewayRecord = JsonSerializer.Deserialize<GatewayLaunchRecord>(gatewayRecordBytes, JsonOptions)!;
+            File.WriteAllBytes(gatewayRecordPath, JsonSerializer.SerializeToUtf8Bytes(
+                gatewayRecord with { ExecutableSha256 = new string('0', 64) }, JsonOptions));
+            HostContract.GatewayStatus tamperedStop = await new GatewayActualizer(stateRoot, "host-a")
+                .ReconcileAsync(gatewaySpec with { Goal = HostContract.GatewayGoal.Off, StopFence = stopFence }, CancellationToken.None);
+            File.WriteAllBytes(gatewayRecordPath, gatewayRecordBytes);
+            if (wrongStop.Failure != "running_spec_mismatch"
+                || staleStop.Failure != "gateway_stop_fence_mismatch"
+                || unfencedStop.Failure != "gateway_stop_fence_mismatch"
+                || tamperedStop.Observed != HostContract.GatewayObservedState.UnmanagedConflict
+                || Process.GetProcessById(gatewayProcessId!.Value).HasExited)
+                throw new InvalidOperationException("self-test Gateway stop identity fencing failed");
+            HostContract.GatewayStatus gatewayStopped = await new GatewayActualizer(stateRoot, "host-a")
+                .ReconcileAsync(gatewaySpec with { Goal = HostContract.GatewayGoal.Off, StopFence = stopFence }, CancellationToken.None);
             if (gatewayStopped.Observed != HostContract.GatewayObservedState.Missing
-                || gatewayStopped.ProcessId is not null || gatewayStopped.LaunchedAt is not null)
+                || gatewayStopped.ProcessId is not null || gatewayStopped.LaunchedAt is not null
+                || gatewayStopped.CompletedStopFence != stopFence)
                 throw new InvalidOperationException("self-test exact Gateway stop failed");
             gatewayProcessId = null;
+            File.WriteAllBytes(gatewayRecordPath, JsonSerializer.SerializeToUtf8Bytes(gatewayRecord with
+            {
+                ProcessId = null, ProcessStartedAt = null, Status = GatewayLaunchStatus.Launching,
+            }, JsonOptions));
+            HostContract.GatewayStatus uncertainStop = await new GatewayActualizer(stateRoot, "host-a")
+                .ReconcileAsync(gatewaySpec with { Goal = HostContract.GatewayGoal.Off, StopFence = stopFence }, CancellationToken.None);
+            if (uncertainStop.Observed != HostContract.GatewayObservedState.UnmanagedConflict)
+                throw new InvalidOperationException("self-test uncommitted Gateway launch was treated as stopped");
 
             var attachment = new HostContract.HostAttachmentSpec("demo", "http://127.0.0.1:28016",
                 "DEMO_EXECUTOR_TOKEN", manifestPath, ComputeSha256(manifestPath), runRoot);
@@ -404,7 +458,7 @@ internal static class Program
             childProcessId = record.ProcessId;
             string slotDirectory = Directory.GetDirectories(runRoot).Single();
             var receipt = new ReadyReceipt(1, "demo", "slot-a", record.AttemptKey,
-                "node-a", 7, "127.0.0.1:30000", record.ProcessId!.Value);
+                "node-a", 7, "127.0.0.1:30000", record.ProcessId!.Value, record.BundleRevision);
             File.WriteAllBytes(Path.Combine(slotDirectory, ".quasar-node-ready.json"),
                 JsonSerializer.SerializeToUtf8Bytes(receipt, JsonOptions));
 

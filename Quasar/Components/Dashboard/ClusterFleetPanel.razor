@@ -21,6 +21,8 @@
                         {
                             <MudText Typo="Typo.body2">@(telemetry.Connected ? "Connected" : "Stale or disconnected") · @telemetry.CapturedAt?.ToString("u")</MudText>
                             <MudText Typo="Typo.body2">Sim speed @telemetry.Metrics?.SimSpeed.ToString("0.00") · RSS @telemetry.Metrics?.MemoryWorkingSetMb MB</MudText>
+                            <MudText Typo="Typo.body2">Deployment @telemetry.DeploymentRevision · @(telemetry.ReadinessVerified switch { true => "Verified", false => "Not ready", _ => "Unknown" })</MudText>
+                            @if (telemetry.DeploymentFailure is { } failure) { <MudText Color="Color.Warning">@failure</MudText> }
                             <MudButton Size="Size.Small" OnClick="@(() => _selectedNode = context.Registry.Node)">Process details</MudButton>
                         }
                         else { <MudText Typo="Typo.body2">No uniquely matched Agent</MudText> }

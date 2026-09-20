@@ -5,6 +5,7 @@
     <ProjectReference Include="..\Quasar.Host.Contract\Quasar.Host.Contract.csproj" />
     <ProjectReference Include="..\Quasar.Plugin.Abstractions\Quasar.Plugin.Abstractions.csproj" />
     <Compile Include="..\Shared\Networking\GitHubRetryHandler.cs" Link="Networking\GitHubRetryHandler.cs" />
+    <Compile Include="..\Shared\ClusterDeployment\*.cs" Link="ClusterDeployment\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

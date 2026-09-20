@@ -277,6 +277,9 @@ namespace Quasar.Agent
                 ClusterNodeRole = _options.ClusterNodeRole,
                 ClusterSlot = _options.ClusterSlot,
                 ClusterEpoch = _options.ClusterEpoch,
+                DeploymentRevision = _options.DeploymentRevision,
+                ReadinessVerified = _options.ReadinessVerified,
+                DeploymentFailure = _options.DeploymentFailure,
                 PluginId = "quasar-agent",
                 PluginVersion = _pluginVersion,
                 ProcessId = _processId,
@@ -306,6 +309,9 @@ namespace Quasar.Agent
                 ClusterNodeRole = hello.ClusterNodeRole,
                 ClusterSlot = hello.ClusterSlot,
                 ClusterEpoch = hello.ClusterEpoch,
+                DeploymentRevision = hello.DeploymentRevision,
+                ReadinessVerified = hello.ReadinessVerified,
+                DeploymentFailure = hello.DeploymentFailure,
                 IsRunning = session != null && session.Ready,
                 CapturedAtUtc = DateTimeOffset.UtcNow,
                 Metrics = BuildMetrics(session),
@@ -368,6 +374,7 @@ namespace Quasar.Agent
                 {
                     PluginId = pluginId,
                     DisplayName = displayName,
+                    ConfigType = provider.ConfigType,
                     ConfigJson = json,
                 });
             }
@@ -382,6 +389,8 @@ namespace Quasar.Agent
         /// </summary>
         public Task ApplyPluginConfigAsync(string pluginId, string valuesJson)
         {
+            if (_options.ClusterMode)
+                throw new InvalidOperationException("Cluster plugin configuration must be activated for the whole cluster.");
             if (string.IsNullOrWhiteSpace(pluginId))
                 return Task.CompletedTask;
 
@@ -594,6 +603,8 @@ namespace Quasar.Agent
 
             public string PluginId { get; }
             public string DisplayName { get; }
+            // Explicit providers may serialize a different envelope; never infer an SDK type.
+            public string ConfigType => _explicitProvider == null ? _sdkConfig.GetType().FullName : string.Empty;
 
             public static ConfigProviderAdapter ForExplicit(LoadedPlugin loaded, IQuasarConfigProvider provider)
             {

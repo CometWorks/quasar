@@ -34,6 +34,19 @@
                 }
             }
             <MudExpansionPanels>
+                <MudExpansionPanel Text="Diagnostics, maintenance and exports">
+                    <MudButton OnClick="LoadDiagnosticsAsync" Disabled="@Busy">Load diagnostics</MudButton>
+                    <MudButton OnClick="LoadArtifactsAsync" Disabled="@Busy">List world exports</MudButton>
+                    <MudButton OnClick="ExportAsync" Disabled="@(!CanRun("POST /admin/v1/world-exports"))">Export vanilla world</MudButton>
+                    <MudText Typo="Typo.body2">Online exports are crash-consistent unless the Gateway proves a stronger consistency level.</MudText>
+                    <MudTextField T="string" Label="Maintenance command (JSON)" @bind-Value="_advancedCommand" Lines="5" />
+                    <MudText Typo="Typo.caption">Example: {"action":"trigger","target":"compact","parameters":{"node":"node-1"}}</MudText>
+                    <MudButton OnClick="AdvancedAsync" Disabled="@Busy">Run command</MudButton>
+                    <MudButton OnClick="LoadHandoverAsync" Disabled="@Busy">Load handover configuration</MudButton>
+                    <MudTextField T="string" Label="Handover settings to change (JSON)" @bind-Value="_handover" Lines="5" />
+                    <MudButton OnClick="ApplyHandoverAsync" Disabled="@Busy">Apply handover settings</MudButton>
+                    @if (_details is not null) { <pre style="max-height:400px;overflow:auto">@_details</pre> }
+                </MudExpansionPanel>
                 <MudExpansionPanel Text="Advanced capacity configuration">
                     <MudButton OnClick="LoadConfigAsync" Disabled="@Busy">Load current configuration</MudButton>
                     @if (_config is not null)
@@ -91,6 +104,30 @@
                 });
         }
         catch (OperationCanceledException) { }
+    }
+    private string _advancedCommand = "", _handover = "{}";
+    private string? _details;
+    private static readonly System.Text.Json.JsonSerializerOptions DetailJson = new(System.Text.Json.JsonSerializerDefaults.Web) { WriteIndented = true };
+    private async Task ShowAsync(Func<Task<object>> read)
+    {
+        try { _details = System.Text.Json.JsonSerializer.Serialize(await read(), DetailJson); _error = null; }
+        catch (Exception error) when (error is ClusterGatewayException or System.Text.Json.JsonException) { _error = error.Message; }
+    }
+    private Task LoadDiagnosticsAsync() => ShowAsync(async () => (await Gateway.GetDiagnosticsAsync(Cluster, _shutdown.Token)).Data);
+    private Task LoadArtifactsAsync() => ShowAsync(async () => (await Gateway.GetArtifactsAsync(Cluster, _shutdown.Token)).Data);
+    private Task LoadHandoverAsync() => ShowAsync(async () => (await Gateway.GetHandoverConfigAsync(Cluster, _shutdown.Token)).Data);
+    private Task ExportAsync() => SubmitAsync(ClusterAdminCommand.Create("world-export", new Admin.WorldExportRequest()));
+    private async Task AdvancedAsync()
+    {
+        try { await SubmitAsync(System.Text.Json.JsonSerializer.Deserialize<ClusterAdminCommand>(_advancedCommand, DetailJson)
+            ?? throw new System.Text.Json.JsonException("Command is required.")); }
+        catch (System.Text.Json.JsonException error) { _error = error.Message; }
+    }
+    private async Task ApplyHandoverAsync()
+    {
+        try { await SubmitAsync(ClusterAdminCommand.Create("handover-config-set",
+            System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string?>>(_handover, DetailJson))); }
+        catch (System.Text.Json.JsonException error) { _error = error.Message; }
     }
     private Task SaveAsync() => SubmitAsync(new("save-all"));
     private async Task ShutdownAsync()

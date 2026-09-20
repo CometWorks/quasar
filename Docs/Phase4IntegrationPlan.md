@@ -1,226 +1,207 @@
-# Phase 4 Quasar integration — continuation plan
+# Phase 4 Quasar integration — release continuation
 
-Updated 2026-09-13. Step 1 complete: upstream baseline refresh and plan reconciliation.
-Step 2 complete: current source-pinned contract, expanded queries, authoritative health,
-and observation without host provisioning. Step 3 implementation is complete with
-the public executor report contract recorded as an activation gap. Step 4 local
-implementation is complete. Steps 5–6 are deferred at the user’s request.
+Updated 2026-09-19. This is the current seven-stage plan and implementation record.
+It supersedes the older six-step branch plan. Implementation checks and live acceptance
+are recorded separately; a built package does not establish live acceptance.
 
-## Plan authority
+## Authority and ownership
 
-The local sibling `clustering-plan` checkout on `main` is the authoritative design,
-verified at `6621d1b7324a6b7da4285f87b354ef974fcb0a9f` after its latest pull.
-Upstream takes priority over all earlier integration-branch decisions. Keep the
-upstream checkout unchanged; record Quasar implementation gaps and progress here.
+Baseline: `clustering-plan` at `6621d1b7324a6b7da4285f87b354ef974fcb0a9f`,
+cluster release v1.0.3 at `1cd3a4265749fd932b9ba25ac155166160709a08` (verified
+SHA256SUMS), and Quasar branch `phase4/quasar-integration` starting at `65d4511`.
+The archived cluster-gateway and cluster-runtime repositories are historical only.
 
-The [upstream Quasar design](https://git.cometworks.se/CometWorks/clustering-plan/src/commit/6621d1b7324a6b7da4285f87b354ef974fcb0a9f/Plan/Quasar.md)
-§§2/5 makes the Gateway/Registry the decider and Quasar the phase 4 executor:
+Upstream implementation is reviewed in [cluster PR #12](https://github.com/CometWorks/cluster/pull/12)
+and [Magnetar PR #57](https://github.com/CometWorks/magnetar/pull/57). These changes
+require coordinated new releases (cluster 1.1.0, Magnetar 2.4.2.1); they are not
+capabilities of published cluster v1.0.3 or Magnetar v2.4.2.0. The vendored admin
+contract has its own [source pin](../Contracts/ClusterGateway.AdminContract/SOURCE.md).
 
-- Retain NodePlan actualization and per-host process execution. The registry chooses
-  placement, drain, rotation and WA designation; Quasar executes the desired process set.
-- Disable independent standalone restart/health/uptime decisions for live cluster nodes.
-- Start the Gateway first and stop it last, with registry-mediated graceful transitions.
-- Preserve running nodes across Quasar restart or outage; Quasar is not a data-plane dependency.
-- Expose one managed cluster through ordinary server/config/world workflows, with
-  registry-authoritative cluster metrics and Agent process telemetry.
-- Retain full-downtime updates, offline world conversion and scriptable admin/executor parity.
+Registry owns placement, admission, drain, rotation, WA assignment and shared plugin
+data. Host executes its plan with fenced process identities. Quasar owns desired
+state, operator workflows and operation tracking. Agent supplies optional observations.
+Gateway starts first and stops last. Running clusters do not depend on Quasar/Agent.
+No automatic `fresh` or wipe is permitted. An accepted request is not convergence.
 
-The [upstream phase 3 contract scope](https://git.cometworks.se/CometWorks/clustering-plan/src/commit/6621d1b7324a6b7da4285f87b354ef974fcb0a9f/Plan/Clustering.md)
-§13 assigns reachable administration to `/admin/v1` and down-state lifecycle to the
-packaged `cluster` CLI. Integrate those concrete entrypoints with the phase 4 executor
-model when available. This is not a blanket prohibition on Quasar process execution.
+Consume the entire verified release, including Local node/WA plugins, Gateway,
+world tool, CLI and docs. Do not rebuild those plugins at deployment or fetch them
+from MagnetarHub. External DS, Magnetar, Direct Transport, compatibility/common
+plugins and native assets are frozen separately and bound into the same revision.
+All regular/WA/spare/replacement nodes receive identical common plugins/config;
+only centrally prescribed infrastructure differs by role. No legacy variable aliases.
+`CLUSTER_NODE_EPOCH` identifies a catalog slot, not a Registry incarnation.
 
-The [phase 4 scenario gate](https://git.cometworks.se/CometWorks/clustering-plan/src/commit/6621d1b7324a6b7da4285f87b354ef974fcb0a9f/Plan/TestPlan.md)
-§2.4 permits Quasar development before phase 3 exits. Stable phase 3 suites gate live
-acceptance. P4-QSR-01…06 remain the upstream acceptance list: parity, convergence,
-non-dependency, upgrades, monitoring and conversion.
+## 1. Release compatibility and contracts
 
-Earlier branch-only declarations that the standalone cluster must own every executor,
-that Quasar must never invoke conversion tools, or that additional phase 4 test IDs and
-stock-DS migration prerequisites are locked do not override upstream. The old gap audit
-is historical implementation evidence. The previous version of this continuation plan
-incorrectly treated that audit as higher authority; the sequence below follows upstream.
+Implemented: canonical CLUSTER variables; release provenance and vendored DTOs;
+query/manage authorization; durable admin operations; runtime-published physical
+incarnation; public host-scoped executor leases and sequenced reports. Contract 0.4.0
+also exposes deployment revision/readiness and handover configuration capabilities.
 
-## Reviewed implementation baselines
+Gate: compare declared capabilities and exact artifacts, not version ordering.
+Unsupported old packages cannot enter managed deployment.
 
-| Component | Revision | Use |
-| --- | --- | --- |
-| Local `clustering-plan` main | `6621d1b` | Authoritative plan; clean checkout |
-| Quasar integration before merge | `69aa510` | Existing cluster implementation |
-| Quasar main merged in step 1 | `e50ca11` | Current standalone product, packaging and shutdown fixes |
-| Gateway Forgejo origin/main | `0546d1a` | Current concrete operator API, inspected from fetched source |
-| Retained Gateway integration | `8067a57` | Historical prototype; not the current API baseline |
+## 2. Verified provisioning
 
-The Quasar merge preserves the existing `phase4/quasar-integration` branch and its
-history. The older `agent/phase4-headless-api` branch is not a newer continuation.
-The original Quasar worktree remains separate from `Quasar-phase4`.
+Implemented: authenticated release staging, checksum/path/inventory validation,
+immutable package selection, revision CAS, isolated DS/Content/Magnetar snapshots,
+compiled Direct Transport bundles, common/compatibility plugins and resolved native
+assets. Offline verification detects changed or missing inputs. Existing managed
+runtime acquisition supplies DS/Magnetar; cluster staging never updates an active
+shared installation. Common plugin compilation/cache export is an explicit input step.
 
-## Step 1 — refresh the integration baseline
+Host preparation verifies the complete input inventory before promotion. Portable
+installation archives support remote Hosts and regenerate local launch paths. The
+package's nonlaunching generator produces execution bundles and canonical config.
+Capability `pluginServices: 1` requires the exact build PluginSdk SHA-256. Immutable
+candidate inputs remain separate from mutable runtime trees and the active revision.
 
-Merged Quasar main at `e50ca11`, including its 25 commits absent from integration.
-The five textual conflicts are resolved as follows:
+## 3. Durable packaged lifecycle
 
-| File | Resolution |
-| --- | --- |
-| `Docs/Configuration.md` | Keep cluster documentation and upstream initial-admin provisioning instructions |
-| `Quasar.Bootstrap/Quasar.Bootstrap.csproj` | Keep cluster contract/host packaging and upstream shared GitHub retry handler |
-| `Quasar.Tests/RbacAuthorizationTests.cs` | Keep initial-admin tests and cluster-page authorization coverage |
-| `Quasar/Components/Layout/NavMenu.razor` | Keep cluster Tools/Hosts navigation and upstream policy-protected navigation |
-| `Quasar/Services/Auth/RbacConfigCatalog.cs` | Keep upstream initial-admin provisioning and last-admin protection |
+Implemented: create/import UI/API/CLI; all-Host preparation and activation; explicit
+missing-Gateway recovery; per-cluster lifecycle serialization; continuous NodePlan
+execution; process adoption and lost-response replay; exact-incarnation kills;
+Registry acknowledgements; authoritative clean-Down proof before Gateway teardown.
 
-The combined test project references both Bootstrap and worker, which each compile
-`GitHubRetryHandler`. Alias the Bootstrap project reference and import that alias in
-`ClusterCliTests` to remove the duplicate-type ambiguity without changing runtime code.
-Retain the upstream executor architecture. No Gateway/DirectTransport/ClusterRuntime
-implementation history is merged as part of this baseline refresh.
+Shutdown proof binds lifecycle generation/endpoints/spec. Same-generation replay
+preserves draining, backoff, pending kills and shutdown. Candidate staging does not
+invalidate proof. On waits for an outstanding shutdown to settle. Partial activation
+blocks start until the original request completes. Host stop carries the observed
+PID and launch time, never just a slot name.
 
-Validation results are recorded below. Contract migration remains step 2.
+Runtime heartbeats prove canonical plugin/config readiness. Executor reports cannot
+grant it. Registry restart clears transient readiness without undoing lifecycle;
+surviving nodes re-establish proof. Stopped-slot configuration refresh preserves
+plugin-owned files, empty directories and modes. Warm starts never overwrite worlds.
 
-## Baseline gaps reviewed in steps 2–3
+Live gate: create → Serving → clean Down → warm start, process adoption without
+churn, replacement/spare admission and response-loss recovery.
 
-1. Quasar pins the historical `0.5.0` admin-contract package; current Forgejo source
-   declares `0.3.0` of a different lineage. Both use wire protocol v1. Select a reproducible
-   contract artifact matching the standalone source; package version order or the protocol
-   header alone does not prove compatibility. Do not overwrite a published version.
-2. `ClusterGatewayClient` omits Gateway `Idempotency-Key` headers. Current config writes
-   require `AdminConfigUpdate` with an expected revision, and lifecycle mutations return
-   durable `AdminOperation` records instead of prototype lifecycle results.
-3. `ClusterOperationStore` treats a returned envelope as completion; a Gateway operation
-   may still be running. Persist its ID/key and reconcile terminal state across lost
-   responses and Quasar restart.
-4. `Quasar.Host` implements the planned executor role but targets the older contract.
-   Verify plan/report/credential support against current Gateway and packaging before
-   expanding it. Observation of an existing cluster should not require provisioning a host.
-5. Current Gateway implements GET/PUT `/admin/v1/handover-config` outside its advertised
-   `AdminProtocol.Operations` and thin C# CLI list. Track this parity gap upstream before
-   relying on it for an advanced editor; basic integration can proceed independently.
-6. Gateway `9512282` removed node-link restart patches after regressions. Reusing executor
-   code does not justify replaying those data-plane patches into current Gateway.
+## 4. Configuration, telemetry and administration
 
-Upstream stabilization also changes identity allocation to registry-issued ranges with
-separate 64-bit per-slot incarnation epochs, adds hot-spare policy, and excludes conversion
-of worlds created under the retired 8-bit epoch scheme. Use these rules in identity,
-capacity and conversion work. Placement and handover algorithms remain registry/runtime
-responsibilities. The `~/HotSpareNodes.md` reference is absent from the plan tree; verify
-concrete API support rather than inventing its missing details.
+Implemented: one durable preparation specification for all Hosts; ordinary SDK
+schema/editor reused for common config values; a config edit prepares a new candidate
+and full-downtime activation applies it. SDK canonical storage is installed before
+plugin construction and live read-back detects drift. Per-node config writes are
+rejected in Quasar and Agent. Failed/unknown/mismatched provenance remains visible.
 
-## Step 2 — align the contract and observe an existing cluster
+Registry observations and optional Agent receipts are correlated to process,
+slot/node/incarnation and revision. Diagnostics, scoped maintenance, handover config,
+world exports and artifact operations have management UI/API/CLI paths. Exact
+capability/CLI parity includes the upstream handover routes.
 
-Pin the current standalone contract, using an isolated development artifact/feed if package
-publication is not ready. Extend the existing client and application services for
-capabilities, health, status, fleet/WA, recovery readiness, snapshots, configuration,
-operations and events. Render Gateway-computed health, reason codes and admission state.
-Represent unsupported features, stale observations, unavailable Gateway and query-only
-access explicitly. Keep the executor; make observation independent of host provisioning.
+Live gate: unchanged ordinary plugin fixture, uniform effective config, drift,
+stale Agent receipt rejection and continued operation without Agent/Quasar.
 
-Acceptance: current wire fixtures deserialize and map correctly; query-only credentials
-cannot mutate; unavailable does not mean stopped. This slice needs no deployment package.
+## 5. Conversion, backups and restore
 
-## Step 3 — durable operations and executor alignment
+Implemented: guided standalone-to-cluster and cluster-to-standalone pages/buttons,
+with matching API/CLI routes, immutable conversion requests, progress and resume.
+Both create stopped destinations, retain backups and preserve source data. Forward
+conversion reviews historical SDK settings and frozen plugin commits, transfers the
+complete verified installation/world to every Host, then prepares/activates the fleet.
+The release seeds regular slots 1 and 2; the wizard requires two regular nodes and
+assigns World Authority separately. Reverse conversion assembles verified copies from
+all stopped Host snapshots without shared storage and atomically publishes a separate
+standalone server. Canonical plugin settings are exported for review/reapplication;
+private/shared plugin stores remain in backup. Unsupported access restrictions and
+non-SDK configuration providers block forward conversion. See
+[Cluster Conversion](ClusterConversion.md) for exact scope and operator steps.
 
-Forward stable idempotency keys, track Gateway operations to completion and recover by
-ID/key after restart. Route UI and headless actions through the same application methods.
-Implement CAS config, save/shutdown and supported administration against the current API.
-Align executor plan polling, spawn reports, exact-incarnation kills and Gateway lifecycle
-with the upstream design and available package entrypoints. Keep registry decisions
-separate from process execution; preserve standalone supervision.
+Shipped MagnetarWorld conversion preserves source; stopped multi-Host
+native snapshots retain world, Registry, plugin records/private files and provenance.
+Quiescent requires matching clean-Down proof; CrashConsistent requires explicit opt-in.
+Snapshot IDs bind a capture lifecycle, hashes, directory/file modes and storage formats.
+Host snapshot copies are released only after verified local archive commit.
 
-Acceptance: replay does not repeat effects, changed requests conflict, stale revisions fail,
-202 is not completion, authorization holds, and executor restart adopts existing processes
-without churn. Missing public executor contracts are explicit integration gaps.
+Gateway vanilla exports have bounded retention and are retrieved through the Gateway
+Host, with exact manifest/file hashes, inventory and byte counts checked before
+release. Single-Host data roots are generated automatically. Multi-Host exports need
+explicit Gateway-readable shared `exportDataRoots`; stopped native snapshots do not.
 
-## Step 4 — Agent and management expansion
+Automatic native backups use existing server schedule/retention only while already
+cleanly stopped; scheduling does not introduce downtime. Manual backups/exports are
+retained. Online export scheduling is not part of automatic native backup policy.
 
-Complete cluster/slot/node/epoch identity and key plugin/config/stats/log observations by
-current incarnation. Reuse existing plugin and telemetry services. Expand fleet/player/event
-panels and normal server/profile/world workflows without promoting branch-only policy or
-Agent requirements into upstream mandates.
+Restore requires a stopped fleet and newly prepared credentials. It retains the
+previous runtime, journals each Host restore, fences old operations and blocks start
+until activation completes. Registry restore clears old execution/ownership state,
+bump generations and changes plugin StoreId. Storage maps (`world`, `registry`,
+`plugins`) must match; changed formats require an explicit migration.
 
-Acceptance: replacement nodes cannot inherit stale Agent state; registry remains cluster
-truth; telemetry disconnection does not trigger independent node lifecycle decisions.
+Live gate: conversion parity, verified export retrieval, native restore/recovery,
+credential and stale-writer fencing, truthful consistency labels.
 
-## Step 5 — packaged lifecycle, backups and recovery
+## 6. PluginSdk shared state — mandatory first post-beta release
 
-Use the package's documented start/import/restore/teardown entrypoints in the upstream
-executor and UI workflows. Verify package identity, run roots, credentials, noninteractive
-arguments, results and re-adoption before live use. Reuse cluster conversion tooling and
-world-export artifacts with existing backup/retention services. Respect source preservation,
-world compatibility and actual quiescent/crash-consistent labels. SharedPath is the current
-Gateway artifact implementation, not an immutable product-wide restriction.
+Implemented upstream: `PluginCluster.ForPlugin` with loader-bound namespace;
+authoritative durable reads/CAS with store UUID, revisions, schemas, tombstones and
+bounded replay; node/incarnation context; WA/partition/physical targets; ownership
+fences; bounded request/reply and game-thread handler admission. Standalone has one
+local durable owner. Cluster provider loss fails unavailable, never local fallback.
 
-Acceptance: start → serve → clean down → warm start, verified backup retrieval, and
-conversion parity with the standalone tool. Live tests need a runnable package and stable
-phase 3 fixtures. Package internals must not be guessed from test harness layouts.
+Registry WAL and authenticated runtime links own the data path. Quasar/Agent are
+observers only. The SDK exposes results for conflicts, fencing, capacity, unavailable
+and timeouts; no automatic message retry or exactly-once external effects. Queue
+admission checks lease freshness; authoritative effects still require fenced writes.
+See [Cluster Plugins](ClusterPlugins.md#planned-sdk-extension-shared-state-and-node-aware-data)
+and upstream SDK documentation/example for exact semantics and bounds.
 
-## Step 6 — full-downtime updates and phase 4 acceptance
+Packaging binds the actual SDK hash; Gateway's verbatim protocol mirror has a hash
+check. Diagnostics use existing PluginStats. Lifecycle requests fail closed when the
+provider is absent, persist regular-node save-first stop/restart outcomes, and reject
+unsupported WA/no-save requests rather than silently terminating a local node.
 
-Drain, activate a complete compatible bundle and restart through the executor/package
-interface. Refuse partial version combinations. Run upstream P4-QSR-01…06 and unchanged
-phase 1–3 regressions; verify Quasar restart/outage during idle, drain and rotation.
-Additional headless/recovery coverage can supplement the upstream scenarios without
-renumbering or replacing their acceptance contract.
+Live gate: provider registration from exact package, concurrent conflicts, durable
+recovery, stale ownership, bounded dispatch, schema/restore, standalone behavior and
+Quasar/Agent outage. Current ordinary plugins need no shared-state adaptation.
+This stage's delivery and acceptance remain mandatory before first post-beta release.
 
-## Validation
+## 7. Full-downtime updates and acceptance
 
-- Step 2: 196 tests passed, including current-wire health/admission, incompatible response
-  rejection, idempotency headers and observation without host actions.
-- Before merge: 55 focused prototype tests passed.
-- After merge and Bootstrap reference fix: all 192 `Quasar.Tests` tests passed; none skipped.
-- `dotnet build Quasar.sln --verbosity minimal` succeeded with zero errors. Existing
-  assembly-reference conflict and NuGet advisory warnings remain.
-- `dotnet Quasar.Host/bin/Debug/net10.0/Quasar.Host.dll --self-test` passed, covering
-  command handling, process start/re-adoption, exact process kills and bundle checks.
-- `python3 scripts/test-bootstrap-shutdown.py` passed for foreground and service modes:
-  stale shutdown requests, crash restart and successful intentional shutdown. This uses
-  an isolated fake HTTP worker, not the Quasar web service.
+Implemented: durable Stopping → Activating → Starting → Complete workflow. Online
+preflight validates every Host before requesting downtime. Clean proof and stopped
+Host previews precede activation. Errors retain the checkpoint for replay. Completion
+requires matching Gateway deployment revision, managed runtime readiness and Host
+attachment hashes. UI follows catalog progress; CLI `update --wait` checks the exact
+submitted workflow. Pending workflows block competing lifecycle/config actions.
 
-These checks validate the refreshed implementation baseline, not current-Gateway wire
-compatibility or live phase 4 acceptance. No Quasar web service or game cluster was launched.
+Previous installation is retained. Explicit rollback reuses the same workflow and
+storage-format gate, preserving current world and plugin data. Format mismatch is an
+error, never a silent data downgrade. No mixed cluster-package rollout is supported.
 
-## Step 3 result
+Final live acceptance: P4-QSR-01…06 (parity, convergence, Quasar non-dependency,
+updates, monitoring and conversion), stage 6 packaged SDK cases, and unchanged
+upstream phase 1–3 regressions. Full local verification follows implementation;
+Quasar web service must not be launched without an explicit smoketest request.
 
-GUI and headless commands share a validated command service. CAS configuration,
-save/shutdown, node administration, player moderation, chat and maintenance forward
-stable keys through persisted operations. Running Gateway operations resume by ID;
-a lost initial response replays the same persisted key. Local goal acknowledgement
-is distinct from lifecycle convergence. Quasar.Host now uses the same pinned source
-contract as the worker and Bootstrap, with local execution results kept private.
+## Verification record and release gate
 
-Current Gateway has no public executor report route. The host reads the current plan
-but refuses automatic actualization before any node process action. This explicit gap
-avoids relying on the legacy unfenced heartbeat or inventing a public protocol. Retained
-local actualizer tests cover re-adoption and exact process kills. No data-plane patches
-were restored. Closing this gap requires an upstream report/credential contract.
+Exact source pins, test counts and local artifact hashes are in the
+[verification report](ClusterIntegrationVerification.md).
 
-Validation: solution build passed; 199 tests passed, including durable operation
-restart/replay, lost-response key reuse and terminal revision conflicts. Host self-test
-passed. These are local implementation checks; live acceptance remains deferred.
+Focused checks have passed for Gateway persistence/executor/admin/plugin services,
+Host inert-process preparation/activation/snapshot/restore, Python managed generation,
+and Quasar cluster services/API/CLI. SDK checks cover CAS/replay/tombstone/restore,
+standalone durability/concurrency, missing-provider lifecycle and queued-handler fencing.
+The example plugin compiles. A fresh complete cluster review package builds and its
+shipped self-tests pass. These are implementation checks, not live cluster acceptance.
 
-## Step 4 result
+Remaining release gate: coordinated upstream merge/releases, exact packaged runtime
+acceptance and full local P4 scenarios. Quasar changes remain on this branch; upstream
+code and generic-plan changes are submitted for review separately.
 
-Agent hello/snapshot now carry slot and 64-bit incarnation epoch, with runtime readiness
-receipts accepted only for the matching launch attempt and PID. Cluster Agent IDs are
-unique per process lifetime. Unknown epochs stay uncorrelated pending runtime identity
-publication; the package must still verify that publication seam. Registry status alone
-supplies current cluster/node identity for fleet correlation. Ambiguous or stale incarnations
-cannot become current by arriving later.
+### PR review follow-up — 2026-09-20
 
-Metrics, profiler, plugin statistics and logs use incarnation-specific keys. Config caches
-and edits carry connection identity; late snapshots, config updates and command results
-from superseded connections are rejected. Cluster admin-stop/restart notifications cannot
-enter standalone supervision, and cluster Agents are excluded from its telemetry lookup.
-Standalone Agent behavior remains covered by the existing tests.
+Stages 3–7 now include explicit stopped-fleet recovery for dirty Down/persisted Serving,
+without weakening clean activation/update gates. Quasar verifies all nodes stopped,
+stops the exact Gateway incarnation and rechecks every Host before recording a recovery
+generation. Saves/plugin records survive; stale authority is fenced; replay preserves
+later shutdown progress. Normal process restarts retain the original generation.
 
-The GUI adds fleet/process/plugin details, Registry players with moderation, node drain
-and fenced force removal, and a bounded event tail with retention/reset indication. CLI
-`fleet` returns the same joined observations. Existing profile/world catalogs are linked
-from cluster details, and ordinary plugin tools label each node incarnation. Actual
-profile/world application, boot-image creation and conversion await step 5 packaging.
-
-Steps 5–6 remain unstarted. No web service or game cluster was launched. Upstream phase 3
-stabilization and packaging remain independent work; live P4-QSR-01…06 acceptance is deferred.
-
-Final local validation: solution build succeeded with zero errors; all 215 tests passed
-with none skipped. Added coverage includes 64-bit launch receipts, stale connection/config
-fencing, exact Registry/Agent matching, CLI fleet/cursor/command routes, and query/manage
-route authorization. Existing assembly-reference and NuGet advisory warnings remain.
+Executor lease-only heartbeats retain persistence batching. Managed legacy plan/heartbeat
+mutations are refused. CLI Gateway calls carry configured bearer authentication, including
+loopback. Release build, CLI startup and Host preparation enforce actual SDK version/types;
+Magnetar 2.4.2.1 and its managed configuration/plugin services remain a release prerequisite.
+Persistence failure deliberately remains fail-closed with 503 and paused relay; supervisor
+control-health checks and storage repair/restart are required. Live acceptance remains open.

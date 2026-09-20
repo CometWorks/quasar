@@ -6,6 +6,21 @@ namespace Quasar.Tests;
 
 public sealed class ClusterLifecycleSafetyTests
 {
+    [Fact]
+    public void DirectHostMutationsCannotBypassManagedDeployment()
+    {
+        var cluster = new Quasar.Models.ClusterDefinition();
+        ClusterApi.EnsureDirectHostMutationAllowed(cluster);
+        cluster.PendingDeploymentHash = "pending";
+        Assert.Throws<ClusterOperationConflictException>(() => ClusterApi.EnsureDirectHostMutationAllowed(cluster));
+        cluster.PendingDeploymentHash = null;
+        cluster.PendingRestoreHash = "restore";
+        Assert.Throws<ClusterOperationConflictException>(() => ClusterApi.EnsureDirectHostMutationAllowed(cluster));
+        cluster.PendingRestoreHash = null;
+        cluster.ActiveDeployment = new("revision", [], DateTimeOffset.UtcNow);
+        Assert.Throws<ClusterOperationConflictException>(() => ClusterApi.EnsureDirectHostMutationAllowed(cluster));
+    }
+
     [Theory]
     [InlineData(Admin.ClusterPhase.Serving, true)]
     [InlineData(Admin.ClusterPhase.Down, false)]
@@ -20,6 +35,17 @@ public sealed class ClusterLifecycleSafetyTests
     [Fact]
     public void GatewayStopAcceptsCleanDownProof() =>
         ClusterApi.EnsureGatewayCanStop(Status(Admin.ClusterPhase.Down, hasMarker: true));
+
+    [Fact]
+    public void GatewayStopRejectsMarkerFromEarlierShutdown()
+    {
+        var status = Status(Admin.ClusterPhase.Down, hasMarker: true) with
+        {
+            LastCleanShutdown = DateTimeOffset.UnixEpoch,
+            ShutdownStarted = DateTimeOffset.UnixEpoch.AddMinutes(1),
+        };
+        Assert.Throws<ClusterGatewayException>(() => ClusterApi.EnsureGatewayCanStop(status));
+    }
 
     private static Admin.ClusterStatus Status(Admin.ClusterPhase phase, bool hasMarker) => new(
         "demo", "world", phase, Admin.StartupKind.Recovery, null,

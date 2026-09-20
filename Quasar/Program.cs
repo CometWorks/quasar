@@ -193,7 +193,7 @@ public class Program
             builder.Services.AddHttpClient<ClusterGatewayClient>(client =>
                 client.Timeout = Timeout.InfiniteTimeSpan);
             builder.Services.AddHttpClient<ClusterHostClient>(client =>
-                client.Timeout = TimeSpan.FromSeconds(30));
+                client.Timeout = Timeout.InfiniteTimeSpan);
             builder.Services.AddSingleton(webServiceOptions);
             builder.Services.AddSingleton(managedRuntimeOptions);
             builder.Services.AddSingleton(updateOptions);
@@ -231,9 +231,16 @@ public class Program
             builder.Services.AddSingleton<DedicatedServerCatalog>();
             builder.Services.AddSingleton<ExistingServerImportService>();
             builder.Services.AddSingleton<ClusterCatalog>();
+            builder.Services.AddSingleton<ClusterPackageService>();
+            builder.Services.AddSingleton<ClusterDependencyService>();
             builder.Services.AddSingleton<ClusterOperationStore>();
             builder.Services.AddHostedService<ClusterOperationReconciler>();
             builder.Services.AddSingleton<ClusterCommandService>();
+            builder.Services.AddSingleton<ClusterDeploymentService>();
+            builder.Services.AddSingleton<ClusterConversionService>();
+            builder.Services.AddSingleton<ClusterBackupService>();
+            builder.Services.AddSingleton<ClusterUpdateService>();
+            builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterUpdateService>());
             builder.Services.AddSingleton<ClusterFleetService>();
             builder.Services.AddSingleton<ClusterReconciler>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ClusterReconciler>());

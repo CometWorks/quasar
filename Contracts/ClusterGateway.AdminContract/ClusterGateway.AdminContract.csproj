@@ -5,9 +5,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <PackageId>CometWorks.ClusterGateway.AdminContract</PackageId>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <Description>Versioned implementation-free admin contract for CometWorks Cluster Gateway.</Description>
-    <RepositoryUrl>https://git.cometworks.se/CometWorks/cluster-gateway</RepositoryUrl>
+    <RepositoryUrl>https://github.com/CometWorks/cluster</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

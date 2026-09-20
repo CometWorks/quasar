@@ -16,6 +16,7 @@ public sealed class ClusterOperationStore
     };
     private readonly string _directory;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly ConcurrentDictionary<(string Cluster, string Kind, string Key), SemaphoreSlim> _localExecutionGates = new();
     private readonly ConcurrentDictionary<string, ClusterOperation> _operations = new(StringComparer.Ordinal);
     private volatile bool _ready = true;
 
@@ -49,6 +50,25 @@ public sealed class ClusterOperationStore
     public ClusterOperation? Get(string operationId) =>
         _operations.GetValueOrDefault(operationId);
 
+    internal bool HasPendingShutdown(string cluster) => _operations.Values.Any(operation =>
+        operation.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase)
+        && operation.State == ClusterOperationState.Running
+        && operation.Kind is "cluster.lifecycle.shutdown" or "cluster.shutdown");
+
+    internal async Task FenceGatewayOperationsForRestoreAsync(string cluster, CancellationToken token, bool recovery = false)
+    {
+        await _gate.WaitAsync(token);
+        try
+        {
+            foreach (var operation in _operations.Values.Where(o => o.Cluster == cluster
+                && o.State == ClusterOperationState.Running && o.GatewayRequest is not null).ToArray())
+                await SaveAsync(operation with { State = ClusterOperationState.Failed, UpdatedAt = DateTimeOffset.UtcNow,
+                    Error = recovery ? new("superseded_by_recovery", "Explicit recovery fenced this earlier Gateway operation.")
+                        : new("superseded_by_restore", "Explicit restore fenced this pre-restore Gateway operation.") }, token);
+        }
+        finally { _gate.Release(); }
+    }
+
     public async Task<ClusterOperation> ExecuteAsync<TRequest, TResult>(string cluster, string kind,
         string idempotencyKey, string actor, TRequest request,
         Func<CancellationToken, Task<Admin.AdminEnvelope<TResult>>> execute,
@@ -63,7 +83,10 @@ public sealed class ClusterOperationStore
             JsonSerializer.SerializeToUtf8Bytes(request, JsonOptions))).ToLowerInvariant();
         string key = idempotencyKey.Trim();
 
-        await _gate.WaitAsync(cancellationToken);
+        // Downloads can take minutes. Serialize retries of one local operation without
+        // holding up Gateway administration or unrelated local operations.
+        var executionGate = _localExecutionGates.GetOrAdd((cluster.ToUpperInvariant(), kind, key), _ => new(1, 1));
+        await executionGate.WaitAsync(cancellationToken);
         try
         {
             ClusterOperation? existing = _operations.Values.FirstOrDefault(operation =>
@@ -114,13 +137,33 @@ public sealed class ClusterOperationStore
                     Error = new ClusterOperationError(exception.Code, exception.Message),
                 };
             }
+            catch (ClusterPackageException exception)
+            {
+                existing = existing with
+                {
+                    State = ClusterOperationState.Failed,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                    Error = new ClusterOperationError("cluster_package_failed", exception.Message),
+                };
+            }
+            catch (ClusterOperationConflictException exception)
+            {
+                // A conflict from the mutation itself is terminal. Admission/key conflicts above
+                // still return HTTP errors without creating a durable operation.
+                existing = existing with
+                {
+                    State = ClusterOperationState.Failed,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                    Error = new ClusterOperationError(exception.Code, exception.Message),
+                };
+            }
             _operations[existing.OperationId] = existing;
             await PersistAsync(existing, cancellationToken);
             return existing;
         }
         finally
         {
-            _gate.Release();
+            executionGate.Release();
         }
     }
 
@@ -161,11 +204,13 @@ public sealed class ClusterOperationStore
         if (!IsReady) return;
         foreach (var pending in _operations.Values.Where(o => o.State == ClusterOperationState.Running && o.GatewayRequest is not null))
         {
-            var cluster = catalog.GetCluster(pending.Cluster);
-            if (cluster is null) continue;
-            await _gate.WaitAsync(cancellationToken);
-            try { await ResumeGatewayAsync(_operations[pending.OperationId], cluster, client, cancellationToken); }
-            finally { _gate.Release(); }
+            if (catalog.GetCluster(pending.Cluster) is null) continue;
+            await catalog.WithLifecycleAsync(pending.Cluster, async cluster =>
+            {
+                await _gate.WaitAsync(cancellationToken);
+                try { return await ResumeGatewayAsync(_operations[pending.OperationId], cluster, client, cancellationToken); }
+                finally { _gate.Release(); }
+            }, cancellationToken);
         }
     }
 
@@ -258,6 +303,8 @@ public sealed record ClusterOperation(
     GatewayOperationRequest? GatewayRequest = null);
 
 public sealed record ClusterOperationError(string Code, string Message);
+
+public sealed class ClusterPackageException(string message) : Exception(message);
 
 public sealed class ClusterOperationConflictException(int statusCode, string code, string message) : Exception(message)
 {

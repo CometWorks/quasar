@@ -32,8 +32,12 @@ else
         shown for visibility; the Registry remains authoritative for fleet decisions.
     </MudAlert>
 
+    <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="conversionAuth">
+        <MudButton Href="@("/clusters/" + Uri.EscapeDataString(Cluster.UniqueName) + "/convert-to-server")" StartIcon="@Icons.Material.Filled.Dns">Convert to standalone server</MudButton>
+    </AuthorizeView>
     <ClusterDetailPanel @key="Cluster.UniqueName" Cluster="Cluster" />
     <ClusterAdminPanel @key="Cluster.UniqueName" @ref="_admin" Cluster="Cluster" />
+    <ClusterDeploymentPanel @key="Cluster.UniqueName" Cluster="Cluster" />
     <ClusterFleetPanel @key="Cluster.UniqueName" Cluster="Cluster" Command="ExecuteCommandAsync" />
 }
 

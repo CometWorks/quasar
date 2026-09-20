@@ -73,6 +73,13 @@ On a cluster node it reports process telemetry tagged with cluster/node/role ide
 reconnects indefinitely, and does not own save, shutdown, or restart. ClusterRuntime and
 Magnetar route lifecycle intent to the Gateway; `Quasar.Host` owns process execution.
 
+Cluster shutdown uses the durable Gateway operation journal. The worker persists
+clean-Down evidence before requesting a Host stop fenced to the observed PID and
+launch timestamp. Host confirms that exact process is gone; restart recovery requires
+the matching evidence and confirmation. Missing processes alone do not establish clean
+Down. Per-cluster worker gates order lifecycle effects and edits; they are not distributed
+leases or the still-required public fenced node-executor contract.
+
 ## Target Workflow
 
 Primary workflow:
@@ -281,6 +288,43 @@ the same allow-list. Mutations are written to the durable cluster operation stor
 before dispatch, keyed by `Idempotency-Key`, and return a pollable operation ID.
 The browser UI must consume these contracts too; it may not gain UI-only cluster
 behavior or validation.
+
+### Cluster release provisioning
+
+Cluster release staging consumes published `CometWorks/cluster` assets independently
+of standalone Magnetar/DS provisioning. It reuses the HTTP factory's GitHub retry
+handler and encrypted GitHub credentials, downloads private assets through GitHub's
+asset API, verifies SHA256SUMS, and atomically stages a versioned installation with
+file hashes. API and Bootstrap CLI stage an explicit version/hash through the durable
+cluster operation store. The catalog persists a revision-checked candidate package
+selection, with local offline verification and no change to lifecycle request identity.
+
+`ClusterDependencyService` snapshots installed DS/Content, Magnetar and a precompiled,
+source-pinned Direct Transport bundle plus common/compatibility plugins and resolved
+native assets into schema-2 installations keyed by a manifest SHA-256.
+It reuses installed-runtime discovery without invoking the standalone updater. The
+manifest binds the selected cluster package, dependency file hashes and executable
+flags. Copies are verified against an explicitly selected candidate before atomic
+promotion, then attached using package/dependency selection checks. Existing snapshots
+remain reusable offline after shared inputs change or disappear.
+
+Staging runs on the worker host and does not activate files or launch processes.
+The manage-authorized deployment-input export feeds `Quasar.Host deployment prepare`:
+Host verifies and atomically copies the selected package/snapshot into an isolated
+deployment with explicit launch environment paths. Reuse verifies the copy offline.
+Shared deployment checks are linked into worker and Host; neither trusts a path alone.
+The upstream CLI supports frozen local common bundles, with implicit compatibility
+selection and no hub/source refresh. Capability metadata gates this path on a future
+release. Cold acquisition, remote transfer, writable runtime placement, config activation
+and serving admission remain integration work. A verified candidate is not readiness.
+
+Cluster v1.0.3 includes compiled node and WA plugins. Its release manifest is version
+provenance, not the retained Host executor bundle schema. Node actualization stays
+disabled until a public fenced reporting contract exists. Agents recognize only the
+released `CLUSTER_*` activation and identity names; their Registry incarnation remains
+unknown until trusted runtime publication is integrated. See
+[Phase 4 Integration](Phase4IntegrationPlan.md) for the reconciled sequence and upstream
+requirements.
 
 ## UI Theme
 
@@ -1008,3 +1052,17 @@ As of this document:
 - future shared-memory local bulk-state transport is planned but not implemented
 
 This document supersedes older assumptions that the DS plugin might directly own the long-running web host lifecycle.
+
+## Managed cluster data and update ownership
+
+`ClusterDeploymentService` prepares and activates one revision across Hosts.
+`ClusterBackupService` verifies native Host snapshots and Gateway world exports before
+retention/release; explicit restore journals each Host and fences earlier operations.
+`ClusterUpdateService` persists Stopping → Activating → Starting → Complete and reuses
+ordinary reconciliation for shutdown/startup. Completion requires the exact runtime
+revision/readiness and Host attachment hashes; compatible rollback retains live data.
+
+PluginSdk shared records/messages bypass Quasar and Agent: the cluster provider uses
+Registry WAL/ownership and authenticated runtime links. Canonical plugin configuration
+is desired deployment state, separate from mutable plugin records. Agent observes
+incarnation-bound readiness/drift/statistics. See [Cluster Plugins](ClusterPlugins.md).

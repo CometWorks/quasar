@@ -26,6 +26,15 @@ internal sealed class GatewayActualizer
         _hostId = hostId;
     }
 
+    internal void EnsureStopped(string clusterId)
+    {
+        var record = ReadRecord(clusterId);
+        var match = Inspect(record);
+        match.Process?.Dispose();
+        if (match.State != ProcessMatchState.Missing || record?.Status == GatewayLaunchStatus.Launching)
+            throw new InvalidOperationException("Gateway must be verifiably stopped before activation.");
+    }
+
     public async Task<HostContract.GatewayStatus> ReconcileAsync(
         HostContract.GatewaySpec spec, CancellationToken cancellationToken)
     {
@@ -59,15 +68,23 @@ internal sealed class GatewayActualizer
             return Status(spec, HostContract.GatewayObservedState.UnmanagedConflict,
                 record?.ProcessId, record?.LaunchedAt, "recorded_process_identity_mismatch");
 
+        if (record?.Status == GatewayLaunchStatus.Launching && record.ProcessId is null)
+            return Status(spec, HostContract.GatewayObservedState.UnmanagedConflict,
+                null, record.LaunchedAt, "launch_identity_not_committed");
+
+        if (record is not null && match.State == ProcessMatchState.Alive && !RecordMatchesSpec(record, spec))
+        {
+            match.Process!.Dispose();
+            return Status(spec, HostContract.GatewayObservedState.Failed,
+                record.ProcessId, record.LaunchedAt, "running_spec_mismatch");
+        }
+
         if (spec.Goal == HostContract.GatewayGoal.Off)
             return await ReconcileOffAsync(spec, record, match, cancellationToken);
 
         if (record is not null && match.State == ProcessMatchState.Alive)
         {
             using Process process = match.Process!;
-            if (!RecordMatchesSpec(record, spec))
-                return Status(spec, HostContract.GatewayObservedState.Failed,
-                    record.ProcessId, record.LaunchedAt, "running_spec_mismatch");
             return Status(spec, HostContract.GatewayObservedState.Running,
                 record.ProcessId, record.LaunchedAt, null);
         }
@@ -80,10 +97,6 @@ internal sealed class GatewayActualizer
                 record.ProcessId, record.LaunchedAt, "process_exited");
         }
 
-        if (record?.Status == GatewayLaunchStatus.Launching && record.ProcessId is null)
-            return Status(spec, HostContract.GatewayObservedState.UnmanagedConflict,
-                null, record.LaunchedAt, "launch_identity_not_committed");
-
         return Spawn(spec);
     }
 
@@ -91,6 +104,13 @@ internal sealed class GatewayActualizer
         HostContract.GatewaySpec spec, GatewayLaunchRecord? record, ProcessMatch match,
         CancellationToken cancellationToken)
     {
+        if (spec.StopFence is { } expected
+            && (record?.ProcessId != expected.ProcessId || record.LaunchedAt != expected.LaunchedAt))
+        {
+            match.Process?.Dispose();
+            return Status(spec, HostContract.GatewayObservedState.UnmanagedConflict,
+                record?.ProcessId, record?.LaunchedAt, "gateway_stop_fence_mismatch");
+        }
         if (record is null || match.State == ProcessMatchState.Missing)
         {
             if (record is not null && record.Status != GatewayLaunchStatus.Stopped)
@@ -100,6 +120,10 @@ internal sealed class GatewayActualizer
         }
 
         using Process process = match.Process!;
+        if (spec.StopFence is not { } fence || fence.ProcessId != record.ProcessId
+            || fence.LaunchedAt != record.LaunchedAt)
+            return Status(spec, HostContract.GatewayObservedState.UnmanagedConflict,
+                record.ProcessId, record.LaunchedAt, "gateway_stop_fence_mismatch");
         try
         {
             await KillProcessAsync(process, cancellationToken);
@@ -133,7 +157,7 @@ internal sealed class GatewayActualizer
                 bundle.Manifest.Revision, spec.BundleManifestSha256, spec.ConfigRevision,
                 executablePath, bundle.Files[NormalizeRelativePath(spawn.Executable)],
                 spec.RunRoot, spec.Ports, null, null, DateTimeOffset.UtcNow,
-                GatewayLaunchStatus.Launching, null);
+                GatewayLaunchStatus.Launching, null, spec.StartGeneration);
             WriteRecord(record);
 
             using var process = new Process
@@ -197,13 +221,18 @@ internal sealed class GatewayActualizer
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        foreach (string name in start.Environment.Keys.Where(name => name.StartsWith("CLUSTER_", StringComparison.Ordinal)).ToArray())
+            start.Environment.Remove(name);
         foreach (string argument in spawn.Arguments ?? [])
             start.ArgumentList.Add(Expand(argument));
         foreach ((string name, string value) in spawn.Environment ?? [])
             start.Environment[name] = Expand(value);
-        start.Environment["QUASAR_CLUSTER_ID"] = spec.ClusterId;
-        start.Environment["QUASAR_CLUSTER_CONFIG_REVISION"] = spec.ConfigRevision;
-        start.Environment["QUASAR_CLUSTER_GATEWAY_RUN_ROOT"] = spec.RunRoot;
+        start.Environment["CLUSTER_ID"] = spec.ClusterId;
+        start.Environment["CLUSTER_DEPLOYMENT_REVISION"] = spec.ConfigRevision;
+        if (spec.StartGeneration is { } generation)
+            start.Environment["CLUSTER_START_GENERATION"] = generation.ToString("D");
+        start.Environment["CLUSTER_START_RECOVERY"] = spec.Recover ? "true" : "false";
+        ExecutionBundle.ApplySecrets(start, spawn.SecretEnvironment);
         return start;
     }
 
@@ -216,30 +245,9 @@ internal sealed class GatewayActualizer
 
     private VerifiedBundle LoadAndVerifyBundle(HostContract.GatewaySpec spec)
     {
-        byte[] bytes = File.ReadAllBytes(spec.BundleManifestPath);
-        string manifestHash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-        if (!manifestHash.Equals(NormalizeSha256(spec.BundleManifestSha256), StringComparison.Ordinal))
-            throw new CryptographicException("Bundle manifest failed SHA-256 verification");
-        BundleManifest manifest = JsonSerializer.Deserialize<BundleManifest>(bytes, JsonOptions)
-            ?? throw new InvalidDataException("Bundle manifest is empty");
-        if (manifest.SchemaVersion != SchemaVersion || string.IsNullOrWhiteSpace(manifest.Revision)
-            || manifest.Files is null)
-            throw new InvalidDataException("Bundle manifest schema, revision, or files are invalid");
-        string root = Path.GetDirectoryName(spec.BundleManifestPath)!;
-        var files = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (BundleFile file in manifest.Files)
-        {
-            string relative = NormalizeRelativePath(file.Path);
-            string expected = NormalizeSha256(file.Sha256);
-            string path = ResolveBundlePath(root, relative);
-            if (!File.Exists(path))
-                throw new InvalidDataException($"Bundle file '{relative}' is missing");
-            if (!ComputeSha256(path).Equals(expected, StringComparison.Ordinal))
-                throw new CryptographicException($"Bundle file '{relative}' failed SHA-256 verification");
-            if (!files.TryAdd(relative, expected))
-                throw new InvalidDataException($"Bundle file '{relative}' is duplicated");
-        }
-        return new VerifiedBundle(root, manifest, files);
+        var verified = ExecutionBundle.Load(spec.BundleManifestPath, spec.BundleManifestSha256);
+        verified.InitializeData(spec.ClusterId);
+        return new(verified.Root, verified.Manifest, verified.Files);
     }
 
     private void EnsureRunRoot(HostContract.GatewaySpec spec)
@@ -286,7 +294,8 @@ internal sealed class GatewayActualizer
                 || Math.Abs((started - record.ProcessStartedAt.Value).TotalSeconds) > 1
                 || executable is null
                 || !Path.GetFullPath(executable).Equals(Path.GetFullPath(record.ExecutablePath),
-                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                || !ComputeSha256(executable).Equals(record.ExecutableSha256, StringComparison.OrdinalIgnoreCase))
             {
                 process.Dispose();
                 return new ProcessMatch(ProcessMatchState.Conflict, null);
@@ -338,6 +347,7 @@ internal sealed class GatewayActualizer
 
     private static bool RecordMatchesSpec(GatewayLaunchRecord record, HostContract.GatewaySpec spec) =>
         record.BundleManifestSha256.Equals(spec.BundleManifestSha256, StringComparison.Ordinal)
+        && record.StartGeneration == spec.StartGeneration
         && record.ConfigRevision.Equals(spec.ConfigRevision, StringComparison.Ordinal)
         && Path.GetFullPath(record.RunRoot).Equals(Path.GetFullPath(spec.RunRoot),
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
@@ -346,7 +356,8 @@ internal sealed class GatewayActualizer
     private static HostContract.GatewayStatus Status(HostContract.GatewaySpec spec,
         HostContract.GatewayObservedState observed, int? processId, DateTimeOffset? launchedAt, string? failure) =>
         new(spec.ClusterId, spec.Goal, observed, spec.BundleManifestSha256, spec.ConfigRevision,
-            spec.Ports, spec.RunRoot, processId, launchedAt, failure);
+            spec.Ports, spec.RunRoot, processId, launchedAt, failure,
+            observed == HostContract.GatewayObservedState.Missing ? spec.StopFence : null, spec.StartGeneration);
 
     private static int? FindBusyPort(int[] ports)
     {
@@ -441,7 +452,9 @@ internal sealed record GatewaySpawnSpec(
     string Executable,
     string WorkingDirectory,
     string[] Arguments,
-    Dictionary<string, string> Environment);
+    Dictionary<string, string> Environment,
+    Dictionary<string, string>? SecretEnvironment = null,
+    int[]? ReservedPorts = null);
 
 internal sealed record GatewayLaunchRecord(
     int SchemaVersion,
@@ -457,7 +470,8 @@ internal sealed record GatewayLaunchRecord(
     DateTimeOffset? ProcessStartedAt,
     DateTimeOffset LaunchedAt,
     GatewayLaunchStatus Status,
-    string? Failure);
+    string? Failure,
+    Guid? StartGeneration = null);
 
 internal sealed record GatewayRunRootProvenance(int SchemaVersion, string ClusterId, string HostId);
 

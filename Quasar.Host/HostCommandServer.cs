@@ -193,6 +193,8 @@ internal sealed class GatewaySpecStore
             throw new ArgumentException("Cluster ID must contain only letters, digits, underscores, and hyphens");
         if (!Enum.IsDefined(spec.Goal))
             throw new ArgumentException("Gateway goal is invalid");
+        if (spec.StopFence is { } fence && (spec.Goal != HostContract.GatewayGoal.Off || fence.ProcessId <= 0))
+            throw new ArgumentException("A stop fence requires goal Off and a positive process ID");
         string manifest = RequireAbsolute(spec.BundleManifestPath, "Bundle manifest");
         string runRoot = RequireAbsolute(spec.RunRoot, "Run root");
         string hash = NormalizeSha256(spec.BundleManifestSha256);
@@ -257,7 +259,7 @@ internal sealed class GatewaySpecStore
 
 internal sealed class HostCommandServer : IDisposable
 {
-    private const int MaxRequestBytes = 64 * 1024;
+    private const int MaxRequestBytes = 20 * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
@@ -268,11 +270,15 @@ internal sealed class HostCommandServer : IDisposable
     private readonly AttachmentStore _attachments;
     private readonly GatewaySpecStore _gateways;
     private readonly GatewayActualizer _gatewayActualizer;
+    private readonly SemaphoreSlim _executionGate;
+    private readonly DeploymentActivation _deployments;
+    private readonly DeploymentSnapshots _snapshots;
     private CancellationTokenSource? _shutdown;
     private Task? _loop;
 
     public HostCommandServer(HostCommandConfig command, HostExecutorConfig config,
-        AttachmentStore attachments, GatewaySpecStore gateways, GatewayActualizer gatewayActualizer)
+        AttachmentStore attachments, GatewaySpecStore gateways, GatewayActualizer gatewayActualizer,
+        SemaphoreSlim? executionGate = null, DeploymentActivation? deployments = null)
     {
         string? token = Environment.GetEnvironmentVariable(command.TokenEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(token))
@@ -283,6 +289,10 @@ internal sealed class HostCommandServer : IDisposable
         _attachments = attachments;
         _gateways = gateways;
         _gatewayActualizer = gatewayActualizer;
+        _executionGate = executionGate ?? new SemaphoreSlim(1, 1);
+        _deployments = deployments ?? new DeploymentActivation(config.StateDirectory, config.HostId,
+            attachments, gateways, new NodeActualizer(config.StateDirectory, config.HostId), gatewayActualizer);
+        _snapshots = new(config.StateDirectory, config.HostId, attachments, new NodeActualizer(config.StateDirectory, config.HostId), gatewayActualizer);
         _listener.Prefixes.Add(command.Url.TrimEnd('/') + "/");
     }
 
@@ -328,14 +338,23 @@ internal sealed class HostCommandServer : IDisposable
 
     private async Task HandleProtectedAsync(HttpListenerContext context, CancellationToken cancellationToken)
     {
+        bool entered = false;
         try
         {
+            // Candidate preparation writes only immutable directories and must not suspend executor heartbeats.
+            bool preparing = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/conversion-inputs/", StringComparison.Ordinal) == true || context.Request.HttpMethod == "POST" &&
+                context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deployment-preparations/", StringComparison.Ordinal) == true;
+            if (!preparing) { await _executionGate.WaitAsync(cancellationToken); entered = true; }
             await HandleAsync(context, cancellationToken);
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidDataException
             or JsonException or IOException or UnauthorizedAccessException)
         {
             await WriteErrorAsync(context, 400, "invalid_host_command", exception.Message, cancellationToken);
+        }
+        catch (InvalidOperationException exception)
+        {
+            await WriteErrorAsync(context, 409, "host_state_conflict", exception.Message, cancellationToken);
         }
         catch (Exception exception)
         {
@@ -345,6 +364,7 @@ internal sealed class HostCommandServer : IDisposable
         }
         finally
         {
+            if (entered) _executionGate.Release();
             context.Response.Close();
         }
     }
@@ -363,11 +383,119 @@ internal sealed class HostCommandServer : IDisposable
         {
             HostContract.HostAttachmentStatus[] attachments = _attachments.GetAll().Select(ToStatus).ToArray();
             await WriteAsync(context, 200, new HostContract.HostStatus(
-                _config.ExecutorId, _config.HostId, attachments, _gateways.GetStatuses()), cancellationToken);
+                _config.ExecutorId, _config.HostId, attachments, _gateways.GetStatuses(),
+                GatewayStopFencing: true), cancellationToken);
             return;
         }
 
-        string prefix = HostContract.HostProtocol.RoutePrefix + "/gateways/";
+        string conversionPrefix = HostContract.HostProtocol.RoutePrefix + "/conversion-inputs/";
+        if (context.Request.HttpMethod == "PUT" && path.StartsWith(conversionPrefix, StringComparison.Ordinal))
+        {
+            string[] parts = path[conversionPrefix.Length..].Split('/');
+            if (parts.Length != 2 || !Guid.TryParse(parts[0], out var id) || id == Guid.Empty)
+                throw new InvalidDataException("Invalid conversion identity.");
+            string hash = context.Request.QueryString["sha256"] ?? "";
+            string root = Path.Combine(_config.StateDirectory, "conversions");
+            Directory.CreateDirectory(root);
+            Quasar.ClusterDeployment.ClusterWorldFiles.Private(root);
+            string directory = parts[1] switch
+            {
+                "installation" => (await Quasar.ClusterDeployment.ClusterDeploymentFiles.ImportAsync(
+                    context.Request.InputStream, hash, Path.Combine(root, "installations"), cancellationToken)).Directory,
+                "world" => await Quasar.ClusterDeployment.ClusterWorldFiles.UnpackAsync(
+                    context.Request.InputStream, hash, Path.Combine(root, "worlds"), cancellationToken),
+                _ => throw new InvalidDataException("Unknown conversion input."),
+            };
+            string workspace = Path.Combine(root, id.ToString("N"));
+            await WriteAsync(context, 200, new HostContract.HostConversionPaths(_config.HostId, directory,
+                Path.Combine(workspace, "configuration"), Path.Combine(workspace, "runtime")), cancellationToken);
+            return;
+        }
+        string recoveryPrefix = HostContract.HostProtocol.RoutePrefix + "/recovery-readiness/";
+        if (context.Request.HttpMethod == "GET" && path.StartsWith(recoveryPrefix, StringComparison.Ordinal))
+        {
+            var readiness = _deployments.CheckRecovery(Uri.UnescapeDataString(path[recoveryPrefix.Length..]),
+                context.Request.QueryString["sha256"] ?? "");
+            await WriteAsync(context, 200, readiness, cancellationToken);
+            return;
+        }
+        string artifactPrefix = HostContract.HostProtocol.RoutePrefix + "/artifacts/";
+        if (context.Request.HttpMethod == "GET" && path.StartsWith(artifactPrefix, StringComparison.Ordinal))
+        {
+            string[] parts = path[artifactPrefix.Length..].Split('/');
+            if (parts.Length != 2) throw new ArgumentException("Artifact route needs a cluster and artifact ID.");
+            context.Response.StatusCode = 200;
+            context.Response.ContentType = "application/x-tar";
+            context.Response.SendChunked = true;
+            _snapshots.ExportArtifact(Uri.UnescapeDataString(parts[0]), parts[1], context.Response.OutputStream);
+            return;
+        }
+        string snapshotsPrefix = HostContract.HostProtocol.RoutePrefix + "/snapshots/";
+        if (path.StartsWith(snapshotsPrefix, StringComparison.Ordinal))
+        {
+            string[] parts = path[snapshotsPrefix.Length..].Split('/');
+            if (parts.Length != 2 || !Guid.TryParse(parts[1], out var id) || id == Guid.Empty)
+                throw new ArgumentException("Snapshot route needs a cluster ID and UUID.");
+            string clusterId = Uri.UnescapeDataString(parts[0]);
+            if (context.Request.HttpMethod == "POST")
+            {
+                var request = await ReadJsonAsync<HostContract.HostSnapshotRequest>(context.Request, cancellationToken);
+                if (request.ClusterId != clusterId || request.SnapshotId != id) throw new ArgumentException("Snapshot route identity mismatch.");
+                await WriteAsync(context, 200, _snapshots.Capture(request), cancellationToken);
+                return;
+            }
+            if (context.Request.HttpMethod == "GET")
+            {
+                string archive = _snapshots.ArchivePath(clusterId, id);
+                _snapshots.Describe(archive, clusterId, id);
+                context.Response.StatusCode = 200;
+                context.Response.ContentType = "application/x-tar";
+                using var input = File.OpenRead(archive);
+                context.Response.ContentLength64 = input.Length;
+                await input.CopyToAsync(context.Response.OutputStream, cancellationToken);
+                return;
+            }
+            if (context.Request.HttpMethod == "DELETE")
+            {
+                _snapshots.Release(clusterId, id, context.Request.QueryString["sha256"] ?? "");
+                await WriteAsync(context, 200, new { released = true }, cancellationToken);
+                return;
+            }
+            if (context.Request.HttpMethod == "PUT")
+            {
+                await _snapshots.ReceiveAsync(clusterId, id, context.Request.QueryString["sha256"] ?? "", context.Request.InputStream, cancellationToken);
+                await WriteAsync(context, 200, new { accepted = true }, cancellationToken);
+                return;
+            }
+        }
+        string restorePrefix = HostContract.HostProtocol.RoutePrefix + "/restores/";
+        if (context.Request.HttpMethod is "POST" or "PUT" && path.StartsWith(restorePrefix, StringComparison.Ordinal))
+        {
+            var request = await ReadJsonAsync<HostContract.HostSnapshotRestore>(context.Request, cancellationToken);
+            if (Uri.UnescapeDataString(path[restorePrefix.Length..]) != request.ClusterId) throw new ArgumentException("Restore route identity mismatch.");
+            _snapshots.Restore(request, preview: context.Request.HttpMethod == "PUT");
+            await WriteAsync(context, 200, new { request.RestoreId }, cancellationToken);
+            return;
+        }
+        string preparationPrefix = HostContract.HostProtocol.RoutePrefix + "/deployment-preparations/";
+        if (context.Request.HttpMethod == "POST" && path.StartsWith(preparationPrefix, StringComparison.Ordinal))
+        {
+            var request = await ReadJsonAsync<HostContract.HostDeploymentPreparation>(context.Request, cancellationToken);
+            if (Uri.UnescapeDataString(path[preparationPrefix.Length..]) != request.ClusterId)
+                throw new ArgumentException("Route cluster ID does not match deployment preparation.");
+            await WriteAsync(context, 200, await ManagedPreparation.PrepareAsync(request, _config.HostId, cancellationToken), cancellationToken);
+            return;
+        }
+        string prefix = HostContract.HostProtocol.RoutePrefix + "/deployments/";
+        if (context.Request.HttpMethod is "PUT" or "POST" && path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var request = await ReadJsonAsync<HostContract.HostDeploymentActivation>(context.Request, cancellationToken);
+            if (Uri.UnescapeDataString(path[prefix.Length..]) != request.ClusterId)
+                throw new ArgumentException("Route cluster ID does not match deployment activation.");
+            await WriteAsync(context, 200, _deployments.Apply(request, preview: context.Request.HttpMethod == "POST", online: context.Request.QueryString["online"] == "true"), cancellationToken);
+            return;
+        }
+        prefix = HostContract.HostProtocol.RoutePrefix + "/gateways/";
         if (context.Request.HttpMethod == "PUT" && path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
         {
             string clusterId = Uri.UnescapeDataString(path[prefix.Length..]);
@@ -375,6 +503,10 @@ internal sealed class HostCommandServer : IDisposable
                 context.Request, cancellationToken);
             if (!clusterId.Equals(spec.ClusterId, StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("Route cluster ID does not match the Gateway spec body");
+            if (_deployments.IsManaged(clusterId)
+                && (spec.StartGeneration is null || spec.StartGeneration == Guid.Empty
+                    || _attachments.GetAll().Single(item => item.ClusterId == clusterId).BundleManifestSha256 != spec.BundleManifestSha256))
+                throw new InvalidOperationException("Gateway must use the active managed deployment and a nonempty start generation.");
             spec = _gateways.Apply(spec);
             HostContract.GatewayStatus status = await _gatewayActualizer.ReconcileAsync(spec, cancellationToken);
             _gateways.SetStatus(status);
@@ -390,6 +522,8 @@ internal sealed class HostCommandServer : IDisposable
                 context.Request, cancellationToken);
             if (!clusterId.Equals(attachment.ClusterId, StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("Route cluster ID does not match the attachment body");
+            if (_deployments.IsManaged(clusterId))
+                throw new InvalidOperationException("Managed attachments change through stopped deployment activation.");
             await WriteAsync(context, 200, ToStatus(_attachments.Apply(attachment)), cancellationToken);
             return;
         }

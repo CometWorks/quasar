@@ -50,6 +50,9 @@
 }
 
 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Spacing="2" Class="mb-2">
+    <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+        <MudButton Href="/clusters/new" Variant="Variant.Outlined">Create or import cluster</MudButton>
+    </AuthorizeView>
     <MudButton Variant="@(ShowSetupWizard ? Variant.Filled : Variant.Outlined)"
                Color="Color.Primary"
                Disabled="@ShowSetupWizard"

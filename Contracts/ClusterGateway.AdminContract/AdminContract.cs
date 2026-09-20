@@ -28,6 +28,8 @@ public static class AdminProtocol
         "GET /admin/v1/operations/{id}",
         "GET /admin/v1/config",
         "PUT /admin/v1/config",
+        "GET /admin/v1/handover-config",
+        "PUT /admin/v1/handover-config",
         "POST /admin/v1/shutdown",
         "POST /admin/v1/gateway/restart",
         "POST /admin/v1/save-all",
@@ -60,7 +62,7 @@ public sealed record AdminError(string Code, string Message,
 public sealed record GatewayHealth(string Service, bool RegistryAvailable, string TransportProtocol);
 
 /// <summary>What the presented credential may do. Query reads state; Manage also mutates it.</summary>
-public enum AdminScope { Query, Manage }
+public enum AdminScope { Query, Manage, Executor }
 
 /// <summary>Feature discovery: the operations this Gateway build serves and the caller's own scope.</summary>
 public sealed record AdminCapabilities(
@@ -224,7 +226,7 @@ public sealed record ClusterStatus(
     bool AcceptingPlayers,
     AdminHealth Health,
     string[] ReasonCodes,
-    DateTimeOffset ObservedAt);
+    DateTimeOffset ObservedAt, string? DeploymentRevision = null, bool ManagedDeploymentReady = false);
 
 /// <summary>
 /// Server-computed health severity with stable machine-readable <c>ReasonCodes</c>, so a

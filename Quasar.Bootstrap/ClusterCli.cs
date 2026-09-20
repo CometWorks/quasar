@@ -49,6 +49,12 @@ internal static class ClusterCli
         client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
         try
         {
+            Guid? requestedUpdate = null;
+            if (options.Wait && options.Positionals[0] == "update")
+            {
+                using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+                requestedUpdate = body.RootElement.GetProperty("id").GetGuid();
+            }
             Response response = await SendAsync(client, request, cancellationToken);
             if (response.ExitCode != 0)
             {
@@ -83,6 +89,29 @@ internal static class ClusterCli
                 {
                     await stderr.WriteLineAsync("Operation wait timed out.");
                     return 4;
+                }
+            }
+
+            if (options.Wait && options.Positionals[0] == "update" && response.OperationState != "Failed")
+            {
+                using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                wait.CancelAfter(TimeSpan.FromSeconds(options.WaitTimeoutSeconds));
+                while (true)
+                {
+                    using var poll = new HttpRequestMessage(HttpMethod.Get, normalizedBaseUrl!.TrimEnd('/')
+                        + "/api/v1/clusters/" + Uri.EscapeDataString(options.Positionals[1]) + "/update");
+                    if (!string.IsNullOrWhiteSpace(token)) poll.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                    response = await SendAsync(client, poll, wait.Token);
+                    if (response.ExitCode != 0) break;
+                    using var state = JsonDocument.Parse(response.Json);
+                    var workflow = state.RootElement.GetProperty("data");
+                    if (workflow.ValueKind != JsonValueKind.Object || workflow.GetProperty("id").GetGuid() != requestedUpdate)
+                    {
+                        await stderr.WriteLineAsync("The recorded update no longer matches the submitted workflow.");
+                        return 8;
+                    }
+                    if (workflow.GetProperty("phase").GetString() == "Complete") break;
+                    await Task.Delay(500, wait.Token);
                 }
             }
 
@@ -160,12 +189,37 @@ internal static class ClusterCli
         string? route = command switch
         {
             "list" when values.Length == 1 => "/api/v1/clusters",
+            "create" when values.Length == 2 => "/api/v1/clusters/",
+            "deployment-prepare" when values.Length == 3 => ClusterRoute("deployment-preparation"),
+            "backups" when values.Length == 2 => ClusterRoute("backups"),
+            "backup" when values.Length == 3 => ClusterRoute("backups"),
+            "restore" when values.Length == 3 => ClusterRoute("restore"),
+            "recover" when values.Length == 3 => ClusterRoute("recover"),
+            "conversion-review" when values.Length == 3 => ClusterRoute("convert/review/" + Uri.EscapeDataString(values[2])),
+            "conversion-plugins" when values.Length == 2 => ClusterRoute("convert/plugins"),
+            "convert-to-cluster" when values.Length == 3 => ClusterRoute("convert/from-server"),
+            "convert-to-server" when values.Length == 3 => ClusterRoute("convert/to-server"),
+            "conversion-status" when values.Length == 3 => ClusterRoute("conversions/" + Uri.EscapeDataString(values[2])),
+            "update" when values.Length == 3 => ClusterRoute("update"),
+            "update-status" when values.Length == 2 => ClusterRoute("update"),
+            "diagnostics" when values.Length == 2 => ClusterRoute("diagnostics"),
+            "handover-config" when values.Length == 2 => ClusterRoute("handover-config"),
+            "artifacts" when values.Length == 2 => ClusterRoute("artifacts"),
+            "artifact-backup" when values.Length == 3 => ClusterRoute("artifacts/" + Uri.EscapeDataString(values[2]) + "/backup"),
+            "artifact" when values.Length == 3 => ClusterRoute("artifacts/" + Uri.EscapeDataString(values[2])),
             "health" when values.Length == 2 => ClusterRoute("health"),
             "status" when values.Length == 2 => ClusterRoute("status"),
             "lifecycle" when values.Length == 2 => ClusterRoute("lifecycle"),
             "plan" when values.Length == 2 => ClusterRoute("plan"),
             "recovery-readiness" when values.Length == 2 => ClusterRoute("recovery-readiness"),
             "config" when values.Length == 2 => ClusterRoute("config"),
+            "package-release" when values.Length == 2 => ClusterRoute("package-release"),
+            "package-stage" when values.Length == 4 => ClusterRoute("package"),
+            "package-selection" when values.Length == 2 => ClusterRoute("package-selection"),
+            "package-select" when values.Length == 5 => ClusterRoute("package-selection"),
+            "dependency-candidate" or "dependencies" or "deployment-inputs" or "deployment" when values.Length == 2 => ClusterRoute(command),
+            "dependencies-stage" when values.Length == 3 => ClusterRoute("dependencies"),
+            "deployment-activate" when values.Length == 3 => ClusterRoute("deployment"),
             "capabilities" or "fleet" or "nodes" or "world-authority" or "snapshots" or "partitions" or "clients" or "gateway-operations" when values.Length == 2 => ClusterRoute(command),
             "bans" when values.Length == 2 => ClusterRoute("admission/bans"),
             "events" when values.Length == 2 => ClusterRoute($"events?cursor={options.Cursor}&limit={options.Limit}"),
@@ -175,6 +229,7 @@ internal static class ClusterCli
                 "operations/" + Uri.EscapeDataString(values[2])),
             "goal" when values.Length == 3 => ClusterRoute("goal"),
             "gateway-restart" when values.Length == 2 => ClusterRoute("gateway/restart"),
+            "gateway-recover" when values.Length == 2 => ClusterRoute("gateway/recover"),
             _ => null,
         };
         if (route == null)
@@ -184,7 +239,24 @@ internal static class ClusterCli
         }
 
         object? body = null;
-        if (command == "goal")
+        if (command == "package-stage")
+        {
+            body = new { version = values[2], sha256 = values[3] };
+            mutation = true;
+        }
+        else if (command == "package-select")
+        {
+            if (!long.TryParse(values[4], System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out long revision)
+                || revision < 0 || revision == long.MaxValue)
+            {
+                stderr.WriteLine("Package selection requires a non-negative expected revision.");
+                return false;
+            }
+            body = new { version = values[2], sha256 = values[3], expectedRevision = revision };
+            mutation = true;
+        }
+        else if (command == "goal")
         {
             string goal = values[2].ToLowerInvariant() switch
             {
@@ -200,16 +272,17 @@ internal static class ClusterCli
             body = new { goal };
             mutation = true;
         }
-        else if (command == "gateway-restart")
+        else if (command is "gateway-restart" or "gateway-recover" or "artifact-backup")
         {
             body = new { };
             mutation = true;
         }
-        else if (command == "command")
+        else if (command is "command" or "dependencies-stage" or "deployment-activate" or "deployment-prepare" or "create" or "backup" or "restore" or "update" or "recover" or "convert-to-cluster" or "convert-to-server")
         {
             try
             {
-                string json = values[2] == "-" ? Console.In.ReadToEnd() : File.ReadAllText(values[2]);
+                string file = values[command == "create" ? 1 : 2];
+                string json = file == "-" ? Console.In.ReadToEnd() : File.ReadAllText(file);
                 body = JsonSerializer.Deserialize<JsonElement>(json);
                 mutation = true;
             }
@@ -231,7 +304,7 @@ internal static class ClusterCli
         }
 
         request = new HttpRequestMessage(mutation ? HttpMethod.Put : HttpMethod.Get, baseUrl + route);
-        if (command is "gateway-restart" or "command") request.Method = HttpMethod.Post;
+        if (command is "gateway-restart" or "gateway-recover" or "artifact-backup" or "command" or "create" or "deployment-prepare" or "backup" or "restore" or "update" or "recover" or "convert-to-cluster" or "convert-to-server") request.Method = HttpMethod.Post;
         if (body != null) request.Content = JsonContent.Create(body, options: JsonOptions);
         return true;
     }
@@ -305,7 +378,7 @@ internal static class ClusterCli
     }
 
     private static void WriteUsage(TextWriter writer) => writer.WriteLine(
-        "Usage: Quasar cluster <list|health|status|lifecycle|plan|recovery-readiness|config|capabilities|fleet|nodes|world-authority|snapshots|partitions|clients|events|chat-history|bans|gateway-operations|operation|goal|gateway-restart|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command takes a JSON file or - for stdin)");
+        "Usage: Quasar cluster <list|create|conversion-review|conversion-plugins|convert-to-cluster|convert-to-server|conversion-status|deployment-prepare|backups|backup|restore|update|update-status|diagnostics|handover-config|artifacts|artifact|artifact-backup|health|status|lifecycle|plan|recovery-readiness|config|package-release|package-stage|package-selection|package-select|dependency-candidate|dependencies|dependencies-stage|deployment-inputs|deployment|deployment-activate|capabilities|fleet|nodes|world-authority|snapshots|partitions|clients|events|chat-history|bans|gateway-operations|operation|goal|gateway-restart|gateway-recover|recover|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command, dependencies-stage, deployment-activate, convert-to-cluster and convert-to-server take a JSON file or - for stdin; package-stage takes VERSION SHA256; package-select takes VERSION SHA256 EXPECTED_REVISION)");
 
     private sealed record Options(string? BaseUrl, string TokenEnvironmentVariable,
         string? IdempotencyKey, Guid? RequestId, int TimeoutSeconds, bool Wait,

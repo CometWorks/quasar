@@ -34,6 +34,15 @@ public sealed class ClusterGatewayClient
         ClusterDefinition cluster, CancellationToken cancellationToken) =>
         GetAsync<Admin.RecoveryReadiness>(cluster, "recovery-readiness", cancellationToken);
 
+    public Task<Admin.AdminEnvelope<JsonElement>> GetDiagnosticsAsync(ClusterDefinition cluster, CancellationToken token) =>
+        GetAsync<JsonElement>(cluster, "diag", token);
+    public Task<Admin.AdminEnvelope<JsonElement>> GetHandoverConfigAsync(ClusterDefinition cluster, CancellationToken token) =>
+        GetAsync<JsonElement>(cluster, "handover-config", token);
+    public Task<Admin.AdminEnvelope<Admin.ArtifactPage>> GetArtifactsAsync(ClusterDefinition cluster, CancellationToken token) =>
+        GetAsync<Admin.ArtifactPage>(cluster, "artifacts", token);
+    public Task<Admin.AdminEnvelope<Admin.ArtifactDescriptor>> GetArtifactAsync(ClusterDefinition cluster, string id, CancellationToken token) =>
+        GetAsync<Admin.ArtifactDescriptor>(cluster, "artifacts/" + Uri.EscapeDataString(id), token);
+
     public Task<Admin.AdminEnvelope<Admin.AdminCapabilities>> GetCapabilitiesAsync(
         ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.AdminCapabilities>(cluster, "capabilities", token);
     public Task<Admin.AdminEnvelope<Admin.NodeStatus[]>> GetNodesAsync(
