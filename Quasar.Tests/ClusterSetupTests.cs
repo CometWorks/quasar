@@ -87,6 +87,22 @@ public sealed class ClusterSetupTests
     }
 
     [Fact]
+    public void NodeBinaryVersionIsTheGameAssemblyVersionTheRegistryCompares()
+    {
+        string installation = Path.Combine(Path.GetTempPath(), "cluster-setup-binary-" + Guid.NewGuid());
+        string ds = Path.Combine(installation, "Dependencies/payload/DedicatedServer/DedicatedServer64");
+        try
+        {
+            Directory.CreateDirectory(ds);
+            Assert.Throws<InvalidDataException>(() => ClusterSetupService.NodeBinaryVersion(installation));
+            // Any managed assembly stands in for Sandbox.Game.dll: the value is its assembly version, four-part.
+            File.Copy(typeof(ClusterSetupService).Assembly.Location, Path.Combine(ds, "Sandbox.Game.dll"));
+            Assert.Equal(typeof(ClusterSetupService).Assembly.GetName().Version!.ToString(), ClusterSetupService.NodeBinaryVersion(installation));
+        }
+        finally { Directory.Delete(installation, true); }
+    }
+
+    [Fact]
     public void LocalCompanionWithoutProvenanceIsLeftOutOfTheClusterProfileAndNamed()
     {
         string config = Path.Combine(Path.GetTempPath(), "cluster-setup-local-" + Guid.NewGuid());

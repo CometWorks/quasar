@@ -163,7 +163,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         var conversionHosts = selected.Select(h => new ClusterConversionHost(h.Id, h.CommandUrl, h.CredentialReference,
                             HostContract.ManagedCredentialReference.Cluster(cluster.UniqueName, "executor:" + h.Id), h.Address,
                             request.Machines.Single(m => m.HostId == h.Id).RegularNodes)).ToArray();
-                        var topology = new ServerToClusterRequest(GuidFrom(cluster.UniqueName), "", "", pluginData["gameVersion"]!.GetValue<string>(),
+                        var topology = new ServerToClusterRequest(GuidFrom(cluster.UniqueName), "", "", NodeBinaryVersion(installed.Directory),
                             gateway.Id, request.PlayerPort, joinReference, HostContract.ManagedCredentialReference.Cluster(cluster.UniqueName, "token-file"),
                             selected.Select(h => h.Address + (IPAddress.Parse(h.Address).AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? "/32" : "/128")).ToArray(),
                             conversionHosts, cluster.DependencyManifestSha256, cluster.PackageSelection!.Revision, request.PlayerPort + 100);
@@ -294,6 +294,16 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         await RunMagnetarAsync(magnetar, ["-prepareManaged", destination, "-config", prepared.MagnetarAppDataPath,
             "-profile", Path.Combine(prepared.MagnetarAppDataPath, "Profiles/Current.xml"),
             "-ds64", prepared.DedicatedServer64Path, "-consent", "deny", "-noupdate"], prepared.GitHubToken, token);
+    }
+    // The Registry admits a node only when its MySandboxGame.BuildVersion equals the specification's
+    // binaryVersion. That is the assembly version of Sandbox.Game.dll ("0.1.1.0"), not the game version
+    // Magnetar reports ("1210014"); with the latter every node was rejected with "binary version".
+    internal static string NodeBinaryVersion(string installation)
+    {
+        string assembly = Path.Combine(installation, "Dependencies/payload/DedicatedServer/DedicatedServer64/Sandbox.Game.dll");
+        if (!File.Exists(assembly)) throw new InvalidDataException("The frozen Dedicated Server has no Sandbox.Game.dll; its build version cannot be determined.");
+        return System.Reflection.AssemblyName.GetAssemblyName(assembly).Version?.ToString()
+            ?? throw new InvalidDataException("Sandbox.Game.dll has no assembly version.");
     }
     internal static void PrepareAgentMetadata(string config)
     {
