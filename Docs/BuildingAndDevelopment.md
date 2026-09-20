@@ -359,6 +359,22 @@ before a server launch). A `file://` archive is identified by its size and modif
 a rebuilt file is installed again on the next preparation. An HTTP(S) archive is downloaded again
 only when the URL changes; rename the file or change the URL after rebuilding the same version.
 
+## Joining a managed test cluster with a headless client
+
+A Quasar-managed Gateway publishes the Steam frontend only, so a headless Pulsar client (the
+cluster bench's `Test/clients.py`) cannot join it. Two environment variables of the Quasar process
+change the specification that guided setup and conversion generate. They are for test clusters
+only and need a cluster release that knows `directListen`:
+
+| Environment variable | Effect |
+| --- | --- |
+| `QUASAR_CLUSTER_TEST_DIRECT_LISTEN=IP:PORT` | Adds `directListen`: the Gateway also starts its Direct Transport frontend there. That frontend admits every client, so only loopback or a private address is accepted, and the Gateway itself refuses a public bind. Pick a port outside the cluster's reserved range (player port to player port + 264). |
+| `QUASAR_CLUSTER_TEST_DISABLE_STEAM=true` | Omits `steamListen`: Direct Transport only, exactly like the cluster bench. The Gateway Host then needs no Steam client library. Requires the variable above. |
+
+The variables are read when a specification is generated; an existing deployment keeps its
+frontends until it is prepared again. A headless client joins with `--connect IP:PORT` of the
+Direct Transport address. Gateway control routes of a managed cluster need its admin token.
+
 ## Cluster integration verification
 
 The seven-stage [integration plan](Phase4IntegrationPlan.md) separates focused checks

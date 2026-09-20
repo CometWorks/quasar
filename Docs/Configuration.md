@@ -1246,6 +1246,14 @@ activation names `clusterId`, `expectedBundleManifestSha256`, `bundleManifestPat
 Exactly one returned Host manifest must own the Gateway. Quasar commits active identity
 after all Hosts acknowledge; retries reuse their durable activation receipts.
 
+The Gateway's Steam frontend loads Valve's `steamclient.so` from `~/.steam/sdk64` of the Host
+account. The cluster release cannot ship that file and a cluster machine usually has neither Steam
+nor SteamCMD. Guided setup and conversion therefore send the copy from Quasar's managed SteamCMD
+(`linux64/steamclient.so`) to the Gateway Host, which verifies its SHA-256 and stages it with an
+atomic rename. If Quasar has no copy, setup continues and logs that the Gateway only starts when
+the Host account already has the file. An older Host without this capability is refused with
+"Update the Gateway Host".
+
 Executor credentials are separate from Query/Manage credentials. The scoped Gateway
 token file gives each credential scope `Executor` and name equal to the Host ID.
 Host polls every 1–15 seconds, within the 60-second executor lease. Gateway credentials
