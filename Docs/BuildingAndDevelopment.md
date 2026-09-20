@@ -287,6 +287,24 @@ Magnetar or game process. The modified upstream CLI needs a future verified pack
 managed use; never copy modified CLI files into a previously verified release installation.
 See [Phase 4 Integration](Phase4IntegrationPlan.md) for remaining live acceptance.
 
+## Host enrollment from a development build
+
+Host enrollment serves the single-file `Quasar.Host` executable that a release ships as
+`Host/Quasar.Host` next to the web worker. Plain build output (`dotnet run --project Quasar`)
+does not contain it, so enrollment answers "does not include the Host installer". Publish the
+Host once and point the web worker at it with `QUASAR_HOST_BINARY`:
+
+```bash
+dotnet publish Quasar.Host/Quasar.Host.csproj -c Release -r linux-x64 -p:SelfContained=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o artifacts/dev-host
+```
+
+```bash
+export QUASAR_HOST_BINARY="$PWD/artifacts/dev-host/Quasar.Host"
+```
+
+The variable is a development aid only; releases keep using the packaged `Host/Quasar.Host`,
+which always matches the web worker.
+
 ## Cluster integration verification
 
 The seven-stage [integration plan](Phase4IntegrationPlan.md) separates focused checks

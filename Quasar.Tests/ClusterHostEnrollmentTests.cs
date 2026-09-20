@@ -48,6 +48,14 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
     }
 
     [Fact]
+    public void HostBinaryDefaultsToTheReleaseLayoutAndHonoursTheDevelopmentOverride()
+    {
+        Assert.Equal(Path.Combine(root, "Host", "Quasar.Host"), ClusterHostInstaller.ResolveBinary(null, root));
+        Assert.Equal(Path.Combine(root, "Host", "Quasar.Host"), ClusterHostInstaller.ResolveBinary(" ", root));
+        Assert.Equal(Path.Combine(root, "dev", "Quasar.Host"), ClusterHostInstaller.ResolveBinary(Path.Combine(root, "dev", "Quasar.Host"), "/elsewhere"));
+    }
+
+    [Fact]
     public async Task CorruptHostRegistrationDoesNotBreakOtherHosts()
     {
         var healthy = await hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);
