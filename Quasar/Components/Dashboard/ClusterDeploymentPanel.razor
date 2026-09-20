@@ -47,6 +47,7 @@
             </MudExpansionPanel>
             <MudExpansionPanel Text="Backups and restore">
                 <MudStack Spacing="3" Class="py-2 cluster-form-section">
+                <MudAlert Severity="Severity.Info" Dense="true">Scheduled backups of a cluster run only while it is cleanly stopped. A cluster that runs around the clock gets no scheduled backups: stop it regularly, or store a Gateway world export below while it runs.</MudAlert>
                 <MudTextField T="string" Label="Gateway world export artifact ID" @bind-Value="_artifactId" Disabled="_busy" />
                 <MudButton OnClick="ArchiveExportAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_artifactId))">Verify and store world export</MudButton>
                 <MudButton OnClick="BackupAsync" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off)">Back up cleanly stopped cluster</MudButton>

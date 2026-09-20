@@ -9,15 +9,30 @@ using HostContract = global::Quasar.Host.Contract.V1;
 namespace Quasar.Services;
 
 public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClient hosts, ClusterOperationStore operations,
-    ClusterDeploymentService deployments, WebServiceOptions options, QuasarBackupSettingsService settings, ClusterGatewayClient gateway)
+    ClusterDeploymentService deployments, WebServiceOptions options, QuasarBackupSettingsService settings, ClusterGatewayClient gateway,
+    ILogger<ClusterBackupService>? logger = null)
 {
+    // A failed scheduled capture is tried again this long after its failure, within the same stopped lifecycle.
+    internal static readonly TimeSpan ScheduledRetryDelay = TimeSpan.FromHours(1);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _unreadable = new();
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
         { Converters = { new JsonStringEnumConverter() } };
     private string Root(string cluster) => Path.Combine(options.BackupDirectory, "Clusters", Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(cluster))));
     public ClusterBackup[] List(string cluster) => !Directory.Exists(Root(cluster)) ? []
         : Directory.EnumerateFiles(Root(cluster), "backup.json", SearchOption.AllDirectories)
             .Where(p => !Path.GetFileName(Path.GetDirectoryName(p)!).StartsWith('.'))
-            .Select(Read).OrderByDescending(b => b.CreatedAt).ToArray();
+            .Select(TryRead).OfType<ClusterBackup>().OrderByDescending(b => b.CreatedAt).ToArray();
+
+    // One unreadable manifest must not break listing, scheduling and retention for the cluster's other backups.
+    private ClusterBackup? TryRead(string path)
+    {
+        try { return Read(path); }
+        catch (Exception error) when (error is JsonException or InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            if (_unreadable.TryAdd(path, true)) logger?.LogError(error, "Cluster backup manifest {Path} is unreadable; that backup is not listed.", path);
+            return null;
+        }
+    }
 
     public Task<ClusterOperation> ArchiveExportAsync(string clusterId, string artifactId, string key, string actor, CancellationToken token) =>
         operations.ExecuteAsync(clusterId, "cluster.export.archive", key, actor, new { artifactId }, async ct => await catalog.WithLifecycleAsync(clusterId, async cluster =>
@@ -76,13 +91,28 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
         if (!rule.Enabled) return;
         foreach (var cluster in catalog.GetClusters())
         {
+            // Scheduled backups are offline backups: they need a cleanly stopped cluster.
             if (cluster.GoalState != DedicatedServerGoalState.Off || cluster.ActiveDeployment is null
                 || cluster.ShutdownProof?.LifecycleId != cluster.GetLifecycleId() || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }) continue;
-            rule.LastBackupUtc = List(cluster.UniqueName).Where(b => b.Automatic).Select(b => (DateTimeOffset?)b.CreatedAt).FirstOrDefault();
-            if (!AutomaticBackupService.IsDue(rule, DateTimeOffset.UtcNow)) continue;
-            // Stable within the stopped lifecycle: a lost response does not capture another cut.
-            var id = new Guid(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(cluster.GetLifecycleId() + ":" + rule.LastBackupUtc))[..16]);
-            await CaptureAsync(cluster.UniqueName, new(id, Automatic: true), "scheduled-" + id.ToString("N"), "backup-scheduler", token);
+            try
+            {
+                rule.LastBackupUtc = List(cluster.UniqueName).Where(b => b.Automatic).Select(b => (DateTimeOffset?)b.CreatedAt).FirstOrDefault();
+                if (!AutomaticBackupService.IsDue(rule, DateTimeOffset.UtcNow)) continue;
+                // Stable within the stopped lifecycle: a lost response does not capture another cut.
+                // A failed capture keeps its snapshot ID but is retried under a new operation key.
+                var id = new Guid(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(cluster.GetLifecycleId() + ":" + rule.LastBackupUtc))[..16]);
+                string key = operations.AttemptKey(cluster.UniqueName, "cluster.backup.create", "scheduled-" + id.ToString("N"), ScheduledRetryDelay);
+                bool replay = operations.Find(cluster.UniqueName, "cluster.backup.create", key) is not null;
+                var result = await CaptureAsync(cluster.UniqueName, new(id, Automatic: true), key, "backup-scheduler", token);
+                if (result.State == ClusterOperationState.Failed && !replay)
+                    logger?.LogError("Scheduled backup of cluster {Cluster} failed: {Code}: {Message}", cluster.UniqueName, result.Error?.Code, result.Error?.Message);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+            // One cluster's failure must not skip the scheduled backups of the others.
+            catch (Exception error)
+            {
+                logger?.LogError(error, "Scheduled backup of cluster {Cluster} failed.", cluster.UniqueName);
+            }
         }
     }
 

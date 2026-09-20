@@ -165,6 +165,11 @@ public sealed class ClusterDeploymentTests : IDisposable
         var cleanup = new SnapshotCleanupHandler();
         var service = new ClusterBackupService(catalog, new ClusterHostClient(new HttpClient(cleanup)),
             new ClusterOperationStore(Path.Combine(root, "backup-operations")), null!, new WebServiceOptions { BackupDirectory = backupRoot }, null!, null!);
+        // One torn manifest must not hide the cluster's other backups from listing, scheduling and retention.
+        string torn = Path.Combine(Path.GetDirectoryName(directory)!, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(torn);
+        await File.WriteAllBytesAsync(Path.Combine(torn, "backup.json"), []);
+        Assert.Equal(id, Assert.Single(service.List("demo")).SnapshotId);
         Assert.Equal(ClusterOperationState.Succeeded, (await service.CaptureAsync("demo", new(id), "retry", "test", default)).State);
         Assert.Equal(2, cleanup.Releases);
         await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
