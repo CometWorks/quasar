@@ -403,13 +403,20 @@ internal sealed class HostCommandServer : IDisposable
             await WriteAsync(context, 200, new { installed = true }, cancellationToken);
             return;
         }
+        if (context.Request.HttpMethod == "PUT" && path == HostContract.HostProtocol.SteamClientLibraryRoute)
+        {
+            await WriteAsync(context, 200, await SteamClientLibrary.InstallAsync(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                context.Request.QueryString["sha256"] ?? "", context.Request.InputStream, cancellationToken), cancellationToken);
+            return;
+        }
         if (context.Request.HttpMethod == "GET"
             && path.Equals(HostContract.HostProtocol.StatusRoute, StringComparison.OrdinalIgnoreCase))
         {
             HostContract.HostAttachmentStatus[] attachments = _attachments.GetAll().Select(ToStatus).ToArray();
             await WriteAsync(context, 200, new HostContract.HostStatus(
                 _config.ExecutorId, _config.HostId, attachments, _gateways.GetStatuses(),
-                GatewayStopFencing: true), cancellationToken);
+                GatewayStopFencing: true, SteamClientLibrary: true), cancellationToken);
             return;
         }
 

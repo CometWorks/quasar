@@ -9,6 +9,7 @@ internal static class DeploymentSelfTest
     internal static void Run()
     {
         CredentialInstallation();
+        SteamClientLibraryInstallation();
         string root = Path.Combine(Path.GetTempPath(), "host-deployment-" + Guid.NewGuid());
         try
         {
@@ -151,6 +152,25 @@ internal static class DeploymentSelfTest
             AssertThrows(() => ExecutionBundle.Load(path, hash));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    private static void SteamClientLibraryInstallation()
+    {
+        string home = Path.Combine(Path.GetTempPath(), "host-steam-client-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            byte[] library = "steamclient"u8.ToArray();
+            string hash = ExecutionBundle.Hash(library);
+            var first = SteamClientLibrary.InstallAsync(home, hash, new MemoryStream(library), default).GetAwaiter().GetResult();
+            Assert(first.Installed && first.Path == Path.Combine(home, ".steam/sdk64/steamclient.so")
+                && File.ReadAllBytes(first.Path).SequenceEqual(library), "steamclient.so was not staged under ~/.steam/sdk64");
+            var replay = SteamClientLibrary.InstallAsync(home, hash, new MemoryStream(library), default).GetAwaiter().GetResult();
+            Assert(!replay.Installed, "identical steamclient.so was written again");
+            AssertThrows(() => SteamClientLibrary.InstallAsync(home, ExecutionBundle.Hash("other"u8.ToArray()), new MemoryStream(library), default).GetAwaiter().GetResult());
+            Assert(File.ReadAllBytes(first.Path).SequenceEqual(library) && Directory.GetFiles(Path.GetDirectoryName(first.Path)!).Length == 1,
+                "a rejected upload changed steamclient.so or left a staging file");
+        }
+        finally { if (Directory.Exists(home)) Directory.Delete(home, true); }
     }
 
     private static void CredentialInstallation()
