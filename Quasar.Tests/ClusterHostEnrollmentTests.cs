@@ -113,6 +113,30 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
     }
 
     [Fact]
+    public async Task ConnectedHostDoesNotHoldGracefulShutdown()
+    {
+        var host = await hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddAuthorization();
+        builder.Services.AddSingleton(hosts); builder.Services.AddSingleton<ClusterHostTunnels>();
+        builder.Services.AddSingleton(new ClusterHostInstaller(hosts, credentials));
+        await using var app = builder.Build();
+        app.UseWebSockets(); app.MapClusterHostEnrollmentApi();
+        await app.StartAsync();
+        using var control = new ClientWebSocket();
+        control.Options.SetRequestHeader("Authorization", "Bearer " + credentials.Resolve(host.CredentialReference));
+        var url = new UriBuilder(new Uri(new Uri(app.Urls.Single()), "/api/v1/hosts/one/connect")) { Scheme = "ws" }.Uri;
+        await control.ConnectAsync(url, default);
+        Assert.True(app.Services.GetRequiredService<ClusterHostTunnels>().IsConnected("one"));
+
+        // The Host keeps its control channel open for as long as it runs; shutdown must not wait for it.
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await app.StopAsync().WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(10), $"StopAsync took {stopwatch.Elapsed}");
+    }
+
+    [Fact]
     public async Task HttpCommandsStreamThroughAuthenticatedHostBoundTunnel()
     {
         var host = await hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);
