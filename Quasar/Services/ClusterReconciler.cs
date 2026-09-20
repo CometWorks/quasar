@@ -309,6 +309,7 @@ public enum ClusterReconcileState { Pending, Observing, ConfigurationRequired, C
 
 public sealed record ClusterReconcileStatus(
     string ClusterId,
+    [property: System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<DedicatedServerGoalState>))]
     DedicatedServerGoalState Goal,
     ClusterReconcileState State,
     HostContract.GatewayObservedState? GatewayObserved,
