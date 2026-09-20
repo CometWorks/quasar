@@ -85,6 +85,8 @@ internal sealed class GatewayActualizer
         if (record is not null && match.State == ProcessMatchState.Alive)
         {
             using Process process = match.Process!;
+            if (DateTimeOffset.UtcNow - record.LaunchedAt > StableAfter)
+                lock (_respawns) _respawns.Remove(spec.ClusterId);
             return Status(spec, HostContract.GatewayObservedState.Running,
                 record.ProcessId, record.LaunchedAt, null);
         }
@@ -97,8 +99,31 @@ internal sealed class GatewayActualizer
                 record.ProcessId, record.LaunchedAt, "process_exited");
         }
 
+        // A Gateway that keeps failing is respawned with a growing delay: every attempt verifies
+        // the whole bundle while the Host execution gate is held. A changed spec (a new start
+        // generation from goal On included) retries at once.
+        string specKey = spec.BundleManifestSha256 + "/" + spec.ConfigRevision + "/" + spec.StartGeneration;
+        lock (_respawns)
+        {
+            long now = Environment.TickCount64;
+            _respawns.TryGetValue(spec.ClusterId, out Respawn? respawn);
+            if (respawn?.SpecKey != specKey) respawn = null;
+            if (respawn is not null && now < respawn.NotBefore && record?.Status == GatewayLaunchStatus.Failed)
+                return Status(spec, HostContract.GatewayObservedState.Failed, record.ProcessId, record.LaunchedAt,
+                    (record.Failure ?? "spawn_failed") + $";respawn_in_seconds={(respawn.NotBefore - now + 999) / 1000}");
+            int attempts = (respawn?.Attempts ?? 0) + 1;
+            _respawns[spec.ClusterId] = new(specKey, attempts, now + RespawnDelay(attempts));
+        }
         return Spawn(spec);
     }
+
+    private static readonly TimeSpan StableAfter = TimeSpan.FromMinutes(2);
+    private readonly Dictionary<string, Respawn> _respawns = new(StringComparer.OrdinalIgnoreCase);
+    private sealed record Respawn(string SpecKey, int Attempts, long NotBefore);
+
+    // 5 s, 10 s, 20 s ... capped at 5 minutes.
+    internal static long RespawnDelay(int attempts) =>
+        (long)Math.Min(TimeSpan.FromMinutes(5).TotalMilliseconds, 5000 * Math.Pow(2, Math.Min(attempts - 1, 10)));
 
     private async Task<HostContract.GatewayStatus> ReconcileOffAsync(
         HostContract.GatewaySpec spec, GatewayLaunchRecord? record, ProcessMatch match,

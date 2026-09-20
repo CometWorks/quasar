@@ -429,6 +429,16 @@ internal static class Program
             var gatewaySpec = new HostContract.GatewaySpec("demo", HostContract.GatewayGoal.On,
                 manifestPath, ComputeSha256(manifestPath), "config-self-test", [reservedPort],
                 Path.Combine(root, "gateway-run"));
+            // A Gateway that cannot start is not respawned on every pass; a new start generation retries at once.
+            var failingGateway = new GatewayActualizer(Path.Combine(root, "backoff-state"), "host-a");
+            var brokenSpec = gatewaySpec with { BundleManifestSha256 = new string('0', 64), RunRoot = Path.Combine(root, "backoff-run"), StartGeneration = Guid.NewGuid() };
+            HostContract.GatewayStatus firstFailure = await failingGateway.ReconcileAsync(brokenSpec, CancellationToken.None);
+            HostContract.GatewayStatus delayed = await failingGateway.ReconcileAsync(brokenSpec, CancellationToken.None);
+            HostContract.GatewayStatus retried = await failingGateway.ReconcileAsync(brokenSpec with { StartGeneration = Guid.NewGuid() }, CancellationToken.None);
+            if (firstFailure.Observed != HostContract.GatewayObservedState.Failed || firstFailure.Failure!.Contains("respawn_in_seconds")
+                || !delayed.Failure!.Contains("respawn_in_seconds") || retried.Failure!.Contains("respawn_in_seconds")
+                || GatewayActualizer.RespawnDelay(1) != 5000 || GatewayActualizer.RespawnDelay(2) != 10000 || GatewayActualizer.RespawnDelay(40) != 300000)
+                throw new InvalidOperationException("self-test Gateway respawn backoff failed");
             var persistedGateways = new GatewaySpecStore(stateRoot);
             gatewaySpec = persistedGateways.Apply(gatewaySpec);
             HostContract.GatewayStatus gatewayRunning = await new GatewayActualizer(stateRoot, "host-a")
