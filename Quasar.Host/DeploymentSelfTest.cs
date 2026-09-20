@@ -42,6 +42,28 @@ internal static class DeploymentSelfTest
             File.WriteAllBytes(pendingLaunch, JsonSerializer.SerializeToUtf8Bytes(pending,
                 new JsonSerializerOptions(JsonSerializerDefaults.Web)));
             AssertThrows(() => activation.CheckRecovery("cluster", hash));
+            // A final-state record whose PID now belongs to an unrelated live process (this one) proves nothing is running.
+            void WriteLaunch(LaunchRecord record) => File.WriteAllBytes(pendingLaunch,
+                JsonSerializer.SerializeToUtf8Bytes(record, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            var reused = pending with { ProcessId = Environment.ProcessId, ProcessStartedAt = DateTimeOffset.UtcNow.AddDays(-1) };
+            foreach (var final in new[] { LaunchStatus.Gone, LaunchStatus.Failed })
+            {
+                WriteLaunch(reused with { Status = final });
+                Assert(activation.CheckRecovery("cluster", hash).HostId == "host", "reused PID of a final launch record blocked recovery");
+            }
+            if (OperatingSystem.IsLinux())
+            {
+                string identity = ProcessIdentity.Capture(Environment.ProcessId) ?? throw new InvalidOperationException("process identity unavailable");
+                Assert(ProcessIdentity.Matches(identity, Environment.ProcessId) == true, "own process identity did not match");
+                // Same PID, another boot or start tick: the recorded process is gone, not an unmanaged conflict.
+                WriteLaunch(reused with { Status = LaunchStatus.Running, ProcessIdentity = "00000000-0000-0000-0000-000000000000/1" });
+                Assert(activation.CheckRecovery("cluster", hash).HostId == "host", "reused PID after reboot blocked recovery");
+                WriteLaunch(reused with { Status = LaunchStatus.Running, ProcessIdentity = identity[..(identity.IndexOf('/') + 1)] + "1" });
+                Assert(activation.CheckRecovery("cluster", hash).HostId == "host", "reused PID within one boot blocked recovery");
+                // A matching identity is a live process even when the wall clock moved; recovery stays blocked.
+                WriteLaunch(reused with { Status = LaunchStatus.Running, ProcessIdentity = identity });
+                AssertThrows(() => activation.CheckRecovery("cluster", hash));
+            }
             File.Delete(pendingLaunch);
             Assert(active == activation.Apply(request), "activation replay changed identity");
             Assert(!Directory.Exists(runtime), "activation initialized mutable data prematurely");

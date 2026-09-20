@@ -239,6 +239,7 @@ internal sealed class NodeActualizer
             {
                 ProcessId = process.Id,
                 ProcessStartedAt = startedAt,
+                ProcessIdentity = global::Quasar.Host.ProcessIdentity.Capture(process.Id),
                 Status = LaunchStatus.Running,
             };
             WriteRecord(record);
@@ -467,6 +468,10 @@ internal sealed class NodeActualizer
     {
         if (record?.ProcessId is not int processId)
             return new ProcessMatch(ProcessMatchState.Missing, null);
+        // Final states are written only after the process was verified gone; its PID may since
+        // belong to an unrelated process and must not be read as a conflict.
+        if (record.Status is LaunchStatus.Failed or LaunchStatus.Gone)
+            return new ProcessMatch(ProcessMatchState.Missing, null);
         Process process;
         try
         {
@@ -483,10 +488,21 @@ internal sealed class NodeActualizer
         }
         try
         {
-            DateTimeOffset started = process.StartTime.ToUniversalTime();
+            bool? sameProcess = ProcessIdentity.Matches(record.ProcessIdentity, processId);
+            if (sameProcess is null && record.ProcessStartedAt is { } recordedStart)
+            {
+                bool sameStart = Math.Abs((process.StartTime.ToUniversalTime() - recordedStart).TotalSeconds) <= 1;
+                // The Windows creation time never moves, so a mismatch proves PID reuse. The Linux
+                // start time is derived from the wall clock; without a recorded identity a mismatch stays a conflict.
+                sameProcess = sameStart ? true : OperatingSystem.IsWindows() ? false : null;
+            }
+            if (sameProcess == false)
+            {
+                process.Dispose();
+                return new ProcessMatch(ProcessMatchState.Missing, null);
+            }
             string? executable = GetExecutablePath(process);
-            if (record.ProcessStartedAt is null
-                || Math.Abs((started - record.ProcessStartedAt.Value).TotalSeconds) > 1
+            if (sameProcess is null
                 || executable is null
                 || !Path.GetFullPath(executable).Equals(Path.GetFullPath(record.ExecutablePath),
                     OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
@@ -677,7 +693,8 @@ internal sealed record LaunchRecord(
     DateTimeOffset? ProcessStartedAt,
     DateTimeOffset LaunchedAt,
     LaunchStatus Status,
-    string? Failure);
+    string? Failure,
+    string? ProcessIdentity = null);
 
 internal sealed record RunRootProvenance(int SchemaVersion, string ClusterId, string HostId);
 
