@@ -124,6 +124,16 @@ normal browser/API authentication is insufficient for these machine channels.
 
 ## Existing and stale registrations
 
+Release-fetch failures identify the GitHub repository (`CometWorks/cluster`), the
+resource being fetched (release metadata, checksums or package archive), and the HTTP
+status. A 404 can mean a missing release or insufficient access to a private repository;
+check **Updates → GitHub token** and its repository access before retrying setup.
+The no-scope token recommended for public update checks cannot read private releases.
+Authentication, rate-limit, connectivity and timeout errors provide their own recovery
+guidance. These errors occur during package retrieval, before world preparation or
+cluster activation. Existing saved failure messages change on the next setup attempt
+after installing a build containing this diagnostic improvement.
+
 Import explains the Gateway admin HTTP URL and environment-variable credential
 reference; it does not provision a Gateway. Unreachable errors identify the endpoint.
 The Delete dialog also offers explicitly confirmed **Forget registration**, requiring

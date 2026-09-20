@@ -1,5 +1,6 @@
 using System.Formats.Tar;
 using System.IO.Compression;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -42,9 +43,11 @@ public sealed class ClusterPackageService
     {
         if (version is not null) ValidateVersion(version);
         using var client = CreateClient();
-        using var response = await client.GetAsync(RepositoryApi + "/releases/"
-            + (version is null ? "latest" : "tags/v" + version), token);
-        response.EnsureSuccessStatusCode();
+        using var request = new HttpRequestMessage(HttpMethod.Get, RepositoryApi + "/releases/"
+            + (version is null ? "latest" : "tags/v" + version));
+        using var response = await SendPackageRequestAsync(client, request,
+            version is null ? "fetch the latest stable cluster release" : $"fetch cluster release v{version}",
+            HttpCompletionOption.ResponseContentRead, token);
         await response.Content.LoadIntoBufferAsync(1024 * 1024, token);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
         var release = document.RootElement;
@@ -68,7 +71,8 @@ public sealed class ClusterPackageService
         long size = archive.GetProperty("size").GetInt64();
         if (size <= 0 || size > MaxArchiveBytes)
             throw new InvalidDataException("Cluster archive exceeds the supported size limit.");
-        using var sums = await DownloadAssetAsync(client, Asset("SHA256SUMS").GetProperty("id").GetInt64(), token);
+        using var sums = await DownloadAssetAsync(client, Asset("SHA256SUMS").GetProperty("id").GetInt64(),
+            $"SHA256SUMS for cluster v{resolved}", token);
         await sums.Content.LoadIntoBufferAsync(64 * 1024, token);
         string checksums = await sums.Content.ReadAsStringAsync(token);
         var hashes = checksums.Split('\n').Select(line => line.Trim().Split((char[]?)null, 2,
@@ -108,7 +112,8 @@ public sealed class ClusterPackageService
             Directory.CreateDirectory(staging);
             string archivePath = Path.Combine(staging, "archive.tar.gz");
             using (var client = CreateClient())
-            using (var response = await DownloadAssetAsync(client, release.ArchiveAssetId, token))
+            using (var response = await DownloadAssetAsync(client, release.ArchiveAssetId,
+                $"ClusterForLinux-{release.Version}.tar.gz", token))
             await using (var source = await response.Content.ReadAsStreamAsync(token))
             await using (var target = File.Create(archivePath))
             {
@@ -267,15 +272,43 @@ public sealed class ClusterPackageService
         return client;
     }
 
-    private static async Task<HttpResponseMessage> DownloadAssetAsync(HttpClient client, long id, CancellationToken token)
+    private static async Task<HttpResponseMessage> DownloadAssetAsync(HttpClient client, long id, string name, CancellationToken token)
     {
         if (id <= 0) throw new InvalidDataException("Release asset ID is invalid.");
         using var request = new HttpRequestMessage(HttpMethod.Get, RepositoryApi + "/releases/assets/" + id);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
-        var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+        return await SendPackageRequestAsync(client, request, "download " + name, HttpCompletionOption.ResponseHeadersRead, token);
+    }
+
+    private static async Task<HttpResponseMessage> SendPackageRequestAsync(HttpClient client,
+        HttpRequestMessage request, string operation, HttpCompletionOption completion, CancellationToken token)
+    {
+        string context = $"Could not {operation} from GitHub repository CometWorks/cluster";
+        HttpResponseMessage response;
+        try { response = await client.SendAsync(request, completion, token); }
+        catch (HttpRequestException)
+        {
+            throw new ClusterPackageException(context + ". Check the internet connection and DNS, proxy or firewall settings, then retry.");
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            throw new ClusterPackageException(context + ": the request timed out. Check connectivity to GitHub, then retry.");
+        }
         if (response.IsSuccessStatusCode) return response;
-        try { response.EnsureSuccessStatusCode(); return response; }
-        catch { response.Dispose(); throw; }
+        using (response)
+        {
+            string guidance = response.StatusCode switch
+            {
+                HttpStatusCode.NotFound => "The release or asset may be missing. GitHub also returns 404 when a private repository is inaccessible. "
+                    + "Check that the release is published and that the token in Updates → GitHub token has access to CometWorks/cluster, then retry setup.",
+                HttpStatusCode.Unauthorized => "GitHub rejected authentication. Check or replace the token in Updates → GitHub token, then retry.",
+                HttpStatusCode.Forbidden => "GitHub denied access or applied a rate limit. Check the token's repository permissions, organization authorization and GitHub rate limits, then retry.",
+                HttpStatusCode.TooManyRequests => "GitHub rate-limited the request. Wait for the rate limit to reset, then retry.",
+                _ => "GitHub could not serve the requested release resource. Retry when the repository and release downloads are available.",
+            };
+            // Do not expose response bodies, credentials or redirected signed asset URLs.
+            throw new ClusterPackageException($"{context} (HTTP {(int)response.StatusCode}). {guidance}");
+        }
     }
 
     internal static void ValidateVersion(string? version)

@@ -17,6 +17,70 @@ namespace Quasar.Tests;
 
 public sealed class ClusterPackageTests
 {
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound, "private repository", "Updates → GitHub token")]
+    [InlineData(HttpStatusCode.Unauthorized, "rejected authentication", "Updates → GitHub token")]
+    [InlineData(HttpStatusCode.Forbidden, "denied access", "repository permissions")]
+    [InlineData(HttpStatusCode.TooManyRequests, "rate-limited", "Wait")]
+    public async Task ReleaseErrorsIdentifyRemoteRepositoryAndRecovery(HttpStatusCode status, string reason, string recovery)
+    {
+        using var fixture = new Fixture { FailurePath = "/latest", FailureStatus = status };
+        var error = await Assert.ThrowsAsync<ClusterPackageException>(() => fixture.Service.GetReleaseAsync(null, default));
+        Assert.Contains("fetch the latest stable cluster release from GitHub repository CometWorks/cluster", error.Message);
+        Assert.Contains($"HTTP {(int)status}", error.Message);
+        Assert.Contains(reason, error.Message);
+        Assert.Contains(recovery, error.Message);
+        Assert.DoesNotContain("private-repo-token", error.Message);
+        Assert.DoesNotContain("untrusted-response-body", error.Message);
+    }
+
+    [LinuxTheory]
+    [InlineData("/assets/2", "SHA256SUMS for cluster v1.0.3")]
+    [InlineData("/assets/1", "ClusterForLinux-1.0.3.tar.gz")]
+    public async Task AssetErrorsIdentifyFailedDownloadAndLeaveNoPartialInstallation(string path, string asset)
+    {
+        using var fixture = new Fixture { FailurePath = path, FailureStatus = HttpStatusCode.ServiceUnavailable };
+        var error = await Assert.ThrowsAsync<ClusterPackageException>(() => fixture.Service.StageAsync(fixture.Request, default));
+        Assert.Contains("download " + asset + " from GitHub repository CometWorks/cluster (HTTP 503)", error.Message);
+        Assert.False(Directory.Exists(fixture.Root) && Directory.EnumerateFileSystemEntries(fixture.Root).Any());
+    }
+
+    [Fact]
+    public async Task NetworkFailuresHaveContextWhileCallerCancellationRemainsCancellation()
+    {
+        using var fixture = new Fixture { RequestFailure = new HttpRequestException("sensitive transport detail") };
+        var error = await Assert.ThrowsAsync<ClusterPackageException>(() => fixture.Service.GetReleaseAsync(null, default));
+        Assert.Contains("CometWorks/cluster", error.Message);
+        Assert.Contains("internet connection", error.Message);
+        Assert.DoesNotContain("sensitive", error.Message);
+        fixture.RequestFailure = new TaskCanceledException();
+        error = await Assert.ThrowsAsync<ClusterPackageException>(() => fixture.Service.GetReleaseAsync(null, default));
+        Assert.Contains("timed out", error.Message);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Service.GetReleaseAsync(null, cancellation.Token));
+    }
+
+    [Fact]
+    public async Task ReleaseApiPreservesActionableRemoteFailure()
+    {
+        using var fixture = new Fixture { FailurePath = "/latest", FailureStatus = HttpStatusCode.NotFound };
+        string catalogPath = Path.Combine(fixture.Root, "catalog");
+        Directory.CreateDirectory(Path.Combine(catalogPath, "demo"));
+        File.WriteAllText(Path.Combine(catalogPath, "demo", "cluster.json"), """
+        { "uniqueName": "demo", "gatewayUrl": "http://gateway.test" }
+        """);
+        using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                { ["Quasar:ClusterCatalogPath"] = catalogPath }).Build());
+        var result = await ClusterApi.GetPackageRelease("demo", new DefaultHttpContext(), catalog, fixture.Service, default);
+        Assert.Equal(502, ((IStatusCodeHttpResult)result).StatusCode);
+        var error = Assert.IsType<AdminErrorEnvelope>(((IValueHttpResult)result).Value).Error;
+        Assert.Equal("cluster_package_unavailable", error.Code);
+        Assert.Contains("CometWorks/cluster (HTTP 404)", error.Message);
+        Assert.Contains("Updates → GitHub token", error.Message);
+    }
+
     [LinuxFact]
     public async Task VerifiedReleaseIsPromotedOnceAndModifiedInstallationIsRejected()
     {
@@ -234,6 +298,9 @@ public sealed class ClusterPackageTests
         public bool Prerelease;
         public bool Offline;
         public Action? BeforeDownload;
+        public string? FailurePath;
+        public HttpStatusCode FailureStatus;
+        public Exception? RequestFailure;
 
         public Fixture(byte[]? archive = null)
         {
@@ -246,11 +313,14 @@ public sealed class ClusterPackageTests
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (RequestFailure is not null) throw RequestFailure;
             if (Offline) throw new InvalidOperationException("Offline verification must not contact GitHub.");
             Assert.Equal("api.github.com", request.RequestUri!.Host);
             Assert.Equal("private-repo-token", request.Headers.Authorization!.Parameter);
             HttpContent content;
             string path = request.RequestUri.AbsolutePath;
+            if (FailurePath is not null && path.EndsWith(FailurePath))
+                return Task.FromResult(new HttpResponseMessage(FailureStatus) { Content = new StringContent("untrusted-response-body") });
             if (path.EndsWith("/assets/2"))
             {
                 Assert.Contains(request.Headers.Accept, accept => accept.MediaType == "application/octet-stream");

@@ -231,7 +231,7 @@ internal static class ClusterApi
         }
     }
 
-    private static async Task<IResult> GetPackageRelease(string uniqueName, HttpContext context,
+    internal static async Task<IResult> GetPackageRelease(string uniqueName, HttpContext context,
         ClusterCatalog catalog, [FromServices] ClusterPackageService packages, CancellationToken token)
     {
         SetProtocolHeader(context);
@@ -241,7 +241,8 @@ internal static class ClusterApi
             return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
         try { return Results.Json(Envelope(await packages.GetReleaseAsync(null, token)), JsonOptions); }
         catch (Exception error) when (IsPackageError(error, token))
-        { return Error(502, "cluster_package_unavailable", "Could not read a valid cluster release from GitHub."); }
+        { return Error(502, "cluster_package_unavailable", error is ClusterPackageException ? error.Message
+            : "Could not read a valid cluster release from GitHub repository CometWorks/cluster."); }
     }
 
     private static async Task<IResult> StagePackage(string uniqueName, ClusterPackageRequest request,
@@ -262,7 +263,7 @@ internal static class ClusterApi
                     try { return Envelope(await packages.StageAsync(request, cancellation)); }
                     catch (Exception error) when (IsPackageError(error, cancellation))
                     {
-                        throw new ClusterPackageException(error is InvalidDataException or PlatformNotSupportedException
+                        throw new ClusterPackageException(error is ClusterPackageException or InvalidDataException or PlatformNotSupportedException
                             ? error.Message : "Cluster package staging failed. Check GitHub access and local storage.");
                     }
                 }, token);
@@ -273,7 +274,7 @@ internal static class ClusterApi
     }
 
     private static bool IsPackageError(Exception error, CancellationToken token) =>
-        error is IOException or InvalidDataException or UnauthorizedAccessException or HttpRequestException
+        error is ClusterPackageException or IOException or InvalidDataException or UnauthorizedAccessException or HttpRequestException
             or JsonException or System.Xml.XmlException or KeyNotFoundException or InvalidOperationException or PlatformNotSupportedException or FormatException
         || (error is OperationCanceledException && !token.IsCancellationRequested);
 
