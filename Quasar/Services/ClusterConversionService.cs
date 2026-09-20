@@ -118,6 +118,7 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
                 if (request.DependencySha256 != cluster.DependencyManifestSha256 || request.PackageRevision != cluster.PackageSelection?.Revision)
                     throw new InvalidOperationException("Destination release or dependency snapshot changed; review it again.");
                 var profile = profiles.GetProfile(source.ConfigProfileId)!;
+                ValidateAdmission(profile);
                 var snapshot = pluginConfigs.GetLastKnownConfigsForServer(source.UniqueName);
                 string work = Workspace(request.Id);
                 await StageAsync(request.Id, clusterId, "to-cluster", "Verifying release and dependencies", ct);
@@ -376,6 +377,18 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
             throw new InvalidDataException("Frozen dependency snapshot contains additional common plugins; align it with the reviewed source selection.");
     }
 
+    // The Gateway reads admission.json strictly: administrators are SteamID64 numbers and memberLimit is at least 2.
+    internal static ulong[] Administrators(QuasarConfigProfile profile) => (profile.RootSettings.Administrators ?? [])
+        .Where(a => !string.IsNullOrWhiteSpace(a)).Select(a =>
+            ulong.TryParse(a.Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out ulong id) && id >> 52 == 0x11
+                ? id : throw new InvalidDataException($"Administrator '{a.Trim()}' is not a SteamID64; a cluster accepts only numeric Steam IDs."))
+        .Distinct().ToArray();
+
+    internal static int MemberLimit(QuasarConfigProfile profile) => profile.SessionSettings.MaxPlayers >= 2 ? profile.SessionSettings.MaxPlayers
+        : throw new InvalidDataException($"Max players is {profile.SessionSettings.MaxPlayers}; a cluster needs at least 2.");
+
+    internal static void ValidateAdmission(QuasarConfigProfile profile) { Administrators(profile); MemberLimit(profile); }
+
     internal static async Task<string> SpecificationAsync(ClusterDefinition cluster, DedicatedServerDefinition source,
         QuasarConfigProfile profile, LastKnownPluginConfigSnapshot? snapshot, ServerToClusterRequest request,
         string world, Dictionary<string, HostContract.HostConversionPaths> paths, CancellationToken token)
@@ -395,8 +408,8 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
         var gateway = new Uri(cluster.GatewayUrl);
         return JsonSerializer.Serialize(new { schemaVersion = 1, clusterId = cluster.UniqueName, worldId = cluster.UniqueName,
             serverName = string.IsNullOrWhiteSpace(source.InGameServerName) ? source.DisplayName : source.InGameServerName,
-            binaryVersion = request.BinaryVersion, memberLimit = profile.SessionSettings.MaxPlayers,
-            administrators = profile.RootSettings.Administrators,
+            binaryVersion = request.BinaryVersion, memberLimit = MemberLimit(profile),
+            administrators = Administrators(profile),
             hosts = request.Hosts.Select(h => new { id = h.HostId, runRoot = paths[h.HostId].RuntimeDirectory,
                 executorTokenEnvironmentVariable = h.ExecutorTokenEnvironmentVariable }),
             gatewayHost = request.GatewayHost, gatewayControl = Endpoint(gateway.Host.Trim('[', ']'), gateway.Port),

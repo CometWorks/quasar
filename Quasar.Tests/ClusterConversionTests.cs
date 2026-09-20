@@ -155,6 +155,30 @@ public sealed class ClusterConversionTests : IDisposable
         Assert.Equal(3, nodes.Single(n => n.GetProperty("role").GetString() == "WA").GetProperty("catalogSlot").GetInt32());
     }
 
+    [Fact]
+    public async Task SpecificationEmitsNumericAdministratorsAndRejectsValuesTheGatewayRefuses()
+    {
+        await Source(); var request = Request();
+        string world = Path.Combine(root, "split"); Directory.CreateDirectory(world);
+        File.WriteAllText(Path.Combine(world, "Sandbox.sbc"), "<MyObjectBuilder_Checkpoint />");
+        var paths = request.Hosts.ToDictionary(h => h.HostId, h => new Quasar.Host.Contract.V1.HostConversionPaths(h.HostId, "/world", "/config", "/runtime"));
+        var profile = profiles.GetProfile("profile")!;
+        profile.RootSettings.Administrators = [" 76561198000000001 ", "76561198000000002", ""];
+        using var spec = JsonDocument.Parse(await ClusterConversionService.SpecificationAsync(clusters.GetCluster("demo")!,
+            servers.GetServer("source")!, profile, null, request, world, paths, default));
+        var administrators = spec.RootElement.GetProperty("administrators").EnumerateArray().ToArray();
+        Assert.All(administrators, a => Assert.Equal(JsonValueKind.Number, a.ValueKind));
+        Assert.Equal(new[] { 76561198000000001UL, 76561198000000002UL }, administrators.Select(a => a.GetUInt64()));
+
+        profile.RootSettings.Administrators = ["admin-name"];
+        Assert.Contains("admin-name", Assert.Throws<InvalidDataException>(() => ClusterConversionService.ValidateAdmission(profile)).Message);
+        profile.RootSettings.Administrators = ["12345"];
+        Assert.Throws<InvalidDataException>(() => ClusterConversionService.ValidateAdmission(profile));
+        profile.RootSettings.Administrators = [];
+        profile.SessionSettings.MaxPlayers = 1;
+        Assert.Contains("at least 2", Assert.Throws<InvalidDataException>(() => ClusterConversionService.ValidateAdmission(profile)).Message);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

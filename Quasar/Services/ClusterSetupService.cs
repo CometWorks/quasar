@@ -68,6 +68,8 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         if (catalog.GetCluster(request.UniqueName) is not null) throw new InvalidOperationException("This cluster ID already belongs to an existing registration. Choose a new ID.");
                         var profile = profiles.GetProfile(request.ConfigProfileId) ?? throw new InvalidOperationException("Choose a configuration profile.");
                         if (worlds.GetTemplate(request.WorldTemplateId) is null) throw new InvalidOperationException("Choose a world template.");
+                        try { ClusterConversionService.ValidateAdmission(profile); }
+                        catch (InvalidDataException error) { throw new InvalidOperationException("Configuration profile cannot be used for a cluster: " + error.Message); }
                         await WriteAsync(Path.Combine(work, "profile.json"), profile, ct);
                         await WriteAsync(identity, request, ct);
                     }
@@ -102,6 +104,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                             cluster = catalog.GetCluster(cluster.UniqueName)!;
                         }
                         var savedProfile = Read<QuasarConfigProfile>(Path.Combine(work, "profile.json"));
+                        ClusterConversionService.ValidateAdmission(savedProfile);
                         string seed = Path.Combine(work, "source-world");
                         string sourceReceipt = Path.Combine(work, "source-world.json");
                         if (!File.Exists(sourceReceipt))
