@@ -23,7 +23,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
     ClusterCredentialStore credentials, ClusterPackageService packages, ClusterDependencyService dependencies,
     ManagedDedicatedServerRuntimeResolver runtime, DedicatedServerRuntimePreparer preparer,
     QuasarWorldTemplateCatalog worlds, QuasarConfigProfileCatalog profiles, ClusterDeploymentService deployments,
-    ClusterOperationStore operations, DedicatedServerCatalog servers)
+    ClusterOperationStore operations, DedicatedServerCatalog servers, ILogger<ClusterSetupService>? logger = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> gates = new();
@@ -279,6 +279,13 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
             WorldPath = Path.Combine(work, "preparation"), WorldSaveName = "world" };
         var prepared = await preparer.PrepareAsync(source, runtime.ResolveInstalledDedicatedServer64Path(), MagnetarLaunchArgumentStyle.Current, token, selectedProfile);
         PrepareAgentMetadata(prepared.MagnetarAppDataPath);
+        var excluded = ExcludeLocalPluginsWithoutProvenance(prepared.MagnetarAppDataPath);
+        if (excluded.Count != 0)
+        {
+            string names = string.Join(", ", excluded);
+            logger?.LogWarning("Cluster {Cluster} setup leaves out local plugins without provenance metadata: {Plugins}. Cluster nodes run only plugins with a pinned source.", request.UniqueName, names);
+            await StageAsync(request, "Preparing identical plugins and canonical configuration (left out, no provenance metadata: " + names + ")", null, token);
+        }
         if (Directory.Exists(destination)) Directory.Delete(destination, true); // Export has no committed receipt yet.
         await RunMagnetarAsync(magnetar, ["-prepareManaged", destination, "-config", prepared.MagnetarAppDataPath,
             "-profile", Path.Combine(prepared.MagnetarAppDataPath, "Profiles/Current.xml"),
@@ -306,6 +313,26 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         var current = XDocument.Load(Path.Combine(config, "Profiles/Current.xml"));
         foreach (var item in current.Root!.Element("Local")!.Elements().Where(e => e.Value == "Quasar.Agent.dll")) item.Value = "quasar-agent";
         current.Save(Path.Combine(config, "Profiles/Current.xml"));
+    }
+    // Managed preparation accepts a local binary only with GitHubPlugin provenance metadata next to it
+    // (<name>.xml or <name>.dll.xml). Quasar UI-plugin companion DLLs have none, and Magnetar fails the
+    // whole preparation on the first one. They are left out of the cluster profile and named to the operator.
+    internal static IReadOnlyList<string> ExcludeLocalPluginsWithoutProvenance(string config)
+    {
+        string local = Path.Combine(config, "Local"), profile = Path.Combine(config, "Profiles/Current.xml");
+        var current = XDocument.Load(profile);
+        var excluded = new List<string>();
+        foreach (var item in current.Root!.Element("Local")?.Elements().ToArray() ?? [])
+        {
+            string name = item.Value.Trim();
+            if (!name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || name != Path.GetFileName(name)) continue;
+            string assembly = Path.Combine(local, name);
+            if (File.Exists(Path.ChangeExtension(assembly, ".xml")) || File.Exists(assembly + ".xml")) continue;
+            item.Remove();
+            excluded.Add(Path.GetFileNameWithoutExtension(name));
+        }
+        if (excluded.Count != 0) current.Save(profile);
+        return excluded;
     }
     internal static async Task RequirePreparationCommandAsync(string executable, CancellationToken token)
     {
