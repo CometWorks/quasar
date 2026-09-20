@@ -128,6 +128,7 @@ public sealed class ClusterReconciler : BackgroundService
                 && MatchesSpec(current, on) && HasShutdownProof(cluster)
                 && current.CompletedStopFence is not null
                 && current.CompletedStopFence == cluster.ShutdownProof!.StopFence;
+            if (clean) await _operations.CompleteShutdownAsync(cluster, cancellationToken);
             Set(cluster, clean ? ClusterReconcileState.Converged : ClusterReconcileState.ConfigurationRequired,
                 current?.Observed ?? HostContract.GatewayObservedState.Missing,
                 clean ? Admin.ClusterPhase.Down : null,
@@ -260,6 +261,7 @@ public sealed class ClusterReconciler : BackgroundService
             && stopped.Goal == HostContract.GatewayGoal.Off && MatchesSpec(stopped, on)
             && stopped.CompletedStopFence == stopFence && stopped.Failure is null;
         if (!complete) await _catalog.RecordShutdownProofAsync(cluster, null, cancellationToken);
+        else await _operations.CompleteShutdownAsync(_catalog.GetCluster(cluster.UniqueName)!, cancellationToken);
         Set(cluster, complete
                 ? ClusterReconcileState.Converged : ClusterReconcileState.Converging,
             stopped.Observed, gateway.Phase, stopped.Failure == null ? null : "gateway_stop_failed",

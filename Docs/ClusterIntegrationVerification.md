@@ -197,9 +197,71 @@ Both plugin builds and 31 upstream Python tests pass. The fixes are merged;
 [PR #14](https://github.com/CometWorks/cluster/pull/14) bumps the release to 1.1.1.
 Verification must consume that published package before accepting replica durability.
 
+## Published 1.1.1 verification and plugin discovery blocker
+
+The verified 1.1.1 archive (`46ea61a2cafbea18e89a57e7477164ac82eea84e716d17168b6bdf22f0765e59`,
+commit `ca1a349`) was staged and activated through the managed update workflow.
+The workflow reached Complete, with two regular nodes and WA Active, managed readiness
+true and admission open. Partition and global-save replication now succeeds without
+the earlier transfer-grant 401 failures. This does not prove cross-Host durability.
+
+The run exposed two Quasar workflow defects, fixed locally in rc.3: pending shutdown
+records could survive a verified clean fenced stop, and update checkpoint comparisons
+treated file-watcher reconstruction of nested arrays as a concurrent edit. Shutdown
+completion now records its verified proof; update comparisons use persisted content.
+342 Quasar tests pass, including lost-stop-response, mismatched-fence and reconstructed
+workflow checks. A subsequent warm-start attempt halted with `globalSpawnFailure` and
+`process_exited`; it is not a passing restart check. Its evidence is retained.
+
+Regular-node plugin discovery also fails in published 1.1.1 because LiteNetLib is
+missing beside the local plugin. The preloader can still start the runtime, so Serving
+does not establish successful plugin discovery; the regular plugin is absent from the
+Agent's loaded-plugin list. [Cluster PR #15](https://github.com/CometWorks/cluster/pull/15)
+ships that dependency, adds a release-time type-discovery check and bumps to 1.1.2.
+The new check rejects published 1.1.1 and passes both corrected role plugins. A loader
+probe confirms the corrected node and pinned Direct Transport share the same LiteNetLib
+assembly. The complete local package and its existing self-tests pass. This local build
+has not replaced the published package in the live deployment; release consumption and
+live plugin discovery remain required.
+
+Reverse conversion also exposed sensitivity to JSON serialization of approved deployment
+inputs: equivalent Python and .NET JSON bytes produce different input hashes. The 1.1.1
+preparation used the exact served bytes; support for other valid serializations still
+needs reconciliation. Full conversion acceptance remains open.
+
 Evidence is under `quasar-phase4-candidate/live/evidence/`, including lifecycle and
 fleet JSON, logs, tests, and screenshots. Full acceptance remains open: end-to-end
 conversions, deployment update/restore, plugin service fault scenarios, real clients
 and multiple Hosts are not all verified by this single-host run. The suite doctor
 finds the installed client and Earth fixture, but the test Pulsar Interim profile
 with Remote/Direct Transport is not configured; no second Host/Steam client is provided.
+
+## Cluster UI audit — local rc.4
+
+The local `1.1.0-phase4.rc.4` candidate restores the cluster card console and an edit
+shortcut to deployment configuration. The console shows Gateway events and correlated
+node plugin logs; full process logs remain on each Host. Duplicate component summaries
+are removed while status, capacity, recovery and world/configuration information remain.
+Administration, fleet and deployment use rounded MudCards. Advanced details and
+expanded forms have consistent spacing; recovery and conversion sit under deployment.
+
+Playwright verified the installed candidate at 1600px desktop and 390px mobile widths:
+
+- Console opens from the card and detail page; event data is on separate lines.
+- Console observations advance after five seconds, tabs switch, Refresh works, and
+  both Escape and Close dismiss the dialog. Node plugin logs correctly show an empty
+  state for the currently unmatched/stopped nodes; live log delivery was not proved.
+- The edit shortcut opens the configuration anchor. Card status timestamps advance
+  without reloading the page.
+- Administration, fleet and deployment have 6px corner radii and 16px section gaps.
+  Advanced labels remain readable on mobile; long revisions wrap.
+- Diagnostics, capacity, preparation, backup/restore, activation, recovery and
+  conversion expansions fit the mobile viewport without document horizontal overflow.
+  No lifecycle, restore or conversion mutations were submitted during this UI audit.
+
+All 344 Quasar tests pass, including console scope enforcement, HTML encoding and
+retained-event behavior during a Gateway outage. Linux release packaging passes.
+Screenshots and test output are retained in the candidate's `live/evidence/ui-audit/`
+and `live/evidence/ui-audit-tests.log`. This verifies UI behavior, not full integration
+acceptance: the 1.1.1 Gateway remains Draining after the failed warm-start/shutdown
+sequence described above, and the published LiteNetLib correction still needs a live run.

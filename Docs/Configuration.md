@@ -895,7 +895,13 @@ terminal result. A transport outage leaves the outcome pending. Keep the origina
 Gateway URL while an operation is pending. Local `goal` success means the desired
 state was saved; query `lifecycle` separately for actual convergence.
 Reconciler-initiated shutdown uses this same journal. A new On goal waits with
-`shutdown_pending` until an outstanding shutdown finishes. Per-cluster gates serialize
+`shutdown_pending` until an outstanding shutdown finishes.
+When Quasar has verified clean Down and the Host's matching fenced process stop,
+it also completes pending shutdown records for that Gateway with
+`confirmation: clean-shutdown-proof`. This handles a lost final remote acknowledgement,
+including recovery after a Quasar restart; missing or mismatched stop proof leaves the
+operation pending. Other operations still require their remote terminal result.
+Per-cluster gates serialize
 worker lifecycle effects, catalog goal/spec edits, command submissions and remote
 operation polling. They do not replace future fenced execution or distributed leases;
 avoid out-of-band Host actions and manual lifecycle-file edits during an operation.
@@ -1268,6 +1274,18 @@ status refresh every five seconds without reloading the page; stale observations
 not show nodes as healthy. A proven clean shutdown is displayed as Stopped.
 The dark theme uses the original bright success green (`#86efac`) for both server
 types, with dark text on filled success buttons.
+
+The terminal icon opens the cluster console: recent Gateway events and node plugin
+logs, refreshed every five seconds. It preserves displayed entries during an outage
+and marks them stale; full server/launcher process logs remain on their Hosts. Console
+access requires cluster query permission and the caller's cluster scope. The pencil
+icon opens the cluster deployment/configuration section for cluster managers.
+
+The control page places administration first, followed by status, fleet observations
+and deployment. Sections use consistent cards and spacing; recovery and conversion
+are grouped under deployment. Gateway and World Authority appear in the status tile,
+while node readiness appears in capacity, avoiding the repeated component summary.
+Advanced details retain reconciliation, executor, Registry and slot information.
 
 The cluster deployment panel persists one preparation specification for all Hosts.
 PluginSdk configuration schemas reuse the ordinary editor. Each configuration type has

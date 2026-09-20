@@ -55,6 +55,30 @@ public sealed class ClusterOperationStore
         && operation.State == ClusterOperationState.Running
         && operation.Kind is "cluster.lifecycle.shutdown" or "cluster.shutdown");
 
+    // The lifecycle owner calls this only after verifying clean Down AND the matching
+    // fenced Host stop. A remote operation may remain Running if its final reply was lost.
+    internal async Task CompleteShutdownAsync(Quasar.Models.ClusterDefinition cluster, CancellationToken token)
+    {
+        var proof = cluster.ShutdownProof;
+        if (cluster.GoalState != Quasar.Models.DedicatedServerGoalState.Off
+            || proof is null || proof.LifecycleId != cluster.GetLifecycleId())
+            throw new InvalidOperationException("Shutdown completion requires matching clean-shutdown proof.");
+        await _gate.WaitAsync(token);
+        try
+        {
+            foreach (var operation in _operations.Values.Where(o =>
+                o.Cluster.Equals(cluster.UniqueName, StringComparison.OrdinalIgnoreCase)
+                && o.State == ClusterOperationState.Running
+                && o.Kind is "cluster.lifecycle.shutdown" or "cluster.shutdown"
+                && o.GatewayRequest?.GatewayUrl == cluster.GatewayUrl).ToArray())
+                await SaveAsync(operation with { State = ClusterOperationState.Succeeded,
+                    UpdatedAt = DateTimeOffset.UtcNow, Error = null,
+                    Result = JsonSerializer.SerializeToElement(new { phase = "Down",
+                        confirmation = "clean-shutdown-proof", proof }, JsonOptions) }, token);
+        }
+        finally { _gate.Release(); }
+    }
+
     internal async Task FenceGatewayOperationsForRestoreAsync(string cluster, CancellationToken token, bool recovery = false)
     {
         await _gate.WaitAsync(token);

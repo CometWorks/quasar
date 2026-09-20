@@ -123,6 +123,56 @@ public sealed class ClusterReconcilerTests : IDisposable
         Assert.Null(reconciler.GetStatus("demo").ClusterPhase);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CleanFencedStopCompletesShutdownJournalEvenWhenRemoteAcknowledgementWasLost(bool lostHostReply)
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using var catalog = CreateCatalog(DedicatedServerGoalState.Off);
+        GatewayStatus state = GatewayStatus(GatewayGoal.On, GatewayObservedState.Running);
+        bool down = false;
+        var gateway = new ContractHandler((request, _) =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                down = true;
+                return GatewayResponse(new Admin.AdminOperation("shutdown-1", "shutdown", Admin.AdminOperationState.Running,
+                    "test", request.Headers.GetValues("Idempotency-Key").Single(), DateTimeOffset.UtcNow,
+                    DateTimeOffset.UtcNow, null, null, null));
+            }
+            return GatewayResponse(Status(down ? Admin.ClusterPhase.Down : Admin.ClusterPhase.Serving));
+        });
+        var host = new ContractHandler((request, _) =>
+        {
+            if (request.Method == HttpMethod.Put)
+            {
+                state = GatewayStatus(GatewayGoal.Off, GatewayObservedState.Missing);
+                if (lostHostReply) throw new HttpRequestException("stop reply lost");
+                return HostResponse(state);
+            }
+            return HostResponse(Host([state]));
+        });
+        ClusterOperationStore Store() => new(Path.Combine(_directory, "operations"));
+        await CreateReconciler(catalog, gateway, host).ReconcileAllAsync(default);
+        Assert.True(Store().HasPendingShutdown("demo"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Store().CompleteShutdownAsync(catalog.GetCluster("demo")!, default));
+        await CreateReconciler(catalog, gateway, host).ReconcileAllAsync(default);
+        if (lostHostReply)
+        {
+            Assert.True(Store().HasPendingShutdown("demo"));
+            state = state with { CompletedStopFence = new(43, DateTimeOffset.UnixEpoch) };
+            await CreateReconciler(catalog, gateway, host).ReconcileAllAsync(default);
+            Assert.True(Store().HasPendingShutdown("demo"));
+            state = GatewayStatus(GatewayGoal.Off, GatewayObservedState.Missing);
+            await CreateReconciler(catalog, gateway, host).ReconcileAllAsync(default);
+        }
+        Assert.False(Store().HasPendingShutdown("demo"));
+        var record = Directory.EnumerateFiles(Path.Combine(_directory, "operations"), "*.json").Single();
+        using var saved = JsonDocument.Parse(await File.ReadAllBytesAsync(record));
+        Assert.Equal("clean-shutdown-proof", saved.RootElement.GetProperty("result").GetProperty("confirmation").GetString());
+    }
+
     [Fact]
     public async Task OnWaitsWhileNewGatewayAdminApiStarts()
     {

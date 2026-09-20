@@ -12,6 +12,10 @@
                     </MudChip>
                 </MudStack>
                 <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" AlignItems="AlignItems.Start">
+                    <ClusterConsoleButton Cluster="Cluster" />
+                    <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+                        <MudTooltip Text="Edit cluster configuration"><MudIconButton aria-label="Edit cluster configuration" Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Href="@($"/clusters/{Uri.EscapeDataString(Cluster.UniqueName)}#cluster-configuration")" /></MudTooltip>
+                    </AuthorizeView>
                     <MudTooltip Text="Cluster details"><MudIconButton aria-label="Cluster details" Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" OnClick="OpenDetails" /></MudTooltip>
                     <ClusterAdminPanel Cluster="Cluster" Compact="true" />
                 </MudStack>

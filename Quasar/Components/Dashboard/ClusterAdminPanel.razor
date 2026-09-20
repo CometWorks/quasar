@@ -10,7 +10,9 @@
 
 <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
     <Authorized Context="authorization">
-        <MudStack Spacing="1" Class="@(Compact ? null : "pa-4 server-card")">
+        <MudCard Class="@(Compact ? null : "server-card")" Elevation="@(Compact ? 0 : 1)" Style="@(Compact ? "background:transparent;overflow:visible" : null)">
+        <MudCardContent Class="@(Compact ? "pa-0" : "pa-4")">
+        <MudStack Spacing="3">
             @if (!Compact) { <MudText Typo="Typo.h6">Cluster administration</MudText> }
             @if ((_error ?? (Compact ? null : _capabilityError)) is { } message)
             {
@@ -54,6 +56,7 @@
             {
             <MudExpansionPanels>
                 <MudExpansionPanel Text="Diagnostics, maintenance and exports">
+                    <MudStack Spacing="3" Class="py-2 cluster-form-section">
                     <MudButton OnClick="LoadDiagnosticsAsync" Disabled="@Busy">Load diagnostics</MudButton>
                     <MudButton OnClick="LoadArtifactsAsync" Disabled="@Busy">List world exports</MudButton>
                     <MudButton OnClick="ExportAsync" Disabled="@(!CanRun("POST /admin/v1/world-exports"))">Export vanilla world</MudButton>
@@ -65,6 +68,7 @@
                     <MudTextField T="string" Label="Handover settings to change (JSON)" @bind-Value="_handover" Lines="5" />
                     <MudButton OnClick="ApplyHandoverAsync" Disabled="@Busy">Apply handover settings</MudButton>
                     @if (_details is not null) { <pre style="max-height:400px;overflow:auto">@_details</pre> }
+                    </MudStack>
                 </MudExpansionPanel>
                 <MudExpansionPanel Text="Advanced capacity configuration">
                     <MudButton OnClick="LoadConfigAsync" Disabled="@Busy">Load current configuration</MudButton>
@@ -89,6 +93,8 @@
             </MudExpansionPanels>
             }
         </MudStack>
+        </MudCardContent>
+        </MudCard>
     </Authorized>
 </AuthorizeView>
 

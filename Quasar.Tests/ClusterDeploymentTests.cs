@@ -168,6 +168,13 @@ public sealed class ClusterDeploymentTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On));
         await update.AdvanceAllAsync(default);
         Assert.Equal(ClusterUpdatePhase.Stopping, catalog.GetCluster("demo")!.Update!.Phase);
+        // A file-watcher reload reconstructs arrays inside the workflow. CAS compares
+        // durable content, not those arrays' object identities.
+        var reloaded = JsonSerializer.Deserialize<ClusterDefinition>(JsonSerializer.Serialize(catalog.GetCluster("demo"), Json), Json)!;
+        await catalog.RecordUpdateAsync(reloaded, reloaded.Update!, default);
+        var changed = reloaded.Clone();
+        changed.Update = changed.Update! with { Deployment = candidate with { Revision = "different" } };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.RecordUpdateAsync(changed, changed.Update, default));
         var stopped = catalog.GetCluster("demo")!;
         await catalog.RecordShutdownProofAsync(stopped, new(stopped.GetLifecycleId(), DateTimeOffset.UtcNow,
             new GatewayStopFence(123, DateTimeOffset.UtcNow)), default);

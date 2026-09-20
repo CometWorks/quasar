@@ -1,4 +1,5 @@
 @page "/clusters/{UniqueName}"
+@implements IDisposable
 @attribute [Authorize(Policy = QuasarPolicyNames.ClusterQuery)]
 @inject ClusterCatalog ClusterCatalog
 @inject AuthenticationStateProvider AuthenticationState
@@ -22,25 +23,23 @@ else
                 <MudText Typo="Typo.body2" Class="mono">@Cluster.UniqueName</MudText>
             </MudStack>
         </div>
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+        <ClusterConsoleButton Cluster="Cluster" />
         <MudButton Href="/" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack">
             Servers
         </MudButton>
+        </MudStack>
     </MudStack>
 
-    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">
-        Manage this cluster as one server. Gateway, World Authority, and node placement are
-        shown for visibility; the Registry remains authoritative for fleet decisions.
-    </MudAlert>
-
-    <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="conversionAuth">
-        <MudButton Href="@("/clusters/" + Uri.EscapeDataString(Cluster.UniqueName) + "/convert-to-server")" StartIcon="@Icons.Material.Filled.Dns">Convert to standalone server</MudButton>
-    </AuthorizeView>
-    <div @key="Cluster.UniqueName">
-        <ClusterDetailPanel Cluster="Cluster" />
+    <MudStack @key="Cluster.UniqueName" Spacing="4" Class="cluster-control-page">
+        <ClusterConfigurationLinks />
         <ClusterAdminPanel @ref="_admin" Cluster="Cluster" />
-        <ClusterDeploymentPanel Cluster="Cluster" />
+        <ClusterDetailPanel Cluster="Cluster" ShowConfigurationLinks="false" />
         <ClusterFleetPanel Cluster="Cluster" Command="ExecuteCommandAsync" />
-    </div>
+        <section id="cluster-configuration" aria-label="Cluster configuration">
+            <ClusterDeploymentPanel Cluster="Cluster" />
+        </section>
+    </MudStack>
 }
 
 @code
@@ -51,6 +50,10 @@ else
     private ClusterDefinition? Cluster { get; set; }
     private ClusterAdminPanel? _admin;
     private Task ExecuteCommandAsync(ClusterAdminCommand command) => _admin?.SubmitAsync(command) ?? Task.CompletedTask;
+
+    protected override void OnInitialized() => ClusterCatalog.Changed += CatalogChanged;
+    private void CatalogChanged() => _ = InvokeAsync(async () => { await OnParametersSetAsync(); StateHasChanged(); });
+    public void Dispose() => ClusterCatalog.Changed -= CatalogChanged;
 
     protected override async Task OnParametersSetAsync()
     {

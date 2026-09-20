@@ -30,9 +30,10 @@
     <MudGrid Spacing="2">
         <MudItem xs="12" sm="6" lg="3">
             <MudPaper Class="pa-3 server-card" Elevation="0">
-                <MudText Typo="Typo.overline">Serving</MudText>
+                <MudText Typo="Typo.overline">Status</MudText>
                 <MudText Typo="Typo.h6" Color="@PhaseColor">@PhaseText</MudText>
-                <MudText Typo="Typo.caption">Gateway is @GatewayText.ToLowerInvariant().</MudText>
+                <MudText Typo="Typo.caption" Class="d-block">Gateway · @GatewayText</MudText>
+                <MudText Typo="Typo.caption" Class="d-block">World Authority · @WorldAuthorityText</MudText>
             </MudPaper>
         </MudItem>
         <MudItem xs="12" sm="6" lg="3">
@@ -58,46 +59,29 @@
         </MudItem>
     </MudGrid>
 
-    <MudPaper Class="pa-4 server-card" Elevation="0">
-        <MudText Typo="Typo.h6" Class="mb-2">Physical components</MudText>
-        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
-            <MudChip T="string" Variant="Variant.Outlined" Color="@GatewayColor">
-                Gateway · @GatewayText
-            </MudChip>
-            <MudChip T="string" Variant="Variant.Outlined" Color="@WorldAuthorityColor">
-                World Authority · @WorldAuthorityText
-            </MudChip>
-            <MudChip T="string" Variant="Variant.Outlined" Color="@NodesColor">
-                Nodes · @CapacityText
-            </MudChip>
-        </MudStack>
-        @if (!_stale && _status?.ReasonCodes.Length > 0)
-        {
-            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
-                @string.Join(" · ", _status.ReasonCodes)
-            </MudAlert>
-        }
-    </MudPaper>
+    @if (!_stale && _status?.ReasonCodes.Length > 0)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+            @string.Join(" · ", _status.ReasonCodes)
+        </MudAlert>
+    }
 
     <MudPaper Class="pa-4 server-card" Elevation="0">
         <MudText Typo="Typo.h6">World and configuration</MudText>
         <MudText>Active world: @(_status?.WorldId ?? "Unknown")</MudText>
         <MudText>Profile: @(Profiles.GetProfile(Cluster.ConfigProfileId)?.Name ?? ValueOrDash(Cluster.ConfigProfileId))</MudText>
         <MudText>World template: @(Worlds.GetTemplate(Cluster.WorldTemplateId)?.Name ?? ValueOrDash(Cluster.WorldTemplateId))</MudText>
-        <MudText Typo="Typo.caption">Profile and template references describe provisioning inputs. Applying them requires packaged world provisioning.</MudText>
+
 
     </MudPaper>
 
     <MudExpansionPanels>
         <MudExpansionPanel Text="Advanced cluster details">
-            <MudSimpleTable Dense="true" Hover="true">
+            <MudStack Spacing="3" Class="py-2">
+            <MudSimpleTable Dense="true" Hover="true" Class="cluster-details-table">
                 <tbody>
-                    <tr><th>Gateway</th><td class="mono">@Cluster.GatewayUrl</td></tr>
                     <tr><th>Desired state</th><td>@Cluster.GoalState</td></tr>
                     <tr><th>Reconciler</th><td>@ReconcileText</td></tr>
-                    <tr><th>World</th><td>@(_status?.WorldId ?? "-")</td></tr>
-                    <tr><th>Config profile</th><td>@ValueOrDash(Cluster.ConfigProfileId)</td></tr>
-                    <tr><th>World setup</th><td>@ValueOrDash(Cluster.WorldTemplateId)</td></tr>
                     <tr><th>Host executor</th><td>@HostText</td></tr>
                     <tr><th>Gateway executor</th><td>@GatewayExecutorText</td></tr>
                     <tr><th>Registry WAL</th><td>@RegistryText</td></tr>
@@ -105,7 +89,7 @@
             </MudSimpleTable>
             @if (_plan.Length > 0)
             {
-                <MudTable T="Admin.NodePlan" Items="_plan" Dense="true" Hover="true" Class="mt-3">
+                <MudTable T="Admin.NodePlan" Items="_plan" Dense="true" Hover="true">
                     <HeaderContent>
                         <MudTh>Slot</MudTh>
                         <MudTh>Host</MudTh>
@@ -122,6 +106,7 @@
                     </RowTemplate>
                 </MudTable>
             }
+            </MudStack>
         </MudExpansionPanel>
     </MudExpansionPanels>
 </MudStack>
@@ -250,7 +235,6 @@
         _ => Color.Default,
     };
     private string GatewayText => IsCleanlyStopped ? "Stopped" : _stale || _status is null ? "Unavailable" : "Online";
-    private Color GatewayColor => IsCleanlyStopped ? Color.Default : _stale || _status is null ? Color.Error : Color.Success;
     private string PlayerText => _stale || _status is null ? "-" : $"{_status.Counts.ConnectedClients} connected";
     private string JoinText => _status?.AcceptingPlayers == true && !_stale
         ? "Accepting players." : "Player entry point is not serving yet.";
@@ -259,10 +243,7 @@
     private string CapacityText => _stale || _status is null ? "-" : $"{ReadyNodes}/{WantedNodes} ready";
     private string CapacityDetail => _stale || _status is null ? "Capacity unavailable."
         : $"{_status.Counts.Nodes} registered; {_plan.Count(item => item.FailureAlert)} alerting.";
-    private Color NodesColor => _stale || _status is null ? Color.Default
-        : ReadyNodes >= WantedNodes && WantedNodes > 0 ? Color.Success : Color.Warning;
     private string WorldAuthorityText => IsCleanlyStopped ? "Stopped" : _stale ? "Unavailable" : _status?.WorldAuthority.Node ?? "Unavailable";
-    private Color WorldAuthorityColor => _stale ? Color.Default : _status?.WorldAuthority.Node is null ? Color.Warning : Color.Success;
     private string RecoveryText => _recovery?.State.ToString() ?? "Unknown";
     private Color RecoveryColor => _recovery?.State switch
     {

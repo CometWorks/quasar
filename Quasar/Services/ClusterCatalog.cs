@@ -129,7 +129,8 @@ public sealed class ClusterCatalog : IDisposable
         try
         {
             var current = GetCluster(expected.UniqueName) ?? throw new KeyNotFoundException(expected.UniqueName);
-            if (current.GetLifecycleId() != expected.GetLifecycleId() || current.Update != expected.Update)
+            if (current.GetLifecycleId() != expected.GetLifecycleId()
+                || JsonSerializer.Serialize(current.Update, JsonOptions) != JsonSerializer.Serialize(expected.Update, JsonOptions))
                 throw new InvalidOperationException("Cluster changed during update checkpoint.");
             current.Update = workflow;
             if (goal is { } requested && current.GoalState != requested)
