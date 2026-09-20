@@ -135,6 +135,13 @@ internal static class DeploymentSelfTest
                 new() { ["one"] = new('c', 64), ["two"] = new('d', 64) });
             HostCredentials.Install(directory, request);
             byte[] original = File.ReadAllBytes(Path.Combine(directory, "credentials.json"));
+            string tokenFile = Path.Combine(directory, "credentials", cluster, "tokens.json");
+            string[] Names() => System.Text.Json.JsonDocument.Parse(File.ReadAllText(tokenFile)).RootElement.GetProperty("tokens")
+                .EnumerateArray().Select(t => t.GetProperty("name").GetString()!).ToArray();
+            Assert(Names().SequenceEqual(["one", "two"]), "executor token name differs from Host ID");
+            File.WriteAllText(tokenFile, File.ReadAllText(tokenFile).Replace("\"name\":\"", "\"name\":\"host-"));
+            HostCredentials.Install(directory, request);
+            Assert(Names().SequenceEqual(["one", "two"]), "legacy prefixed executor roster was not migrated");
             HostCredentials.Install(directory, request);
             Assert(original.SequenceEqual(File.ReadAllBytes(Path.Combine(directory, "credentials.json"))), "credential replay changed file");
             AssertThrows(() => HostCredentials.Install(directory, request with { ExecutorTokens = new() { ["one"] = new('c', 64) } }));
