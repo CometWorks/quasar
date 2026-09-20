@@ -163,7 +163,12 @@ public class Program
                     context.User.Identity?.IsAuthenticated == true && (context.User.IsInRole(QuasarRoles.Viewer)
                     || context.User.IsInRole(QuasarRoles.Editor)
                     || context.User.IsInRole(QuasarRoles.Admin)
-                    || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterQuery))));
+                    || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterQuery)
+                    || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterManage))));
+                options.AddPolicy(QuasarPolicyNames.ClusterManage, policy => policy.RequireAssertion(context =>
+                    context.User.Identity?.IsAuthenticated == true && (context.User.IsInRole(QuasarRoles.Editor)
+                    || context.User.IsInRole(QuasarRoles.Admin)
+                    || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterManage))));
                 AddRolePolicy(options, QuasarPolicyNames.CanView, QuasarRoles.Viewer, QuasarRoles.Editor, QuasarRoles.Admin);
                 AddRolePolicy(options, QuasarPolicyNames.CanEditConfigs, QuasarRoles.Editor, QuasarRoles.Admin);
                 AddRolePolicy(options, QuasarPolicyNames.CanEditServers, QuasarRoles.Editor, QuasarRoles.Admin);
@@ -186,7 +191,9 @@ public class Program
                         logger.LogWarning(exception, "{Message}", message));
                 });
             builder.Services.AddHttpClient<ClusterGatewayClient>(client =>
-                client.Timeout = TimeSpan.FromSeconds(30));
+                client.Timeout = Timeout.InfiniteTimeSpan);
+            builder.Services.AddHttpClient<ClusterHostClient>(client =>
+                client.Timeout = Timeout.InfiniteTimeSpan);
             builder.Services.AddSingleton(webServiceOptions);
             builder.Services.AddSingleton(managedRuntimeOptions);
             builder.Services.AddSingleton(updateOptions);
@@ -224,6 +231,19 @@ public class Program
             builder.Services.AddSingleton<DedicatedServerCatalog>();
             builder.Services.AddSingleton<ExistingServerImportService>();
             builder.Services.AddSingleton<ClusterCatalog>();
+            builder.Services.AddSingleton<ClusterPackageService>();
+            builder.Services.AddSingleton<ClusterDependencyService>();
+            builder.Services.AddSingleton<ClusterOperationStore>();
+            builder.Services.AddHostedService<ClusterOperationReconciler>();
+            builder.Services.AddSingleton<ClusterCommandService>();
+            builder.Services.AddSingleton<ClusterDeploymentService>();
+            builder.Services.AddSingleton<ClusterConversionService>();
+            builder.Services.AddSingleton<ClusterBackupService>();
+            builder.Services.AddSingleton<ClusterUpdateService>();
+            builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterUpdateService>());
+            builder.Services.AddSingleton<ClusterFleetService>();
+            builder.Services.AddSingleton<ClusterReconciler>();
+            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ClusterReconciler>());
             builder.Services.AddSingleton<DedicatedServerSupervisor>();
             builder.Services.AddSingleton<DedicatedServerRuntimePreparer>();
             builder.Services.AddSingleton<FileBrowserService>();
@@ -328,15 +348,17 @@ public class Program
             }));
 
             app.MapGet("/api/ready", (WebServiceState state, DedicatedServerCatalog catalog,
-                ClusterCatalog clusterCatalog) => Results.Json(new
-            {
-                status = "ready",
-                state.Options.WorkerId,
-                state.Options.Version,
-                headless = state.Options.Headless,
-                configuredServers = catalog.GetServers().Count,
-                configuredClusters = clusterCatalog.GetClusters().Count,
-            }));
+                ClusterCatalog clusterCatalog, ClusterOperationStore operations) => Results.Json(new
+                {
+                    status = operations.IsReady ? "ready" : "not-ready",
+                    state.Options.WorkerId,
+                    state.Options.Version,
+                    headless = state.Options.Headless,
+                    configuredServers = catalog.GetServers().Count,
+                    configuredClusters = clusterCatalog.GetClusters().Count,
+                    operationStore = operations.IsReady,
+                }, statusCode: operations.IsReady
+                    ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable));
 
             app.MapGet("/api/discovery", (WebServiceState state) =>
                 Results.Json(state.CurrentManifest));

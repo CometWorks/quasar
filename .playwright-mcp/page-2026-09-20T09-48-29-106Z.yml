@@ -1,0 +1,45 @@
+- generic [active] [ref=e1]:
+  - alert [ref=e388]:
+    - generic [ref=e392]: "Data handling consent saved: NO."
+    - button "Close" [ref=e394] [cursor=pointer]
+  - generic [ref=e213]:
+    - banner [ref=e214]:
+      - toolbar [ref=e215]:
+        - button [ref=e216] [cursor=pointer]
+        - group [ref=e221]:
+          - img "Quasar logo" [ref=e222]
+          - group [ref=e223]:
+            - heading "Quasar" [level=6] [ref=e224]
+            - generic [ref=e225]: Supervisor control plane
+        - link [ref=e228] [cursor=pointer]:
+          - /url: /settings/updates
+        - button [ref=e233] [cursor=pointer]
+        - link [ref=e239] [cursor=pointer]:
+          - /url: /logout
+        - button [ref=e245] [cursor=pointer]
+    - generic [ref=e251]:
+      - group [ref=e271]:
+        - link "Create or import cluster" [ref=e272] [cursor=pointer]:
+          - /url: /clusters/new
+        - button "First Setup Wizard" [ref=e274] [cursor=pointer]
+        - button "Import Existing Server" [ref=e284] [cursor=pointer]
+      - generic [ref=e347]:
+        - generic [ref=e349]:
+          - text: Online Servers
+          - heading "0" [level=4] [ref=e350]
+        - generic [ref=e352]:
+          - text: Players Online
+          - heading "0" [level=4] [ref=e353]
+        - generic [ref=e355]:
+          - text: Health Warnings
+          - heading "0" [level=4] [ref=e356]
+        - generic [ref=e358]:
+          - text: Errors
+          - heading "0" [level=4] [ref=e359]
+      - group [ref=e360]:
+        - heading "Servers" [level=6] [ref=e361]
+        - group [ref=e362]:
+          - button "Create Server" [ref=e363] [cursor=pointer]
+          - button "Cards" [ref=e369] [cursor=pointer]
+          - button "List" [ref=e375] [cursor=pointer]
+      - generic [ref=e381]: No servers configured yet. Create a server to manage a Space Engineers dedicated server.

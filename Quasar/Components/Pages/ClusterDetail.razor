@@ -1,0 +1,63 @@
+@page "/clusters/{UniqueName}"
+@implements IDisposable
+@attribute [Authorize(Policy = QuasarPolicyNames.ClusterQuery)]
+@inject ClusterCatalog ClusterCatalog
+@inject AuthenticationStateProvider AuthenticationState
+
+<PageTitle>@(Cluster?.DisplayName ?? "Cluster")</PageTitle>
+
+@if (Cluster is null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
+        Cluster '@UniqueName' was not found.
+    </MudAlert>
+}
+else
+{
+    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center"
+              Justify="Justify.SpaceBetween" Spacing="2" Class="mb-3">
+        <div>
+            <MudText Typo="Typo.h5">@Cluster.DisplayName</MudText>
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">Cluster</MudChip>
+                <MudText Typo="Typo.body2" Class="mono">@Cluster.UniqueName</MudText>
+            </MudStack>
+        </div>
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+        <ClusterConsoleButton Cluster="Cluster" />
+        <MudButton Href="/" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack">
+            Servers
+        </MudButton>
+        </MudStack>
+    </MudStack>
+
+    <MudStack @key="Cluster.UniqueName" Spacing="4" Class="cluster-control-page">
+        <ClusterConfigurationLinks />
+        <ClusterAdminPanel @ref="_admin" Cluster="Cluster" />
+        <ClusterDetailPanel Cluster="Cluster" ShowConfigurationLinks="false" />
+        <ClusterFleetPanel Cluster="Cluster" Command="ExecuteCommandAsync" />
+        <section id="cluster-configuration" aria-label="Cluster configuration">
+            <ClusterDeploymentPanel Cluster="Cluster" />
+        </section>
+    </MudStack>
+}
+
+@code
+{
+    [Parameter]
+    public string UniqueName { get; set; } = string.Empty;
+
+    private ClusterDefinition? Cluster { get; set; }
+    private ClusterAdminPanel? _admin;
+    private Task ExecuteCommandAsync(ClusterAdminCommand command) => _admin?.SubmitAsync(command) ?? Task.CompletedTask;
+
+    protected override void OnInitialized() => ClusterCatalog.Changed += CatalogChanged;
+    private void CatalogChanged() => _ = InvokeAsync(async () => { await OnParametersSetAsync(); StateHasChanged(); });
+    public void Dispose() => ClusterCatalog.Changed -= CatalogChanged;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+        Cluster = user.CanQueryCluster(UniqueName) ? ClusterCatalog.GetCluster(UniqueName) : null;
+    }
+}

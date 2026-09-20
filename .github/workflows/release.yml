@@ -16,6 +16,10 @@ on:
       - "Quasar/**"
       - "Quasar.Agent/**"
       - "Quasar.Bootstrap/**"
+      - "Quasar.Host/**"
+      - "Quasar.Host.Contract/**"
+      - "Contracts/**"
+      - "Shared/**"
       - "Quasar.sln"
       - "docker-compose.yml"
       - "install.sh"
@@ -43,6 +47,10 @@ on:
       - "Quasar/**"
       - "Quasar.Agent/**"
       - "Quasar.Bootstrap/**"
+      - "Quasar.Host/**"
+      - "Quasar.Host.Contract/**"
+      - "Contracts/**"
+      - "Shared/**"
       - "Quasar.sln"
       - "docker-compose.yml"
       - "install.sh"
@@ -354,6 +362,7 @@ jobs:
           path: |
             artifacts/linux/quasar-web-linux-x64.tar.gz
             artifacts/linux/quasar-installer-linux.tar.gz
+            artifacts/linux/quasar-host-linux-x64.tar.gz
 
   build-windows:
     needs: metadata
@@ -515,6 +524,7 @@ jobs:
           path: |
             artifacts/windows/quasar-web-win-x64.zip
             artifacts/windows/quasar-installer-windows.zip
+            artifacts/windows/quasar-host-win-x64.zip
 
   # Publish a single GitHub release/tag carrying every Linux and Windows archive
   # plus one combined SHA256SUMS. The updater finds the asset it needs by name,
@@ -536,7 +546,9 @@ jobs:
             quasar-installer-linux.tar.gz \
             quasar-web-linux-x64.tar.gz \
             quasar-installer-windows.zip \
-            quasar-web-win-x64.zip; do
+            quasar-web-win-x64.zip \
+            quasar-host-linux-x64.tar.gz \
+            quasar-host-win-x64.zip; do
             found="$(find dist -type f -name "$asset" -print -quit)"
             if [ -z "$found" ]; then
               echo "ERROR: expected release archive not found: $asset" >&2
@@ -550,7 +562,9 @@ jobs:
             quasar-installer-linux.tar.gz \
             quasar-web-linux-x64.tar.gz \
             quasar-installer-windows.zip \
-            quasar-web-win-x64.zip > SHA256SUMS
+            quasar-web-win-x64.zip \
+            quasar-host-linux-x64.tar.gz \
+            quasar-host-win-x64.zip > SHA256SUMS
           echo "Combined release archives:"; ls -1
           echo "Combined SHA256SUMS:"; cat SHA256SUMS
 
@@ -578,9 +592,11 @@ jobs:
 
             Download the archive with **installer** in its name. It contains one top-level `Quasar` folder with the Quasar **Bootstrap launcher**, the install/uninstall scripts, and a default `appsettings.json`. Follow the [Linux](https://github.com/CometWorks/quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md) or [Windows](https://github.com/CometWorks/quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md) deployment guide to install it. The web UI is available on http://127.0.0.1:8080 by default (the web server listens on all interfaces at 0.0.0.0:8080).
 
-            The other two archives (`quasar-web-linux-x64.tar.gz` and `quasar-web-win-x64.zip`) are updates that Quasar downloads and applies automatically — you never download them by hand.
+            Cluster machines use the separate `quasar-host-linux-x64.tar.gz` or `quasar-host-win-x64.zip` archive. Extract it into a dedicated directory and configure Quasar.Host for that machine. These archives are not installed or started by the web launcher.
 
-            ## Why are there two archives per operating system?
+            The two web archives (`quasar-web-linux-x64.tar.gz` and `quasar-web-win-x64.zip`) are updates that Quasar downloads and applies automatically — you never download them by hand.
+
+            ## Why separate installer and web archives?
 
             Quasar deploys as two layers — a small, stable **Bootstrap launcher** (the installer) and a larger, frequently-updated **web UI worker** — shipped separately so the launcher can update the web UI, and itself, in place with no manual reinstall.
           files: |
@@ -588,6 +604,8 @@ jobs:
             release/quasar-web-linux-x64.tar.gz
             release/quasar-installer-windows.zip
             release/quasar-web-win-x64.zip
+            release/quasar-host-linux-x64.tar.gz
+            release/quasar-host-win-x64.zip
             release/SHA256SUMS
 
       - name: Prune older releases
