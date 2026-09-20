@@ -39,6 +39,12 @@ internal static class ClusterApi
                 SetProtocolHeader(invocation.HttpContext);
                 return Error(503, "operation_store_unavailable", error.Message);
             }
+            // For example a goal change refused while an update is in progress.
+            catch (InvalidOperationException error)
+            {
+                SetProtocolHeader(invocation.HttpContext);
+                return Error(409, "operation_rejected", error.Message);
+            }
         });
         var setupStatus = routes.MapGet("/{uniqueName}/setup", (string uniqueName, HttpContext context,
             [FromServices] ClusterSetupService setup) =>

@@ -35,6 +35,17 @@ public sealed class ClusterOperationStore
             Directory.CreateDirectory(_directory);
             foreach (string path in Directory.EnumerateFiles(_directory, "*.json"))
                 Load(path);
+            // A local operation runs inside this process, so none can still be running at startup.
+            // Pending Gateway mutations are different: they resume with their persisted identity.
+            foreach (var orphan in _operations.Values.Where(o => o.State == ClusterOperationState.Running && o.GatewayRequest is null).ToArray())
+            {
+                var failed = orphan with { State = ClusterOperationState.Failed, UpdatedAt = DateTimeOffset.UtcNow,
+                    Error = new("interrupted_by_restart", "Quasar stopped before this operation completed. Check the cluster state and submit it again with a new Idempotency-Key.") };
+                File.WriteAllText(Path.Combine(_directory, failed.OperationId + ".json"), JsonSerializer.Serialize(failed, JsonOptions));
+                _operations[failed.OperationId] = failed;
+                _logger?.LogWarning("Cluster operation {OperationId} ({Kind}) of {Cluster} was interrupted by a restart and is now Failed.",
+                    failed.OperationId, failed.Kind, failed.Cluster);
+            }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -179,8 +190,8 @@ public sealed class ClusterOperationStore
                 DateTimeOffset now = DateTimeOffset.UtcNow;
                 existing = new ClusterOperation(Guid.NewGuid().ToString("N"), cluster, kind, key,
                     requestHash, actor, ClusterOperationState.Running, now, now, null, null);
-                _operations[existing.OperationId] = existing;
                 await PersistAsync(existing, cancellationToken);
+                _operations[existing.OperationId] = existing;
             }
 
             try
@@ -231,8 +242,24 @@ public sealed class ClusterOperationStore
                     Error = new ClusterOperationError(exception.Code, exception.Message),
                 };
             }
+            // Any other failure, a client disconnect included, must still close the record: a
+            // record left Running blocks cluster deletion forever. The caller sees the exception.
+            catch (Exception exception)
+            {
+                existing = existing with
+                {
+                    State = ClusterOperationState.Failed,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                    Error = exception is OperationCanceledException
+                        ? new ClusterOperationError("operation_cancelled", "The operation was cancelled before it completed.")
+                        : new ClusterOperationError("operation_failed", exception.Message),
+                };
+                _operations[existing.OperationId] = existing;
+                await PersistAsync(existing, CancellationToken.None);
+                throw;
+            }
             _operations[existing.OperationId] = existing;
-            await PersistAsync(existing, cancellationToken);
+            await PersistAsync(existing, CancellationToken.None);
             return existing;
         }
         finally
