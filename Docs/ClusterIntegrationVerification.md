@@ -133,3 +133,73 @@ Logs are retained under `quasar-integration-evidence/2026-09-20/feedback-fixes/`
 this checkout. Magnetar's Linux/Windows PR builds and cluster's contract, package-build and release
 workflow jobs pass. Packaged game behavior, live
 conversion, drift observation and storage latency remain live acceptance gates.
+
+## Published dependencies and local candidate — 2026-09-20
+
+Cluster v1.1.0 (`1c0fab1`) and Magnetar v2.4.2.1 (`877dc14`) are published.
+Their Linux archives were downloaded and verified against GitHub asset SHA-256
+metadata; cluster's checksum file also matches. The released cluster capability pins
+PluginSdk `63f8d88fb3acbca0062953630168c5f1fd24d6ab926de8dd714a6bed90d32eae`,
+which exactly matches the published Magnetar binary. Vendored Gateway DTO sources
+match the released tag byte-for-byte. The upstream merge/release prerequisite is met.
+
+Local Quasar `1.1.0-phase4.rc.1` uses `29044d4` plus the recorded packaging patch.
+Packaging now includes independently deployable Host archives on Linux/Windows and
+checksums them alongside the installer/web archives. Host/shared/contract changes
+also trigger release builds. The local Linux candidate builds against the published
+SDK; 338 tests and the extracted Host self-test pass. Published Gateway/admin CLI
+self-tests and packaged Bootstrap dispatch pass. Windows packaging syntax passes;
+Windows execution has not been tested on this PC.
+
+The sibling `quasar-phase4-candidate/` directory contains the archives, extracted
+candidate, published dependencies, evidence logs, source patch and `candidate.json`
+provenance. Extracted settings use loopback port 18080 with auto-updates disabled;
+original archives remain unchanged. This candidate is local, not a published GitHub
+release. The incomplete initial CI build was cancelled when missing Host archives
+were found. The initial candidate was staged without starting services; the authorized
+live run below supersedes that initial state.
+
+## Local managed run — 2026-09-20
+
+Quasar `1.1.0-phase4.rc.2` runs on loopback port 18080 against published cluster
+1.1.0 and Magnetar 2.4.2.1. A copied Dedicated Server installation and converted
+Cluster-Simple seed live under the sibling candidate directory. Two regular nodes
+and one World Authority use a single Host, pinned compatibility/native bundles,
+Quasar.Agent, and Direct Transport `144a6e3c4217e239f4bbcd8a7fa675a4de81e17a`.
+
+Verified so far:
+
+- Browser cluster creation, detail page, configuration links and header controls.
+- Authenticated release staging, checksum selection, dependency snapshots, Host
+  installation, managed preparation and activation through Quasar.
+- All three runtimes active, managed readiness true, admission open and Agent
+  telemetry correlated with Registry identities.
+- Cluster-wide Save and Gateway restart submitted from the card and completed.
+- Graceful Off reached clean Down; warm On returned to Serving with fresh node epochs.
+- An 88-second Quasar outage preserved Serving and node epochs.
+- Card observations update without page reload. Compact controls and outlined chips
+  match the standalone style; the bright dark-theme success colour is restored.
+- 340 Quasar tests, including timer-driven rendering and native-library ownership,
+  plus the corrected Host self-test pass.
+
+Live verification found and fixed duplicate sibling Blazor keys, a missing render
+notification in the card's polling loop, and a dependency check that incorrectly
+required Magnetar's `libsteam_api.so` inside LinuxCompat. Host now invokes packaged
+Python with `-B` so helper imports cannot change a verified installation. Missing
+GitHub credentials and the initial missing test Gateway token were environment setup
+failures; authenticated staging and runtime access subsequently passed.
+
+Published 1.1.0 also omits the join credential when requesting partition-save transfer
+grants. The cluster reaches Serving but replica downloads repeatedly return 401;
+recovery remains AtRisk. [Cluster PR #13](https://github.com/CometWorks/cluster/pull/13)
+fixes this and prevents the packaged preparer's own imports from writing bytecode.
+Both plugin builds and 31 upstream Python tests pass. The fixes are merged;
+[PR #14](https://github.com/CometWorks/cluster/pull/14) bumps the release to 1.1.1.
+Verification must consume that published package before accepting replica durability.
+
+Evidence is under `quasar-phase4-candidate/live/evidence/`, including lifecycle and
+fleet JSON, logs, tests, and screenshots. Full acceptance remains open: end-to-end
+conversions, deployment update/restore, plugin service fault scenarios, real clients
+and multiple Hosts are not all verified by this single-host run. The suite doctor
+finds the installed client and Earth fixture, but the test Pulsar Interim profile
+with Remote/Direct Transport is not configured; no second Host/Steam client is provided.

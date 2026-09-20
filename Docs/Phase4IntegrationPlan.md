@@ -4,6 +4,14 @@ Updated 2026-09-20. This is the current seven-stage plan and implementation reco
 It supersedes the older six-step branch plan. Implementation checks and live acceptance
 are recorded separately; a built package does not establish live acceptance.
 
+The 2026-09-20 local run reached managed Serving, exercised save, Gateway restart,
+clean Off/warm On and a central Quasar outage. UI controls and live refresh were
+corrected from browser feedback. Acceptance remains open pending verification with
+cluster 1.1.1 (authenticated save replication), plus the remaining conversion,
+update/restore and client/multi-host scenarios. See the
+[verification record](ClusterIntegrationVerification.md#local-managed-run--2026-09-20)
+for evidence and limits.
+
 ## Authority and ownership
 
 Baseline: `clustering-plan` at `6621d1b7324a6b7da4285f87b354ef974fcb0a9f`,
@@ -13,8 +21,8 @@ The archived cluster-gateway and cluster-runtime repositories are historical onl
 
 Upstream implementation is reviewed in [cluster PR #12](https://github.com/CometWorks/cluster/pull/12)
 and [Magnetar PR #57](https://github.com/CometWorks/magnetar/pull/57). These changes
-require coordinated new releases (cluster 1.1.0, Magnetar 2.4.2.1); they are not
-capabilities of published cluster v1.0.3 or Magnetar v2.4.2.0. The vendored admin
+are now published in cluster 1.1.0 and Magnetar 2.4.2.1; they are not
+capabilities of cluster v1.0.3 or Magnetar v2.4.2.0. The vendored admin
 contract has its own [source pin](../Contracts/ClusterGateway.AdminContract/SOURCE.md).
 
 Registry owns placement, admission, drain, rotation, WA assignment and shared plugin
@@ -187,8 +195,8 @@ standalone durability/concurrency, missing-provider lifecycle and queued-handler
 The example plugin compiles. A fresh complete cluster review package builds and its
 shipped self-tests pass. These are implementation checks, not live cluster acceptance.
 
-Remaining release gate: coordinated upstream merge/releases, exact packaged runtime
-acceptance and full local P4 scenarios. Quasar changes remain on this branch; upstream
+Upstream cluster/Magnetar merge/releases are complete. Remaining release gate:
+exact packaged runtime acceptance and full local P4 scenarios. Quasar changes remain on this branch; upstream
 code and generic-plan changes are submitted for review separately.
 
 ### PR review follow-up — 2026-09-20

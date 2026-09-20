@@ -1,0 +1,37 @@
+- generic [ref=f1e1]:
+  - generic [ref=f1e62]:
+    - banner [ref=f1e63]:
+      - toolbar [ref=f1e64]:
+        - button [ref=f1e65] [cursor=pointer]
+        - group [ref=f1e70]:
+          - img "Quasar logo" [ref=f1e71]
+          - group [ref=f1e72]:
+            - heading "Quasar" [level=6] [ref=f1e73]
+            - generic [ref=f1e74]: Supervisor control plane
+        - link [ref=f1e77] [cursor=pointer]:
+          - /url: /settings/updates
+        - button [ref=f1e82] [cursor=pointer]
+        - link [ref=f1e88] [cursor=pointer]:
+          - /url: /logout
+        - button [ref=f1e94] [cursor=pointer]
+    - generic [ref=f1e101]:
+      - heading "Create or import cluster" [level=5] [ref=f1e102]
+      - paragraph [ref=f1e103]: Register the cluster and select its verified release and dependencies. To use an existing server, open its Convert to cluster action from the server list; the wizard backs up and converts its world, then prepares every Host.
+      - generic [ref=f1e105]:
+        - textbox "Cluster ID*" [ref=f1e107]: phase4-live
+        - generic: Cluster ID*
+      - generic [ref=f1e109]:
+        - textbox "Display name" [ref=f1e111]: Phase 4 verification
+        - generic: Display name
+      - generic [ref=f1e113]:
+        - textbox "Gateway control URL*" [ref=f1e115]: http://127.0.0.1:30416
+        - generic: Gateway control URL*
+      - generic [ref=f1e117]:
+        - textbox "Gateway admin token environment variable*" [ref=f1e119]: QSR_TEST_ADMIN_TOKEN
+        - generic: Gateway admin token environment variable*
+      - button "Create cluster" [active] [ref=f1e120] [cursor=pointer]
+  - generic [ref=f1e122]:
+    - text: An unhandled error has occurred.
+    - link "Reload" [ref=f1e123] [cursor=pointer]:
+      - /url: .
+    - generic [ref=f1e124] [cursor=pointer]: 🗙

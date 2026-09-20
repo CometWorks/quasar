@@ -1259,6 +1259,16 @@ available for explicit recovery.
 
 ## Managed cluster workflows
 
+Cluster cards use the same compact header controls and outlined configuration chips
+as standalone cards. Start changes the managed goal to On; Stop confirms a graceful
+cluster shutdown and changes the goal to Off. Restart Gateway only restarts the
+Gateway, with a reconnect warning. Save uses the cluster-wide save command. These
+actions retain cluster permissions and Gateway capability checks. Statistics and
+status refresh every five seconds without reloading the page; stale observations do
+not show nodes as healthy. A proven clean shutdown is displayed as Stopped.
+The dark theme uses the original bright success green (`#86efac`) for both server
+types, with dark text on filled success buttons.
+
 The cluster deployment panel persists one preparation specification for all Hosts.
 PluginSdk configuration schemas reuse the ordinary editor. Each configuration type has
 its own editor when a plugin owns multiple types. Conversion keeps the existing primary

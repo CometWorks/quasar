@@ -217,7 +217,7 @@ public sealed class ClusterDependencyService
         string[] required = ["DedicatedServer/DedicatedServer64/SpaceEngineersDedicated.exe",
             "DedicatedServer/DedicatedServer64/SpaceEngineers.Game.dll", "DedicatedServer/DedicatedServer64/Sandbox.Game.dll",
             "DedicatedServer/DedicatedServer64/VRage.dll", "Magnetar/MagnetarInterim.bin",
-            "Magnetar/Libraries/MagnetarInterim/PluginSdk.dll", "DirectTransport/DirectTransport.dll",
+            "Magnetar/Libraries/MagnetarInterim/PluginSdk.dll", "Magnetar/Libraries/MagnetarInterim/libsteam_api.so", "DirectTransport/DirectTransport.dll",
             "DirectTransport/DirectTransport.xml", "DirectTransport/DirectTransport.dll.xml", "DirectTransport/LiteNetLib.dll"];
         if (required.Any(path => !files.TryGetValue(path, out var pin) || pin.Bytes == 0)
             || !files.Keys.Any(path => path.StartsWith("DedicatedServer/Content/", StringComparison.Ordinal)))

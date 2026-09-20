@@ -25,6 +25,7 @@ internal static class ManagedPreparation
         {
             await File.WriteAllBytesAsync(temporary, specification, token);
             var start = new ProcessStartInfo("python3") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+            start.ArgumentList.Add("-B"); // Imports must not write bytecode into the verified package.
             foreach (string value in new[] { Path.Combine(root, "Package/cli/managed_deployment.py"), "--installation", root,
                 "prepare", "--spec", temporary, "--sha256", request.SpecificationSha256, "--host", hostId,
                 "--world", request.WorldDirectory, "--destination", request.ConfigurationDirectory }) start.ArgumentList.Add(value);
@@ -66,6 +67,7 @@ internal static class ManagedPreparation
             string script = Path.Combine(root, "Package/cli/managed_deployment.py");
             if (!File.Exists(script)) throw new InvalidDataException("Cluster release lacks managed deployment preparation.");
             var start = new ProcessStartInfo("python3") { UseShellExecute = false };
+            start.ArgumentList.Add("-B");
             foreach (string argument in new[] { script, "--installation", root, "prepare", "--spec", values["--file"],
                 "--sha256", values["--sha256"], "--host", values["--host"], "--world", values["--world"],
                 "--destination", values["--directory"] }) start.ArgumentList.Add(argument);

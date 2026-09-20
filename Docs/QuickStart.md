@@ -7,6 +7,10 @@ Grab the latest release from GitHub. Each release contains platform archives:
 - **Linux** — `quasar-installer-linux.tar.gz`
 - **Windows** — `quasar-installer-windows.zip`
 
+For cluster machines, also download `quasar-host-linux-x64.tar.gz` or
+`quasar-host-win-x64.zip`. Extract the Host into a dedicated directory; it has its own
+configuration and lifecycle. See [Host packaging](BuildingAndDevelopment.md#cluster-host-release-package).
+
 ## Run from the terminal (foreground)
 
 **Linux**

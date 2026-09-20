@@ -11,16 +11,17 @@
                         Cluster
                     </MudChip>
                 </MudStack>
-                <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                           StartIcon="@Icons.Material.Filled.OpenInNew" OnClick="OpenDetails">
-                    Details
-                </MudButton>
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" AlignItems="AlignItems.Start">
+                    <MudTooltip Text="Cluster details"><MudIconButton aria-label="Cluster details" Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" OnClick="OpenDetails" /></MudTooltip>
+                    <ClusterAdminPanel Cluster="Cluster" Compact="true" />
+                </MudStack>
             </MudStack>
             <MudText Typo="Typo.caption" Class="mono">@Cluster.UniqueName · @Cluster.GatewayUrl</MudText>
+            <ClusterConfigurationLinks />
         </CardHeaderContent>
     </MudCardHeader>
     <MudCardContent>
-        <ClusterDetailPanel Cluster="Cluster" />
+        <ClusterDetailPanel Cluster="Cluster" ShowConfigurationLinks="false" />
     </MudCardContent>
 </MudCard>
 

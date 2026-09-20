@@ -15,6 +15,16 @@ namespace Quasar.Tests;
 public sealed class ClusterDependencyTests
 {
     [LinuxFact]
+    public async Task SteamNativeLibraryBelongsToMagnetarRelease()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        Assert.False(File.Exists(Path.Combine(fixture.Sources["CommonPlugins"], "linux-compat/libsteam_api.so")));
+        await fixture.Service.InspectAsync(fixture.Cluster, default);
+        File.Delete(Path.Combine(fixture.Sources["Magnetar"], "Libraries/MagnetarInterim/libsteam_api.so"));
+        await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Service.InspectAsync(fixture.Cluster, default));
+    }
+
+    [LinuxFact]
     public async Task CopiesApprovedBytesAndReusesThemOfflineAfterSourcesChangeOrDisappear()
     {
         using var fixture = await Fixture.CreateAsync();
@@ -226,7 +236,8 @@ public sealed class ClusterDependencyTests
             foreach (string file in new[] { "DedicatedServer/DedicatedServer64/SpaceEngineersDedicated.exe",
                 "DedicatedServer/DedicatedServer64/SpaceEngineers.Game.dll", "DedicatedServer/DedicatedServer64/Sandbox.Game.dll",
                 "DedicatedServer/DedicatedServer64/VRage.dll", "DedicatedServer/Content/world.sbc", "Magnetar/MagnetarInterim.bin",
-                "Magnetar/Libraries/MagnetarInterim/PluginSdk.dll", "DirectTransport/DirectTransport.dll", "DirectTransport/LiteNetLib.dll" })
+                "Magnetar/Libraries/MagnetarInterim/PluginSdk.dll", "Magnetar/Libraries/MagnetarInterim/libsteam_api.so",
+                "DirectTransport/DirectTransport.dll", "DirectTransport/LiteNetLib.dll" })
             {
                 string path = Path.Combine(fixture.Root, "inputs", file);
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -249,7 +260,7 @@ public sealed class ClusterDependencyTests
                     + "<Id>" + id + "</Id><Commit>" + new string('d', 40)
                     + "</Commit><Runtimes>CoreCLR</Runtimes><Platforms>Linux</Platforms><Asset Name=\"bundle\" Path=\".\"/></PluginData>");
                 if (id == "linux-compat")
-                    foreach (string name in new[] { "libHavok.so", "libRecastDetour.so", "libVRageNative.so", "libsteam_api.so", "libEOSSDK-Linux-Shipping.so" })
+                    foreach (string name in new[] { "libHavok.so", "libRecastDetour.so", "libVRageNative.so", "libEOSSDK-Linux-Shipping.so" })
                         File.WriteAllText(Path.Combine(folder, name), "native");
             }
             return fixture;

@@ -156,6 +156,7 @@ internal static partial class ClusterDeploymentFiles
             throw new InvalidDataException("Dependency payload does not match its pinned manifest.");
         foreach (string required in new[] { "DedicatedServer/DedicatedServer64/SpaceEngineersDedicated.exe",
                      "Magnetar/MagnetarInterim.bin", "Magnetar/Libraries/MagnetarInterim/PluginSdk.dll",
+                     "Magnetar/Libraries/MagnetarInterim/libsteam_api.so",
                      "DirectTransport/DirectTransport.dll", "DirectTransport/DirectTransport.xml", "DirectTransport/LiteNetLib.dll" })
             if (!payload.TryGetValue(required, out var file) || file.Bytes == 0)
                 throw new InvalidDataException($"Dependency snapshot is missing {required}.");

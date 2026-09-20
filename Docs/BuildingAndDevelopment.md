@@ -301,3 +301,16 @@ Magnetar's `Examples/ClusterState` compiles an opt-in shared-state plugin. SDK t
 exercise durable standalone writes, CAS/restore and dispatch fences. Cluster self-tests
 exercise Registry replay and lifecycle outcomes. These do not replace packaged live
 provider, ownership, conversion, outage and upgrade acceptance.
+
+## Cluster Host release package
+
+Release packaging also produces `quasar-host-linux-x64.tar.gz` and
+`quasar-host-win-x64.zip`, included in the combined `SHA256SUMS`. Each contains the
+complete self-contained Host publish tree with `Quasar.Host` (or `.exe`) at its root.
+Extract it into a dedicated directory on each cluster machine. Host has its own
+configuration and process lifecycle; the web launcher does not install or start it.
+
+For offline package validation, run the extracted `Quasar.Host --self-test`. This uses
+inert child processes and temporary state, without launching Space Engineers or Quasar's
+web service. Host source, shared deployment code and contract changes trigger release
+builds alongside the web/launcher projects.

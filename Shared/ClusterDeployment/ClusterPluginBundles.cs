@@ -42,7 +42,7 @@ internal static class ClusterPluginBundles
             }
             if (id == "linux-compat")
                 foreach (string native in new[] { "libHavok.so", "libRecastDetour.so", "libVRageNative.so",
-                             "libsteam_api.so", "libEOSSDK-Linux-Shipping.so" })
+                             "libEOSSDK-Linux-Shipping.so" })
                     if (!File.Exists(Path.Combine(folder, native)) || new FileInfo(Path.Combine(folder, native)).Length == 0)
                         throw new InvalidDataException($"Linux compatibility bundle is missing {native}.");
         }

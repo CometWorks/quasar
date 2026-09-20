@@ -10,16 +10,33 @@
 
 <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
     <Authorized Context="authorization">
-        <MudPaper Class="pa-4 server-card">
-            <MudText Typo="Typo.h6">Cluster administration</MudText>
-            @if (_error is not null)
+        <MudStack Spacing="1" Class="@(Compact ? null : "pa-4 server-card")">
+            @if (!Compact) { <MudText Typo="Typo.h6">Cluster administration</MudText> }
+            @if ((_error ?? (Compact ? null : _capabilityError)) is { } message)
             {
-                <MudAlert Severity="Severity.Warning">@_error</MudAlert>
+                <MudAlert Severity="Severity.Warning">@message</MudAlert>
             }
-            <MudStack Row="true" Spacing="2" Class="my-2">
-                <MudButton Disabled="@(!CanRun("POST /admin/v1/save-all"))" OnClick="SaveAsync">Save world</MudButton>
-                <MudButton Disabled="@(!CanRun("POST /admin/v1/shutdown"))" OnClick="ShutdownAsync" Color="Color.Warning">Shut down cluster</MudButton>
-                <MudButton Disabled="@(!CanRun("POST /admin/v1/gateway/restart") || Cluster.Gateway is null)" OnClick="RestartAsync">Restart Gateway</MudButton>
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Justify="@(Compact ? Justify.FlexEnd : Justify.FlexStart)">
+                @if (Compact)
+                {
+                    <MudTooltip Text="Save world"><MudIconButton aria-label="Save world" Icon="@Icons.Material.Filled.Save" Size="Size.Small" Disabled="@(!CanRun("POST /admin/v1/save-all"))" OnClick="SaveAsync" /></MudTooltip>
+                }
+                else
+                {
+                    <MudButton Disabled="@(!CanRun("POST /admin/v1/save-all"))" OnClick="SaveAsync">Save world</MudButton>
+                }
+                @if (Cluster.GoalState == DedicatedServerGoalState.Off)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small" StartIcon="@Icons.Material.Filled.PlayArrow"
+                               Disabled="@(Busy || Cluster.Gateway is null || string.IsNullOrWhiteSpace(Cluster.HostCommandUrl))" OnClick="StartAsync">Start</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Filled.RestartAlt"
+                               Disabled="@(!CanRun("POST /admin/v1/gateway/restart") || Cluster.Gateway is null)" OnClick="RestartAsync">Restart Gateway</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Error" Size="Size.Small" StartIcon="@Icons.Material.Filled.Stop"
+                               Disabled="@(!CanRun("POST /admin/v1/shutdown"))" OnClick="ShutdownAsync">Stop</MudButton>
+                }
             </MudStack>
             @if (_capabilities?.Scope == Admin.AdminScope.Query)
             {
@@ -33,6 +50,8 @@
                     <MudText Color="Color.Warning">@error.Code: @error.Message</MudText>
                 }
             }
+            @if (!Compact)
+            {
             <MudExpansionPanels>
                 <MudExpansionPanel Text="Diagnostics, maintenance and exports">
                     <MudButton OnClick="LoadDiagnosticsAsync" Disabled="@Busy">Load diagnostics</MudButton>
@@ -68,17 +87,20 @@
                     }
                 </MudExpansionPanel>
             </MudExpansionPanels>
-        </MudPaper>
+            }
+        </MudStack>
     </Authorized>
 </AuthorizeView>
 
 @code {
     [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = new();
+    [Parameter] public bool Compact { get; set; }
     private readonly CancellationTokenSource _shutdown = new();
     private Admin.AdminCapabilities? _capabilities;
     private Admin.AdminConfig? _config;
     private ClusterOperation? _operation;
     private string? _error;
+    private string? _capabilityError;
     private Task? _poll;
     private bool _submitting;
     private bool Busy => _submitting || _operation?.State == ClusterOperationState.Running;
@@ -87,9 +109,17 @@
 
     protected override async Task OnInitializedAsync()
     {
-        try { _capabilities = (await Gateway.GetCapabilitiesAsync(Cluster, _shutdown.Token)).Data; }
-        catch (ClusterGatewayException error) { _error = error.Message; }
+        await RefreshCapabilitiesAsync();
         _poll = PollAsync();
+    }
+    private async Task RefreshCapabilitiesAsync()
+    {
+        try
+        {
+            _capabilities = (await Gateway.GetCapabilitiesAsync(Cluster, _shutdown.Token)).Data;
+            _capabilityError = null;
+        }
+        catch (ClusterGatewayException error) { _capabilities = null; _capabilityError = error.Message; }
     }
     private async Task PollAsync()
     {
@@ -97,11 +127,14 @@
         {
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
             while (await timer.WaitForNextTickAsync(_shutdown.Token))
+            {
+                await RefreshCapabilitiesAsync();
                 await InvokeAsync(() =>
                 {
                     if (_operation is not null) _operation = Operations.Get(_operation.OperationId);
                     StateHasChanged();
                 });
+            }
         }
         catch (OperationCanceledException) { }
     }
@@ -130,10 +163,26 @@
         catch (System.Text.Json.JsonException error) { _error = error.Message; }
     }
     private Task SaveAsync() => SubmitAsync(new("save-all"));
+    private Task StartAsync() => ChangeGoalAsync(DedicatedServerGoalState.On);
+    private async Task ChangeGoalAsync(DedicatedServerGoalState goal)
+    {
+        if (Busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        if (!user.CanQueryCluster(Cluster.UniqueName)) return;
+        _submitting = true;
+        _error = null;
+        try { _operation = await Commands.SetGoalAsync(Cluster.UniqueName, new(goal), Guid.NewGuid().ToString("N"), user.Identity?.Name ?? "web-ui", _shutdown.Token); }
+        catch (Exception error) when (error is ClusterOperationConflictException or ClusterOperationStoreUnavailableException) { _error = error.Message; }
+        finally { _submitting = false; }
+    }
     private async Task ShutdownAsync()
     {
         if (await Dialogs.ShowMessageBoxAsync("Shut down cluster?", "Players will disconnect while the cluster saves and drains.", yesText: "Shut down", cancelText: "Cancel") == true)
-            await SubmitAsync(ClusterAdminCommand.Create("shutdown", new Admin.ShutdownRequest()));
+        {
+            if (Cluster.Gateway is not null && !string.IsNullOrWhiteSpace(Cluster.HostCommandUrl))
+                await ChangeGoalAsync(DedicatedServerGoalState.Off);
+            else await SubmitAsync(ClusterAdminCommand.Create("shutdown", new Admin.ShutdownRequest()));
+        }
     }
     private async Task RestartAsync()
     {

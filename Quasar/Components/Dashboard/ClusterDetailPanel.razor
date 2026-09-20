@@ -8,11 +8,12 @@
 @inject QuasarWorldTemplateCatalog Worlds
 
 <MudStack Spacing="3">
+    @if (ShowConfigurationLinks) { <ClusterConfigurationLinks /> }
     @if (_loading && _status is null)
     {
         <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
     }
-    @if (_error is not null)
+    @if (_error is not null && !IsCleanlyStopped)
     {
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
     }
@@ -70,7 +71,7 @@
                 Nodes · @CapacityText
             </MudChip>
         </MudStack>
-        @if (_status?.ReasonCodes.Length > 0)
+        @if (!_stale && _status?.ReasonCodes.Length > 0)
         {
             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
                 @string.Join(" · ", _status.ReasonCodes)
@@ -84,11 +85,7 @@
         <MudText>Profile: @(Profiles.GetProfile(Cluster.ConfigProfileId)?.Name ?? ValueOrDash(Cluster.ConfigProfileId))</MudText>
         <MudText>World template: @(Worlds.GetTemplate(Cluster.WorldTemplateId)?.Name ?? ValueOrDash(Cluster.WorldTemplateId))</MudText>
         <MudText Typo="Typo.caption">Profile and template references describe provisioning inputs. Applying them requires packaged world provisioning.</MudText>
-        <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs">
-            <MudButton Href="/configs">Configuration profiles</MudButton>
-            <MudButton Href="/world-templates">World templates</MudButton>
-            <MudButton Href="/plugins">Node plugin configuration</MudButton>
-        </AuthorizeView>
+
     </MudPaper>
 
     <MudExpansionPanels>
@@ -131,6 +128,7 @@
 
 @code
 {
+    [Parameter] public bool ShowConfigurationLinks { get; set; } = true;
     private readonly CancellationTokenSource _shutdown = new();
     private Admin.ClusterStatus? _status;
     private Admin.NodePlan[] _plan = [];
@@ -158,7 +156,11 @@
         {
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
             while (await timer.WaitForNextTickAsync(cancellationToken))
-                await InvokeAsync(() => RefreshAsync(cancellationToken));
+                await InvokeAsync(async () =>
+                {
+                    await RefreshAsync(cancellationToken);
+                    StateHasChanged();
+                });
         }
         catch (OperationCanceledException)
         {
@@ -237,7 +239,9 @@
         }
     }
 
-    private string PhaseText => _stale ? "Unavailable" : _status?.Phase.ToString() ?? "Unavailable";
+    private bool IsCleanlyStopped => Cluster.GoalState == DedicatedServerGoalState.Off
+        && Reconciler.GetStatus(Cluster.UniqueName) is { State: ClusterReconcileState.Converged, ClusterPhase: Admin.ClusterPhase.Down };
+    private string PhaseText => IsCleanlyStopped ? "Stopped" : _stale ? "Unavailable" : _status?.Phase.ToString() ?? "Unavailable";
     private Color PhaseColor => _stale ? Color.Default : _status?.Health switch
     {
         Admin.AdminHealth.Healthy => Color.Success,
@@ -245,20 +249,20 @@
         Admin.AdminHealth.Unhealthy => Color.Error,
         _ => Color.Default,
     };
-    private string GatewayText => _stale || _status is null ? "Unavailable" : "Online";
-    private Color GatewayColor => _stale || _status is null ? Color.Error : Color.Success;
-    private string PlayerText => _status is null ? "-" : $"{_status.Counts.ConnectedClients} connected";
+    private string GatewayText => IsCleanlyStopped ? "Stopped" : _stale || _status is null ? "Unavailable" : "Online";
+    private Color GatewayColor => IsCleanlyStopped ? Color.Default : _stale || _status is null ? Color.Error : Color.Success;
+    private string PlayerText => _stale || _status is null ? "-" : $"{_status.Counts.ConnectedClients} connected";
     private string JoinText => _status?.AcceptingPlayers == true && !_stale
         ? "Accepting players." : "Player entry point is not serving yet.";
     private int ReadyNodes => _plan.Count(item => item.Observed == Admin.NodeObservation.Ready);
     private int WantedNodes => _plan.Count(item => item.Goal == Admin.NodeGoal.Wanted);
-    private string CapacityText => _status is null ? "-" : $"{ReadyNodes}/{WantedNodes} ready";
-    private string CapacityDetail => _status is null ? "Capacity unavailable."
+    private string CapacityText => _stale || _status is null ? "-" : $"{ReadyNodes}/{WantedNodes} ready";
+    private string CapacityDetail => _stale || _status is null ? "Capacity unavailable."
         : $"{_status.Counts.Nodes} registered; {_plan.Count(item => item.FailureAlert)} alerting.";
-    private Color NodesColor => _status is null ? Color.Error
+    private Color NodesColor => _stale || _status is null ? Color.Default
         : ReadyNodes >= WantedNodes && WantedNodes > 0 ? Color.Success : Color.Warning;
-    private string WorldAuthorityText => _status?.WorldAuthority.Node ?? "Unavailable";
-    private Color WorldAuthorityColor => _status?.WorldAuthority.Node is null ? Color.Warning : Color.Success;
+    private string WorldAuthorityText => IsCleanlyStopped ? "Stopped" : _stale ? "Unavailable" : _status?.WorldAuthority.Node ?? "Unavailable";
+    private Color WorldAuthorityColor => _stale ? Color.Default : _status?.WorldAuthority.Node is null ? Color.Warning : Color.Success;
     private string RecoveryText => _recovery?.State.ToString() ?? "Unknown";
     private Color RecoveryColor => _recovery?.State switch
     {
