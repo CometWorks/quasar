@@ -1278,8 +1278,8 @@ types, with dark text on filled success buttons.
 The terminal icon opens the cluster console: recent Gateway events and node plugin
 logs, refreshed every five seconds. It preserves displayed entries during an outage
 and marks them stale; full server/launcher process logs remain on their Hosts. Console
-access requires cluster query permission and the caller's cluster scope. The pencil
-icon opens the cluster deployment/configuration section for cluster managers.
+access requires cluster query permission and the caller's cluster scope. Deployment
+configuration is available from the cluster details page.
 
 The control page places administration first, followed by status, fleet observations
 and deployment. Sections use consistent cards and spacing; recovery and conversion

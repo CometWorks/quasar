@@ -245,6 +245,9 @@ are removed while status, capacity, recovery and world/configuration information
 Administration, fleet and deployment use rounded MudCards. Advanced details and
 expanded forms have consistent spacing; recovery and conversion sit under deployment.
 
+After this audit, the redundant cluster-card edit shortcut was removed. Deployment
+configuration remains on the cluster details page; standalone edit controls are unchanged.
+
 Playwright verified the installed candidate at 1600px desktop and 390px mobile widths:
 
 - Console opens from the card and detail page; event data is on separate lines.
