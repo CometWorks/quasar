@@ -95,6 +95,9 @@ internal static class DeploymentSelfTest
                 var restore = new HostContract.HostSnapshotRestore("cluster", Guid.NewGuid(), saved.SnapshotId,
                     saved.ArchiveSha256, candidatePath, candidateHash, "RESTORED_EXECUTOR_TOKEN");
                 AssertThrows(() => snapshots.Restore(restore with { CandidateExecutorTokenEnvironmentVariable = "EXECUTOR_TOKEN" }));
+                AssertThrows(() => snapshots.Restore(restore with {
+                    CandidateManifestPath = path, CandidateManifestSha256 = hash }));
+                Assert(File.ReadAllText(privateFile) == "new state after backup", "rejected restore mutated runtime data");
                 snapshots.Restore(restore, preview: true);
                 Assert(File.ReadAllText(privateFile) == "new state after backup", "restore preview mutated runtime data");
                 snapshots.Restore(restore);

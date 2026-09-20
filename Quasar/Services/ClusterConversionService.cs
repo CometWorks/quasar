@@ -81,8 +81,9 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
             warnings.Add("This cluster package does not transfer non-public online modes. Conversion is blocked to preserve access restrictions.");
         if (profile.Plugins.Count > 0 && snapshot is null)
             warnings.Add("No recorded plugin settings. Connect the source Agent once before stopping the server, then review again.");
-        if (snapshot?.Plugins.Any(p => string.IsNullOrWhiteSpace(p.ConfigType)) == true)
-            warnings.Add("A plugin uses a configuration provider without an SDK type; automatic configuration transfer is unavailable.");
+        if (snapshot?.Plugins.Any(p => string.IsNullOrWhiteSpace(p.ConfigType)
+            || (p.AdditionalConfigurations ?? []).Any(c => string.IsNullOrWhiteSpace(c.ConfigType))) == true)
+            warnings.Add("A plugin configuration has no unambiguous SDK type. Custom providers or conflicting live configuration copies require review before automatic transfer.");
         return new(Hash(new { server, profile, snapshot }), profile.Name,
             profile.Plugins.Select(p => p.DisplayName + " (" + p.PluginId + ", " + p.SelectedVersion + ")").ToArray(),
             snapshot?.CapturedAtUtc, snapshot?.Plugins.Length ?? 0, warnings.ToArray());
@@ -401,6 +402,11 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
             adminTokensFileEnvironmentVariable = request.AdminTokensFileEnvironmentVariable,
             worldFiles = (await ClusterDeploymentFiles.InspectAsync(world, token)).ToDictionary(p => p.Key, p => p.Value.Sha256), nodes,
             pluginConfigurations = (snapshot?.Plugins ?? []).ToDictionary(p => p.PluginId,
-                p => new { configType = p.ConfigType, configuration = JsonNode.Parse(p.ConfigJson) }) }, Json);
+                p => (p.AdditionalConfigurations?.Length ?? 0) == 0
+                    ? (object)new { configType = p.ConfigType, configuration = JsonNode.Parse(p.ConfigJson) }
+                    : new { configurations = new[] { new Magnetar.Protocol.Model.PluginConfigurationData {
+                            ConfigType = p.ConfigType, ConfigJson = p.ConfigJson } }
+                        .Concat(p.AdditionalConfigurations!).Select(c => new {
+                            configType = c.ConfigType, configuration = JsonNode.Parse(c.ConfigJson) }).ToArray() }) }, Json);
     }
 }

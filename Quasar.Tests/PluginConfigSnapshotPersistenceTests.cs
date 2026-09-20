@@ -80,6 +80,25 @@ public sealed class PluginConfigSnapshotPersistenceTests : IDisposable
             Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(path));
     }
 
+    [Fact]
+    public void AdditionalTypesSurviveRestartAndCannotBeMutatedThroughLiveSnapshots()
+    {
+        var registry = Registry();
+        var service = Service(registry);
+        Connect(registry, "connection");
+        var snapshot = Snapshot();
+        snapshot.Plugins[0].AdditionalConfigurations = [new() { ConfigType = "Plugin.Other", ConfigJson = "other" }];
+        service.IngestSnapshot(snapshot, "connection");
+        snapshot.Plugins[0].AdditionalConfigurations[0].ConfigJson = "mutated input";
+        service.GetConfigsForAgent("agent").Single().AdditionalConfigurations[0].ConfigJson = "mutated output";
+        Assert.Equal("other", service.GetConfigsForAgent("agent").Single().AdditionalConfigurations.Single().ConfigJson);
+        var stored = Service(registry).GetLastKnownConfigsForServer("server")!.Plugins.Single();
+        Assert.Equal("Plugin.Settings", stored.ConfigType);
+        Assert.Equal("original", stored.ConfigJson);
+        Assert.Equal("Plugin.Other", stored.AdditionalConfigurations.Single().ConfigType);
+        Assert.Equal("other", stored.AdditionalConfigurations.Single().ConfigJson);
+    }
+
     public void Dispose()
     {
         _metrics.Dispose();

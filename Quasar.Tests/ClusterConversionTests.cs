@@ -155,6 +155,56 @@ public sealed class ClusterConversionTests : IDisposable
         Assert.Equal(3, nodes.Single(n => n.GetProperty("role").GetString() == "WA").GetProperty("catalogSlot").GetInt32());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConversionPreservesEveryConfigurationTypeAndSingleTypeWireShape(bool multiple)
+    {
+        await Source(); var request = Request();
+        string world = Path.Combine(root, "split"); Directory.CreateDirectory(world);
+        File.WriteAllText(Path.Combine(world, "Sandbox.sbc"), "<MyObjectBuilder_Checkpoint />");
+        var config = new Magnetar.Protocol.Model.PluginConfigData { PluginId = "plugin", ConfigType = "Plugin.Primary",
+            ConfigJson = "{\"values\":{\"enabled\":true}}", AdditionalConfigurations = multiple
+                ? [new() { ConfigType = "Plugin.Secondary", ConfigJson = "{\"values\":{\"limit\":5}}" }] : [] };
+        var snapshot = new LastKnownPluginConfigSnapshot("source", "agent", DateTimeOffset.UtcNow, [config]);
+        var paths = request.Hosts.ToDictionary(h => h.HostId,
+            h => new Quasar.Host.Contract.V1.HostConversionPaths(h.HostId, "/world", "/config", "/runtime"));
+        using var spec = JsonDocument.Parse(await ClusterConversionService.SpecificationAsync(clusters.GetCluster("demo")!,
+            servers.GetServer("source")!, profiles.GetProfile("profile")!, snapshot, request, world, paths, default));
+        var plugin = spec.RootElement.GetProperty("pluginConfigurations").GetProperty("plugin");
+        var configs = multiple ? plugin.GetProperty("configurations").EnumerateArray().ToArray() : [plugin];
+        Assert.Equal(multiple ? 2 : 1, configs.Length);
+        Assert.Equal("Plugin.Primary", configs[0].GetProperty("configType").GetString());
+        Assert.True(configs[0].GetProperty("configuration").GetProperty("values").GetProperty("enabled").GetBoolean());
+        if (multiple)
+        {
+            Assert.Equal("Plugin.Secondary", configs[1].GetProperty("configType").GetString());
+            Assert.Equal(5, configs[1].GetProperty("configuration").GetProperty("values").GetProperty("limit").GetInt32());
+        }
+        else Assert.False(plugin.TryGetProperty("configurations", out _));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ClusterEditorChangesOnlySelectedConfigurationType(bool multiple)
+    {
+        var primary = System.Text.Json.Nodes.JsonNode.Parse("""
+            {"configType":"Primary","configuration":{"schema":{"name":"primary"},"values":{"limit":1}}}
+            """)!;
+        var other = System.Text.Json.Nodes.JsonNode.Parse("""
+            {"configType":"Secondary","configuration":{"schema":{"name":"other"},"values":{"limit":2}}}
+            """)!;
+        string unchanged = other.ToJsonString();
+        var plugin = multiple ? new System.Text.Json.Nodes.JsonObject { ["configurations"] = new System.Text.Json.Nodes.JsonArray(primary, other) } : primary;
+        var specification = new System.Text.Json.Nodes.JsonObject {
+            ["pluginConfigurations"] = new System.Text.Json.Nodes.JsonObject { ["plugin"] = plugin } };
+        Quasar.Components.Dashboard.ClusterDeploymentPanel.SetPluginValues(specification, "plugin", "Primary", "{\"limit\":9}");
+        Assert.Equal(9, primary["configuration"]!["values"]!["limit"]!.GetValue<int>());
+        Assert.Equal("primary", primary["configuration"]!["schema"]!["name"]!.GetValue<string>());
+        Assert.Equal(unchanged, other.ToJsonString());
+    }
+
     public void Dispose()
     {
         clusters.Dispose(); servers.Dispose(); profiles.Dispose(); cache.SetValue(null, previousRoot);

@@ -111,3 +111,14 @@ The reverse request includes `id`, `uniqueName`, `displayName`, `port`,
 Implementation tests exercise safety guards, transfer corruption, snapshot assembly,
 replay and publication. Live game conversion parity and manual player cutover remain
 part of the full local cluster acceptance run.
+
+SDK-loaded private/static configuration and multiple configuration types are included
+in reviewed snapshots when the compatible SDK discovery API is available. Conflicting
+private-only copies block automatic transfer. Each type has its own canonical entry
+and cluster editor; older single-type snapshots remain readable.
+
+An unmanaged cluster Registry cannot be adopted in place. Back up and stop it, use the
+release world tools to export/reassemble verified copies into a standalone world, then
+convert/import that world into a fresh managed deployment. Preserve the original Registry
+and plugin stores for explicit migration or rollback. Quasar's reverse wizard requires
+a managed source and does not provide an unmanaged Registry migration.

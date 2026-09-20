@@ -187,7 +187,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
         var current = ExecutionBundle.Load(attachment.BundleManifestPath!, attachment.BundleManifestSha256!);
         if (candidate.Manifest.ClusterId != request.ClusterId || candidate.Manifest.HostId != hostId
             || candidate.Manifest.RuntimeRoot != current.Manifest.RuntimeRoot )
-            throw new InvalidDataException("Restore requires a new verified revision for the same Host and runtime root.");
+            throw new InvalidDataException("Restore requires a verified candidate for the same Host and runtime root.");
         string runtime = candidate.Manifest.RuntimeRoot!;
         string archive = ArchivePath(request.ClusterId, request.SnapshotId);
         if (HashFile(archive) != request.ArchiveSha256) throw new InvalidDataException("Snapshot archive hash mismatch.");
@@ -211,7 +211,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
                 return;
             }
         }
-        if (candidate.Manifest.Revision == current.Manifest.Revision) throw new InvalidDataException("Restore requires a new deployment revision.");
+        if (candidate.Manifest.Revision == current.Manifest.Revision) throw new InvalidDataException("Restore requires a newly prepared deployment with fresh node/admin/executor credential environment references; credential rotation produces a new revision.");
         if (!Directory.Exists(runtime) && Directory.Exists(previous)) Directory.Move(previous, runtime);
         if (Directory.Exists(staging)) { ExecutionBundle.RefuseTree(staging); Directory.Delete(staging, true); }
         Directory.CreateDirectory(staging);

@@ -208,7 +208,7 @@ Standalone provides durable local state/single logical owner. A missing cluster 
 fails unavailable, never falls back to divergent local stores.
 
 The exact API, failure semantics and runnable example are documented in Magnetar's
-[SharedState.md](https://github.com/CometWorks/magnetar/blob/quasar/managed-plugin-services/skills/se-dev-plugin-sdk/SharedState.md).
+[SharedState.md](https://github.com/CometWorks/magnetar/blob/v2.4.2.1/skills/se-dev-plugin-sdk/SharedState.md).
 Gateway's protocol copy is hash-pinned; release capabilities bind the actual SDK binary
 hash. Coordinated Magnetar 2.4.2.1 / cluster 1.1.0 artifacts are required.
 
@@ -239,3 +239,28 @@ shared canonical configuration. An explicit source commit mismatch fails closed.
 Reverse conversion exports canonical settings beside the stopped standalone server
 for review/reapplication. Arbitrary private files and shared records remain in the
 backup; conversion does not infer a plugin-specific storage migration.
+
+## Review corrections — 2026-09-20
+
+SDK configuration loaded through `ConfigStorage` is discoverable even when plugins
+keep it in private/static storage. Agent captures additional configuration types using
+an optional SDK API, preserving compatibility with older standalone SDKs. Historical
+snapshots retain every type; conversion emits canonical schema 2 for multiple types,
+and the cluster editor prepares each type independently. Conflicting private-only
+instances block automatic conversion rather than selecting arbitrary values. Standalone
+editing still needs a public configuration target; capture alone does not grant a safe
+mutation target. Hand-rolled storage outside the SDK still needs explicit integration.
+
+Canonical comparison treats equivalent numbers equally. Actual runtime drift remains
+fail-closed to preserve the one-server configuration invariant. Registry holds the
+failed slot Draining until correction/operator action, preventing endless replacement
+of identically misconfigured processes. Existing sessions keep relaying while their
+attachment and authority generation remain valid; readiness loss closes new admission.
+Persistence faults still pause all relay.
+
+Upstream shared-state writes use bounded durable journal entries, per-plugin capacity
+and write-rate limits. Tombstones retain revision history; old globally full stores
+need explicit migration to regain new-key capacity. Storage is opened lazily only when
+a standalone plugin opts into shared state, and storage failures report unavailability.
+The SDK documentation release-tag link becomes available after the coordinated release;
+review changes are in Magnetar #57, not a requirement to install from a mutable branch.

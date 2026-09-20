@@ -1,6 +1,6 @@
 # Phase 4 Quasar integration — release continuation
 
-Updated 2026-09-19. This is the current seven-stage plan and implementation record.
+Updated 2026-09-20. This is the current seven-stage plan and implementation record.
 It supersedes the older six-step branch plan. Implementation checks and live acceptance
 are recorded separately; a built package does not establish live acceptance.
 
@@ -205,3 +205,18 @@ loopback. Release build, CLI startup and Host preparation enforce actual SDK ver
 Magnetar 2.4.2.1 and its managed configuration/plugin services remain a release prerequisite.
 Persistence failure deliberately remains fail-closed with 503 and paused relay; supervisor
 control-health checks and storage repair/restart are required. Live acceptance remains open.
+
+The subsequent runtime review fixes WA readiness after checkpoint restore, separates
+new-client admission from existing valid relay, and returns explicit authenticated
+plugin-routing errors. SDK storage is lazy outside managed mode; loaded private/static
+and multiple configuration types are supported through canonical schema 2 and Agent
+snapshot discovery. Numeric normalization avoids false drift. Genuine failures hold the
+slot Draining for correction, retaining uniform configuration instead of a restart loop.
+
+Plugin CAS uses bounded fsynced journal mutations and per-plugin capacity/rate limits.
+The Registry capability is now `cluster-registry-v2`; readers retain v1 support, but
+managed format-map changes and downgrade require explicit migration. No managed
+v1-to-v2 migrator is provided. Preserve stopped backups; do not bypass metadata gates.
+Unmanaged adoption uses stopped world export/conversion into a separate managed
+Registry, retaining old plugin data for explicit migration. These changes still require
+packaged live acceptance, especially WA startup, drift handling and storage latency.

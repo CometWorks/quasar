@@ -15,4 +15,14 @@ public class PluginConfigData
     public string ConfigType { get; set; } = string.Empty;
 
     public string ConfigJson { get; set; } = string.Empty;
+
+    /// <summary>Other SDK configuration types owned by the plugin. Older Agents omit this.</summary>
+    public PluginConfigurationData[] AdditionalConfigurations { get; set; } = [];
+}
+
+/// <summary>One additional SDK configuration envelope, keyed by its exact type name.</summary>
+public class PluginConfigurationData
+{
+    public string ConfigType { get; set; } = string.Empty;
+    public string ConfigJson { get; set; } = string.Empty;
 }

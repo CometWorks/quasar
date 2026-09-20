@@ -212,6 +212,8 @@ public sealed class PluginConfigService : IHostedService
         DisplayName = data.DisplayName,
         ConfigType = data.ConfigType,
         ConfigJson = data.ConfigJson,
+        AdditionalConfigurations = (data.AdditionalConfigurations ?? []).Select(config => new PluginConfigurationData {
+            ConfigType = config.ConfigType, ConfigJson = config.ConfigJson }).ToArray(),
     };
 }
 

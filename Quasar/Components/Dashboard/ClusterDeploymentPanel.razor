@@ -29,7 +29,7 @@
                 @foreach (var plugin in PreparedPlugins())
                 {
                     <MudExpansionPanel Text="@plugin.DisplayName">
-                        <PluginConfigEditor Plugin="plugin" AgentId="" ConnectionId="" SaveValues="@(values => SavePluginAsync(plugin.PluginId, values))"
+                        <PluginConfigEditor Plugin="plugin" AgentId="" ConnectionId="" SaveValues="@(values => SavePluginAsync(plugin.PluginId, plugin.ConfigType, values))"
                             ApplyLabel="Prepare configuration for all nodes" SuccessMessage="Cluster configuration prepared. Activate it with a full-downtime update." />
                     </MudExpansionPanel>
                 }
@@ -83,20 +83,24 @@
             var request = JsonSerializer.Deserialize<ClusterPreparationRequest>(_preparation, Json);
             using var spec = JsonDocument.Parse(request?.SpecificationJson ?? "{}");
             if (!spec.RootElement.TryGetProperty("pluginConfigurations", out var plugins)) return [];
-            return plugins.EnumerateObject().Where(p => p.Value.TryGetProperty("configuration", out _))
-                .Select(p => new Magnetar.Protocol.Model.PluginConfigData { PluginId = p.Name, DisplayName = p.Name,
-                    ConfigJson = p.Value.GetProperty("configuration").GetRawText() }).ToArray();
+            return plugins.EnumerateObject().SelectMany(plugin =>
+                (plugin.Value.TryGetProperty("configurations", out var configs) ? configs.EnumerateArray().ToArray() : [plugin.Value])
+                .Where(config => config.TryGetProperty("configuration", out _))
+                .Select(config => new Magnetar.Protocol.Model.PluginConfigData { PluginId = plugin.Name,
+                    DisplayName = plugin.Name + (plugin.Value.TryGetProperty("configurations", out _) ? " / " + config.GetProperty("configType").GetString() : ""),
+                    ConfigType = config.GetProperty("configType").GetString() ?? "",
+                    ConfigJson = config.GetProperty("configuration").GetRawText() })).ToArray();
         }
         catch (JsonException) { return []; }
     }
-    private async Task SavePluginAsync(string pluginId, string values)
+    private async Task SavePluginAsync(string pluginId, string configType, string values)
     {
         if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) throw new InvalidOperationException("Cluster management is unavailable.");
         var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
         if (!user.CanQueryCluster(Cluster.UniqueName)) throw new InvalidOperationException("Cluster access denied.");
         var request = JsonSerializer.Deserialize<ClusterPreparationRequest>(_preparation, Json) ?? throw new InvalidDataException("Preparation is required.");
         var spec = System.Text.Json.Nodes.JsonNode.Parse(request.SpecificationJson)!;
-        spec["pluginConfigurations"]![pluginId]!["configuration"]!["values"] = System.Text.Json.Nodes.JsonNode.Parse(values);
+        SetPluginValues(spec, pluginId, configType, values);
         string json = spec.ToJsonString();
         string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
         request = request with { SpecificationJson = json, Hosts = request.Hosts.Select(h => h with {
@@ -110,6 +114,13 @@
             _activation = JsonSerializer.Serialize(result.Result, Json);
         }
         finally { _busy = false; }
+    }
+    internal static void SetPluginValues(System.Text.Json.Nodes.JsonNode specification, string pluginId, string configType, string values)
+    {
+        var plugin = specification["pluginConfigurations"]![pluginId]!;
+        var config = plugin["configurations"] is System.Text.Json.Nodes.JsonArray configs
+            ? configs.Single(c => c?["configType"]?.GetValue<string>() == configType)! : plugin;
+        config["configuration"]!["values"] = System.Text.Json.Nodes.JsonNode.Parse(values);
     }
     private void ListBackups() => _backups = JsonSerializer.Serialize(Backups.List(Cluster.UniqueName)
         .Select(b => new { b.SnapshotId, b.CreatedAt, b.Consistency }), Json);

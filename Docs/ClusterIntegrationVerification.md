@@ -1,22 +1,23 @@
 # Cluster integration verification — 2026-09-20
 
 Implementation covers remaining stage 3 through stage 7 on Quasar's
-`phase4/quasar-integration` branch. Quasar remains uncommitted. Upstream reviews:
+`phase4/quasar-integration` branch. Baseline `8edd33a` is pushed in Quasar #137;
+subsequent review fixes remain local on that branch. Upstream reviews:
 
-- [Magnetar #57](https://github.com/CometWorks/magnetar/pull/57), `a78e398`.
-- [cluster #12](https://github.com/CometWorks/cluster/pull/12), `5d2541c`.
-- [generic plan #4](https://git.cometworks.se/CometWorks/clustering-plan/pulls/4), `bcc46c9`.
+- [Magnetar #57](https://github.com/CometWorks/magnetar/pull/57), `8f8d44f`.
+- [cluster #12](https://github.com/CometWorks/cluster/pull/12), `b0a8427`.
+- [generic plan #4](https://git.cometworks.se/CometWorks/clustering-plan/pulls/4), `06a5e71`.
 
 ## Passing implementation checks
 
 | Check | Evidence |
 | --- | --- |
-| Quasar services/API/CLI | Full suite, 333 tests; includes update restart/partial activation, rejected preflight without downtime, rollback, exact workflow wait, snapshot cleanup replay/lifecycle fence and six artifact inventory/corruption cases. |
-| Magnetar PluginSdk | 125 tests; CAS/conflict/tombstone/restore, durable standalone store, missing-provider lifecycle, queued dispatch and observer isolation. |
+| Quasar services/API/CLI | Full suite, 338 tests; includes update restart/partial activation, rejected preflight without downtime, rollback, exact workflow wait, snapshot cleanup replay/lifecycle fence and six artifact inventory/corruption cases. |
+| Magnetar PluginSdk | 139 tests; CAS/conflict/tombstone/restore, durable standalone store, missing-provider lifecycle, queued dispatch and observer isolation. |
 | Magnetar launcher/example | Build succeeds; example uses the public consumer API. |
 | Gateway/node/WA | Build succeeds; Gateway self-tests include lifecycle restart replay and old-owner CAS replay/new-write fencing. |
 | Release package | Fresh complete build from committed sources; packaged Gateway/admin CLI self-tests pass. |
-| Python CLI/generator | 29 tests pass; includes scoped Gateway bearer and SDK rejection/preparation checks. |
+| Python CLI/generator | 30 tests pass; includes scoped Gateway bearer and SDK rejection/preparation checks. |
 | Quasar Host | Inert-process self-test passes, plus portable preparation/import/tamper script. |
 | Plugin bundle exporter | 2 tests pass. |
 | Source/binary pins | SDK/protocol hash checks and byte-for-byte vendored admin contracts match. |
@@ -27,11 +28,11 @@ The Linux durability path was exercised; Windows power-failure behavior was not 
 
 ## Review artifact
 
-Complete archive: `cluster-quasar-review-fixes-package/ClusterForLinux-1.1.0.tar.gz`
+Complete archive: `cluster-quasar-feedback-package/ClusterForLinux-1.1.0.tar.gz`
 (sibling to the Quasar checkout). SHA-256:
-`f2a9bd06a91877a3fc448910cb2ed5a1a5b6363211d30b372e6de9d38d822126`.
+`b69d42caaaaff081cd653c1f73f0d889908b371099213091be4c3aa5e0fc24fd`.
 
-Compiled PluginSdk SHA-256: `eda9e17e83a33bc4bfe4bd10d1fb2343fe391d1c233f17d7876a4918f9ec8c51`.
+Compiled PluginSdk SHA-256: `a24d6245b362b90bdfe15ed5442c7f32ddb26bff324406627c2213aecea525e3`.
 The review archive is locally built, not a published upstream release. Never modify
 it to satisfy deployment capability checks; build a new coordinated package instead.
 
@@ -98,3 +99,37 @@ configuration files and shared/private storage need explicit reapplication/migra
 Generic plan PR #4 was rebased onto `c1c35b9` after #3 merged. New head `bcc46c9`
 preserves the `HotSpareNodes.md` link correction and retired checkout-sync test notice;
 the rebased patch matches the original by `git range-diff`.
+
+## Runtime feedback fixes — 2026-09-20
+
+Upstream Magnetar `8f8d44f` and cluster `b0a8427` are pushed to their existing PRs.
+The current complete package was built from those commits and passed its packaged
+Gateway and admin CLI self-tests. Cross-repository protocol equality and SDK metadata
+validation pass; the PR-only SDK build uses an exact public source pin. Public release
+packaging still requires the compatible released Magnetar SDK.
+
+WA readiness now waits for checkpoint/ledger restore and game-session readiness.
+An offline test exercises 48 transition combinations; no live WA startup was rerun.
+Authenticated plugin rejection, admission-versus-relay behavior and held config-drift
+slots have regression coverage. SDK tests cover lazy/nonfatal standalone storage,
+loader names with spaces, per-plugin quotas, numeric equivalence and SDK-loaded
+private/static/multiple config types. Quasar's 338 tests include per-type conversion,
+editor sibling preservation and immutable historical configuration snapshots.
+
+Plugin WAL tests cover bounded journal records, payload recovery, torn tails, corrupt
+CRC rejection, replay without rate-budget consumption, full state following a delta,
+and published snapshots with an old WAL. Forty 32 KiB mutations produce bounded
+individual records below 48 KiB; a subsequent small mutation stays below 2 KiB despite
+unrelated pending Registry changes. This proves bounded serialization size, not a live
+latency target: fsync still holds the Registry lock and rollover still checkpoints.
+
+Registry storage declares v2 for CGR3 records. Old readers cannot consume them; managed
+format-map gates prevent silent activation/restore/downgrade. No in-place managed
+v1-to-v2 migrator is provided. Unmanaged adoption uses stopped world conversion into a
+fresh managed deployment with explicit plugin-data migration, never Registry deletion.
+
+Quasar Host build, inert-process self-test and preparation/import/tamper script pass.
+Logs are retained under `quasar-integration-evidence/2026-09-20/feedback-fixes/` beside
+this checkout. Magnetar's Linux/Windows PR builds and cluster's contract, package-build and release
+workflow jobs pass. Packaged game behavior, live
+conversion, drift observation and storage latency remain live acceptance gates.

@@ -1246,10 +1246,28 @@ previous-token slots, must not remain in the candidate scoped-token file. Host c
 credentials can remain unchanged. The previous runtime directory remains beside the restored
 one for explicit recovery and is not removed by backup retention.
 
+Before restore, copy the preparation specification and replace its join/admin token,
+scoped-token-file and Host executor token environment references with new names. Provision
+fresh values on each Host, then prepare this candidate using the same package, game build,
+world and topology. The secret references are hashed specification inputs, so this required
+rotation produces a new deployment revision automatically; no unrelated setting needs to
+change. Merely replacing values behind the existing environment names is insufficient:
+Host must still resolve the currently attached credentials to reject reuse. Submit the
+restore against this prepared candidate, then activate it before starting. A failed restore
+can be retried with the same restore ID and identical inputs; previous runtime data remains
+available for explicit recovery.
+
 ## Managed cluster workflows
 
 The cluster deployment panel persists one preparation specification for all Hosts.
-PluginSdk configuration schemas reuse the ordinary editor. Saving changes prepares
+PluginSdk configuration schemas reuse the ordinary editor. Each configuration type has
+its own editor when a plugin owns multiple types. Conversion keeps the existing primary
+configuration and includes additional public or SDK-tracked types, including loaded private
+and static configurations. Older Agent snapshots containing only a primary type remain
+readable. SDK-tracked-only configurations are captured for conversion; the standalone
+editor still needs an exposed public configuration property to apply changes safely.
+Conflicting private-only live copies of the same type block automatic conversion
+until their source of truth is resolved. Saving changes prepares
 immutable candidate configuration on every Host; use a full-downtime update to apply it.
 The individual Agent editor cannot change cluster-owned configuration.
 
