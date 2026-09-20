@@ -200,7 +200,9 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         return Envelope(await StageAsync(request, "Ready to start", null, ct));
                     }, ct);
                 }
-                catch (Exception error) when (error is IOException or InvalidOperationException or ArgumentException or KeyNotFoundException or HttpRequestException or OperationCanceledException
+                // InvalidDataException covers the world converter, Magnetar export and identity checks above;
+                // uncaught it left the status on its last phase and ended the operator's Blazor circuit.
+                catch (Exception error) when (error is IOException or InvalidDataException or InvalidOperationException or ArgumentException or KeyNotFoundException or HttpRequestException or OperationCanceledException
                     or ClusterHostException or ClusterPackageException or JsonException or System.Xml.XmlException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
                 {
                     if (bound) await StageAsync(request, "Setup interrupted", error.Message, CancellationToken.None);
