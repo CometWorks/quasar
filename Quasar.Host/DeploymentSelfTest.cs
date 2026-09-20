@@ -26,8 +26,16 @@ internal static class DeploymentSelfTest
             string path = Path.Combine(config, "bundle.json");
             File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
             string hash = ExecutionBundle.Hash(File.ReadAllBytes(path));
+            // Invalid state files are ignored with a message; they must not abort the Host.
+            Directory.CreateDirectory(Path.Combine(state, "attachments"));
+            Directory.CreateDirectory(Path.Combine(state, "gateways"));
+            File.WriteAllText(Path.Combine(state, "attachments/invalid.json"), "{\"clusterId\":\"\",\"gatewayUrl\":\"nowhere\"}");
+            File.WriteAllBytes(Path.Combine(state, "gateways/torn.json"), []);
             var attachments = new AttachmentStore(state, []);
             var gateways = new GatewaySpecStore(state);
+            Assert(attachments.GetAll().Length == 0 && gateways.GetAll().Length == 0, "invalid state file was loaded");
+            File.Delete(Path.Combine(state, "attachments/invalid.json"));
+            File.Delete(Path.Combine(state, "gateways/torn.json"));
             var activation = new DeploymentActivation(state, "host", attachments, gateways,
                 new NodeActualizer(state, "host"), new GatewayActualizer(state, "host"));
             var request = new HostContract.HostDeploymentActivation("cluster", null, path, hash,

@@ -48,6 +48,34 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
     }
 
     [Fact]
+    public async Task CorruptHostRegistrationDoesNotBreakOtherHosts()
+    {
+        var healthy = await hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);
+        await hosts.RegisterAsync("two", "Two", "10.0.0.2", 18400, default);
+        File.WriteAllBytes(Path.Combine(root, "hosts", "two", "host.json"), []);
+
+        Assert.Equal([healthy], hosts.GetAll());
+        Assert.True(hosts.Authenticate(healthy.Id, "Bearer " + credentials.Resolve(healthy.CredentialReference)));
+        Assert.False(hosts.Authenticate("two", "Bearer anything"));
+        // The broken registration can be replaced by enrolling the Host again.
+        Assert.Equal("two", (await hosts.RegisterAsync("two", "Two", "10.0.0.2", 18400, default)).Id);
+    }
+
+    [Fact]
+    public void CorruptCredentialFileIsSetAsideInsteadOfAbortingStartup()
+    {
+        string path = Path.Combine(root, "torn-credentials.json");
+        File.WriteAllText(path, "{\"QSR_MANAGED_");
+
+        var store = new ClusterCredentialStore(new EphemeralDataProtectionProvider(), path);
+
+        Assert.Single(Directory.GetFiles(root, "torn-credentials.json.corrupt-*"));
+        string reference = store.Create("cluster:demo", "admin");
+        Assert.NotNull(store.Resolve(reference));
+        Assert.Single(Directory.GetFiles(root, "torn-credentials.json.corrupt-*"));
+    }
+
+    [Fact]
     public async Task InstallTicketsExpireAndRejectReplayAndReplacedTickets()
     {
         var host = await hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);

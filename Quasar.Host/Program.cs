@@ -96,7 +96,8 @@ internal static class Program
             }
         }
         catch (Exception exception) when (exception is IOException or InvalidDataException
-            or InvalidOperationException or UnauthorizedAccessException or HttpListenerException)
+            or InvalidOperationException or UnauthorizedAccessException or HttpListenerException
+            or JsonException or ArgumentException)
         {
             Console.Error.WriteLine(exception.Message);
             commandServer?.Dispose();
@@ -123,6 +124,7 @@ internal static class Program
                 {
                 foreach (HostContract.GatewaySpec gateway in gateways.GetAll())
                 {
+                    if (PausedClusters.IsPaused(gateway.ClusterId)) continue;
                     try
                     {
                         HostContract.GatewayStatus status = await gatewayActualizer.ReconcileAsync(
@@ -145,6 +147,7 @@ internal static class Program
                 }
                 foreach (HostContract.HostAttachmentSpec attachment in attachments.GetAll())
                 {
+                    if (PausedClusters.IsPaused(attachment.ClusterId)) continue;
                     try
                     {
                         if (!executorSessions.TryGetValue(attachment.ClusterId, out var session))

@@ -50,8 +50,23 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
         string directory = Path.Combine(stateDirectory, "restores");
         if (!Directory.Exists(directory)) return;
         foreach (string path in Directory.EnumerateFiles(directory, "*.json"))
-            Restore(JsonSerializer.Deserialize<HostContract.HostSnapshotRestore>(File.ReadAllBytes(path), Json)
-                ?? throw new InvalidDataException("Restore journal is empty."));
+        {
+            string? clusterId = null;
+            try
+            {
+                var request = JsonSerializer.Deserialize<HostContract.HostSnapshotRestore>(File.ReadAllBytes(path), Json)
+                    ?? throw new InvalidDataException("Restore journal is empty.");
+                clusterId = request.ClusterId;
+                Restore(request);
+            }
+            // One cluster's unrecoverable restore must not take the Host and its other clusters down.
+            catch (Exception exception) when (exception is IOException or InvalidDataException or InvalidOperationException
+                or UnauthorizedAccessException or JsonException or ArgumentException or System.Security.Cryptography.CryptographicException)
+            {
+                if (clusterId is null) Console.Error.WriteLine($"Restore journal {path} is unreadable and was ignored: {exception.Message}");
+                else PausedClusters.Pause(clusterId, $"interrupted restore {path} could not be recovered: {exception.Message}");
+            }
+        }
     }
 
     internal async Task ReceiveAsync(string clusterId, Guid id, string hash, Stream source, CancellationToken token)
@@ -208,6 +223,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
                     || recorded.RootElement.GetProperty("candidateManifestSha256").GetString() != request.CandidateManifestSha256)
                     throw new InvalidOperationException("Restore ID is bound to different input.");
                 if (File.Exists(journal)) File.Delete(journal);
+                if (!preview) PausedClusters.Resume(request.ClusterId);
                 return;
             }
         }
@@ -274,6 +290,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
             if (Directory.Exists(runtime)) Directory.Move(runtime, previous);
             Directory.Move(staging, runtime); // Keep previous data for explicit recovery; never prune it as a backup.
             File.Delete(journal);
+            PausedClusters.Resume(request.ClusterId);
         }
         finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
     }
