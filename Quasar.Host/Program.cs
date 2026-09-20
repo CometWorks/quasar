@@ -110,17 +110,38 @@ internal static class Program
             var connected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             do
             {
-                if (connection is { IsFaulted: true }) await connection;
+                // A broken Quasar tunnel must not end local supervision of the Gateway and nodes.
+                if (connection is { IsCompleted: true } && !shutdown.IsCancellationRequested)
+                {
+                    Exception? fault = connection.Exception?.GetBaseException();
+                    Console.Error.WriteLine($"Quasar connection stopped ({fault?.GetType().Name ?? "completed"}): {fault?.Message}");
+                    // Invalid enrollment configuration cannot heal by retrying.
+                    connection = fault is InvalidDataException ? null : HostConnection.RunAsync(config, shutdown.Token);
+                }
                 await executionGate.WaitAsync(shutdown.Token);
                 try
                 {
                 foreach (HostContract.GatewaySpec gateway in gateways.GetAll())
                 {
-                    HostContract.GatewayStatus status = await gatewayActualizer.ReconcileAsync(
-                        gateway, shutdown.Token);
-                    gateways.SetStatus(status);
-                    if (once)
-                        Console.WriteLine($"cluster={gateway.ClusterId} gateway={status.Observed.ToString().ToLowerInvariant()}");
+                    try
+                    {
+                        HostContract.GatewayStatus status = await gatewayActualizer.ReconcileAsync(
+                            gateway, shutdown.Token);
+                        gateways.SetStatus(status);
+                        if (once)
+                            Console.WriteLine($"cluster={gateway.ClusterId} gateway={status.Observed.ToString().ToLowerInvariant()}");
+                    }
+                    catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+                    {
+                        return 0;
+                    }
+                    // One cluster's failure (disk full, a process that cannot be signalled) must not stop the others.
+                    catch (Exception exception)
+                    {
+                        Console.Error.WriteLine($"cluster={gateway.ClusterId} gateway error={exception.GetType().Name}: {exception.Message}");
+                        if (once)
+                            return 4;
+                    }
                 }
                 foreach (HostContract.HostAttachmentSpec attachment in attachments.GetAll())
                 {
@@ -136,12 +157,14 @@ internal static class Program
                     {
                         return 0;
                     }
-                    catch (Exception exception) when (exception is HttpRequestException or IOException
-                        or JsonException or InvalidOperationException or UnauthorizedAccessException
-                        or CryptographicException)
+                    // Includes the HttpClient timeout (TaskCanceledException without shutdown): an
+                    // unreachable Gateway is retried on the next poll, never fatal to the Host.
+                    catch (Exception exception)
                     {
                         connected.Remove(attachment.ClusterId);
-                        Console.Error.WriteLine($"cluster={attachment.ClusterId} error={exception.Message}");
+                        Console.Error.WriteLine(exception is OperationCanceledException
+                            ? $"cluster={attachment.ClusterId} error=Gateway request timed out"
+                            : $"cluster={attachment.ClusterId} error={exception.Message}");
                         if (once)
                             return 4;
                     }
@@ -164,7 +187,9 @@ internal static class Program
             finally
             {
                 await shutdown.CancelAsync();
-                if (connection is not null) await connection;
+                if (connection is not null)
+                    try { await connection; }
+                    catch (Exception exception) { Console.Error.WriteLine($"Quasar connection stopped ({exception.GetType().Name}): {exception.Message}"); }
             }
         }
         return 0;
