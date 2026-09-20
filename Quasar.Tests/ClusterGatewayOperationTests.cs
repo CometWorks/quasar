@@ -72,6 +72,48 @@ public sealed class ClusterGatewayOperationTests : IDisposable
         Assert.Equal("revision_conflict", result.Error?.Code);
     }
 
+    [Fact]
+    public async Task UndeliveredMutationExpiresInsteadOfBeingDeliveredAfterALongOutage()
+    {
+        var outage = Client(_ => throw new HttpRequestException("Gateway unreachable"));
+        var pending = await Execute(new(_directory), outage);
+        Assert.Equal(ClusterOperationState.Running, pending.State);
+        string path = Path.Combine(_directory, pending.OperationId + ".json");
+        DateTime written = File.GetLastWriteTimeUtc(path);
+        await Execute(new(_directory), outage);
+        Assert.Equal(written, File.GetLastWriteTimeUtc(path)); // an unchanged retry is not rewritten
+
+        // Age the record past the delivery lifetime.
+        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!;
+        node["createdAt"] = DateTimeOffset.UtcNow - ClusterOperationStore.UndeliveredMutationLifetime - TimeSpan.FromSeconds(1);
+        File.WriteAllText(path, node.ToJsonString());
+        var expired = await Execute(new(_directory), Client(_ => throw new Exception("an expired request must not reach the Gateway")));
+
+        Assert.Equal(ClusterOperationState.Failed, expired.State);
+        Assert.Equal("gateway_delivery_expired", expired.Error!.Code);
+    }
+
+    [Fact]
+    public async Task PendingMutationCanBeCancelledUntilTheGatewayAcceptsIt()
+    {
+        var store = new ClusterOperationStore(_directory);
+        var pending = await Execute(store, Client(_ => throw new HttpRequestException("Gateway unreachable")));
+
+        var cancelled = await store.CancelGatewayAsync("demo", pending.OperationId, "operator", default);
+
+        Assert.Equal(ClusterOperationState.Failed, cancelled!.State);
+        Assert.Equal("cancelled", cancelled.Error!.Code);
+        Assert.False(store.HasPendingOperations("demo"));
+        await Execute(store, Client(_ => throw new Exception("a cancelled request must not reach the Gateway")));
+        Assert.Null(await store.CancelGatewayAsync("other", pending.OperationId, "operator", default));
+
+        string? key = null;
+        var accepted = await store.ExecuteGatewayAsync(_cluster, "cluster.save-all", "POST", "save-all", new SaveAllRequest(), "request-2", "test",
+            Client(request => { key = request.Headers.GetValues("Idempotency-Key").Single(); return Operation(key, AdminOperationState.Running); }), default);
+        Assert.Equal("operation_already_accepted", (await Assert.ThrowsAsync<ClusterOperationConflictException>(
+            () => store.CancelGatewayAsync("demo", accepted.OperationId, "operator", default))).Code);
+    }
+
     private Task<ClusterOperation> Execute(ClusterOperationStore store, ClusterGatewayClient client) =>
         store.ExecuteGatewayAsync(_cluster, "cluster.save-all", "POST", "save-all", new SaveAllRequest(),
             "request-1", "test", client, CancellationToken.None);

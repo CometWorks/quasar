@@ -220,9 +220,11 @@ internal static class ClusterApi
         RouteHandlerBuilder applyGateway = routes.MapPut(
             "/{uniqueName}/host/gateway", ApplyHostGateway);
         routes.MapGet("/{uniqueName}/operations/{operationId}", GetOperation);
+        RouteHandlerBuilder cancelOperation = routes.MapDelete("/{uniqueName}/operations/{operationId}", CancelOperation);
         if (authOptions.Enabled)
         {
             routes.RequireAuthorization(QuasarPolicyNames.ClusterQuery);
+            cancelOperation.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             submitCommand.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             stagePackage.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             selectPackage.RequireAuthorization(QuasarPolicyNames.ClusterManage);
@@ -855,6 +857,27 @@ internal static class ClusterApi
         return operation == null || !operation.Cluster.Equals(uniqueName, StringComparison.OrdinalIgnoreCase)
             ? Error(StatusCodes.Status404NotFound, "unknown_operation", $"Unknown operation '{operationId}'.")
             : Results.Json(Envelope(operation), JsonOptions);
+    }
+
+    // Withdraws a Gateway request that was submitted during an outage and not acknowledged yet.
+    internal static async Task<IResult> CancelOperation(string uniqueName, string operationId, HttpContext context,
+        ClusterCatalog catalog, ClusterOperationStore operations, CancellationToken token)
+    {
+        SetProtocolHeader(context);
+        if (catalog.GetCluster(uniqueName) == null)
+            return Error(StatusCodes.Status404NotFound, "unknown_cluster", $"Unknown cluster '{uniqueName}'.");
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(StatusCodes.Status403Forbidden, "cluster_forbidden",
+                "The credential cannot access this cluster.");
+        try
+        {
+            ClusterOperation? operation = await operations.CancelGatewayAsync(uniqueName, operationId,
+                context.User.Identity?.Name ?? "anonymous", token);
+            return operation == null
+                ? Error(StatusCodes.Status404NotFound, "unknown_operation", $"Unknown operation '{operationId}'.")
+                : Results.Json(Envelope(operation), JsonOptions);
+        }
+        catch (ClusterOperationConflictException exception) { return Error(exception.StatusCode, exception.Code, exception.Message); }
     }
 
     private static IResult AcceptedOperation(string uniqueName, HttpContext context, ClusterOperation operation)

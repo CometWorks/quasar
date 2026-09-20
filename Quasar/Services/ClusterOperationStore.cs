@@ -315,11 +315,39 @@ public sealed class ClusterOperationStore
         }
     }
 
+    // A mutation the Gateway never acknowledged is retried only this long. Delivering a shutdown,
+    // Gateway restart or kick whenever connectivity returns, possibly hours later, surprises the operator.
+    internal static readonly TimeSpan UndeliveredMutationLifetime = TimeSpan.FromMinutes(10);
+
+    // Withdraws a mutation that has no Gateway operation yet. One the Gateway accepted cannot be
+    // recalled from here; it keeps being observed until the Gateway reports its outcome.
+    public async Task<ClusterOperation?> CancelGatewayAsync(string cluster, string operationId, string actor, CancellationToken token)
+    {
+        if (!IsReady) throw new ClusterOperationStoreUnavailableException();
+        await _gate.WaitAsync(token);
+        try
+        {
+            if (Get(operationId) is not { } operation || !operation.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase)) return null;
+            if (operation.State != ClusterOperationState.Running) return operation;
+            if (operation.GatewayRequest is null)
+                throw new ClusterOperationConflictException(409, "operation_not_cancellable", "Only a pending Gateway request can be cancelled.");
+            if (operation.GatewayOperationId is not null)
+                throw new ClusterOperationConflictException(409, "operation_already_accepted", "The Gateway already accepted this request; it can no longer be withdrawn.");
+            return await SaveAsync(operation with { State = ClusterOperationState.Failed, UpdatedAt = DateTimeOffset.UtcNow,
+                Error = new("cancelled", $"Cancelled by {actor} before the Gateway acknowledged it. If an earlier reply was lost, the Gateway may still have applied it.") }, token);
+        }
+        finally { _gate.Release(); }
+    }
+
     private async Task<ClusterOperation> ResumeGatewayAsync(ClusterOperation operation,
         Quasar.Models.ClusterDefinition cluster, ClusterGatewayClient client, CancellationToken token)
     {
         if (operation.State != ClusterOperationState.Running) return operation;
         var request = operation.GatewayRequest!;
+        if (operation.GatewayOperationId is null && DateTimeOffset.UtcNow - operation.CreatedAt > UndeliveredMutationLifetime)
+            return await SaveAsync(operation with { State = ClusterOperationState.Failed, UpdatedAt = DateTimeOffset.UtcNow,
+                Error = new("gateway_delivery_expired", $"The Gateway did not acknowledge this request within {UndeliveredMutationLifetime.TotalMinutes:0} minutes"
+                    + $" ({operation.Error?.Message ?? "no reply"}); it is no longer retried. Check the cluster state and submit it again if it is still wanted.") }, token);
         if (!request.GatewayUrl.Equals(cluster.GatewayUrl, StringComparison.Ordinal))
             return await SaveAsync(operation with { Error = new("gateway_changed", "Restore the original Gateway URL to resume this operation.") }, token);
         try
@@ -355,10 +383,13 @@ public sealed class ClusterOperationStore
             // same persisted key/ID; never turn a lost response into a second mutation.
             bool retry = (int)error.StatusCode >= 500 || (int)error.StatusCode is 408 or 429
                 || (operation.GatewayOperationId is not null && (int)error.StatusCode is 401 or 403);
+            var failure = new ClusterOperationError(error.Code, error.Message);
+            // An unchanged retry outcome is not written again every two seconds.
+            if (retry && operation.Error == failure) return operation;
             operation = operation with
             {
                 State = retry ? ClusterOperationState.Running : ClusterOperationState.Failed,
-                Error = new(error.Code, error.Message), UpdatedAt = DateTimeOffset.UtcNow,
+                Error = failure, UpdatedAt = DateTimeOffset.UtcNow,
             };
         }
         return await SaveAsync(operation, token);
