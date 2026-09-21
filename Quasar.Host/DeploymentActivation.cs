@@ -28,8 +28,22 @@ internal sealed class DeploymentActivation(string stateDirectory, string hostId,
         if (!Directory.Exists(DirectoryPath)) return;
         foreach (string path in Directory.EnumerateFiles(DirectoryPath, "*.json"))
         {
-            var transaction = Read(path)!;
-            if (!transaction.Applied) Apply(transaction.Request);
+            string? clusterId = null;
+            try
+            {
+                var transaction = Read(path)!;
+                clusterId = transaction.Request.ClusterId;
+                if (!transaction.Applied) Apply(transaction.Request);
+            }
+            // One cluster's unrecoverable activation must not take the Host and its other clusters down.
+            catch (Exception exception) when (exception is IOException or InvalidDataException or InvalidOperationException
+                or UnauthorizedAccessException or JsonException or ArgumentException or System.Security.Cryptography.CryptographicException)
+            {
+                clusterId ??= attachments.GetAll().Select(a => a.ClusterId).FirstOrDefault(id =>
+                    Path.GetFileName(path) == ExecutionBundle.Hash(Encoding.UTF8.GetBytes(id)) + ".json");
+                if (clusterId is null) Console.Error.WriteLine($"Deployment transaction {path} is unreadable and was ignored: {exception.Message}");
+                else PausedClusters.Pause(clusterId, $"interrupted activation {path} could not be recovered: {exception.Message}");
+            }
         }
     }
 
@@ -78,6 +92,7 @@ internal sealed class DeploymentActivation(string stateDirectory, string hostId,
         if (active.Gateway is not null) gateways.Apply(active.Gateway);
         bundle.ConfirmRestoreActivation();
         Write(path, transaction with { Applied = true });
+        PausedClusters.Resume(request.ClusterId);
         return active;
     }
 

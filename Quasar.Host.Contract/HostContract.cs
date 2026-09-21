@@ -16,6 +16,7 @@ public static class HostProtocol
     public const string HeaderName = "X-Quasar-Host-Protocol";
     public const string RoutePrefix = "/host/v1";
     public const string StatusRoute = RoutePrefix + "/status";
+    public const string SteamClientLibraryRoute = RoutePrefix + "/steam-client-library";
 
     public static string AttachmentRoute(string clusterId) =>
         $"{RoutePrefix}/attachments/{Uri.EscapeDataString(clusterId)}";
@@ -43,7 +44,11 @@ public sealed record HostStatus(
     string HostId,
     HostAttachmentStatus[] Attachments,
     GatewayStatus[]? Gateways = null,
-    bool GatewayStopFencing = false);
+    bool GatewayStopFencing = false,
+    bool SteamClientLibrary = false);
+
+/// <summary>Result of staging Valve's steamclient.so for the Gateway's Steam frontend on this Host.</summary>
+public sealed record HostSteamClientLibrary(string Path, string Sha256, bool Installed);
 
 public sealed record HostAttachmentStatus(
     string ClusterId,

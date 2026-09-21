@@ -27,9 +27,18 @@ internal sealed class AttachmentStore
             return;
         foreach (string path in Directory.GetFiles(_directory, "*.json").OrderBy(path => path, StringComparer.Ordinal))
         {
-            HostContract.HostAttachmentSpec attachment = JsonSerializer.Deserialize<HostContract.HostAttachmentSpec>(
-                File.ReadAllText(path), JsonOptions) ?? throw new InvalidDataException("Host attachment is empty");
-            _attachments[attachment.ClusterId] = Validate(attachment);
+            try
+            {
+                HostContract.HostAttachmentSpec attachment = JsonSerializer.Deserialize<HostContract.HostAttachmentSpec>(
+                    File.ReadAllText(path), JsonOptions) ?? throw new InvalidDataException("Host attachment is empty");
+                _attachments[attachment.ClusterId] = Validate(attachment);
+            }
+            // One invalid file must not stop the Host; the cluster stays detached until it is applied again.
+            catch (Exception exception) when (exception is JsonException or InvalidDataException or ArgumentException
+                or IOException or UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine($"Host attachment {path} is invalid and was ignored: {exception.Message}");
+            }
         }
     }
 
@@ -145,10 +154,19 @@ internal sealed class GatewaySpecStore
         foreach (string path in Directory.GetFiles(_directory, "*.json").OrderBy(path => path,
                      StringComparer.Ordinal))
         {
-            HostContract.GatewaySpec spec = JsonSerializer.Deserialize<HostContract.GatewaySpec>(
-                File.ReadAllText(path), JsonOptions) ?? throw new InvalidDataException("Gateway spec is empty");
-            spec = Validate(spec);
-            _specs[spec.ClusterId] = spec;
+            try
+            {
+                HostContract.GatewaySpec spec = JsonSerializer.Deserialize<HostContract.GatewaySpec>(
+                    File.ReadAllText(path), JsonOptions) ?? throw new InvalidDataException("Gateway spec is empty");
+                spec = Validate(spec);
+                _specs[spec.ClusterId] = spec;
+            }
+            // One invalid file must not stop the Host; that Gateway stays unmanaged until its spec is applied again.
+            catch (Exception exception) when (exception is JsonException or InvalidDataException or ArgumentException
+                or IOException or UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine($"Gateway spec {path} is invalid and was ignored: {exception.Message}");
+            }
         }
     }
 
@@ -385,13 +403,20 @@ internal sealed class HostCommandServer : IDisposable
             await WriteAsync(context, 200, new { installed = true }, cancellationToken);
             return;
         }
+        if (context.Request.HttpMethod == "PUT" && path == HostContract.HostProtocol.SteamClientLibraryRoute)
+        {
+            await WriteAsync(context, 200, await SteamClientLibrary.InstallAsync(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                context.Request.QueryString["sha256"] ?? "", context.Request.InputStream, cancellationToken), cancellationToken);
+            return;
+        }
         if (context.Request.HttpMethod == "GET"
             && path.Equals(HostContract.HostProtocol.StatusRoute, StringComparison.OrdinalIgnoreCase))
         {
             HostContract.HostAttachmentStatus[] attachments = _attachments.GetAll().Select(ToStatus).ToArray();
             await WriteAsync(context, 200, new HostContract.HostStatus(
                 _config.ExecutorId, _config.HostId, attachments, _gateways.GetStatuses(),
-                GatewayStopFencing: true), cancellationToken);
+                GatewayStopFencing: true, SteamClientLibrary: true), cancellationToken);
             return;
         }
 

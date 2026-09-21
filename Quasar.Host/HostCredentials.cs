@@ -26,12 +26,17 @@ internal static class HostCredentials
         string directory = Path.Combine(stateDirectory, "credentials", request.ClusterId);
         Directory.CreateDirectory(directory); ClusterWorldFiles.Private(directory);
         string tokenFile = Path.Combine(directory, "tokens.json");
-        var scoped = new { tokens = request.ExecutorTokens.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => new { name = "host-" + p.Key, scope = "Executor",
-            sha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(p.Value))).ToLowerInvariant() }) };
+        // The Gateway requires the polling Host ID to equal the token name.
+        string Roster(string prefix) => JsonSerializer.Serialize(new { tokens = request.ExecutorTokens.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => new { name = prefix + p.Key, scope = "Executor",
+            sha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(p.Value))).ToLowerInvariant() }) });
+        string scoped = Roster("");
         if (File.Exists(tokenFile))
         {
             ClusterWorldFiles.Private(tokenFile);
-            if (File.ReadAllText(tokenFile) != JsonSerializer.Serialize(scoped))
+            string current = File.ReadAllText(tokenFile);
+            // Rosters written with the former "host-" name prefix never authenticated; the same roster is rewritten in place.
+            if (current == Roster("host-")) Save(tokenFile, scoped);
+            else if (current != scoped)
                 throw new InvalidOperationException("The enrolled executor roster is immutable for this cluster identity.");
         }
         else Save(tokenFile, scoped);
@@ -40,7 +45,7 @@ internal static class HostCredentials
         Save(path, values);
         Load(stateDirectory);
     }
-    private static void Save<T>(string path, T value)
+    private static void Save(string path, string json)
     {
         string temp = path + "." + Guid.NewGuid().ToString("N");
         try
@@ -48,11 +53,12 @@ internal static class HostCredentials
             var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
             if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
             using (var file = new FileStream(temp, options))
-            { JsonSerializer.Serialize(file, value); file.Flush(true); }
+            { file.Write(System.Text.Encoding.UTF8.GetBytes(json)); file.Flush(true); }
             File.Move(temp, path, true);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }
+    private static void Save<T>(string path, T value) => Save(path, JsonSerializer.Serialize(value));
     internal static void Load(string stateDirectory)
     {
         string path = Path.Combine(stateDirectory, "credentials.json");

@@ -549,12 +549,24 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         IProgress<ManagedRuntimeInstallProgress>? progress,
         CancellationToken cancellationToken)
     {
+        var archivePath = Path.Combine(extractRoot, "magnetar-download" + InferArchiveExtension(archive.ArchiveUrl));
+        if (TryGetLocalArchivePath(archive.ArchiveUrl, out var localArchivePath))
+        {
+            _logger.LogInformation("Copying Magnetar runtime {Release} from {Path}...", archive.DisplayName, localArchivePath);
+            File.Copy(localArchivePath, archivePath, overwrite: true);
+            progress?.Report(new ManagedRuntimeInstallProgress(
+                ManagedRuntimeInstallComponent.Magnetar,
+                ManagedRuntimeInstallPhase.Installing,
+                $"Extracting Magnetar runtime {archive.DisplayName}."));
+            ExtractArchive(archivePath, extractRoot);
+            return;
+        }
+
         using var client = _httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromMinutes(5);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Quasar");
         ApplyGitHubAuthorization(client, archive.ArchiveUrl);
 
-        var archivePath = Path.Combine(extractRoot, "magnetar-download" + InferArchiveExtension(archive.ArchiveUrl));
         _logger.LogInformation("Downloading Magnetar runtime {Release}...", archive.DisplayName);
         using var response = await client.GetAsync(archive.ArchiveUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
@@ -653,9 +665,14 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     {
         if (!string.IsNullOrWhiteSpace(_options.MagnetarArchiveUrl))
         {
+            // A file:// archive is a local build: its size and time stamp identify it, so a rebuilt
+            // file is installed again without changing the URL.
+            string localStamp = TryGetLocalArchivePath(_options.MagnetarArchiveUrl, out var localPath)
+                ? DescribeLocalArchive(localPath)
+                : string.Empty;
             return new MagnetarArchiveReference(
                 MagnetarArchiveSourceKinds.DirectUrl,
-                string.Empty,
+                localStamp,
                 InferArchiveAssetName(_options.MagnetarArchiveUrl),
                 _options.MagnetarArchiveUrl);
         }
@@ -1086,6 +1103,25 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
     private static string GetMagnetarReleaseMarkerPath(string installDirectory) =>
         Path.Combine(installDirectory, MagnetarReleaseMarkerFileName);
+
+    internal static bool TryGetLocalArchivePath(string archiveUrl, out string path)
+    {
+        path = string.Empty;
+        if (!Uri.TryCreate(archiveUrl, UriKind.Absolute, out var uri) || !uri.IsFile)
+            return false;
+
+        path = uri.LocalPath;
+        return true;
+    }
+
+    internal static string DescribeLocalArchive(string path)
+    {
+        var file = new FileInfo(path);
+        if (!file.Exists)
+            throw new InvalidOperationException($"The Magnetar archive '{path}' (QUASAR_MAGNETAR_ARCHIVE_URL) does not exist.");
+
+        return $"local-{file.LastWriteTimeUtc:yyyyMMddTHHmmssZ}-{file.Length}";
+    }
 
     private static string InferArchiveAssetName(string archiveUrl)
     {

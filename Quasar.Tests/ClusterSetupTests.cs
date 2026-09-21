@@ -87,6 +87,45 @@ public sealed class ClusterSetupTests
     }
 
     [Fact]
+    public void NodeBinaryVersionIsTheGameAssemblyVersionTheRegistryCompares()
+    {
+        string installation = Path.Combine(Path.GetTempPath(), "cluster-setup-binary-" + Guid.NewGuid());
+        string ds = Path.Combine(installation, "Dependencies/payload/DedicatedServer/DedicatedServer64");
+        try
+        {
+            Directory.CreateDirectory(ds);
+            Assert.Throws<InvalidDataException>(() => ClusterSetupService.NodeBinaryVersion(installation));
+            // Any managed assembly stands in for Sandbox.Game.dll: the value is its assembly version, four-part.
+            File.Copy(typeof(ClusterSetupService).Assembly.Location, Path.Combine(ds, "Sandbox.Game.dll"));
+            Assert.Equal(typeof(ClusterSetupService).Assembly.GetName().Version!.ToString(), ClusterSetupService.NodeBinaryVersion(installation));
+        }
+        finally { Directory.Delete(installation, true); }
+    }
+
+    [Fact]
+    public void LocalCompanionWithoutProvenanceIsLeftOutOfTheClusterProfileAndNamed()
+    {
+        string config = Path.Combine(Path.GetTempPath(), "cluster-setup-local-" + Guid.NewGuid());
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(config, "Local")); Directory.CreateDirectory(Path.Combine(config, "Profiles"));
+            foreach (string name in new[] { "CometWorks.EntityViewer.Magnetar.dll", "Pinned.dll", "Pinned.xml", "AlsoPinned.dll", "AlsoPinned.dll.xml" })
+                File.WriteAllText(Path.Combine(config, "Local", name), name);
+            string profile = Path.Combine(config, "Profiles/Current.xml");
+            File.WriteAllText(profile, "<Profile><Local><string>quasar-agent</string><string>CometWorks.EntityViewer.Magnetar.dll</string>"
+                + "<string>Pinned.dll</string><string>AlsoPinned.dll</string></Local></Profile>");
+
+            var excluded = ClusterSetupService.ExcludeLocalPluginsWithoutProvenance(config);
+
+            Assert.Equal(["CometWorks.EntityViewer.Magnetar"], excluded);
+            var kept = System.Xml.Linq.XDocument.Load(profile).Root!.Element("Local")!.Elements().Select(e => e.Value).ToArray();
+            Assert.Equal(["quasar-agent", "Pinned.dll", "AlsoPinned.dll"], kept);
+            Assert.Empty(ClusterSetupService.ExcludeLocalPluginsWithoutProvenance(config));
+        }
+        finally { Directory.Delete(config, true); }
+    }
+
+    [Fact]
     public async Task OlderMagnetarIsOnlyInvokedWithHelpAndNeverStartedAsAServer()
     {
         if (!OperatingSystem.IsLinux()) return;

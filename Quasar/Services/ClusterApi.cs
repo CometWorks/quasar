@@ -25,10 +25,27 @@ internal static class ClusterApi
         app.MapGet("/ready", (HttpContext context, ClusterOperationStore operations) =>
         {
             SetProtocolHeader(context);
-            return Results.Json(Envelope(new QuasarServiceReadiness(operations.IsReady)), JsonOptions,
-                statusCode: operations.IsReady ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
+            bool ready = operations.IsReady;
+            return Results.Json(Envelope(new QuasarServiceReadiness(ready)), JsonOptions,
+                statusCode: ready ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
         });
         RouteGroupBuilder routes = app.MapGroup("/api/v1/clusters");
+        // Routes without their own handling still answer with the JSON error envelope, not an HTML 500 page.
+        routes.AddEndpointFilter(async (invocation, next) =>
+        {
+            try { return await next(invocation); }
+            catch (ClusterOperationStoreUnavailableException error)
+            {
+                SetProtocolHeader(invocation.HttpContext);
+                return Error(503, "operation_store_unavailable", error.Message);
+            }
+            // For example a goal change refused while an update is in progress.
+            catch (InvalidOperationException error)
+            {
+                SetProtocolHeader(invocation.HttpContext);
+                return Error(409, "operation_rejected", error.Message);
+            }
+        });
         var setupStatus = routes.MapGet("/{uniqueName}/setup", (string uniqueName, HttpContext context,
             [FromServices] ClusterSetupService setup) =>
         {
@@ -131,6 +148,7 @@ internal static class ClusterApi
                 : Results.Json(Envelope(cluster.Update), JsonOptions);
         });
         RouteHandlerBuilder beginUpdate = routes.MapPost("/{uniqueName}/update", BeginUpdate);
+        RouteHandlerBuilder abandonUpdate = routes.MapPost("/{uniqueName}/update/abandon", AbandonUpdate);
         RouteHandlerBuilder archiveExport = routes.MapPost("/{uniqueName}/artifacts/{id}/backup", (string uniqueName, string id,
             HttpContext context, [FromServices] ClusterBackupService backups, CancellationToken token) => RunBackup(uniqueName, context,
                 () => backups.ArchiveExportAsync(uniqueName, id, context.Request.Headers["Idempotency-Key"].ToString(),
@@ -203,9 +221,11 @@ internal static class ClusterApi
         RouteHandlerBuilder applyGateway = routes.MapPut(
             "/{uniqueName}/host/gateway", ApplyHostGateway);
         routes.MapGet("/{uniqueName}/operations/{operationId}", GetOperation);
+        RouteHandlerBuilder cancelOperation = routes.MapDelete("/{uniqueName}/operations/{operationId}", CancelOperation);
         if (authOptions.Enabled)
         {
             routes.RequireAuthorization(QuasarPolicyNames.ClusterQuery);
+            cancelOperation.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             submitCommand.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             stagePackage.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             selectPackage.RequireAuthorization(QuasarPolicyNames.ClusterManage);
@@ -220,6 +240,7 @@ internal static class ClusterApi
             captureBackup.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             archiveExport.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             beginUpdate.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            abandonUpdate.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             restoreBackup.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             deploymentInputs.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setConfig.RequireAuthorization(QuasarPolicyNames.ClusterManage);
@@ -349,6 +370,19 @@ internal static class ClusterApi
         SetProtocolHeader(context);
         if (!context.User.CanQueryCluster(uniqueName)) return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
         try { return AcceptedOperation(uniqueName, context, await updates.BeginAsync(uniqueName, request,
+            context.Request.Headers["Idempotency-Key"].ToString(), context.User.Identity?.Name ?? "anonymous", token)); }
+        catch (ClusterOperationConflictException error) { return Error(error.StatusCode, error.Code, error.Message); }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException or IOException)
+        { return Error(409, "update_conflict", error.Message); }
+        catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Cluster was not found."); }
+    }
+
+    private static async Task<IResult> AbandonUpdate(string uniqueName, HttpContext context,
+        [FromServices] ClusterUpdateService updates, CancellationToken token)
+    {
+        SetProtocolHeader(context);
+        if (!context.User.CanQueryCluster(uniqueName)) return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+        try { return AcceptedOperation(uniqueName, context, await updates.AbandonAsync(uniqueName,
             context.Request.Headers["Idempotency-Key"].ToString(), context.User.Identity?.Name ?? "anonymous", token)); }
         catch (ClusterOperationConflictException error) { return Error(error.StatusCode, error.Code, error.Message); }
         catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException or IOException)
@@ -838,6 +872,27 @@ internal static class ClusterApi
         return operation == null || !operation.Cluster.Equals(uniqueName, StringComparison.OrdinalIgnoreCase)
             ? Error(StatusCodes.Status404NotFound, "unknown_operation", $"Unknown operation '{operationId}'.")
             : Results.Json(Envelope(operation), JsonOptions);
+    }
+
+    // Withdraws a Gateway request that was submitted during an outage and not acknowledged yet.
+    internal static async Task<IResult> CancelOperation(string uniqueName, string operationId, HttpContext context,
+        ClusterCatalog catalog, ClusterOperationStore operations, CancellationToken token)
+    {
+        SetProtocolHeader(context);
+        if (catalog.GetCluster(uniqueName) == null)
+            return Error(StatusCodes.Status404NotFound, "unknown_cluster", $"Unknown cluster '{uniqueName}'.");
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(StatusCodes.Status403Forbidden, "cluster_forbidden",
+                "The credential cannot access this cluster.");
+        try
+        {
+            ClusterOperation? operation = await operations.CancelGatewayAsync(uniqueName, operationId,
+                context.User.Identity?.Name ?? "anonymous", token);
+            return operation == null
+                ? Error(StatusCodes.Status404NotFound, "unknown_operation", $"Unknown operation '{operationId}'.")
+                : Results.Json(Envelope(operation), JsonOptions);
+        }
+        catch (ClusterOperationConflictException exception) { return Error(exception.StatusCode, exception.Code, exception.Message); }
     }
 
     private static IResult AcceptedOperation(string uniqueName, HttpContext context, ClusterOperation operation)

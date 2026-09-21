@@ -15,14 +15,34 @@ public sealed class ClusterHostCatalog
 {
     private readonly string _root;
     private readonly ClusterCredentialStore credentials;
-    public ClusterHostCatalog(ClusterCredentialStore credentials)
-        : this(credentials, Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Hosts")) { }
-    internal ClusterHostCatalog(ClusterCredentialStore credentials, string root)
-        => (this.credentials, _root) = (credentials, root);
+    private readonly ILogger<ClusterHostCatalog>? _logger;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _reported = new();
+    public ClusterHostCatalog(ClusterCredentialStore credentials, ILogger<ClusterHostCatalog> logger)
+        : this(credentials, Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Hosts"), logger) { }
+    internal ClusterHostCatalog(ClusterCredentialStore credentials, string root, ILogger<ClusterHostCatalog>? logger = null)
+        => (this.credentials, _root, _logger) = (credentials, root, logger);
     private readonly SemaphoreSlim _gate = new(1, 1);
     public IReadOnlyList<EnrolledClusterHost> GetAll() => !Directory.Exists(_root) ? [] :
         Directory.EnumerateFiles(_root, "host.json", SearchOption.AllDirectories)
-            .Select(p => JsonSerializer.Deserialize<EnrolledClusterHost>(File.ReadAllBytes(p))!).OrderBy(h => h.Name).ToArray();
+            .Select(Read).OfType<EnrolledClusterHost>().OrderBy(h => h.Name).ToArray();
+    // One unreadable registration must not break tunnel authentication for every other Host.
+    private EnrolledClusterHost? Read(string path)
+    {
+        try
+        {
+            var host = JsonSerializer.Deserialize<EnrolledClusterHost>(File.ReadAllBytes(path));
+            if (host is null || string.IsNullOrEmpty(host.Id) || string.IsNullOrEmpty(host.CredentialReference))
+                throw new InvalidDataException("The registration is incomplete.");
+            _reported.TryRemove(path, out _);
+            return host;
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            if (_reported.TryAdd(path, true))
+                _logger?.LogError(exception, "Host registration {Path} is unreadable and was ignored; enroll that Host again.", path);
+            return null;
+        }
+    }
     public EnrolledClusterHost? Get(string id) => GetAll().SingleOrDefault(h => h.Id == id);
     public async Task<EnrolledClusterHost> RegisterAsync(string id, string name, string address, int commandPort, CancellationToken token)
     {

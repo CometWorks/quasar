@@ -23,7 +23,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
     ClusterCredentialStore credentials, ClusterPackageService packages, ClusterDependencyService dependencies,
     ManagedDedicatedServerRuntimeResolver runtime, DedicatedServerRuntimePreparer preparer,
     QuasarWorldTemplateCatalog worlds, QuasarConfigProfileCatalog profiles, ClusterDeploymentService deployments,
-    ClusterOperationStore operations, DedicatedServerCatalog servers)
+    ClusterOperationStore operations, DedicatedServerCatalog servers, ILogger<ClusterSetupService>? logger = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> gates = new();
@@ -68,6 +68,8 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         if (catalog.GetCluster(request.UniqueName) is not null) throw new InvalidOperationException("This cluster ID already belongs to an existing registration. Choose a new ID.");
                         var profile = profiles.GetProfile(request.ConfigProfileId) ?? throw new InvalidOperationException("Choose a configuration profile.");
                         if (worlds.GetTemplate(request.WorldTemplateId) is null) throw new InvalidOperationException("Choose a world template.");
+                        try { ClusterConversionService.ValidateAdmission(profile); }
+                        catch (InvalidDataException error) { throw new InvalidOperationException("Configuration profile cannot be used for a cluster: " + error.Message); }
                         await WriteAsync(Path.Combine(work, "profile.json"), profile, ct);
                         await WriteAsync(identity, request, ct);
                     }
@@ -102,6 +104,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                             cluster = catalog.GetCluster(cluster.UniqueName)!;
                         }
                         var savedProfile = Read<QuasarConfigProfile>(Path.Combine(work, "profile.json"));
+                        ClusterConversionService.ValidateAdmission(savedProfile);
                         string seed = Path.Combine(work, "source-world");
                         string sourceReceipt = Path.Combine(work, "source-world.json");
                         if (!File.Exists(sourceReceipt))
@@ -160,7 +163,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         var conversionHosts = selected.Select(h => new ClusterConversionHost(h.Id, h.CommandUrl, h.CredentialReference,
                             HostContract.ManagedCredentialReference.Cluster(cluster.UniqueName, "executor:" + h.Id), h.Address,
                             request.Machines.Single(m => m.HostId == h.Id).RegularNodes)).ToArray();
-                        var topology = new ServerToClusterRequest(GuidFrom(cluster.UniqueName), "", "", pluginData["gameVersion"]!.GetValue<string>(),
+                        var topology = new ServerToClusterRequest(GuidFrom(cluster.UniqueName), "", "", NodeBinaryVersion(installed.Directory),
                             gateway.Id, request.PlayerPort, joinReference, HostContract.ManagedCredentialReference.Cluster(cluster.UniqueName, "token-file"),
                             selected.Select(h => h.Address + (IPAddress.Parse(h.Address).AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? "/32" : "/128")).ToArray(),
                             conversionHosts, cluster.DependencyManifestSha256, cluster.PackageSelection!.Revision, request.PlayerPort + 100);
@@ -172,6 +175,8 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         {
                             var target = Target(cluster, machine);
                             await hosts.InstallCredentialsAsync(target, secretSet, ct);
+                            if (machine.Id == gateway.Id)
+                                await ClusterSteamClientLibrary.ProvisionAsync(hosts, target, ClusterTestFrontend.FromEnvironment(), logger, ct);
                             var remote = await hosts.TransferConversionInputAsync(target, topology.Id, "installation", installationArchive, installed.InputsSha256, ct);
                             var remoteWorld = await hosts.TransferConversionInputAsync(target, topology.Id, "world", worldArchive, worldHash, ct);
                             if (remote.HostId != machine.Id || remoteWorld.HostId != machine.Id) throw new InvalidDataException("Transfer returned another Host identity.");
@@ -197,7 +202,9 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         return Envelope(await StageAsync(request, "Ready to start", null, ct));
                     }, ct);
                 }
-                catch (Exception error) when (error is IOException or InvalidOperationException or ArgumentException or KeyNotFoundException or HttpRequestException or OperationCanceledException
+                // InvalidDataException covers the world converter, Magnetar export and identity checks above;
+                // uncaught it left the status on its last phase and ended the operator's Blazor circuit.
+                catch (Exception error) when (error is IOException or InvalidDataException or InvalidOperationException or ArgumentException or KeyNotFoundException or HttpRequestException or OperationCanceledException
                     or ClusterHostException or ClusterPackageException or JsonException or System.Xml.XmlException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
                 {
                     if (bound) await StageAsync(request, "Setup interrupted", error.Message, CancellationToken.None);
@@ -276,10 +283,27 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
             WorldPath = Path.Combine(work, "preparation"), WorldSaveName = "world" };
         var prepared = await preparer.PrepareAsync(source, runtime.ResolveInstalledDedicatedServer64Path(), MagnetarLaunchArgumentStyle.Current, token, selectedProfile);
         PrepareAgentMetadata(prepared.MagnetarAppDataPath);
+        var excluded = ExcludeLocalPluginsWithoutProvenance(prepared.MagnetarAppDataPath);
+        if (excluded.Count != 0)
+        {
+            string names = string.Join(", ", excluded);
+            logger?.LogWarning("Cluster {Cluster} setup leaves out local plugins without provenance metadata: {Plugins}. Cluster nodes run only plugins with a pinned source.", request.UniqueName, names);
+            await StageAsync(request, "Preparing identical plugins and canonical configuration (left out, no provenance metadata: " + names + ")", null, token);
+        }
         if (Directory.Exists(destination)) Directory.Delete(destination, true); // Export has no committed receipt yet.
         await RunMagnetarAsync(magnetar, ["-prepareManaged", destination, "-config", prepared.MagnetarAppDataPath,
             "-profile", Path.Combine(prepared.MagnetarAppDataPath, "Profiles/Current.xml"),
             "-ds64", prepared.DedicatedServer64Path, "-consent", "deny", "-noupdate"], prepared.GitHubToken, token);
+    }
+    // The Registry admits a node only when its MySandboxGame.BuildVersion equals the specification's
+    // binaryVersion. That is the assembly version of Sandbox.Game.dll ("0.1.1.0"), not the game version
+    // Magnetar reports ("1210014"); with the latter every node was rejected with "binary version".
+    internal static string NodeBinaryVersion(string installation)
+    {
+        string assembly = Path.Combine(installation, "Dependencies/payload/DedicatedServer/DedicatedServer64/Sandbox.Game.dll");
+        if (!File.Exists(assembly)) throw new InvalidDataException("The frozen Dedicated Server has no Sandbox.Game.dll; its build version cannot be determined.");
+        return System.Reflection.AssemblyName.GetAssemblyName(assembly).Version?.ToString()
+            ?? throw new InvalidDataException("Sandbox.Game.dll has no assembly version.");
     }
     internal static void PrepareAgentMetadata(string config)
     {
@@ -303,6 +327,26 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         var current = XDocument.Load(Path.Combine(config, "Profiles/Current.xml"));
         foreach (var item in current.Root!.Element("Local")!.Elements().Where(e => e.Value == "Quasar.Agent.dll")) item.Value = "quasar-agent";
         current.Save(Path.Combine(config, "Profiles/Current.xml"));
+    }
+    // Managed preparation accepts a local binary only with GitHubPlugin provenance metadata next to it
+    // (<name>.xml or <name>.dll.xml). Quasar UI-plugin companion DLLs have none, and Magnetar fails the
+    // whole preparation on the first one. They are left out of the cluster profile and named to the operator.
+    internal static IReadOnlyList<string> ExcludeLocalPluginsWithoutProvenance(string config)
+    {
+        string local = Path.Combine(config, "Local"), profile = Path.Combine(config, "Profiles/Current.xml");
+        var current = XDocument.Load(profile);
+        var excluded = new List<string>();
+        foreach (var item in current.Root!.Element("Local")?.Elements().ToArray() ?? [])
+        {
+            string name = item.Value.Trim();
+            if (!name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || name != Path.GetFileName(name)) continue;
+            string assembly = Path.Combine(local, name);
+            if (File.Exists(Path.ChangeExtension(assembly, ".xml")) || File.Exists(assembly + ".xml")) continue;
+            item.Remove();
+            excluded.Add(Path.GetFileNameWithoutExtension(name));
+        }
+        if (excluded.Count != 0) current.Save(profile);
+        return excluded;
     }
     internal static async Task RequirePreparationCommandAsync(string executable, CancellationToken token)
     {

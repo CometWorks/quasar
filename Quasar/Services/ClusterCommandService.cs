@@ -143,8 +143,12 @@ public sealed class ClusterCommandService
     private static ClusterOperationConflictException Invalid(string code, string message) => new(400, code, message);
 }
 
-public sealed record ClusterGoalRequest(DedicatedServerGoalState Goal);
-public sealed record ClusterGoalResult(string ClusterId, DedicatedServerGoalState Goal, DateTimeOffset UpdatedAt);
+public sealed record ClusterGoalRequest(
+    [property: System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<DedicatedServerGoalState>))]
+    DedicatedServerGoalState Goal);
+public sealed record ClusterGoalResult(string ClusterId,
+    [property: System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<DedicatedServerGoalState>))]
+    DedicatedServerGoalState Goal, DateTimeOffset UpdatedAt);
 
 public sealed record ClusterAdminCommand(string Action, JsonElement? Parameters = null, string? Target = null)
 {

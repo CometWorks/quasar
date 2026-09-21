@@ -18,37 +18,97 @@ public sealed class ClusterOperationStore
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ConcurrentDictionary<(string Cluster, string Kind, string Key), SemaphoreSlim> _localExecutionGates = new();
     private readonly ConcurrentDictionary<string, ClusterOperation> _operations = new(StringComparer.Ordinal);
+    private readonly ILogger<ClusterOperationStore>? _logger;
     private volatile bool _ready = true;
 
-    public ClusterOperationStore() : this(Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Operations", "Clusters"))
+    public ClusterOperationStore(ILogger<ClusterOperationStore> logger)
+        : this(Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Operations", "Clusters"), logger)
     {
     }
 
-    public ClusterOperationStore(string directory)
+    public ClusterOperationStore(string directory, ILogger<ClusterOperationStore>? logger = null)
     {
         _directory = directory;
+        _logger = logger;
         try
         {
             Directory.CreateDirectory(_directory);
             foreach (string path in Directory.EnumerateFiles(_directory, "*.json"))
+                Load(path);
+            // A local operation runs inside this process, so none can still be running at startup.
+            // Pending Gateway mutations are different: they resume with their persisted identity.
+            foreach (var orphan in _operations.Values.Where(o => o.State == ClusterOperationState.Running && o.GatewayRequest is null).ToArray())
             {
-                ClusterOperation? operation = JsonSerializer.Deserialize<ClusterOperation>(File.ReadAllText(path), JsonOptions);
-                if (operation == null || operation.OperationId.Length == 0)
-                    throw new InvalidDataException($"Invalid cluster operation record '{path}'.");
-                _operations[operation.OperationId] = operation;
+                var failed = orphan with { State = ClusterOperationState.Failed, UpdatedAt = DateTimeOffset.UtcNow,
+                    Error = new("interrupted_by_restart", "Quasar stopped before this operation completed. Check the cluster state and submit it again with a new Idempotency-Key.") };
+                File.WriteAllText(Path.Combine(_directory, failed.OperationId + ".json"), JsonSerializer.Serialize(failed, JsonOptions));
+                _operations[failed.OperationId] = failed;
+                _logger?.LogWarning("Cluster operation {OperationId} ({Kind}) of {Cluster} was interrupted by a restart and is now Failed.",
+                    failed.OperationId, failed.Kind, failed.Cluster);
             }
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or JsonException or InvalidDataException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            _logger?.LogError(exception, "Cluster operation store {Directory} is unavailable.", _directory);
             _ready = false;
         }
     }
 
-    public bool IsReady => _ready && Directory.Exists(_directory);
+    // One unreadable record (for example a zero-length file after power loss) must not
+    // disable cluster management; it is set aside and named in the log instead.
+    private void Load(string path)
+    {
+        try
+        {
+            ClusterOperation? operation = JsonSerializer.Deserialize<ClusterOperation>(File.ReadAllText(path), JsonOptions);
+            if (operation == null || string.IsNullOrEmpty(operation.OperationId))
+                throw new InvalidDataException("The record has no operation ID.");
+            _operations[operation.OperationId] = operation;
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidDataException)
+        {
+            string quarantine = path + ".corrupt";
+            try
+            {
+                File.Move(path, quarantine, overwrite: true);
+                _logger?.LogError(exception, "Invalid cluster operation record {Path} was moved to {Quarantine} and ignored.", path, quarantine);
+            }
+            catch (Exception moveError) when (moveError is IOException or UnauthorizedAccessException)
+            {
+                _logger?.LogError(exception, "Invalid cluster operation record {Path} was ignored and could not be moved aside: {Reason}", path, moveError.Message);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _logger?.LogError(exception, "Cluster operation record {Path} could not be read and was ignored.", path);
+        }
+    }
+
+    public bool IsReady => (_ready || Recover()) && Directory.Exists(_directory);
+
+    // A transient write failure (disk full, read-only remount) must not need a restart to clear.
+    private bool Recover()
+    {
+        string probe = Path.Combine(_directory, ".probe-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(_directory);
+            File.WriteAllText(probe, "probe");
+            File.Delete(probe);
+            _logger?.LogInformation("Cluster operation store {Directory} is writable again.", _directory);
+            return _ready = true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 
     public ClusterOperation? Get(string operationId) =>
         _operations.GetValueOrDefault(operationId);
+
+    internal ClusterOperation? Find(string cluster, string kind, string idempotencyKey) => _operations.Values.FirstOrDefault(o =>
+        o.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase) && o.Kind == kind && o.IdempotencyKey == idempotencyKey);
 
     internal bool HasPendingOperations(string cluster) => _operations.Values.Any(operation =>
         operation.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase)
@@ -58,6 +118,20 @@ public sealed class ClusterOperationStore
         operation.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase)
         && operation.State == ClusterOperationState.Running
         && operation.Kind is "cluster.lifecycle.shutdown" or "cluster.shutdown");
+
+    // Idempotency key for an automatic request that is retried when it fails. A Failed operation is
+    // terminal for its key, so a fixed key would replay the first failure forever. The first attempt
+    // uses baseKey itself; after a failure older than retryAfter the next attempt gets a new key.
+    internal string AttemptKey(string cluster, string kind, string baseKey, TimeSpan retryAfter)
+    {
+        var attempts = _operations.Values.Where(o => o.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase) && o.Kind == kind
+            && (o.IdempotencyKey == baseKey || o.IdempotencyKey.StartsWith(baseKey + ":", StringComparison.Ordinal)))
+            .OrderBy(o => o.CreatedAt).ToArray();
+        if (attempts.Length == 0) return baseKey;
+        var latest = attempts[^1];
+        return latest.State == ClusterOperationState.Failed && DateTimeOffset.UtcNow - latest.UpdatedAt >= retryAfter
+            ? baseKey + ":" + (attempts.Length + 1) : latest.IdempotencyKey;
+    }
 
     // The lifecycle owner calls this only after verifying clean Down AND the matching
     // fenced Host stop. A remote operation may remain Running if its final reply was lost.
@@ -133,8 +207,8 @@ public sealed class ClusterOperationStore
                 DateTimeOffset now = DateTimeOffset.UtcNow;
                 existing = new ClusterOperation(Guid.NewGuid().ToString("N"), cluster, kind, key,
                     requestHash, actor, ClusterOperationState.Running, now, now, null, null);
-                _operations[existing.OperationId] = existing;
                 await PersistAsync(existing, cancellationToken);
+                _operations[existing.OperationId] = existing;
             }
 
             try
@@ -185,8 +259,24 @@ public sealed class ClusterOperationStore
                     Error = new ClusterOperationError(exception.Code, exception.Message),
                 };
             }
+            // Any other failure, a client disconnect included, must still close the record: a
+            // record left Running blocks cluster deletion forever. The caller sees the exception.
+            catch (Exception exception)
+            {
+                existing = existing with
+                {
+                    State = ClusterOperationState.Failed,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                    Error = exception is OperationCanceledException
+                        ? new ClusterOperationError("operation_cancelled", "The operation was cancelled before it completed.")
+                        : new ClusterOperationError("operation_failed", exception.Message),
+                };
+                _operations[existing.OperationId] = existing;
+                await PersistAsync(existing, CancellationToken.None);
+                throw;
+            }
             _operations[existing.OperationId] = existing;
-            await PersistAsync(existing, cancellationToken);
+            await PersistAsync(existing, CancellationToken.None);
             return existing;
         }
         finally
@@ -233,13 +323,37 @@ public sealed class ClusterOperationStore
         foreach (var pending in _operations.Values.Where(o => o.State == ClusterOperationState.Running && o.GatewayRequest is not null))
         {
             if (catalog.GetCluster(pending.Cluster) is null) continue;
-            await catalog.WithLifecycleAsync(pending.Cluster, async cluster =>
+            await catalog.TryWithLifecycleAsync(pending.Cluster, async cluster =>
             {
                 await _gate.WaitAsync(cancellationToken);
-                try { return await ResumeGatewayAsync(_operations[pending.OperationId], cluster, client, cancellationToken); }
+                try { await ResumeGatewayAsync(_operations[pending.OperationId], cluster, client, cancellationToken); }
                 finally { _gate.Release(); }
             }, cancellationToken);
         }
+    }
+
+    // A mutation the Gateway never acknowledged is retried only this long. Delivering a shutdown,
+    // Gateway restart or kick whenever connectivity returns, possibly hours later, surprises the operator.
+    internal static readonly TimeSpan UndeliveredMutationLifetime = TimeSpan.FromMinutes(10);
+
+    // Withdraws a mutation that has no Gateway operation yet. One the Gateway accepted cannot be
+    // recalled from here; it keeps being observed until the Gateway reports its outcome.
+    public async Task<ClusterOperation?> CancelGatewayAsync(string cluster, string operationId, string actor, CancellationToken token)
+    {
+        if (!IsReady) throw new ClusterOperationStoreUnavailableException();
+        await _gate.WaitAsync(token);
+        try
+        {
+            if (Get(operationId) is not { } operation || !operation.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase)) return null;
+            if (operation.State != ClusterOperationState.Running) return operation;
+            if (operation.GatewayRequest is null)
+                throw new ClusterOperationConflictException(409, "operation_not_cancellable", "Only a pending Gateway request can be cancelled.");
+            if (operation.GatewayOperationId is not null)
+                throw new ClusterOperationConflictException(409, "operation_already_accepted", "The Gateway already accepted this request; it can no longer be withdrawn.");
+            return await SaveAsync(operation with { State = ClusterOperationState.Failed, UpdatedAt = DateTimeOffset.UtcNow,
+                Error = new("cancelled", $"Cancelled by {actor} before the Gateway acknowledged it. If an earlier reply was lost, the Gateway may still have applied it.") }, token);
+        }
+        finally { _gate.Release(); }
     }
 
     private async Task<ClusterOperation> ResumeGatewayAsync(ClusterOperation operation,
@@ -247,6 +361,10 @@ public sealed class ClusterOperationStore
     {
         if (operation.State != ClusterOperationState.Running) return operation;
         var request = operation.GatewayRequest!;
+        if (operation.GatewayOperationId is null && DateTimeOffset.UtcNow - operation.CreatedAt > UndeliveredMutationLifetime)
+            return await SaveAsync(operation with { State = ClusterOperationState.Failed, UpdatedAt = DateTimeOffset.UtcNow,
+                Error = new("gateway_delivery_expired", $"The Gateway did not acknowledge this request within {UndeliveredMutationLifetime.TotalMinutes:0} minutes"
+                    + $" ({operation.Error?.Message ?? "no reply"}); it is no longer retried. Check the cluster state and submit it again if it is still wanted.") }, token);
         if (!request.GatewayUrl.Equals(cluster.GatewayUrl, StringComparison.Ordinal))
             return await SaveAsync(operation with { Error = new("gateway_changed", "Restore the original Gateway URL to resume this operation.") }, token);
         try
@@ -282,10 +400,13 @@ public sealed class ClusterOperationStore
             // same persisted key/ID; never turn a lost response into a second mutation.
             bool retry = (int)error.StatusCode >= 500 || (int)error.StatusCode is 408 or 429
                 || (operation.GatewayOperationId is not null && (int)error.StatusCode is 401 or 403);
+            var failure = new ClusterOperationError(error.Code, error.Message);
+            // An unchanged retry outcome is not written again every two seconds.
+            if (retry && operation.Error == failure) return operation;
             operation = operation with
             {
                 State = retry ? ClusterOperationState.Running : ClusterOperationState.Failed,
-                Error = new(error.Code, error.Message), UpdatedAt = DateTimeOffset.UtcNow,
+                Error = failure, UpdatedAt = DateTimeOffset.UtcNow,
             };
         }
         return await SaveAsync(operation, token);
@@ -307,6 +428,7 @@ public sealed class ClusterOperationStore
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            _logger?.LogError(exception, "Cluster operation {OperationId} could not be written to {Directory}.", operation.OperationId, _directory);
             _ready = false;
             throw;
         }

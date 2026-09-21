@@ -155,6 +155,15 @@ public sealed class ClusterHostClient
             throw new InvalidDataException("Snapshot download failed SHA-256 verification.");
     }
 
+    /// <summary>Stages Valve's steamclient.so under the Host account's ~/.steam/sdk64 for the Gateway's Steam frontend.</summary>
+    public async Task<HostContract.HostSteamClientLibrary> InstallSteamClientLibraryAsync(ClusterDefinition cluster,
+        string file, string hash, CancellationToken token)
+    {
+        using var content = new StreamContent(File.OpenRead(file));
+        return (await SendAsync<HostContract.HostSteamClientLibrary>(cluster, HttpMethod.Put,
+            HostContract.HostProtocol.SteamClientLibraryRoute + "?sha256=" + hash, content, token, longRunning: true)).Data;
+    }
+
     public async Task<HostContract.HostConversionPaths> TransferConversionInputAsync(ClusterDefinition cluster, Guid id,
         string kind, string archive, string hash, CancellationToken token)
     {

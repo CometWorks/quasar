@@ -8,6 +8,11 @@ namespace Quasar.Services;
 
 public sealed class ClusterHostTunnels
 {
+    // A WebSocket keeps Kestrel's graceful shutdown waiting (up to the 30 minute ShutdownTimeout) and
+    // RequestAborted does not fire for it, so every Host channel also ends when the application stops.
+    private readonly CancellationToken _stopping;
+    public ClusterHostTunnels(IHostApplicationLifetime lifetime) => _stopping = lifetime.ApplicationStopping;
+    internal ClusterHostTunnels() { }
     private sealed record Connection(WebSocket Socket, SemaphoreSlim Send);
     private sealed record Pending(string Host, Connection Connection, TaskCompletionSource<WebSocket> Socket, TaskCompletionSource Closed);
     private readonly ConcurrentDictionary<string, Connection> _hosts = new();
@@ -19,13 +24,14 @@ public sealed class ClusterHostTunnels
         using var socket = await context.WebSockets.AcceptWebSocketAsync(new WebSocketAcceptContext
             { KeepAliveInterval = TimeSpan.FromSeconds(20), KeepAliveTimeout = TimeSpan.FromSeconds(20) });
         var connection = new Connection(socket, new(1, 1));
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, _stopping);
         if (!_hosts.TryAdd(host, connection)) { await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Host already connected", context.RequestAborted); return; }
         try
         {
             byte[] data = new byte[1];
             while (socket.State == WebSocketState.Open)
             {
-                var frame = await socket.ReceiveAsync(data.AsMemory(), context.RequestAborted);
+                var frame = await socket.ReceiveAsync(data.AsMemory(), lifetime.Token);
                 if (frame.MessageType == WebSocketMessageType.Close) break;
                 throw new IOException("Host control channel does not accept data.");
             }
@@ -50,7 +56,8 @@ public sealed class ClusterHostTunnels
         { context.Response.StatusCode = 404; return; }
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
         if (!pending.Socket.TrySetResult(socket)) return;
-        try { await pending.Closed.Task.WaitAsync(context.RequestAborted); }
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, _stopping);
+        try { await pending.Closed.Task.WaitAsync(lifetime.Token); }
         catch (OperationCanceledException) { }
     }
 

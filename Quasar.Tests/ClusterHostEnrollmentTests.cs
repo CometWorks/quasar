@@ -48,6 +48,42 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
     }
 
     [Fact]
+    public void HostBinaryDefaultsToTheReleaseLayoutAndHonoursTheDevelopmentOverride()
+    {
+        Assert.Equal(Path.Combine(root, "Host", "Quasar.Host"), ClusterHostInstaller.ResolveBinary(null, root));
+        Assert.Equal(Path.Combine(root, "Host", "Quasar.Host"), ClusterHostInstaller.ResolveBinary(" ", root));
+        Assert.Equal(Path.Combine(root, "dev", "Quasar.Host"), ClusterHostInstaller.ResolveBinary(Path.Combine(root, "dev", "Quasar.Host"), "/elsewhere"));
+    }
+
+    [Fact]
+    public async Task CorruptHostRegistrationDoesNotBreakOtherHosts()
+    {
+        var healthy = await hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);
+        await hosts.RegisterAsync("two", "Two", "10.0.0.2", 18400, default);
+        File.WriteAllBytes(Path.Combine(root, "hosts", "two", "host.json"), []);
+
+        Assert.Equal([healthy], hosts.GetAll());
+        Assert.True(hosts.Authenticate(healthy.Id, "Bearer " + credentials.Resolve(healthy.CredentialReference)));
+        Assert.False(hosts.Authenticate("two", "Bearer anything"));
+        // The broken registration can be replaced by enrolling the Host again.
+        Assert.Equal("two", (await hosts.RegisterAsync("two", "Two", "10.0.0.2", 18400, default)).Id);
+    }
+
+    [Fact]
+    public void CorruptCredentialFileIsSetAsideInsteadOfAbortingStartup()
+    {
+        string path = Path.Combine(root, "torn-credentials.json");
+        File.WriteAllText(path, "{\"QSR_MANAGED_");
+
+        var store = new ClusterCredentialStore(new EphemeralDataProtectionProvider(), path);
+
+        Assert.Single(Directory.GetFiles(root, "torn-credentials.json.corrupt-*"));
+        string reference = store.Create("cluster:demo", "admin");
+        Assert.NotNull(store.Resolve(reference));
+        Assert.Single(Directory.GetFiles(root, "torn-credentials.json.corrupt-*"));
+    }
+
+    [Fact]
     public async Task InstallTicketsExpireAndRejectReplayAndReplacedTickets()
     {
         var host = await hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);
@@ -74,6 +110,30 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         using var syntax = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("bash")
         { ArgumentList = { "-n", file }, UseShellExecute = false })!;
         await syntax.WaitForExitAsync(); Assert.Equal(0, syntax.ExitCode);
+    }
+
+    [Fact]
+    public async Task ConnectedHostDoesNotHoldGracefulShutdown()
+    {
+        var host = await hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddAuthorization();
+        builder.Services.AddSingleton(hosts); builder.Services.AddSingleton<ClusterHostTunnels>();
+        builder.Services.AddSingleton(new ClusterHostInstaller(hosts, credentials));
+        await using var app = builder.Build();
+        app.UseWebSockets(); app.MapClusterHostEnrollmentApi();
+        await app.StartAsync();
+        using var control = new ClientWebSocket();
+        control.Options.SetRequestHeader("Authorization", "Bearer " + credentials.Resolve(host.CredentialReference));
+        var url = new UriBuilder(new Uri(new Uri(app.Urls.Single()), "/api/v1/hosts/one/connect")) { Scheme = "ws" }.Uri;
+        await control.ConnectAsync(url, default);
+        Assert.True(app.Services.GetRequiredService<ClusterHostTunnels>().IsConnected("one"));
+
+        // The Host keeps its control channel open for as long as it runs; shutdown must not wait for it.
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await app.StopAsync().WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(10), $"StopAsync took {stopwatch.Elapsed}");
     }
 
     [Fact]

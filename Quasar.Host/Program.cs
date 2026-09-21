@@ -96,7 +96,8 @@ internal static class Program
             }
         }
         catch (Exception exception) when (exception is IOException or InvalidDataException
-            or InvalidOperationException or UnauthorizedAccessException or HttpListenerException)
+            or InvalidOperationException or UnauthorizedAccessException or HttpListenerException
+            or JsonException or ArgumentException)
         {
             Console.Error.WriteLine(exception.Message);
             commandServer?.Dispose();
@@ -110,20 +111,43 @@ internal static class Program
             var connected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             do
             {
-                if (connection is { IsFaulted: true }) await connection;
+                // A broken Quasar tunnel must not end local supervision of the Gateway and nodes.
+                if (connection is { IsCompleted: true } && !shutdown.IsCancellationRequested)
+                {
+                    Exception? fault = connection.Exception?.GetBaseException();
+                    Console.Error.WriteLine($"Quasar connection stopped ({fault?.GetType().Name ?? "completed"}): {fault?.Message}");
+                    // Invalid enrollment configuration cannot heal by retrying.
+                    connection = fault is InvalidDataException ? null : HostConnection.RunAsync(config, shutdown.Token);
+                }
                 await executionGate.WaitAsync(shutdown.Token);
                 try
                 {
                 foreach (HostContract.GatewaySpec gateway in gateways.GetAll())
                 {
-                    HostContract.GatewayStatus status = await gatewayActualizer.ReconcileAsync(
-                        gateway, shutdown.Token);
-                    gateways.SetStatus(status);
-                    if (once)
-                        Console.WriteLine($"cluster={gateway.ClusterId} gateway={status.Observed.ToString().ToLowerInvariant()}");
+                    if (PausedClusters.IsPaused(gateway.ClusterId)) continue;
+                    try
+                    {
+                        HostContract.GatewayStatus status = await gatewayActualizer.ReconcileAsync(
+                            gateway, shutdown.Token);
+                        gateways.SetStatus(status);
+                        if (once)
+                            Console.WriteLine($"cluster={gateway.ClusterId} gateway={status.Observed.ToString().ToLowerInvariant()}");
+                    }
+                    catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+                    {
+                        return 0;
+                    }
+                    // One cluster's failure (disk full, a process that cannot be signalled) must not stop the others.
+                    catch (Exception exception)
+                    {
+                        Console.Error.WriteLine($"cluster={gateway.ClusterId} gateway error={exception.GetType().Name}: {exception.Message}");
+                        if (once)
+                            return 4;
+                    }
                 }
                 foreach (HostContract.HostAttachmentSpec attachment in attachments.GetAll())
                 {
+                    if (PausedClusters.IsPaused(attachment.ClusterId)) continue;
                     try
                     {
                         if (!executorSessions.TryGetValue(attachment.ClusterId, out var session))
@@ -136,12 +160,14 @@ internal static class Program
                     {
                         return 0;
                     }
-                    catch (Exception exception) when (exception is HttpRequestException or IOException
-                        or JsonException or InvalidOperationException or UnauthorizedAccessException
-                        or CryptographicException)
+                    // Includes the HttpClient timeout (TaskCanceledException without shutdown): an
+                    // unreachable Gateway is retried on the next poll, never fatal to the Host.
+                    catch (Exception exception)
                     {
                         connected.Remove(attachment.ClusterId);
-                        Console.Error.WriteLine($"cluster={attachment.ClusterId} error={exception.Message}");
+                        Console.Error.WriteLine(exception is OperationCanceledException
+                            ? $"cluster={attachment.ClusterId} error=Gateway request timed out"
+                            : $"cluster={attachment.ClusterId} error={exception.Message}");
                         if (once)
                             return 4;
                     }
@@ -164,7 +190,9 @@ internal static class Program
             finally
             {
                 await shutdown.CancelAsync();
-                if (connection is not null) await connection;
+                if (connection is not null)
+                    try { await connection; }
+                    catch (Exception exception) { Console.Error.WriteLine($"Quasar connection stopped ({exception.GetType().Name}): {exception.Message}"); }
             }
         }
         return 0;
@@ -401,6 +429,16 @@ internal static class Program
             var gatewaySpec = new HostContract.GatewaySpec("demo", HostContract.GatewayGoal.On,
                 manifestPath, ComputeSha256(manifestPath), "config-self-test", [reservedPort],
                 Path.Combine(root, "gateway-run"));
+            // A Gateway that cannot start is not respawned on every pass; a new start generation retries at once.
+            var failingGateway = new GatewayActualizer(Path.Combine(root, "backoff-state"), "host-a");
+            var brokenSpec = gatewaySpec with { BundleManifestSha256 = new string('0', 64), RunRoot = Path.Combine(root, "backoff-run"), StartGeneration = Guid.NewGuid() };
+            HostContract.GatewayStatus firstFailure = await failingGateway.ReconcileAsync(brokenSpec, CancellationToken.None);
+            HostContract.GatewayStatus delayed = await failingGateway.ReconcileAsync(brokenSpec, CancellationToken.None);
+            HostContract.GatewayStatus retried = await failingGateway.ReconcileAsync(brokenSpec with { StartGeneration = Guid.NewGuid() }, CancellationToken.None);
+            if (firstFailure.Observed != HostContract.GatewayObservedState.Failed || firstFailure.Failure!.Contains("respawn_in_seconds")
+                || !delayed.Failure!.Contains("respawn_in_seconds") || retried.Failure!.Contains("respawn_in_seconds")
+                || GatewayActualizer.RespawnDelay(1) != 5000 || GatewayActualizer.RespawnDelay(2) != 10000 || GatewayActualizer.RespawnDelay(40) != 300000)
+                throw new InvalidOperationException("self-test Gateway respawn backoff failed");
             var persistedGateways = new GatewaySpecStore(stateRoot);
             gatewaySpec = persistedGateways.Apply(gatewaySpec);
             HostContract.GatewayStatus gatewayRunning = await new GatewayActualizer(stateRoot, "host-a")

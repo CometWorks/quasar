@@ -155,6 +155,75 @@ public sealed class ClusterConversionTests : IDisposable
         Assert.Equal(3, nodes.Single(n => n.GetProperty("role").GetString() == "WA").GetProperty("catalogSlot").GetInt32());
     }
 
+    [Fact]
+    public async Task TestFrontendAddsDirectTransportAndCanDropSteamButProductionSpecIsSteamOnly()
+    {
+        await Source(); var request = Request();
+        string world = Path.Combine(root, "split"); Directory.CreateDirectory(world);
+        File.WriteAllText(Path.Combine(world, "Sandbox.sbc"), "<MyObjectBuilder_Checkpoint />");
+        var paths = request.Hosts.ToDictionary(h => h.HostId, h => new Quasar.Host.Contract.V1.HostConversionPaths(h.HostId, "/world", "/config", "/runtime"));
+        async Task<JsonElement> Spec(ClusterTestFrontend frontend) => JsonDocument.Parse(await ClusterConversionService.SpecificationAsync(
+            clusters.GetCluster("demo")!, servers.GetServer("source")!, profiles.GetProfile("profile")!, null, request, world, paths, default, frontend)).RootElement;
+
+        var production = await Spec(ClusterTestFrontend.Create(null, null));
+        Assert.True(production.TryGetProperty("steamListen", out _));
+        Assert.False(production.TryGetProperty("directListen", out _));
+
+        var both = await Spec(ClusterTestFrontend.Create(" 127.0.0.1:31600 ", "false"));
+        Assert.Equal("127.0.0.1:31600", both.GetProperty("directListen").GetString());
+        Assert.True(both.TryGetProperty("steamListen", out _));
+
+        var directOnly = await Spec(ClusterTestFrontend.Create("10.0.0.5:31600", "TRUE"));
+        Assert.False(directOnly.TryGetProperty("steamListen", out _));
+        Assert.False(ClusterTestFrontend.Create("10.0.0.5:31600", "true").UsesSteam);
+
+        // The accept-all frontend never goes on a public address, and a cluster keeps at least one frontend.
+        Assert.Throws<InvalidDataException>(() => ClusterTestFrontend.Create("8.8.8.8:31600", null));
+        Assert.Throws<InvalidDataException>(() => ClusterTestFrontend.Create("0.0.0.0:31600", null));
+        Assert.Throws<InvalidDataException>(() => ClusterTestFrontend.Create("localhost", null));
+        Assert.Throws<InvalidDataException>(() => ClusterTestFrontend.Create(null, "true"));
+    }
+
+    [Fact]
+    public async Task SteamClientLibraryComesFromManagedSteamCmdAndIsNotSentToADirectOnlyCluster()
+    {
+        string steamCmd = Path.Combine(root, "SteamCMD"), home = Path.Combine(root, "home");
+        Assert.Null(ClusterSteamClientLibrary.FindSource(steamCmd, home));
+        Directory.CreateDirectory(Path.Combine(home, ".steam/sdk64"));
+        File.WriteAllText(Path.Combine(home, ".steam/sdk64/steamclient.so"), "account");
+        Assert.Equal(Path.Combine(home, ".steam/sdk64/steamclient.so"), ClusterSteamClientLibrary.FindSource(steamCmd, home));
+        Directory.CreateDirectory(Path.Combine(steamCmd, "linux64"));
+        File.WriteAllText(Path.Combine(steamCmd, "linux64/steamclient.so"), "managed");
+        Assert.Equal(Path.Combine(steamCmd, "linux64/steamclient.so"), ClusterSteamClientLibrary.FindSource(steamCmd, home));
+        // Direct Transport only: no Host call at all (a null client would throw).
+        Assert.Null(await ClusterSteamClientLibrary.ProvisionAsync(null!, new() { UniqueName = "demo" },
+            ClusterTestFrontend.Create("127.0.0.1:31600", "true"), null, default));
+    }
+
+    [Fact]
+    public async Task SpecificationEmitsNumericAdministratorsAndRejectsValuesTheGatewayRefuses()
+    {
+        await Source(); var request = Request();
+        string world = Path.Combine(root, "split"); Directory.CreateDirectory(world);
+        File.WriteAllText(Path.Combine(world, "Sandbox.sbc"), "<MyObjectBuilder_Checkpoint />");
+        var paths = request.Hosts.ToDictionary(h => h.HostId, h => new Quasar.Host.Contract.V1.HostConversionPaths(h.HostId, "/world", "/config", "/runtime"));
+        var profile = profiles.GetProfile("profile")!;
+        profile.RootSettings.Administrators = [" 76561198000000001 ", "76561198000000002", ""];
+        using var spec = JsonDocument.Parse(await ClusterConversionService.SpecificationAsync(clusters.GetCluster("demo")!,
+            servers.GetServer("source")!, profile, null, request, world, paths, default));
+        var administrators = spec.RootElement.GetProperty("administrators").EnumerateArray().ToArray();
+        Assert.All(administrators, a => Assert.Equal(JsonValueKind.Number, a.ValueKind));
+        Assert.Equal(new[] { 76561198000000001UL, 76561198000000002UL }, administrators.Select(a => a.GetUInt64()));
+
+        profile.RootSettings.Administrators = ["admin-name"];
+        Assert.Contains("admin-name", Assert.Throws<InvalidDataException>(() => ClusterConversionService.ValidateAdmission(profile)).Message);
+        profile.RootSettings.Administrators = ["12345"];
+        Assert.Throws<InvalidDataException>(() => ClusterConversionService.ValidateAdmission(profile));
+        profile.RootSettings.Administrators = [];
+        profile.SessionSettings.MaxPlayers = 1;
+        Assert.Contains("at least 2", Assert.Throws<InvalidDataException>(() => ClusterConversionService.ValidateAdmission(profile)).Message);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
