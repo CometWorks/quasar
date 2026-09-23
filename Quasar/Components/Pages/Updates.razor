@@ -2,6 +2,9 @@
 @attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
 @implements IDisposable
 @inject QuasarUpdateService UpdateService
+@inject ClusterReleaseMonitor ClusterReleases
+@inject ClusterCatalog ClusterCatalog
+@inject AuthenticationStateProvider AuthenticationState
 @inject QuasarUpdateOptions Options
 @inject WebServiceOptions WebOptions
 @inject GitHubUpdateCredentialsCatalog GitHubCredentials
@@ -240,6 +243,37 @@
             </MudPaper>
         </MudItem>
 
+        @if (OperatingSystem.IsLinux() && ClusterRows.Count > 0)
+        {
+        <MudItem xs="12">
+            <MudPaper Class="pa-4">
+                <MudStack Spacing="2">
+                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <div>
+                            <MudText Typo="Typo.h6">Cluster packages</MudText>
+                            <MudText Typo="Typo.body2">Latest stable release: @(_clusterReleaseSnapshot.Release?.Version ?? "Unknown") · Last check: @FormatTimestamp(_clusterReleaseSnapshot.LastCheckedUtc)</MudText>
+                        </div>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" Disabled="_clusterBusy" OnClick="CheckClusterNowAsync">Check cluster release</MudButton>
+                    </MudStack>
+                    @if (_clusterReleaseSnapshot.Error is { } error)
+                    {
+                        <MudAlert Severity="Severity.Warning">@error</MudAlert>
+                    }
+                    <MudTable Items="@ClusterRows" Dense="true" Hover="true">
+                        <HeaderContent><MudTh>Cluster</MudTh><MudTh>Selected package</MudTh><MudTh>Status</MudTh><MudTh>Action</MudTh></HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Cluster">@context.DisplayName</MudTd>
+                            <MudTd DataLabel="Selected package">@context.PackageSelection!.Version</MudTd>
+                            <MudTd DataLabel="Status">@(_clusterReleaseSnapshot.Release is null ? "Release check pending or unavailable" : ClusterReleaseMonitor.IsUpdateAvailable(context, _clusterReleaseSnapshot.Release) ? "New release available" : "No newer release detected")</MudTd>
+                            <MudTd><MudButton Href="@($"/clusters/{Uri.EscapeDataString(context.UniqueName)}")" Variant="Variant.Text">Open cluster</MudButton></MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                    <MudText Typo="Typo.caption">Release checks only notify. Stage and select the package, then prepare and update the cluster explicitly.</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+        }
+
         <MudItem xs="12">
             <MudPaper Class="pa-4">
                 <MudStack Spacing="3">
@@ -432,6 +466,9 @@
 
 @code {
     private QuasarUpdateSnapshot _snapshot = new();
+    private ClusterReleaseSnapshot _clusterReleaseSnapshot = new(null, null, null);
+    private System.Security.Claims.ClaimsPrincipal? _user;
+    private bool _clusterBusy;
     private ManagedRuntimeWarmupSnapshot _runtimeSnapshot = ManagedRuntimeWarmupSnapshot.CreateInitial();
     private bool _busy;
     private bool _runtimeBusy;
@@ -445,15 +482,19 @@
     private string _resolvedAppSettingsText = string.Empty;
     private string _githubToken = string.Empty;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         _snapshot = UpdateService.GetSnapshot();
+        _clusterReleaseSnapshot = ClusterReleases.GetSnapshot();
+        _user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
         _runtimeSnapshot = RuntimeWarmup.GetSnapshot();
         _includePrerelease = Options.IncludePrerelease;
         _autoStageWebUpdates = Options.AutoStageWebUpdates;
         _launchUpdateMode = RuntimeResolver.DedicatedServerLaunchUpdateMode;
         _selectedWebVersion = _snapshot.SelectedWebVersion;
         UpdateService.Changed += OnUpdatesChanged;
+        ClusterReleases.Changed += OnClusterReleasesChanged;
+        ClusterCatalog.Changed += OnClusterCatalogChanged;
         RuntimeWarmup.Changed += OnRuntimeWarmupChanged;
         if (_snapshot.AppSettingsConflict)
             _ = LoadAppSettingsConflictAsync();
@@ -462,6 +503,8 @@
     public void Dispose()
     {
         UpdateService.Changed -= OnUpdatesChanged;
+        ClusterReleases.Changed -= OnClusterReleasesChanged;
+        ClusterCatalog.Changed -= OnClusterCatalogChanged;
         RuntimeWarmup.Changed -= OnRuntimeWarmupChanged;
     }
 
@@ -483,6 +526,25 @@
         if (_snapshot.AppSettingsConflict)
             _ = LoadAppSettingsConflictAsync();
     });
+
+    private IReadOnlyList<Quasar.Models.ClusterDefinition> ClusterRows => _user is null ? [] :
+        ClusterCatalog.GetClusters().Where(cluster => cluster.PackageSelection is not null
+            && _user.CanQueryCluster(cluster.UniqueName)).ToArray();
+
+    private void OnClusterReleasesChanged() => _ = InvokeAsync(() =>
+    {
+        _clusterReleaseSnapshot = ClusterReleases.GetSnapshot();
+        StateHasChanged();
+    });
+
+    private void OnClusterCatalogChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task CheckClusterNowAsync()
+    {
+        _clusterBusy = true;
+        try { await ClusterReleases.CheckNowAsync(); }
+        finally { _clusterBusy = false; }
+    }
 
     private IReadOnlyList<ManagedRuntimeComponentSnapshot> ManagedRuntimeRows => _runtimeSnapshot.Components
         .Where(component => component.Component is ManagedRuntimeInstallComponent.Magnetar

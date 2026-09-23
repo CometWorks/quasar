@@ -725,3 +725,45 @@ td.quasar-actions-column > .plugin-actions {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+
+.cluster-control-page,
+.cluster-control-page > *,
+.cluster-long-value {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+#cluster-configuration {
+    scroll-margin-top: 80px;
+}
+
+.cluster-console-output {
+    height: 50vh;
+    overflow: auto;
+    padding: 12px;
+    background: var(--mud-palette-background);
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: var(--mud-default-borderradius);
+}
+
+.cluster-console-line {
+    font-family: var(--mud-typography-code-family, monospace);
+    font-size: .8rem;
+    overflow-wrap: anywhere;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--mud-palette-divider);
+}
+
+.cluster-console-line > div {
+    white-space: pre-wrap;
+}
+
+.cluster-details-table th {
+    min-width: 7rem;
+    overflow-wrap: normal;
+}
+
+.cluster-form-section > .mud-button-root {
+    align-self: flex-start;
+    max-width: 100%;
+}

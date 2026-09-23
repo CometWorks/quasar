@@ -24,6 +24,8 @@ public static class AtomicFileWriter
                 await writer.WriteAsync(content.AsMemory(), cancellationToken);
                 await writer.FlushAsync(cancellationToken);
                 await stream.FlushAsync(cancellationToken);
+                // Without a durable flush a power loss after the rename can leave a zero-length target.
+                stream.Flush(flushToDisk: true);
             }
 
             File.Move(tempPath, path, overwrite: true);
