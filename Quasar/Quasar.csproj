@@ -32,6 +32,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Quasar.Tests" />
+    <EmbeddedResource Include="Assets/host-update.py" />
   </ItemGroup>
 
   <!-- Build Quasar.Agent and stage its plugin DLLs into an Agent/ subfolder of both

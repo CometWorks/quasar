@@ -9,6 +9,7 @@ namespace Quasar.Services;
 
 public sealed record HostInstallTicket(string Command, DateTimeOffset ExpiresAt);
 public sealed record HostSshInstall(string Address, string User, int Port = 22, string? IdentityFile = null);
+public sealed record HostBinaryInfo(string Sha256, long Size);
 
 public sealed class ClusterHostInstaller
 {
@@ -25,6 +26,13 @@ public sealed class ClusterHostInstaller
         ? Path.Combine(baseDirectory, "Host", "Quasar.Host") : Path.GetFullPath(configured);
     internal ClusterHostInstaller(ClusterHostCatalog hosts, ClusterCredentialStore credentials, string binary, TimeProvider clock)
         => (this.hosts, this.credentials, this.binary, this.clock) = (hosts, credentials, binary, clock);
+    internal string BinaryPath => binary;
+    public HostBinaryInfo GetBinaryInfo()
+    {
+        if (!File.Exists(binary)) throw new FileNotFoundException("This Quasar release has no Host binary.", binary);
+        using var file = File.OpenRead(binary);
+        return new(Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant(), file.Length);
+    }
     private sealed record Ticket(string Hash, string Host, Uri Origin, DateTimeOffset Expires);
     private readonly ConcurrentDictionary<Guid, Ticket> _tickets = new();
     public HostInstallTicket Issue(string hostId, string quasarUrl)
@@ -82,6 +90,10 @@ public sealed class ClusterHostInstaller
         byte[] binaryBytes = File.ReadAllBytes(binary);
         string binaryHash = Convert.ToHexString(SHA256.HashData(binaryBytes)).ToLowerInvariant();
         string payload = Convert.ToBase64String(binaryBytes, Base64FormattingOptions.InsertLineBreaks).Replace("\r", "");
+        using var updaterResource = typeof(ClusterHostInstaller).Assembly.GetManifestResourceStream("Quasar.Assets.host-update.py")
+            ?? throw new InvalidOperationException("The Host updater is missing from this Quasar build.");
+        using var updaterReader = new StreamReader(updaterResource);
+        string updaterPayload = Convert.ToBase64String(Encoding.UTF8.GetBytes(updaterReader.ReadToEnd()));
         string secret = Config(new Dictionary<string, string> { [host.CredentialReference] = credentials.Resolve(host.CredentialReference)! });
         return Encoding.UTF8.GetBytes($$"""
             #!/usr/bin/env bash
@@ -125,7 +137,7 @@ public sealed class ClusterHostInstaller
                 or config.get('command', {}).get('url') != sys.argv[4]):
                 sys.exit('Existing Host belongs to a different enrollment; its data has been preserved.')
             QSR_CHECK
-                printf '%s' '{{secret}}' | base64 --decode | cmp -s - "$qsr_root/state/credentials.json" || { echo 'Existing Host credentials differ; its data has been preserved.' >&2; exit 1; }
+                printf '%s' '{{secret}}' | base64 --decode | python3 -c 'import json, sys; expected = json.load(sys.stdin); actual = json.load(open(sys.argv[1])); ref = sys.argv[2]; sys.exit(0 if actual.get(ref) == expected.get(ref) else 1)' "$qsr_root/state/credentials.json" '{{host.CredentialReference}}' || { echo 'Existing Host enrollment credential differs; its data has been preserved.' >&2; exit 1; }
                 if test "$(sha256sum "$qsr_root/Quasar.Host" | cut -d ' ' -f 1)" != '{{binaryHash}}'; then
                     qsr_stage=$(mktemp "$qsr_root/.Quasar.Host.new.XXXXXX")
                     qsr_binary_target="$qsr_stage"
@@ -157,6 +169,9 @@ public sealed class ClusterHostInstaller
             fi
             mkdir -p "$qsr_root/bin"
             ln -sfn "$(command -v dotnet)" "$qsr_root/bin/dotnet"
+            printf '%s' '{{updaterPayload}}' | base64 --decode > "$qsr_root/bin/.host-update.py.new"
+            chmod 700 "$qsr_root/bin/.host-update.py.new"
+            mv -f "$qsr_root/bin/.host-update.py.new" "$qsr_root/bin/host-update.py"
             cat > "$HOME/.config/systemd/user/quasar-host-{{host.Id}}.service" <<'QSR_UNIT'
             [Unit]
             Description=Quasar Host {{host.Id}}
@@ -170,6 +185,23 @@ public sealed class ClusterHostInstaller
             [Install]
             WantedBy=default.target
             QSR_UNIT
+            cat > "$HOME/.config/systemd/user/quasar-host-{{host.Id}}-update.service" <<'QSR_UPDATE_UNIT'
+            [Unit]
+            Description=Update Quasar Host {{host.Id}}
+            After=network-online.target
+            [Service]
+            Type=oneshot
+            ExecStart=/usr/bin/env python3 %h/.local/share/Quasar/Hosts/{{host.Id}}/bin/host-update.py %h/.local/share/Quasar/Hosts/{{host.Id}}
+            QSR_UPDATE_UNIT
+            cat > "$HOME/.config/systemd/user/quasar-host-{{host.Id}}-update.timer" <<'QSR_UPDATE_TIMER'
+            [Unit]
+            Description=Check Quasar Host {{host.Id}} updates
+            [Timer]
+            OnBootSec=2min
+            OnUnitInactiveSec=15min
+            [Install]
+            WantedBy=timers.target
+            QSR_UPDATE_TIMER
             systemctl --user daemon-reload
             if test "$qsr_needs_restart" = 1; then
                 systemctl --user restart "$qsr_unit"
@@ -179,6 +211,7 @@ public sealed class ClusterHostInstaller
             else
                 systemctl --user enable --now "$qsr_unit"
             fi
+            systemctl --user enable --now quasar-host-{{host.Id}}-update.timer
             echo 'Quasar Host installed or updated. Enable user lingering if it must run after logout: loginctl enable-linger'
             """);
     }
@@ -192,7 +225,7 @@ public sealed class ClusterHostInstaller
     }
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     private static string Quote(string value) => "'" + value.Replace("'", "'\"'\"'") + "'";
-    private static async Task RunAsync(ProcessStartInfo start, byte[] script, CancellationToken token)
+    internal static async Task RunAsync(ProcessStartInfo start, byte[] script, CancellationToken token)
     {
         start.UseShellExecute = false; start.RedirectStandardInput = true; start.RedirectStandardOutput = true; start.RedirectStandardError = true;
         using var process = Process.Start(start) ?? throw new IOException("Could not start the Host installer.");
@@ -201,10 +234,18 @@ public sealed class ClusterHostInstaller
         var error = ReadTailAsync(process.StandardError, deadline.Token);
         try
         {
-            await process.StandardInput.BaseStream.WriteAsync(script, deadline.Token); process.StandardInput.Close();
+            IOException? inputError = null;
+            try { await process.StandardInput.BaseStream.WriteAsync(script, deadline.Token); }
+            catch (IOException exception) { inputError = exception; }
+            finally
+            {
+                try { process.StandardInput.Close(); }
+                catch (IOException exception) { inputError ??= exception; }
+            }
             await process.WaitForExitAsync(deadline.Token);
             await output;
-            if (process.ExitCode != 0) throw new InvalidOperationException("Host installation failed: " + await error);
+            if (process.ExitCode != 0) throw new InvalidOperationException("Host installation failed: " + await error, inputError);
+            if (inputError is not null) throw new IOException("Host installer stopped reading its input.", inputError);
         }
         catch { if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(CancellationToken.None); } throw; }
     }

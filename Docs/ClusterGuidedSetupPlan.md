@@ -17,9 +17,9 @@ Magnetar with an unrecognized preparation flag.
    The same matching Quasar.Host executable is used in all three cases. Enrollment
    requires security-administration permission; SSH uses keys/agent and strict
    `known_hosts` verification. Password login and host-key bypass are not supported.
-   To update an enrolled Host, select its existing registration on that page and run
-   installation again. The Host binary comes from the active Quasar web release, so
-   a prerelease Quasar can update its Hosts without changing the cluster package pin.
+   Installation also enables a per-machine update timer. It checks the active Quasar
+   web release every 15 minutes and updates the Host automatically, including when
+   Quasar runs a prerelease. The cluster package pin does not select the Host binary.
 3. Select a world template, configuration profile, Gateway machine and node counts.
    At least two regular nodes are required. The Gateway machine also runs the WA.
 4. Quasar provisions DS/Magnetar, stages a verified stable cluster release whose
@@ -109,8 +109,14 @@ Enrollment downloads expire after 15 minutes and are single-use; issuing a repla
 invalidates the previous ticket. Installation stages files before publication.
 Reinstalling the same registration verifies its identity and credentials, keeps its
 configuration and state, and atomically replaces a different Host binary. It restarts
-only the Host systemd unit; a failed restart restores the previous binary. A page
-reload can select an existing registration and generate a new ticket or retry SSH.
+only the Host systemd unit; a failed restart restores the previous binary. New
+enrollments install a separate systemd update timer. It uses the enrollment credential
+over the configured HTTPS Quasar origin (loopback HTTP is also allowed), verifies the
+downloaded binary's size and SHA-256, and rolls back if the Host cannot stay active.
+Quasar installs this timer automatically for older local enrollments on startup.
+Older remote enrollments need one final reinstall because their existing Host has no
+updater and Quasar does not retain SSH credentials. A page reload can select an
+existing registration and generate a new ticket or retry SSH for that migration.
 
 Machine and cluster credentials are generated automatically, encrypted with Quasar
 Data Protection centrally, and stored in private Host files. Preserve Quasar's Data
@@ -143,6 +149,8 @@ Machine enrollment requires security-administration permission:
 
 The ticket download and Host WebSocket endpoints use their own bearer credentials;
 normal browser/API authentication is insufficient for these machine channels.
+`GET /api/v1/hosts/{host}/update` and `/update/binary` use that same Host credential
+to advertise and stream the active Quasar release's Host executable.
 
 ## Existing and stale registrations
 

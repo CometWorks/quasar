@@ -253,7 +253,7 @@
                             <MudText Typo="Typo.h6">Cluster packages</MudText>
                             <MudText Typo="Typo.body2">Latest stable release: @(_clusterReleaseSnapshot.Release?.Version ?? "Unknown") · Last check: @FormatTimestamp(_clusterReleaseSnapshot.LastCheckedUtc)</MudText>
                         </div>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_clusterBusy" OnClick="CheckClusterNowAsync">Check cluster release</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" Disabled="_clusterBusy" OnClick="CheckClusterNowAsync">Check cluster release</MudButton>
                     </MudStack>
                     @if (_clusterReleaseSnapshot.Error is { } error)
                     {

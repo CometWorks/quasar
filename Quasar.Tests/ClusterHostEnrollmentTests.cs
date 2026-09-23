@@ -1,6 +1,9 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
@@ -97,6 +100,7 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         Assert.Null(installer.Redeem(first.Id, "Bearer wrong"));
         var script = Encoding.UTF8.GetString(installer.Redeem(first.Id, first.Auth)!);
         Assert.Contains("systemctl --user enable --now", script);
+        Assert.Contains("quasar-host-one-update.timer", script);
         Assert.Equal(1, Regex.Matches(script, "cat <<'QSR_BINARY'").Count);
         Assert.Contains(Regex.Matches(script, "printf '%s' '([^']+)' ").Select(match =>
             Encoding.UTF8.GetString(Convert.FromBase64String(match.Groups[1].Value))),
@@ -162,7 +166,10 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         string config = File.ReadAllText(configPath).Replace("\"attachments\":[]", "\"attachments\":[{\"name\":\"existing\"}]");
         File.WriteAllText(configPath, config);
         string credentialPath = Path.Combine(installed, "state/credentials.json");
-        string secret = File.ReadAllText(credentialPath);
+        var stored = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(credentialPath))!;
+        stored["QSR_MANAGED_CLUSTER_EXTRA"] = "retained cluster credential";
+        string secret = JsonSerializer.Serialize(stored);
+        File.WriteAllText(credentialPath, secret);
         File.WriteAllText(Path.Combine(installed, "state/keep"), "running cluster state");
 
         Assert.Equal(0, await Install("new", "http://127.0.0.1:8080"));
@@ -182,6 +189,96 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         File.WriteAllText(credentialPath, "different enrollment");
         Assert.NotEqual(0, await Install("foreign", "http://127.0.0.1:8080"));
         Assert.Equal("new", File.ReadAllText(Path.Combine(installed, "Quasar.Host")));
+    }
+
+    [Fact]
+    public async Task InstallerReportsRemoteFailureInsteadOfBrokenPipe()
+    {
+        var start = new System.Diagnostics.ProcessStartInfo("bash");
+        start.ArgumentList.Add("-c");
+        start.ArgumentList.Add("echo 'Existing Host credentials differ' >&2; exit 7");
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            ClusterHostInstaller.RunAsync(start, new byte[1024 * 1024], default));
+        Assert.Contains("Existing Host credentials differ", error.Message);
+    }
+
+    [Fact]
+    public async Task EnrolledUpdaterDownloadsVerifiedHostAndRollsBackFailedRestart()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var host = await hosts.RegisterAsync("one", "One", "127.0.0.1", 18400, default);
+        string releaseBinary = Path.Combine(root, "release-host");
+        File.WriteAllText(releaseBinary, "verified host release");
+        var installer = new ClusterHostInstaller(hosts, credentials, releaseBinary, TimeProvider.System);
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddAuthorization();
+        builder.Services.AddSingleton(hosts);
+        builder.Services.AddSingleton<ClusterHostTunnels>();
+        builder.Services.AddSingleton(installer);
+        await using var app = builder.Build();
+        app.MapClusterHostEnrollmentApi();
+        await app.StartAsync();
+        string origin = app.Urls.Single();
+        string credential = credentials.Resolve(host.CredentialReference)!;
+        using var client = new HttpClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(origin + "/api/v1/hosts/one/update")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(origin + "/api/v1/hosts/one/update/binary")).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", credential);
+        var metadata = await client.GetFromJsonAsync<HostBinaryInfo>(origin + "/api/v1/hosts/one/update");
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(releaseBinary))).ToLowerInvariant(), metadata!.Sha256);
+        Assert.Equal(File.ReadAllBytes(releaseBinary), await client.GetByteArrayAsync(origin + "/api/v1/hosts/one/update/binary"));
+
+        string home = Path.Combine(root, "home");
+        string installed = Path.Combine(home, ".local/share/Quasar/Hosts/one");
+        string fakeBin = Path.Combine(root, "fake-bin");
+        Directory.CreateDirectory(Path.Combine(installed, "state"));
+        Directory.CreateDirectory(fakeBin);
+        File.WriteAllText(Path.Combine(installed, "Quasar.Host"), "old host");
+        File.WriteAllText(Path.Combine(installed, "host.json"), JsonSerializer.Serialize(new
+        {
+            hostId = host.Id,
+            connection = new { quasarUrl = origin + "/", tokenEnvironmentVariable = host.CredentialReference },
+        }));
+        File.WriteAllText(Path.Combine(installed, "state/credentials.json"),
+            JsonSerializer.Serialize(new Dictionary<string, string> { [host.CredentialReference] = credential }));
+        string systemctl = Path.Combine(fakeBin, "systemctl");
+        File.WriteAllText(systemctl, """
+            #!/bin/sh
+            if [ "$2" = restart ] && [ -e "$HOME/fail-restart" ]; then exit 1; fi
+            if [ "$2" = show ]; then printf 'ActiveState=active\nMainPID=123\n'; fi
+            exit 0
+            """ + "\n");
+        File.SetUnixFileMode(systemctl, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        string updater = Path.Combine(root, "host-update.py");
+        using (var resource = typeof(ClusterHostInstaller).Assembly.GetManifestResourceStream("Quasar.Assets.host-update.py")!)
+        using (var output = File.Create(updater)) await resource.CopyToAsync(output);
+
+        async Task<int> RunUpdater()
+        {
+            var start = new System.Diagnostics.ProcessStartInfo("python3")
+            { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+            start.ArgumentList.Add(updater);
+            start.ArgumentList.Add(installed);
+            start.Environment["HOME"] = home;
+            start.Environment["PATH"] = fakeBin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
+            using var process = System.Diagnostics.Process.Start(start)!;
+            _ = await process.StandardOutput.ReadToEndAsync();
+            _ = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            return process.ExitCode;
+        }
+
+        Assert.Equal(0, await RunUpdater());
+        Assert.Equal("verified host release", File.ReadAllText(Path.Combine(installed, "Quasar.Host")));
+        File.WriteAllText(releaseBinary, "broken new release");
+        File.WriteAllText(Path.Combine(home, "fail-restart"), "fail");
+        Assert.NotEqual(0, await RunUpdater());
+        Assert.Equal("verified host release", File.ReadAllText(Path.Combine(installed, "Quasar.Host")));
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(releaseBinary))).ToLowerInvariant(),
+            File.ReadAllText(Path.Combine(installed, "state/failed-host-update-sha256")));
+        Assert.NotEqual(0, await RunUpdater());
+        await app.StopAsync();
     }
 
     [Fact]

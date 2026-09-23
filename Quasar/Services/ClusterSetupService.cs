@@ -93,7 +93,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         {
                             var status = (await hosts.GetStatusAsync(Target(cluster, machine), ct)).Data;
                             if (status.HostId != machine.Id) throw new InvalidDataException("Connected Host identity differs from its registration.");
-                            if (!status.GatewayStopFencing) throw new InvalidOperationException("Update the Host to the matching Quasar release before setup.");
+                            if (!status.GatewayStopFencing) throw new InvalidOperationException("This Host lacks a required capability. Enrolled Hosts check Quasar for updates every 15 minutes; resume setup after it updates. Legacy remote enrollments need one final reinstall to enable automatic updates.");
                         }
                         await StageAsync(request, "Provisioning Dedicated Server and Magnetar", null, ct);
                         var ready = await runtime.EnsureManagedRuntimeReadyAsync(cancellationToken: ct);

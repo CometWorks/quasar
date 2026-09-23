@@ -46,6 +46,18 @@ internal static class ClusterHostEnrollmentApi
             if (!context.WebSockets.IsWebSocketRequest) { context.Response.StatusCode = 400; return; }
             await tunnels.AcceptTunnelAsync(host, id, context);
         }).AllowAnonymous();
+        app.MapGet("/api/v1/hosts/{host}/update", (string host, HttpContext context, ClusterHostCatalog hosts, ClusterHostInstaller installer) =>
+        {
+            if (!hosts.Authenticate(host, context.Request.Headers.Authorization)) return Results.Unauthorized();
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.Json(installer.GetBinaryInfo());
+        }).AllowAnonymous();
+        app.MapGet("/api/v1/hosts/{host}/update/binary", (string host, HttpContext context, ClusterHostCatalog hosts, ClusterHostInstaller installer) =>
+        {
+            if (!hosts.Authenticate(host, context.Request.Headers.Authorization)) return Results.Unauthorized();
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.File(installer.BinaryPath, "application/octet-stream");
+        }).AllowAnonymous();
         app.MapGet("/api/v1/host-enrollment/{id:guid}", (Guid id, HttpContext context, ClusterHostInstaller installer) =>
         {
             context.Response.Headers.CacheControl = "no-store";

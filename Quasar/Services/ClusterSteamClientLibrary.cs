@@ -32,7 +32,7 @@ public static class ClusterSteamClientLibrary
         }
         var status = (await hosts.GetStatusAsync(gatewayHost, token)).Data;
         if (!status.SteamClientLibrary)
-            throw new InvalidOperationException("Gateway Host cannot receive steamclient.so. In Hosts → Add cluster machine, select its existing registration and install the Host bundled with this Quasar release, then resume setup.");
+            throw new InvalidOperationException("Gateway Host cannot receive steamclient.so yet. Enrolled Hosts check Quasar for updates every 15 minutes; resume setup after this Host updates. Older remote enrollments need one final reinstall from Hosts → Add cluster machine to enable automatic updates.");
         string hash;
         await using (var file = File.OpenRead(source)) hash = Convert.ToHexString(await SHA256.HashDataAsync(file, token)).ToLowerInvariant();
         var result = await hosts.InstallSteamClientLibraryAsync(gatewayHost, source, hash, token);

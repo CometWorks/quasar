@@ -201,6 +201,7 @@ public class Program
             builder.Services.AddSingleton<ClusterHostCatalog>();
             builder.Services.AddSingleton<ClusterHostTunnels>();
             builder.Services.AddSingleton<ClusterHostInstaller>();
+            builder.Services.AddHostedService<ClusterLocalHostUpdater>();
             builder.Services.AddSingleton<ClusterSetupService>();
             builder.Services.AddSingleton(webServiceOptions);
             builder.Services.AddSingleton(managedRuntimeOptions);

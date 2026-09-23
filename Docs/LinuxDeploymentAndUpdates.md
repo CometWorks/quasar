@@ -164,6 +164,16 @@ preparation and injects the bundled deployable DLL before relaunch.
 
 ## Managed Runtime Update Checks
 
+Enrolled cluster Hosts have a separate `quasar-host-<id>-update.timer` on each
+machine. Every 15 minutes it authenticates to the active Quasar worker, compares
+the packaged Host binary's SHA-256, downloads a changed binary, and restarts only
+the Host service. The updater retains the prior binary until the new service stays
+active and restores it after a failed restart. Gateway and node processes stay
+running under the Host unit's `KillMode=process`. Quasar automatically installs
+the timer on older local enrollments; older remote enrollments need one final
+reinstall because their old Host has no updater and Quasar does not retain SSH
+credentials.
+
 The Updates page always shows the currently installed Quasar, Bootstrap,
 Magnetar, and Space Engineers Dedicated Server versions when Quasar can resolve
 them from release metadata, Dedicated Server `SE_VERSION` assembly metadata, or
