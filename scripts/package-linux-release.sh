@@ -13,6 +13,7 @@ NUGET_VERSION="$VERSION"
 WEB_ARCHIVE_NAME="quasar-web-linux-x64.tar.gz"
 INSTALLER_ARCHIVE_NAME="quasar-installer-linux.tar.gz"
 INSTALLER_ROOT_NAME="Quasar"
+HOST_ARCHIVE_NAME="quasar-host-linux-x64.tar.gz"
 
 normalize_version_component() {
     local value="${1:-0}"
@@ -155,12 +156,15 @@ dotnet publish "$REPO_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj" \
     -v minimal
 
 cp -a "$PUBLISH_DIR/WebService/." "$WEB_DIR/"
+mkdir -p "$WEB_DIR/Host"
+cp -a "$PUBLISH_DIR/Host/." "$WEB_DIR/Host/"
 mkdir -p "$WEB_DIR/wwwroot"
 cp -a "$REPO_DIR/Quasar/wwwroot/." "$WEB_DIR/wwwroot/"
 chmod +x "$WEB_DIR/Quasar"
 
 required_web_files=(
     "Quasar"
+    "Host/Quasar.Host"
     "wwwroot"
     "wwwroot/_framework/blazor.web.js"
     "wwwroot/_content/MudBlazor/MudBlazor.min.css"
@@ -175,6 +179,13 @@ done
 
 tar -C "$WEB_DIR" -czf "$ARTIFACT_DIR/$WEB_ARCHIVE_NAME" .
 
+# Host runs independently on each cluster machine; distribute its complete publish tree.
+if [[ ! -x "$PUBLISH_DIR/Host/Quasar.Host" ]]; then
+    echo "ERROR: Host release missing executable Quasar.Host" >&2
+    exit 1
+fi
+tar -C "$PUBLISH_DIR/Host" -czf "$ARTIFACT_DIR/$HOST_ARCHIVE_NAME" .
+
 cp -a "$PUBLISH_DIR/Quasar" "$BOOTSTRAP_DIR/Quasar"
 cp -a "$REPO_DIR/Quasar/appsettings.json" "$BOOTSTRAP_DIR/appsettings.json"
 cp -a "$REPO_DIR/install.sh" "$BOOTSTRAP_DIR/install.sh"
@@ -186,7 +197,7 @@ tar -C "$ARTIFACT_DIR" -czf "$ARTIFACT_DIR/$INSTALLER_ARCHIVE_NAME" "$INSTALLER_
 
 (
     cd "$ARTIFACT_DIR"
-    sha256sum "$WEB_ARCHIVE_NAME" "$INSTALLER_ARCHIVE_NAME" > SHA256SUMS
+    sha256sum "$WEB_ARCHIVE_NAME" "$INSTALLER_ARCHIVE_NAME" "$HOST_ARCHIVE_NAME" > SHA256SUMS
 )
 
 echo "Created Linux release artifacts in $ARTIFACT_DIR"

@@ -1,0 +1,17 @@
+@using Quasar.Components.Pages
+@inject IDialogService Dialogs
+
+<AuthorizeView Policy="@QuasarPolicyNames.ClusterQuery">
+    <MudTooltip Text="Open cluster console">
+        <MudIconButton aria-label="Open cluster console" Icon="@Icons.Material.Filled.Terminal"
+                       Size="Size.Small" OnClick="OpenAsync" />
+    </MudTooltip>
+</AuthorizeView>
+
+@code {
+    [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = default!;
+
+    private Task OpenAsync() => Dialogs.ShowAsync<ClusterConsoleDialog>($"Console — {Cluster.DisplayName}",
+        new DialogParameters<ClusterConsoleDialog> { { p => p.Cluster, Cluster } },
+        new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Large });
+}
