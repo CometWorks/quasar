@@ -4,8 +4,8 @@ The branch now implements machine enrollment and guided creation on top of the
 seven-stage deployment work. This is a separate acceptance gate from the historical
 live cluster tests. It requires the preparation command in
 [Magnetar PR #58](https://github.com/CometWorks/magnetar/pull/58) (version 2.4.2.2) and a verified cluster
-release built against the exact shipped SDK. Until those releases exist, setup stops
-with a capability or SDK mismatch error and can be resumed. It never starts an older
+release built against the exact shipped SDK. If either installed release lacks
+the required capability or pin, setup stops and can be resumed. It never starts an older
 Magnetar with an unrecognized preparation flag.
 
 ## Operator flow
@@ -58,6 +58,14 @@ exports their compiled bundles and SDK configuration schemas/defaults. Selecting
 a profile alone does not produce the canonical values required by managed readiness.
 World configuration edits during preparation use a disposable copy, preserving the
 pinned source world and its receipt across retries.
+
+Magnetar's exporter always includes `direct-transport`. Guided setup resolves its
+commit-pinned MagnetarHub entry, even when the selected standalone profile or the
+global developer-folder catalog also contains a `direct-transport` checkout. Quasar
+leaves that developer source out of the disposable preparation configuration so it
+cannot shadow the hub entry. The resulting compiled Direct Transport bundle is then
+frozen with the other cluster dependencies. Standalone developer-folder settings are
+left intact. A failed setup can be resumed with a new idempotency key.
 
 The exporter owns plugin compilation, source provenance, dependency/native-asset
 capture and canonical SDK defaults. Quasar does not inspect Magnetar's private

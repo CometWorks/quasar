@@ -87,6 +87,31 @@ public sealed class ClusterSetupTests
     }
 
     [Fact]
+    public void GuidedPreparationLetsPinnedHubTransportWinOverDevCheckout()
+    {
+        string config = Path.Combine(Path.GetTempPath(), "cluster-transport-source-" + Guid.NewGuid());
+        Directory.CreateDirectory(Path.Combine(config, "Sources"));
+        try
+        {
+            string path = Path.Combine(config, "Sources/sources.xml");
+            File.WriteAllText(path, """
+                <SourcesConfig>
+                  <RemoteHubSources><RemoteHub><Repo>CometWorks/magnetar-hub</Repo></RemoteHub></RemoteHubSources>
+                  <LocalPluginSources>
+                    <LocalPlugin><Name>direct-transport</Name><Folder>/dev/direct-transport</Folder></LocalPlugin>
+                    <LocalPlugin><Name>other-plugin</Name><Folder>/dev/other-plugin</Folder></LocalPlugin>
+                  </LocalPluginSources>
+                </SourcesConfig>
+                """);
+            ClusterSetupService.RemoveDirectTransportDevSource(config);
+            var sources = System.Xml.Linq.XDocument.Load(path).Root!;
+            Assert.Equal("CometWorks/magnetar-hub", sources.Element("RemoteHubSources")!.Element("RemoteHub")!.Element("Repo")!.Value);
+            Assert.Equal("other-plugin", sources.Element("LocalPluginSources")!.Elements("LocalPlugin").Single().Element("Name")!.Value);
+        }
+        finally { Directory.Delete(config, true); }
+    }
+
+    [Fact]
     public async Task OlderMagnetarIsOnlyInvokedWithHelpAndNeverStartedAsAServer()
     {
         if (!OperatingSystem.IsLinux()) return;

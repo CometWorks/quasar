@@ -973,6 +973,17 @@ startup/config consistency are planned integration work, not shipped behavior.
 
 ## Cluster release staging and selection (Linux)
 
+Quasar checks the latest stable cluster release on the configured update interval
+(15 minutes by default) when update checks
+are enabled and at least one cluster has a selected package. A newer version than
+that selected pin lights the top-bar update bell, opens the affected cluster page,
+and appears under **Settings → Updates → Cluster packages** for users with access
+to that page. This check uses the GitHub token with access to the
+private `CometWorks/cluster` repository. The Updates page also has a manual
+**Check cluster release** button. Release checks only notify; they never stage,
+select, prepare, or activate a cluster package. The comparison is against the
+selected package, which may differ from the active deployment.
+
 For an already registered cluster, discover the latest stable package and explicitly
 stage its version and archive SHA-256 on the Quasar worker host:
 

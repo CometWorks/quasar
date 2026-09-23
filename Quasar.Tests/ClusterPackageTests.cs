@@ -17,6 +17,20 @@ namespace Quasar.Tests;
 
 public sealed class ClusterPackageTests
 {
+    [Fact]
+    public void ReleaseNoticeRequiresVersionNewerThanSelectedPin()
+    {
+        var cluster = new Quasar.Models.ClusterDefinition();
+        var release = new ClusterPackageRelease("1.0.4", 1, 2, 3, new string('a', 64));
+        Assert.False(ClusterReleaseMonitor.IsUpdateAvailable(cluster, release));
+        cluster.PackageSelection = new(1, "1.0.3", new string('b', 64), new string('c', 40), "selection");
+        Assert.True(ClusterReleaseMonitor.IsUpdateAvailable(cluster, release));
+        Assert.False(ClusterReleaseMonitor.IsUpdateAvailable(cluster, release with { Version = "1.0.3" }));
+        Assert.False(ClusterReleaseMonitor.IsUpdateAvailable(cluster, release with { Version = "1.0.2" }));
+        cluster.PackageSelection = cluster.PackageSelection with { Version = "1.0.9" };
+        Assert.True(ClusterReleaseMonitor.IsUpdateAvailable(cluster, release with { Version = "1.0.10" }));
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.NotFound, "private repository", "Updates → GitHub token")]
     [InlineData(HttpStatusCode.Unauthorized, "rejected authentication", "Updates → GitHub token")]

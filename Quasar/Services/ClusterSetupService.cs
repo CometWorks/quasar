@@ -265,7 +265,9 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         string magnetar = runtime.GetInstalledVersions().MagnetarPath;
         await RequirePreparationCommandAsync(magnetar, token);
         var selectedProfile = JsonSerializer.Deserialize<QuasarConfigProfile>(JsonSerializer.Serialize(profile, Json), Json)!;
-        if (!selectedProfile.Plugins.Any(p => p.PluginId == "direct-transport")) selectedProfile.Plugins.Add(new() { PluginId = "direct-transport", DisplayName = "Direct Transport" });
+        // Magnetar's managed exporter adds direct-transport itself. Resolve its pinned
+        // MagnetarHub entry, never a developer checkout from the regular server profile.
+        selectedProfile.Plugins.RemoveAll(p => string.Equals(p.PluginId, "direct-transport", StringComparison.OrdinalIgnoreCase));
         // The ordinary runtime preparer edits world configuration. Keep those edits out of the pinned seed.
         string preparationWorld = Path.Combine(work, "preparation/world");
         if (Directory.Exists(preparationWorld)) Directory.Delete(preparationWorld, true);
@@ -276,10 +278,20 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
             WorldPath = Path.Combine(work, "preparation"), WorldSaveName = "world" };
         var prepared = await preparer.PrepareAsync(source, runtime.ResolveInstalledDedicatedServer64Path(), MagnetarLaunchArgumentStyle.Current, token, selectedProfile);
         PrepareAgentMetadata(prepared.MagnetarAppDataPath);
+        RemoveDirectTransportDevSource(prepared.MagnetarAppDataPath);
         if (Directory.Exists(destination)) Directory.Delete(destination, true); // Export has no committed receipt yet.
         await RunMagnetarAsync(magnetar, ["-prepareManaged", destination, "-config", prepared.MagnetarAppDataPath,
             "-profile", Path.Combine(prepared.MagnetarAppDataPath, "Profiles/Current.xml"),
             "-ds64", prepared.DedicatedServer64Path, "-consent", "deny", "-noupdate"], prepared.GitHubToken, token);
+    }
+    internal static void RemoveDirectTransportDevSource(string config)
+    {
+        string path = Path.Combine(config, "Sources/sources.xml");
+        var sources = XDocument.Load(path);
+        foreach (var source in sources.Root?.Element("LocalPluginSources")?.Elements("LocalPlugin")
+            .Where(source => string.Equals(source.Element("Name")?.Value, "direct-transport", StringComparison.OrdinalIgnoreCase))
+            .ToArray() ?? []) source.Remove();
+        sources.Save(path);
     }
     internal static void PrepareAgentMetadata(string config)
     {

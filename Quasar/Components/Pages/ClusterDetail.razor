@@ -4,6 +4,7 @@
 @inject ClusterCatalog ClusterCatalog
 @inject AuthenticationStateProvider AuthenticationState
 @inject ClusterSetupService Setup
+@inject ClusterReleaseMonitor ClusterReleases
 
 <PageTitle>@(Cluster?.DisplayName ?? "Cluster")</PageTitle>
 
@@ -34,6 +35,12 @@ else
     </MudStack>
 
     <MudStack @key="Cluster.UniqueName" Spacing="4" Class="cluster-control-page">
+        @if (ClusterReleaseMonitor.IsUpdateAvailable(Cluster, ClusterReleases.GetSnapshot().Release))
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                Cluster package @ClusterReleases.GetSnapshot().Release!.Version is available. Stage and select it, then prepare and update the cluster explicitly.
+            </MudAlert>
+        }
         @if (Cluster.ActiveDeployment is null)
         {
             <MudAlert Severity="Severity.Info">
@@ -69,9 +76,17 @@ else
     private ClusterAdminPanel? _admin;
     private Task ExecuteCommandAsync(ClusterAdminCommand command) => _admin?.SubmitAsync(command) ?? Task.CompletedTask;
 
-    protected override void OnInitialized() => ClusterCatalog.Changed += CatalogChanged;
+    protected override void OnInitialized()
+    {
+        ClusterCatalog.Changed += CatalogChanged;
+        ClusterReleases.Changed += CatalogChanged;
+    }
     private void CatalogChanged() => _ = InvokeAsync(async () => { await OnParametersSetAsync(); StateHasChanged(); });
-    public void Dispose() => ClusterCatalog.Changed -= CatalogChanged;
+    public void Dispose()
+    {
+        ClusterCatalog.Changed -= CatalogChanged;
+        ClusterReleases.Changed -= CatalogChanged;
+    }
 
     protected override async Task OnParametersSetAsync()
     {
