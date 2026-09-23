@@ -12,7 +12,7 @@ namespace Quasar.Agent
     {
         /// <summary>
         /// True when the stock-DS cluster runtime is active. This intentionally
-        /// uses the same opt-in environment variable as ClusterRuntime so the
+        /// uses the same opt-in environment variable as the cluster release so the
         /// agent cannot disagree about who owns process lifecycle.
         /// </summary>
         public bool ClusterMode { get; set; }
@@ -22,6 +22,15 @@ namespace Quasar.Agent
         public string ClusterNodeId { get; set; } = string.Empty;
 
         public string ClusterNodeRole { get; set; } = string.Empty;
+
+        public string ClusterSlot { get; set; } = string.Empty;
+
+        public long ClusterEpoch { get; set; }
+
+        public string DeploymentRevision { get; set; } = string.Empty;
+        public bool? ReadinessVerified { get; set; }
+        public string DeploymentFailure { get; set; } = string.Empty;
+
 
         /// <summary>
         /// How long, in seconds, to keep the server running after losing contact
@@ -50,11 +59,11 @@ namespace Quasar.Agent
         {
             var options = new AgentOptions
             {
-                ClusterMode = !string.IsNullOrWhiteSpace(
-                    Environment.GetEnvironmentVariable("SE_CLUSTER_GATEWAY_REGISTRY")),
-                ClusterId = ReadString("SE_CLUSTER_ID"),
-                ClusterNodeId = ReadString("SE_CLUSTER_NODE_ID"),
-                ClusterNodeRole = ReadString("SE_CLUSTER_NODE_ROLE"),
+                ClusterMode = ReadString("CLUSTER_GATEWAY_REGISTRY").Length != 0,
+                ClusterId = ReadString("CLUSTER_ID"),
+                ClusterNodeId = ReadString("CLUSTER_NODE_ID"),
+                ClusterNodeRole = ReadString("CLUSTER_NODE_ROLE"),
+                ClusterSlot = ReadString("CLUSTER_SLOT_ID"),
                 // Zero/negative is meaningful here (stop promptly), so it is kept as-is.
                 OfflineShutdownSeconds = ReadInt("QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS", 3600),
                 ReconnectIntervalSeconds = ReadInt("QUASAR_AGENT_RECONNECT_INTERVAL_SECONDS", 10),
@@ -69,6 +78,39 @@ namespace Quasar.Agent
                 options.ReconnectJitterSeconds = 3;
 
             return options;
+        }
+
+        // The runtime writes the Registry-issued epoch after registration. Never
+        // derive it from entity IDs, PID, or slot name. Missing receipts stay unknown.
+        internal void RefreshClusterIdentity(int processId)
+        {
+            if (!ClusterMode) return;
+            ReadinessVerified = null;
+            DeploymentFailure = string.Empty;
+            var path = ReadString("CLUSTER_PROCESS_IDENTITY_PATH");
+            var attempt = ReadString("CLUSTER_LAUNCH_ATTEMPT");
+            if (path.Length == 0 || attempt.Length == 0) return;
+            try
+            {
+                var receipt = Newtonsoft.Json.Linq.JObject.Parse(System.IO.File.ReadAllText(path));
+                if ((int?)receipt["schemaVersion"] != 1 || (int?)receipt["processId"] != processId
+                    || (string)receipt["attemptKey"] != attempt || (string)receipt["clusterId"] != ClusterId
+                    || (string)receipt["slotKey"] != ClusterSlot || (long?)receipt["epoch"] is not long epoch || epoch <= 0)
+                    return;
+                var node = (string)receipt["nodeId"];
+                if (string.IsNullOrWhiteSpace(node) || (ClusterNodeId.Length > 0 && ClusterNodeId != node)) return;
+                if (ClusterEpoch > 0 && ClusterEpoch != epoch) return;
+                string revision = (string)receipt["deploymentRevision"] ?? string.Empty;
+                string expected = ReadString("CLUSTER_DEPLOYMENT_REVISION");
+                if (expected.Length > 0 && revision != expected) return;
+                ClusterNodeId = node;
+                ClusterEpoch = epoch;
+                DeploymentRevision = revision;
+                ReadinessVerified = (bool?)receipt["ready"];
+                DeploymentFailure = (string)receipt["failure"] ?? string.Empty;
+            }
+            catch (Exception error) when (error is System.IO.IOException || error is UnauthorizedAccessException
+                || error is Newtonsoft.Json.JsonException || error is FormatException || error is InvalidCastException || error is OverflowException) { }
         }
 
         internal bool ShouldSelfStop(DateTime disconnectedSinceUtc, DateTime nowUtc)

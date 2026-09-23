@@ -1,0 +1,255 @@
+@implements IDisposable
+@using System.Text.Json
+@inject ClusterDeploymentService Deployments
+@inject ClusterCatalog Catalog
+@inject ClusterBackupService Backups
+@inject ClusterUpdateService Updates
+@inject QuasarConfigProfileCatalog Profiles
+@inject QuasarPermissionService Permissions
+@inject AuthenticationStateProvider AuthenticationState
+@inject QuasarRoleMapper RoleMapper
+@inject IJSRuntime JS
+
+<AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+    <MudCard Class="server-card">
+    <MudCardContent>
+    <MudStack Spacing="3">
+        <MudText Typo="Typo.h6">Cluster deployment</MudText>
+        <MudText Class="cluster-long-value">Active revision: @(Current.ActiveDeployment?.Revision ?? "None")</MudText>
+        @if (Current.PendingDeploymentHash is not null || Current.PendingRestoreHash is not null)
+        {
+            <MudAlert Severity="Severity.Warning">Activation is incomplete. Resume the original activation request before starting the cluster.</MudAlert>
+        }
+        <MudText Typo="Typo.body2">Preparation builds a candidate on every Host from the verified installation, world seed and plugin settings in the request. It does not check for new releases or install them automatically. Update with full downtime later stops the cluster, activates the candidate, and starts it again after a clean shutdown.</MudText>
+        @if (Current.Update is { } update)
+        {
+            <MudText>Update @update.Id: @update.Phase</MudText>
+            @if (update.LastError is not null) { <MudAlert Severity="Severity.Warning">@update.LastError</MudAlert> }
+            @if (update.Phase != ClusterUpdatePhase.Complete)
+            {
+                <MudButton OnClick="AbandonUpdateAsync" Disabled="_busy" Color="Color.Warning" Variant="Variant.Outlined">Abandon update</MudButton>
+                <MudText Typo="Typo.caption">Abandoning unlocks the cluster controls without rolling anything back: before activation the cluster stays stopped on its current deployment, afterwards it keeps the new one.</MudText>
+            }
+        }
+        <MudExpansionPanels>
+            <MudExpansionPanel Text="Prepare or import a deployment">
+                <MudStack Spacing="3" Class="py-2 cluster-form-section">
+                <MudText Typo="Typo.body2">@(_preparationRequest is null
+                    ? "No preparation request is saved. Import one to prepare a deployment."
+                    : $"Preparation request loaded for {_preparationRequest.Hosts.Length} Host(s).")</MudText>
+                <MudButton OnClick="DownloadPreparationAsync" Disabled="@(_busy || _preparationRequest is null)">Download request JSON</MudButton>
+                <MudText Typo="Typo.caption">To change installation or topology inputs, edit the downloaded file and import it here.</MudText>
+                <InputFile OnChange="ImportPreparationAsync" accept=".json,application/json" disabled="@_busy" />
+                <MudButton OnClick="PrepareAsync" Disabled="@(_busy || _preparationRequest is null)">Prepare all Hosts</MudButton>
+                <MudExpansionPanels>
+                @foreach (var plugin in PreparedPlugins())
+                {
+                    <MudExpansionPanel Text="@plugin.DisplayName">
+                        <PluginConfigEditor Plugin="plugin" AgentId="" ConnectionId="" SaveValues="@(values => SavePluginAsync(plugin.PluginId, plugin.ConfigType, values))"
+                            ApplyLabel="Prepare configuration for all nodes" SuccessMessage="Cluster configuration prepared. Activate it with a full-downtime update." />
+                    </MudExpansionPanel>
+                }
+                </MudExpansionPanels>
+                </MudStack>
+            </MudExpansionPanel>
+            <MudExpansionPanel Text="Backups and restore">
+                <MudStack Spacing="3" Class="py-2 cluster-form-section">
+                <MudAlert Severity="Severity.Info" Dense="true">Scheduled backups of a cluster run only while it is cleanly stopped. A cluster that runs around the clock gets no scheduled backups: stop it regularly, or store a Gateway world export below while it runs.</MudAlert>
+                <MudTextField T="string" Label="Gateway world export artifact ID" @bind-Value="_artifactId" Disabled="_busy" />
+                <MudButton OnClick="ArchiveExportAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_artifactId))">Verify and store world export</MudButton>
+                <MudButton OnClick="BackupAsync" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off)">Back up cleanly stopped cluster</MudButton>
+                <MudButton OnClick="ListBackups" Disabled="_busy">List backups</MudButton>
+                <MudTextField T="string" Label="Restore request (JSON)" @bind-Value="_restore" Lines="8" Disabled="_busy" />
+                <MudText Typo="Typo.body2">Restore replaces current world and plugin data. Previous runtime data is retained. The prepared revision must use new runtime credentials.</MudText>
+                <MudButton OnClick="RestoreAsync" Color="Color.Warning" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off)">Restore backup</MudButton>
+                @if (_backups is not null) { <pre style="max-height:300px;overflow:auto">@_backups</pre> }
+                </MudStack>
+            </MudExpansionPanel>
+            <MudExpansionPanel Text="Activate prepared deployment">
+                <MudStack Spacing="3" Class="py-2 cluster-form-section">
+                <MudTextField T="string" Label="Deployment activation request (JSON)" @bind-Value="_activation" Lines="10" Disabled="_busy" />
+                <MudButton OnClick="UpdateAsync" Disabled="@(_busy || Current.Update is { Phase: not ClusterUpdatePhase.Complete })">Update with full downtime</MudButton>
+                <MudButton OnClick="RollbackAsync" Disabled="@(_busy || Current.PreviousDeployment is null || Current.Update is { Phase: not ClusterUpdatePhase.Complete })">Roll back binaries and configuration</MudButton>
+                <MudText Typo="Typo.body2">Updates stop the whole cluster, activate the verified installation, then wait for fleet readiness. Rollback keeps current world and plugin data.</MudText>
+                <MudButton OnClick="ActivateAsync" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off)">Activate deployment</MudButton>
+                </MudStack>
+            </MudExpansionPanel>
+            <MudExpansionPanel Text="Recovery">
+                <MudStack Spacing="3" Class="py-2 cluster-form-section">
+        <MudButton OnClick="RecoverAsync" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off || Current.ActiveDeployment is null)">Recover missing Gateway</MudButton>
+        <MudText Typo="Typo.caption">Recovery resumes the recorded Gateway and any pending shutdown. It does not erase world state or mark a dirty shutdown as clean.</MudText>
+        <MudButton OnClick="RecoverStoppedAsync" Color="Color.Warning" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off || Current.ActiveDeployment is null)">Recover stopped cluster after an unclean shutdown</MudButton>
+        <MudText Typo="Typo.caption">Requires every node to be stopped. Starts a new recovery generation from retained saves and plugin data; unsaved game changes may be lost.</MudText>
+                </MudStack>
+            </MudExpansionPanel>
+            <MudExpansionPanel Text="Convert to a standalone server">
+                <MudStack Spacing="3" Class="py-2 cluster-form-section">
+                    <MudText Typo="Typo.body2">Back up and convert a cleanly stopped cluster into a standalone server.</MudText>
+                    <MudButton Href="@("/clusters/" + Uri.EscapeDataString(Cluster.UniqueName) + "/convert-to-server")"
+                               Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Dns">Open conversion wizard</MudButton>
+                </MudStack>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+        @if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
+    </MudStack>
+    </MudCardContent>
+    </MudCard>
+</AuthorizeView>
+
+@code {
+    [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = default!;
+    private ClusterDefinition Current => Catalog.GetCluster(Cluster.UniqueName) ?? Cluster;
+    private string _artifactId = "";
+    private ClusterPreparationRequest? _preparationRequest;
+    private string _activation = "", _restore = "";
+    private string? _backups;
+    private string? _message;
+    private bool _busy;
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    protected override void OnInitialized()
+    {
+        Catalog.Changed += CatalogChanged;
+        _preparationRequest = Current.Preparation;
+    }
+    private void CatalogChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Catalog.Changed -= CatalogChanged;
+    private Magnetar.Protocol.Model.PluginConfigData[] PreparedPlugins()
+    {
+        try
+        {
+            using var spec = JsonDocument.Parse(_preparationRequest?.SpecificationJson ?? "{}");
+            if (!spec.RootElement.TryGetProperty("pluginConfigurations", out var plugins)) return [];
+            return plugins.EnumerateObject().SelectMany(plugin =>
+                (plugin.Value.TryGetProperty("configurations", out var configs) ? configs.EnumerateArray().ToArray() : [plugin.Value])
+                .Where(config => config.TryGetProperty("configuration", out _))
+                .Select(config => new Magnetar.Protocol.Model.PluginConfigData { PluginId = plugin.Name,
+                    DisplayName = PluginDisplayName(plugin.Name) + (plugin.Value.TryGetProperty("configurations", out _) ? " / " + config.GetProperty("configType").GetString() : ""),
+                    ConfigType = config.GetProperty("configType").GetString() ?? "",
+                    ConfigJson = config.GetProperty("configuration").GetRawText() })).ToArray();
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException)
+        { return []; }
+    }
+    private string PluginDisplayName(string pluginId)
+    {
+        string? name = Profiles.GetProfile(Current.ConfigProfileId)?.Plugins
+            .FirstOrDefault(plugin => plugin.PluginId.Equals(pluginId, StringComparison.OrdinalIgnoreCase))?.DisplayName;
+        if (!string.IsNullOrWhiteSpace(name)) return name;
+        return pluginId switch
+        {
+            "direct-transport" => "Direct Transport",
+            "dotnet-compat" => ".NET Compatibility",
+            "linux-compat" => "Linux Compatibility",
+            "quasar-agent" => "Quasar Agent",
+            _ => pluginId,
+        };
+    }
+    private async Task SavePluginAsync(string pluginId, string configType, string values)
+    {
+        if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) throw new InvalidOperationException("Cluster management is unavailable.");
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        if (!user.CanQueryCluster(Cluster.UniqueName)) throw new InvalidOperationException("Cluster access denied.");
+        var request = _preparationRequest ?? throw new InvalidDataException("Preparation is required.");
+        var spec = System.Text.Json.Nodes.JsonNode.Parse(request.SpecificationJson)!;
+        SetPluginValues(spec, pluginId, configType, values);
+        string json = spec.ToJsonString();
+        string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
+        request = request with { SpecificationJson = json, Hosts = request.Hosts.Select(h => h with {
+            ConfigurationDirectory = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(h.ConfigurationDirectory)!, "config-" + hash) }).ToArray() };
+        _busy = true;
+        try
+        {
+            var result = await Deployments.PrepareAsync(Cluster.UniqueName, request, "plugin-config-" + hash, user.Identity?.Name ?? "web-ui", default);
+            if (result.State != ClusterOperationState.Succeeded) throw new InvalidOperationException(result.Error?.Message ?? "Configuration preparation is incomplete.");
+            _preparationRequest = request;
+            _activation = JsonSerializer.Serialize(result.Result, Json);
+        }
+        finally { _busy = false; }
+    }
+    private Task DownloadPreparationAsync()
+    {
+        if (_preparationRequest is null) return Task.CompletedTask;
+        string json = JsonSerializer.Serialize(_preparationRequest, Json);
+        string url = "data:application/json;charset=utf-8," + Uri.EscapeDataString(json);
+        return JS.InvokeVoidAsync("quasarConfigs.downloadFile", url, $"{Cluster.UniqueName}-preparation.json").AsTask();
+    }
+    private async Task ImportPreparationAsync(InputFileChangeEventArgs args)
+    {
+        if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        if (!user.CanQueryCluster(Cluster.UniqueName)) return;
+        _busy = true;
+        try
+        {
+            await using var stream = args.File.OpenReadStream(24 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var request = JsonSerializer.Deserialize<ClusterPreparationRequest>(await reader.ReadToEndAsync(), Json)
+                ?? throw new InvalidDataException("Preparation request is empty.");
+            if (string.IsNullOrWhiteSpace(request.SpecificationJson) || request.Hosts is null or { Length: 0 })
+                throw new InvalidDataException("Preparation request needs a specification and at least one Host.");
+            using var specification = JsonDocument.Parse(request.SpecificationJson);
+            if (specification.RootElement.ValueKind != JsonValueKind.Object
+                || !specification.RootElement.TryGetProperty("clusterId", out var clusterId)
+                || clusterId.ValueKind != JsonValueKind.String || clusterId.GetString() != Cluster.UniqueName)
+                throw new InvalidDataException("Preparation request identifies a different cluster.");
+            _preparationRequest = request;
+            _message = "Preparation request imported. Select Prepare all Hosts to create a candidate deployment.";
+        }
+        catch (Exception error) when (error is IOException or InvalidDataException or JsonException
+            or InvalidOperationException or ArgumentException)
+        { _message = error.Message; }
+        finally { _busy = false; }
+    }
+    internal static void SetPluginValues(System.Text.Json.Nodes.JsonNode specification, string pluginId, string configType, string values)
+    {
+        var plugin = specification["pluginConfigurations"]![pluginId]!;
+        var config = plugin["configurations"] is System.Text.Json.Nodes.JsonArray configs
+            ? configs.Single(c => c?["configType"]?.GetValue<string>() == configType)! : plugin;
+        config["configuration"]!["values"] = System.Text.Json.Nodes.JsonNode.Parse(values);
+    }
+    private void ListBackups() => _backups = JsonSerializer.Serialize(Backups.List(Cluster.UniqueName)
+        .Select(b => new { b.SnapshotId, b.CreatedAt, b.Consistency }), Json);
+    private Task ArchiveExportAsync() => ExecuteAsync(actor => Backups.ArchiveExportAsync(Cluster.UniqueName,
+        _artifactId, Guid.NewGuid().ToString("N"), actor, default));
+    private Task BackupAsync() => ExecuteAsync(actor => Backups.CaptureAsync(Cluster.UniqueName,
+        new(Guid.NewGuid()), Guid.NewGuid().ToString("N"), actor, default));
+    private Task RestoreAsync() => ExecuteAsync(actor => Backups.RestoreAsync(Cluster.UniqueName,
+        JsonSerializer.Deserialize<ClusterRestoreRequest>(_restore, Json) ?? throw new InvalidDataException("Restore request is required."),
+        Guid.NewGuid().ToString("N"), actor, default));
+    private Task PrepareAsync() => ExecuteAsync(async actor =>
+    {
+        var request = _preparationRequest ?? throw new InvalidDataException("Preparation request is required.");
+        var result = await Deployments.PrepareAsync(Cluster.UniqueName, request, Guid.NewGuid().ToString("N"), actor, default);
+        if (result.State == ClusterOperationState.Succeeded) _activation = JsonSerializer.Serialize(result.Result, Json);
+        return result;
+    });
+    private Task UpdateAsync() => ExecuteAsync(actor => Updates.BeginAsync(Cluster.UniqueName,
+        new(Guid.NewGuid(), JsonSerializer.Deserialize<ClusterDeploymentRequest>(_activation, Json)
+            ?? throw new InvalidDataException("Activation request is required.")), Guid.NewGuid().ToString("N"), actor, default));
+    private Task RollbackAsync() => ExecuteAsync(actor => Updates.BeginAsync(Cluster.UniqueName,
+        new(Guid.NewGuid(), Rollback: true), Guid.NewGuid().ToString("N"), actor, default));
+    private Task AbandonUpdateAsync() => ExecuteAsync(actor => Updates.AbandonAsync(Cluster.UniqueName, Guid.NewGuid().ToString("N"), actor, default));
+    private Task ActivateAsync() => ExecuteAsync(actor => Deployments.ActivateAsync(Cluster.UniqueName,
+        JsonSerializer.Deserialize<ClusterDeploymentRequest>(_activation, Json) ?? throw new InvalidDataException("Activation request is required."),
+        Guid.NewGuid().ToString("N"), actor, default));
+    private Task RecoverStoppedAsync() => ExecuteAsync(actor => Deployments.RecoverClusterAsync(Cluster.UniqueName,
+        Guid.NewGuid(), Guid.NewGuid().ToString("N"), actor, default));
+    private Task RecoverAsync() => ExecuteAsync(actor => Deployments.RecoverGatewayAsync(Cluster.UniqueName,
+        Guid.NewGuid().ToString("N"), actor, default));
+    private async Task ExecuteAsync(Func<string, Task<ClusterOperation>> run)
+    {
+        if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        if (!user.CanQueryCluster(Cluster.UniqueName)) return;
+        _busy = true;
+        try
+        {
+            var result = await run(user.Identity?.Name ?? "web-ui");
+            _message = $"{result.State}: {result.Error?.Message ?? result.OperationId}";
+        }
+        catch (Exception error) when (error is JsonException or InvalidDataException or InvalidOperationException
+            or ClusterOperationConflictException or ClusterOperationStoreUnavailableException or KeyNotFoundException)
+        { _message = error.Message; }
+        finally { _busy = false; }
+    }
+}

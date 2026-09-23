@@ -1,0 +1,224 @@
+@page "/servers/{ServerName}/convert-to-cluster"
+@page "/clusters/{ClusterName}/convert-to-server"
+@attribute [Authorize(Policy = QuasarPolicyNames.ClusterManage)]
+@attribute [Authorize(Policy = QuasarPolicyNames.CanEditServers)]
+@attribute [Authorize(Policy = QuasarPolicyNames.CanEditConfigs)]
+@implements IDisposable
+@using System.Text.Json
+@inject ClusterConversionService Conversions
+@inject DedicatedServerCatalog Servers
+@inject ClusterCatalog Clusters
+@inject QuasarConfigProfileCatalog Profiles
+@inject AuthenticationStateProvider AuthenticationState
+@inject QuasarPermissionService Permissions
+@inject QuasarRoleMapper RoleMapper
+@inject NavigationManager Navigation
+
+<PageTitle>@Title</PageTitle>
+<MudPaper Class="pa-4">
+    <MudText Typo="Typo.h5">@Title</MudText>
+    <MudText Class="my-2">Conversion creates a separate destination. The source and backup remain intact. The destination stays stopped until you review it and start it.</MudText>
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+    @if (ToCluster)
+    {
+        <MudText Typo="Typo.h6">1. Review the stopped source: @ServerName</MudText>
+        <MudButton OnClick="Review" Disabled="@Locked">Refresh source review</MudButton>
+        @if (_review is not null)
+        {
+            <MudText>Profile: @_review.ProfileName</MudText>
+            <MudText>Plugin settings captured: @(_review.PluginConfigurationCapturedAt?.ToLocalTime().ToString("g") ?? "No snapshot needed for an empty plugin selection")</MudText>
+            <MudText>@_review.ConfigurablePlugins configurable plugins. Settings shown here are a recorded snapshot, not live state. Review source plugin settings before stopping it.</MudText>
+            @foreach (string plugin in _review.Plugins) { <MudText Typo="Typo.body2">@plugin</MudText> }
+            @foreach (string warning in _review.Warnings) { <MudAlert Severity="Severity.Warning">@warning</MudAlert> }
+        }
+        <MudText Typo="Typo.h6" Class="mt-4">2. Choose the destination and verified release</MudText>
+        <MudText>Choose an empty cluster with its release package and dependency snapshot selected. The snapshot must contain the same common plugins as this server. Its frozen commits determine the deployed versions, including when the source follows a moving version label.</MudText>
+        <MudButton Href="/clusters/new" Target="_blank">Register a new cluster</MudButton>
+        <MudSelect T="string" Label="Destination cluster" @bind-Value="_targetCluster" Disabled="@Locked">
+            @foreach (var cluster in Clusters.GetClusters().Where(c => c.ActiveDeployment is null && c.GoalState == DedicatedServerGoalState.Off))
+            { <MudSelectItem Value="@cluster.UniqueName">@cluster.DisplayName (@cluster.UniqueName)</MudSelectItem> }
+        </MudSelect>
+        @if (Clusters.GetCluster(_targetCluster) is { } selected)
+        {
+            <MudText>Release: @(selected.PackageSelection?.Version ?? "Not selected"). Dependencies: @(selected.DependencyManifestSha256 is null ? "Not selected" : "Pinned").</MudText>
+            <MudButton OnClick="ReviewDestinationAsync" Disabled="@Locked">Review frozen plugin versions</MudButton>
+            @foreach (string plugin in _frozenPlugins) { <MudText Typo="Typo.body2">@plugin</MudText> }
+            <MudButton Href="@("/clusters/" + Uri.EscapeDataString(_targetCluster))" Target="_blank">Review release and dependencies</MudButton>
+        }
+        <MudText Typo="Typo.h6" Class="mt-4">3. Place the cluster</MudText>
+        <MudText>The shipped converter requires at least two regular nodes. Each Host receives the verified package, frozen dependencies and the same converted world. Enter routable private IP addresses. Credential fields name existing environment variables; do not enter secrets.</MudText>
+        @foreach (var host in _hosts)
+        {
+            <MudPaper Outlined="true" Class="pa-3 my-2" @key="host">
+                <MudTextField Label="Host ID" @bind-Value="host.Id" Disabled="@Locked" />
+                <MudTextField Label="Host command URL" @bind-Value="host.Url" Disabled="@Locked" />
+                <MudTextField Label="Host command token environment variable" @bind-Value="host.Token" Disabled="@Locked" />
+                <MudTextField Label="Executor token environment variable on Host" @bind-Value="host.Executor" Disabled="@Locked" />
+                <MudTextField Label="Private IP address" @bind-Value="host.Address" Disabled="@Locked" />
+                <MudNumericField T="int" Label="Regular nodes" @bind-Value="host.Nodes" Min="0" Max="32" Disabled="@Locked" />
+                <MudButton OnClick="@(() => _hosts.Remove(host))" Disabled="@(Locked || _hosts.Count == 1)">Remove Host</MudButton>
+            </MudPaper>
+        }
+        <MudButton OnClick="@(() => _hosts.Add(new HostForm()))" Disabled="@Locked">Add Host</MudButton>
+        <MudSelect T="string" Label="Gateway and World Authority Host" @bind-Value="_gatewayHost" Disabled="@Locked">
+            @foreach (var host in _hosts.Where(h => !string.IsNullOrWhiteSpace(h.Id))) { <MudSelectItem Value="@host.Id">@host.Id</MudSelectItem> }
+        </MudSelect>
+        <MudTextField Label="Game build reported by the nodes" @bind-Value="_binaryVersion" Disabled="@Locked" HelperText="Must match MySandboxGame.BuildVersion for the selected Dedicated Server build." />
+        <MudNumericField T="int" Label="Public Steam port" @bind-Value="_steamPort" Min="1" Max="65535" Disabled="@Locked" />
+        <MudTextField Label="Allowed internal networks (comma-separated CIDRs)" @bind-Value="_networks" Disabled="@Locked" />
+        <MudTextField Label="Join token environment variable on Hosts" @bind-Value="_joinToken" Disabled="@Locked" />
+        <MudTextField Label="Gateway token-file environment variable" @bind-Value="_tokenFile" Disabled="@Locked" />
+        <MudText Typo="Typo.caption">Regular nodes use backend ports 28417 upward and control ports 29417 upward on each Host. World Authority uses 28700/29700. Gateway control uses the destination cluster URL.</MudText>
+    }
+    else
+    {
+        <MudText Typo="Typo.h6">1. Review the source cluster: @ClusterName</MudText>
+        <MudText>Shut down the cluster cleanly first. Quasar verifies every Host is stopped, captures a native backup, and converts those copies. Shared filesystem access is not required.</MudText>
+        <MudButton Href="@("/clusters/" + Uri.EscapeDataString(ClusterName ?? ""))">Open source cluster</MudButton>
+        <MudText Typo="Typo.h6" Class="mt-4">2. Configure the standalone destination</MudText>
+        <MudTextField Label="Unique server name" @bind-Value="_serverId" Disabled="@Locked" />
+        <MudTextField Label="Display name" @bind-Value="_displayName" Disabled="@Locked" />
+        <MudNumericField T="int" Label="Server port" @bind-Value="_serverPort" Min="1" Max="65535" Disabled="@Locked" />
+        <MudSelect T="string" Label="Base profile for server settings and plugin selections" @bind-Value="_profileId" Disabled="@Locked">
+            @foreach (var profile in Profiles.GetProfiles()) { <MudSelectItem Value="@profile.ConfigProfileId">@profile.Name</MudSelectItem> }
+        </MudSelect>
+        <MudText>Session settings and mods come from the converted world. Server settings and ordinary plugin selections are copied into a new profile. Cluster role and transport plugins are removed.</MudText>
+        <MudAlert Severity="Severity.Info">Cluster shared plugin records and per-node private files remain in the backup. Canonical plugin settings are exported beside the new server as cluster-plugin-configurations.json for review and reapplication; they are not automatically installed into arbitrary plugin-owned files. Review configuration before starting the new server.</MudAlert>
+    }
+    <MudCheckBox T="bool" @bind-Value="_confirmed" Disabled="@Locked" Label="I reviewed the source, destination, frozen plugin versions and plugin settings. Keep the source and backup; leave the new destination stopped." />
+    <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="RunAsync" Disabled="@(_busy || !_confirmed)">@(_request is null ? "Back up and convert" : "Resume conversion")</MudButton>
+    @if (_request is not null && !_busy)
+    { <MudButton OnClick="NewConversion">Edit as a new conversion</MudButton> }
+    @if (_busy) { <MudProgressLinear Indeterminate="true" Class="my-2" /> }
+    @if (_status is not null)
+    {
+        <MudText Class="mt-3">@_status.Phase</MudText>
+        <MudText Typo="Typo.caption">Conversion ID: @_status.Id</MudText>
+        @if (_status.Error is not null) { <MudAlert Severity="Severity.Warning">@_status.Error</MudAlert> }
+        @if (_status.Destination is not null) { <MudButton Href="@_status.Destination">Review destination</MudButton> }
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public string? ServerName { get; set; }
+    [Parameter] public string? ClusterName { get; set; }
+    [SupplyParameterFromQuery(Name = "conversion")] public Guid? ConversionId { get; set; }
+    private bool ToCluster => !string.IsNullOrWhiteSpace(ServerName);
+    private string Title => ToCluster ? "Convert server to cluster" : "Convert cluster to standalone server";
+    private bool Locked => _busy || _request is not null;
+    private string _targetCluster = "", _gatewayHost = "host-1", _binaryVersion = "", _networks = "127.0.0.0/8";
+    private string _joinToken = "CLUSTER_JOIN_TOKEN", _tokenFile = "CLUSTER_ADMIN_TOKENS";
+    private string _serverId = "", _displayName = "", _profileId = "";
+    private int _steamPort = 27016, _serverPort = 27017;
+    private bool _busy, _confirmed;
+    private string? _error;
+    private object? _request;
+    private Guid _id;
+    private readonly List<HostForm> _hosts = [new() { Id = "host-1" }];
+    private string[] _frozenPlugins = [];
+    private string? _reviewedCluster, _reviewedDependencies;
+    private long? _reviewedPackage;
+    private ClusterConversionReview? _review;
+    private ClusterConversionStatus? _status;
+    private readonly CancellationTokenSource _cancel = new();
+    protected override void OnInitialized() => Conversions.Changed += Changed;
+    protected override async Task OnParametersSetAsync()
+    {
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        if (!ToCluster && !user.CanQueryCluster(ClusterName ?? "")) { _error = "Cluster access denied."; return; }
+        if (ConversionId is { } id && _request is null)
+        {
+            try
+            {
+                var saved = Conversions.GetRequest(id);
+                if (!user.CanQueryCluster(saved.Cluster) || (ToCluster ? saved.Direction != "to-cluster"
+                    || saved.Request.GetProperty("server").GetString() != ServerName : saved.Direction != "to-server" || saved.Cluster != ClusterName))
+                    throw new InvalidOperationException("Conversion belongs to a different source.");
+                _targetCluster = saved.Cluster;
+                _request = ToCluster ? saved.Request.Deserialize<ServerToClusterRequest>(new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                    : saved.Request.Deserialize<ClusterToServerRequest>(new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                if (_request is ServerToClusterRequest forward)
+                {
+                    _binaryVersion = forward.BinaryVersion; _gatewayHost = forward.GatewayHost; _steamPort = forward.SteamPort;
+                    _joinToken = forward.JoinTokenEnvironmentVariable; _tokenFile = forward.AdminTokensFileEnvironmentVariable;
+                    _networks = string.Join(", ", forward.InternalNetworks);
+                    _hosts.Clear(); _hosts.AddRange(forward.Hosts.Select(h => new HostForm { Id = h.HostId, Url = h.CommandUrl,
+                        Token = h.TokenEnvironmentVariable, Executor = h.ExecutorTokenEnvironmentVariable, Address = h.Address, Nodes = h.RegularNodes }));
+                }
+                else if (_request is ClusterToServerRequest reverse)
+                { _serverId = reverse.UniqueName; _displayName = reverse.DisplayName; _serverPort = reverse.Port; _profileId = reverse.ConfigProfileId; }
+                _id = id; _status = Conversions.GetStatus(id); _confirmed = true;
+            }
+            catch (Exception error) { _error = error.Message; }
+        }
+        if (ToCluster && _request is null) Review();
+        else if (!ToCluster && _request is null && Clusters.GetCluster(ClusterName!) is { } cluster)
+        { _profileId = cluster.ConfigProfileId; _serverId = cluster.UniqueName + "-standalone"; _displayName = cluster.DisplayName; }
+    }
+    private async Task ReviewDestinationAsync()
+    {
+        try
+        {
+            var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+            if (!user.CanQueryCluster(_targetCluster)) throw new InvalidOperationException("Cluster access denied.");
+            var selected = Clusters.GetCluster(_targetCluster) ?? throw new InvalidOperationException("Choose a destination cluster.");
+            _frozenPlugins = await Conversions.ReviewPluginsAsync(selected.UniqueName, _cancel.Token);
+            _reviewedCluster = selected.UniqueName; _reviewedDependencies = selected.DependencyManifestSha256;
+            _reviewedPackage = selected.PackageSelection?.Revision; _confirmed = false; _error = null;
+        }
+        catch (Exception error) { _error = error.Message; }
+    }
+    private void Review()
+    { try { _review = Conversions.ReviewServer(ServerName!); _error = null; } catch (Exception error) { _error = error.Message; } }
+    private void NewConversion()
+    {
+        _request = null; _id = Guid.Empty; _status = null; _confirmed = false; _error = null;
+        _reviewedCluster = null; _reviewedDependencies = null; _frozenPlugins = [];
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("conversion", (string?)null), replace: true);
+        if (ToCluster) Review();
+    }
+    private void Changed() => _ = InvokeAsync(() => { if (_id != Guid.Empty) _status = Conversions.GetStatus(_id); StateHasChanged(); });
+    private async Task RunAsync()
+    {
+        if (_busy || !_confirmed || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)
+            || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditServers)
+            || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        string clusterId = ToCluster ? _targetCluster : ClusterName!;
+        if (!user.CanQueryCluster(clusterId)) { _error = "Cluster access denied."; return; }
+        _busy = true; _error = null;
+        try
+        {
+            if (_request is null)
+            {
+                if (ToCluster && (_reviewedCluster != clusterId || _reviewedDependencies is null))
+                    throw new InvalidOperationException("Review the destination's frozen plugin versions before converting.");
+                _id = Guid.NewGuid();
+                _request = ToCluster ? new ServerToClusterRequest(_id, ServerName!, _review?.SourceRevision ?? "", _binaryVersion,
+                    _gatewayHost, _steamPort, _joinToken, _tokenFile, _networks.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
+                    _hosts.Select(h => new ClusterConversionHost(h.Id, h.Url, h.Token, h.Executor, h.Address, h.Nodes)).ToArray(),
+                    _reviewedDependencies, _reviewedPackage)
+                    : new ClusterToServerRequest(_id, _serverId, _displayName, _serverPort, _profileId,
+                        Clusters.GetCluster(clusterId)?.GetLifecycleId() ?? "");
+                Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("conversion", _id.ToString()), replace: true);
+            }
+            string key = "conversion-" + Guid.NewGuid().ToString("N");
+            var operation = _request is ServerToClusterRequest to ? await Conversions.ToClusterAsync(clusterId, to, key, user.Identity?.Name ?? "web-ui", _cancel.Token)
+                : await Conversions.ToServerAsync(clusterId, (ClusterToServerRequest)_request!, key, user.Identity?.Name ?? "web-ui", _cancel.Token);
+            if (operation.State == ClusterOperationState.Failed) _error = operation.Error?.Message;
+            _status = Conversions.GetStatus(_id);
+        }
+        catch (Exception error) { _error = error is OperationCanceledException ? "Conversion interrupted. Resume using this page; source data was retained." : error.Message; }
+        finally { _busy = false; }
+    }
+    public void Dispose() { Conversions.Changed -= Changed; _cancel.Cancel(); _cancel.Dispose(); }
+    private sealed class HostForm
+    {
+        public string Id { get; set; } = "";
+        public string Url { get; set; } = "http://127.0.0.1:29500";
+        public string Token { get; set; } = "QUASAR_HOST_TOKEN";
+        public string Executor { get; set; } = "CLUSTER_EXECUTOR_TOKEN";
+        public string Address { get; set; } = "127.0.0.1";
+        public int Nodes { get; set; } = 2;
+    }
+}
