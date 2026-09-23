@@ -9,6 +9,34 @@ namespace Quasar.Tests;
 
 public sealed class ClusterCliTests
 {
+    [Fact]
+    public void LauncherReadsCamelCaseWorkerManifest()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, """{"workerId":"worker","processId":123,"baseUrl":"http://127.0.0.1:8080"}""");
+            var manifest = Bootstrap::Quasar.Bootstrap.Program.ReadManifest(path);
+            Assert.NotNull(manifest);
+            Assert.Equal("http://127.0.0.1:8080", manifest.BaseUrl);
+            Assert.Equal(123, manifest.ProcessId);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void LauncherOnlyRetiresTheWorkerNamedByDiscovery()
+    {
+        var expected = new Magnetar.Protocol.Discovery.WebServiceDiscoveryManifest
+            { ProcessId = 123, WorkerId = "original" };
+        Assert.True(Bootstrap::Quasar.Bootstrap.Program.IsSameWorker(expected,
+            new() { ProcessId = 123, WorkerId = "original" }));
+        Assert.False(Bootstrap::Quasar.Bootstrap.Program.IsSameWorker(expected,
+            new() { ProcessId = 123, WorkerId = "replacement" }));
+        Assert.False(Bootstrap::Quasar.Bootstrap.Program.IsSameWorker(expected,
+            new() { ProcessId = 456, WorkerId = "original" }));
+    }
+
     [Theory]
     [InlineData("conversion-plugins", "/api/v1/clusters/demo/convert/plugins")]
     [InlineData("fleet", "/api/v1/clusters/demo/fleet")]

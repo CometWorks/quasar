@@ -97,8 +97,10 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         Assert.Null(installer.Redeem(first.Id, "Bearer wrong"));
         var script = Encoding.UTF8.GetString(installer.Redeem(first.Id, first.Auth)!);
         Assert.Contains("systemctl --user enable --now", script);
-        Assert.Contains("http://127.0.0.1:18400", Encoding.UTF8.GetString(Convert.FromBase64String(
-            Regex.Match(script, "printf '%s' '([^']+)' ").Groups[1].Value)));
+        Assert.Equal(1, Regex.Matches(script, "cat <<'QSR_BINARY'").Count);
+        Assert.Contains(Regex.Matches(script, "printf '%s' '([^']+)' ").Select(match =>
+            Encoding.UTF8.GetString(Convert.FromBase64String(match.Groups[1].Value))),
+            value => value.Contains("http://127.0.0.1:18400"));
         Assert.Null(installer.Redeem(first.Id, first.Auth));
         var second = Decode(installer.Issue(host.Id, "https://quasar.example.com"));
         var third = Decode(installer.Issue(host.Id, "https://quasar.example.com"));
@@ -110,6 +112,76 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         using var syntax = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("bash")
         { ArgumentList = { "-n", file }, UseShellExecute = false })!;
         await syntax.WaitForExitAsync(); Assert.Equal(0, syntax.ExitCode);
+    }
+
+    [Fact]
+    public async Task ExistingHostUpgradeKeepsStateAndRollsBackFailedRestart()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var host = await hosts.RegisterAsync("one", "One", "127.0.0.1", 18400, default);
+        string binary = Path.Combine(root, "Quasar.Host");
+        string home = Path.Combine(root, "home");
+        string fakeBin = Path.Combine(root, "fake-bin");
+        Directory.CreateDirectory(home);
+        Directory.CreateDirectory(fakeBin);
+        string systemctl = Path.Combine(fakeBin, "systemctl");
+        File.WriteAllText(systemctl, """
+            #!/bin/sh
+            echo "$*" >> "$HOME/systemctl.log"
+            if [ "$2" = restart ] && [ -e "$HOME/fail-restart" ]; then
+                rm "$HOME/fail-restart"
+                exit 1
+            fi
+            exit 0
+            """ + "\n");
+        File.SetUnixFileMode(systemctl, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var installer = new ClusterHostInstaller(hosts, credentials, binary, TimeProvider.System);
+        string installed = Path.Combine(home, ".local/share/Quasar/Hosts/one");
+
+        async Task<int> Install(string version, string origin)
+        {
+            File.WriteAllText(binary, version);
+            byte[] script = installer.BuildScript(host, new Uri(origin));
+            var start = new System.Diagnostics.ProcessStartInfo("bash")
+            {
+                RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            start.Environment["HOME"] = home;
+            start.Environment["PATH"] = fakeBin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
+            using var process = System.Diagnostics.Process.Start(start)!;
+            await process.StandardInput.BaseStream.WriteAsync(script);
+            process.StandardInput.Close();
+            _ = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            return process.ExitCode;
+        }
+
+        Assert.Equal(0, await Install("old", "http://localhost:8080"));
+        string configPath = Path.Combine(installed, "host.json");
+        string config = File.ReadAllText(configPath).Replace("\"attachments\":[]", "\"attachments\":[{\"name\":\"existing\"}]");
+        File.WriteAllText(configPath, config);
+        string credentialPath = Path.Combine(installed, "state/credentials.json");
+        string secret = File.ReadAllText(credentialPath);
+        File.WriteAllText(Path.Combine(installed, "state/keep"), "running cluster state");
+
+        Assert.Equal(0, await Install("new", "http://127.0.0.1:8080"));
+        Assert.Equal("new", File.ReadAllText(Path.Combine(installed, "Quasar.Host")));
+        Assert.Equal(config, File.ReadAllText(configPath));
+        Assert.Equal(secret, File.ReadAllText(credentialPath));
+        Assert.Equal("running cluster state", File.ReadAllText(Path.Combine(installed, "state/keep")));
+        Assert.Equal(1, File.ReadAllLines(Path.Combine(home, "systemctl.log")).Count(line => line.Contains(" restart ")));
+
+        Assert.Equal(0, await Install("new", "http://127.0.0.1:8080"));
+        Assert.Equal(1, File.ReadAllLines(Path.Combine(home, "systemctl.log")).Count(line => line.Contains(" restart ")));
+
+        File.WriteAllText(Path.Combine(home, "fail-restart"), "fail once");
+        Assert.NotEqual(0, await Install("broken", "http://127.0.0.1:8080"));
+        Assert.Equal("new", File.ReadAllText(Path.Combine(installed, "Quasar.Host")));
+
+        File.WriteAllText(credentialPath, "different enrollment");
+        Assert.NotEqual(0, await Install("foreign", "http://127.0.0.1:8080"));
+        Assert.Equal("new", File.ReadAllText(Path.Combine(installed, "Quasar.Host")));
     }
 
     [Fact]

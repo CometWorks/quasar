@@ -79,7 +79,9 @@ public sealed class ClusterHostInstaller
             command = new { url = "http://127.0.0.1:" + host.CommandPort, tokenEnvironmentVariable = host.CredentialReference },
             connection = new { quasarUrl = origin.AbsoluteUri, tokenEnvironmentVariable = host.CredentialReference } };
         string Config(object value) => Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(value));
-        string payload = Convert.ToBase64String(File.ReadAllBytes(binary), Base64FormattingOptions.InsertLineBreaks).Replace("\r", "");
+        byte[] binaryBytes = File.ReadAllBytes(binary);
+        string binaryHash = Convert.ToHexString(SHA256.HashData(binaryBytes)).ToLowerInvariant();
+        string payload = Convert.ToBase64String(binaryBytes, Base64FormattingOptions.InsertLineBreaks).Replace("\r", "");
         string secret = Config(new Dictionary<string, string> { [host.CredentialReference] = credentials.Resolve(host.CredentialReference)! });
         return Encoding.UTF8.GetBytes($$"""
             #!/usr/bin/env bash
@@ -87,27 +89,70 @@ public sealed class ClusterHostInstaller
             umask 077
             test "$(uname -s)" = Linux && test "$(uname -m)" = x86_64 || { echo 'A Linux x64 machine is required.' >&2; exit 1; }
             command -v python3 >/dev/null || { echo 'Install Python 3 before enrolling this machine.' >&2; exit 1; }
+            command -v flock >/dev/null || { echo 'Install util-linux flock before enrolling this machine.' >&2; exit 1; }
             command -v dotnet >/dev/null && dotnet --list-runtimes | grep -q '^Microsoft.NETCore.App 10\.' || { echo 'Install the .NET 10 runtime before enrolling this machine. Gateway and world tools require it.' >&2; exit 1; }
             systemctl --user show-environment >/dev/null || { echo 'A working systemd user session is required.' >&2; exit 1; }
             qsr_root="$HOME/.local/share/Quasar/Hosts/{{host.Id}}"
-            test ! -L "$qsr_root" || { echo 'The Host directory must not be a symbolic link.' >&2; exit 1; }
-            if test -e "$qsr_root"; then
-                # Retry only this exact enrollment. Never overwrite another Host or a changed installation.
-                printf '%s' '{{Config(config)}}' | base64 --decode | cmp -s - "$qsr_root/host.json" || { echo 'Existing Host configuration differs; its data has been preserved.' >&2; exit 1; }
-                printf '%s' '{{secret}}' | base64 --decode | cmp -s - "$qsr_root/state/credentials.json" || { echo 'Existing Host credentials differ; its data has been preserved.' >&2; exit 1; }
-                test "$(sha256sum "$qsr_root/Quasar.Host" | cut -d ' ' -f 1)" = '{{Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(binary))).ToLowerInvariant()}}' || { echo 'Existing Host binary differs; its data has been preserved.' >&2; exit 1; }
-            else
+            qsr_unit=quasar-host-{{host.Id}}.service
             mkdir -p "$(dirname "$qsr_root")" "$HOME/.config/systemd/user"
+            exec 9>"$(dirname "$qsr_root")/.{{host.Id}}.install.lock"
+            flock -x 9
+            test ! -L "$qsr_root" || { echo 'The Host directory must not be a symbolic link.' >&2; exit 1; }
+            qsr_stage=''
+            qsr_backup=''
+            qsr_upgrade_pending=0
+            qsr_needs_restart=0
+            qsr_new_install=0
+            qsr_cleanup() {
+                if test "$qsr_upgrade_pending" = 1; then
+                    mv -f -- "$qsr_backup" "$qsr_root/Quasar.Host"
+                    systemctl --user restart "$qsr_unit" || true
+                fi
+                if test -n "$qsr_stage"; then rm -rf -- "$qsr_stage"; fi
+                if test -n "$qsr_backup"; then rm -f -- "$qsr_backup"; fi
+            }
+            trap qsr_cleanup EXIT
+            trap 'exit 1' INT TERM
+            if test -e "$qsr_root"; then
+                # Keep runtime configuration and state; verify this is the same enrollment.
+                python3 - "$qsr_root/host.json" '{{host.Id}}' '{{host.CredentialReference}}' 'http://127.0.0.1:{{host.CommandPort}}' <<'QSR_CHECK'
+            import json, sys
+            with open(sys.argv[1]) as file:
+                config = json.load(file)
+            if (config.get('hostId') != sys.argv[2] or config.get('executorId') != 'quasar-' + sys.argv[2]
+                or config.get('command', {}).get('tokenEnvironmentVariable') != sys.argv[3]
+                or config.get('connection', {}).get('tokenEnvironmentVariable') != sys.argv[3]
+                or config.get('command', {}).get('url') != sys.argv[4]):
+                sys.exit('Existing Host belongs to a different enrollment; its data has been preserved.')
+            QSR_CHECK
+                printf '%s' '{{secret}}' | base64 --decode | cmp -s - "$qsr_root/state/credentials.json" || { echo 'Existing Host credentials differ; its data has been preserved.' >&2; exit 1; }
+                if test "$(sha256sum "$qsr_root/Quasar.Host" | cut -d ' ' -f 1)" != '{{binaryHash}}'; then
+                    qsr_stage=$(mktemp "$qsr_root/.Quasar.Host.new.XXXXXX")
+                    qsr_binary_target="$qsr_stage"
+                    qsr_needs_restart=1
+                fi
+            else
             qsr_stage=$(mktemp -d "$(dirname "$qsr_root")/.enroll-XXXXXX")
-            trap 'rm -rf "$qsr_stage"' EXIT
             mkdir "$qsr_stage/state"
-            cat <<'QSR_BINARY' | base64 --decode > "$qsr_stage/Quasar.Host"
-            {{payload}}
-            QSR_BINARY
-            chmod 700 "$qsr_stage/Quasar.Host"
+            qsr_binary_target="$qsr_stage/Quasar.Host"
+            qsr_new_install=1
             printf '%s' '{{Config(config)}}' | base64 --decode > "$qsr_stage/host.json"
             printf '%s' '{{secret}}' | base64 --decode > "$qsr_stage/state/credentials.json"
             chmod 600 "$qsr_stage/host.json" "$qsr_stage/state/credentials.json"
+            fi
+            if test -n "${qsr_binary_target:-}"; then
+            cat <<'QSR_BINARY' | base64 --decode > "$qsr_binary_target"
+            {{payload}}
+            QSR_BINARY
+            test "$(sha256sum "$qsr_binary_target" | cut -d ' ' -f 1)" = '{{binaryHash}}'
+            chmod 700 "$qsr_binary_target"
+            fi
+            if test "$qsr_needs_restart" = 1; then
+            qsr_backup=$(mktemp "$qsr_root/.Quasar.Host.backup.XXXXXX")
+            cp -p -- "$qsr_root/Quasar.Host" "$qsr_backup"
+            qsr_upgrade_pending=1
+            mv -f -- "$qsr_stage" "$qsr_root/Quasar.Host"
+            elif test "$qsr_new_install" = 1; then
             mv -T "$qsr_stage" "$qsr_root"
             fi
             mkdir -p "$qsr_root/bin"
@@ -126,8 +171,15 @@ public sealed class ClusterHostInstaller
             WantedBy=default.target
             QSR_UNIT
             systemctl --user daemon-reload
-            systemctl --user enable --now quasar-host-{{host.Id}}.service
-            echo 'Quasar Host installed. Enable user lingering if it must run after logout: loginctl enable-linger'
+            if test "$qsr_needs_restart" = 1; then
+                systemctl --user restart "$qsr_unit"
+                sleep 2
+                systemctl --user is-active --quiet "$qsr_unit"
+                qsr_upgrade_pending=0
+            else
+                systemctl --user enable --now "$qsr_unit"
+            fi
+            echo 'Quasar Host installed or updated. Enable user lingering if it must run after logout: loginctl enable-linger'
             """);
     }
 

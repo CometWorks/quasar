@@ -14,7 +14,7 @@
         <MudText>Install a Quasar Host on a Linux x64 machine. It connects back to Quasar securely; its control port stays on loopback. Gateways and game nodes continue running if Quasar disconnects.</MudText>
         <MudSelect T="string" Label="Registration" Value="_existing" ValueChanged="SelectExisting">
             <MudSelectItem Value="@(string.Empty)">New machine</MudSelectItem>
-            @foreach (var host in Hosts.GetAll()) { <MudSelectItem Value="host.Id">@host.Name — resume enrollment</MudSelectItem> }
+            @foreach (var host in Hosts.GetAll()) { <MudSelectItem Value="host.Id">@host.Name — resume or update Host</MudSelectItem> }
         </MudSelect>
         <MudTextField T="string" Label="Machine ID" @bind-Value="_id" Disabled="@(_host is not null)" HelperText="A unique lowercase name, such as game-host-1. Letters, numbers and hyphens only." />
         <MudTextField T="string" Label="Display name" @bind-Value="_name" Disabled="@(_host is not null)" HelperText="A friendly name shown in placement and monitoring." />
@@ -32,7 +32,7 @@
             <MudNumericField T="int" Label="SSH port" @bind-Value="_sshPort" Min="1" Max="65535" />
             <MudTextField T="string" Label="SSH private key file (optional)" @bind-Value="_sshKey" HelperText="An existing key path on the Quasar machine. Leave empty to use its SSH agent/default keys. The remote host key must already be trusted in known_hosts; Quasar never disables host-key checking." />
         }
-        <MudText Typo="Typo.body2">The machine needs Python 3, the .NET 10 runtime, and a working systemd user session. Installation uses your account, preserves existing installations, and generates its authentication credentials automatically. Enable user lingering (loginctl enable-linger) if the Host must stay running after logout.</MudText>
+        <MudText Typo="Typo.body2">The machine needs Python 3, util-linux flock, the .NET 10 runtime, and a working systemd user session. Installation uses your account and generates its authentication credentials automatically. Updating an existing Host keeps its configuration, credentials, state, and managed cluster processes. Enable user lingering (loginctl enable-linger) if the Host must stay running after logout.</MudText>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InstallAsync" Disabled="_busy">@(_method == "command" ? "Generate enrollment command" : "Install Host")</MudButton>
         @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
         @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }

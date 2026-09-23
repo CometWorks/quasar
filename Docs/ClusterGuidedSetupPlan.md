@@ -17,6 +17,9 @@ Magnetar with an unrecognized preparation flag.
    The same matching Quasar.Host executable is used in all three cases. Enrollment
    requires security-administration permission; SSH uses keys/agent and strict
    `known_hosts` verification. Password login and host-key bypass are not supported.
+   To update an enrolled Host, select its existing registration on that page and run
+   installation again. The Host binary comes from the active Quasar web release, so
+   a prerelease Quasar can update its Hosts without changing the cluster package pin.
 3. Select a world template, configuration profile, Gateway machine and node counts.
    At least two regular nodes are required. The Gateway machine also runs the WA.
 4. Quasar provisions DS/Magnetar, stages a verified stable cluster release whose
@@ -27,7 +30,7 @@ Magnetar with an unrecognized preparation flag.
    inputs to every Host, prepares one revision and activates it stopped. Choose
    **Start** on the cluster controls when ready.
 
-Machines need Python 3, .NET 10 and a working systemd user session. Quasar itself
+Machines need Python 3, util-linux `flock`, .NET 10 and a working systemd user session. Quasar itself
 also needs .NET 10 for the shipped world converter. Remote enrollment requires a
 Quasar HTTPS origin reachable from the target; loopback HTTP is allowed locally.
 Machines use private IPv4 LAN/VPN addresses or IPv6 ULA addresses for cluster traffic.
@@ -103,8 +106,10 @@ from Quasar; the tunnel is for Host control only.
 The Linux worker archive includes its matching Host executable. Host publishing
 embeds native runtime libraries so the installer can deploy that executable alone.
 Enrollment downloads expire after 15 minutes and are single-use; issuing a replacement
-invalidates the previous ticket. Installation stages files before publication and
-can replay the same completed enrollment without overwriting different data. A page
+invalidates the previous ticket. Installation stages files before publication.
+Reinstalling the same registration verifies its identity and credentials, keeps its
+configuration and state, and atomically replaces a different Host binary. It restarts
+only the Host systemd unit; a failed restart restores the previous binary. A page
 reload can select an existing registration and generate a new ticket or retry SSH.
 
 Machine and cluster credentials are generated automatically, encrypted with Quasar

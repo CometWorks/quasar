@@ -1262,8 +1262,10 @@ account. The cluster release cannot ship that file and a cluster machine usually
 nor SteamCMD. Guided setup and conversion therefore send the copy from Quasar's managed SteamCMD
 (`linux64/steamclient.so`) to the Gateway Host, which verifies its SHA-256 and stages it with an
 atomic rename. If Quasar has no copy, setup continues and logs that the Gateway only starts when
-the Host account already has the file. An older Host without this capability is refused with
-"Update the Gateway Host".
+the Host account already has the file. An older Host without this capability is refused;
+update its existing registration through **Hosts → Add cluster machine** using the
+Host binary bundled with the active Quasar web release. The cluster package pin does
+not select the Host binary.
 
 Executor credentials are separate from Query/Manage credentials. The scoped Gateway
 token file gives each credential scope `Executor` and name equal to the Host ID.
