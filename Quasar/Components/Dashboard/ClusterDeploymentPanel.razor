@@ -4,9 +4,11 @@
 @inject ClusterCatalog Catalog
 @inject ClusterBackupService Backups
 @inject ClusterUpdateService Updates
+@inject QuasarConfigProfileCatalog Profiles
 @inject QuasarPermissionService Permissions
 @inject AuthenticationStateProvider AuthenticationState
 @inject QuasarRoleMapper RoleMapper
+@inject IJSRuntime JS
 
 <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
     <MudCard Class="server-card">
@@ -18,7 +20,7 @@
         {
             <MudAlert Severity="Severity.Warning">Activation is incomplete. Resume the original activation request before starting the cluster.</MudAlert>
         }
-        <MudText Typo="Typo.body2">Prepare one specification for all Hosts, including the common plugin configuration. Activation requires a stopped cluster. Installations and converted world seeds must already be available on each Host.</MudText>
+        <MudText Typo="Typo.body2">Preparation builds a candidate on every Host from the verified installation, world seed and plugin settings in the request. It does not check for new releases or install them automatically. Update with full downtime later stops the cluster, activates the candidate, and starts it again after a clean shutdown.</MudText>
         @if (Current.Update is { } update)
         {
             <MudText>Update @update.Id: @update.Phase</MudText>
@@ -32,8 +34,13 @@
         <MudExpansionPanels>
             <MudExpansionPanel Text="Prepare or import a deployment">
                 <MudStack Spacing="3" Class="py-2 cluster-form-section">
-                <MudTextField T="string" Label="Deployment preparation request (JSON)" @bind-Value="_preparation" Lines="10" Disabled="_busy" />
-                <MudButton OnClick="PrepareAsync" Disabled="_busy">Prepare all Hosts</MudButton>
+                <MudText Typo="Typo.body2">@(_preparationRequest is null
+                    ? "No preparation request is saved. Import one to prepare a deployment."
+                    : $"Preparation request loaded for {_preparationRequest.Hosts.Length} Host(s).")</MudText>
+                <MudButton OnClick="DownloadPreparationAsync" Disabled="@(_busy || _preparationRequest is null)">Download request JSON</MudButton>
+                <MudText Typo="Typo.caption">To change installation or topology inputs, edit the downloaded file and import it here.</MudText>
+                <InputFile OnChange="ImportPreparationAsync" accept=".json,application/json" disabled="@_busy" />
+                <MudButton OnClick="PrepareAsync" Disabled="@(_busy || _preparationRequest is null)">Prepare all Hosts</MudButton>
                 <MudExpansionPanels>
                 @foreach (var plugin in PreparedPlugins())
                 {
@@ -93,7 +100,8 @@
     [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = default!;
     private ClusterDefinition Current => Catalog.GetCluster(Cluster.UniqueName) ?? Cluster;
     private string _artifactId = "";
-    private string _preparation = "", _activation = "", _restore = "";
+    private ClusterPreparationRequest? _preparationRequest;
+    private string _activation = "", _restore = "";
     private string? _backups;
     private string? _message;
     private bool _busy;
@@ -101,7 +109,7 @@
     protected override void OnInitialized()
     {
         Catalog.Changed += CatalogChanged;
-        if (Current.Preparation is not null) _preparation = JsonSerializer.Serialize(Current.Preparation, Json);
+        _preparationRequest = Current.Preparation;
     }
     private void CatalogChanged() => _ = InvokeAsync(StateHasChanged);
     public void Dispose() => Catalog.Changed -= CatalogChanged;
@@ -109,25 +117,39 @@
     {
         try
         {
-            var request = JsonSerializer.Deserialize<ClusterPreparationRequest>(_preparation, Json);
-            using var spec = JsonDocument.Parse(request?.SpecificationJson ?? "{}");
+            using var spec = JsonDocument.Parse(_preparationRequest?.SpecificationJson ?? "{}");
             if (!spec.RootElement.TryGetProperty("pluginConfigurations", out var plugins)) return [];
             return plugins.EnumerateObject().SelectMany(plugin =>
                 (plugin.Value.TryGetProperty("configurations", out var configs) ? configs.EnumerateArray().ToArray() : [plugin.Value])
                 .Where(config => config.TryGetProperty("configuration", out _))
                 .Select(config => new Magnetar.Protocol.Model.PluginConfigData { PluginId = plugin.Name,
-                    DisplayName = plugin.Name + (plugin.Value.TryGetProperty("configurations", out _) ? " / " + config.GetProperty("configType").GetString() : ""),
+                    DisplayName = PluginDisplayName(plugin.Name) + (plugin.Value.TryGetProperty("configurations", out _) ? " / " + config.GetProperty("configType").GetString() : ""),
                     ConfigType = config.GetProperty("configType").GetString() ?? "",
                     ConfigJson = config.GetProperty("configuration").GetRawText() })).ToArray();
         }
-        catch (JsonException) { return []; }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException)
+        { return []; }
+    }
+    private string PluginDisplayName(string pluginId)
+    {
+        string? name = Profiles.GetProfile(Current.ConfigProfileId)?.Plugins
+            .FirstOrDefault(plugin => plugin.PluginId.Equals(pluginId, StringComparison.OrdinalIgnoreCase))?.DisplayName;
+        if (!string.IsNullOrWhiteSpace(name)) return name;
+        return pluginId switch
+        {
+            "direct-transport" => "Direct Transport",
+            "dotnet-compat" => ".NET Compatibility",
+            "linux-compat" => "Linux Compatibility",
+            "quasar-agent" => "Quasar Agent",
+            _ => pluginId,
+        };
     }
     private async Task SavePluginAsync(string pluginId, string configType, string values)
     {
         if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) throw new InvalidOperationException("Cluster management is unavailable.");
         var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
         if (!user.CanQueryCluster(Cluster.UniqueName)) throw new InvalidOperationException("Cluster access denied.");
-        var request = JsonSerializer.Deserialize<ClusterPreparationRequest>(_preparation, Json) ?? throw new InvalidDataException("Preparation is required.");
+        var request = _preparationRequest ?? throw new InvalidDataException("Preparation is required.");
         var spec = System.Text.Json.Nodes.JsonNode.Parse(request.SpecificationJson)!;
         SetPluginValues(spec, pluginId, configType, values);
         string json = spec.ToJsonString();
@@ -139,9 +161,43 @@
         {
             var result = await Deployments.PrepareAsync(Cluster.UniqueName, request, "plugin-config-" + hash, user.Identity?.Name ?? "web-ui", default);
             if (result.State != ClusterOperationState.Succeeded) throw new InvalidOperationException(result.Error?.Message ?? "Configuration preparation is incomplete.");
-            _preparation = JsonSerializer.Serialize(request, Json);
+            _preparationRequest = request;
             _activation = JsonSerializer.Serialize(result.Result, Json);
         }
+        finally { _busy = false; }
+    }
+    private Task DownloadPreparationAsync()
+    {
+        if (_preparationRequest is null) return Task.CompletedTask;
+        string json = JsonSerializer.Serialize(_preparationRequest, Json);
+        string url = "data:application/json;charset=utf-8," + Uri.EscapeDataString(json);
+        return JS.InvokeVoidAsync("quasarConfigs.downloadFile", url, $"{Cluster.UniqueName}-preparation.json").AsTask();
+    }
+    private async Task ImportPreparationAsync(InputFileChangeEventArgs args)
+    {
+        if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        if (!user.CanQueryCluster(Cluster.UniqueName)) return;
+        _busy = true;
+        try
+        {
+            await using var stream = args.File.OpenReadStream(24 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var request = JsonSerializer.Deserialize<ClusterPreparationRequest>(await reader.ReadToEndAsync(), Json)
+                ?? throw new InvalidDataException("Preparation request is empty.");
+            if (string.IsNullOrWhiteSpace(request.SpecificationJson) || request.Hosts is null or { Length: 0 })
+                throw new InvalidDataException("Preparation request needs a specification and at least one Host.");
+            using var specification = JsonDocument.Parse(request.SpecificationJson);
+            if (specification.RootElement.ValueKind != JsonValueKind.Object
+                || !specification.RootElement.TryGetProperty("clusterId", out var clusterId)
+                || clusterId.ValueKind != JsonValueKind.String || clusterId.GetString() != Cluster.UniqueName)
+                throw new InvalidDataException("Preparation request identifies a different cluster.");
+            _preparationRequest = request;
+            _message = "Preparation request imported. Select Prepare all Hosts to create a candidate deployment.";
+        }
+        catch (Exception error) when (error is IOException or InvalidDataException or JsonException
+            or InvalidOperationException or ArgumentException)
+        { _message = error.Message; }
         finally { _busy = false; }
     }
     internal static void SetPluginValues(System.Text.Json.Nodes.JsonNode specification, string pluginId, string configType, string values)
@@ -162,7 +218,7 @@
         Guid.NewGuid().ToString("N"), actor, default));
     private Task PrepareAsync() => ExecuteAsync(async actor =>
     {
-        var request = JsonSerializer.Deserialize<ClusterPreparationRequest>(_preparation, Json) ?? throw new InvalidDataException("Preparation request is required.");
+        var request = _preparationRequest ?? throw new InvalidDataException("Preparation request is required.");
         var result = await Deployments.PrepareAsync(Cluster.UniqueName, request, Guid.NewGuid().ToString("N"), actor, default);
         if (result.State == ClusterOperationState.Succeeded) _activation = JsonSerializer.Serialize(result.Result, Json);
         return result;

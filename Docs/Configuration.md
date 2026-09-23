@@ -1356,8 +1356,14 @@ while node readiness appears in capacity, avoiding the repeated component summar
 Advanced details retain reconciliation, executor, Registry and slot information.
 
 The cluster deployment panel persists one preparation specification for all Hosts.
+The panel shows a short summary of the saved request instead of binding its large,
+nested JSON string to a browser text field. Download the request to inspect or edit
+advanced installation and topology inputs, then import the JSON file before selecting
+**Prepare all Hosts**. Importing only loads the request in the page; preparation runs
+when selected. Release checks only notify; they do not prepare or apply deployments.
 PluginSdk configuration schemas reuse the ordinary editor. Each configuration type has
-its own editor when a plugin owns multiple types. Conversion keeps the existing primary
+its own editor when a plugin owns multiple types. The editor labels selected plugins
+with names from the assigned cluster profile instead of their GUIDs. Conversion keeps the existing primary
 configuration and includes additional public or SDK-tracked types, including loaded private
 and static configurations. Older Agent snapshots containing only a primary type remain
 readable. SDK-tracked-only configurations are captured for conversion; the standalone
