@@ -42,6 +42,107 @@ public sealed class ClusterOperationStoreTests
     }
 
     [Fact]
+    public async Task UnreadableRecordIsQuarantinedAndStoreStaysReady()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());
+        try
+        {
+            var first = new ClusterOperationStore(directory);
+            var kept = await first.ExecuteAsync("demo", "cluster.goal.set", "goal-1", "factory", "off",
+                _ => Task.FromResult(new AdminEnvelope<string>(1, DateTimeOffset.UtcNow, "off")), default);
+            File.WriteAllBytes(Path.Combine(directory, "zero.json"), []);
+            File.WriteAllText(Path.Combine(directory, "torn.json"), "{\"operationId\":");
+            File.WriteAllText(Path.Combine(directory, "anonymous.json"), "{}");
+
+            var store = new ClusterOperationStore(directory);
+
+            Assert.True(store.IsReady);
+            Assert.Equal(kept.OperationId, store.Get(kept.OperationId)?.OperationId);
+            foreach (string name in new[] { "zero", "torn", "anonymous" })
+            {
+                Assert.False(File.Exists(Path.Combine(directory, name + ".json")));
+                Assert.True(File.Exists(Path.Combine(directory, name + ".json.corrupt")));
+            }
+            var next = await store.ExecuteAsync("demo", "cluster.goal.set", "goal-2", "factory", "on",
+                _ => Task.FromResult(new AdminEnvelope<string>(1, DateTimeOffset.UtcNow, "on")), default);
+            Assert.Equal(ClusterOperationState.Succeeded, next.State);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task StoreRecoversAfterTransientWriteFailure()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root") return;
+        string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());
+        try
+        {
+            var store = new ClusterOperationStore(directory);
+            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            await Assert.ThrowsAnyAsync<Exception>(() => store.ExecuteAsync("demo", "cluster.goal.set", "goal-1", "factory", "off",
+                _ => Task.FromResult(new AdminEnvelope<string>(1, DateTimeOffset.UtcNow, "off")), default));
+            Assert.False(store.IsReady);
+            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            Assert.True(store.IsReady);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                Directory.Delete(directory, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task UnexpectedFailureAndCancellationCloseTheOperation()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());
+        try
+        {
+            var store = new ClusterOperationStore(directory);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => store.ExecuteAsync<string, string>("demo", "cluster.goal.set", "goal-1",
+                "factory", "on", _ => throw new InvalidOperationException("Complete the interrupted deployment first."), default));
+            using var disconnected = new CancellationTokenSource();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.ExecuteAsync<string, string>("demo", "cluster.backup.create", "backup-1",
+                "factory", "backup", async token => { disconnected.Cancel(); await Task.Delay(Timeout.Infinite, token); return null!; }, disconnected.Token));
+
+            Assert.False(store.HasPendingOperations("demo"));
+            var recovered = new ClusterOperationStore(directory);
+            Assert.False(recovered.HasPendingOperations("demo"));
+            var replay = await recovered.ExecuteAsync<string, string>("demo", "cluster.goal.set", "goal-1", "factory", "on",
+                _ => throw new Xunit.Sdk.XunitException("must not repeat"), default);
+            Assert.Equal(ClusterOperationState.Failed, replay.State);
+            Assert.Equal("operation_failed", replay.Error!.Code);
+            var cancelled = await recovered.ExecuteAsync<string, string>("demo", "cluster.backup.create", "backup-1", "factory", "backup",
+                _ => throw new Xunit.Sdk.XunitException("must not repeat"), default);
+            Assert.Equal("operation_cancelled", cancelled.Error!.Code);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task LocalOperationLeftRunningByARestartIsFailedAtStartup()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());
+        try
+        {
+            var done = await new ClusterOperationStore(directory).ExecuteAsync("demo", "cluster.backup.create", "backup-1", "factory", "backup",
+                _ => Task.FromResult(new AdminEnvelope<string>(1, DateTimeOffset.UtcNow, "done")), default);
+            string path = Path.Combine(directory, done.OperationId + ".json");
+            File.WriteAllText(path, File.ReadAllText(path).Replace("\"Succeeded\"", "\"Running\""));
+
+            var store = new ClusterOperationStore(directory);
+
+            Assert.False(store.HasPendingOperations("demo"));
+            Assert.Equal("interrupted_by_restart", store.Get(done.OperationId)!.Error!.Code);
+            Assert.Contains("interrupted_by_restart", File.ReadAllText(path));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task PackageFailureIsPersistedAndReplayedAfterRestart()
     {
         string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());

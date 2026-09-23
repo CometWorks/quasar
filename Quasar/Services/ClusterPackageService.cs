@@ -32,16 +32,35 @@ public sealed class ClusterPackageService
     private readonly string _directory;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public ClusterPackageService(IHttpClientFactory clients, GitHubUpdateCredentialsCatalog credentials)
-        : this(clients, () => credentials.GetCredentials().Token,
-            Path.Combine(MagnetarPaths.GetQuasarManagedRuntimeToolsDirectory(), "Cluster")) { }
+    private readonly Uri? _archiveOverride;
+    private readonly string? _archiveOverrideError;
 
-    internal ClusterPackageService(IHttpClientFactory clients, Func<string> token, string directory)
-        => (_clients, _token, _directory) = (clients, token, directory);
+    public ClusterPackageService(IHttpClientFactory clients, GitHubUpdateCredentialsCatalog credentials, ManagedRuntimeOptions options)
+        : this(clients, () => credentials.GetCredentials().Token,
+            Path.Combine(MagnetarPaths.GetQuasarManagedRuntimeToolsDirectory(), "Cluster"), options.ClusterArchiveUrl) { }
+
+    internal ClusterPackageService(IHttpClientFactory clients, Func<string> token, string directory, string? archiveUrl = null)
+    {
+        (_clients, _token, _directory) = (clients, token, directory);
+        if (string.IsNullOrWhiteSpace(archiveUrl)) return;
+        if (!Uri.TryCreate(archiveUrl.Trim(), UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https" or "file")
+            || !Regex.IsMatch(Path.GetFileName(uri.AbsolutePath), @"\AClusterForLinux-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz\z"))
+        {
+            // Reported on use: a development misconfiguration must not fail the construction of a singleton.
+            _archiveOverrideError = $"QUASAR_CLUSTER_ARCHIVE_URL must be an http(s) or file URL of a ClusterForLinux-<version>.tar.gz file, not '{archiveUrl.Trim()}'.";
+            return;
+        }
+        _archiveOverride = uri;
+    }
+
+    /// <summary>True when a development archive URL replaces the published GitHub releases.</summary>
+    public bool UsesArchiveOverride => _archiveOverride is not null || _archiveOverrideError is not null;
 
     public async Task<ClusterPackageRelease> GetReleaseAsync(string? version, CancellationToken token)
     {
         if (version is not null) ValidateVersion(version);
+        if (_archiveOverrideError is not null) throw new ClusterPackageException(_archiveOverrideError);
+        if (_archiveOverride is not null) return await GetOverrideReleaseAsync(version, token);
         using var client = CreateClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, RepositoryApi + "/releases/"
             + (version is null ? "latest" : "tags/v" + version));
@@ -74,14 +93,64 @@ public sealed class ClusterPackageService
         using var sums = await DownloadAssetAsync(client, Asset("SHA256SUMS").GetProperty("id").GetInt64(),
             $"SHA256SUMS for cluster v{resolved}", token);
         await sums.Content.LoadIntoBufferAsync(64 * 1024, token);
-        string checksums = await sums.Content.ReadAsStringAsync(token);
+        return new(resolved, release.GetProperty("id").GetInt64(), archive.GetProperty("id").GetInt64(),
+            size, ArchiveHash(await sums.Content.ReadAsStringAsync(token), archiveName));
+    }
+
+    // Development and test: the archive and its SHA256SUMS come from one directory, either of a local
+    // server (http/https) or of the file system (file://). The archive is verified exactly like a
+    // published one; the GitHub token is never sent to this URL.
+    private async Task<ClusterPackageRelease> GetOverrideReleaseAsync(string? version, CancellationToken token)
+    {
+        string archiveName = Path.GetFileName(_archiveOverride!.AbsolutePath);
+        string resolved = archiveName["ClusterForLinux-".Length..^".tar.gz".Length];
+        if (version is not null && version != resolved)
+            throw new ClusterPackageException($"QUASAR_CLUSTER_ARCHIVE_URL serves cluster v{resolved}, not the requested v{version}.");
+        if (_archiveOverride.IsFile)
+        {
+            string path = _archiveOverride.LocalPath, sumsPath = Path.Combine(Path.GetDirectoryName(path)!, "SHA256SUMS");
+            foreach (string required in new[] { path, sumsPath })
+                if (!File.Exists(required))
+                    throw new ClusterPackageException($"QUASAR_CLUSTER_ARCHIVE_URL: '{required}' does not exist. Keep the archive and its SHA256SUMS in the same directory.");
+            long length = new FileInfo(path).Length;
+            if (length <= 0 || length > MaxArchiveBytes)
+                throw new InvalidDataException("Cluster archive size is unknown or exceeds the supported limit.");
+            return new(resolved, 0, 0, length, ArchiveHash(await File.ReadAllTextAsync(sumsPath, token), archiveName));
+        }
+        using var client = CreateClient(authenticated: false);
+        using var head = await SendOverrideAsync(client, new(HttpMethod.Head, _archiveOverride), HttpCompletionOption.ResponseHeadersRead, token);
+        long size = head.Content.Headers.ContentLength ?? 0;
+        if (size <= 0 || size > MaxArchiveBytes)
+            throw new InvalidDataException("Cluster archive size is unknown or exceeds the supported limit.");
+        using var sums = await SendOverrideAsync(client, new(HttpMethod.Get, new Uri(_archiveOverride, "SHA256SUMS")),
+            HttpCompletionOption.ResponseContentRead, token);
+        await sums.Content.LoadIntoBufferAsync(64 * 1024, token);
+        return new(resolved, 0, 0, size, ArchiveHash(await sums.Content.ReadAsStringAsync(token), archiveName));
+    }
+
+    private async Task<HttpResponseMessage> SendOverrideAsync(HttpClient client, HttpRequestMessage request,
+        HttpCompletionOption completion, CancellationToken token)
+    {
+        using (request)
+        {
+            string context = $"Could not fetch {request.RequestUri} (QUASAR_CLUSTER_ARCHIVE_URL)";
+            HttpResponseMessage response;
+            try { response = await client.SendAsync(request, completion, token); }
+            catch (HttpRequestException error) { throw new ClusterPackageException(context + ": " + error.Message); }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested) { throw new ClusterPackageException(context + ": the request timed out."); }
+            if (response.IsSuccessStatusCode) return response;
+            using (response) throw new ClusterPackageException($"{context}: HTTP {(int)response.StatusCode}. Serve the archive and its SHA256SUMS from the same directory.");
+        }
+    }
+
+    private static string ArchiveHash(string checksums, string archiveName)
+    {
         var hashes = checksums.Split('\n').Select(line => line.Trim().Split((char[]?)null, 2,
                 StringSplitOptions.RemoveEmptyEntries))
             .Where(parts => parts.Length == 2 && parts[1].TrimStart('*') == archiveName).ToArray();
         if (hashes.Length != 1 || !IsHash(hashes[0][0], 64))
             throw new InvalidDataException("SHA256SUMS must identify the selected archive exactly once.");
-        return new(resolved, release.GetProperty("id").GetInt64(), archive.GetProperty("id").GetInt64(),
-            size, hashes[0][0].ToLowerInvariant());
+        return hashes[0][0].ToLowerInvariant();
     }
 
     public async Task<ClusterPackageInstallation> StageAsync(ClusterPackageRequest request, CancellationToken token)
@@ -102,6 +171,15 @@ public sealed class ClusterPackageService
             string destination = Path.Combine(_directory, release.Version);
             if (Directory.Exists(destination))
             {
+                // A development archive has no GitHub release identity; identical bytes are the same package.
+                if (_archiveOverride is not null)
+                {
+                    try { return await ReadInstallationAsync(request, token); }
+                    catch (InvalidDataException)
+                    {
+                        throw new InvalidDataException($"Cluster v{release.Version} is already staged with other content. Give the local build a new version or remove '{destination}', then retry.");
+                    }
+                }
                 var installed = await ReadInstallationAsync(request, token);
                 if (installed.Release != release)
                     throw new InvalidDataException("This version is already staged from different release assets.");
@@ -111,10 +189,12 @@ public sealed class ClusterPackageService
             staging = Path.Combine(_directory, ".stage-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(staging);
             string archivePath = Path.Combine(staging, "archive.tar.gz");
-            using (var client = CreateClient())
-            using (var response = await DownloadAssetAsync(client, release.ArchiveAssetId,
-                $"ClusterForLinux-{release.Version}.tar.gz", token))
-            await using (var source = await response.Content.ReadAsStreamAsync(token))
+            using (var client = CreateClient(authenticated: _archiveOverride is null))
+            using (var response = _archiveOverride is null
+                ? await DownloadAssetAsync(client, release.ArchiveAssetId, $"ClusterForLinux-{release.Version}.tar.gz", token)
+                : _archiveOverride.IsFile ? null
+                : await SendOverrideAsync(client, new(HttpMethod.Get, _archiveOverride), HttpCompletionOption.ResponseHeadersRead, token))
+            await using (var source = response is null ? File.OpenRead(_archiveOverride!.LocalPath) : await response.Content.ReadAsStreamAsync(token))
             await using (var target = File.Create(archivePath))
             {
                 byte[] buffer = new byte[81920];
@@ -186,8 +266,11 @@ public sealed class ClusterPackageService
             ?? throw new InvalidDataException("Package installation receipt is empty.");
         if (installed.Release is null || installed.Release.Version != request.Version
             || !string.Equals(installed.Release.Sha256, request.Sha256, StringComparison.OrdinalIgnoreCase)
-            || !IsHash(installed.Commit, 40) || installed.Release.ReleaseId <= 0
-            || installed.Release.ArchiveAssetId <= 0 || installed.Release.ArchiveBytes is <= 0 or > MaxArchiveBytes)
+            || !IsHash(installed.Commit, 40)
+            // Release and asset IDs are 0 for a package staged from a development archive URL.
+            || (_archiveOverride is null ? installed.Release.ReleaseId <= 0 || installed.Release.ArchiveAssetId <= 0
+                : installed.Release.ReleaseId < 0 || installed.Release.ArchiveAssetId < 0)
+            || installed.Release.ArchiveBytes is <= 0 or > MaxArchiveBytes)
             throw new InvalidDataException("Package installation identity does not match the selection.");
         await VerifyInstallationAsync(directory, installed, token);
         using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(
@@ -261,12 +344,12 @@ public sealed class ClusterPackageService
             throw new InvalidDataException("Staged package files are missing.");
     }
 
-    private HttpClient CreateClient()
+    private HttpClient CreateClient(bool authenticated = true)
     {
         var client = _clients.CreateClient(string.Empty); // Existing GitHub retry handler and encrypted credentials.
         client.Timeout = TimeSpan.FromMinutes(10);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Quasar");
-        string credential = _token();
+        string credential = authenticated ? _token() : "";
         if (!string.IsNullOrWhiteSpace(credential))
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", credential);
         return client;

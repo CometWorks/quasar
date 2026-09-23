@@ -85,6 +85,8 @@ internal sealed class GatewayActualizer
         if (record is not null && match.State == ProcessMatchState.Alive)
         {
             using Process process = match.Process!;
+            if (DateTimeOffset.UtcNow - record.LaunchedAt > StableAfter)
+                lock (_respawns) _respawns.Remove(spec.ClusterId);
             return Status(spec, HostContract.GatewayObservedState.Running,
                 record.ProcessId, record.LaunchedAt, null);
         }
@@ -97,8 +99,31 @@ internal sealed class GatewayActualizer
                 record.ProcessId, record.LaunchedAt, "process_exited");
         }
 
+        // A Gateway that keeps failing is respawned with a growing delay: every attempt verifies
+        // the whole bundle while the Host execution gate is held. A changed spec (a new start
+        // generation from goal On included) retries at once.
+        string specKey = spec.BundleManifestSha256 + "/" + spec.ConfigRevision + "/" + spec.StartGeneration;
+        lock (_respawns)
+        {
+            long now = Environment.TickCount64;
+            _respawns.TryGetValue(spec.ClusterId, out Respawn? respawn);
+            if (respawn?.SpecKey != specKey) respawn = null;
+            if (respawn is not null && now < respawn.NotBefore && record?.Status == GatewayLaunchStatus.Failed)
+                return Status(spec, HostContract.GatewayObservedState.Failed, record.ProcessId, record.LaunchedAt,
+                    (record.Failure ?? "spawn_failed") + $";respawn_in_seconds={(respawn.NotBefore - now + 999) / 1000}");
+            int attempts = (respawn?.Attempts ?? 0) + 1;
+            _respawns[spec.ClusterId] = new(specKey, attempts, now + RespawnDelay(attempts));
+        }
         return Spawn(spec);
     }
+
+    private static readonly TimeSpan StableAfter = TimeSpan.FromMinutes(2);
+    private readonly Dictionary<string, Respawn> _respawns = new(StringComparer.OrdinalIgnoreCase);
+    private sealed record Respawn(string SpecKey, int Attempts, long NotBefore);
+
+    // 5 s, 10 s, 20 s ... capped at 5 minutes.
+    internal static long RespawnDelay(int attempts) =>
+        (long)Math.Min(TimeSpan.FromMinutes(5).TotalMilliseconds, 5000 * Math.Pow(2, Math.Min(attempts - 1, 10)));
 
     private async Task<HostContract.GatewayStatus> ReconcileOffAsync(
         HostContract.GatewaySpec spec, GatewayLaunchRecord? record, ProcessMatch match,
@@ -141,6 +166,7 @@ internal sealed class GatewayActualizer
     private HostContract.GatewayStatus Spawn(HostContract.GatewaySpec spec)
     {
         bool processStarted = false;
+        Process? process = null;
         try
         {
             VerifiedBundle bundle = LoadAndVerifyBundle(spec);
@@ -160,7 +186,7 @@ internal sealed class GatewayActualizer
                 GatewayLaunchStatus.Launching, null, spec.StartGeneration);
             WriteRecord(record);
 
-            using var process = new Process
+            process = new Process
             {
                 StartInfo = CreateStartInfo(spec, spawn, bundle.Root, executablePath),
             };
@@ -171,6 +197,7 @@ internal sealed class GatewayActualizer
             {
                 ProcessId = process.Id,
                 ProcessStartedAt = process.StartTime.ToUniversalTime(),
+                ProcessIdentity = global::Quasar.Host.ProcessIdentity.Capture(process.Id),
                 Status = GatewayLaunchStatus.Running,
             };
             WriteRecord(record);
@@ -181,11 +208,13 @@ internal sealed class GatewayActualizer
             or InvalidOperationException or UnauthorizedAccessException or CryptographicException
             or ArgumentException or System.ComponentModel.Win32Exception)
         {
-            if (processStarted)
+            // Still ours through this handle: stop it rather than leave a permanent conflict.
+            if (processStarted && !NodeActualizer.TryStop(process!))
                 return Status(spec, HostContract.GatewayObservedState.UnmanagedConflict,
                     null, null, "started_process_identity_not_committed");
             string failure = exception is UnmanagedConflictException
                 ? "unmanaged_conflict:" + exception.Message
+                : processStarted ? "spawn_commit_failed:" + exception.Message
                 : "spawn_preflight_failed:" + exception.Message;
             WriteRecord(new GatewayLaunchRecord(SchemaVersion, spec.ClusterId, string.Empty,
                 spec.BundleManifestSha256, spec.ConfigRevision, string.Empty, string.Empty,
@@ -196,6 +225,7 @@ internal sealed class GatewayActualizer
                     : HostContract.GatewayObservedState.Failed,
                 null, null, failure);
         }
+        finally { process?.Dispose(); }
     }
 
     private static ProcessStartInfo CreateStartInfo(HostContract.GatewaySpec spec,
@@ -272,6 +302,10 @@ internal sealed class GatewayActualizer
     {
         if (record?.ProcessId is not int processId)
             return new ProcessMatch(ProcessMatchState.Missing, null);
+        // Final states are written only after the process was verified gone; its PID may since
+        // belong to an unrelated process and must not be read as a conflict.
+        if (record.Status is GatewayLaunchStatus.Failed or GatewayLaunchStatus.Stopped)
+            return new ProcessMatch(ProcessMatchState.Missing, null);
         Process process;
         try
         {
@@ -288,10 +322,21 @@ internal sealed class GatewayActualizer
         }
         try
         {
-            DateTimeOffset started = process.StartTime.ToUniversalTime();
+            bool? sameProcess = ProcessIdentity.Matches(record.ProcessIdentity, processId);
+            if (sameProcess is null && record.ProcessStartedAt is { } recordedStart)
+            {
+                bool sameStart = Math.Abs((process.StartTime.ToUniversalTime() - recordedStart).TotalSeconds) <= 1;
+                // The Windows creation time never moves, so a mismatch proves PID reuse. The Linux
+                // start time is derived from the wall clock; without a recorded identity a mismatch stays a conflict.
+                sameProcess = sameStart ? true : OperatingSystem.IsWindows() ? false : null;
+            }
+            if (sameProcess == false)
+            {
+                process.Dispose();
+                return new ProcessMatch(ProcessMatchState.Missing, null);
+            }
             string? executable = GetExecutablePath(process);
-            if (record.ProcessStartedAt is null
-                || Math.Abs((started - record.ProcessStartedAt.Value).TotalSeconds) > 1
+            if (sameProcess is null
                 || executable is null
                 || !Path.GetFullPath(executable).Equals(Path.GetFullPath(record.ExecutablePath),
                     OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
@@ -471,7 +516,8 @@ internal sealed record GatewayLaunchRecord(
     DateTimeOffset LaunchedAt,
     GatewayLaunchStatus Status,
     string? Failure,
-    Guid? StartGeneration = null);
+    Guid? StartGeneration = null,
+    string? ProcessIdentity = null);
 
 internal sealed record GatewayRunRootProvenance(int SchemaVersion, string ClusterId, string HostId);
 

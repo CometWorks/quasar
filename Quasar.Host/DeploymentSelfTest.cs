@@ -9,6 +9,7 @@ internal static class DeploymentSelfTest
     internal static void Run()
     {
         CredentialInstallation();
+        SteamClientLibraryInstallation();
         string root = Path.Combine(Path.GetTempPath(), "host-deployment-" + Guid.NewGuid());
         try
         {
@@ -26,8 +27,16 @@ internal static class DeploymentSelfTest
             string path = Path.Combine(config, "bundle.json");
             File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
             string hash = ExecutionBundle.Hash(File.ReadAllBytes(path));
+            // Invalid state files are ignored with a message; they must not abort the Host.
+            Directory.CreateDirectory(Path.Combine(state, "attachments"));
+            Directory.CreateDirectory(Path.Combine(state, "gateways"));
+            File.WriteAllText(Path.Combine(state, "attachments/invalid.json"), "{\"clusterId\":\"\",\"gatewayUrl\":\"nowhere\"}");
+            File.WriteAllBytes(Path.Combine(state, "gateways/torn.json"), []);
             var attachments = new AttachmentStore(state, []);
             var gateways = new GatewaySpecStore(state);
+            Assert(attachments.GetAll().Length == 0 && gateways.GetAll().Length == 0, "invalid state file was loaded");
+            File.Delete(Path.Combine(state, "attachments/invalid.json"));
+            File.Delete(Path.Combine(state, "gateways/torn.json"));
             var activation = new DeploymentActivation(state, "host", attachments, gateways,
                 new NodeActualizer(state, "host"), new GatewayActualizer(state, "host"));
             var request = new HostContract.HostDeploymentActivation("cluster", null, path, hash,
@@ -42,6 +51,28 @@ internal static class DeploymentSelfTest
             File.WriteAllBytes(pendingLaunch, JsonSerializer.SerializeToUtf8Bytes(pending,
                 new JsonSerializerOptions(JsonSerializerDefaults.Web)));
             AssertThrows(() => activation.CheckRecovery("cluster", hash));
+            // A final-state record whose PID now belongs to an unrelated live process (this one) proves nothing is running.
+            void WriteLaunch(LaunchRecord record) => File.WriteAllBytes(pendingLaunch,
+                JsonSerializer.SerializeToUtf8Bytes(record, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            var reused = pending with { ProcessId = Environment.ProcessId, ProcessStartedAt = DateTimeOffset.UtcNow.AddDays(-1) };
+            foreach (var final in new[] { LaunchStatus.Gone, LaunchStatus.Failed })
+            {
+                WriteLaunch(reused with { Status = final });
+                Assert(activation.CheckRecovery("cluster", hash).HostId == "host", "reused PID of a final launch record blocked recovery");
+            }
+            if (OperatingSystem.IsLinux())
+            {
+                string identity = ProcessIdentity.Capture(Environment.ProcessId) ?? throw new InvalidOperationException("process identity unavailable");
+                Assert(ProcessIdentity.Matches(identity, Environment.ProcessId) == true, "own process identity did not match");
+                // Same PID, another boot or start tick: the recorded process is gone, not an unmanaged conflict.
+                WriteLaunch(reused with { Status = LaunchStatus.Running, ProcessIdentity = "00000000-0000-0000-0000-000000000000/1" });
+                Assert(activation.CheckRecovery("cluster", hash).HostId == "host", "reused PID after reboot blocked recovery");
+                WriteLaunch(reused with { Status = LaunchStatus.Running, ProcessIdentity = identity[..(identity.IndexOf('/') + 1)] + "1" });
+                Assert(activation.CheckRecovery("cluster", hash).HostId == "host", "reused PID within one boot blocked recovery");
+                // A matching identity is a live process even when the wall clock moved; recovery stays blocked.
+                WriteLaunch(reused with { Status = LaunchStatus.Running, ProcessIdentity = identity });
+                AssertThrows(() => activation.CheckRecovery("cluster", hash));
+            }
             File.Delete(pendingLaunch);
             Assert(active == activation.Apply(request), "activation replay changed identity");
             Assert(!Directory.Exists(runtime), "activation initialized mutable data prematurely");
@@ -123,6 +154,25 @@ internal static class DeploymentSelfTest
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
+    private static void SteamClientLibraryInstallation()
+    {
+        string home = Path.Combine(Path.GetTempPath(), "host-steam-client-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            byte[] library = "steamclient"u8.ToArray();
+            string hash = ExecutionBundle.Hash(library);
+            var first = SteamClientLibrary.InstallAsync(home, hash, new MemoryStream(library), default).GetAwaiter().GetResult();
+            Assert(first.Installed && first.Path == Path.Combine(home, ".steam/sdk64/steamclient.so")
+                && File.ReadAllBytes(first.Path).SequenceEqual(library), "steamclient.so was not staged under ~/.steam/sdk64");
+            var replay = SteamClientLibrary.InstallAsync(home, hash, new MemoryStream(library), default).GetAwaiter().GetResult();
+            Assert(!replay.Installed, "identical steamclient.so was written again");
+            AssertThrows(() => SteamClientLibrary.InstallAsync(home, ExecutionBundle.Hash("other"u8.ToArray()), new MemoryStream(library), default).GetAwaiter().GetResult());
+            Assert(File.ReadAllBytes(first.Path).SequenceEqual(library) && Directory.GetFiles(Path.GetDirectoryName(first.Path)!).Length == 1,
+                "a rejected upload changed steamclient.so or left a staging file");
+        }
+        finally { if (Directory.Exists(home)) Directory.Delete(home, true); }
+    }
+
     private static void CredentialInstallation()
     {
         string directory = Path.Combine(Path.GetTempPath(), "host-credentials-" + Guid.NewGuid().ToString("N"));
@@ -135,6 +185,13 @@ internal static class DeploymentSelfTest
                 new() { ["one"] = new('c', 64), ["two"] = new('d', 64) });
             HostCredentials.Install(directory, request);
             byte[] original = File.ReadAllBytes(Path.Combine(directory, "credentials.json"));
+            string tokenFile = Path.Combine(directory, "credentials", cluster, "tokens.json");
+            string[] Names() => System.Text.Json.JsonDocument.Parse(File.ReadAllText(tokenFile)).RootElement.GetProperty("tokens")
+                .EnumerateArray().Select(t => t.GetProperty("name").GetString()!).ToArray();
+            Assert(Names().SequenceEqual(["one", "two"]), "executor token name differs from Host ID");
+            File.WriteAllText(tokenFile, File.ReadAllText(tokenFile).Replace("\"name\":\"", "\"name\":\"host-"));
+            HostCredentials.Install(directory, request);
+            Assert(Names().SequenceEqual(["one", "two"]), "legacy prefixed executor roster was not migrated");
             HostCredentials.Install(directory, request);
             Assert(original.SequenceEqual(File.ReadAllBytes(Path.Combine(directory, "credentials.json"))), "credential replay changed file");
             AssertThrows(() => HostCredentials.Install(directory, request with { ExecutorTokens = new() { ["one"] = new('c', 64) } }));

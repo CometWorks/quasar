@@ -12,13 +12,31 @@ public sealed class ClusterCredentialStore
     private readonly string _path;
     private readonly object _sync = new();
     private readonly Dictionary<string, string> _values;
-    public ClusterCredentialStore(IDataProtectionProvider protection)
-        : this(protection, Path.Combine(MagnetarPaths.GetQuasarDirectory(), "cluster-credentials.json")) { }
-    internal ClusterCredentialStore(IDataProtectionProvider protection, string path)
+    public ClusterCredentialStore(IDataProtectionProvider protection, ILogger<ClusterCredentialStore> logger)
+        : this(protection, Path.Combine(MagnetarPaths.GetQuasarDirectory(), "cluster-credentials.json"), logger) { }
+    internal ClusterCredentialStore(IDataProtectionProvider protection, string path, ILogger<ClusterCredentialStore>? logger = null)
     {
         _protector = protection.CreateProtector("Quasar.ClusterCredentials.v1");
         _path = path;
-        _values = File.Exists(path) ? JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllBytes(path))! : [];
+        _values = Load(path, logger);
+    }
+    // This singleton is a dependency of most cluster services; a torn file must not keep Quasar from starting.
+    private static Dictionary<string, string> Load(string path, ILogger? logger)
+    {
+        if (!File.Exists(path)) return [];
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllBytes(path))
+                ?? throw new InvalidDataException("The credential file is empty.");
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidDataException)
+        {
+            // Set aside, never overwritten: the next credential write would otherwise destroy what may be recoverable.
+            string quarantine = path + ".corrupt-" + DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmss");
+            File.Move(path, quarantine, overwrite: true);
+            logger?.LogError(exception, "Cluster credential file {Path} is unreadable and was moved to {Quarantine}. Managed cluster and Host credentials must be restored from it or re-created.", path, quarantine);
+            return [];
+        }
     }
     public static string Reference(string owner, string purpose) => "QSR_MANAGED_" +
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(owner + ":" + purpose)));

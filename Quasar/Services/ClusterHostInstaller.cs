@@ -17,7 +17,12 @@ public sealed class ClusterHostInstaller
     private readonly string binary;
     private readonly TimeProvider clock;
     public ClusterHostInstaller(ClusterHostCatalog hosts, ClusterCredentialStore credentials)
-        : this(hosts, credentials, Path.Combine(AppContext.BaseDirectory, "Host", "Quasar.Host"), TimeProvider.System) { }
+        : this(hosts, credentials, ResolveBinary(Environment.GetEnvironmentVariable(BinaryVariable), AppContext.BaseDirectory), TimeProvider.System) { }
+    // Releases ship the single-file Host next to the web worker. Plain build output (dotnet run)
+    // has none, so development points this variable at a published single-file Quasar.Host.
+    internal const string BinaryVariable = "QUASAR_HOST_BINARY";
+    internal static string ResolveBinary(string? configured, string baseDirectory) => string.IsNullOrWhiteSpace(configured)
+        ? Path.Combine(baseDirectory, "Host", "Quasar.Host") : Path.GetFullPath(configured);
     internal ClusterHostInstaller(ClusterHostCatalog hosts, ClusterCredentialStore credentials, string binary, TimeProvider clock)
         => (this.hosts, this.credentials, this.binary, this.clock) = (hosts, credentials, binary, clock);
     private sealed record Ticket(string Hash, string Host, Uri Origin, DateTimeOffset Expires);
@@ -26,7 +31,7 @@ public sealed class ClusterHostInstaller
     {
         var origin = ValidateOrigin(quasarUrl);
         _ = hosts.Get(hostId) ?? throw new KeyNotFoundException("Machine is not registered.");
-        if (!File.Exists(binary)) throw new InvalidOperationException("This Quasar build does not include Host/Quasar.Host. Install a release containing its matching Host installer.");
+        if (!File.Exists(binary)) throw new InvalidOperationException($"This Quasar build does not include the Host installer ({binary}). Install a release containing Host/Quasar.Host, or for a development build set {BinaryVariable} to a published single-file Quasar.Host.");
         var id = Guid.NewGuid(); string secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         var expires = clock.GetUtcNow().AddMinutes(15);
         foreach (var old in _tickets.Where(p => p.Value.Expires <= clock.GetUtcNow() || p.Value.Host == hostId)) _tickets.TryRemove(old.Key, out _);
@@ -69,7 +74,7 @@ public sealed class ClusterHostInstaller
     internal byte[] BuildScript(EnrolledClusterHost host, Uri origin)
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("Guided cluster setup currently requires Linux x64.");
-        if (!File.Exists(binary)) throw new InvalidOperationException("This Quasar build does not include its matching Host installer. Install a release containing Host/Quasar.Host.");
+        if (!File.Exists(binary)) throw new InvalidOperationException($"This Quasar build does not include the Host installer ({binary}). Install a release containing Host/Quasar.Host, or for a development build set {BinaryVariable} to a published single-file Quasar.Host.");
         var config = new { executorId = "quasar-" + host.Id, hostId = host.Id, pollIntervalSeconds = 2, attachments = Array.Empty<object>(), stateDirectory = "state",
             command = new { url = "http://127.0.0.1:" + host.CommandPort, tokenEnvironmentVariable = host.CredentialReference },
             connection = new { quasarUrl = origin.AbsoluteUri, tokenEnvironmentVariable = host.CredentialReference } };

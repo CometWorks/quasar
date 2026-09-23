@@ -33,6 +33,9 @@ public sealed class ClusterApiRouteTests
     [InlineData("/api/v1/clusters/{uniqueName}/restore", true)]
     [InlineData("/api/v1/clusters/{uniqueName}/update", true)]
     [InlineData("/api/v1/clusters/{uniqueName}/update", false)]
+    [InlineData("/api/v1/clusters/{uniqueName}/update/abandon", true)]
+    [InlineData("/api/v1/clusters/{uniqueName}/operations/{operationId}", true)]
+    [InlineData("/api/v1/clusters/{uniqueName}/operations/{operationId}", false)]
     [InlineData("/api/v1/clusters/{uniqueName}/deployment-preparation", true)]
     [InlineData("/api/v1/clusters/{uniqueName}/gateway/recover", true)]
     [InlineData("/api/v1/clusters/{uniqueName}/recover", true)]
@@ -150,5 +153,21 @@ public sealed class ClusterApiRouteTests
             """{"goal":"Off"}""", new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
 
         Assert.Equal(DedicatedServerGoalState.Off, request.Goal);
+    }
+
+    [Fact]
+    public void ServerDefinitionStoresNumericGoalForDowngradeAndReadsBothShapes()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        string json = JsonSerializer.Serialize(new DedicatedServerDefinition { GoalState = DedicatedServerGoalState.On }, options);
+
+        Assert.Contains("\"goalState\":1", json);
+        Assert.Equal(DedicatedServerGoalState.On, JsonSerializer.Deserialize<DedicatedServerDefinition>(json, options)!.GoalState);
+        // Written by pre-release cluster builds.
+        Assert.Equal(DedicatedServerGoalState.On, JsonSerializer.Deserialize<DedicatedServerDefinition>("""{"goalState":"On"}""", options)!.GoalState);
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<DedicatedServerDefinition>("""{"goalState":7}""", options));
+        // The cluster API and cluster.json keep the readable names.
+        Assert.Contains("\"goal\":\"On\"", JsonSerializer.Serialize(new ClusterGoalRequest(DedicatedServerGoalState.On), options));
+        Assert.Contains("\"goalState\":\"On\"", JsonSerializer.Serialize(new ClusterDefinition { GoalState = DedicatedServerGoalState.On }, options));
     }
 }

@@ -23,6 +23,29 @@ public sealed class ClusterReconcilerTests : IDisposable
     private readonly string _tokenVariable = "QUASAR_RECONCILER_TEST_" + Guid.NewGuid().ToString("N");
 
     [Fact]
+    public async Task ClusterBusyWithALongOperationIsSkippedInsteadOfStallingTheLoop()
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using ClusterCatalog catalog = CreateCatalog(DedicatedServerGoalState.On);
+        int hostCalls = 0;
+        var host = new ContractHandler((_, _) => { hostCalls++; return HostResponse(Host([GatewayStatus(GatewayGoal.On, GatewayObservedState.Running)])); });
+        var gateway = new ContractHandler((_, _) => GatewayResponse(Status(Admin.ClusterPhase.Serving)));
+        var reconciler = CreateReconciler(catalog, gateway, host);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // A backup, restore or activation holds the lifecycle gate for the whole transfer.
+        Task busy = catalog.WithLifecycleAsync("demo", async _ => { entered.SetResult(); await release.Task; return true; }, default);
+        await entered.Task;
+
+        await reconciler.ReconcileAllAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(0, hostCalls);
+
+        release.SetResult(); await busy;
+        await reconciler.ReconcileAllAsync(CancellationToken.None);
+        Assert.True(hostCalls > 0);
+    }
+
+    [Fact]
     public async Task OnStartsGatewayOnceThenOnlyObserves()
     {
         Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
