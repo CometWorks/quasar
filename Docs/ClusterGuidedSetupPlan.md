@@ -19,8 +19,9 @@ Magnetar with an unrecognized preparation flag.
    `known_hosts` verification. Password login and host-key bypass are not supported.
 3. Select a world template, configuration profile, Gateway machine and node counts.
    At least two regular nodes are required. The Gateway machine also runs the WA.
-4. Quasar stages the entire verified stable cluster release, provisions DS/Magnetar,
-   prepares common plugins and Direct Transport, and freezes the runtime snapshot.
+4. Quasar provisions DS/Magnetar, stages a verified stable cluster release whose
+   PluginSdk pin matches the installed Magnetar, prepares common plugins and Direct
+   Transport, and freezes the runtime snapshot.
    Magnetar exports default SDK configuration without starting a game server.
 5. Quasar converts a copy of the world, generates credentials, transfers verified
    inputs to every Host, prepares one revision and activates it stopped. Choose
@@ -50,6 +51,14 @@ idempotency key after a failed attempt; reusing a key returns that attempt's res
 Source templates and profiles are preserved. The cluster receives its own profile
 copy, and remains stopped after activation.
 
+Before each attempt, guided setup updates managed Magnetar and checks its actual
+PluginSdk bytes against the selected cluster release. When the pins differ, it
+downloads the latest stable cluster release and selects it if its SDK pin matches.
+Selection clears the previous dependency snapshot; a plugin export made with an older
+SDK is prepared again. If no compatible release is published, setup stops with both
+hashes in the error and can be resumed after publication. Activated deployments keep
+their frozen runtime and use the separate cluster update workflow.
+
 Preparation reuses Magnetar's existing loader profile: Quasar writes
 `Profiles/Current.xml` in its isolated preparation configuration directory and passes
 its absolute path explicitly through `-profile <file>`. That
@@ -78,9 +87,9 @@ common bundles and canonical values; shipped cluster role plugins remain untouch
 
 Quasar verifies both the exporter SDK hash and the cluster package's SDK pin. Release
 order: merge/release Magnetar's exporter, produce the matching verified cluster
-package, then test the Quasar prerelease. No release binaries are patched to bypass
-this check. The preparation command does not change the SDK API, but build provenance
-can still change the SDK bytes and therefore its pin.
+package, then test the Quasar prerelease. A newer Magnetar release can change SDK
+bytes even without an API change, so package publication must follow it. No release
+binaries are patched to bypass this check.
 
 ## Ownership, credentials and transport
 

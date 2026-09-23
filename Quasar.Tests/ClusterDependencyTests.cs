@@ -14,6 +14,26 @@ namespace Quasar.Tests;
 
 public sealed class ClusterDependencyTests
 {
+    [Fact]
+    public void ClusterSdkPinRejectsMalformedReleaseMetadata()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cluster-sdk-pin-" + Guid.NewGuid());
+        string cli = Path.Combine(root, "cli");
+        Directory.CreateDirectory(cli);
+        string capability = Path.Combine(cli, "deployment-capabilities.json");
+        try
+        {
+            string hash = new('a', 64);
+            File.WriteAllText(capability, $$"""{"pluginServices":1,"pluginSdkSha256":"{{hash}}"}""");
+            Assert.Equal(hash, ClusterDeploymentFiles.GetPinnedPluginSdkSha256(root));
+            File.WriteAllText(capability, """{"pluginServices":1,"pluginSdkSha256":"latest"}""");
+            Assert.Throws<InvalidDataException>(() => ClusterDeploymentFiles.GetPinnedPluginSdkSha256(root));
+            File.WriteAllText(capability, """{"pluginServices":1}""");
+            Assert.Throws<InvalidDataException>(() => ClusterDeploymentFiles.GetPinnedPluginSdkSha256(root));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     [LinuxFact]
     public async Task SteamNativeLibraryBelongsToMagnetarRelease()
     {

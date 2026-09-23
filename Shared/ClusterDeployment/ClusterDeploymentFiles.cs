@@ -168,13 +168,22 @@ internal static partial class ClusterDeploymentFiles
             throw new InvalidDataException("Package identity does not match deployment inputs.");
         ClusterPluginBundles.Validate(Path.Combine(dependencies, "payload/CommonPlugins"));
         ValidateCapabilities(package);
-        using var capability = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(package, "cli/deployment-capabilities.json")));
-        if (capability.RootElement.TryGetProperty("pluginServices", out var services) && services.GetInt32() == 1)
-        {
-            string sdkHash = capability.RootElement.GetProperty("pluginSdkSha256").GetString() ?? "";
-            if (sdkHash != payload["Magnetar/Libraries/MagnetarInterim/PluginSdk.dll"].Sha256)
-                throw new InvalidDataException("Magnetar PluginSdk does not match the SDK used to build this cluster release.");
-        }
+        string? sdkHash = GetPinnedPluginSdkSha256(package);
+        if (sdkHash is not null && sdkHash != payload["Magnetar/Libraries/MagnetarInterim/PluginSdk.dll"].Sha256)
+            throw new InvalidDataException("Magnetar PluginSdk does not match the SDK used to build this cluster release.");
+    }
+
+    internal static string? GetPinnedPluginSdkSha256(string package)
+    {
+        using var capability = JsonDocument.Parse(File.ReadAllBytes(Resolve(package, "cli/deployment-capabilities.json")));
+        if (!capability.RootElement.TryGetProperty("pluginServices", out var services) || services.GetInt32() != 1)
+            return null;
+        if (!capability.RootElement.TryGetProperty("pluginSdkSha256", out var pin) || pin.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException("Cluster release has an invalid PluginSdk SHA-256 pin.");
+        string? hash = pin.GetString();
+        if (hash is null || hash.Length != 64 || hash != hash.ToLowerInvariant() || !hash.All(Uri.IsHexDigit))
+            throw new InvalidDataException("Cluster release has an invalid PluginSdk SHA-256 pin.");
+        return hash;
     }
 
     internal static void ValidateCapabilities(string package)

@@ -1384,6 +1384,12 @@ explicit recovery operations to preserve the recorded revision.
 Host activation and restore compare the complete nonempty `storageFormats` map
 (`world`, `registry`, `plugins`). Different formats require explicit migration. The
 prepared package's exact PluginSdk hash must match the frozen Magnetar dependency.
+Guided setup provisions current managed Magnetar before choosing a cluster package.
+If a stopped, incomplete setup has an older package whose PluginSdk pin no longer
+matches, **Resume guided setup** downloads and selects the latest stable package only
+when its pin matches the installed SDK. It clears the prior dependency selection and
+rebuilds an export made with an older SDK. Until a matching release exists, setup
+remains interrupted with the expected and installed hashes in its error.
 
 Use `cluster command NAME REQUEST.json` for `world-export` (bounded TTL), scoped
 `trigger`, `handover-config-set`, or `artifact-release`; inspect with `diagnostics`,

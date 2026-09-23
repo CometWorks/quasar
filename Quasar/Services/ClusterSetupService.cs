@@ -95,14 +95,12 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                             if (status.HostId != machine.Id) throw new InvalidDataException("Connected Host identity differs from its registration.");
                             if (!status.GatewayStopFencing) throw new InvalidOperationException("Update the Host to the matching Quasar release before setup.");
                         }
-                        if (cluster.PackageSelection is null)
-                        {
-                            await StageAsync(request, "Downloading the verified cluster release", null, ct);
-                            var release = await packages.GetReleaseAsync(null, ct);
-                            var installation = await packages.StageAsync(new(release.Version, release.Sha256), ct);
-                            await catalog.SelectPackageAsync(cluster.UniqueName, 0, installation, "guided-setup", ct);
-                            cluster = catalog.GetCluster(cluster.UniqueName)!;
-                        }
+                        await StageAsync(request, "Provisioning Dedicated Server and Magnetar", null, ct);
+                        var ready = await runtime.EnsureManagedRuntimeReadyAsync(cancellationToken: ct);
+                        if (!ready.IsReady) throw new InvalidOperationException(ready.FailureMessage);
+                        string installedSdk = Path.Combine(runtime.ResolveInstalledMagnetarInstallDirectory(), "Libraries/MagnetarInterim/PluginSdk.dll");
+                        string installedSdkHash = ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(installedSdk, ct));
+                        cluster = await EnsureCompatiblePackageAsync(cluster, request, installedSdkHash, ct);
                         var savedProfile = Read<QuasarConfigProfile>(Path.Combine(work, "profile.json"));
                         ClusterConversionService.ValidateAdmission(savedProfile);
                         string seed = Path.Combine(work, "source-world");
@@ -119,11 +117,16 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         await ClusterWorldFiles.VerifyAsync(seed, Read<Dictionary<string, HostContract.DeploymentFile>>(sourceReceipt), ct);
                         string exported = Path.Combine(work, "plugins");
                         string exportReceipt = Path.Combine(work, "plugin-export.json");
+                        if (File.Exists(exportReceipt))
+                        {
+                            await ClusterWorldFiles.VerifyAsync(exported, Read<Dictionary<string, HostContract.DeploymentFile>>(exportReceipt), ct);
+                            var previous = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(exported, "preparation.json"), ct))!.AsObject();
+                            if (previous["schemaVersion"]?.GetValue<int>() != 1) throw new InvalidDataException("Unsupported Magnetar preparation format.");
+                            if (previous["pluginSdkSha256"]?.GetValue<string>() != installedSdkHash)
+                                File.Delete(exportReceipt); // The export is unpublished; retry prepares it with the current SDK.
+                        }
                         if (!File.Exists(exportReceipt))
                         {
-                            await StageAsync(request, "Provisioning Dedicated Server and Magnetar", null, ct);
-                            var ready = await runtime.EnsureManagedRuntimeReadyAsync(cancellationToken: ct);
-                            if (!ready.IsReady) throw new InvalidOperationException(ready.FailureMessage);
                             await StageAsync(request, "Preparing identical plugins and canonical configuration", null, ct);
                             await ExportPluginsAsync(request, savedProfile, work, exported, ct);
                             await WriteAsync(exportReceipt, await ClusterDeploymentFiles.InspectAsync(exported, ct), ct);
@@ -131,6 +134,8 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         await ClusterWorldFiles.VerifyAsync(exported, Read<Dictionary<string, HostContract.DeploymentFile>>(exportReceipt), ct);
                         var pluginData = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(exported, "preparation.json"), ct))!.AsObject();
                         if (pluginData["schemaVersion"]?.GetValue<int>() != 1) throw new InvalidDataException("Unsupported Magnetar preparation format.");
+                        if (pluginData["pluginSdkSha256"]?.GetValue<string>() != installedSdkHash)
+                            throw new InvalidDataException("Magnetar changed during plugin preparation. Resume setup to select a matching release and prepare again.");
                         if (cluster.DependencyManifestSha256 is null)
                         {
                             await StageAsync(request, "Freezing the common runtime snapshot", null, ct);
@@ -139,9 +144,8 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                                 ["DedicatedServer/Content"] = Path.Combine(Path.GetDirectoryName(ds)!, "Content"),
                                 ["Magnetar"] = runtime.ResolveInstalledMagnetarInstallDirectory(),
                                 ["CommonPlugins"] = Path.Combine(exported, "CommonPlugins"), ["DirectTransport"] = Path.Combine(exported, "DirectTransport") };
-                            string sdk = Path.Combine(sources["Magnetar"], "Libraries/MagnetarInterim/PluginSdk.dll");
-                            if (ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(sdk, ct)) != pluginData["pluginSdkSha256"]?.GetValue<string>())
-                                throw new InvalidDataException("Magnetar changed after plugin preparation. Preserve this setup and use a new ID to prepare against the updated runtime.");
+                            if (ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(installedSdk, ct)) != installedSdkHash)
+                                throw new InvalidDataException("Magnetar changed during setup. Resume to select a matching cluster release.");
                             var candidate = await dependencies.InspectAsync(cluster, sources, ct);
                             var selection = new ClusterDependencyRequest(candidate.ManifestSha256, cluster.PackageSelection!.Revision, null);
                             await dependencies.StageAsync(cluster, selection, sources, ct);
@@ -265,6 +269,28 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
             || selected.Length > 1 && selected.Any(h => IPAddress.IsLoopback(IPAddress.Parse(h.Address))))
             throw new ArgumentException("Choose the Gateway machine and distinct LAN/VPN addresses. Remote placements cannot use loopback addresses.");
         return selected;
+    }
+
+    private async Task<ClusterDefinition> EnsureCompatiblePackageAsync(ClusterDefinition cluster,
+        ClusterSetupRequest request, string installedSdkHash, CancellationToken token)
+    {
+        if (cluster.PackageSelection is { } selected)
+        {
+            var installed = await packages.GetInstalledAsync(new(selected.Version, selected.Sha256), token);
+            if (ClusterDeploymentFiles.GetPinnedPluginSdkSha256(installed.PackagePath) == installedSdkHash)
+                return cluster;
+        }
+
+        await StageAsync(request, "Downloading a cluster release compatible with Magnetar", null, token);
+        var release = await packages.GetReleaseAsync(null, token);
+        var package = await packages.StageAsync(new(release.Version, release.Sha256), token);
+        string? pinnedSdkHash = ClusterDeploymentFiles.GetPinnedPluginSdkSha256(package.PackagePath);
+        if (pinnedSdkHash != installedSdkHash)
+            throw new InvalidOperationException($"Cluster release {release.Version} pins PluginSdk {pinnedSdkHash ?? "none"}, "
+                + $"but installed Magnetar has {installedSdkHash}. Resume after a compatible cluster release is published.");
+        await catalog.SelectPackageAsync(cluster.UniqueName, cluster.PackageSelection?.Revision ?? 0,
+            package, "guided-setup-" + release.Version, token);
+        return catalog.GetCluster(cluster.UniqueName)!;
     }
 
     private async Task ExportPluginsAsync(ClusterSetupRequest request, QuasarConfigProfile profile, string work, string destination, CancellationToken token)
