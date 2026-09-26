@@ -1,0 +1,30 @@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText>Remove '@Cluster.DisplayName' from Quasar? Its definition will be archived. Worlds, plugins, Host data and backups remain on disk.</MudText>
+            <MudCheckBox T="bool" @bind-Value="_forget" Label="Forget registration without checking remote processes" />
+            @if (_forget)
+            {
+                <MudAlert Severity="Severity.Warning">Quasar will stop managing this cluster. Any running Gateways or nodes will keep running independently. Use this for a stale registration or machines you manage separately. This does not stop or delete remote processes.</MudAlert>
+                <MudTextField T="string" Label="Confirm cluster ID" @bind-Value="_confirmation" Immediate="true"
+                              HelperText="@($"Type {Cluster.UniqueName} exactly. This ID cannot be reused for a new cluster.")" />
+            }
+            else
+            {
+                <MudText>Managed processes must be stopped and all operations complete. Quasar checks each Host before removing the definition.</MudText>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">Cancel</MudButton>
+        <MudButton Color="Color.Error" Variant="Variant.Filled" Disabled="@(_forget && _confirmation != Cluster.UniqueName)"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(_forget)))">@(_forget ? "Forget registration" : "Delete definition")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = default!;
+    private bool _forget;
+    private string _confirmation = "";
+}

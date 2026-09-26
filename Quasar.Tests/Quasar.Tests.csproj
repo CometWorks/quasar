@@ -20,5 +20,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Quasar\Quasar.csproj" />
     <ProjectReference Include="..\Quasar.Agent\Quasar.Agent.csproj" />
+    <!-- Bootstrap and worker both compile the shared networking types. -->
+    <ProjectReference Include="..\Quasar.Bootstrap\Quasar.Bootstrap.csproj" Aliases="Bootstrap" />
   </ItemGroup>
 </Project>

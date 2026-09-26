@@ -32,6 +32,25 @@ public sealed class ServicePrincipalAuthenticatorTests
     }
 
     [Fact]
+    public void PreservesClusterManageScope()
+    {
+        QuasarAuthOptions options = Options(new ServicePrincipalOptions
+        {
+            Name = "factory-manager",
+            TokenEnvironmentVariable = "FACTORY_MANAGER_TOKEN",
+            Scopes = [QuasarScopes.ClusterManage],
+            Clusters = ["production"],
+        });
+        var authenticator = new ServicePrincipalAuthenticator(options,
+            variable => variable == "FACTORY_MANAGER_TOKEN" ? Token : null);
+        var context = Context(Token);
+
+        Assert.True(authenticator.TryAuthenticate(context));
+        Assert.True(context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterManage));
+        Assert.True(context.User.CanQueryCluster("production"));
+    }
+
+    [Fact]
     public void DuplicateOrWeakConfiguredTokensFailClosed()
     {
         QuasarAuthOptions duplicate = Options(

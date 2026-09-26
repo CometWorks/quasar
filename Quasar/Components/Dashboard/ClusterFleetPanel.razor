@@ -1,0 +1,155 @@
+@implements IAsyncDisposable
+@using Admin = CometWorks.ClusterGateway.AdminContract.V1
+@inject ClusterFleetService Fleet
+@inject ClusterGatewayClient Gateway
+@inject IDialogService Dialogs
+
+<MudCard Class="server-card">
+<MudCardContent>
+<MudStack Spacing="3">
+    <MudText Typo="Typo.h6">Fleet, players and events</MudText>
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning">Observations may be stale: @_error</MudAlert> }
+    @if (_capturedAt is { } captured) { <MudText Typo="Typo.caption">Registry observation: @captured.ToString("u")</MudText> }
+    <MudTabs>
+        <MudTabPanel Text="Fleet">
+            <MudTable T="ClusterFleetNode" Items="_fleet?.Nodes" Dense="true" Hover="true">
+                <HeaderContent><MudTh>Slot / node / epoch</MudTh><MudTh>Role / host</MudTh><MudTh>Registry state</MudTh><MudTh>Agent telemetry</MudTh><MudTh>Actions</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Slot / node / epoch">@context.Registry.SlotKey / @context.Registry.Node / @context.Registry.Epoch</MudTd>
+                    <MudTd DataLabel="Role / host">@context.Registry.Role / @context.Registry.Host</MudTd>
+                    <MudTd DataLabel="Registry state">@context.Registry.State · lease @(context.Registry.LeaseFresh ? "fresh" : "stale")</MudTd>
+                    <MudTd DataLabel="Agent telemetry">
+                        @if (context.Telemetry is { } telemetry)
+                        {
+                            <MudText Typo="Typo.body2">@(telemetry.Connected ? "Connected" : "Stale or disconnected") · @telemetry.CapturedAt?.ToString("u")</MudText>
+                            <MudText Typo="Typo.body2">Sim speed @telemetry.Metrics?.SimSpeed.ToString("0.00") · RSS @telemetry.Metrics?.MemoryWorkingSetMb MB</MudText>
+                            <MudText Typo="Typo.body2" Class="cluster-long-value">Deployment @telemetry.DeploymentRevision · @(telemetry.ReadinessVerified switch { true => "Verified", false => "Not ready", _ => "Unknown" })</MudText>
+                            @if (!string.IsNullOrWhiteSpace(telemetry.DeploymentFailure)) { <MudText Color="Color.Warning">@telemetry.DeploymentFailure</MudText> }
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => _selectedNode = context.Registry.Node)">Process details</MudButton>
+                        }
+                        else { <MudText Typo="Typo.body2">No uniquely matched Agent</MudText> }
+                    </MudTd>
+                    <MudTd DataLabel="Actions">
+                        <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="authorization">
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
+                                       Disabled="@(!_available || context.Registry.Role != Admin.NodeRole.Regular || context.Registry.State != Admin.NodeState.Active || string.IsNullOrWhiteSpace(context.Registry.SlotKey))"
+                                       OnClick="@(() => CloseAsync(context.Registry))">Drain</MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" Disabled="@(!_available)" OnClick="@(() => KillAsync(context.Registry))">Force remove</MudButton>
+                        </AuthorizeView>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+            @if (_fleet?.Nodes.FirstOrDefault(n => n.Registry.Node == _selectedNode)?.Telemetry is { } selected)
+            {
+                <MudText Typo="Typo.subtitle1" Class="mt-3">Process telemetry · @selected.AgentId</MudText>
+                <MudText Typo="Typo.caption">Telemetry supports diagnosis; Registry state above controls cluster health.</MudText>
+                @foreach (var plugin in selected.Plugins)
+                {
+                    <MudText Typo="Typo.body2">@plugin.DisplayName · @plugin.Version · @(plugin.IsLoaded ? "loaded" : "not loaded")</MudText>
+                }
+                <MudExpansionPanels>
+                    <MudExpansionPanel Text="Plugin statistics and profiler">
+                        <pre style="max-height:300px;overflow:auto">@System.Text.Json.JsonSerializer.Serialize(new { selected.PluginStats, selected.Profiler }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true })</pre>
+                    </MudExpansionPanel>
+                    <MudExpansionPanel Text="Recent plugin logs">
+                        @foreach (var log in selected.Logs)
+                        {
+                            <MudText Typo="Typo.body2">@log.TimestampUtc.ToString("u") · @log.Plugin · @log.Level · @log.Message</MudText>
+                        }
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            }
+        </MudTabPanel>
+        <MudTabPanel Text="Players">
+            <MudTable T="Admin.ClientSummary" Items="_clients" Dense="true">
+                <HeaderContent><MudTh>Player</MudTh><MudTh>Admission</MudTh><MudTh>Route</MudTh><MudTh>Actions</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Player">@context.PlayerName · @context.ClientId</MudTd><MudTd DataLabel="Admission">@context.AdmissionState</MudTd><MudTd DataLabel="Route">@context.Node / @context.Partition</MudTd>
+                    <MudTd DataLabel="Actions">
+                        <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="authorization">
+                            <MudButton Disabled="@(!_available)" Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => ModerateAsync("kick", context))">Kick</MudButton>
+                            <MudButton Disabled="@(!_available)" Variant="Variant.Outlined" Color="Color.Warning" OnClick="@(() => ModerateAsync("ban", context))">Ban</MudButton>
+                        </AuthorizeView>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudTabPanel>
+        <MudTabPanel Text="Events">
+            @if (_gap) { <MudAlert Severity="Severity.Info">The event history was truncated or reset at the Gateway.</MudAlert> }
+            <MudTable T="Admin.AdminEvent" Items="_events.OrderByDescending(e => e.Seq)" Dense="true" RowsPerPage="25">
+                <HeaderContent><MudTh>Sequence / time</MudTh><MudTh>Event</MudTh><MudTh>Actor / target</MudTh></HeaderContent>
+                <RowTemplate><MudTd DataLabel="Sequence / time">@context.Seq · @context.At.ToString("u")</MudTd><MudTd DataLabel="Event">@context.Type</MudTd><MudTd DataLabel="Actor / target">@context.Actor / @context.Target</MudTd></RowTemplate>
+                <PagerContent><MudTablePager /></PagerContent>
+            </MudTable>
+        </MudTabPanel>
+    </MudTabs>
+</MudStack>
+</MudCardContent>
+</MudCard>
+
+@code {
+    [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = new();
+    [Parameter] public EventCallback<ClusterAdminCommand> Command { get; set; }
+    private readonly CancellationTokenSource _shutdown = new();
+    private ClusterFleet? _fleet;
+    private Admin.ClientSummary[] _clients = [];
+    private Admin.AdminEvent[] _events = [];
+    private long _cursor;
+    private bool _gap, _available;
+    private DateTimeOffset? _capturedAt;
+    private string? _error, _selectedNode;
+    private Task? _loop;
+    protected override async Task OnInitializedAsync() { await RefreshAsync(); _loop = LoopAsync(); }
+    private async Task RefreshAsync()
+    {
+        _available = false;
+        try
+        {
+            var capabilities = (await Gateway.GetCapabilitiesAsync(Cluster, _shutdown.Token)).Data;
+            var fleet = await Fleet.GetAsync(Cluster, _shutdown.Token);
+            _fleet = fleet.Data; _capturedAt = fleet.CapturedAt;
+            _clients = (await Gateway.GetClientsAsync(Cluster, _shutdown.Token)).Data;
+            var page = (await Gateway.GetEventsAsync(Cluster, _cursor, 100, _shutdown.Token)).Data;
+            if (page.NextCursor < _cursor) { _events = []; _gap = true; }
+            if (_cursor > 0 && page.EarliestRetained > _cursor + 1) _gap = true;
+            _events = _events.Concat(page.Events).DistinctBy(e => e.Seq).OrderBy(e => e.Seq).TakeLast(200).ToArray();
+            _cursor = page.NextCursor;
+            _available = capabilities.Scope == Admin.AdminScope.Manage; _error = null;
+        }
+        catch (ClusterGatewayException error) { _error = error.Message; }
+    }
+    private async Task LoopAsync()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(_shutdown.Token))
+                await InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) { }
+    }
+    private async Task CloseAsync(Admin.NodeStatus node)
+    {
+        if (node.Role != Admin.NodeRole.Regular || node.State != Admin.NodeState.Active || string.IsNullOrWhiteSpace(node.SlotKey)) return;
+        if (await Dialogs.ShowMessageBoxAsync("Drain node?",
+                $"Drain slot {node.SlotKey} (node {node.Node}, epoch {node.Epoch})? Gateway selects an active replacement node at execution time.",
+                yesText: "Drain", cancelText: "Cancel") == true)
+            await Command.InvokeAsync(ClusterAdminCommand.Create("node-close", target: node.SlotKey));
+    }
+    private async Task KillAsync(Admin.NodeStatus node)
+    {
+        if (await Dialogs.ShowMessageBoxAsync("Force remove node?", $"Remove {node.Node}, epoch {node.Epoch}? Unsaved simulation state may be lost.", yesText: "Force remove", cancelText: "Cancel") == true)
+            await Command.InvokeAsync(ClusterAdminCommand.Create("node-kill", new Admin.KillNodeRequest(node.Node, node.Epoch), node.SlotKey));
+    }
+    private async Task ModerateAsync(string action, Admin.ClientSummary player)
+    {
+        if (await Dialogs.ShowMessageBoxAsync("Confirm player action", $"{action} {player.PlayerName ?? player.ClientId.ToString()}?", yesText: "Confirm", cancelText: "Cancel") == true)
+            await Command.InvokeAsync(ClusterAdminCommand.Create(action, target: player.ClientId.ToString()));
+    }
+    public async ValueTask DisposeAsync()
+    {
+        await _shutdown.CancelAsync();
+        if (_loop is not null) await _loop;
+        _shutdown.Dispose();
+    }
+}

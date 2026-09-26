@@ -30,6 +30,7 @@ public sealed class AutomaticBackupService : BackgroundService
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan TickInterval = TimeSpan.FromMinutes(1);
 
+    private readonly ClusterBackupService? _clusters;
     private readonly QuasarBackupService _backupService;
     private readonly QuasarBackupSettingsService _settingsService;
     private readonly DedicatedServerCatalog _servers;
@@ -46,8 +47,9 @@ public sealed class AutomaticBackupService : BackgroundService
         QuasarBackupService backupService,
         QuasarBackupSettingsService settingsService,
         DedicatedServerCatalog servers,
-        ILogger<AutomaticBackupService> logger)
+        ILogger<AutomaticBackupService> logger, ClusterBackupService? clusters = null)
     {
+        _clusters = clusters;
         _backupService = backupService;
         _settingsService = settingsService;
         _servers = servers;
@@ -113,6 +115,9 @@ public sealed class AutomaticBackupService : BackgroundService
             do
             {
                 await RunDueBackupAsync(stoppingToken);
+                if (_clusters is not null)
+                    try { await _clusters.CaptureDueAsync(stoppingToken); }
+                    catch (Exception error) when (!stoppingToken.IsCancellationRequested) { _logger.LogWarning(error, "Cluster backup scheduling failed."); }
             }
             while (await timer.WaitForNextTickAsync(stoppingToken));
         }
@@ -320,7 +325,7 @@ public sealed class AutomaticBackupService : BackgroundService
         return created;
     }
 
-    private static bool IsDue(QuasarBackupRuleSettings settings, DateTimeOffset now)
+    internal static bool IsDue(QuasarBackupRuleSettings settings, DateTimeOffset now)
     {
         // First run after enabling happens at the next tick.
         if (settings.LastBackupUtc is not { } last)

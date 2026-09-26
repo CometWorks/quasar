@@ -99,6 +99,11 @@ Bootstrap always captures the managed web UI worker's stdout/stderr and mirrors
 it to its own console. For systemd installs, Quasar web UI warnings and errors
 therefore appear in the service journal as well as in the configured Quasar log
 files.
+Bootstrap reads the worker's camelCase service discovery manifest to recognize a
+healthy worker. If a service launcher restarts while its previous worker is still
+running, it verifies the worker identity through `/api/discovery`, retires that
+orphan, and starts the active release under its own supervision. A non-service
+launcher invocation leaves an already running worker alone.
 
 The UI **Shutdown Quasar** action drains the web worker, preserves managed
 servers, and fully stops Bootstrap with exit code `0`. The installed user and
@@ -158,6 +163,16 @@ auto-schedule that restart; the operator-triggered stop/start path runs launch
 preparation and injects the bundled deployable DLL before relaunch.
 
 ## Managed Runtime Update Checks
+
+Enrolled cluster Hosts have a separate `quasar-host-<id>-update.timer` on each
+machine. Every 15 minutes it authenticates to the active Quasar worker, compares
+the packaged Host binary's SHA-256, downloads a changed binary, and restarts only
+the Host service. The updater retains the prior binary until the new service stays
+active and restores it after a failed restart. Gateway and node processes stay
+running under the Host unit's `KillMode=process`. Quasar automatically installs
+the timer on older local enrollments; older remote enrollments need one final
+reinstall because their old Host has no updater and Quasar does not retain SSH
+credentials.
 
 The Updates page always shows the currently installed Quasar, Bootstrap,
 Magnetar, and Space Engineers Dedicated Server versions when Quasar can resolve
