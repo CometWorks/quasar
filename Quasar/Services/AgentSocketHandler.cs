@@ -60,6 +60,7 @@ public sealed class AgentSocketHandler
             context.RequestAborted, _lifetime.ApplicationStopping);
         var loopToken = loopCts.Token;
 
+        var receivedHello = false;
         try
         {
             while (socket.State == WebSocketState.Open && !loopToken.IsCancellationRequested)
@@ -68,6 +69,12 @@ public sealed class AgentSocketHandler
                 if (message is null)
                     break;
 
+                if (message.Kind == WireMessageKind.Hello)
+                {
+                    if (receivedHello) continue;
+                    receivedHello = true;
+                }
+                else if (!receivedHello) continue;
                 await ProcessMessageAsync(message, connectionId, socket, loopToken);
             }
         }
@@ -112,11 +119,11 @@ public sealed class AgentSocketHandler
                 break;
 
             case WireMessageKind.CommandResult when message.CommandResult is not null:
-                _registry.UpdateCommandResult(message.CommandResult);
+                _registry.UpdateCommandResult(message.CommandResult, connectionId);
                 break;
 
             case WireMessageKind.PluginConfigSnapshot when message.PluginConfigSnapshot is not null:
-                _pluginConfigService.IngestSnapshot(message.PluginConfigSnapshot);
+                _pluginConfigService.IngestSnapshot(message.PluginConfigSnapshot, connectionId);
                 _registry.TouchConnection(connectionId);
                 break;
 
@@ -194,7 +201,7 @@ public sealed class AgentSocketHandler
     // is parsed by the shared sink-line parser and appended to the live buffer.
     private void IngestPluginLogs(PluginLogBatch batch, string connectionId)
     {
-        if (!_registry.TryGetUniqueName(connectionId, out var uniqueName))
+        if (!_registry.TryGetTelemetryKey(connectionId, out var uniqueName))
         {
             _logger.LogDebug("Received plugin logs for unknown connection {ConnectionId}.", connectionId);
             return;

@@ -3,6 +3,7 @@ using System.Formats.Tar;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -23,6 +24,7 @@ internal static class Program
     private const string EnsureRunningCommand = "ensure-running";
     private const string ServeCommand = "serve";
     private const string ActivateReleaseCommand = "activate-release";
+    private const string ClusterCommand = "cluster";
     private const string SpawnMutexName = "Quasar.Bootstrap";
     // Local worker discovery must bypass outbound proxy settings.
     private static readonly HttpClient HealthHttpClient = new(new HttpClientHandler { UseProxy = false })
@@ -56,6 +58,7 @@ internal static class Program
             EnsureRunningCommand => await EnsureRunningAsync(quiet, openBrowser, force, foreground, headless),
             ServeCommand => await ServeAsync(quiet, foreground, service, headless),
             ActivateReleaseCommand => await ActivateReleaseAsync(args, quiet, headless),
+            ClusterCommand => await ClusterCli.RunAsync(args),
             _ => InvalidUsage(quiet),
         };
     }
@@ -173,16 +176,25 @@ internal static class Program
     private static async Task KillExistingServerAsync()
     {
         var manifest = ReadManifest();
-        if (manifest is not null && manifest.ProcessId > 0)
+        if (manifest is not null && manifest.ProcessId > 0 &&
+            Uri.TryCreate(manifest.BaseUrl, UriKind.Absolute, out var baseUri))
         {
             try
             {
-                var process = Process.GetProcessById(manifest.ProcessId);
-                process.Kill(entireProcessTree: false);
+                // A stale manifest can contain a PID now owned by another process.
+                using var response = await HealthHttpClient.GetAsync(new Uri(baseUri, "/api/discovery"));
+                var serving = response.IsSuccessStatusCode
+                    ? await response.Content.ReadFromJsonAsync<WebServiceDiscoveryManifest>()
+                    : null;
+                if (IsSameWorker(manifest, serving))
+                {
+                    using var process = Process.GetProcessById(manifest.ProcessId);
+                    process.Kill(entireProcessTree: false);
+                }
             }
             catch
             {
-                // Process already gone or access denied — that is fine.
+                // Process already gone, unreachable, or access denied.
             }
         }
 
@@ -195,23 +207,38 @@ internal static class Program
         }
     }
 
+    internal static bool IsSameWorker(WebServiceDiscoveryManifest expected, WebServiceDiscoveryManifest? serving) =>
+        expected.ProcessId > 0 && !string.IsNullOrWhiteSpace(expected.WorkerId) &&
+        serving?.ProcessId == expected.ProcessId &&
+        string.Equals(serving.WorkerId, expected.WorkerId, StringComparison.Ordinal);
+
     private static async Task<int> ServeAsync(bool quiet = false, bool foreground = false, bool service = false,
         bool headless = false)
     {
+        var serviceMode = service || string.Equals(Environment.GetEnvironmentVariable("QUASAR_MODE"), "service", StringComparison.OrdinalIgnoreCase);
         var existing = await TryGetHealthyServiceUriAsync().ConfigureAwait(false);
         if (existing is not null)
-            return 0;
+        {
+            if (!serviceMode)
+                return 0;
+
+            // A launcher crash may leave its worker running. Retire that worker so this
+            // service instance can own the port and resume release activation.
+            await KillExistingServerAsync().ConfigureAwait(false);
+        }
 
         var options = BootstrapOptions.Create();
 
         if (IsPortInUse(options.Port, options.AdvertisedHost))
         {
             existing = await TryGetHealthyServiceUriAsync().ConfigureAwait(false);
-            if (existing is not null)
+            if (existing is not null && !serviceMode)
                 return 0;
 
-            if (!quiet)
-                Console.Error.WriteLine($"Error: port {options.Port} is already bound by another process and is not a healthy Quasar server.");
+            if (!quiet || serviceMode)
+                Console.Error.WriteLine(existing is not null
+                    ? $"Error: could not retire the existing Quasar worker on port {options.Port}; launcher supervision was not restored."
+                    : $"Error: port {options.Port} is already bound by another process and is not a healthy Quasar server.");
             return 1;
         }
 
@@ -399,7 +426,7 @@ internal static class Program
     private static int InvalidUsage(bool quiet)
     {
         if (!quiet)
-            Console.Error.WriteLine("Usage: Quasar.Bootstrap [ensure-running|serve|activate-release] [options] [--headless]");
+            Console.Error.WriteLine("Usage: Quasar.Bootstrap [ensure-running|serve|activate-release|cluster] [options] [--headless]");
 
         return 2;
     }
@@ -424,15 +451,15 @@ internal static class Program
         }
     }
 
-    private static WebServiceDiscoveryManifest? ReadManifest()
+    internal static WebServiceDiscoveryManifest? ReadManifest(string? path = null)
     {
         try
         {
-            var path = MagnetarPaths.GetWebServiceManifestPath();
+            path ??= MagnetarPaths.GetWebServiceManifestPath();
             if (!File.Exists(path))
                 return null;
 
-            return JsonSerializer.Deserialize<WebServiceDiscoveryManifest>(File.ReadAllText(path));
+            return JsonSerializer.Deserialize<WebServiceDiscoveryManifest>(File.ReadAllText(path), LauncherCoordinator.JsonOptions);
         }
         catch
         {

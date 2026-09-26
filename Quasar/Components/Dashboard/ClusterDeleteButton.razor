@@ -1,0 +1,47 @@
+@inject ClusterDeploymentService Deployments
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject QuasarPermissionService Permissions
+@inject AuthenticationStateProvider AuthenticationState
+@inject QuasarRoleMapper RoleMapper
+@inject NavigationManager Navigation
+
+<AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+    <MudTooltip Text="Delete cluster">
+        <MudIconButton aria-label="Delete cluster" Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                       Size="Size.Small" Disabled="_busy" OnClick="DeleteAsync" />
+    </MudTooltip>
+</AuthorizeView>
+
+@code {
+    [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = default!;
+    [Parameter] public bool ReturnToServers { get; set; }
+    private bool _busy;
+
+    private async Task<bool> AuthorizedAsync() =>
+        RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User).CanQueryCluster(Cluster.UniqueName)
+        && await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage);
+
+    private async Task DeleteAsync()
+    {
+        if (_busy || !await AuthorizedAsync()) return;
+        _busy = true;
+        try
+        {
+            var dialog = await Dialogs.ShowAsync<Quasar.Components.Pages.ClusterRemoveDialog>("Remove cluster",
+                new DialogParameters<Quasar.Components.Pages.ClusterRemoveDialog> { { p => p.Cluster, Cluster } },
+                new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small });
+            var result = await dialog.Result;
+            if (result is null || result.Canceled || !await AuthorizedAsync()) return;
+            if (result.Data is true) await Deployments.ForgetAsync(Cluster.UniqueName, Cluster.UniqueName);
+            else await Deployments.DeleteAsync(Cluster.UniqueName);
+            Snackbar.Add("Cluster definition deleted. World files and Host data were retained.", Severity.Success);
+            if (ReturnToServers) Navigation.NavigateTo("/");
+        }
+        catch (Exception error) when (error is InvalidOperationException or IOException or KeyNotFoundException or ClusterHostException)
+        {
+            Snackbar.Add(error.Message, Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+}

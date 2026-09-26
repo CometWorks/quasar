@@ -1,0 +1,116 @@
+@implements IAsyncDisposable
+@using Admin = CometWorks.ClusterGateway.AdminContract.V1
+@inject ClusterGatewayClient Gateway
+@inject ClusterFleetService Fleet
+@inject PluginLogStream Logs
+@inject QuasarPermissionService Permissions
+@inject AuthenticationStateProvider AuthenticationState
+@inject QuasarRoleMapper RoleMapper
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.body2">Recent Gateway events and node plugin logs. Full process logs remain on each Host.</MudText>
+            @if (_error is not null) { <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@_error</MudAlert> }
+            <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                <MudText Typo="Typo.caption">@(_observed is { } at ? $"Updated {at:u} · refreshes every 5 seconds" : "Waiting for observations")</MudText>
+                <MudButton StartIcon="@Icons.Material.Filled.Refresh" Disabled="_loading" OnClick="RefreshAsync">Refresh</MudButton>
+            </MudStack>
+            <MudTabs TabPanelsClass="pt-3">
+                <MudTabPanel Text="Gateway events" Icon="@Icons.Material.Filled.Terminal">
+                    @if (_gap) { <MudText Typo="Typo.caption">Earlier events were truncated or the Gateway event stream restarted.</MudText> }
+                    <div class="cluster-console-output" role="region" aria-label="Gateway events" tabindex="0">
+                        @if (_events.Length == 0) { <MudText>No Gateway events available.</MudText> }
+                        @foreach (var entry in _events.OrderByDescending(e => e.Seq))
+                        {
+                            <div class="cluster-console-line">
+                                <div>@string.Join(" · ", new[] { entry.At.ToString("u"), entry.Type, entry.Actor, entry.Target }.Where(value => !string.IsNullOrWhiteSpace(value)))</div>
+                                @if (entry.Data is { Count: > 0 }) { <div>@System.Text.Json.JsonSerializer.Serialize(entry.Data)</div> }
+                            </div>
+                        }
+                    </div>
+                </MudTabPanel>
+                <MudTabPanel Text="Node plugin logs" Icon="@Icons.Material.Filled.Description">
+                    <div class="cluster-console-output" role="region" aria-label="Node plugin logs" tabindex="0">
+                        @if (_logs.Length == 0) { <MudText>No node plugin logs received.</MudText> }
+                        @foreach (var item in _logs)
+                        {
+                            <div class="cluster-console-line">
+                                <div>@item.Entry.TimestampUtc.ToString("u") · @item.Node · @item.Entry.Plugin · @item.Entry.Level · @item.Entry.Message</div>
+                                @if (!string.IsNullOrWhiteSpace(item.Entry.Exception)) { <div>@item.Entry.Exception</div> }
+                            </div>
+                        }
+                    </div>
+                </MudTabPanel>
+            </MudTabs>
+        </MudStack>
+    </DialogContent>
+    <DialogActions><MudButton OnClick="Close">Close</MudButton></DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = default!;
+    private readonly CancellationTokenSource _shutdown = new();
+    private Admin.AdminEvent[] _events = [];
+    private (string Node, PluginLogEntry Entry)[] _logs = [];
+    private long _cursor;
+    private bool _gap, _loading;
+    private string? _error;
+    private DateTimeOffset? _observed;
+    private Task? _loop;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _loop = PollAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_loading) return;
+        _loading = true;
+        try
+        {
+            var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+            if (!user.CanQueryCluster(Cluster.UniqueName) || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterQuery))
+            {
+                _events = []; _logs = []; _observed = null;
+                _error = "Cluster access denied.";
+                return;
+            }
+            var page = await Gateway.GetEventsAsync(Cluster, _cursor, 200, _shutdown.Token);
+            if (page.Data.NextCursor < _cursor) { _events = []; _gap = true; }
+            if (_cursor > 0 && page.Data.EarliestRetained > _cursor + 1) _gap = true;
+            _events = _events.Concat(page.Data.Events).DistinctBy(e => e.Seq).OrderBy(e => e.Seq).TakeLast(500).ToArray();
+            _cursor = page.Data.NextCursor;
+            var fleet = await Fleet.GetAsync(Cluster, _shutdown.Token);
+            _logs = fleet.Data.Nodes.Where(n => n.Telemetry is not null)
+                .SelectMany(n => Logs.GetEntries(n.Telemetry!.TelemetryKey).TakeLast(200)
+                    .Select(entry => (Node: n.Registry.Node, Entry: entry)))
+                .OrderByDescending(item => item.Entry.TimestampUtc).Take(1000).ToArray();
+            _observed = page.CapturedAt;
+            _error = null;
+        }
+        catch (ClusterGatewayException error) { _error = $"Live feed unavailable. Retained entries may be stale. {error.Message}"; }
+        finally { _loading = false; }
+    }
+
+    private async Task PollAsync()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(_shutdown.Token))
+                await InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) { }
+    }
+    private void Close() => Dialog.Close();
+    public async ValueTask DisposeAsync()
+    {
+        await _shutdown.CancelAsync();
+        if (_loop is not null) await _loop;
+        _shutdown.Dispose();
+    }
+}

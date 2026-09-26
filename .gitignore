@@ -378,3 +378,6 @@ graphify-out/cache/
 
 /.env
 /quasar-data/
+
+# Playwright MCP debug output
+.playwright-mcp/

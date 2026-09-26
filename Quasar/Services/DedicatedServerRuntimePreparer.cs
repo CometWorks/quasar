@@ -70,14 +70,14 @@ public sealed class DedicatedServerRuntimePreparer
         DedicatedServerDefinition definition,
         string dedicatedServer64Path,
         MagnetarLaunchArgumentStyle launchArgumentStyle,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, QuasarConfigProfile? profileOverride = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
 
         var paths = DedicatedServerPathResolver.Resolve(definition);
         var dedicatedServerAppDataPath = paths.DedicatedServerAppDataPath;
         var magnetarAppDataPath = paths.MagnetarAppDataPath;
-        var configProfile = ResolveConfigProfile(definition);
+        var configProfile = profileOverride ?? ResolveConfigProfile(definition);
         var worldPath = ResolveConfiguredWorldPath(paths);
         var runtimeConfigPath = Path.Combine(dedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg");
         var lastSessionPath = Path.Combine(dedicatedServerAppDataPath, "Saves", "LastSession.sbl");
