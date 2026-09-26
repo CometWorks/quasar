@@ -68,6 +68,17 @@ public sealed class AgentRegistry
         lock (_sync)
         {
             var state = GetOrCreateState(hello.AgentId);
+            if (state.ConnectionId != connectionId)
+            {
+                state.Snapshot = null;
+                state.CommandResults.Clear();
+                foreach (var id in _pendingCommands.Where(p => p.Value.AgentId == hello.AgentId).Select(p => p.Key).ToArray())
+                {
+                    _pendingCommands.Remove(id);
+                    if (_pendingResults.Remove(id, out var pending))
+                        pending.TrySetException(new InvalidOperationException("Agent connection was replaced."));
+                }
+            }
             state.ConnectionId = connectionId;
             state.IsConnected = true;
             state.LastSeenUtc = DateTimeOffset.UtcNow;
@@ -81,28 +92,37 @@ public sealed class AgentRegistry
     public void UpdateSnapshot(AgentSnapshot snapshot, string connectionId)
     {
         AgentSnapshot latestSnapshot;
+        string telemetryKey;
 
         lock (_sync)
         {
-            var state = GetOrCreateState(ResolveAgentId(snapshot.AgentId, connectionId));
-            state.ConnectionId = connectionId;
-            state.IsConnected = true;
+            if (!_agents.TryGetValue(snapshot.AgentId, out var state) || !state.IsConnected
+                || state.ConnectionId != connectionId || state.Hello is not { } hello
+                || snapshot.ClusterMode != hello.ClusterMode || snapshot.UniqueName != hello.UniqueName)
+                return;
+            if (hello.ClusterMode && (snapshot.ClusterId != hello.ClusterId || snapshot.ClusterSlot != hello.ClusterSlot
+                || (hello.ClusterNodeId.Length > 0 && snapshot.ClusterNodeId != hello.ClusterNodeId)
+                || (hello.ClusterEpoch > 0 && snapshot.ClusterEpoch != hello.ClusterEpoch)
+                || (state.Snapshot?.ClusterEpoch is > 0 && snapshot.ClusterEpoch != state.Snapshot.ClusterEpoch)))
+                return;
             state.LastSeenUtc = DateTimeOffset.UtcNow;
             state.Snapshot = snapshot;
+            state.LastSnapshotReceivedUtc = DateTimeOffset.UtcNow;
             latestSnapshot = state.Snapshot;
+            telemetryKey = state.TelemetryKey;
         }
 
-        _knownPlayers.ObserveSnapshot(latestSnapshot);
+        if (!latestSnapshot.ClusterMode) _knownPlayers.ObserveSnapshot(latestSnapshot);
         if (!string.IsNullOrWhiteSpace(snapshot.UniqueName))
         {
             var sample = MetricSampleFactory.FromSnapshot(snapshot);
-            _metricsStore.Enqueue(snapshot.UniqueName, in sample);
+            _metricsStore.Enqueue(telemetryKey, in sample);
 
             if (snapshot.Profiler is not null)
-                _profilerStore.Enqueue(snapshot.UniqueName, snapshot.Profiler);
+                _profilerStore.Enqueue(telemetryKey, snapshot.Profiler);
 
             if (snapshot.PluginStats is not null)
-                _pluginStatsStore.Enqueue(snapshot.UniqueName, snapshot.PluginStats);
+                _pluginStatsStore.Enqueue(telemetryKey, snapshot.PluginStats);
         }
 
         NotifyChanged();
@@ -124,14 +144,16 @@ public sealed class AgentRegistry
         }
     }
 
-    public void UpdateCommandResult(ServerCommandResult result)
+    public void UpdateCommandResult(ServerCommandResult result, string connectionId)
     {
         ServerCommandEnvelope? command = null;
         TaskCompletionSource<ServerCommandResult>? awaiter = null;
 
         lock (_sync)
         {
-            var state = GetOrCreateState(result.AgentId);
+            if (!_agents.TryGetValue(result.AgentId, out var state) || !state.IsConnected || state.ConnectionId != connectionId
+                || !_pendingCommands.TryGetValue(result.CommandId, out var expected) || expected.AgentId != result.AgentId)
+                return;
             state.LastSeenUtc = DateTimeOffset.UtcNow;
             state.CommandResults.Insert(0, result);
             if (state.CommandResults.Count > 20)
@@ -235,7 +257,8 @@ public sealed class AgentRegistry
     /// fire-and-forget control messages such as plugin config updates that do
     /// not flow through the command/result pipeline.
     /// </summary>
-    public async Task SendToAgentAsync(string agentId, AgentWireMessage message, CancellationToken cancellationToken = default)
+    public async Task SendToAgentAsync(string agentId, AgentWireMessage message, CancellationToken cancellationToken = default,
+        string? expectedConnectionId = null)
     {
         Func<AgentWireMessage, CancellationToken, Task>? sender;
 
@@ -244,6 +267,10 @@ public sealed class AgentRegistry
             if (!_agents.TryGetValue(agentId, out var state) || state.Sender is null || !state.IsConnected)
                 throw new InvalidOperationException($"Agent '{agentId}' is not connected.");
 
+            if (state.IsCluster && message.Kind == WireMessageKind.PluginConfigUpdate)
+                throw new InvalidOperationException("Cluster plugin configuration must be activated for the whole cluster.");
+            if (expectedConnectionId is not null && state.ConnectionId != expectedConnectionId)
+                throw new InvalidOperationException("Agent connection changed; reload its configuration before applying edits.");
             sender = state.Sender;
         }
 
@@ -333,7 +360,7 @@ public sealed class AgentRegistry
             var state = _agents.Values.FirstOrDefault(current =>
                 string.Equals(current.ConnectionId, connectionId, StringComparison.OrdinalIgnoreCase));
 
-            if (state is null || string.IsNullOrWhiteSpace(state.UniqueNameKey))
+            if (state is null || !state.IsConnected || state.IsCluster || string.IsNullOrWhiteSpace(state.UniqueNameKey))
                 return false;
 
             uniqueName = state.UniqueNameKey;
@@ -341,15 +368,20 @@ public sealed class AgentRegistry
         }
     }
 
-    private string ResolveAgentId(string? agentId, string connectionId)
+    public bool IsCurrentConnection(string agentId, string connectionId)
     {
-        if (!string.IsNullOrWhiteSpace(agentId))
-            return agentId;
+        lock (_sync) return _agents.TryGetValue(agentId, out var state)
+            && state.IsConnected && state.ConnectionId == connectionId;
+    }
 
-        var existing = _agents.Values.FirstOrDefault(state =>
-            string.Equals(state.ConnectionId, connectionId, StringComparison.OrdinalIgnoreCase));
-
-        return existing?.AgentId ?? connectionId;
+    public bool TryGetTelemetryKey(string connectionId, out string key)
+    {
+        lock (_sync)
+        {
+            var state = _agents.Values.FirstOrDefault(s => s.IsConnected && s.ConnectionId == connectionId);
+            key = state?.TelemetryKey ?? string.Empty;
+            return state is not null;
+        }
     }
 
     private void NotifyChanged()
@@ -384,6 +416,8 @@ public sealed class AgentRuntimeState
 
     public DateTimeOffset LastSeenUtc { get; set; }
 
+    public DateTimeOffset LastSnapshotReceivedUtc { get; set; }
+
     public AgentHello? Hello { get; set; }
 
     public AgentSnapshot? Snapshot { get; set; }
@@ -391,6 +425,17 @@ public sealed class AgentRuntimeState
     public List<ServerCommandResult> CommandResults { get; set; } = new();
 
     public Func<AgentWireMessage, CancellationToken, Task>? Sender { get; set; }
+
+    public bool IsCluster => Snapshot?.ClusterMode ?? Hello?.ClusterMode ?? false;
+    public string ClusterId => Snapshot?.ClusterId ?? Hello?.ClusterId ?? string.Empty;
+    public string ClusterSlot => Snapshot?.ClusterSlot ?? Hello?.ClusterSlot ?? string.Empty;
+    public string ClusterNodeId => Snapshot?.ClusterNodeId ?? Hello?.ClusterNodeId ?? string.Empty;
+    public long ClusterEpoch => Snapshot?.ClusterEpoch ?? Hello?.ClusterEpoch ?? 0;
+    public bool HasClusterIdentity => IsCluster && ClusterId.Length > 0 && ClusterSlot.Length > 0
+        && ClusterNodeId.Length > 0 && ClusterEpoch > 0;
+    public string TelemetryKey => !IsCluster ? UniqueNameKey : "cluster-" + Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            new { ClusterId, ClusterSlot, ClusterNodeId, ClusterEpoch, Process = HasClusterIdentity ? null : AgentId }))).ToLowerInvariant();
 
     public string UniqueNameKey => Snapshot?.UniqueName ?? Hello?.UniqueName ?? ServerKey;
 
@@ -412,6 +457,7 @@ public sealed class AgentRuntimeState
             ConnectionId = ConnectionId,
             IsConnected = IsConnected,
             LastSeenUtc = LastSeenUtc,
+            LastSnapshotReceivedUtc = LastSnapshotReceivedUtc,
             Hello = Hello,
             Snapshot = Snapshot,
             CommandResults = new List<ServerCommandResult>(CommandResults),

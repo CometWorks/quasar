@@ -1,0 +1,301 @@
+@implements IAsyncDisposable
+@using Admin = CometWorks.ClusterGateway.AdminContract.V1
+@using HostContract = Quasar.Host.Contract.V1
+@inject ClusterGatewayClient GatewayClient
+@inject ClusterHostClient HostClient
+@inject ClusterReconciler Reconciler
+@inject QuasarConfigProfileCatalog Profiles
+@inject QuasarWorldTemplateCatalog Worlds
+
+<MudStack Spacing="3">
+    @if (ShowConfigurationLinks) { <ClusterConfigurationLinks /> }
+    @if (_loading && _status is null)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    @if (_error is not null && !IsCleanlyStopped)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
+    }
+    @if (ShutdownRecoveryRequired)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@Reconciler.GetStatus(Cluster.UniqueName).Message</MudAlert>
+    }
+
+    @if (_observedAt is { } observed)
+    {
+        <MudText Typo="Typo.caption">@(_stale ? "Stale observation" : "Observed") · @observed.ToString("u") · Health: @(_stale ? "Unknown" : _status?.Health.ToString())</MudText>
+    }
+    @if (_capabilities?.Scope == Admin.AdminScope.Query)
+    {
+        <MudAlert Severity="Severity.Info">Gateway access is query-only.</MudAlert>
+    }
+
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="6" lg="3">
+            <MudPaper Class="pa-3 server-card" Elevation="0">
+                <MudText Typo="Typo.overline">Status</MudText>
+                <MudText Typo="Typo.h6" Color="@PhaseColor">@PhaseText</MudText>
+                <MudText Typo="Typo.caption" Class="d-block">Gateway · @GatewayText</MudText>
+                <MudText Typo="Typo.caption" Class="d-block">World Authority · @WorldAuthorityText</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <MudPaper Class="pa-3 server-card" Elevation="0">
+                <MudText Typo="Typo.overline">Players</MudText>
+                <MudText Typo="Typo.h6">@PlayerText</MudText>
+                <MudText Typo="Typo.caption">@JoinText</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <MudPaper Class="pa-3 server-card" Elevation="0">
+                <MudText Typo="Typo.overline">Capacity</MudText>
+                <MudText Typo="Typo.h6">@CapacityText</MudText>
+                <MudText Typo="Typo.caption">@CapacityDetail</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <MudPaper Class="pa-3 server-card" Elevation="0">
+                <MudText Typo="Typo.overline">Recovery</MudText>
+                <MudText Typo="Typo.h6" Color="@RecoveryColor">@RecoveryText</MudText>
+                <MudText Typo="Typo.caption">@RecoveryDetail</MudText>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    @if (!_stale && _status?.ReasonCodes.Length > 0)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+            @string.Join(" · ", _status.ReasonCodes)
+        </MudAlert>
+    }
+
+    <MudPaper Class="pa-4 server-card" Elevation="0">
+        <MudText Typo="Typo.h6">World and configuration</MudText>
+        <MudText>Active world: @(_status?.WorldId ?? "Unknown")</MudText>
+        <MudText>Profile: @(Profiles.GetProfile(Cluster.ConfigProfileId)?.Name ?? ValueOrDash(Cluster.ConfigProfileId))</MudText>
+        <MudText>World template: @(Worlds.GetTemplate(Cluster.WorldTemplateId)?.Name ?? ValueOrDash(Cluster.WorldTemplateId))</MudText>
+
+
+    </MudPaper>
+
+    <MudExpansionPanels>
+        <MudExpansionPanel Text="Advanced cluster details">
+            <MudStack Spacing="3" Class="py-2">
+            <MudSimpleTable Dense="true" Hover="true" Class="cluster-details-table">
+                <tbody>
+                    <tr><th>Desired state</th><td>@Cluster.GoalState</td></tr>
+                    <tr><th>Reconciler</th><td>@ReconcileText</td></tr>
+                    <tr><th>Host executor</th><td>@HostText</td></tr>
+                    <tr><th>Gateway executor</th><td>@GatewayExecutorText</td></tr>
+                    <tr><th>Registry WAL</th><td>@RegistryText</td></tr>
+                </tbody>
+            </MudSimpleTable>
+            @if (_plan.Length > 0)
+            {
+                <MudTable T="Admin.NodePlan" Items="_plan" Dense="true" Hover="true">
+                    <HeaderContent>
+                        <MudTh>Slot</MudTh>
+                        <MudTh>Host</MudTh>
+                        <MudTh>Role</MudTh>
+                        <MudTh>Goal</MudTh>
+                        <MudTh>Observed</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Slot" Class="mono">@context.SlotKey</MudTd>
+                        <MudTd DataLabel="Host">@context.Host</MudTd>
+                        <MudTd DataLabel="Role">@RoleText(context.Role)</MudTd>
+                        <MudTd DataLabel="Goal">@context.Goal</MudTd>
+                        <MudTd DataLabel="Observed">@context.Observed</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+            </MudStack>
+        </MudExpansionPanel>
+    </MudExpansionPanels>
+</MudStack>
+
+@code
+{
+    [Parameter] public bool ShowConfigurationLinks { get; set; } = true;
+    private readonly CancellationTokenSource _shutdown = new();
+    private Admin.ClusterStatus? _status;
+    private Admin.NodePlan[] _plan = [];
+    private Admin.RecoveryReadiness? _recovery;
+    private HostContract.HostStatus? _host;
+    private Task? _refreshLoop;
+    private string? _error;
+    private bool _loading;
+    private bool _stale;
+    private DateTimeOffset? _observedAt;
+    private Admin.AdminCapabilities? _capabilities;
+
+    [Parameter, EditorRequired]
+    public ClusterDefinition Cluster { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync(_shutdown.Token);
+        _refreshLoop = RefreshLoopAsync(_shutdown.Token);
+    }
+
+    private async Task RefreshLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+                await InvokeAsync(async () =>
+                {
+                    await RefreshAsync(cancellationToken);
+                    StateHasChanged();
+                });
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task RefreshAsync(CancellationToken cancellationToken)
+    {
+        _loading = true;
+        try
+        {
+            _capabilities = (await GatewayClient.GetCapabilitiesAsync(Cluster, cancellationToken)).Data;
+            Task<Admin.AdminEnvelope<Admin.ClusterStatus>> status =
+                GatewayClient.GetStatusAsync(Cluster, cancellationToken);
+            Task<Admin.AdminEnvelope<Admin.NodePlan[]>> plan =
+                GatewayClient.GetPlanAsync(Cluster, cancellationToken);
+            Task<Admin.AdminEnvelope<Admin.RecoveryReadiness>> recovery =
+                GatewayClient.GetRecoveryReadinessAsync(Cluster, cancellationToken);
+            Task<HostContract.HostEnvelope<HostContract.HostStatus>>? host =
+                string.IsNullOrWhiteSpace(Cluster.HostCommandUrl) ? null : HostClient.GetStatusAsync(Cluster, cancellationToken);
+            Admin.ClusterStatus? nextStatus = null;
+            Admin.NodePlan[] nextPlan = [];
+            Admin.RecoveryReadiness? nextRecovery = null;
+            HostContract.HostStatus? nextHost = null;
+            var errors = new List<string>();
+            try
+            {
+                var response = await status;
+                nextStatus = response.Data;
+                _observedAt = response.CapturedAt;
+            }
+            catch (ClusterGatewayException exception)
+            {
+                errors.Add(exception.Message);
+            }
+            try
+            {
+                nextPlan = (await plan).Data;
+            }
+            catch (ClusterGatewayException exception)
+            {
+                errors.Add(exception.Message);
+            }
+            try
+            {
+                nextRecovery = (await recovery).Data;
+            }
+            catch (ClusterGatewayException exception)
+            {
+                errors.Add(exception.Message);
+            }
+            try
+            {
+                nextHost = host is null ? null : (await host).Data;
+            }
+            catch (ClusterHostException exception)
+            {
+                errors.Add(exception.Message);
+            }
+            _stale = nextStatus is null;
+            _status = nextStatus ?? _status;
+            _plan = nextPlan;
+            _recovery = nextRecovery;
+            _host = nextHost;
+            _error = errors.Count == 0 ? null : string.Join(" ", errors.Distinct());
+        }
+        catch (ClusterGatewayException exception)
+        {
+            _stale = true;
+            _capabilities = null;
+            _error = exception.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private bool IsCleanlyStopped => Cluster.GoalState == DedicatedServerGoalState.Off
+        && Reconciler.GetStatus(Cluster.UniqueName) is { State: ClusterReconcileState.Converged, ClusterPhase: Admin.ClusterPhase.Down };
+    private bool ShutdownRecoveryRequired => Reconciler.GetStatus(Cluster.UniqueName).ErrorCode == "shutdown_recovery_required";
+    private string PhaseText => ShutdownRecoveryRequired ? "Recovery required" : IsCleanlyStopped ? "Stopped" : _stale ? "Unavailable" : _status?.Phase.ToString() ?? "Unavailable";
+    private Color PhaseColor => ShutdownRecoveryRequired ? Color.Error : _stale ? Color.Default : _status?.Health switch
+    {
+        Admin.AdminHealth.Healthy => Color.Success,
+        Admin.AdminHealth.Warning => Color.Warning,
+        Admin.AdminHealth.Unhealthy => Color.Error,
+        _ => Color.Default,
+    };
+    private string GatewayText => IsCleanlyStopped ? "Stopped" : _stale || _status is null ? "Unavailable" : "Online";
+    private string PlayerText => _stale || _status is null ? "-" : $"{_status.Counts.ConnectedClients} connected";
+    private string JoinText => _status?.AcceptingPlayers == true && !_stale
+        ? "Accepting players." : "Player entry point is not serving yet.";
+    private int ReadyNodes => _plan.Count(item => item.Observed == Admin.NodeObservation.Ready);
+    private int WantedNodes => _plan.Count(item => item.Goal == Admin.NodeGoal.Wanted);
+    private string CapacityText => _stale || _status is null ? "-" : $"{ReadyNodes}/{WantedNodes} ready";
+    private string CapacityDetail => _stale || _status is null ? "Capacity unavailable."
+        : $"{_status.Counts.Nodes} registered; {_plan.Count(item => item.FailureAlert)} alerting.";
+    private string WorldAuthorityText => IsCleanlyStopped ? "Stopped" : _stale ? "Unavailable" : _status?.WorldAuthority.Node ?? "Unavailable";
+    private string RecoveryText => _recovery?.State.ToString() ?? "Unknown";
+    private Color RecoveryColor => _recovery?.State switch
+    {
+        Admin.RecoveryReadinessState.Ready => Color.Success,
+        Admin.RecoveryReadinessState.AtRisk => Color.Warning,
+        Admin.RecoveryReadinessState.NotReconstructible => Color.Error,
+        _ => Color.Default,
+    };
+    private string RecoveryDetail => _recovery?.LatestPoint is null
+        ? "No reconstructible cut reported."
+        : $"{_recovery.LatestPoint.Consistency} · cluster time {_recovery.LatestPoint.ClusterTime}";
+    private string HostText => _host is null ? (string.IsNullOrWhiteSpace(Cluster.HostCommandUrl) ? "Not configured (observation only)" : "Unavailable")
+        : $"{_host.HostId} · {_host.Attachments.Length} attachment(s)";
+    private string GatewayExecutorText => _host?.Gateways?.FirstOrDefault(gateway =>
+            gateway.ClusterId.Equals(Cluster.UniqueName, StringComparison.OrdinalIgnoreCase)) is { } gateway
+        ? $"{gateway.Observed} · PID {gateway.ProcessId?.ToString() ?? "-"} · {gateway.ConfigRevision}"
+        : "Not assigned";
+    private string ReconcileText
+    {
+        get
+        {
+            ClusterReconcileStatus status = Reconciler.GetStatus(Cluster.UniqueName);
+            return status.ErrorCode is null
+                ? $"{status.State} · {status.Message}"
+                : $"{status.State} · {status.ErrorCode}: {status.Message}";
+        }
+    }
+    private string RegistryText => _recovery is null ? "-"
+        : $"{(_recovery.Registry.SnapshotPresent ? "snapshot present" : "no snapshot")} · {_recovery.Registry.WalRecords} WAL records";
+
+    private static string ValueOrDash(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string RoleText(Admin.NodeRole role) =>
+        role == Admin.NodeRole.WorldAuthority ? "World Authority" : "Node";
+
+    public async ValueTask DisposeAsync()
+    {
+        await _shutdown.CancelAsync();
+        if (_refreshLoop is not null)
+        {
+            try
+            {
+                await _refreshLoop;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+        _shutdown.Dispose();
+    }
+}
