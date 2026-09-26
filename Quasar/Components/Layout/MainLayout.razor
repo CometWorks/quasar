@@ -358,6 +358,11 @@
             _pushEnabled = true;
             Snackbar.Add("Push notifications enabled on this browser.", Severity.Success);
         }
+        catch (JSException error) when (error.Message.Contains("Registration failed - push service error", StringComparison.OrdinalIgnoreCase))
+        {
+            Logger.LogWarning(error, "The browser's push service could not register a subscription.");
+            Snackbar.Add("Browser push service unavailable. Check your network; in Brave, enable Google services for push messaging in Privacy settings.", Severity.Error);
+        }
         catch (Exception error)
         {
             Logger.LogWarning(error, "Could not enable browser push notifications.");

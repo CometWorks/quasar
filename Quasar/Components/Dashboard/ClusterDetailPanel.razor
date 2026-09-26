@@ -17,6 +17,10 @@
     {
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
     }
+    @if (ShutdownRecoveryRequired)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@Reconciler.GetStatus(Cluster.UniqueName).Message</MudAlert>
+    }
 
     @if (_observedAt is { } observed)
     {
@@ -226,8 +230,9 @@
 
     private bool IsCleanlyStopped => Cluster.GoalState == DedicatedServerGoalState.Off
         && Reconciler.GetStatus(Cluster.UniqueName) is { State: ClusterReconcileState.Converged, ClusterPhase: Admin.ClusterPhase.Down };
-    private string PhaseText => IsCleanlyStopped ? "Stopped" : _stale ? "Unavailable" : _status?.Phase.ToString() ?? "Unavailable";
-    private Color PhaseColor => _stale ? Color.Default : _status?.Health switch
+    private bool ShutdownRecoveryRequired => Reconciler.GetStatus(Cluster.UniqueName).ErrorCode == "shutdown_recovery_required";
+    private string PhaseText => ShutdownRecoveryRequired ? "Recovery required" : IsCleanlyStopped ? "Stopped" : _stale ? "Unavailable" : _status?.Phase.ToString() ?? "Unavailable";
+    private Color PhaseColor => ShutdownRecoveryRequired ? Color.Error : _stale ? Color.Default : _status?.Health switch
     {
         Admin.AdminHealth.Healthy => Color.Success,
         Admin.AdminHealth.Warning => Color.Warning,

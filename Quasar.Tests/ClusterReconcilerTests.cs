@@ -116,6 +116,46 @@ public sealed class ClusterReconcilerTests : IDisposable
         Assert.Equal(ClusterReconcileState.Converged, reconciler.GetStatus("demo").State);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task FailedShutdownWithEmptyNodesRequiresRecoveryWithoutRepeatingMutation(bool retainEmptyNode)
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using ClusterCatalog catalog = CreateCatalog(DedicatedServerGoalState.Off);
+        int shutdowns = 0;
+        var host = new ContractHandler((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Get, request.Method);
+            return HostResponse(Host([GatewayStatus(GatewayGoal.On, GatewayObservedState.Running)]));
+        });
+        var emptyNode = new Admin.NodeStatus("world-authority", "wa", 2, Admin.NodeRole.WorldAuthority,
+            Admin.NodeState.Empty, "127.0.0.1:28100", null, DateTimeOffset.UnixEpoch,
+            DateTimeOffset.UnixEpoch, 0, 0, "host", false);
+        var gateway = new ContractHandler((request, _) =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                shutdowns++;
+                return GatewayError(HttpStatusCode.Conflict, "shutdown_failed",
+                    "Graceful shutdown is waiting for Empty nodes and final saves; dirty: global");
+            }
+            return GatewayResponse(Status(Admin.ClusterPhase.Draining) with
+                { Nodes = retainEmptyNode ? [emptyNode] : [] });
+        });
+        var reconciler = CreateReconciler(catalog, gateway, host);
+
+        await reconciler.ReconcileAllAsync(default);
+        await reconciler.ReconcileAllAsync(default);
+        await CreateReconciler(catalog, gateway, host).ReconcileAllAsync(default);
+
+        Assert.Equal(1, shutdowns);
+        Assert.Equal(ClusterReconcileState.ConfigurationRequired, reconciler.GetStatus("demo").State);
+        Assert.Equal("shutdown_recovery_required", reconciler.GetStatus("demo").ErrorCode);
+        Assert.Contains("dirty: global", reconciler.GetStatus("demo").Message);
+        Assert.Null(catalog.GetCluster("demo")!.ShutdownProof);
+    }
+
     [Fact]
     public async Task PersistedOffWithoutProofRequiresRecoveryAndDoesNotRestartGateway()
     {
@@ -547,6 +587,14 @@ public sealed class ClusterReconcilerTests : IDisposable
     private static HttpResponseMessage GatewayResponse<T>(T value) => Response(
         new Admin.AdminEnvelope<T>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow, value),
         "X-Cluster-Gateway-Protocol", Admin.AdminProtocol.Version);
+
+    private static HttpResponseMessage GatewayError(HttpStatusCode status, string code, string message)
+    {
+        var response = Response(new Admin.AdminErrorEnvelope(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow,
+            new Admin.AdminError(code, message)), "X-Cluster-Gateway-Protocol", Admin.AdminProtocol.Version);
+        response.StatusCode = status;
+        return response;
+    }
 
     private static HttpResponseMessage Response<T>(T value, string header, int version)
     {

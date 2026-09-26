@@ -278,6 +278,30 @@ and `live/evidence/ui-audit-tests.log`. This verifies UI behavior, not full inte
 acceptance: the 1.1.1 Gateway remains Draining after the failed warm-start/shutdown
 sequence described above, and the published LiteNetLib correction still needs a live run.
 
+## Drain and shutdown recovery
+
+Fleet → Drain addresses a **slot** in the Gateway admin API. The confirmation names its
+currently observed node and epoch; Gateway chooses an active regular replacement when it
+executes the request. Drain is available only for active regular nodes with a slot.
+
+For a managed cluster, Stop sets goal Off. Quasar waits for Gateway Down with a clean
+shutdown marker before stopping its process with a Host fence. A failed graceful shutdown
+may be retried while nodes remain live. Once no active nodes remain, a failed request
+cannot produce missing final saves, so Quasar retains the failed operation for that
+lifecycle and reports `shutdown_recovery_required` instead of submitting it forever.
+The cluster detail status becomes **Recovery required** with a visible error; the cluster
+is not marked cleanly stopped. The error includes Gateway's reason and points
+to Deployment → Recovery → **Recover stopped cluster after an unclean shutdown**. That
+explicit recovery checks Host process state and may lose unsaved game changes.
+
+The 2026-09-26 `test` instance had all nodes Empty, including world authority, before
+its new Stop request. Gateway repeatedly failed with `dirty: global`: no final global
+save from the current world authority generation existed after shutdown started. Its
+admin shutdown implementation currently waits `GraceSeconds + 30` and ignores
+`ForceAfterSeconds`; changing that field in Quasar cannot repair the missing save.
+Gateway pauses admission when shutdown begins, so the UI can show `Draining · paused`
+while this failure remains unresolved.
+
 ## Guided provisioning and machine enrollment — 2026-09-20
 
 The branch adds guided setup with local, one-time-command and SSH Host installation,

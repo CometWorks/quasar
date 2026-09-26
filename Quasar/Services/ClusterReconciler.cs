@@ -226,19 +226,33 @@ public sealed class ClusterReconciler : BackgroundService
         {
             if (cluster.ShutdownProof is not null)
                 await _catalog.RecordShutdownProofAsync(cluster, null, cancellationToken);
+            // Once every node has emptied, another shutdown request cannot create a missing
+            // final save. Keep the failed attempt for this lifecycle so recovery stays explicit.
+            bool noActiveNodes = gateway.Nodes?.All(node => node.State is Admin.NodeState.Empty or Admin.NodeState.Dead) == true;
             // The Gateway drains for GraceSeconds and fails the shutdown 30 s later; it ignores
             // ForceAfterSeconds (kept so a pending request keeps its content hash). A failed drain
-            // (players still connected) is tried again under a new key, otherwise goal Off could
-            // never be reached for this lifecycle.
+            // with live nodes can be tried again under a new key.
             Admin.ShutdownRequest request = new(GraceSeconds: cluster.ShutdownGracePeriodSeconds,
                 ForceAfterSeconds: 900);
             ClusterOperation result = await _operations.ExecuteGatewayAsync(cluster,
                 "cluster.lifecycle.shutdown", "POST", "shutdown", request,
-                _operations.AttemptKey(cluster.UniqueName, "cluster.lifecycle.shutdown", cluster.GetLifecycleId(), ShutdownRetryDelay),
+                _operations.AttemptKey(cluster.UniqueName, "cluster.lifecycle.shutdown", cluster.GetLifecycleId(),
+                    noActiveNodes ? TimeSpan.MaxValue : ShutdownRetryDelay),
                 "reconciler", _gatewayClient, cancellationToken);
             if (result.State == ClusterOperationState.Failed)
+            {
+                if (noActiveNodes)
+                {
+                    Set(cluster, ClusterReconcileState.ConfigurationRequired, hostGateway.Observed, gateway.Phase,
+                        "shutdown_recovery_required",
+                        $"{result.Error?.Message ?? "Cluster shutdown failed."} No active nodes remain; "
+                        + "the Gateway cannot create missing final saves. In Deployment → Recovery, "
+                        + "recover the stopped cluster after an unclean shutdown. Clean shutdown was not verified.");
+                    return;
+                }
                 throw new ClusterGatewayException(System.Net.HttpStatusCode.Conflict,
                     result.Error?.Code ?? "shutdown_failed", result.Error?.Message ?? "Cluster shutdown failed.");
+            }
             if (result.State == ClusterOperationState.Running)
             {
                 Set(cluster, ClusterReconcileState.Converging, hostGateway.Observed, gateway.Phase,

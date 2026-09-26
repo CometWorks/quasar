@@ -382,6 +382,12 @@ notifications** to grant browser permission; a filled bell means push is enabled
 here. The same menu opens the current update notice or disables push on this
 browser. Browser push requires HTTPS (or localhost) and browser support for
 service workers and Push API. It does not require installing Quasar as a PWA.
+The browser must also reach its own push provider to create a subscription.
+If enabling push reports that the browser push service is unavailable, check
+network access to that provider. In Brave, enable **Use Google services for
+push messaging** under `brave://settings/privacy`, then retry. Quasar cannot
+register a subscription when the browser's push provider is disabled or
+unreachable.
 
 Quasar sends update notices for the current top-bar item: GitHub update
 credential warnings, Quasar UI and launcher releases, and newer cluster
@@ -766,7 +772,13 @@ Configured clusters appear beside standalone servers in both dashboard views. Th
 detail page reports Gateway, World Authority, node capacity, and reconstructibility
 from the query contracts above. The **Tools → Hosts** page shows Host executor
 reachability and persisted attachments. Cluster rows keep the familiar start/stop
-controls; stop changes the durable cluster goal and the reconciler performs Gateway
+controls. Start stays grey and disabled while the Gateway is draining, running,
+unreachable, or otherwise not verified as stopped. A newly activated deployment can
+start from its initial stopped Host state; later starts require the matching clean
+shutdown proof and fenced Host stop. The goal API enforces the same start check.
+If the Gateway reports a failed drain that needs explicit recovery, the server row
+shows **recovery required** and its status tooltip gives the recovery path.
+Stop changes the durable cluster goal and the reconciler performs Gateway
 graceful shutdown, verifies `Down` plus the clean marker, then asks Host to stop the
 exact Gateway process. Clean-Down evidence is persisted in `cluster.json` as
 `shutdownProof` before teardown and bound to the exact lifecycle identity. It survives

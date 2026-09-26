@@ -34,8 +34,8 @@ window.quasarPush = (() => {
             if (!supported()) throw new Error('Browser push requires a supported browser and HTTPS or localhost.');
             if (Notification.permission !== 'granted' && await Notification.requestPermission() !== 'granted')
                 throw new Error('Browser notification permission was denied.');
-            const worker = await navigator.serviceWorker.register(workerUrl, { scope: '/' });
-            await navigator.serviceWorker.ready;
+            await navigator.serviceWorker.register(workerUrl, { scope: '/' });
+            const worker = await navigator.serviceWorker.ready;
             const serverKey = keyBytes(publicKey);
             let current = await worker.pushManager.getSubscription();
             if (current) {

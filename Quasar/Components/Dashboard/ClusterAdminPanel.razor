@@ -29,8 +29,10 @@
                 }
                 @if (Cluster.GoalState == DedicatedServerGoalState.Off)
                 {
-                    <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small" StartIcon="@Icons.Material.Filled.PlayArrow"
-                               Disabled="@(Busy || Cluster.Gateway is null || string.IsNullOrWhiteSpace(Cluster.HostCommandUrl))" OnClick="StartAsync">Start</MudButton>
+                    <MudTooltip Text="@(_canStart ? "Start cluster" : "Wait for a stable stopped Gateway before starting")">
+                        <MudButton Variant="Variant.Filled" Color="@(_canStart ? Color.Success : Color.Default)" Size="Size.Small" StartIcon="@Icons.Material.Filled.PlayArrow"
+                                   Disabled="@(Busy || !_canStart)" OnClick="StartAsync">Start</MudButton>
+                    </MudTooltip>
                 }
                 else
                 {
@@ -109,6 +111,7 @@
     private string? _capabilityError;
     private Task? _poll;
     private bool _submitting;
+    private bool _canStart;
     private bool Busy => _submitting || _operation?.State == ClusterOperationState.Running;
     private bool CanRun(string operation) => !Busy && _capabilities?.Scope == Admin.AdminScope.Manage
         && _capabilities.Operations.Contains(operation, StringComparer.Ordinal);
@@ -116,7 +119,13 @@
     protected override async Task OnInitializedAsync()
     {
         await RefreshCapabilitiesAsync();
+        await RefreshStartAvailabilityAsync();
         _poll = PollAsync();
+    }
+    private async Task RefreshStartAvailabilityAsync()
+    {
+        _canStart = Cluster.GoalState == DedicatedServerGoalState.Off
+            && await Commands.CanStartAsync(Cluster, _shutdown.Token);
     }
     private async Task RefreshCapabilitiesAsync()
     {
@@ -135,6 +144,7 @@
             while (await timer.WaitForNextTickAsync(_shutdown.Token))
             {
                 await RefreshCapabilitiesAsync();
+                await RefreshStartAvailabilityAsync();
                 await InvokeAsync(() =>
                 {
                     if (_operation is not null) _operation = Operations.Get(_operation.OperationId);

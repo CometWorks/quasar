@@ -4,6 +4,7 @@
 @inject DedicatedServerSupervisor Supervisor
 @inject ClusterCatalog ClusterCatalog
 @inject ClusterCommandService ClusterCommands
+@inject ClusterReconciler ClusterReconciler
 @inject ClusterGatewayClient ClusterGatewayClient
 @inject AgentRegistry Registry
 @inject QuasarConfigProfileCatalog ConfigProfiles
@@ -190,9 +191,11 @@
                     <MudTd DataLabel="" Class="quasar-actions-column">
                         @if (cluster.GoalState == DedicatedServerGoalState.Off)
                         {
-                            <MudTooltip Text="Start cluster">
+                            <MudTooltip Text="@(CanStartCluster(cluster.UniqueName) ? "Start cluster" : "Wait for a stable stopped Gateway before starting")">
                                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.PlayArrow"
-                                               Color="Color.Success" OnClick="@(() => StartClusterAsync(cluster.UniqueName))" />
+                                               Color="@(CanStartCluster(cluster.UniqueName) ? Color.Success : Color.Default)"
+                                               Disabled="@(!CanStartCluster(cluster.UniqueName))"
+                                               OnClick="@(() => StartClusterAsync(cluster.UniqueName))" />
                             </MudTooltip>
                         }
                         else
@@ -373,6 +376,9 @@
             ClusterGatewayClient.GetStatusAsync(cluster, cancellationToken);
         Task<Admin.AdminEnvelope<Admin.NodePlan[]>> planTask =
             ClusterGatewayClient.GetPlanAsync(cluster, cancellationToken);
+        Task<bool> canStartTask = cluster.GoalState == DedicatedServerGoalState.Off
+            ? ClusterCommands.CanStartAsync(cluster, cancellationToken)
+            : Task.FromResult(false);
         Admin.ClusterStatus? status = null;
         Admin.NodePlan[] plan = [];
         var errors = new List<string>();
@@ -392,7 +398,7 @@
         {
             errors.Add(exception.Message);
         }
-        return new ClusterListSnapshot(cluster.UniqueName, status, plan,
+        return new ClusterListSnapshot(cluster.UniqueName, status, plan, await canStartTask,
             errors.Count == 0 ? null : string.Join(" ", errors.Distinct()));
     }
 
@@ -521,10 +527,13 @@
 
         try
         {
-            await ClusterCommands.SetGoalAsync(uniqueName,
+            ClusterOperation operation = await ClusterCommands.SetGoalAsync(uniqueName,
                 new ClusterGoalRequest(DedicatedServerGoalState.On),
                 Guid.NewGuid().ToString("N"), "web-ui");
-            Snackbar.Add("Cluster start requested.", Severity.Success);
+            if (operation.State == ClusterOperationState.Failed)
+                Snackbar.Add(operation.Error?.Message ?? "Cluster start was rejected.", Severity.Warning);
+            else
+                Snackbar.Add("Cluster start requested.", Severity.Success);
         }
         catch (Exception exception)
         {
@@ -848,6 +857,8 @@
     private ClusterListSnapshot? GetClusterSnapshot(string uniqueName) =>
         _clusterSnapshots.TryGetValue(uniqueName, out ClusterListSnapshot? snapshot) ? snapshot : null;
 
+    private bool CanStartCluster(string uniqueName) => GetClusterSnapshot(uniqueName)?.CanStart == true;
+
     private string GetManagedStateText(ManagedServerRow row) => row.Server is not null
         ? GetStateText(row.UniqueName) : GetClusterStateText(row.UniqueName);
 
@@ -866,10 +877,16 @@
     private string GetManagedAttachmentStatus(ManagedServerRow row) => row.Server is not null
         ? GetAttachmentStatus(row.UniqueName) : GetClusterWorldAuthority(row.UniqueName);
 
-    private string GetClusterStateText(string uniqueName) =>
-        GetClusterSnapshot(uniqueName)?.Status?.Phase.ToString().ToLowerInvariant() ?? "unavailable";
+    private bool NeedsShutdownRecovery(string uniqueName) =>
+        ClusterReconciler.GetStatus(uniqueName) is
+            { State: ClusterReconcileState.ConfigurationRequired, ErrorCode: "shutdown_recovery_required" };
 
-    private Color GetClusterStateColor(string uniqueName) => GetClusterSnapshot(uniqueName)?.Status?.Phase switch
+    private string GetClusterStateText(string uniqueName) => NeedsShutdownRecovery(uniqueName)
+        ? "recovery required"
+        : GetClusterSnapshot(uniqueName)?.Status?.Phase.ToString().ToLowerInvariant() ?? "unavailable";
+
+    private Color GetClusterStateColor(string uniqueName) => NeedsShutdownRecovery(uniqueName)
+        ? Color.Error : GetClusterSnapshot(uniqueName)?.Status?.Phase switch
     {
         Admin.ClusterPhase.Serving => Color.Success,
         Admin.ClusterPhase.Degraded => Color.Warning,
@@ -879,8 +896,9 @@
         _ => Color.Error,
     };
 
-    private string GetClusterError(string uniqueName) =>
-        GetClusterSnapshot(uniqueName)?.Error ?? "Gateway status is current.";
+    private string GetClusterError(string uniqueName) => NeedsShutdownRecovery(uniqueName)
+        ? ClusterReconciler.GetStatus(uniqueName).Message
+        : GetClusterSnapshot(uniqueName)?.Error ?? "Gateway status is current.";
 
     private static string GetGatewayEndpoint(ClusterDefinition cluster) =>
         Uri.TryCreate(cluster.GatewayUrl, UriKind.Absolute, out Uri? gateway) ? gateway.Authority : "-";
@@ -934,6 +952,7 @@
         string UniqueName,
         Admin.ClusterStatus? Status,
         Admin.NodePlan[] Plan,
+        bool CanStart,
         string? Error);
 
 }

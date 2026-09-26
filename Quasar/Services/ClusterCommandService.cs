@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Quasar.Models;
 using Admin = CometWorks.ClusterGateway.AdminContract.V1;
+using HostContract = Quasar.Host.Contract.V1;
 
 namespace Quasar.Services;
 
@@ -10,6 +11,7 @@ public sealed class ClusterCommandService
     private readonly ClusterCatalog _catalog;
     private readonly ClusterOperationStore _operations;
     private readonly ClusterGatewayClient _client;
+    private readonly ClusterHostClient _host;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter(allowIntegerValues: false) },
@@ -17,11 +19,50 @@ public sealed class ClusterCommandService
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
-    public ClusterCommandService(ClusterCatalog catalog, ClusterOperationStore operations, ClusterGatewayClient client)
+    public ClusterCommandService(ClusterCatalog catalog, ClusterOperationStore operations, ClusterGatewayClient client,
+        ClusterHostClient host)
     {
         _catalog = catalog;
         _operations = operations;
         _client = client;
+        _host = host;
+    }
+
+    public async Task<bool> CanStartAsync(ClusterDefinition cluster, CancellationToken token = default)
+    {
+        if (cluster.GoalState != DedicatedServerGoalState.Off || cluster.Gateway is null
+            || string.IsNullOrWhiteSpace(cluster.HostCommandUrl)
+            || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null
+            || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
+            || _operations.HasPendingShutdown(cluster.UniqueName))
+            return false;
+        try
+        {
+            HostContract.HostStatus host = (await _host.GetStatusAsync(cluster, token)).Data;
+            return CanStartFromHostState(cluster, host);
+        }
+        catch (Exception) when (!token.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
+    internal static bool CanStartFromHostState(ClusterDefinition cluster, HostContract.HostStatus host)
+    {
+        HostContract.GatewayStatus[] matches = host.Gateways?.Where(status =>
+            status.ClusterId.Equals(cluster.UniqueName, StringComparison.OrdinalIgnoreCase)).Take(2).ToArray() ?? [];
+        if (matches is not [{ Goal: HostContract.GatewayGoal.Off,
+                Observed: HostContract.GatewayObservedState.Missing, Failure: null } gateway]
+            || cluster.Gateway is null || !ClusterReconciler.MatchesSpec(gateway, cluster.Gateway))
+            return false;
+
+        // Fresh activation has never run. Every later stop needs the exact fenced proof.
+        return gateway.CompletedStopFence is null
+            ? cluster.ShutdownProof is null && cluster.Gateway.StartGeneration is { } generation
+                && cluster.ActiveDeployment?.Hosts.Any(hostRevision =>
+                    hostRevision.Deployment.Gateway?.StartGeneration == generation) == true
+            : cluster.ShutdownProof is { } proof && proof.LifecycleId == cluster.GetLifecycleId()
+                && proof.StopFence == gateway.CompletedStopFence;
     }
 
     public Task<ClusterOperation> SetGoalAsync(string uniqueName, ClusterGoalRequest request,
@@ -34,6 +75,11 @@ public sealed class ClusterCommandService
         return _operations.ExecuteAsync(uniqueName, "cluster.goal.set", idempotencyKey, actor, request,
             async token =>
             {
+                if (request.Goal == DedicatedServerGoalState.On
+                    && _catalog.GetCluster(uniqueName) is { GoalState: DedicatedServerGoalState.Off } current
+                    && !await CanStartAsync(current, token))
+                    throw Invalid("cluster_start_unavailable",
+                        "Wait for the Gateway to finish stopping and verify a stable stopped state before starting this cluster.");
                 ClusterDefinition updated = await _catalog.SetGoalStateAsync(uniqueName, request.Goal, token);
                 return new Admin.AdminEnvelope<ClusterGoalResult>(Admin.AdminProtocol.Version,
                     DateTimeOffset.UtcNow,
