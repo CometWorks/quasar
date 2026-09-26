@@ -41,6 +41,7 @@ from the terminal, install it as a background service, or run the GHCR image.
 | [Guided Cluster Setup](Docs/ClusterGuidedSetupPlan.md) | Machine enrollment, local/SSH/command installation, automatic provisioning and release prerequisites. |
 | [Cluster Conversion](Docs/ClusterConversion.md) | Guided standalone/cluster conversion, backups, resume and plugin configuration limits. |
 | [Cluster Plugins](Docs/ClusterPlugins.md) | One-server plugin/config consistency, Agent monitoring, existing SDK compatibility and remaining integration work. |
+| [Cluster Content Updates Plan](Docs/ClusterContentUpdatesPlan.md) | Proposed Workshop byte pinning, scheduled mod/plugin notices, explicit maintenance updates and compatible rollovers including World Authority. |
 | [Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) | systemd install, release assets, and the auto-updater flow. |
 | [Windows Deployment & Updates](Docs/WindowsDeploymentAndUpdates.md) | Scheduled Task install, release assets, and the auto-updater flow. |
 | [State Machine Diagrams](Docs/StateMachines/Index.md) | Object states and state machines (server lifecycle, agent connection, self-update, runtime provisioning, backups, …) as Mermaid + PNG. |
