@@ -1807,7 +1807,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         CancellationToken cancellationToken)
     {
         var agent = _registry.GetAgents().FirstOrDefault(current =>
-            current.IsConnected &&
+            current.IsConnected && !current.IsCluster &&
             string.Equals(current.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
 
         if (agent is null)
@@ -2426,7 +2426,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private Dictionary<string, AgentRuntimeState> BuildAgentLookup()
     {
         return _registry.GetAgents()
-            .Where(agent => agent.IsConnected)
+            .Where(agent => agent.IsConnected && !agent.IsCluster)
             .Where(agent => !string.IsNullOrWhiteSpace(agent.UniqueNameKey))
             .GroupBy(agent => agent.UniqueNameKey, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(

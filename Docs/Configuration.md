@@ -282,9 +282,10 @@ active folder as read-only.
 
 ## Agent cluster mode
 
-`Quasar.Agent` enters cluster mode when `SE_CLUSTER_GATEWAY_REGISTRY` is non-empty,
-the same activation condition used by ClusterRuntime. The host executor also supplies
-`SE_CLUSTER_ID`, `SE_CLUSTER_NODE_ID`, and `SE_CLUSTER_NODE_ROLE`; the agent includes
+`Quasar.Agent` enters cluster mode when `CLUSTER_GATEWAY_REGISTRY` is non-empty,
+the same activation condition used by the cluster release. Legacy `SE_CLUSTER_*`
+variables are not supported. The host executor also supplies
+`CLUSTER_ID`, `CLUSTER_NODE_ID`, and `CLUSTER_NODE_ROLE`; the agent includes
 those values in hello and snapshot telemetry.
 
 Cluster mode changes lifecycle safety, not the telemetry transport: the agent keeps
@@ -635,12 +636,29 @@ Enabled UI-plugin package manifests are still read as data so their owned server
 companions remain deployable; their UI assemblies are not loaded.
 
 - `GET /api/health` is process liveness and reports `headless`.
-- `GET /api/ready` confirms that the API worker and its durable server catalog are
-  ready for queries.
+- `GET /api/ready` confirms that the API worker, durable catalogs, and cluster
+  operation store are ready.
 - `GET /` returns a small JSON discovery document instead of the UI.
 
 Authentication and authorization remain enabled exactly as configured; headless
 mode is not an authentication bypass.
+
+## Guided cluster creation and machine enrollment
+
+Use **Create and deploy** at `/clusters/new` to select a world/profile, machines and
+node placement. Quasar generates credentials and provisions the verified deployment;
+no Gateway URL, token environment variable or hand-written specification is needed.
+The separate **Connect existing Gateway** tab is for an already installed Gateway.
+Its control URL is the HTTP admin endpoint, not the player UDP port. Its credential
+field names an environment variable on the Quasar service, not the secret value.
+
+**Hosts → Add cluster machine** supports local installation, a one-time command, and
+SSH installation with strict host-key checking. Machines need Linux x64, Python 3,
+.NET 10 and a systemd user session; remote Hosts connect back over HTTPS while their
+command listeners stay on loopback. See [Guided cluster setup](ClusterGuidedSetupPlan.md)
+for topology, ports, API, resume behavior and release prerequisites. Guided creation
+requires Magnetar's new preparation/export command and a matching cluster SDK pin;
+older released packages fail explicitly before game startup.
 
 ## Cluster query catalog
 
@@ -656,29 +674,115 @@ variable at query time.
   "displayName": "Production cluster",
   "gatewayUrl": "https://cluster-gateway.internal:8443",
   "gatewayAdminTokenEnvironmentVariable": "PRODUCTION_GATEWAY_ADMIN_TOKEN",
+  "hostCommandUrl": "http://127.0.0.1:28400",
+  "hostCommandTokenEnvironmentVariable": "PRODUCTION_HOST_COMMAND_TOKEN",
   "configProfileId": "survival",
-  "worldTemplateId": "main-world"
+  "worldTemplateId": "main-world",
+  "goalState": "Off",
+  "shutdownGracePeriodSeconds": 60,
+  "gateway": {
+    "clusterId": "production",
+    "goal": "On",
+    "bundleManifestPath": "/srv/quasar/bundles/cluster/manifest.json",
+    "bundleManifestSha256": "<64 lowercase hex characters>",
+    "configRevision": "production-r1",
+    "ports": [ 27016, 28016 ],
+    "runRoot": "/srv/quasar/clusters/production/gateway"
+  }
 }
 ```
 
-The first Phase 4 API slice is read-only and uses Gateway admin contract version
-1. It is available in normal and headless operation:
+`gateway.goal` is stored as `On` because it is the launch template; the cluster
+`goalState` is authoritative. The reconciler overrides the Host goal as it converges.
+
+The Phase 4 API uses Gateway admin contract version 1 and is available in normal
+and headless operation:
 
 - `GET /api/v1/clusters`
 - `GET /api/v1/clusters/{uniqueName}/health`
 - `GET /api/v1/clusters/{uniqueName}/status`
 - `GET /api/v1/clusters/{uniqueName}/plan`
 - `GET /api/v1/clusters/{uniqueName}/recovery-readiness`
+- `GET /api/v1/clusters/{uniqueName}/config`
+- `PUT /api/v1/clusters/{uniqueName}/config`
+- `GET /api/v1/clusters/{uniqueName}/lifecycle`
+- `PUT /api/v1/clusters/{uniqueName}/goal`
+- `PUT /api/v1/clusters/{uniqueName}/gateway-spec`
+- `POST /api/v1/clusters/{uniqueName}/gateway/restart`
+- `GET /api/v1/clusters/{uniqueName}/host`
+- `PUT /api/v1/clusters/{uniqueName}/host/attachment`
+- `PUT /api/v1/clusters/{uniqueName}/host/gateway`
+- `GET /api/v1/clusters/{uniqueName}/operations/{operationId}`
+- `DELETE /api/v1/clusters/{uniqueName}/operations/{operationId}`
+
+`DELETE` withdraws a Gateway request (shutdown, Gateway restart, kick, ...) that was submitted
+while the Gateway was unreachable and has not been acknowledged yet. A request the Gateway
+already accepted cannot be withdrawn and answers `operation_already_accepted`. Without a
+cancel, an unacknowledged request is retried for ten minutes and then fails with
+`gateway_delivery_expired` instead of being delivered whenever connectivity returns.
+A local operation that was still running when Quasar stopped is reported as Failed with
+`interrupted_by_restart` after the restart; submit it again with a new `Idempotency-Key`.
 
 Responses preserve the Gateway envelope, capture time, string enum values, and
 stable error codes. When Quasar authentication is enabled, these routes require
 a human `CanView` role or the scoped service-principal permission described below.
 `/api/health` and `/api/ready` include
 `configuredClusters`; they do not contact Gateway and remain usable if a Gateway
-is down. Recovery readiness is calculated by Gateway from its durable Registry,
+is down. The readiness payload also reports the durable operation store. Recovery
+readiness is calculated by Gateway from its durable Registry,
 Save Catalog, snapshot, WAL, and artifact-holder records; Quasar does not infer it
-from node liveness. Command operations and UI editing are later Phase 4 slices;
-this query surface does not imply them.
+from node liveness.
+
+Configured clusters appear beside standalone servers in both dashboard views. Their
+detail page reports Gateway, World Authority, node capacity, and reconstructibility
+from the query contracts above. The **Tools → Hosts** page shows Host executor
+reachability and persisted attachments. Cluster rows keep the familiar start/stop
+controls; stop changes the durable cluster goal and the reconciler performs Gateway
+graceful shutdown, verifies `Down` plus the clean marker, then asks Host to stop the
+exact Gateway process. Clean-Down evidence is persisted in `cluster.json` as
+`shutdownProof` before teardown and bound to the exact lifecycle identity. It survives
+Quasar restart and a lost Host response. Repeating the same goal preserves that identity;
+changing the goal or Gateway spec clears the proof. Candidate package staging does not.
+Do not hand-edit this evidence. An absent Gateway without matching evidence reports
+`shutdown_unverified`; a mismatched or uncertain process reports
+`gateway_recovery_required`. An Off goal never starts a Gateway for recovery.
+The reconciler is a hosted service in normal and headless mode.
+
+Every mutation requires an `Idempotency-Key` header. Quasar writes the operation
+under `<quasar-root>/Operations/Clusters` before calling Gateway, returns `202` with
+the durable operation ID, and exposes the completed result or structured failure at
+the operation route. Replaying the same key and request returns the same operation;
+reusing a key with different content returns `idempotency_key_conflict`.
+
+### Packaged cluster CLI
+
+The packaged `Quasar` launcher is also the thin dark-factory API client. It writes
+one compact JSON envelope to stdout and diagnostics to stderr. `--url` overrides
+`QUASAR_URL`; without either, the CLI uses the local Quasar discovery manifest.
+Bearer tokens are read only from the environment (default `QUASAR_API_TOKEN`) so
+they do not appear in process arguments or shell history.
+
+```bash
+export QUASAR_API_TOKEN='<service-principal token>'
+
+./Quasar cluster list --url https://quasar.internal
+./Quasar cluster lifecycle production --url https://quasar.internal
+./Quasar cluster goal production off --url https://quasar.internal \
+  --idempotency-key deploy-2026-08-09-stop --wait --wait-timeout 1800
+./Quasar cluster operation production <operation-id> --url https://quasar.internal --wait
+./Quasar cluster gateway-restart production --url https://quasar.internal \
+  --idempotency-key deploy-2026-08-09-gateway --wait
+```
+
+Read commands are `list`, `health`, `status`, `lifecycle`, `plan`,
+`recovery-readiness`, `config`, and `operation`. Mutations require a caller-owned
+idempotency key. `--wait` polls the durable operation route and is safe to repeat
+after either caller or Quasar restarts. Request timeout defaults to 30 seconds and
+is controlled by `--timeout`; operation wait timeout defaults to 900 seconds.
+
+Exit codes are stable: `0` success/accepted, `2` usage, `3` local configuration,
+`4` connection or timeout, `5` authentication/authorization, `6` API rejection,
+`7` completed operation failure, and `8` incompatible or invalid protocol JSON.
 
 ### Query-only service principals
 
@@ -705,7 +809,672 @@ or device-login flow. Store only the environment-variable name in configuration:
 Set `QUASAR_FACTORY_READER_TOKEN` to a random value of at least 32 characters in
 the Quasar service environment. Use `Clusters: [ "*" ]` only when the principal
 must query every configured cluster. The `cluster.query` scope can call only the
-versioned cluster query routes; it grants no server logs, configuration access, or
-mutation permission. Invalid credentials and forbidden cluster access return
+versioned cluster query and operation-status routes; it grants no server logs or
+mutation permission. Use `cluster.manage` for an automation principal that may also
+change cluster policy; both scopes remain limited by the principal's `Clusters`
+allow-list. Invalid credentials and forbidden cluster access return
 versioned JSON errors instead of redirects. Identical token values assigned to
 multiple principals fail closed.
+
+## Host executor attachments
+
+Current Gateway node execution is gated by `executor_contract_unavailable` until
+the public versioned reporting contract is available. The attachment and local
+actualizer described here are retained for integration development.
+
+`Quasar.Host` is packaged under the release's `Host` directory. Its persisted
+attachment file contains stable executor/host IDs, Gateway URLs, and credential
+environment-variable names; raw executor tokens remain in the host service
+environment. One process may attach to multiple clusters:
+
+```json
+{
+  "executorId": "executor-a",
+  "hostId": "host-a",
+  "pollIntervalSeconds": 2,
+  "stateDirectory": "/var/lib/quasar-host",
+  "command": {
+    "url": "http://127.0.0.1:28400",
+    "tokenEnvironmentVariable": "PRODUCTION_HOST_COMMAND_TOKEN"
+  },
+  "attachments": [
+    {
+      "clusterId": "production",
+      "gatewayUrl": "https://gateway.internal:8443",
+      "tokenEnvironmentVariable": "PRODUCTION_EXECUTOR_TOKEN",
+      "bundleManifestPath": "/srv/quasar-clusters/production/manifest.json",
+      "bundleManifestSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "runRoot": "/var/lib/quasar-clusters/production"
+    }
+  ]
+}
+```
+
+Run `Quasar.Host run --config host.json`; `--once` performs one deterministic
+plan read for deployment checks and then reports `executor_contract_unavailable`.
+No heartbeat or node actualization occurs, including for attachments without bundle
+configuration.
+
+The optional `command` listener is the Quasar-to-Host control seam. It accepts only an
+HTTP loopback origin and bearer authentication from the named environment variable; the
+raw token is never stored in either JSON file. Quasar uses it for Host status and durable,
+idempotent attachment updates. Operators can inspect the same contract directly with
+`Quasar.Host status --url URL --token-env ENV` or apply an attachment file with
+`Quasar.Host attachment apply --url URL --token-env ENV --file FILE`. Apply the designated
+Gateway's desired state with
+`Quasar.Host gateway apply --url URL --token-env ENV --file gateway.json` or the durable
+Quasar API route above. The versioned `GatewaySpec` binds the cluster and On/Off goal to an
+immutable bundle-manifest hash, config revision, reserved ports, and provenance-marked run root.
+Host persists the level-triggered spec before reconciling it, re-adopts an exact matching process
+after restart, and refuses to stop or replace a process whose recorded identity does not match.
+The Quasar API accepts `goal: Off` only after Gateway reports phase `Down` and a clean-shutdown
+marker; emergency recovery uses a separate audited path rather than weakening this gate.
+The marker must not predate the current shutdown start. Host also refuses an Off spec
+that differs from its running deployment, an executable hash mismatch, or a launch
+whose process identity was never committed. Direct Host actions through Quasar clear
+previous shutdown proof. Calling Host directly is an operator action outside Quasar's
+lifecycle gate and requires independently establishing shutdown safety.
+Host must advertise `gatewayStopFencing: true` before Quasar initiates shutdown.
+Quasar binds teardown to the PID and launch timestamp observed before checking Gateway
+clean Down. Host echoes that identity as `completedStopFence` only after confirming
+the process is gone. A replacement process is never stopped by the earlier request.
+For direct Host CLI/API Off requests, include `stopFence` with `processId` and
+`launchedAt` from Host status; a live process cannot be stopped without a matching
+fence. Old Hosts are refused with `gateway_stop_fencing_unavailable`.
+
+The retained, currently disabled node actualizer verifies the pinned manifest SHA-256 and every file hash,
+then uses its per-slot immutable spawn specifications. Each specification declares the
+slot, node ID, role, bundle-relative executable, arguments/environment, reserved ports,
+and ready timeout. Host writes the launch intent before starting the process and records
+PID, process start time, executable identity, attempt, and bundle revision afterward.
+Those records let a restarted Host re-adopt an exact process without parenting it.
+
+PID existence is not readiness. Host passes `QUASAR_CLUSTER_READY_PATH` and the stable
+cluster/slot/attempt identity to the node. After Gateway registration and plugin readiness,
+the planned integration requires the node to atomically write a versioned receipt at
+that path with the same identity plus
+its node ID, registry epoch, endpoint, and PID. Host reports `Spawning` until the receipt
+matches. Automatic kill requires the exact launch record and, for a ready node, the
+Gateway-requested node ID and epoch. The released node plugins do not yet write this
+receipt. A mismatched process identity or occupied reserved
+port is reported as `unmanaged_conflict`; Host leaves the process untouched.
+
+## Current Gateway commands and operation recovery
+
+`POST /api/v1/clusters/{name}/commands` accepts `{ "action": "save-all" }` and
+requires cluster-manage access and an `Idempotency-Key`. GUI actions use the same
+command service. Supported actions are `save-all`, `shutdown`, `gateway-restart`,
+`config-set`, `node-close`, `node-kill`, `wa-move`, `kick`, `ban`, `unban`, `chat`
+and `trigger`. `parameters` contains the current pinned Gateway request DTO;
+`target` identifies a slot, player or maintenance task as appropriate.
+
+For example, write `{ "action": "config-set", "parameters": { "expectedRevision": 4,
+"slots": [] } }` to a JSON file, then invoke Bootstrap's `cluster command NAME FILE`
+with the usual connection/auth options and `--idempotency-key KEY --wait`.
+Slots are upserted; load current config before editing.
+`cluster events NAME --cursor N --limit 100` and `cluster chat-history NAME` expose
+cursor-based observation. JSON command input also accepts `-` for standard input.
+
+Gateway operations remain Running on HTTP 202. Quasar persists the remote ID and a
+stable forwarded key before sending, resumes after restart, and records the remote
+terminal result. A transport outage leaves the outcome pending. Keep the original
+Gateway URL while an operation is pending. Local `goal` success means the desired
+state was saved; query `lifecycle` separately for actual convergence.
+Reconciler-initiated shutdown uses this same journal. A new On goal waits with
+`shutdown_pending` until an outstanding shutdown finishes.
+When Quasar has verified clean Down and the Host's matching fenced process stop,
+it also completes pending shutdown records for that Gateway with
+`confirmation: clean-shutdown-proof`. This handles a lost final remote acknowledgement,
+including recovery after a Quasar restart; missing or mismatched stop proof leaves the
+operation pending. Other operations still require their remote terminal result.
+Per-cluster gates serialize
+worker lifecycle effects, catalog goal/spec edits, command submissions and remote
+operation polling. They do not replace future fenced execution or distributed leases;
+avoid out-of-band Host actions and manual lifecycle-file edits during an operation.
+
+The host's local process adoption and exact-incarnation execution remain available
+for development tests. Automatic node actualization is disabled with
+`executor_contract_unavailable`: cluster v1.0.3 publishes NodePlan but no public
+versioned executor report contract. The legacy registry heartbeat is not used.
+Packaged lifecycle integration and live executor acceptance remain pending.
+
+## Cluster Agent identity and fleet observation
+
+`GET /api/v1/clusters/{name}/fleet` (CLI: `cluster fleet NAME`) joins a single
+Registry status snapshot with Agent telemetry. Matching requires the exact cluster ID,
+slot, node ID and positive 64-bit epoch. Missing identity or multiple claimants yields
+no matched Agent. Registry player/admission, node state and leases remain authoritative.
+Disconnected telemetry never changes the cluster's desired state.
+
+The Agent publishes `clusterSlot` and `clusterEpoch` in hello/snapshot messages. Cluster
+processes use a random lifetime Agent ID, preventing PID reuse from reusing Agent state.
+The retained development launcher supplies `QUASAR_CLUSTER_SLOT`,
+`QUASAR_CLUSTER_ATTEMPT` and `QUASAR_CLUSTER_READY_PATH`. If the runtime writes the
+existing readiness receipt, the Agent checks schema, cluster, slot, attempt and PID
+before reading its Registry-issued node ID and epoch. Epoch zero means unknown; it is
+never derived from entity IDs. The v1.0.3 package does not publish this receipt; runtime identity integration
+remains pending. `CLUSTER_NODE_EPOCH` must not be used as the Registry incarnation. Agent observation alone is not a prerequisite
+for cluster operation.
+
+Metrics, profiler samples, plugin statistics and logs use a filesystem-safe hash of
+cluster/slot/node/epoch. Unknown incarnations additionally include the process Agent ID.
+Existing standalone history retains its original server key. Plugin configuration
+snapshots and edits are bound to a connection; reconnecting clears prior snapshots,
+and an editor from the old connection cannot apply to its replacement. The ordinary
+Plugins page and log selector display cluster/slot/node/epoch labels.
+
+The cluster detail page includes fleet process telemetry, plugin runtime state,
+statistics/profiler snapshots, recent logs, Registry players with kick/ban controls,
+and an event tail capped at 200 rows with truncation/reset indication. Drain and force
+removal use the shared command service; force removal includes the displayed epoch.
+Profile and world-template links reuse the existing catalogs. Applying those references,
+generating boot images and converting worlds remain part of packaged provisioning.
+
+## Cluster plugin configuration status
+
+The one-server plugin-management requirement is specified in
+[Cluster Plugins](ClusterPlugins.md). Common plugin artifacts and effective config
+must be identical across the fleet, with centrally managed role-specific infrastructure.
+The current Plugins editor still addresses individual Agents; it does not synchronize
+cluster settings or confirm fleet-wide application. Do not treat a per-Agent edit as
+a cluster-wide change. Replacing that path, persisting cluster revisions and enforcing
+startup/config consistency are planned integration work, not shipped behavior.
+
+## Cluster release staging and selection (Linux)
+
+Quasar checks the latest stable cluster release on the configured update interval
+(15 minutes by default) when update checks
+are enabled and at least one cluster has a selected package. A newer version than
+that selected pin lights the top-bar update bell, opens the affected cluster page,
+and appears under **Settings → Updates → Cluster packages** for users with access
+to that page. This check uses the GitHub token with access to the
+private `CometWorks/cluster` repository. The Updates page also has a manual
+**Check cluster release** button with the same refresh icon as **Check Magnetar**. Release checks only notify; they never stage,
+select, prepare, or activate a cluster package. The comparison is against the
+selected package, which may differ from the active deployment.
+
+For an already registered cluster, discover the latest stable package and explicitly
+stage its version and archive SHA-256 on the Quasar worker host:
+
+```bash
+./Quasar cluster package-release production --url https://quasar.internal
+./Quasar cluster package-stage production 1.0.3 <sha256-from-release> \
+  --url https://quasar.internal --idempotency-key stage-production-1.0.3 --timeout 900
+```
+
+Equivalent API: `GET /api/v1/clusters/{name}/package-release`, then
+`PUT /api/v1/clusters/{name}/package` with `{ "version": "1.0.3", "sha256": "..." }`
+and `Idempotency-Key`. Discovery needs cluster-query access; staging needs
+cluster-manage access. Both enforce the principal's cluster allow-list. The existing
+GitHub update credential must have read access to the private `CometWorks/cluster`
+repository. Asset downloads use GitHub's authenticated release-asset API.
+
+Staging waits for verification and returns a durable operation record, including the
+installation receipt on success. Allow a longer HTTP timeout for cold downloads.
+Retry an interrupted request with the same key and identical body; a completed
+request replays its recorded outcome. Use a new key to retry a recorded failure or
+revalidate staged files. Cancellation leaves the operation resumable by resubmission;
+it is not automatically retried by the Gateway-operation background reconciler.
+
+Packages are staged under `<quasar-root>/ManagedRuntime/Tools/Cluster/<version>/` using
+Quasar's managed-runtime directory convention, with `installation.json` and the
+original `cluster-<version>/` directory. The receipt records release/asset IDs,
+archive SHA-256, source commit, package path and every extracted file hash. A repeat
+stage with a new key revalidates the installation. Corrupt, changed or incomplete
+versions fail closed and are never overwritten. Failed/cancelled extractions are
+removed; a process crash may leave an unused `.stage-*` directory that can be removed
+while staging is idle. Staging serializes within the worker without holding up unrelated admin operations; installations are
+promoted by a same-filesystem rename without overwriting an existing destination.
+
+After staging, select the package for future provisioning of this cluster:
+
+```bash
+./Quasar cluster package-selection production --url https://quasar.internal
+./Quasar cluster package-select production 1.0.3 <sha256-from-release> 0 \
+  --url https://quasar.internal --idempotency-key select-production-1.0.3
+```
+
+`GET /api/v1/clusters/{name}/package-selection` returns the current `revision`,
+`selection`, `verified` and `errorCode`. With no selection, revision is `0`, selection
+is null and verified is false. `PUT` on the same route accepts
+`{ "version": "1.0.3", "sha256": "...", "expectedRevision": 0 }` and requires an
+`Idempotency-Key`. Use the revision returned by GET, not a guessed revision. Reads
+require cluster-query access; writes require cluster-manage access, with the same
+cluster allow-list enforcement as staging.
+
+Selection revalidates the local receipt, manifest identity and every package file
+without contacting GitHub. Only verified staged packages can be selected. The catalog
+persists version, archive SHA-256, source commit, selection revision and retry key in
+`cluster.json`; no client-supplied filesystem path is accepted. Concurrent changes use
+compare-and-swap. A stale revision produces a durable Failed operation with
+`package_selection_conflict`; read the current selection and submit a new request/key.
+Missing or invalid files also fail without changing the selection. Selection survives
+worker restart, and a retry after an interrupted catalog write does not increment the
+revision twice or overwrite a newer selection.
+
+GET verifies the current files again and reports `cluster_package_missing` or
+`cluster_package_invalid` when verification fails. Replaying a completed mutation
+returns its historical result; it does not prove the files remain valid. Query selection
+for current verification. Both selection and verification work offline after staging.
+
+The selected package is a candidate for future provisioning, not an active deployment.
+Selection preserves the current goal, Gateway specification and lifecycle request
+identity. These operations do not activate a package, alter a running cluster,
+provision a remote Host, or install the external DS/Magnetar/Direct Transport
+requirements. Cluster plugins are included in v1.0.3. The release manifest is not
+compatible with the retained executor bundle manifest described above. See the
+[continuation plan](Phase4IntegrationPlan.md) for lifecycle and upstream requirements.
+
+## Cluster dependency provisioning (Linux)
+
+Quasar can now pin and copy the installed DS, its Content tree, Magnetar, a compiled
+Direct Transport bundle and common plugins with their resolved native assets into a separate dependency installation. This prepares inputs
+for a future deployment. It does not start the cluster or modify the shared runtime.
+The input directories are configured on the worker; API callers supply hashes and
+revisions, never arbitrary filesystem paths.
+
+Install DS and Magnetar using the existing managed-runtime workflow first. The snapshot
+uses the runtime resolver's installed DS64 path plus its sibling `Content` directory,
+and the configured Magnetar install root. This path requires the current Linux layout
+(`MagnetarInterim.bin` and `Libraries/MagnetarInterim/PluginSdk.dll`). Provisioning does
+not invoke the standalone updater or silently download a newer dependency. Copying the
+full DS/Content tree requires sufficient additional disk space.
+
+Build Direct Transport once from an explicit source commit, using the repository helper:
+
+```bash
+bash scripts/package-cluster-direct-transport.sh /path/to/direct-transport \
+  <exact-40-character-commit> /path/to/DedicatedServer64 /path/to/Magnetar \
+  /path/to/artifacts/DirectTransport
+```
+
+The helper requires Git, the .NET 10 SDK, Python 3 and standard Linux tools. It builds
+committed source in a temporary directory, disables post-build deployment and refuses
+to overwrite an existing output. The artifact contains `DirectTransport.dll`, its
+`LiteNetLib.dll` dependency, and both `DirectTransport.xml` and `DirectTransport.dll.xml`
+with the exact source commit and `CoreCLR`/`Linux` runtime metadata for the net10.0 Linux
+build. Current Magnetar reads the first manifest, with the second naming convention as
+a fallback. Provisioning rejects unsupported runtime metadata such as `NETCoreApp`.
+Rebuild and stage a new candidate for older bundles; do not edit an immutable snapshot.
+No node builds this artifact independently.
+
+Export compatibility and common plugins from already resolved Magnetar caches for the
+selected runtime. Supply the exact, commit-pinned hub descriptor and its matching cache
+directory (containing `manifest.xml`, `Bin/plugin.dll` and resolved assets):
+
+```bash
+python3 scripts/package-cluster-plugins.py \
+  --plugin /path/to/pinned/DotNetCompat.xml /path/to/cache/DotNetCompat \
+  --plugin /path/to/pinned/LinuxCompat.xml /path/to/cache/LinuxCompat \
+  --output /path/to/artifacts/CommonPlugins
+```
+
+Repeat `--plugin` for every common plugin. The exporter performs no downloads, builds
+or server starts. It copies the compiled DLLs and resolved assets, rewrites runtime asset
+paths to stay inside each bundle, and retains the source/cache metadata for provenance.
+It rejects unpinned descriptors and links; publication is atomic and never replaces an
+existing output. The operator must supply a matching cache built for the selected game
+and Magnetar; content hashes alone cannot establish binary compatibility or source provenance.
+Do not use `NativeWrapperCache` as the native dependency input: generated wrappers are
+not the downloaded runtime payload.
+
+Configure both artifact directories in worker `appsettings.json`:
+
+```json
+{
+  "Quasar": {
+    "ClusterDependencies": {
+      "DirectTransportDirectory": "/path/to/artifacts/DirectTransport",
+      "CommonPluginsDirectory": "/path/to/artifacts/CommonPlugins"
+    }
+  }
+}
+```
+
+After selecting a cluster package, inspect the dependency candidate and current selection:
+
+```bash
+./Quasar cluster dependency-candidate production --url https://quasar.internal --timeout 900
+./Quasar cluster dependencies production --url https://quasar.internal --timeout 900
+```
+
+Candidate inspection hashes all input files and executable flags. It returns a
+`manifestSha256`, `packageSelectionRevision`, Direct Transport commit, file count and
+byte count. Create `dependencies.json` from those results; use the current dependency
+hash from `dependencies` for `expectedDependencySha256`, or null for the first selection:
+
+```json
+{
+  "manifestSha256": "<candidate hash>",
+  "expectedPackageRevision": 1,
+  "expectedDependencySha256": null
+}
+```
+
+```bash
+./Quasar cluster dependencies-stage production dependencies.json \
+  --url https://quasar.internal --idempotency-key dependencies-production-1 --timeout 900
+```
+
+API equivalents are `GET /api/v1/clusters/{name}/dependency-candidate`, and GET/PUT
+`/api/v1/clusters/{name}/dependencies`. Query/manage policies and cluster allow-lists
+apply as for package selection. PUT returns a durable operation. It rechecks the approved
+hash, copies and verifies the bytes, then checks both catalog selections before attaching
+the result to the cluster. Changed inputs fail without replacing the previous selection.
+Package/dependency selection conflicts are durable failed operations; read the current
+state and use a new request/key. Replaying a completed operation returns historical results.
+
+Installations live under `<quasar-root>/ManagedRuntime/Tools/ClusterDependencies/<hash>/`:
+`manifest.json` binds the selected cluster package and every dependency file, and
+`payload/` contains `DedicatedServer/{DedicatedServer64,Content}`, `Magnetar` and
+`DirectTransport` and `CommonPlugins`. Schema 2 requires both compatibility plugins,
+their native libraries, pinned source metadata, contained local asset paths and complete
+common-plugin dependency IDs. Old schema-1 snapshots remain on disk but must be replaced
+by a newly approved schema-2 candidate before use. Promotion is atomic. Copies share no writable files with the inputs.
+Symbolic links and incomplete payloads are refused; inputs are limited to 200,000 files
+and 100 GiB. Cancellation cleans up staging; a process crash can leave an unreferenced
+`.stage-*` directory. Remove those only while provisioning is idle.
+
+The cluster catalog stores `dependencyManifestSha256`. Changing package selection clears
+that candidate dependency selection while retaining the old installation on disk. GET
+`dependencies` revalidates the selected package, manifest and copied files offline; a
+bad or missing installation reports `verified: false` and `cluster_dependencies_invalid`.
+Existing snapshots can be reused after source directories change or disappear. Provisioning
+preserves the cluster goal, Gateway spec and lifecycle request identity.
+
+These content pins prove which bytes were prepared, not runtime compatibility. The released
+v1.0.3 launcher still selects Direct Transport from source/hub and warms compatibility plugins.
+An upstream source follow-up adds `DIRECT_TRANSPORT_BINARIES`, pointing at the selected
+snapshot's `payload/DirectTransport` folder, with `DIRECT_TRANSPORT_SOURCE` unset. It copies
+the compiled bundle into each node's local plugins and refuses invalid metadata or conflicting
+transport inputs. Managed Host generation wires these paths into launches; v1.0.3 does not support them.
+Consume a verified future package containing that CLI change; do not patch a staged package.
+The follow-up also accepts `CLUSTER_COMMON_PLUGINS`: copies the frozen common bundles,
+disables hub/dev/mod sources, leaves compatibility selection to Magnetar's core loader,
+and uses `-noupdate` even for the warm-up node. Portable Host transfer and runtime
+admission are implemented by the managed deployment flow below. Do not point a running cluster at the shared input directories or count this receipt as readiness.
+
+## Host deployment preparation (Linux)
+
+Export the selected verified package and schema-2 dependency snapshot through the
+cluster-manage-authorized `GET /api/v1/clusters/{name}/deployment-inputs`, or:
+
+```bash
+./Quasar cluster deployment-inputs production --url https://quasar.internal --timeout 900 \
+  | jq '.data' > deployment-inputs.json
+sha256sum deployment-inputs.json
+dotnet Quasar.Host/bin/Debug/net10.0/Quasar.Host.dll deployment prepare \
+  --file deployment-inputs.json --sha256 <the-file-hash> --directory /path/to/host-deployments
+```
+
+This is a local preparation command, not a service start. The source directories must
+be present at the exported absolute paths on the Host. It verifies the approved input
+document, the complete file lists/hashes/executable flags, package/dependency identities
+and plugin assets, then copies into `<directory>/<input-file-hash>/` atomically. It never
+overwrites an existing deployment. Repeating the command verifies existing copies and
+works even after the source directories disappear. Changed bytes or unexpected files
+fail verification; interrupted copies are not promoted. Transfers between hosts are not
+implemented by this command.
+
+The result contains `Package/`, `Dependencies/`, `inputs.json` and
+`launch-environment.json`. The environment binds DS/Magnetar, compiled transport,
+common plugins and Gateway/tool/plugin paths to the prepared copies and clears source,
+extra-plugin and hub overrides. This prepares deployment inputs; it does not change the
+catalog's active revision, attach an executor, start any process or prove readiness.
+Managed configuration/activation below supplies writable runtime directories, synchronized
+plugin configuration and fenced admission.
+
+Export and Host preparation require a package containing the verified
+`cli/deployment-capabilities.json` marker (`schemaVersion: 1`, `frozenPluginBundles: true`).
+The upstream build scripts now package that marker with the supporting CLI. Published
+v1.0.3 lacks it and is refused for this deployment path; a future verified upstream
+release is required. Existing release artifacts are never patched in place.
+
+### Managed cluster preparation and activation
+
+`Quasar.Host deployment configure --installation DIR --file SPEC --sha256 SHA256
+--host HOST --world SEED --directory CONFIG` invokes the verified package's
+nonlaunching preparation command. All Hosts use the same approved specification and
+world-file hashes; each gets its own manifest and writable run root. The package's
+`docs/ManagedDeployment.md` describes the specification. Conversion uses its shipped
+`cli/managed_deployment.py --installation DIR convert --source WORLD --destination NEW`.
+Existing worlds are never automatically wiped or refreshed.
+
+Activate a prepared local manifest with `Quasar.Host deployment activate --url URL
+--token-env ENV --file ACTIVATION.json`. The authenticated Host endpoint is
+`PUT /host/v1/deployments/{clusterId}`. Activation requires every recorded local process
+to be stopped, checks the expected prior manifest hash, verifies files and journals the
+attachment/Gateway transition for restart recovery. It does not start a process.
+
+Quasar's `GET/PUT /api/v1/clusters/{uniqueName}/deployment` inspect/activate a revision
+across Hosts. CLI equivalents are `cluster deployment NAME` and
+`cluster deployment-activate NAME REQUEST.json --idempotency-key KEY`.
+Activation requires goal Off and clean-Down proof for an existing deployment. The
+request includes `expectedRevision`, `revision`, and `hosts`; each host names `hostId`,
+`commandUrl`, `tokenEnvironmentVariable` and its Host `activation` request. Each local
+activation names `clusterId`, `expectedBundleManifestSha256`, `bundleManifestPath`,
+`bundleManifestSha256`, `gatewayUrl`, and `executorTokenEnvironmentVariable`.
+Exactly one returned Host manifest must own the Gateway. Quasar commits active identity
+after all Hosts acknowledge; retries reuse their durable activation receipts.
+
+The Gateway's Steam frontend loads Valve's `steamclient.so` from `~/.steam/sdk64` of the Host
+account. The cluster release cannot ship that file and a cluster machine usually has neither Steam
+nor SteamCMD. Guided setup and conversion therefore send the copy from Quasar's managed SteamCMD
+(`linux64/steamclient.so`) to the Gateway Host, which verifies its SHA-256 and stages it with an
+atomic rename. If Quasar has no copy, setup continues and logs that the Gateway only starts when
+the Host account already has the file. An older Host without this capability is refused
+until its per-machine update timer installs the Host binary bundled with the active
+Quasar web release. The timer checks every 15 minutes. Existing remote enrollments
+without a timer need one final reinstall through **Hosts → Add cluster machine**;
+older local enrollments gain the timer automatically when Quasar starts. The cluster
+package pin does not select the Host binary.
+
+Executor credentials are separate from Query/Manage credentials. The scoped Gateway
+token file gives each credential scope `Executor` and name equal to the Host ID.
+Host polls every 1–15 seconds, within the 60-second executor lease. Gateway credentials
+are enforced on loopback when configured. Hosts resolve secret environment references
+only at launch; generated manifests never contain credential values.
+
+These contracts require coordinated upstream releases. Portable transfer, cluster config
+editing and backup/update workflows are implemented; full live acceptance remains a
+release gate. Verified preparation alone does not establish a working cluster.
+
+Cluster deployment commands now include `cluster create REQUEST.json`,
+`cluster deployment-prepare NAME REQUEST.json`, `cluster deployment-activate NAME REQUEST.json`,
+`cluster gateway-recover NAME`, `cluster recover NAME REQUEST.json`, `cluster backups NAME`, `cluster backup NAME REQUEST.json`
+and `cluster restore NAME REQUEST.json`. Mutations except catalog creation require an
+idempotency key. Inspect the operation and lifecycle status separately from command acceptance.
+
+For cross-host preparation, `Quasar.Host deployment export --installation DIR --file PACKAGE.tar`
+produces a portable verified installation. Transfer it with the normal authenticated host
+transport, then run `Quasar.Host deployment import --file PACKAGE.tar --sha256 INPUTS_SHA256 --directory DIR`.
+The hash identifies `inputs.json`, including every expected payload hash, rather than the tar
+container. Source absolute paths remain provenance; imported launch paths point to the new
+installation. Transfer world seeds separately; packaged preparation verifies them against the
+common specification's `worldFiles` checksums before producing an execution bundle.
+
+Cluster backups use `Quasar:BackupDirectory` under `Clusters`. Automatic-marked backups use
+existing server-backup retention settings. Manual backups are retained. Snapshot and restore
+require stopped managed processes on every Host. A restore requires rotated node, admin and
+executor credentials using new environment references; old accepted-token hashes, including
+previous-token slots, must not remain in the candidate scoped-token file. Host command
+credentials can remain unchanged. The previous runtime directory remains beside the restored
+one for explicit recovery and is not removed by backup retention.
+
+Before restore, copy the preparation specification and replace its join/admin token,
+scoped-token-file and Host executor token environment references with new names. Provision
+fresh values on each Host, then prepare this candidate using the same package, game build,
+world and topology. The secret references are hashed specification inputs, so this required
+rotation produces a new deployment revision automatically; no unrelated setting needs to
+change. Merely replacing values behind the existing environment names is insufficient:
+Host must still resolve the currently attached credentials to reject reuse. Submit the
+restore against this prepared candidate, then activate it before starting. A failed restore
+can be retried with the same restore ID and identical inputs; previous runtime data remains
+available for explicit recovery.
+
+## Managed cluster workflows
+
+Cluster cards use compact header controls. Configuration profiles, world templates
+and node plugin configuration are accessible through the navigation bar rather than
+duplicated as shortcuts on cluster cards or the cluster control page. Start changes
+the managed goal to On; Stop confirms a graceful
+cluster shutdown and changes the goal to Off. Restart Gateway only restarts the
+Gateway, with a reconnect warning. Save uses the cluster-wide save command. These
+actions retain cluster permissions and Gateway capability checks. Statistics and
+status refresh every five seconds without reloading the page; stale observations do
+not show nodes as healthy. A proven clean shutdown is displayed as Stopped.
+The dark theme uses the original bright success green (`#86efac`) for both server
+types, with dark text on filled success buttons.
+
+The terminal icon opens the cluster console: recent Gateway events and node plugin
+logs, refreshed every five seconds. It preserves displayed entries during an outage
+and marks them stale; full server/launcher process logs remain on their Hosts. Console
+access requires cluster query permission and the caller's cluster scope. Deployment
+configuration is available from the cluster details page.
+
+The delete icon on the cluster card and detail page removes its Quasar definition
+after confirmation. It requires cluster-manage permission and the caller's cluster
+scope. Stop managed clusters first: Quasar checks every Host for stopped node and
+Gateway processes, and refuses deletion while operations, deployment or restore work
+remain pending, or a Host cannot be verified. Observation-only entries can be removed
+without stopping their independently managed processes. The definition is archived
+under `Clusters/<name>/History/*-deleted.json`; world files, Host deployments, plugin
+data and backups remain on disk. The API equivalent is
+`DELETE /api/v1/clusters/{name}` (204 on success, 409 when deletion is blocked).
+
+For an unreachable or stale registration, the same dialog provides **Forget
+registration without checking remote processes**, with exact cluster-ID confirmation.
+This leaves any remote processes running and retains all data. Its API is
+`DELETE /api/v1/clusters/{name}/registration?confirmation={name}` with the same manage
+and scope checks. Removed IDs, including case variants, cannot be reused. This avoids
+silently attaching a new registration to retained runtime or operation state.
+
+The control page places administration first, followed by status, fleet observations
+and deployment. Sections use consistent cards and spacing; recovery and conversion
+are grouped under deployment. Gateway and World Authority appear in the status tile,
+while node readiness appears in capacity, avoiding the repeated component summary.
+Advanced details retain reconciliation, executor, Registry and slot information.
+Cluster actions use outlined buttons against the card surface, while the update action
+uses a filled button. Disabled controls keep a visible muted border and label.
+
+The cluster deployment panel persists one preparation specification for all Hosts.
+The **Update this cluster** section on the cluster page has two normal actions:
+**Prepare latest cluster update** and **Start cluster update with full downtime**.
+The first action stages and selects the latest stable release when needed, freezes
+its dependencies, and prepares every Host from the saved world seed and topology.
+The three individual preparation actions remain under **Advanced update steps**.
+Staging checks the release's pinned PluginSdk against a verified existing dependency
+snapshot or installed Magnetar before changing the package selection. The normal action
+can reuse the existing frozen DS, Magnetar, Direct Transport and common plugins when
+their SDK matches the new release. Otherwise freezing uses the configured dependency
+sources described above; missing Direct Transport or common plugin inputs must be
+configured before that step.
+Preparation copies the selected verified installation to each enrolled Host, reuses the
+saved world seed and topology specification, and records the prepared candidate in the
+cluster catalog so it survives a page reload. Host preparation validates the retained
+world seed and package specification. Changing the selected package or dependency
+snapshot clears that candidate. The final action starts the existing durable shutdown,
+activation, and readiness workflow; release checks and earlier steps do not interrupt
+the running cluster. A stopped cluster without clean shutdown proof must use the
+**Recover stopped cluster after an unclean shutdown** control first.
+The panel shows a short summary of the saved request instead of binding its large,
+nested JSON string to a browser text field. Download the request to inspect or edit
+advanced installation and topology inputs, then import the JSON file before selecting
+**Prepare all Hosts**. Importing only loads the request in the page; preparation runs
+when selected. Release checks only notify; they do not prepare or apply deployments.
+PluginSdk configuration schemas reuse the ordinary editor. Each configuration type has
+its own editor when a plugin owns multiple types. The editor labels selected plugins
+with names from the assigned cluster profile instead of their GUIDs. Conversion keeps the existing primary
+configuration and includes additional public or SDK-tracked types, including loaded private
+and static configurations. Older Agent snapshots containing only a primary type remain
+readable. SDK-tracked-only configurations are captured for conversion; the standalone
+editor still needs an exposed public configuration property to apply changes safely.
+Conflicting private-only live copies of the same type block automatic conversion
+until their source of truth is resolved. Saving changes prepares
+immutable candidate configuration on every Host; use a full-downtime update to apply it.
+The individual Agent editor cannot change cluster-owned configuration.
+
+`cluster update NAME REQUEST.json --wait` submits a durable workflow and waits for its
+exact ID to reach Complete. A request contains `id` (UUID) and `deployment` (the result
+of preparation). For rollback use `{"id":"<new UUID>","rollback":true}`. Inspect with
+`cluster update-status NAME`. API equivalents are POST/GET `/api/v1/clusters/{name}/update`.
+An update that cannot finish locks goal changes, commands, backup, restore and deletion. It
+records what it waits for in `lastError` once Stopping exceeds 20 minutes or Starting exceeds
+30 minutes. `POST /api/v1/clusters/{name}/update/abandon` (the **Abandon update** button on
+the deployment panel) closes such an update and unlocks those tools. Nothing is rolled back:
+before activation the cluster stays stopped on its current deployment, afterwards it keeps
+the new one and a rollback is an ordinary new update. Abandon is refused while a deployment
+activation is half applied on the Hosts; resume that activation or recover the cluster instead.
+Preflight checks every Host before goal Off. Stopping, Activating and Starting are
+persistent checkpoints. Errors remain visible/retryable; completion requires matching
+Gateway revision, managed readiness and Host attachments. Previous installations remain
+available. Binary/config rollback preserves current world and plugin state. Direct Host
+attachment/Gateway mutation endpoints reject managed clusters; use deployment, goal or
+explicit recovery operations to preserve the recorded revision.
+
+Host activation and restore compare the complete nonempty `storageFormats` map
+(`world`, `registry`, `plugins`). Different formats require explicit migration. The
+prepared package's exact PluginSdk hash must match the frozen Magnetar dependency.
+Guided setup provisions current managed Magnetar before choosing a cluster package.
+If a stopped, incomplete setup has an older package whose PluginSdk pin no longer
+matches, **Resume guided setup** downloads and selects the latest stable package only
+when its pin matches the installed SDK. It clears the prior dependency selection and
+rebuilds an export made with an older SDK. Until a matching release exists, setup
+remains interrupted with the expected and installed hashes in its error.
+
+Use `cluster command NAME REQUEST.json` for `world-export` (bounded TTL), scoped
+`trigger`, `handover-config-set`, or `artifact-release`; inspect with `diagnostics`,
+`handover-config`, `artifacts`, and `artifact`. `cluster artifact-backup NAME ID`
+retrieves and verifies a vanilla world export into cluster backup storage, then releases
+the Gateway artifact. Checks include manifest, exact inventory, file hashes and size.
+For multiple Hosts, `exportDataRoots` must name paths readable by the Gateway Host.
+Native stopped snapshots capture every Host independently without shared storage.
+
+Automatic native cluster backups reuse the existing server schedule/retention only
+while a cluster is already cleanly stopped. They do not schedule downtime, so a cluster
+that runs around the clock gets no scheduled backups; the deployment panel says so. A failed
+scheduled capture is logged and retried after an hour within the same stopped period. Manual
+native backups and archived vanilla exports are retained. Snapshot capture IDs bind
+the stopped lifecycle. Restore rotates runtime credentials, retains the prior runtime,
+changes plugin store identity and fences old operations before startup is allowed.
+
+### Explicit recovery after unclean cluster shutdown
+
+Use `POST /api/v1/clusters/{uniqueName}/recover` with `{"generation":"NEW-UUID"}` and
+an `Idempotency-Key`, or `cluster recover NAME REQUEST.json --idempotency-key KEY`.
+The deployment panel exposes the same operation. Requires Manage authorization, goal
+Off, a complete active deployment and no incomplete deployment/restore/update workflow.
+Stop every node first; this operation refuses running or unknown node process states.
+
+Quasar checks every Host's attachment identity and stopped-node state, fences/stops the
+recorded Gateway process, then rechecks every Host under its execution gate. Only then
+it commits the new generation with `Recover=true` and goal On. Host passes
+`CLUSTER_START_RECOVERY=true`; Registry accepts only the unchanged revision/inventory,
+fences stale authority and recovers retained saves and plugin records. Unsaved changes
+can be lost. No world wipe, plugin-store reset or clean-shutdown proof is manufactured.
+
+A lost acknowledgement can replay the same generation without undoing a later drain.
+A terminal failed operation is immutable; after correcting the cause, retry with a new
+idempotency key. The original generation may be reused if it was never committed.
+Normal starts clear the recovery flag. `gateway-recover` remains the separate action
+for resuming the recorded generation to finish a shutdown; ordinary Gateway restarts
+also reuse their recorded generation.
+
+Persistence failure returns 503 and pauses Gateway relay while the process stays alive.
+Monitor control health as well as process state, correct the storage fault and restart.
+Do not turn that failure into an automatic fresh start or data reset.
+
+Release build and nonlaunching Host preparation check actual PluginSdk assembly metadata
+for Magnetar 2.4.2.1 plus managed configuration/plugin services. The package's exact SDK
+hash must still match the frozen dependency snapshot. This applies to unmanaged launches
+as well; the cluster release must wait for the compatible Magnetar release.
+
+### Guided standalone/cluster conversion
+
+Use **Convert to cluster** on a standalone server or **Convert to standalone server**
+on cluster details. Both workflows preserve sources/backups and create a stopped
+destination. [Cluster Conversion](ClusterConversion.md) covers prerequisites, placement,
+plugin settings, UUID-based resume and matching API/CLI routes. Reverse conversion
+uses native snapshots from all Hosts and needs no shared filesystem. Canonical plugin
+settings are exported for review/reapplication; private/shared plugin storage remains
+in the backup.

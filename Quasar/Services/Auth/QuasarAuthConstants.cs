@@ -36,6 +36,7 @@ public static class QuasarRoles
 public static class QuasarPolicyNames
 {
     public const string ClusterQuery = "ClusterQuery";
+    public const string ClusterManage = "ClusterManage";
     public const string CanView = "CanView";
     public const string CanEditConfigs = "CanEditConfigs";
     public const string CanEditServers = "CanEditServers";
@@ -49,6 +50,7 @@ public static class QuasarPolicyNames
 public static class QuasarScopes
 {
     public const string ClusterQuery = "cluster.query";
+    public const string ClusterManage = "cluster.manage";
 }
 
 public static class SteamAuthConstants

@@ -30,23 +30,9 @@ The solution file is `Quasar.sln`.
 
 ## Build setup
 
-Quasar consumes the private
-`CometWorks.ClusterGateway.AdminContract` package from the CometWorks GitHub
-Packages source in the repository `NuGet.Config`. For a clean local restore,
-authenticate GitHub CLI with `read:packages` and expose its short-lived credential
-through NuGet's source-credential environment variable; never add credentials to
-`NuGet.Config`:
-
-```bash
-gh auth refresh -s read:packages
-export NuGetPackageSourceCredentials_github="Username=$(gh api user --jq .login);Password=$(gh auth token);ValidAuthenticationTypes=Basic"
-dotnet restore Quasar.sln
-unset NuGetPackageSourceCredentials_github
-```
-
-The release workflow uses its built-in `GITHUB_TOKEN`; it needs no custom package
-secret. The Gateway package settings grant `CometWorks/quasar` read access under
-**Manage Actions access**.
+Quasar, Bootstrap and Quasar.Host compile the exact current Gateway contract source pinned under
+`Contracts/ClusterGateway.AdminContract`. `SOURCE.md` records its upstream revision and
+checksum. No neighboring Gateway checkout or private contract package is needed.
 
 - `Quasar.Agent` depends on a local `DS64` path for Space Engineers Dedicated
   Server assemblies.
@@ -257,3 +243,162 @@ groups produce samples. Set it to `Off` when troubleshooting profiler
 compatibility. See
 [Architecture](QuasarArchitecture.md) for how this telemetry flows through the
 supervisor.
+
+## Cluster release consumer checks
+
+`dotnet test Quasar.Tests/Quasar.Tests.csproj` covers cluster package staging with
+small generated archives and fixture HTTP responses. Package staging tests are Linux
+only. To run the positive staging/tamper check against a downloaded release archive:
+
+```bash
+QUASAR_TEST_CLUSTER_ARCHIVE=/path/to/ClusterForLinux-1.0.3.tar.gz \
+  dotnet test Quasar.Tests/Quasar.Tests.csproj
+```
+
+The optional fixture is currently v1.0.3. Tests extract into temporary directories,
+verify the installation and exercise replay/tamper detection; they do not start
+Gateway, game nodes or the Quasar web service. GitHub requests remain fixtures.
+Package selection tests disable fixture network access after staging and verify local
+receipt/manifest/file checks, persisted selection, revision conflicts, restart/replay,
+missing/tampered packages, cluster allow-list enforcement and API/CLI parity. Catalog
+tests also verify that selection preserves lifecycle identity and concurrent selections
+cannot overwrite each other.
+Dependency tests use small file trees to verify isolated copies, offline reuse after
+input deletion, changed-input rejection, missing/linked/unpinned inputs, manifest/file
+tampering, selection conflicts and unchanged lifecycle state. The Direct Transport
+packaging helper can be exercised against a pinned source checkout without launching
+any server; see [dependency provisioning](Configuration.md#cluster-dependency-provisioning-linux).
+Provisioning also rejects transport metadata with the obsolete `NETCoreApp` runtime name;
+the helper emits `CoreCLR`/`Linux` for its net10.0 Linux build.
+
+The upstream CLI follow-up lives in the sibling `cluster-quasar-integration` checkout.
+Run its offline profile/wrapper/registration tests with:
+
+```bash
+python3 -m unittest discover -s ../cluster-quasar-integration/Cli -p 'test_packaged_plugins.py' -v
+python3 -m unittest discover -s scripts -p 'test_package_cluster_plugins.py' -v
+dotnet build Quasar.Host/Quasar.Host.csproj
+python3 -m unittest discover -s scripts -p 'test_host_deployment.py' -v
+```
+
+These checks create temporary configs, resolved-cache fixtures and inert Host deployment
+payloads. Host preparation verifies and copies files only; they start no Gateway,
+Magnetar or game process. The modified upstream CLI needs a future verified package before
+managed use; never copy modified CLI files into a previously verified release installation.
+See [Phase 4 Integration](Phase4IntegrationPlan.md) for remaining live acceptance.
+
+## Host enrollment from a development build
+
+Host enrollment serves the single-file `Quasar.Host` executable that a release ships as
+`Host/Quasar.Host` next to the web worker. Plain build output (`dotnet run --project Quasar`)
+does not contain it, so enrollment answers "does not include the Host installer". Publish the
+Host once and point the web worker at it with `QUASAR_HOST_BINARY`:
+
+```bash
+dotnet publish Quasar.Host/Quasar.Host.csproj -c Release -r linux-x64 -p:SelfContained=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o artifacts/dev-host
+```
+
+```bash
+export QUASAR_HOST_BINARY="$PWD/artifacts/dev-host/Quasar.Host"
+```
+
+The variable is a development aid only; releases keep using the packaged `Host/Quasar.Host`,
+which always matches the web worker.
+
+## Testing against local cluster and Magnetar builds
+
+A test Quasar instance normally downloads the cluster package and Magnetar from their GitHub
+releases. Two overrides replace those downloads with a local file (`file://`) or a file served
+from any HTTP(S) URL, so a change in `cluster` or Magnetar can be tried in Quasar before a
+release exists, without a GitHub token and without network access to GitHub. Both are for
+development and test installs; leave them empty in production.
+
+| Environment variable | Setting under `Quasar:ManagedRuntime` | Value |
+| --- | --- | --- |
+| `QUASAR_CLUSTER_ARCHIVE_URL` | `ClusterArchiveUrl` | `file://`, `http://` or `https://` URL of a `ClusterForLinux-<version>.tar.gz`; its `SHA256SUMS` must be in the same directory |
+| `QUASAR_MAGNETAR_ARCHIVE_URL` | `MagnetarArchiveUrl` | `file://`, `http://` or `https://` URL of a `MagnetarForLinux-<version>.7z` (or the Windows archive) |
+
+The environment variable wins over the setting. The simplest form points straight at the output
+of a local build, for example the cluster `Build/dist` folder written by `Build/release.sh`. A
+`file://` URL needs an absolute path:
+
+```bash
+export QUASAR_CLUSTER_ARCHIVE_URL="file://$(realpath ../cluster/Build/dist)/ClusterForLinux-1.1.3.tar.gz"
+```
+
+```bash
+export QUASAR_MAGNETAR_ARCHIVE_URL="file://$HOME/builds/MagnetarForLinux-2.4.2.2.7z"
+```
+
+To feed several test machines from one build, serve the same directory over HTTP instead:
+
+```bash
+python3 -m http.server 18999 --bind 127.0.0.1 --directory ../cluster/Build/dist
+```
+
+```bash
+export QUASAR_CLUSTER_ARCHIVE_URL=http://127.0.0.1:18999/ClusterForLinux-1.1.3.tar.gz
+```
+
+Cluster archive rules:
+
+- The version comes from the file name and is the only version offered; asking for another one
+  fails with a message naming the override.
+- Verification is unchanged: the archive must match the SHA-256 in `SHA256SUMS`, carry a valid
+  `manifest.json` for that version and contain every required file. An HTTP server must answer
+  `HEAD` with a `Content-Length` (`python3 -m http.server` does).
+- The GitHub token saved under Updates is never sent to this URL.
+- A package staged this way records release and asset ID 0. It is accepted only while the
+  override is set; without it Quasar requires a package staged from a published release.
+- Staged packages live in `ManagedRuntime/Tools/Cluster/<version>`. A rebuilt archive with the
+  same version but other content is refused; give the local build a new version or remove that
+  directory.
+
+The Magnetar archive is installed when the managed runtime is prepared (at start-up warm-up or
+before a server launch). A `file://` archive is identified by its size and modification time, so
+a rebuilt file is installed again on the next preparation. An HTTP(S) archive is downloaded again
+only when the URL changes; rename the file or change the URL after rebuilding the same version.
+
+## Joining a managed test cluster with a headless client
+
+A Quasar-managed Gateway publishes the Steam frontend only, so a headless Pulsar client (the
+cluster bench's `Test/clients.py`) cannot join it. Two environment variables of the Quasar process
+change the specification that guided setup and conversion generate. They are for test clusters
+only and need a cluster release that knows `directListen`:
+
+| Environment variable | Effect |
+| --- | --- |
+| `QUASAR_CLUSTER_TEST_DIRECT_LISTEN=IP:PORT` | Adds `directListen`: the Gateway also starts its Direct Transport frontend there. That frontend admits every client, so only loopback or a private address is accepted, and the Gateway itself refuses a public bind. Pick a port outside the cluster's reserved range (player port to player port + 264). |
+| `QUASAR_CLUSTER_TEST_DISABLE_STEAM=true` | Omits `steamListen`: Direct Transport only, exactly like the cluster bench. The Gateway Host then needs no Steam client library. Requires the variable above. |
+
+The variables are read when a specification is generated; an existing deployment keeps its
+frontends until it is prepared again. A headless client joins with `--connect IP:PORT` of the
+Direct Transport address. Gateway control routes of a managed cluster need its admin token.
+
+## Cluster integration verification
+
+The seven-stage [integration plan](Phase4IntegrationPlan.md) separates focused checks
+from full local acceptance. Build/test Quasar services and `Quasar.Host --self-test`
+without launching the web service. Upstream cluster `Build/release.sh` builds the entire
+package, runs shipped Gateway/CLI self-tests and records the exact build PluginSdk hash.
+Use the coordinated Magnetar build through `MAGNETAR_SDK`; old published dependencies
+cannot provide the new provider contract. Check protocol parity with upstream
+`python3 Build/verify-plugin-protocol.py /path/to/magnetar`.
+
+Magnetar's `Examples/ClusterState` compiles an opt-in shared-state plugin. SDK tests
+exercise durable standalone writes, CAS/restore and dispatch fences. Cluster self-tests
+exercise Registry replay and lifecycle outcomes. These do not replace packaged live
+provider, ownership, conversion, outage and upgrade acceptance.
+
+## Cluster Host release package
+
+Release packaging also produces `quasar-host-linux-x64.tar.gz` and
+`quasar-host-win-x64.zip`, included in the combined `SHA256SUMS`. Each contains the
+complete self-contained Host publish tree with `Quasar.Host` (or `.exe`) at its root.
+Extract it into a dedicated directory on each cluster machine. Host has its own
+configuration and process lifecycle; the web launcher does not install or start it.
+
+For offline package validation, run the extracted `Quasar.Host --self-test`. This uses
+inert child processes and temporary state, without launching Space Engineers or Quasar's
+web service. Host source, shared deployment code and contract changes trigger release
+builds alongside the web/launcher projects.
