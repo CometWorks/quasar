@@ -38,7 +38,10 @@ else
         @if (ClusterReleaseMonitor.IsUpdateAvailable(Cluster, ClusterReleases.GetSnapshot().Release))
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                Cluster package @ClusterReleases.GetSnapshot().Release!.Version is available. Stage and select it, then prepare and update the cluster explicitly.
+                Cluster package @ClusterReleases.GetSnapshot().Release!.Version is available.
+                <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+                    <MudButton Href="#cluster-configuration" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Open cluster update</MudButton>
+                </AuthorizeView>
             </MudAlert>
         }
         @if (Cluster.ActiveDeployment is null)
@@ -48,13 +51,13 @@ else
                 {
                     <MudText>@setup.Phase @setup.Error</MudText>
                     <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
-                        <MudButton Href="@($"/clusters/new?resume={Uri.EscapeDataString(Cluster.UniqueName)}")">Resume guided setup</MudButton>
+                        <MudButton Href="@($"/clusters/new?resume={Uri.EscapeDataString(Cluster.UniqueName)}")" Variant="Variant.Outlined" Color="Color.Primary">Resume guided setup</MudButton>
                     </AuthorizeView>
                 }
                 else
                 {
                     <MudText>This registration has no active managed deployment. If its Gateway is unavailable, check the machine running it. For a fresh deployment, use guided setup with a new cluster ID. The Delete button also offers an explicitly confirmed Forget registration option for unreachable or stale installations.</MudText>
-                    <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage"><MudButton Href="/clusters/new">Set up a new cluster</MudButton></AuthorizeView>
+                    <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage"><MudButton Href="/clusters/new" Variant="Variant.Outlined" Color="Color.Primary">Set up a new cluster</MudButton></AuthorizeView>
                 }
             </MudAlert>
         }

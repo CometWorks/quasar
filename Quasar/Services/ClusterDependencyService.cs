@@ -109,6 +109,21 @@ public sealed class ClusterDependencyService
         finally { _gate.Release(); }
     }
 
+    internal async Task<Dictionary<string, string>> ReusableSourcesAsync(ClusterDefinition cluster, CancellationToken token)
+    {
+        string hash = cluster.DependencyManifestSha256 ?? throw new InvalidDataException("No previous dependency snapshot is selected.");
+        await VerifyAsync(cluster, hash, token);
+        string payload = Path.Combine(_directory, hash, "payload");
+        return new()
+        {
+            ["DedicatedServer/DedicatedServer64"] = Path.Combine(payload, "DedicatedServer/DedicatedServer64"),
+            ["DedicatedServer/Content"] = Path.Combine(payload, "DedicatedServer/Content"),
+            ["Magnetar"] = Path.Combine(payload, "Magnetar"),
+            ["DirectTransport"] = Path.Combine(payload, "DirectTransport"),
+            ["CommonPlugins"] = Path.Combine(payload, "CommonPlugins"),
+        };
+    }
+
     public async Task<global::Quasar.Host.Contract.V1.ClusterDeploymentInputs> GetDeploymentInputsAsync(
         ClusterDefinition cluster, CancellationToken token)
     {

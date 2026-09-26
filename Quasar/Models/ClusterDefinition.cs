@@ -31,6 +31,8 @@ public sealed class ClusterDefinition
     public ClusterActiveRevision? PreviousDeployment { get; set; }
     public ClusterUpdate? Update { get; set; }
     public Quasar.Services.ClusterPreparationRequest? Preparation { get; set; }
+    public Quasar.Services.ClusterDeploymentRequest? PreparedDeployment { get; set; }
+    public bool PreparedForSelectedRelease { get; set; }
 
     internal string GetLifecycleId() => Convert.ToHexString(SHA256.HashData(
         JsonSerializer.SerializeToUtf8Bytes(new
@@ -63,6 +65,8 @@ public sealed class ClusterDefinition
         PreviousDeployment = PreviousDeployment,
         Update = Update,
         Preparation = Preparation,
+        PreparedDeployment = PreparedDeployment,
+        PreparedForSelectedRelease = PreparedForSelectedRelease,
     };
 }
 

@@ -17,6 +17,22 @@ public sealed class ClusterDeploymentTests : IDisposable
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     [Fact]
+    public async Task PreparedCandidateSurvivesCatalogReload()
+    {
+        using var catalog = Catalog();
+        var preparation = new ClusterPreparationRequest(new string('a', 64), "{\"clusterId\":\"demo\"}",
+            "http://127.0.0.1:28016", []);
+        var candidate = Request();
+        await catalog.RecordPreparationAsync(catalog.GetCluster("demo")!, preparation, candidate, default);
+        await catalog.RecordSelectedReleasePreparationAsync(catalog.GetCluster("demo")!, candidate, default);
+        using var reloaded = Catalog();
+        Assert.Equal(candidate.Revision, reloaded.GetCluster("demo")!.PreparedDeployment?.Revision);
+        Assert.True(reloaded.GetCluster("demo")!.PreparedForSelectedRelease);
+        await reloaded.RecordPreparationAsync(reloaded.GetCluster("demo")!, preparation, candidate, default);
+        Assert.False(reloaded.GetCluster("demo")!.PreparedForSelectedRelease);
+    }
+
+    [Fact]
     public async Task DeleteObservationArchivesDefinitionAndPreservesData()
     {
         using var catalog = Catalog();
@@ -342,6 +358,11 @@ public sealed class ClusterDeploymentTests : IDisposable
 
         // A half-activated fleet must be settled by the deployment's own resume or recovery.
         await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => update.BeginAsync("demo",
+            new(Guid.NewGuid(), candidate), "missing-clean-shutdown", "test", default));
+        var clean = catalog.GetCluster("demo")!;
+        await catalog.RecordShutdownProofAsync(clean, new(clean.GetLifecycleId(), DateTimeOffset.UtcNow,
+            new GatewayStopFence(122, DateTimeOffset.UtcNow)), default);
         await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin-2", "test", default);
         var stopped = catalog.GetCluster("demo")!;
         await catalog.RecordShutdownProofAsync(stopped, new(stopped.GetLifecycleId(), DateTimeOffset.UtcNow,

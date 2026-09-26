@@ -24,6 +24,9 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
         if (request.Id == Guid.Empty || cluster.ActiveDeployment is null || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
             throw new InvalidOperationException("Update requires an operation ID and a complete managed deployment.");
         if (cluster.Update is { Phase: not ClusterUpdatePhase.Complete }) throw new InvalidOperationException("An update is already in progress.");
+        if (cluster.GoalState == DedicatedServerGoalState.Off && cluster.Gateway is not null
+            && cluster.ShutdownProof?.LifecycleId != cluster.GetLifecycleId())
+            throw new InvalidOperationException("This stopped cluster has no clean shutdown proof. Recover the stopped cluster after an unclean shutdown before starting an update.");
         var candidate = request.Rollback ? RollbackDeployment(cluster) : request.Deployment
             ?? throw new InvalidDataException("Candidate deployment is required.");
         if (candidate.Revision == cluster.ActiveDeployment.Revision) throw new InvalidOperationException("Candidate must be a different deployment revision.");

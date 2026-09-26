@@ -25,7 +25,7 @@
                 }
                 else
                 {
-                    <MudButton Disabled="@(!CanRun("POST /admin/v1/save-all"))" OnClick="SaveAsync">Save world</MudButton>
+                    <MudButton Disabled="@(!CanRun("POST /admin/v1/save-all"))" OnClick="SaveAsync" Variant="Variant.Outlined" Color="Color.Primary">Save world</MudButton>
                 }
                 @if (Cluster.GoalState == DedicatedServerGoalState.Off)
                 {
@@ -57,21 +57,21 @@
             <MudExpansionPanels>
                 <MudExpansionPanel Text="Diagnostics, maintenance and exports">
                     <MudStack Spacing="3" Class="py-2 cluster-form-section">
-                    <MudButton OnClick="LoadDiagnosticsAsync" Disabled="@Busy">Load diagnostics</MudButton>
-                    <MudButton OnClick="LoadArtifactsAsync" Disabled="@Busy">List world exports</MudButton>
-                    <MudButton OnClick="ExportAsync" Disabled="@(!CanRun("POST /admin/v1/world-exports"))">Export vanilla world</MudButton>
+                    <MudButton OnClick="LoadDiagnosticsAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">Load diagnostics</MudButton>
+                    <MudButton OnClick="LoadArtifactsAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">List world exports</MudButton>
+                    <MudButton OnClick="ExportAsync" Disabled="@(!CanRun("POST /admin/v1/world-exports"))" Variant="Variant.Outlined" Color="Color.Primary">Export vanilla world</MudButton>
                     <MudText Typo="Typo.body2">Online exports are crash-consistent unless the Gateway proves a stronger consistency level.</MudText>
                     <MudTextField T="string" Label="Maintenance command (JSON)" @bind-Value="_advancedCommand" Lines="5" />
                     <MudText Typo="Typo.caption">Example: {"action":"trigger","target":"compact","parameters":{"node":"node-1"}}</MudText>
-                    <MudButton OnClick="AdvancedAsync" Disabled="@Busy">Run command</MudButton>
-                    <MudButton OnClick="LoadHandoverAsync" Disabled="@Busy">Load handover configuration</MudButton>
+                    <MudButton OnClick="AdvancedAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">Run command</MudButton>
+                    <MudButton OnClick="LoadHandoverAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">Load handover configuration</MudButton>
                     <MudTextField T="string" Label="Handover settings to change (JSON)" @bind-Value="_handover" Lines="5" />
-                    <MudButton OnClick="ApplyHandoverAsync" Disabled="@Busy">Apply handover settings</MudButton>
+                    <MudButton OnClick="ApplyHandoverAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">Apply handover settings</MudButton>
                     @if (_details is not null) { <pre style="max-height:400px;overflow:auto">@_details</pre> }
                     </MudStack>
                 </MudExpansionPanel>
                 <MudExpansionPanel Text="Advanced capacity configuration">
-                    <MudButton OnClick="LoadConfigAsync" Disabled="@Busy">Load current configuration</MudButton>
+                    <MudButton OnClick="LoadConfigAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">Load current configuration</MudButton>
                     @if (_config is not null)
                     {
                         <MudText Typo="Typo.caption">Policy revision @_config.PolicyRevision. Registry owns placement and drain decisions.</MudText>
@@ -87,7 +87,7 @@
                                 </MudTd>
                             </RowTemplate>
                         </MudTable>
-                        <MudButton OnClick="ApplyConfigAsync" Disabled="@(!CanRun("PUT /admin/v1/config"))">Apply configuration</MudButton>
+                        <MudButton OnClick="ApplyConfigAsync" Disabled="@(!CanRun("PUT /admin/v1/config"))" Variant="Variant.Outlined" Color="Color.Primary">Apply configuration</MudButton>
                     }
                 </MudExpansionPanel>
             </MudExpansionPanels>

@@ -25,14 +25,14 @@
                             <MudText Typo="Typo.body2">Sim speed @telemetry.Metrics?.SimSpeed.ToString("0.00") · RSS @telemetry.Metrics?.MemoryWorkingSetMb MB</MudText>
                             <MudText Typo="Typo.body2" Class="cluster-long-value">Deployment @telemetry.DeploymentRevision · @(telemetry.ReadinessVerified switch { true => "Verified", false => "Not ready", _ => "Unknown" })</MudText>
                             @if (!string.IsNullOrWhiteSpace(telemetry.DeploymentFailure)) { <MudText Color="Color.Warning">@telemetry.DeploymentFailure</MudText> }
-                            <MudButton Size="Size.Small" OnClick="@(() => _selectedNode = context.Registry.Node)">Process details</MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => _selectedNode = context.Registry.Node)">Process details</MudButton>
                         }
                         else { <MudText Typo="Typo.body2">No uniquely matched Agent</MudText> }
                     </MudTd>
                     <MudTd DataLabel="Actions">
                         <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="authorization">
-                            <MudButton Size="Size.Small" Disabled="@(!_available)" OnClick="@(() => CloseAsync(context.Registry))">Drain</MudButton>
-                            <MudButton Size="Size.Small" Color="Color.Warning" Disabled="@(!_available)" OnClick="@(() => KillAsync(context.Registry))">Force remove</MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(!_available)" OnClick="@(() => CloseAsync(context.Registry))">Drain</MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" Disabled="@(!_available)" OnClick="@(() => KillAsync(context.Registry))">Force remove</MudButton>
                         </AuthorizeView>
                     </MudTd>
                 </RowTemplate>
@@ -65,8 +65,8 @@
                     <MudTd DataLabel="Player">@context.PlayerName · @context.ClientId</MudTd><MudTd DataLabel="Admission">@context.AdmissionState</MudTd><MudTd DataLabel="Route">@context.Node / @context.Partition</MudTd>
                     <MudTd DataLabel="Actions">
                         <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="authorization">
-                            <MudButton Disabled="@(!_available)" OnClick="@(() => ModerateAsync("kick", context))">Kick</MudButton>
-                            <MudButton Disabled="@(!_available)" Color="Color.Warning" OnClick="@(() => ModerateAsync("ban", context))">Ban</MudButton>
+                            <MudButton Disabled="@(!_available)" Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => ModerateAsync("kick", context))">Kick</MudButton>
+                            <MudButton Disabled="@(!_available)" Variant="Variant.Outlined" Color="Color.Warning" OnClick="@(() => ModerateAsync("ban", context))">Ban</MudButton>
                         </AuthorizeView>
                     </MudTd>
                 </RowTemplate>

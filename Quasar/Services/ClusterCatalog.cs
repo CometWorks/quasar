@@ -125,6 +125,8 @@ public sealed class ClusterCatalog : IDisposable
             var host = active.Hosts.Single(host => host.Deployment.Gateway is not null);
             cluster.PreviousDeployment = cluster.ActiveDeployment;
             cluster.ActiveDeployment = active;
+            cluster.PreparedDeployment = null;
+            cluster.PreparedForSelectedRelease = false;
             cluster.PendingDeploymentHash = null;
             cluster.LastRestoreHash = cluster.PendingRestoreHash ?? cluster.LastRestoreHash;
             cluster.PendingRestoreHash = null;
@@ -134,15 +136,38 @@ public sealed class ClusterCatalog : IDisposable
             cluster.GatewayUrl = host.Deployment.Attachment.GatewayUrl;
         }, token);
 
-    internal async Task RecordPreparationAsync(ClusterDefinition expected, ClusterPreparationRequest request, CancellationToken token)
+    internal async Task RecordPreparationAsync(ClusterDefinition expected, ClusterPreparationRequest request,
+        ClusterDeploymentRequest deployment, CancellationToken token)
     {
         await _writeGate.WaitAsync(token);
         try
         {
             var current = GetCluster(expected.UniqueName) ?? throw new KeyNotFoundException(expected.UniqueName);
-            if (current.ActiveDeployment?.Revision != expected.ActiveDeployment?.Revision)
-                throw new InvalidOperationException("Active deployment changed during preparation.");
+            if (current.ActiveDeployment?.Revision != expected.ActiveDeployment?.Revision
+                || current.PackageSelection != expected.PackageSelection
+                || current.DependencyManifestSha256 != expected.DependencyManifestSha256)
+                throw new InvalidOperationException("Cluster package or deployment changed during preparation. Prepare the selected inputs again.");
             current.Preparation = request;
+            current.PreparedDeployment = deployment;
+            current.PreparedForSelectedRelease = false;
+            await SaveAsync(current, token);
+        }
+        finally { _writeGate.Release(); }
+    }
+
+    internal async Task RecordSelectedReleasePreparationAsync(ClusterDefinition expected,
+        ClusterDeploymentRequest deployment, CancellationToken token)
+    {
+        await _writeGate.WaitAsync(token);
+        try
+        {
+            var current = GetCluster(expected.UniqueName) ?? throw new KeyNotFoundException(expected.UniqueName);
+            if (current.PackageSelection != expected.PackageSelection
+                || current.DependencyManifestSha256 != expected.DependencyManifestSha256
+                || current.ActiveDeployment?.Revision != expected.ActiveDeployment?.Revision
+                || JsonSerializer.Serialize(current.PreparedDeployment, JsonOptions) != JsonSerializer.Serialize(deployment, JsonOptions))
+                throw new InvalidOperationException("Cluster inputs changed during preparation. Prepare the selected release again.");
+            current.PreparedForSelectedRelease = true;
             await SaveAsync(current, token);
         }
         finally { _writeGate.Release(); }
@@ -290,6 +315,8 @@ public sealed class ClusterCatalog : IDisposable
                     "Package selection changed; read its current revision before selecting again.");
             cluster.PackageSelection = selected;
             cluster.DependencyManifestSha256 = null;
+            cluster.PreparedDeployment = null;
+            cluster.PreparedForSelectedRelease = false;
             Normalize(cluster);
             // UpdatedAtUtc participates in lifecycle request identity. Package staging must not change it.
             await SaveAsync(cluster, cancellationToken);
@@ -312,6 +339,8 @@ public sealed class ClusterCatalog : IDisposable
             if (cluster.DependencyManifestSha256 != request.ExpectedDependencySha256)
                 throw new ClusterOperationConflictException(409, "dependency_selection_conflict", "Dependency selection changed.");
             cluster.DependencyManifestSha256 = request.ManifestSha256;
+            cluster.PreparedDeployment = null;
+            cluster.PreparedForSelectedRelease = false;
             await SaveAsync(cluster, cancellationToken);
         }
         finally { _writeGate.Release(); }

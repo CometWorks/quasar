@@ -1354,8 +1354,29 @@ and deployment. Sections use consistent cards and spacing; recovery and conversi
 are grouped under deployment. Gateway and World Authority appear in the status tile,
 while node readiness appears in capacity, avoiding the repeated component summary.
 Advanced details retain reconciliation, executor, Registry and slot information.
+Cluster actions use outlined buttons against the card surface, while the update action
+uses a filled button. Disabled controls keep a visible muted border and label.
 
 The cluster deployment panel persists one preparation specification for all Hosts.
+The **Update this cluster** section on the cluster page has two normal actions:
+**Prepare latest cluster update** and **Start cluster update with full downtime**.
+The first action stages and selects the latest stable release when needed, freezes
+its dependencies, and prepares every Host from the saved world seed and topology.
+The three individual preparation actions remain under **Advanced update steps**.
+Staging checks the release's pinned PluginSdk against a verified existing dependency
+snapshot or installed Magnetar before changing the package selection. The normal action
+can reuse the existing frozen DS, Magnetar, Direct Transport and common plugins when
+their SDK matches the new release. Otherwise freezing uses the configured dependency
+sources described above; missing Direct Transport or common plugin inputs must be
+configured before that step.
+Preparation copies the selected verified installation to each enrolled Host, reuses the
+saved world seed and topology specification, and records the prepared candidate in the
+cluster catalog so it survives a page reload. Host preparation validates the retained
+world seed and package specification. Changing the selected package or dependency
+snapshot clears that candidate. The final action starts the existing durable shutdown,
+activation, and readiness workflow; release checks and earlier steps do not interrupt
+the running cluster. A stopped cluster without clean shutdown proof must use the
+**Recover stopped cluster after an unclean shutdown** control first.
 The panel shows a short summary of the saved request instead of binding its large,
 nested JSON string to a browser text field. Download the request to inspect or edit
 advanced installation and topology inputs, then import the JSON file before selecting

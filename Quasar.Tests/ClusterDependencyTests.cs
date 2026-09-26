@@ -61,6 +61,9 @@ public sealed class ClusterDependencyTests
         Directory.Delete(Path.Combine(fixture.Root, "inputs"), true);
         Assert.Equal(candidate, await fixture.Service.StageAsync(fixture.Cluster, request, default));
         Assert.Equal(candidate, await fixture.Service.VerifyAsync(fixture.Cluster, candidate.ManifestSha256, default));
+        fixture.Cluster.DependencyManifestSha256 = candidate.ManifestSha256;
+        var reused = await fixture.Service.ReusableSourcesAsync(fixture.Cluster, default);
+        Assert.Equal(candidate, await fixture.Service.InspectAsync(fixture.Cluster, reused, default));
         Assert.Empty(Directory.GetDirectories(fixture.Store, ".stage-*"));
         File.WriteAllText(ds, "tampered");
         await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Service.VerifyAsync(fixture.Cluster, candidate.ManifestSha256, default));

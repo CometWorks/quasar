@@ -96,9 +96,9 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
                         new(clusterId, cluster.ActiveDeployment?.Hosts.SingleOrDefault(h => h.HostId == host.HostId)?.Deployment.BundleManifestSha256,
                             prepared.Manifest, prepared.Sha256, request.GatewayUrl, host.ExecutorTokenEnvironmentVariable)));
                 }
-                await catalog.RecordPreparationAsync(cluster, request, cancellation);
-                return new Admin.AdminEnvelope<ClusterDeploymentRequest>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow,
-                    new(cluster.ActiveDeployment?.Revision, revision!, activations.ToArray()));
+                var deployment = new ClusterDeploymentRequest(cluster.ActiveDeployment?.Revision, revision!, activations.ToArray());
+                await catalog.RecordPreparationAsync(cluster, request, deployment, cancellation);
+                return new Admin.AdminEnvelope<ClusterDeploymentRequest>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow, deployment);
             }, token);
 
     public Task<ClusterOperation> RecoverClusterAsync(string clusterId, Guid generation, string key, string actor, CancellationToken token) =>

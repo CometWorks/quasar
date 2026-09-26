@@ -61,6 +61,11 @@ h1:focus {
     padding-block: clamp(1rem, 2vw, 1.5rem);
 }
 
+.cluster-control-page .mud-button-root.mud-button:disabled {
+    color: var(--mud-palette-text-secondary) !important;
+    border-color: var(--mud-palette-text-secondary) !important;
+}
+
 .magnetar-nav-menu .mud-nav-link {
     border-radius: var(--mud-default-borderradius);
     margin-bottom: 0.35rem;
