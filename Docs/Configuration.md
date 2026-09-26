@@ -374,6 +374,35 @@ server's supported per-player private delivery rather than impersonating a playe
 Slash commands are guild-scoped and refresh when the bot connects. Server values
 use Quasar's stable unique names, not display names.
 
+## Browser push notifications
+
+The top-bar bell is outlined until the current browser has a push subscription
+registered with this Quasar account. Open the bell and select **Enable push
+notifications** to grant browser permission; a filled bell means push is enabled
+here. The same menu opens the current update notice or disables push on this
+browser. Browser push requires HTTPS (or localhost) and browser support for
+service workers and Push API. It does not require installing Quasar as a PWA.
+
+Quasar sends update notices for the current top-bar item: GitHub update
+credential warnings, Quasar UI and launcher releases, and newer cluster
+packages. It checks for pending notices every 30 seconds and suppresses repeats
+while the same notice remains current. The notification click opens the matching Quasar Updates
+or cluster page on the same origin; no callback URL needs configuring. Browser
+permission and subscriptions belong to each browser profile. Only enable push
+on a device where notifications for your Quasar account are appropriate.
+Each browser profile has its own subscription. Quasar can notify multiple
+browsers for the same account and browsers belonging to different accounts;
+disabling push in one browser leaves the others subscribed. A browser profile
+can subscribe to one Quasar account at a time; enabling push after switching
+accounts transfers that browser's subscription. An account can register up
+to 16 browser subscriptions.
+
+VAPID keys and subscriptions are kept in the Quasar data directory as
+`PushNotifications.json`, protected with Quasar's persisted ASP.NET Data
+Protection key ring. Keep that key ring with the data directory during
+migration or restore; losing it makes existing subscriptions unreadable.
+Headless mode does not run browser push delivery.
+
 ## Discord player and server notifications
 
 The Discord page includes two independent per-server switches, both enabled by

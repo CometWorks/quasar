@@ -547,6 +547,15 @@ If the user closes the browser, `Quasar` keeps running and the user can return v
 
 ## Self-Update and Version Rollover
 
+The UI bell also supports opt-in browser Web Push. `PushNotificationService`
+persists VAPID keys and per-browser subscriptions in a Data Protection-protected
+file, checks current update snapshots and cluster pins every 30 seconds, and
+sends the same highest-priority notice shown by the bell to each subscribed
+browser independently. Delivery reconstructs
+the subscriber's current roles, so role removal stops future sends. The service
+worker handles push and notification clicks only; it does not cache pages or
+intercept fetches. Click destinations are fixed same-origin Quasar routes.
+
 `Quasar` should be able to stage its own updates and roll forward without stopping managed Dedicated Server processes.
 
 The important nuance is what "seamless" actually means here.

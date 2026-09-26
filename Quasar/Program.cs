@@ -282,6 +282,11 @@ public class Program
             builder.Services.AddSingleton<QuasarShutdownService>();
             builder.Services.AddSingleton<QuasarUpdateService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUpdateService>());
+            if (!webServiceOptions.Headless)
+            {
+                builder.Services.AddSingleton<PushNotificationService>();
+                builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PushNotificationService>());
+            }
             builder.Services.AddSingleton<QuasarBackupSettingsService>();
             builder.Services.AddSingleton<ServerRestoreCoordinator>();
             builder.Services.AddSingleton<QuasarBackupService>();
