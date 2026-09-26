@@ -61,6 +61,12 @@ idempotency key after a failed attempt; reusing a key returns that attempt's res
 Source templates and profiles are preserved. The cluster receives its own profile
 copy, and remains stopped after activation.
 
+The setup form keeps a bound request read-only while it can be resumed. After a
+failed attempt, **Start a new setup** clears the form's bound request and ID so
+the operator can revise inputs under a new ID. If the registration was removed,
+the form unlocks automatically and clears the old ID while showing the failure.
+Removed IDs remain reserved while their Host state and operation history exist.
+
 Before each attempt, guided setup updates managed Magnetar and checks its actual
 PluginSdk bytes against the selected cluster release. When the pins differ, it
 downloads the latest stable cluster release and selects it if its SDK pin matches.

@@ -46,12 +46,19 @@
                 </MudSelect>
                 <MudNumericField T="int" Label="Player port" @bind-Value="_port" Min="1024" Max="65000" Disabled="Locked" HelperText="UDP port players use, usually 28000. Setup also reserves this port through port +264 for Gateway control and node communication; keep that range free on these machines." />
                 <MudText Typo="Typo.body2">Allow the player UDP port through your firewall. Keep internal cluster traffic on your LAN/VPN. The Host command listener stays on loopback and connects back to Quasar over HTTPS.</MudText>
-                <MudButton OnClick="DeployAsync" Disabled="@(_busy || _machines.Count == 0)" Variant="Variant.Filled" Color="Color.Primary">@(_request is null ? "Create and deploy cluster" : "Resume setup")</MudButton>
+                <MudButton OnClick="DeployAsync" Disabled="@(_busy || _machines.Count == 0 || string.IsNullOrWhiteSpace(_id))" Variant="Variant.Filled" Color="Color.Primary">@(_request is null ? "Create and deploy cluster" : "Resume setup")</MudButton>
                 @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
                 @if (_status is not null)
                 {
                     <MudAlert Severity="@(_status.Error is null ? Severity.Info : Severity.Warning)">@_status.Phase @(_status.Error is null ? "" : ": " + _status.Error)</MudAlert>
-                    <MudButton Href="@($"/clusters/{Uri.EscapeDataString(_status.Request.UniqueName)}")">Open cluster controls</MudButton>
+                    @if (_request is not null && _status.Error is not null)
+                    {
+                        <MudButton OnClick="StartNewSetup" Disabled="_busy">Start a new setup</MudButton>
+                    }
+                    @if (Catalog.GetCluster(_status.Request.UniqueName) is not null)
+                    {
+                        <MudButton Href="@($"/clusters/{Uri.EscapeDataString(_status.Request.UniqueName)}")">Open cluster controls</MudButton>
+                    }
                 }
             </MudStack>
         </MudTabPanel>
@@ -99,6 +106,7 @@
             _profile = _request.ConfigProfileId; _gateway = _request.GatewayHost; _port = _request.PlayerPort;
             foreach (var row in _machines)
             { var placement = _request.Machines.SingleOrDefault(m => m.HostId == row.Host.Id); row.Selected = placement is not null; row.Nodes = placement?.RegularNodes ?? 0; }
+            UnlockWithoutRegistration();
         }
         catch (ArgumentException error) { _error = error.Message; }
     }
@@ -108,7 +116,15 @@
         {
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
             while (await timer.WaitForNextTickAsync(_stop.Token))
-                await InvokeAsync(() => { if (_request is not null) _status = Setup.GetStatus(_request.UniqueName); StateHasChanged(); });
+                await InvokeAsync(() =>
+                {
+                    if (_request is not null)
+                    {
+                        _status = Setup.GetStatus(_request.UniqueName);
+                        UnlockWithoutRegistration();
+                    }
+                    StateHasChanged();
+                });
         }
         catch (OperationCanceledException) { }
     }
@@ -135,9 +151,26 @@
             _status = Setup.GetStatus(request.UniqueName);
             if (result.State == ClusterOperationState.Succeeded && !_disposed) Navigation.NavigateTo("/clusters/" + Uri.EscapeDataString(request.UniqueName));
             else _error = result.Error?.Message;
+            UnlockWithoutRegistration();
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or IOException) { _error = error.Message; }
         finally { if (_status is null) _request = null; _busy = false; }
+    }
+    private void UnlockWithoutRegistration()
+    {
+        if (_request is not null && _status?.Error is not null && Catalog.GetCluster(_request.UniqueName) is null)
+        {
+            _request = null;
+            _id = "";
+        }
+    }
+    private void StartNewSetup()
+    {
+        _request = null;
+        _status = null;
+        _error = null;
+        _id = "";
+        Navigation.NavigateTo("/clusters/new", replace: true);
     }
     private async Task ImportAsync()
     {
