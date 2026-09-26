@@ -168,6 +168,7 @@ public sealed class ClusterConversionTests : IDisposable
         var production = await Spec(ClusterTestFrontend.Create(null, null));
         Assert.True(production.TryGetProperty("steamListen", out _));
         Assert.False(production.TryGetProperty("directListen", out _));
+        Assert.Equal("/runtime/plugin-shared", production.GetProperty("sharedStorageRoot").GetString());
 
         var both = await Spec(ClusterTestFrontend.Create(" 127.0.0.1:31600 ", "false"));
         Assert.Equal("127.0.0.1:31600", both.GetProperty("directListen").GetString());

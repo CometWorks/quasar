@@ -18,11 +18,13 @@ public sealed class ClusterPackageService
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     internal static readonly string[] RequiredFiles =
     [
-        "manifest.json", "README.md", "gateway/ClusterGateway.dll",
-        "gateway/ClusterGateway.runtimeconfig.json", "gateway/ClusterGateway.deps.json",
+        "manifest.json", "README.md", "registry/ClusterRegistry", "registry/ClusterRegistry.dll",
+        "registry/ClusterRegistry.runtimeconfig.json", "registry/ClusterRegistry.deps.json",
+        "gateway-rs/gateway-rs", "gateway-rs/libsteam_api.so",
         "cli/cluster", "cli/cluster.py", "cli/magnetar_config.py", "cli/gateway-admin",
-        "cli/ClusterGateway.Cli/ClusterGateway.Cli.dll", "tools/MagnetarWorld/MagnetarWorld.dll",
-        "cli/ClusterGateway.Cli/ClusterGateway.Cli.runtimeconfig.json", "cli/ClusterGateway.Cli/ClusterGateway.Cli.deps.json",
+        "cli/managed_deployment.py", "cli/deployment-capabilities.json",
+        "cli/ClusterRegistry.Cli/ClusterRegistry.Cli.dll", "tools/MagnetarWorld/MagnetarWorld.dll",
+        "cli/ClusterRegistry.Cli/ClusterRegistry.Cli.runtimeconfig.json", "cli/ClusterRegistry.Cli/ClusterRegistry.Cli.deps.json",
         "tools/MagnetarWorld/MagnetarWorld.runtimeconfig.json", "tools/MagnetarWorld/MagnetarWorld.deps.json",
         "plugins/ClusterNode/ClusterNode.dll", "plugins/ClusterNode/ClusterNode.xml",
         "plugins/WorldAuthority/WorldAuthority.dll", "plugins/WorldAuthority/WorldAuthority.xml",

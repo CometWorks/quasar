@@ -1,8 +1,14 @@
 # Phase 4 Quasar integration — release continuation
 
-Updated 2026-09-20. This is the current seven-stage plan and implementation record.
+Updated 2026-09-26. This is the current seven-stage plan and implementation record.
 It supersedes the older six-step branch plan. Implementation checks and live acceptance
 are recorded separately; a built package does not establish live acceptance.
+
+Cluster 1.1.7 and Magnetar 2.4.2.3 are published. Quasar now consumes the renamed
+`registry/ClusterRegistry` package layout and preserves the unchanged admin contract.
+Generated one-Host deployments receive a local shared plugin directory; multi-Host
+storage still needs a separately provisioned shared mount. The historical baselines
+and test observations below remain records of their original runs.
 
 The 2026-09-20 local run reached managed Serving, exercised save, Gateway restart,
 clean Off/warm On and a central Quasar outage. UI controls and live refresh were

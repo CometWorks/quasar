@@ -226,7 +226,8 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             != previews.Single(p => p.Preview.Gateway is not null).Host.HostId)
             throw new InvalidOperationException("Gateway relocation requires explicit migration before activation.");
         if (dryRun) return new ClusterActiveRevision(request.Revision, previews.Select(p =>
-            new ClusterHostRevision(p.Host.HostId, p.Host.CommandUrl, p.Host.TokenEnvironmentVariable, p.Preview)).ToArray(), DateTimeOffset.UtcNow);
+            new ClusterHostRevision(p.Host.HostId, p.Host.CommandUrl, p.Host.TokenEnvironmentVariable, p.Preview)).ToArray(),
+            DateTimeOffset.UtcNow, ActivePackageVersion(cluster, request));
         await catalog.RecordPendingDeploymentAsync(cluster, requestHash, token);
         var activated = new List<ClusterHostRevision>();
         foreach (var (host, target, _) in previews)
@@ -235,10 +236,22 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             ValidateResult(result, host, request, hostIds);
             activated.Add(new(host.HostId, host.CommandUrl, host.TokenEnvironmentVariable, result));
         }
-        var active = new ClusterActiveRevision(request.Revision, activated.ToArray(), DateTimeOffset.UtcNow);
+        var active = new ClusterActiveRevision(request.Revision, activated.ToArray(), DateTimeOffset.UtcNow,
+            ActivePackageVersion(cluster, request));
         await catalog.RecordActiveDeploymentAsync(cluster, active, token);
         return active;
     }
+
+    private static string? ActivePackageVersion(ClusterDefinition cluster, ClusterDeploymentRequest request)
+    {
+        if (cluster.Update?.Rollback == true && cluster.PreviousDeployment?.Revision == request.Revision)
+            return cluster.PreviousDeployment.PackageVersion;
+        if (cluster.ActiveDeployment is null || cluster.PreparedForSelectedRelease
+            && cluster.PreparedDeployment?.Revision == request.Revision)
+            return cluster.PackageSelection?.Version;
+        return null;
+    }
+
     private static void ValidateResult(HostContract.HostActiveDeployment result, ClusterHostActivation host,
         ClusterDeploymentRequest request, string[] hostIds)
     {

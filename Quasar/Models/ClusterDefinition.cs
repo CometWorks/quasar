@@ -78,7 +78,8 @@ public sealed record ClusterPackageSelection(long Revision, string Version, stri
 public sealed record ClusterShutdownProof(string LifecycleId, DateTimeOffset CleanShutdownAt,
     HostContract.GatewayStopFence StopFence);
 
-public sealed record ClusterActiveRevision(string Revision, ClusterHostRevision[] Hosts, DateTimeOffset ActivatedAt);
+public sealed record ClusterActiveRevision(string Revision, ClusterHostRevision[] Hosts, DateTimeOffset ActivatedAt,
+    string? PackageVersion = null);
 public sealed record ClusterHostRevision(string HostId, string CommandUrl, string TokenEnvironmentVariable,
     HostContract.HostActiveDeployment Deployment);
 

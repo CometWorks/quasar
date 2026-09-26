@@ -1,11 +1,12 @@
 # Gateway contract source pin
 
-Admin contract 0.4.0 is mirrored byte-for-byte from published cluster v1.1.0,
-commit `1c0fab181a2c36856ed9f87c97b4005f75ec5908`.
+Admin contract 0.4.0 is mirrored byte-for-byte from published cluster v1.1.7,
+commit `98f1e7c5a714c768fef2a428b0f108f09e727260`.
 It includes the host-scoped executor contract, deployment revision/readiness and
-handover capabilities; published v1.0.3 does not implement it.
+handover capabilities. The upstream project renamed the source directory; the
+contract contents and namespace did not change.
 
-Source: https://github.com/CometWorks/cluster/tree/v1.1.0/ClusterGateway.AdminContract
+Source: https://github.com/CometWorks/cluster/tree/v1.1.7/ClusterRegistry.AdminContract
 
 Build as a project reference; no private feed or neighboring checkout is required.
 Refresh both DTO sources and wire fixtures together. Release and DTO package versions

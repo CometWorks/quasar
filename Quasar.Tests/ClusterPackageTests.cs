@@ -31,6 +31,38 @@ public sealed class ClusterPackageTests
         Assert.True(ClusterReleaseMonitor.IsUpdateAvailable(cluster, release with { Version = "1.0.10" }));
     }
 
+    [Fact]
+    public void LatestReleaseHidesUpdateSectionOnlyAfterActivation()
+    {
+        var release = new ClusterPackageRelease("1.0.4", 1, 2, 3, new string('a', 64));
+        var cluster = new Quasar.Models.ClusterDefinition
+        {
+            PackageSelection = new(2, "1.0.4", new string('b', 64), new string('c', 40), "selection"),
+            ActiveDeployment = new("active", [], DateTimeOffset.UtcNow, "1.0.3"),
+        };
+
+        Assert.False(ClusterReleaseMonitor.IsOnLatestRelease(cluster, release));
+        cluster.ActiveDeployment = cluster.ActiveDeployment with { PackageVersion = "1.0.4" };
+        Assert.True(ClusterReleaseMonitor.IsOnLatestRelease(cluster, release));
+        Assert.False(ClusterReleaseMonitor.IsOnLatestRelease(cluster, null));
+        Assert.False(ClusterReleaseMonitor.IsOnLatestRelease(cluster, release with { Version = "1.0.5" }));
+    }
+
+    [Fact]
+    public void FirstDeploymentWithoutRecordedVersionUsesOriginalPin()
+    {
+        var release = new ClusterPackageRelease("1.0.4", 1, 2, 3, new string('a', 64));
+        var cluster = new Quasar.Models.ClusterDefinition
+        {
+            PackageSelection = new(1, "1.0.4", new string('b', 64), new string('c', 40), "selection"),
+            ActiveDeployment = new("active", [], DateTimeOffset.UtcNow),
+        };
+
+        Assert.True(ClusterReleaseMonitor.IsOnLatestRelease(cluster, release));
+        cluster.PackageSelection = cluster.PackageSelection with { Revision = 2 };
+        Assert.False(ClusterReleaseMonitor.IsOnLatestRelease(cluster, release));
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.NotFound, "private repository", "Updates → GitHub token")]
     [InlineData(HttpStatusCode.Unauthorized, "rejected authentication", "Updates → GitHub token")]
@@ -100,13 +132,14 @@ public sealed class ClusterPackageTests
     {
         // Optional real release fixture exercises the same consumer without starting any service.
         string? archive = Environment.GetEnvironmentVariable("QUASAR_TEST_CLUSTER_ARCHIVE");
-        using var fixture = new Fixture(archive is null ? null : File.ReadAllBytes(archive));
+        string version = archive is null ? "1.0.3" : Path.GetFileName(archive)["ClusterForLinux-".Length..^".tar.gz".Length];
+        using var fixture = new Fixture(archive is null ? null : File.ReadAllBytes(archive), version);
         var results = await Task.WhenAll(fixture.Service.StageAsync(fixture.Request, default),
             fixture.Service.StageAsync(fixture.Request, default));
         Assert.Equal(results[0].PackagePath, results[1].PackagePath);
         Assert.Equal(1, fixture.Downloads);
         Assert.All(ClusterPackageService.RequiredFiles, file => Assert.True(File.Exists(Path.Combine(results[0].PackagePath, file))));
-        Assert.True(File.Exists(Path.Combine(fixture.Root, "1.0.3", "installation.json")));
+        Assert.True(File.Exists(Path.Combine(fixture.Root, fixture.Request.Version, "installation.json")));
         if (OperatingSystem.IsLinux())
             Assert.NotEqual((UnixFileMode)0, File.GetUnixFileMode(Path.Combine(results[0].PackagePath, "cli/cluster")) & UnixFileMode.UserExecute);
         Assert.Empty(Directory.GetDirectories(fixture.Root, ".stage-*"));
@@ -247,6 +280,8 @@ public sealed class ClusterPackageTests
 
     [LinuxTheory]
     [InlineData("plugins/WorldAuthority/WorldAuthority.dll", false)]
+    [InlineData("registry/ClusterRegistry.dll", false)]
+    [InlineData("gateway-rs/gateway-rs", false)]
     [InlineData(null, true)]
     public async Task MissingPluginsAndWrongManifestVersionNeverPromote(string? omitted, bool wrongManifest)
     {
@@ -275,8 +310,7 @@ public sealed class ClusterPackageTests
         public LinuxTheoryAttribute() { if (!OperatingSystem.IsLinux()) Skip = "Cluster packages require Linux."; }
     }
 
-    internal static byte[] CreateArchive(TarEntry? extra = null, string? omitted = null, bool wrongManifest = false,
-        bool deploymentCapabilities = false)
+    internal static byte[] CreateArchive(TarEntry? extra = null, string? omitted = null, bool wrongManifest = false)
     {
         using var output = new MemoryStream();
         using (var gzip = new GZipStream(output, CompressionLevel.Fastest, leaveOpen: true))
@@ -285,18 +319,13 @@ public sealed class ClusterPackageTests
             foreach (string file in ClusterPackageService.RequiredFiles.Where(file => file != omitted))
             {
                 string text = file == "manifest.json" ? JsonSerializer.Serialize(new
-                { name = "cluster", version = wrongManifest ? "9.9.9" : "1.0.3", commit = new string('b', 40) }) : "fixture";
+                { name = "cluster", version = wrongManifest ? "9.9.9" : "1.0.3", commit = new string('b', 40) })
+                    : file == "cli/deployment-capabilities.json" ? "{\"schemaVersion\":1,\"frozenPluginBundles\":true}" : "fixture";
                 using var data = new MemoryStream(Encoding.UTF8.GetBytes(text));
                 tar.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, "cluster-1.0.3/" + file)
                 { DataStream = data, Mode = UnixFileMode.UserRead | UnixFileMode.UserExecute });
             }
             if (extra is not null) tar.WriteEntry(extra);
-            if (deploymentCapabilities)
-            {
-                using var data = new MemoryStream("{\"schemaVersion\":1,\"frozenPluginBundles\":true}"u8.ToArray());
-                tar.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, "cluster-1.0.3/cli/deployment-capabilities.json")
-                    { DataStream = data, Mode = UnixFileMode.UserRead });
-            }
         }
         return output.ToArray();
     }
@@ -423,10 +452,10 @@ public sealed class ClusterPackageTests
         public HttpStatusCode FailureStatus;
         public Exception? RequestFailure;
 
-        public Fixture(byte[]? archive = null)
+        public Fixture(byte[]? archive = null, string version = "1.0.3")
         {
             _archive = archive ?? CreateArchive();
-            Request = new("1.0.3", Convert.ToHexString(SHA256.HashData(_archive)).ToLowerInvariant());
+            Request = new(version, Convert.ToHexString(SHA256.HashData(_archive)).ToLowerInvariant());
             Service = new(this, () => "private-repo-token", Root);
         }
 
@@ -445,7 +474,7 @@ public sealed class ClusterPackageTests
             if (path.EndsWith("/assets/2"))
             {
                 Assert.Contains(request.Headers.Accept, accept => accept.MediaType == "application/octet-stream");
-                content = new StringContent(Request.Sha256 + "  ClusterForLinux-1.0.3.tar.gz\n");
+                content = new StringContent(Request.Sha256 + $"  ClusterForLinux-{Request.Version}.tar.gz\n");
             }
             else if (path.EndsWith("/assets/1"))
             {
@@ -458,11 +487,11 @@ public sealed class ClusterPackageTests
             }
             else
             {
-                Assert.True(path.EndsWith("/latest") || path.EndsWith("/tags/v1.0.3"));
+                Assert.True(path.EndsWith("/latest") || path.EndsWith("/tags/v" + Request.Version));
                 content = new StringContent(JsonSerializer.Serialize(new
                 {
-                    id = 10, tag_name = "v1.0.3", draft = false, prerelease = Prerelease,
-                    assets = new[] { new { id = 1, name = "ClusterForLinux-1.0.3.tar.gz", size = _archive.Length },
+                    id = 10, tag_name = "v" + Request.Version, draft = false, prerelease = Prerelease,
+                    assets = new[] { new { id = 1, name = $"ClusterForLinux-{Request.Version}.tar.gz", size = _archive.Length },
                         new { id = 2, name = "SHA256SUMS", size = 95 } },
                 }));
             }

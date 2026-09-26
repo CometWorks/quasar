@@ -1,10 +1,9 @@
 # Guided cluster setup
 
-The branch now implements machine enrollment and guided creation on top of the
+The branch implements machine enrollment and guided creation on top of the
 seven-stage deployment work. This is a separate acceptance gate from the historical
-live cluster tests. It requires the preparation command in
-[Magnetar PR #58](https://github.com/CometWorks/magnetar/pull/58) (version 2.4.2.2) and a verified cluster
-release built against the exact shipped SDK. If either installed release lacks
+live cluster tests. The current package pair is Magnetar 2.4.2.3 and cluster 1.1.7;
+Quasar verifies the cluster release's exact PluginSdk binary pin. If either installed release lacks
 the required capability or pin, setup stops and can be resumed. It never starts an older
 Magnetar with an unrecognized preparation flag.
 
@@ -36,6 +35,14 @@ Quasar HTTPS origin reachable from the target; loopback HTTP is allowed locally.
 Machines use private IPv4 LAN/VPN addresses or IPv6 ULA addresses for cluster traffic.
 Loopback placement is allowed only for a single-machine cluster. Enabling user
 lingering (`loginctl enable-linger`) keeps a user service running after logout.
+
+Single-Host setup automatically gives `PluginStorage.GetSharedDirectory` a path
+under that Host's runtime root. The path is included in stopped Host snapshots.
+For several Hosts, Quasar leaves shared storage unset unless an advanced imported
+deployment specification supplies `sharedStorageRoot`. That path must be one
+filesystem mounted identically on every Host; matching local path strings are
+insufficient. Quasar does not provision that mount or include external storage
+in its per-Host snapshots.
 
 The chosen player port is UDP. Setup reserves that port through port +264 for
 Gateway control and node communication: admin control is port +16; regular node

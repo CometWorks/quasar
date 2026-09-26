@@ -397,8 +397,22 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
         ClusterTestFrontend? testFrontend = null)
     {
         var specification = JsonNode.Parse(await ProductionSpecificationAsync(cluster, source, profile, snapshot, request, world, paths, token))!.AsObject();
+        AddLocalSharedStorage(specification);
         (testFrontend ?? ClusterTestFrontend.FromEnvironment()).Apply(specification);
         return specification.ToJsonString(Json);
+    }
+
+    // One Host already has a durable runtime root shared by all its nodes and included in Host snapshots.
+    // Different Hosts need an operator-provided shared filesystem; a matching path alone proves nothing.
+    internal static void AddLocalSharedStorage(JsonObject specification)
+    {
+        if (specification["sharedStorageRoot"] is not null || specification["hosts"] is not JsonArray { Count: 1 } hosts)
+            return;
+        string root = hosts[0]?["runRoot"]?.GetValue<string>()
+            ?? throw new InvalidDataException("The Host runtime root is missing from the deployment specification.");
+        if (!root.StartsWith('/') || root.Length <= 1)
+            throw new InvalidDataException("The Host runtime root must be an absolute Linux path.");
+        specification["sharedStorageRoot"] = root.TrimEnd('/') + "/plugin-shared";
     }
 
     private static async Task<string> ProductionSpecificationAsync(ClusterDefinition cluster, DedicatedServerDefinition source,

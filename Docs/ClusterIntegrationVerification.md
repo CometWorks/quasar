@@ -339,3 +339,20 @@ requires Magnetar 2.4.2.2 with the preparation command and a cluster package pin
 that released SDK binary, followed by fresh-world Serving and real remote-machine
 checks. No Quasar web service, temporary game server or live cluster was launched.
 The user's installed deployment and removed verification deployment remain untouched.
+
+# 2026-09-26 release integration update
+
+Cluster 1.1.7 (`98f1e7c5a714c768fef2a428b0f108f09e727260`) and Magnetar
+2.4.2.3 are published. The 1.1.7 archive SHA-256 is
+`ec7118491482e90137e50ae02fc9a7bdd4df246a8695abf0118dfa129409889f`;
+it matches the published `SHA256SUMS`. Quasar's required package paths match all
+24 files in that archive, including `registry/ClusterRegistry`, its admin CLI and
+`gateway-rs`. The copied admin and executor DTO files still match upstream byte for
+byte. Quasar generated single-Host specifications now provide a Host runtime path
+for `PluginStorage`; multi-Host shared storage is not provisioned automatically.
+The release-backed package/dependency/conversion checks passed (52 tests), the
+broader runnable cluster suite passed (265 total), and `Quasar.Host` built successfully.
+One separate guided-setup metadata test needs published Quasar source-commit
+provenance and cannot pass from this unstamped local build.
+These checks did not launch Quasar or game processes. Live startup, managed update,
+and multi-Host shared filesystem behavior remain unverified.

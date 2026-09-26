@@ -22,7 +22,7 @@
     <MudStack Spacing="3">
         <MudText Typo="Typo.h6">Cluster deployment</MudText>
         <MudText Class="cluster-long-value">Active revision: @(Current.ActiveDeployment?.Revision ?? "None")</MudText>
-        @if (Current.ActiveDeployment is not null)
+        @if (Current.ActiveDeployment is not null && !ClusterReleaseMonitor.IsOnLatestRelease(Current, Releases.GetSnapshot().Release))
         {
             <MudPaper Outlined="true" Class="pa-4">
                 <MudStack Spacing="2">

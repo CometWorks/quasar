@@ -20,6 +20,19 @@ public sealed class ClusterReleaseMonitor(ClusterCatalog catalog, ClusterPackage
         && Version.TryParse(selection.Version, out var selected)
         && Version.TryParse(release.Version, out var latest) && latest > selected;
 
+    public static bool IsOnLatestRelease(ClusterDefinition cluster, ClusterPackageRelease? release)
+    {
+        if (release is null || cluster.ActiveDeployment is null)
+            return false;
+
+        // Existing first deployments predate the recorded active package version.
+        var activeVersion = cluster.ActiveDeployment.PackageVersion
+            ?? (cluster.PackageSelection is { Revision: 1 } selection
+                && cluster.PreviousDeployment is null && cluster.PreparedDeployment is null
+                && cluster.Update is null ? selection.Version : null);
+        return string.Equals(activeVersion, release.Version, StringComparison.Ordinal);
+    }
+
     public async Task CheckNowAsync(CancellationToken token = default)
     {
         if (!options.Enabled || !OperatingSystem.IsLinux()

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Magnetar.Protocol.Runtime;
 using Quasar.ClusterDeployment;
 using Quasar.Models;
@@ -48,7 +49,10 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                     TokenEnvironmentVariable = active.TokenEnvironmentVariable,
                     InstallationDirectory = remote.Directory, ConfigurationDirectory = remote.ConfigurationDirectory });
             }
-            var request = previous with { InputsSha256 = hash, Hosts = preparationHosts.ToArray() };
+            var specification = JsonNode.Parse(previous.SpecificationJson)!.AsObject();
+            ClusterConversionService.AddLocalSharedStorage(specification);
+            var request = previous with { InputsSha256 = hash, SpecificationJson = specification.ToJsonString(Json),
+                Hosts = preparationHosts.ToArray() };
             if (catalog.GetCluster(clusterId)?.PackageSelection != cluster.PackageSelection
                 || catalog.GetCluster(clusterId)?.DependencyManifestSha256 != cluster.DependencyManifestSha256)
                 throw new InvalidOperationException("Package inputs changed during transfer. Prepare again.");

@@ -59,6 +59,7 @@ public sealed class ClusterSetupTests
             Assert.Contains(nodes, n => n.GetProperty("role").GetString() == "WA" && n.GetProperty("backend").GetString() == "10.1.0.1:28164");
             Assert.Contains(nodes, n => n.GetProperty("host").GetString() == "two" && n.GetProperty("control").GetString() == "10.1.0.2:28200");
             Assert.Equal("/runs/two", spec.RootElement.GetProperty("hosts")[1].GetProperty("runRoot").GetString());
+            Assert.False(spec.RootElement.TryGetProperty("sharedStorageRoot", out _));
         }
         finally { Directory.Delete(world, true); }
     }

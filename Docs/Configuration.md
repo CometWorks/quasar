@@ -134,6 +134,14 @@ server definition's configured Listen IP.
 `0.0.0.0` means “listen on every local interface”; it is not a valid remote
 client address and is not treated as localhost by the join guard.
 
+## Config profile access IDs
+
+In **Config Profiles → World → Access**, the admin, reserved slot, and banned
+user ID lists accept comma, semicolon, space, or newline separated SteamID64
+values. Each entry must contain exactly 17 ASCII digits. Invalid entries stay
+in the field with an error, and the profile cannot be saved until they are
+corrected or removed. Reset discards unsaved edits.
+
 ## Steam Workshop mod dependencies
 
 When a config profile with Workshop mods is opened, saved, or receives imported
@@ -1399,7 +1407,10 @@ Cluster actions use outlined buttons against the card surface, while the update 
 uses a filled button. Disabled controls keep a visible muted border and label.
 
 The cluster deployment panel persists one preparation specification for all Hosts.
-The **Update this cluster** section on the cluster page has two normal actions:
+The **Update this cluster** section is hidden when the active deployment matches
+the latest known stable cluster release. A package selected for a future update
+does not hide it before activation; if the release check is unavailable, the
+section remains visible. When shown, it has two normal actions:
 **Prepare latest cluster update** and **Start cluster update with full downtime**.
 The first action stages and selects the latest stable release when needed, freezes
 its dependencies, and prepares every Host from the saved world seed and topology.

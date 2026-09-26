@@ -202,7 +202,7 @@ internal static partial class ClusterDeploymentFiles
         ["DIRECT_TRANSPORT_BINARIES"] = Path.Combine(root, "Dependencies/payload/DirectTransport"),
         ["CLUSTER_COMMON_PLUGINS"] = Path.Combine(root, "Dependencies/payload/CommonPlugins"),
         ["CLUSTER_PLUGIN_BINARIES"] = Path.Combine(root, "Package/plugins"),
-        ["MAGNETAR_GATEWAY_DLL"] = Path.Combine(root, "Package/gateway/ClusterGateway.dll"),
+        ["MAGNETAR_GATEWAY_DLL"] = Path.Combine(root, "Package/registry/ClusterRegistry.dll"),
         ["MAGNETAR_WORLD_TOOL"] = Path.Combine(root, "Package/tools/MagnetarWorld/MagnetarWorld.dll"),
         ["CLUSTER_PLUGIN_SOURCE"] = "", ["DIRECT_TRANSPORT_SOURCE"] = "",
         ["CLUSTER_EXTRA_PLUGINS"] = "", ["CLUSTER_HUB_PLUGINS"] = "",

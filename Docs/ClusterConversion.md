@@ -40,6 +40,12 @@ Plugins' arbitrary private files and global stores are retained in backups and n
 plugin-specific migration if used. The converter may reject worlds outside its
 supported layout, for example movable grids without a static anchor.
 
+With one Host, Quasar assigns the cluster plugin shared directory under that
+Host's runtime root, so stopped Host snapshots include it. With several Hosts,
+shared plugin storage needs an explicitly provisioned common mount and an advanced
+deployment specification with `sharedStorageRoot`; the conversion wizard does not
+create a cross-Host filesystem.
+
 Regular node backend/control ports start at 28417/29417 on each Host. World Authority
 uses 28700/29700; Gateway control uses the destination cluster's configured URL.
 Credential fields contain environment-variable names, never secret values. Provision

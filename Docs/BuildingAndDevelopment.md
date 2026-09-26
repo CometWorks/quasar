@@ -30,7 +30,7 @@ The solution file is `Quasar.sln`.
 
 ## Build setup
 
-Quasar, Bootstrap and Quasar.Host compile the exact current Gateway contract source pinned under
+Quasar, Bootstrap and Quasar.Host compile the exact current Registry admin contract source pinned under
 `Contracts/ClusterGateway.AdminContract`. `SOURCE.md` records its upstream revision and
 checksum. No neighboring Gateway checkout or private contract package is needed.
 

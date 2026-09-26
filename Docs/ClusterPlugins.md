@@ -181,11 +181,10 @@ Do not claim all old plugins are compatible, elect the WA to run every unknown g
 callback, or broadcast command handlers to all nodes. Those choices change behavior
 without enough information. Keep this audit as a prerequisite for lifecycle activation.
 
-## Planned SDK extension: shared state and node-aware data
+## SDK shared state and node-aware data
 
-The stage 6 extension is now implemented in the upstream Magnetar/cluster review
-branches. The heading remains stable for existing plan links. It is required for the
-first post-beta release; live packaged acceptance is still a release gate.
+The stage 6 extension is published in Magnetar 2.4.2.3 and cluster 1.1.7.
+Live packaged acceptance remains a separate gate.
 
 Plugins opt in through `PluginCluster.ForPlugin(manifestId)`; ordinary configuration
 and local APIs stay unchanged. The launcher binds the namespace to the owning assembly.
@@ -208,9 +207,19 @@ Standalone provides durable local state/single logical owner. A missing cluster 
 fails unavailable, never falls back to divergent local stores.
 
 The exact API, failure semantics and runnable example are documented in Magnetar's
-[SharedState.md](https://github.com/CometWorks/magnetar/blob/v2.4.2.1/skills/se-dev-plugin-sdk/SharedState.md).
+[SharedState.md](https://github.com/CometWorks/magnetar/blob/v2.4.2.3/skills/se-dev-plugin-sdk/SharedState.md).
 Gateway's protocol copy is hash-pinned; release capabilities bind the actual SDK binary
-hash. Coordinated Magnetar 2.4.2.1 / cluster 1.1.0 artifacts are required.
+hash. These facilities require coordinated Magnetar 2.4.2.3 / cluster 1.1.7 artifacts.
+
+`PluginStorage.GetSharedDirectory` uses `CLUSTER_SHARED_ROOT`. Quasar generated
+single-Host deployments set it to `<Host runtime root>/plugin-shared`, which is
+shared by that Host's nodes and included in its stopped snapshots. For several
+Hosts, Quasar leaves it unset: the same pathname on separate disks is not shared
+storage. An imported deployment specification may provide `sharedStorageRoot`
+only after the operator mounts one shared filesystem at that path on every Host.
+The SDK does not lock concurrent writes, and Quasar's per-Host snapshots do not
+capture an external shared mount. See Magnetar's
+[SharedDirectory.md](https://github.com/CometWorks/magnetar/blob/v2.4.2.3/skills/se-dev-plugin-sdk/SharedDirectory.md).
 
 ## Configuration and monitoring implementation
 

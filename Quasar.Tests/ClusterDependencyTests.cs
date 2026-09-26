@@ -228,7 +228,9 @@ public sealed class ClusterDependencyTests
         Assert.False(Directory.Exists(destination));
         using var package = new ClusterPackageTests.Fixture();
         var old = await package.Service.StageAsync(package.Request, default);
-        Assert.Throws<FileNotFoundException>(() => ClusterDeploymentFiles.ValidateCapabilities(old.PackagePath));
+        File.WriteAllText(Path.Combine(old.PackagePath, "cli/deployment-capabilities.json"),
+            "{\"schemaVersion\":1,\"frozenPluginBundles\":false}");
+        Assert.Throws<InvalidDataException>(() => ClusterDeploymentFiles.ValidateCapabilities(old.PackagePath));
     }
 
     private sealed class LinuxFactAttribute : FactAttribute
@@ -236,7 +238,7 @@ public sealed class ClusterDependencyTests
 
     private sealed class Fixture : IDisposable
     {
-        public ClusterPackageTests.Fixture Packages { get; } = new(ClusterPackageTests.CreateArchive(deploymentCapabilities: true));
+        public ClusterPackageTests.Fixture Packages { get; } = new(ClusterPackageTests.CreateArchive());
         public string Root => Packages.Root;
         public string Store => Path.Combine(Root, "dependencies");
         public Dictionary<string, string> Sources { get; } = new();
