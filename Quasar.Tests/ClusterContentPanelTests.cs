@@ -1,5 +1,6 @@
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
+using MudBlazor;
 using MudBlazor.Services;
 using Quasar.Components.Dashboard;
 using Quasar.Services;
@@ -28,13 +29,27 @@ public sealed class ClusterContentPanelTests
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
         context.Services.AddSingleton<QuasarPermissionService>();
         var panel = context.Render<ClusterContentPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        var expansion = panel.FindComponent<MudExpansionPanel>();
+        Assert.False(expansion.Instance.Expanded);
+        await panel.InvokeAsync(() => expansion.Instance.ExpandAsync());
+        Assert.True(expansion.Instance.Expanded);
         Assert.Contains("Mods and plugins", panel.Markup);
         Assert.Contains("Applying content updates is unavailable", panel.Markup);
         Assert.Contains("No change observed", panel.Markup);
         Assert.Equal(manage, panel.FindAll("button").Any(b => b.TextContent.Contains("Check content updates")));
+        await panel.InvokeAsync(() => expansion.Instance.CollapseAsync());
         fixture.Timestamp++;
         await monitor.CheckCoreAsync(default);
         await panel.WaitForAssertionAsync(() => Assert.Contains("Changed since first check", panel.Markup));
+        Assert.True(expansion.Instance.Expanded);
+        await panel.InvokeAsync(() => expansion.Instance.CollapseAsync());
+        await monitor.CheckCoreAsync(default);
+        await panel.InvokeAsync(() => Assert.False(expansion.Instance.Expanded));
         Assert.Contains("https://steamcommunity.com/sharedfiles/filedetails/changelog/123456", panel.Markup);
+        var reopened = context.Render<ClusterContentPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        Assert.True(reopened.FindComponent<MudExpansionPanel>().Instance.Expanded);
+        fixture.Timestamp--;
+        await monitor.CheckCoreAsync(default);
+        await reopened.WaitForAssertionAsync(() => Assert.False(reopened.FindComponent<MudExpansionPanel>().Instance.Expanded));
     }
 }

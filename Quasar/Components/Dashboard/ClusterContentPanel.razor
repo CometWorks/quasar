@@ -5,11 +5,10 @@
 @inject QuasarRoleMapper RoleMapper
 @inject ILogger<ClusterContentPanel> Logger
 
-<MudCard Class="server-card">
-    <MudCardContent>
+<MudExpansionPanels Class="server-card">
+    <MudExpansionPanel Text="Mods and plugins" @bind-Expanded="_expanded">
         <MudStack Spacing="2">
             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                <MudText Typo="Typo.h6">Mods and plugins</MudText>
                 <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
                     <MudButton OnClick="CheckAsync" Disabled="@_busy" Variant="Variant.Outlined" Color="Color.Primary"
                                StartIcon="@Icons.Material.Filled.SystemUpdateAlt">@(_busy ? "Checking…" : "Check content updates")</MudButton>
@@ -55,17 +54,28 @@
             </MudTable>
             <MudText Typo="Typo.body2">Applying content updates is unavailable until cluster and Magnetar support pinned content preparation. Checks do not change running servers or block players from joining.</MudText>
         </MudStack>
-    </MudCardContent>
-</MudCard>
+    </MudExpansionPanel>
+</MudExpansionPanels>
 
 @code {
     [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = default!;
     private bool _busy;
+    private bool _expanded;
+    private bool? _hasUpdates;
     private string? _error;
     private ClusterContentSnapshot Snapshot => Content.GetSnapshot(Cluster);
     protected override void OnInitialized() => Content.Changed += Changed;
-    private void Changed() => _ = InvokeAsync(StateHasChanged);
+    protected override void OnParametersSet() => UpdateExpansion();
+    private void Changed() => _ = InvokeAsync(() => { UpdateExpansion(); StateHasChanged(); });
     public void Dispose() => Content.Changed -= Changed;
+
+    private void UpdateExpansion()
+    {
+        var hasUpdates = Snapshot.Items.Any(item => item.HasUpdate);
+        // Preserve manual toggles until update availability changes.
+        if (_hasUpdates != hasUpdates) _expanded = hasUpdates;
+        _hasUpdates = hasUpdates;
+    }
 
     private async Task CheckAsync()
     {

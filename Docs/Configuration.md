@@ -1144,8 +1144,10 @@ startup/config consistency are planned integration work, not shipped behavior.
 
 ## Cluster content update observations
 
-The cluster detail page includes **Mods and plugins**, independently of whether its
-cluster package is current. **Check content updates** refreshes observations; scheduled
+The cluster detail page includes a **Mods and plugins** expansion panel, independently
+of whether its cluster package is current. It defaults to collapsed and opens automatically
+when mod or plugin changes are available. You can expand or collapse it manually.
+**Check content updates** refreshes observations; scheduled
 checks use the existing `Quasar:Updates` enable/interval settings (15 minutes by default).
 Repeated manual/API checks share a sweep and are limited to one per minute.
 
@@ -1534,7 +1536,8 @@ The terminal icon opens the cluster console: recent Gateway events and node plug
 logs, refreshed every five seconds. It preserves displayed entries during an outage
 and marks them stale; full server/launcher process logs remain on their Hosts. Console
 access requires cluster query permission and the caller's cluster scope. Deployment
-configuration is available from the cluster details page.
+configuration is available from the cluster details page. The card's **Cluster details**
+icon is a regular page link and supports opening in a new tab from the browser.
 
 The delete icon on the cluster card and detail page removes its Quasar definition
 after confirmation. It requires cluster-manage permission and the caller's cluster
