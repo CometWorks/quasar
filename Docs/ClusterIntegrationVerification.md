@@ -291,7 +291,7 @@ cannot produce missing final saves, so Quasar retains the failed operation for t
 lifecycle and reports `shutdown_recovery_required` instead of submitting it forever.
 The cluster detail status becomes **Recovery required** with a visible error; the cluster
 is not marked cleanly stopped. The error includes Gateway's reason and points
-to Cluster maintenance → Recovery → **Recover stopped cluster after an unclean shutdown**. That
+to Maintenance → Recovery → **Recover stopped cluster after an unclean shutdown**. That
 explicit recovery checks Host process state and may lose unsaved game changes.
 
 The 2026-09-26 `test` instance had all nodes Empty, including world authority, before

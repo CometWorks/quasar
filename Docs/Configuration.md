@@ -1143,10 +1143,10 @@ cluster settings or confirm fleet-wide application. Do not treat a per-Agent edi
 a cluster-wide change. Replacing that path, persisting cluster revisions and enforcing
 startup/config consistency are planned integration work, not shipped behavior.
 
-On the cluster page, **Cluster administration → Plugin configuration** edits the
+On the cluster page, **Administration → Plugin configuration** edits the
 plugin schemas in the saved deployment preparation. Saving prepares the configuration
 for all nodes; it does not apply settings to running Agents. Activate the prepared
-deployment with a full-downtime update under **Cluster maintenance**. Deployment
+deployment with a full-downtime update under **Maintenance**. Deployment
 tools pick up the newly saved preparation and activation request automatically.
 If no editable schemas are available, complete guided setup or prepare an imported
 deployment first. Unsaved imported requests remain in the advanced deployment tools
