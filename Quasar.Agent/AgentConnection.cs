@@ -348,6 +348,11 @@ namespace Quasar.Agent
                 else if (message.Kind == WireMessageKind.PluginConfigUpdate && message.PluginConfigUpdateRequest != null)
                 {
                     var request = message.PluginConfigUpdateRequest;
+                    if (_options.ClusterMode)
+                    {
+                        Log("Rejected per-node plugin configuration update for a managed cluster.");
+                        continue;
+                    }
                     await _bridge.ApplyPluginConfigAsync(request.PluginId, request.ValuesJson).ConfigureAwait(false);
 
                     // Push the post-apply state so the editor reflects exactly

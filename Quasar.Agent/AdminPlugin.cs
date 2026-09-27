@@ -295,6 +295,14 @@ namespace Quasar.Agent
 
         private void RecordDeath(long identityId, string victimName)
         {
+            if (_clusterMode)
+            {
+                var provider = PluginSdk.Clustering.PluginCluster.Current;
+                var players = (provider as PluginSdk.Clustering.IPluginClusterViewProvider)?.OnlinePlayers();
+                if (provider?.Context.Available != true || players == null || !players.Any(p =>
+                    p.IdentityId == identityId && p.Node == provider.Context.Node)) return;
+            }
+
             if (!TryMarkDeath(identityId))
                 return;
 

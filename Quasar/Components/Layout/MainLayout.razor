@@ -6,7 +6,12 @@
 @inject WebServiceOptions WebServiceOptions
 @inject BrandingService BrandingService
 @inject QuasarUpdateService UpdateService
+@inject BrowserPushState BrowserPush
+@inject ClusterReleaseMonitor ClusterReleases
+@inject ClusterContentMonitor ClusterContent
+@inject ClusterCatalog ClusterCatalog
 @inject RbacConfigCatalog RbacConfigCatalog
+@inject AuthenticationStateProvider AuthenticationState
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
@@ -34,10 +39,9 @@
         <MudSpacer />
         <MudTooltip Text="@GetUpdateBellTooltip()">
             <MudBadge Visible="@HasUpdateBellBadge" Color="Color.Warning" Dot="true" Overlap="true">
-                <MudIconButton
-                    Icon="@Icons.Material.Filled.Notifications"
-                    Color="@GetUpdateBellColor()"
-                    Href="/settings/updates" />
+                <MudIconButton Href="@(CurrentNotice?.Url ?? "/settings/updates")"
+                               Icon="@(BrowserPush.Enabled ? Icons.Material.Filled.Notifications : Icons.Material.Outlined.Notifications)"
+                               Color="@GetUpdateBellColor()" aria-label="Open current update notice" />
             </MudBadge>
         </MudTooltip>
         <MudMenu Icon="@GetThemeModeIcon()" Color="Color.Inherit" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Dense="true">
@@ -115,7 +119,10 @@
     private bool _isShuttingDown = false;
     private string _shutdownStatus = string.Empty;
     private string _lastUpdateNotice = string.Empty;
+    private string _lastClusterNotice = string.Empty;
     private QuasarUpdateSnapshot _updateSnapshot = new();
+    private ClusterReleaseSnapshot _clusterReleaseSnapshot = new(null, null, null);
+    private System.Security.Claims.ClaimsPrincipal? _currentUser;
 
     // The worker is restartable only when it was launched by the Quasar launcher, which
     // injects QUASAR_LAUNCHER_TOKEN (surfaced as WebServiceOptions.LauncherToken).
@@ -150,24 +157,53 @@
             : fallback;
     }
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         BrandingService.Changed += OnBrandingChanged;
         UpdateService.Changed += OnUpdatesChanged;
+        ClusterReleases.Changed += OnClusterReleasesChanged;
+        ClusterContent.Changed += OnClusterCatalogChanged;
+        BrowserPush.Changed += OnClusterCatalogChanged;
+        ClusterCatalog.Changed += OnClusterCatalogChanged;
         RbacConfigCatalog.Changed += OnRbacChanged;
         _updateSnapshot = UpdateService.GetSnapshot();
+        _clusterReleaseSnapshot = ClusterReleases.GetSnapshot();
+        _currentUser = (await AuthenticationState.GetAuthenticationStateAsync()).User;
     }
 
     public void Dispose()
     {
         BrandingService.Changed -= OnBrandingChanged;
         UpdateService.Changed -= OnUpdatesChanged;
+        ClusterReleases.Changed -= OnClusterReleasesChanged;
+        ClusterContent.Changed -= OnClusterCatalogChanged;
+        BrowserPush.Changed -= OnClusterCatalogChanged;
+        ClusterCatalog.Changed -= OnClusterCatalogChanged;
         RbacConfigCatalog.Changed -= OnRbacChanged;
     }
 
     private void OnBrandingChanged()
     {
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void OnClusterCatalogChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void OnClusterReleasesChanged()
+    {
+        var snapshot = ClusterReleases.GetSnapshot();
+        _ = InvokeAsync(() =>
+        {
+            _clusterReleaseSnapshot = snapshot;
+            var available = AvailableClusterUpdates;
+            if (available.Count > 0 && snapshot.Release is { } release
+                && _lastClusterNotice != release.Version)
+            {
+                _lastClusterNotice = release.Version;
+                Snackbar.Add($"Cluster package {release.Version} available for {available.Count} cluster(s). Open the cluster page.", Severity.Info);
+            }
+            StateHasChanged();
+        });
     }
 
     private void OnRbacChanged()
@@ -222,6 +258,7 @@
         var (mode, isDark) = await ThemePreference.InitializeAsync();
         _themeMode = mode;
         _isDarkMode = isDark;
+        await BrowserPush.RefreshAsync();
         await InvokeAsync(StateHasChanged);
     }
 
@@ -251,10 +288,16 @@
         _ => Icons.Material.Filled.BrightnessAuto,
     };
 
-    private bool HasUpdateBellBadge =>
-        HasGitHubTokenWarning || GetPrimaryWebUpdate(_updateSnapshot) is not null || _updateSnapshot.Bootstrap is not null;
+    private UpdateNotice[] Notices => UpdateNotices.All(_updateSnapshot, _clusterReleaseSnapshot,
+        ClusterCatalog.GetClusters(), _currentUser ?? new System.Security.Claims.ClaimsPrincipal(), ClusterContent.GetSnapshot).ToArray();
+    private UpdateNotice? CurrentNotice => Notices.FirstOrDefault();
 
-    private bool HasGitHubTokenWarning => !string.IsNullOrWhiteSpace(_updateSnapshot.GitHubTokenWarning);
+    private bool HasUpdateBellBadge => CurrentNotice is not null;
+
+    private IReadOnlyList<Quasar.Models.ClusterDefinition> AvailableClusterUpdates =>
+        _currentUser is null ? [] : ClusterCatalog.GetClusters()
+            .Where(cluster => _currentUser.CanQueryCluster(cluster.UniqueName)
+                && ClusterReleaseMonitor.IsUpdateAvailable(cluster, _clusterReleaseSnapshot.Release)).ToArray();
 
     private Color GetUpdateBellColor()
     {
@@ -264,22 +307,7 @@
         return HasUpdateBellBadge ? Color.Warning : Color.Inherit;
     }
 
-    private string GetUpdateBellTooltip()
-    {
-        if (HasGitHubTokenWarning)
-            return _updateSnapshot.GitHubTokenWarning;
-
-        var web = GetPrimaryWebUpdate(_updateSnapshot);
-        if (web is not null)
-            return web.IsStaged
-                ? $"Quasar UI {web.Version} is staged. Open Updates to activate."
-                : $"Quasar UI {web.Version} is ready to download.";
-
-        if (_updateSnapshot.Bootstrap is not null)
-            return $"Quasar launcher {_updateSnapshot.Bootstrap.Version} update available.";
-
-        return "Updates";
-    }
+    private string GetUpdateBellTooltip() => CurrentNotice?.Body ?? "Notifications";
 
     private static QuasarUpdateCandidate? GetPrimaryWebUpdate(QuasarUpdateSnapshot snapshot) =>
         snapshot.WebReleases.FirstOrDefault(candidate => candidate.IsNewer && candidate.IsStaged) ??

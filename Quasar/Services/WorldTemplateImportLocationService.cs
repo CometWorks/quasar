@@ -57,6 +57,7 @@ public sealed class WorldTemplateImportLocationService
     {
         var templates = new List<InstalledWorldTemplateSource>();
         var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenTemplates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var root in GetDedicatedServerInstallRoots())
         {
@@ -78,6 +79,11 @@ public sealed class WorldTemplateImportLocationService
 
                     var relative = Path.GetRelativePath(categoryRoot, fullPath);
                     if (ShouldSkipInstalledTemplate(relative))
+                        continue;
+
+                    // A configured Steam install and the managed install ship the same worlds;
+                    // list each once, from the first install root.
+                    if (!seenTemplates.Add(label + "/" + relative.Replace('\\', '/')))
                         continue;
 
                     var displayName = BuildInstalledTemplateName(label, relative, sandboxPath);

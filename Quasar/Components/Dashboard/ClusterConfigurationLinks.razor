@@ -1,0 +1,13 @@
+<AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs">
+    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-1">
+        <MudTooltip Text="Open configuration profiles">
+            <MudChip T="string" Href="/configs" Variant="Variant.Outlined" Color="Color.Primary" Icon="@Icons.Material.Filled.Tune">Configuration profiles</MudChip>
+        </MudTooltip>
+        <MudTooltip Text="Open world templates">
+            <MudChip T="string" Href="/world-templates" Variant="Variant.Outlined" Color="Color.Primary" Icon="@Icons.Material.Filled.Public">World templates</MudChip>
+        </MudTooltip>
+        <MudTooltip Text="Open node plugin configuration">
+            <MudChip T="string" Href="/plugins" Variant="Variant.Outlined" Color="Color.Primary" Icon="@Icons.Material.Filled.Extension">Node plugin configuration</MudChip>
+        </MudTooltip>
+    </MudStack>
+</AuthorizeView>

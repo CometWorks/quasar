@@ -195,8 +195,9 @@
             return configuredName;
 
         var agent = Registry.GetAgents()
-            .FirstOrDefault(a => string.Equals(a.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
-        return agent?.ServerDisplayName ?? uniqueName;
+            .FirstOrDefault(a => string.Equals(a.TelemetryKey, uniqueName, StringComparison.OrdinalIgnoreCase));
+        return agent?.IsCluster == true ? $"{agent.ClusterId} / {agent.ClusterSlot} / {agent.ClusterNodeId} / epoch {agent.ClusterEpoch}"
+            : agent?.ServerDisplayName ?? uniqueName;
     }
 
     private static Color LevelColor(string level) => level switch

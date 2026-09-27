@@ -36,10 +36,10 @@ public sealed class DiscordChatRelayService
 
         var agents = _registry.GetAgents();
 
-        foreach (var serverOptions in options.Servers.Where(server => server.EnableChatRelay))
+        foreach (var serverOptions in options.Servers.Where(server => !server.IsCluster && server.EnableChatRelay))
         {
             var agent = agents.FirstOrDefault(item =>
-                item.IsConnected &&
+                !item.IsCluster && item.IsConnected &&
                 item.Snapshot is not null &&
                 string.Equals(item.UniqueNameKey, serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
 
@@ -58,11 +58,26 @@ public sealed class DiscordChatRelayService
                     continue;
                 }
 
-                Enqueue(client, freshMessage.ChannelId, freshMessage.Content, cancellationToken);
+                Enqueue(client, freshMessage.ChannelId, freshMessage.Content, cancellationToken, freshMessage.RequiresAdminOnlyChannel);
             }
         }
 
         return Task.CompletedTask;
+    }
+
+    internal void EnqueueClusterGlobal(DiscordSocketClient client, DiscordServerOptions settings,
+        string author, string content, CancellationToken token)
+    {
+        if (settings.ChatRelayChannelId is { } channel)
+            Enqueue(client, channel, $"**{Format.Sanitize(TextSanitizer.CleanGameText(author))}**: {Format.Sanitize(TextSanitizer.CleanGameText(content))}", token);
+    }
+
+    internal void RelayPrivateClusterChat(DiscordSocketClient client, DiscordServerOptions settings,
+        IReadOnlyList<ChatMessageSnapshot> messages, long epoch, CancellationToken token)
+    {
+        foreach (var message in CollectFreshMessages(settings, messages.Where(m => RequiresAdminOnlyChannel(m.Channel)).ToArray(), settings.TargetKey + ":wa:" + epoch))
+            if (IsAdminOnlyChannel(client, message.ChannelId))
+                Enqueue(client, message.ChannelId, message.Content, token, adminOnly: true);
     }
 
     public void Reset()
@@ -103,9 +118,9 @@ public sealed class DiscordChatRelayService
 
     private IReadOnlyList<RelayMessage> CollectFreshMessages(
         DiscordServerOptions serverOptions,
-        IReadOnlyList<ChatMessageSnapshot> recentChat)
+        IReadOnlyList<ChatMessageSnapshot> recentChat, string? sourceKey = null)
     {
-        var uniqueName = serverOptions.UniqueName;
+        var uniqueName = sourceKey ?? serverOptions.TargetKey;
         lock (_sync)
         {
             if (!_dedup.TryGetValue(uniqueName, out var dedupState))
@@ -120,7 +135,7 @@ public sealed class DiscordChatRelayService
                 return [];
             }
 
-            if (!dedupState.HasObservedSnapshot)
+            if (!dedupState.HasObservedSnapshot && sourceKey == null)
             {
                 foreach (var message in recentChat)
                     AddSeen(dedupState, message.TimestampTicksUtc);
@@ -285,7 +300,7 @@ public sealed class DiscordChatRelayService
         return (content ?? string.Empty).Trim();
     }
 
-    private void Enqueue(DiscordSocketClient client, ulong channelId, string message, CancellationToken cancellationToken)
+    private void Enqueue(DiscordSocketClient client, ulong channelId, string message, CancellationToken cancellationToken, bool adminOnly = false)
     {
         RelayChannelState state;
         lock (_sync)
@@ -298,7 +313,7 @@ public sealed class DiscordChatRelayService
             }
         }
 
-        state.Queue.Writer.TryWrite(message);
+        state.Queue.Writer.TryWrite(new QueuedMessage(message, adminOnly));
     }
 
     private async Task ConsumeAsync(
@@ -318,7 +333,11 @@ public sealed class DiscordChatRelayService
                         if (client.GetChannel(channelId) is not IMessageChannel channel)
                             continue;
 
-                        await _rateLimiter.RunAsync(channelId, () => channel.SendMessageAsync(text: payload), cancellationToken);
+                        await _rateLimiter.RunAsync(channelId, async () =>
+                        {
+                            if (payload.AdminOnly && !IsAdminOnlyChannel(client, channelId)) return;
+                            await channel.SendMessageAsync(text: payload.Content, allowedMentions: AllowedMentions.None);
+                        }, cancellationToken);
                         await Task.Delay(ConsumerDelay, cancellationToken);
                     }
                     catch (OperationCanceledException)
@@ -354,9 +373,11 @@ public sealed class DiscordChatRelayService
         ChatMessageChannel ChatChannel,
         bool RequiresAdminOnlyChannel);
 
+    private sealed record QueuedMessage(string Content, bool AdminOnly);
+
     private sealed class RelayChannelState
     {
-        public Channel<string> Queue { get; } = Channel.CreateBounded<string>(new BoundedChannelOptions(20)
+        public Channel<QueuedMessage> Queue { get; } = Channel.CreateBounded<QueuedMessage>(new BoundedChannelOptions(20)
         {
             FullMode = BoundedChannelFullMode.DropOldest,
             SingleReader = true,

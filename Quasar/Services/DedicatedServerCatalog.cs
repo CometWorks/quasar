@@ -18,6 +18,7 @@ public sealed class DedicatedServerCatalog : IDisposable
     private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
 
     private readonly object _sync = new();
+    private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly ILogger<DedicatedServerCatalog> _logger;
     private List<DedicatedServerDefinition> _servers;
     private string _snapshot;
@@ -64,6 +65,13 @@ public sealed class DedicatedServerCatalog : IDisposable
     }
 
     public async Task UpsertAsync(DedicatedServerDefinition definition, CancellationToken cancellationToken = default)
+    {
+        await _writeGate.WaitAsync(cancellationToken);
+        try { await UpsertCoreAsync(definition, cancellationToken); }
+        finally { _writeGate.Release(); }
+    }
+
+    private async Task UpsertCoreAsync(DedicatedServerDefinition definition, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(definition);
 
@@ -118,25 +126,90 @@ public sealed class DedicatedServerCatalog : IDisposable
         DedicatedServerGoalState goalState,
         CancellationToken cancellationToken = default)
     {
-        var definition = GetServer(uniqueName);
-        if (definition is null)
-            throw new InvalidOperationException($"Unknown Quasar server '{uniqueName}'.");
-
-        definition.GoalState = goalState;
-        definition.AutoStart = goalState == DedicatedServerGoalState.On;
-        await UpsertAsync(definition, cancellationToken);
+        await _writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var definition = GetServer(uniqueName)
+                ?? throw new InvalidOperationException($"Unknown Quasar server '{uniqueName}'.");
+            definition.GoalState = goalState;
+            definition.AutoStart = goalState == DedicatedServerGoalState.On;
+            await UpsertCoreAsync(definition, cancellationToken);
+        }
+        finally { _writeGate.Release(); }
     }
 
     public async Task DeleteAsync(string uniqueName, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(uniqueName))
-            return;
+        if (string.IsNullOrWhiteSpace(uniqueName)) return;
+        await _writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (GetServer(uniqueName) is null) return;
+            await ArchiveAndDeleteCurrentDefinitionAsync(uniqueName, cancellationToken);
+            ReloadFromDisk();
+        }
+        finally { _writeGate.Release(); }
+    }
 
-        if (GetServer(uniqueName) is null)
-            return;
+    /// <summary>
+    /// Prepares a new, stopped server in exclusively owned storage and publishes its
+    /// definition only after preparation succeeds. Unlike Upsert, the chosen name is exact.
+    /// The callback must not call catalog mutation methods while the write gate is held.
+    /// </summary>
+    internal async Task<DedicatedServerDefinition> CreateExactAsync(
+        DedicatedServerDefinition definition,
+        Func<DedicatedServerDefinition, CancellationToken, Task> prepare,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(prepare);
+        var normalized = Normalize(Clone(definition));
+        normalized.GoalState = DedicatedServerGoalState.Off;
+        normalized.AutoStart = false;
+        normalized.OriginalUniqueName = normalized.UniqueName;
+        if (string.IsNullOrWhiteSpace(normalized.WorldSaveName))
+            throw new InvalidOperationException("World save required.");
+        var paths = DedicatedServerPathResolver.Resolve(normalized);
+        foreach (var path in new[] { paths.DedicatedServerAppDataPath, paths.MagnetarAppDataPath, paths.WorldSavePath, paths.ConfigFilePath })
+            if (!DedicatedServerPathResolver.IsPathWithinRoot(path, paths.ServerRoot)
+                || DedicatedServerPathResolver.PathsEqual(path, paths.ServerRoot))
+                throw new InvalidOperationException("New server data must be inside its own server directory.");
 
-        await ArchiveAndDeleteCurrentDefinitionAsync(uniqueName, cancellationToken);
-        ReloadFromDisk();
+        await _writeGate.WaitAsync(cancellationToken);
+        string? reservation = null;
+        bool ownsDirectory = false;
+        bool published = false;
+        try
+        {
+            if (ServerNameExists(normalized.UniqueName) || File.Exists(paths.ServerRoot))
+                throw new InvalidOperationException($"A server or directory named '{normalized.UniqueName}' already exists.");
+            Directory.CreateDirectory(Path.GetDirectoryName(paths.ServerRoot)!);
+            reservation = Path.Combine(Path.GetDirectoryName(paths.ServerRoot)!, ".create-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(reservation);
+            // Move claims the exact destination without accepting an existing directory.
+            Directory.Move(reservation, paths.ServerRoot);
+            ownsDirectory = true;
+            await prepare(Clone(normalized), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            normalized.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            string json = JsonSerializer.Serialize(normalized, JsonOptions);
+            string history = Path.Combine(MagnetarPaths.GetQuasarServerHistoryDirectory(normalized.UniqueName),
+                $"{normalized.UpdatedAtUtc:yyyyMMddHHmmssfff}.json");
+            await AtomicFileWriter.WriteTextAsync(history, json, cancellationToken);
+            await AtomicFileWriter.WriteTextAsync(MagnetarPaths.GetQuasarServerDefinitionPath(normalized.UniqueName), json, cancellationToken);
+            published = true;
+            ReloadFromDisk();
+            return Clone(normalized);
+        }
+        finally
+        {
+            try
+            {
+                if (!published && ownsDirectory && Directory.Exists(paths.ServerRoot)) Directory.Delete(paths.ServerRoot, true);
+                if (reservation is not null && Directory.Exists(reservation)) Directory.Delete(reservation, true);
+            }
+            finally { _writeGate.Release(); }
+        }
     }
 
     private List<DedicatedServerDefinition> LoadServers()

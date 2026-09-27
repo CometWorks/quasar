@@ -9,7 +9,7 @@ namespace Quasar.Services;
 
 public sealed class QuasarPluginCatalogService
 {
-    private const int CacheSchemaVersion = 7;
+    private const int CacheSchemaVersion = 8;
     // Core compatibility plugins Magnetar force-loads by id on start (see GetCorePlugins in
     // Magnetar's Pulsar/Legacy/Program.cs) from whatever source lists them; they never need
     // to appear in the profile. Magnetar 2.3.3.0 and later finds them in the hub source.
@@ -34,25 +34,39 @@ public sealed class QuasarPluginCatalogService
     };
 
     private readonly object _sync = new();
+    private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private readonly ILogger<QuasarPluginCatalogService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly QuasarDevFolderCatalog _devFolderCatalog;
+    private readonly string _cachePath;
     private List<QuasarPluginCatalogEntry> _entries;
+    private string? _etag;
 
     public QuasarPluginCatalogService(
         ILogger<QuasarPluginCatalogService> logger,
         IHttpClientFactory httpClientFactory,
         QuasarDevFolderCatalog devFolderCatalog)
+        : this(logger, httpClientFactory, devFolderCatalog, GetCachePath()) { }
+
+    internal QuasarPluginCatalogService(ILogger<QuasarPluginCatalogService> logger,
+        IHttpClientFactory httpClientFactory, QuasarDevFolderCatalog devFolderCatalog, string cachePath)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _devFolderCatalog = devFolderCatalog;
+        _cachePath = cachePath;
         _entries = LoadCache();
     }
 
     public DateTimeOffset? LastRefreshUtc { get; private set; }
 
     public string LastError { get; private set; } = string.Empty;
+
+    // Update observations must use hub manifests, never a local dev-folder override.
+    public IReadOnlyList<QuasarPluginCatalogEntry> GetHubEntries()
+    {
+        lock (_sync) return _entries.Select(Clone).ToArray();
+    }
 
     public IReadOnlyList<QuasarPluginCatalogEntry> GetEntries()
     {
@@ -121,6 +135,13 @@ public sealed class QuasarPluginCatalogService
 
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
+        await _refreshGate.WaitAsync(cancellationToken);
+        try { await RefreshCoreAsync(cancellationToken); }
+        finally { _refreshGate.Release(); }
+    }
+
+    private async Task RefreshCoreAsync(CancellationToken cancellationToken)
+    {
         var entries = new Dictionary<string, QuasarPluginCatalogEntry>(StringComparer.OrdinalIgnoreCase);
         var archiveUrl = $"https://github.com/{DefaultHubRepo}/archive/refs/heads/{DefaultHubBranch}.zip";
 
@@ -129,7 +150,17 @@ public sealed class QuasarPluginCatalogService
             using var client = _httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(30);
 
-            await using var archiveStream = await client.GetStreamAsync(archiveUrl, cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get, archiveUrl);
+            if (_etag is not null) request.Headers.TryAddWithoutValidation("If-None-Match", _etag);
+            using var response = await client.SendAsync(request, cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotModified && _etag is not null)
+            {
+                LastRefreshUtc = DateTimeOffset.UtcNow;
+                LastError = string.Empty;
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            await using var archiveStream = await response.Content.ReadAsStreamAsync(cancellationToken);
             using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read, leaveOpen: false);
 
             foreach (var entry in archive.Entries)
@@ -155,6 +186,7 @@ public sealed class QuasarPluginCatalogService
                     entries[pluginId] = new QuasarPluginCatalogEntry
                     {
                         PluginId = pluginId,
+                        SourceCommit = GetValue(root, "Commit").ToLowerInvariant(),
                         FriendlyName = GetValue(root, "FriendlyName", pluginId),
                         Author = GetValue(root, "Author"),
                         Description = GetValue(root, "Description"),
@@ -184,6 +216,7 @@ public sealed class QuasarPluginCatalogService
 
             LastRefreshUtc = DateTimeOffset.UtcNow;
             LastError = string.Empty;
+            _etag = response.Headers.ETag?.ToString();
             await SaveCacheAsync(normalized, cancellationToken);
             _logger.LogInformation("Downloaded Quasar plugin catalog with {Count} entries.", normalized.Count);
         }
@@ -199,7 +232,7 @@ public sealed class QuasarPluginCatalogService
     {
         try
         {
-            var path = GetCachePath();
+            var path = _cachePath;
             if (!File.Exists(path))
                 return [];
 
@@ -209,6 +242,7 @@ public sealed class QuasarPluginCatalogService
                 return [];
 
             LastRefreshUtc = cache?.LastRefreshUtc;
+            _etag = cache?.ETag;
             return cache?.Entries?
                        .Select(Clone)
                        .OrderBy(item => item.Hidden)
@@ -226,11 +260,12 @@ public sealed class QuasarPluginCatalogService
 
     private async Task SaveCacheAsync(IReadOnlyList<QuasarPluginCatalogEntry> entries, CancellationToken cancellationToken)
     {
-        var path = GetCachePath();
+        var path = _cachePath;
         var payload = new QuasarPluginCatalogCache
         {
             SchemaVersion = CacheSchemaVersion,
             LastRefreshUtc = LastRefreshUtc,
+            ETag = _etag,
             Entries = entries.Select(Clone).ToList(),
         };
 
@@ -258,6 +293,7 @@ public sealed class QuasarPluginCatalogService
         return new QuasarPluginCatalogEntry
         {
             PluginId = entry.PluginId,
+            SourceCommit = entry.SourceCommit,
             FriendlyName = entry.FriendlyName,
             Author = entry.Author,
             Description = entry.Description,
@@ -310,6 +346,7 @@ public sealed class QuasarPluginCatalogService
 
     private sealed class QuasarPluginCatalogCache
     {
+        public string? ETag { get; set; }
         public int SchemaVersion { get; set; } = CacheSchemaVersion;
 
         public DateTimeOffset? LastRefreshUtc { get; set; }

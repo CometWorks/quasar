@@ -43,7 +43,7 @@ stateDiagram-v2
 | `Reconnecting` | On socket error/close, waits `ReconnectIntervalSeconds` (~10s) ± jitter (~3s) then re-locates. |
 | `AutonomousSaveStop` | Standalone only: if the agent had connected at least once and Quasar stays unreachable past `OfflineShutdownSeconds` (default 3600s), it performs a `SaveAndQuit`. The "had connected" guard prevents auto-stopping a server that never attached. |
 
-Cluster mode is active when `SE_CLUSTER_GATEWAY_REGISTRY` is set, matching
+Cluster mode is active when `CLUSTER_GATEWAY_REGISTRY` is set, matching
 ClusterRuntime's own activation rule. In this mode the agent reconnects indefinitely,
 does not register its standalone `!stop`, `!restart`, or `!quit` commands, and rejects
 save/stop commands arriving through the agent channel. Magnetar's cluster-aware commands

@@ -4,7 +4,8 @@
 # Produces the win-x64 release artifacts under artifacts/windows:
 #   - quasar-web-win-x64.zip   (replaceable web UI worker + wwwroot)
 #   - quasar-installer-windows.zip (stable launcher + install/uninstall scripts)
-#   - SHA256SUMS               (sha256 of both archives, lowercase, two-space separated)
+#   - quasar-host-win-x64.zip (independently deployed cluster Host)
+#   - SHA256SUMS               (sha256 of all archives, lowercase, two-space separated)
 #
 # The version-normalization rules mirror package-linux-release.sh exactly so the
 # two pipelines stamp identical assembly/NuGet versions for the same input.
@@ -243,6 +244,14 @@ foreach ($requiredFile in $requiredWebFiles) {
     }
 }
 
+# Host is deployed independently to cluster machines, including its publish dependencies.
+$HostArchiveName = 'quasar-host-win-x64.zip'
+$HostPublishDir = Join-Path $PublishDir 'Host'
+if (-not (Test-Path -LiteralPath (Join-Path $HostPublishDir 'Quasar.Host.exe'))) {
+    throw 'Host release missing executable Quasar.Host.exe'
+}
+New-ZipFromDirectory $HostPublishDir (Join-Path $ArtifactDir $HostArchiveName)
+
 $webZip = Join-Path $ArtifactDir $WebArchiveName
 New-ZipFromDirectory $WebDir $webZip
 
@@ -258,7 +267,7 @@ New-ZipFromDirectory $BootstrapDir $bootstrapZip -IncludeBaseDirectory
 
 Push-Location $ArtifactDir
 try {
-    $sumLines = foreach ($name in @($WebArchiveName, $InstallerArchiveName)) {
+    $sumLines = foreach ($name in @($WebArchiveName, $InstallerArchiveName, $HostArchiveName)) {
         $hash = (Get-FileHash -LiteralPath $name -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $name"
     }

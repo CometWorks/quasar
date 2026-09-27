@@ -1,0 +1,262 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+
+namespace Quasar.Services;
+
+public sealed record HostInstallTicket(string Command, DateTimeOffset ExpiresAt);
+public sealed record HostSshInstall(string Address, string User, int Port = 22, string? IdentityFile = null);
+public sealed record HostBinaryInfo(string Sha256, long Size);
+
+public sealed class ClusterHostInstaller
+{
+    private readonly ClusterHostCatalog hosts;
+    private readonly ClusterCredentialStore credentials;
+    private readonly string binary;
+    private readonly TimeProvider clock;
+    public ClusterHostInstaller(ClusterHostCatalog hosts, ClusterCredentialStore credentials)
+        : this(hosts, credentials, ResolveBinary(Environment.GetEnvironmentVariable(BinaryVariable), AppContext.BaseDirectory), TimeProvider.System) { }
+    // Releases ship the single-file Host next to the web worker. Plain build output (dotnet run)
+    // has none, so development points this variable at a published single-file Quasar.Host.
+    internal const string BinaryVariable = "QUASAR_HOST_BINARY";
+    internal static string ResolveBinary(string? configured, string baseDirectory) => string.IsNullOrWhiteSpace(configured)
+        ? Path.Combine(baseDirectory, "Host", "Quasar.Host") : Path.GetFullPath(configured);
+    internal ClusterHostInstaller(ClusterHostCatalog hosts, ClusterCredentialStore credentials, string binary, TimeProvider clock)
+        => (this.hosts, this.credentials, this.binary, this.clock) = (hosts, credentials, binary, clock);
+    internal string BinaryPath => binary;
+    public HostBinaryInfo GetBinaryInfo()
+    {
+        if (!File.Exists(binary)) throw new FileNotFoundException("This Quasar release has no Host binary.", binary);
+        using var file = File.OpenRead(binary);
+        return new(Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant(), file.Length);
+    }
+    private sealed record Ticket(string Hash, string Host, Uri Origin, DateTimeOffset Expires);
+    private readonly ConcurrentDictionary<Guid, Ticket> _tickets = new();
+    public HostInstallTicket Issue(string hostId, string quasarUrl)
+    {
+        var origin = ValidateOrigin(quasarUrl);
+        _ = hosts.Get(hostId) ?? throw new KeyNotFoundException("Machine is not registered.");
+        if (!File.Exists(binary)) throw new InvalidOperationException($"This Quasar build does not include the Host installer ({binary}). Install a release containing Host/Quasar.Host, or for a development build set {BinaryVariable} to a published single-file Quasar.Host.");
+        var id = Guid.NewGuid(); string secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        var expires = clock.GetUtcNow().AddMinutes(15);
+        foreach (var old in _tickets.Where(p => p.Value.Expires <= clock.GetUtcNow() || p.Value.Host == hostId)) _tickets.TryRemove(old.Key, out _);
+        _tickets[id] = new(Hash(secret), hostId, origin, expires);
+        string url = new Uri(origin, "/api/v1/host-enrollment/" + id.ToString("N")).AbsoluteUri;
+        // Download completes before execution; a truncated response never runs as a shell script.
+        string command = $"(set -e; qsr_script=$(mktemp); trap 'rm -f \"$qsr_script\"' EXIT; curl --fail --silent --show-error --header {Quote("Authorization: Bearer " + secret)} {Quote(url)} --output \"$qsr_script\"; bash \"$qsr_script\")";
+        return new(command, expires);
+    }
+    internal byte[]? Redeem(Guid id, string? authorization)
+    {
+        if (!_tickets.TryGetValue(id, out var ticket) || ticket.Expires <= clock.GetUtcNow()
+            || authorization is null || !authorization.StartsWith("Bearer ", StringComparison.Ordinal)
+            || !CryptographicOperations.FixedTimeEquals(Convert.FromHexString(ticket.Hash), Convert.FromHexString(Hash(authorization[7..])))) return null;
+        var script = BuildScript(hosts.Get(ticket.Host) ?? throw new KeyNotFoundException(), ticket.Origin);
+        return _tickets.TryRemove(new KeyValuePair<Guid, Ticket>(id, ticket)) ? script : null;
+    }
+    public Task InstallLocalAsync(string hostId, string quasarUrl, CancellationToken token) =>
+        RunAsync(new ProcessStartInfo("bash"), BuildScript(hosts.Get(hostId) ?? throw new KeyNotFoundException(), ValidateOrigin(quasarUrl)), token);
+
+    public Task InstallSshAsync(string hostId, string quasarUrl, HostSshInstall request, CancellationToken token)
+    {
+        var origin = ValidateOrigin(quasarUrl);
+        if (origin.IsLoopback) throw new ArgumentException("An SSH-installed Host needs a Quasar HTTPS address reachable from that machine; localhost points to the remote machine itself.");
+        if (!Regex.IsMatch(request.User, "^[a-zA-Z_][a-zA-Z0-9_-]{0,63}$")
+            || Uri.CheckHostName(request.Address) == UriHostNameType.Unknown || request.Port is < 1 or > 65535)
+            throw new ArgumentException("SSH requires a valid machine address, login name and port.");
+        var start = new ProcessStartInfo("ssh");
+        foreach (string arg in new[] { "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=20", "-p", request.Port.ToString() }) start.ArgumentList.Add(arg);
+        if (!string.IsNullOrWhiteSpace(request.IdentityFile))
+        {
+            if (!Path.IsPathFullyQualified(request.IdentityFile) || !File.Exists(request.IdentityFile)) throw new ArgumentException("SSH identity file must exist on the Quasar machine.");
+            start.ArgumentList.Add("-i"); start.ArgumentList.Add(request.IdentityFile);
+        }
+        start.ArgumentList.Add(request.User + "@" + request.Address);
+        start.ArgumentList.Add("bash -s");
+        return RunAsync(start, BuildScript(hosts.Get(hostId) ?? throw new KeyNotFoundException(), origin), token);
+    }
+
+    internal byte[] BuildScript(EnrolledClusterHost host, Uri origin)
+    {
+        if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("Guided cluster setup currently requires Linux x64.");
+        if (!File.Exists(binary)) throw new InvalidOperationException($"This Quasar build does not include the Host installer ({binary}). Install a release containing Host/Quasar.Host, or for a development build set {BinaryVariable} to a published single-file Quasar.Host.");
+        var config = new { executorId = "quasar-" + host.Id, hostId = host.Id, pollIntervalSeconds = 2, attachments = Array.Empty<object>(), stateDirectory = "state",
+            command = new { url = "http://127.0.0.1:" + host.CommandPort, tokenEnvironmentVariable = host.CredentialReference },
+            connection = new { quasarUrl = origin.AbsoluteUri, tokenEnvironmentVariable = host.CredentialReference } };
+        string Config(object value) => Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(value));
+        byte[] binaryBytes = File.ReadAllBytes(binary);
+        string binaryHash = Convert.ToHexString(SHA256.HashData(binaryBytes)).ToLowerInvariant();
+        string payload = Convert.ToBase64String(binaryBytes, Base64FormattingOptions.InsertLineBreaks).Replace("\r", "");
+        using var updaterResource = typeof(ClusterHostInstaller).Assembly.GetManifestResourceStream("Quasar.Assets.host-update.py")
+            ?? throw new InvalidOperationException("The Host updater is missing from this Quasar build.");
+        using var updaterReader = new StreamReader(updaterResource);
+        string updaterPayload = Convert.ToBase64String(Encoding.UTF8.GetBytes(updaterReader.ReadToEnd()));
+        string secret = Config(new Dictionary<string, string> { [host.CredentialReference] = credentials.Resolve(host.CredentialReference)! });
+        return Encoding.UTF8.GetBytes($$"""
+            #!/usr/bin/env bash
+            set -euo pipefail
+            umask 077
+            test "$(uname -s)" = Linux && test "$(uname -m)" = x86_64 || { echo 'A Linux x64 machine is required.' >&2; exit 1; }
+            command -v python3 >/dev/null || { echo 'Install Python 3 before enrolling this machine.' >&2; exit 1; }
+            command -v flock >/dev/null || { echo 'Install util-linux flock before enrolling this machine.' >&2; exit 1; }
+            command -v dotnet >/dev/null && dotnet --list-runtimes | grep -q '^Microsoft.NETCore.App 10\.' || { echo 'Install the .NET 10 runtime before enrolling this machine. Gateway and world tools require it.' >&2; exit 1; }
+            systemctl --user show-environment >/dev/null || { echo 'A working systemd user session is required.' >&2; exit 1; }
+            qsr_root="$HOME/.local/share/Quasar/Hosts/{{host.Id}}"
+            qsr_unit=quasar-host-{{host.Id}}.service
+            mkdir -p "$(dirname "$qsr_root")" "$HOME/.config/systemd/user"
+            exec 9>"$(dirname "$qsr_root")/.{{host.Id}}.install.lock"
+            flock -x 9
+            test ! -L "$qsr_root" || { echo 'The Host directory must not be a symbolic link.' >&2; exit 1; }
+            qsr_stage=''
+            qsr_backup=''
+            qsr_upgrade_pending=0
+            qsr_needs_restart=0
+            qsr_new_install=0
+            qsr_cleanup() {
+                if test "$qsr_upgrade_pending" = 1; then
+                    mv -f -- "$qsr_backup" "$qsr_root/Quasar.Host"
+                    systemctl --user restart "$qsr_unit" || true
+                fi
+                if test -n "$qsr_stage"; then rm -rf -- "$qsr_stage"; fi
+                if test -n "$qsr_backup"; then rm -f -- "$qsr_backup"; fi
+            }
+            trap qsr_cleanup EXIT
+            trap 'exit 1' INT TERM
+            if test -e "$qsr_root"; then
+                # Keep runtime configuration and state; verify this is the same enrollment.
+                python3 - "$qsr_root/host.json" '{{host.Id}}' '{{host.CredentialReference}}' 'http://127.0.0.1:{{host.CommandPort}}' <<'QSR_CHECK'
+            import json, sys
+            with open(sys.argv[1]) as file:
+                config = json.load(file)
+            if (config.get('hostId') != sys.argv[2] or config.get('executorId') != 'quasar-' + sys.argv[2]
+                or config.get('command', {}).get('tokenEnvironmentVariable') != sys.argv[3]
+                or config.get('connection', {}).get('tokenEnvironmentVariable') != sys.argv[3]
+                or config.get('command', {}).get('url') != sys.argv[4]):
+                sys.exit('Existing Host belongs to a different enrollment; its data has been preserved.')
+            QSR_CHECK
+                printf '%s' '{{secret}}' | base64 --decode | python3 -c 'import json, sys; expected = json.load(sys.stdin); actual = json.load(open(sys.argv[1])); ref = sys.argv[2]; sys.exit(0 if actual.get(ref) == expected.get(ref) else 1)' "$qsr_root/state/credentials.json" '{{host.CredentialReference}}' || { echo 'Existing Host enrollment credential differs; its data has been preserved.' >&2; exit 1; }
+                if test "$(sha256sum "$qsr_root/Quasar.Host" | cut -d ' ' -f 1)" != '{{binaryHash}}'; then
+                    qsr_stage=$(mktemp "$qsr_root/.Quasar.Host.new.XXXXXX")
+                    qsr_binary_target="$qsr_stage"
+                    qsr_needs_restart=1
+                fi
+            else
+            qsr_stage=$(mktemp -d "$(dirname "$qsr_root")/.enroll-XXXXXX")
+            mkdir "$qsr_stage/state"
+            qsr_binary_target="$qsr_stage/Quasar.Host"
+            qsr_new_install=1
+            printf '%s' '{{Config(config)}}' | base64 --decode > "$qsr_stage/host.json"
+            printf '%s' '{{secret}}' | base64 --decode > "$qsr_stage/state/credentials.json"
+            chmod 600 "$qsr_stage/host.json" "$qsr_stage/state/credentials.json"
+            fi
+            if test -n "${qsr_binary_target:-}"; then
+            cat <<'QSR_BINARY' | base64 --decode > "$qsr_binary_target"
+            {{payload}}
+            QSR_BINARY
+            test "$(sha256sum "$qsr_binary_target" | cut -d ' ' -f 1)" = '{{binaryHash}}'
+            chmod 700 "$qsr_binary_target"
+            fi
+            if test "$qsr_needs_restart" = 1; then
+            qsr_backup=$(mktemp "$qsr_root/.Quasar.Host.backup.XXXXXX")
+            cp -p -- "$qsr_root/Quasar.Host" "$qsr_backup"
+            qsr_upgrade_pending=1
+            mv -f -- "$qsr_stage" "$qsr_root/Quasar.Host"
+            elif test "$qsr_new_install" = 1; then
+            mv -T "$qsr_stage" "$qsr_root"
+            fi
+            mkdir -p "$qsr_root/bin"
+            ln -sfn "$(command -v dotnet)" "$qsr_root/bin/dotnet"
+            printf '%s' '{{updaterPayload}}' | base64 --decode > "$qsr_root/bin/.host-update.py.new"
+            chmod 700 "$qsr_root/bin/.host-update.py.new"
+            mv -f "$qsr_root/bin/.host-update.py.new" "$qsr_root/bin/host-update.py"
+            cat > "$HOME/.config/systemd/user/quasar-host-{{host.Id}}.service" <<'QSR_UNIT'
+            [Unit]
+            Description=Quasar Host {{host.Id}}
+            After=network-online.target
+            [Service]
+            Environment="PATH=%h/.local/share/Quasar/Hosts/{{host.Id}}/bin:/usr/local/bin:/usr/bin:/bin"
+            ExecStart="%h/.local/share/Quasar/Hosts/{{host.Id}}/Quasar.Host" run --config "%h/.local/share/Quasar/Hosts/{{host.Id}}/host.json"
+            Restart=on-failure
+            RestartSec=5
+            KillMode=process
+            [Install]
+            WantedBy=default.target
+            QSR_UNIT
+            cat > "$HOME/.config/systemd/user/quasar-host-{{host.Id}}-update.service" <<'QSR_UPDATE_UNIT'
+            [Unit]
+            Description=Update Quasar Host {{host.Id}}
+            After=network-online.target
+            [Service]
+            Type=oneshot
+            ExecStart=/usr/bin/env python3 %h/.local/share/Quasar/Hosts/{{host.Id}}/bin/host-update.py %h/.local/share/Quasar/Hosts/{{host.Id}}
+            QSR_UPDATE_UNIT
+            cat > "$HOME/.config/systemd/user/quasar-host-{{host.Id}}-update.timer" <<'QSR_UPDATE_TIMER'
+            [Unit]
+            Description=Check Quasar Host {{host.Id}} updates
+            [Timer]
+            OnBootSec=2min
+            OnUnitInactiveSec=15min
+            [Install]
+            WantedBy=timers.target
+            QSR_UPDATE_TIMER
+            systemctl --user daemon-reload
+            if test "$qsr_needs_restart" = 1; then
+                systemctl --user restart "$qsr_unit"
+                sleep 2
+                systemctl --user is-active --quiet "$qsr_unit"
+                qsr_upgrade_pending=0
+            else
+                systemctl --user enable --now "$qsr_unit"
+            fi
+            systemctl --user enable --now quasar-host-{{host.Id}}-update.timer
+            echo 'Quasar Host installed or updated. Enable user lingering if it must run after logout: loginctl enable-linger'
+            """);
+    }
+
+    internal static Uri ValidateOrigin(string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0
+            || uri.AbsolutePath != "/" || uri.Scheme != "https" && !(uri.Scheme == "http" && uri.IsLoopback))
+            throw new ArgumentException("Use the Quasar HTTPS origin reachable by the machine, for example https://quasar.example.com. HTTP is permitted only for local loopback setup.");
+        return uri;
+    }
+    private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+    private static string Quote(string value) => "'" + value.Replace("'", "'\"'\"'") + "'";
+    internal static async Task RunAsync(ProcessStartInfo start, byte[] script, CancellationToken token)
+    {
+        start.UseShellExecute = false; start.RedirectStandardInput = true; start.RedirectStandardOutput = true; start.RedirectStandardError = true;
+        using var process = Process.Start(start) ?? throw new IOException("Could not start the Host installer.");
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(TimeSpan.FromMinutes(10));
+        var output = ReadTailAsync(process.StandardOutput, deadline.Token);
+        var error = ReadTailAsync(process.StandardError, deadline.Token);
+        try
+        {
+            IOException? inputError = null;
+            try { await process.StandardInput.BaseStream.WriteAsync(script, deadline.Token); }
+            catch (IOException exception) { inputError = exception; }
+            finally
+            {
+                try { process.StandardInput.Close(); }
+                catch (IOException exception) { inputError ??= exception; }
+            }
+            await process.WaitForExitAsync(deadline.Token);
+            await output;
+            if (process.ExitCode != 0) throw new InvalidOperationException("Host installation failed: " + await error, inputError);
+            if (inputError is not null) throw new IOException("Host installer stopped reading its input.", inputError);
+        }
+        catch { if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(CancellationToken.None); } throw; }
+    }
+    private static async Task<string> ReadTailAsync(StreamReader reader, CancellationToken token)
+    {
+        var tail = new StringBuilder(); char[] buffer = new char[4096]; int count;
+        while ((count = await reader.ReadAsync(buffer.AsMemory(), token)) != 0)
+        {
+            tail.Append(buffer, 0, count);
+            if (tail.Length > 8192) tail.Remove(0, tail.Length - 8192);
+        }
+        return tail.ToString();
+    }
+}

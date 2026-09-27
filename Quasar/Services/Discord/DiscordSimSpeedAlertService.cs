@@ -10,6 +10,7 @@ public sealed class DiscordSimSpeedAlertService
 
     private readonly object _sync = new();
     private readonly AgentRegistry _registry;
+    private readonly DiscordClusterBridge? _clusters;
     private readonly MetricsStoreService _metricsStore;
     private readonly DiscordRateLimiter _rateLimiter;
     private readonly ILogger<DiscordSimSpeedAlertService> _logger;
@@ -19,9 +20,10 @@ public sealed class DiscordSimSpeedAlertService
         AgentRegistry registry,
         MetricsStoreService metricsStore,
         DiscordRateLimiter rateLimiter,
-        ILogger<DiscordSimSpeedAlertService> logger)
+        ILogger<DiscordSimSpeedAlertService> logger, DiscordClusterBridge? clusters = null)
     {
         _registry = registry;
+        _clusters = clusters;
         _metricsStore = metricsStore;
         _rateLimiter = rateLimiter;
         _logger = logger;
@@ -39,50 +41,50 @@ public sealed class DiscordSimSpeedAlertService
                      (server.EnableSimSpeedSharpDropAlerts || server.EnableSimSpeedSustainedAlerts) &&
                      (server.SimSpeedAlertChannelId.HasValue || server.AnalyticsChannelId.HasValue)))
         {
-            if (!agents.Any(agent =>
-                    agent.IsConnected &&
-                    agent.Snapshot is { IsRunning: true } &&
-                    string.Equals(agent.UniqueNameKey, serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase)))
+            if (serverOptions.IsCluster && _clusters == null) continue;
+            var targets = _clusters?.GetAgents(serverOptions) ?? agents.Where(a => !a.IsCluster && a.IsConnected
+                && a.Snapshot is { IsRunning: true } && a.UniqueNameKey.Equals(serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase)).ToArray();
+            foreach (var agent in targets.Where(a => a.Snapshot is { IsRunning: true }))
             {
-                continue;
-            }
+                var channelId = serverOptions.SimSpeedAlertChannelId ?? serverOptions.AnalyticsChannelId;
+                if (!channelId.HasValue)
+                    continue;
 
-            var channelId = serverOptions.SimSpeedAlertChannelId ?? serverOptions.AnalyticsChannelId;
-            if (!channelId.HasValue)
-                continue;
+                var store = _metricsStore.GetStore(agent.TelemetryKey);
+                if (store is null)
+                    continue;
 
-            var store = _metricsStore.GetStore(serverOptions.UniqueName);
-            if (store is null)
-                continue;
+                var samples = store.Raw.ReadLatest(Math.Max(2, Math.Min(3605, serverOptions.SimSpeedSustainedSeconds + 5)));
+                if (samples.Length < 2)
+                    continue;
 
-            var samples = store.Raw.ReadLatest(Math.Max(2, Math.Min(3605, serverOptions.SimSpeedSustainedSeconds + 5)));
-            if (samples.Length < 2)
-                continue;
+                var latest = samples[^1];
+                if (nowUnix - latest.TimestampUnixSeconds > FreshSampleAge.TotalSeconds)
+                    continue;
 
-            var latest = samples[^1];
-            if (nowUnix - latest.TimestampUnixSeconds > FreshSampleAge.TotalSeconds)
-                continue;
+                var scoped = serverOptions.Clone();
+                if (serverOptions.IsCluster) scoped.UniqueName = $"{serverOptions.UniqueName}/{agent.ClusterNodeId}/{agent.ClusterEpoch}";
+                var alerts = Evaluate(scoped, samples);
+                if (alerts.Count == 0)
+                    continue;
 
-            var alerts = Evaluate(serverOptions, samples);
-            if (alerts.Count == 0)
-                continue;
+                if (client.GetChannel(channelId.Value) is not IMessageChannel channel)
+                    continue;
 
-            if (client.GetChannel(channelId.Value) is not IMessageChannel channel)
-                continue;
-
-            foreach (var alert in alerts)
-            {
-                try
+                foreach (var alert in alerts)
                 {
-                    await _rateLimiter.RunAsync(channelId.Value, () => channel.SendMessageAsync(embed: alert.Build()), cancellationToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception exception)
-                {
-                    _logger.LogWarning(exception, "Failed sending simspeed alert for server {UniqueName}", serverOptions.UniqueName);
+                    try
+                    {
+                        await _rateLimiter.RunAsync(channelId.Value, () => channel.SendMessageAsync(embed: alert.Build()), cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception exception)
+                    {
+                        _logger.LogWarning(exception, "Failed sending simspeed alert for server {UniqueName}", serverOptions.UniqueName);
+                    }
                 }
             }
         }

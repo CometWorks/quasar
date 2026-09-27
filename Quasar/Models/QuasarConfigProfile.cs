@@ -560,6 +560,8 @@ public sealed class QuasarModSelection
 
 public sealed class QuasarPluginCatalogEntry
 {
+    public string SourceCommit { get; set; } = string.Empty;
+
     public string PluginId { get; set; } = string.Empty;
 
     public string FriendlyName { get; set; } = string.Empty;

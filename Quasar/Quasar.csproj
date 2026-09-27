@@ -2,18 +2,21 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Magnetar.Protocol\Magnetar.Protocol.csproj" />
+    <ProjectReference Include="..\Quasar.Host.Contract\Quasar.Host.Contract.csproj" />
     <ProjectReference Include="..\Quasar.Plugin.Abstractions\Quasar.Plugin.Abstractions.csproj" />
     <Compile Include="..\Shared\Networking\GitHubRetryHandler.cs" Link="Networking\GitHubRetryHandler.cs" />
+    <Compile Include="..\Shared\ClusterDeployment\*.cs" Link="ClusterDeployment\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="AspNet.Security.OpenId.Steam" Version="10.0.0" />
-    <PackageReference Include="CometWorks.ClusterGateway.AdminContract" Version="0.2.0" />
+    <ProjectReference Include="..\Contracts\ClusterGateway.AdminContract\ClusterGateway.AdminContract.csproj" />
     <PackageReference Include="Discord.Net" Version="3.16.0" />
     <PackageReference Include="Lib.Harmony" Version="2.4.2" PrivateAssets="all" ExcludeAssets="all" GeneratePathProperty="true" />
     <PackageReference Include="MudBlazor" Version="9.4.0" />
     <PackageReference Include="NLog.Web.AspNetCore" Version="6.1.3" />
     <PackageReference Include="SharpCompress" Version="0.49.1" />
+    <PackageReference Include="WebPush" Version="1.0.13" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -30,6 +33,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Quasar.Tests" />
+    <EmbeddedResource Include="Assets/host-update.py" />
   </ItemGroup>
 
   <!-- Build Quasar.Agent and stage its plugin DLLs into an Agent/ subfolder of both

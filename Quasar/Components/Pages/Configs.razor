@@ -4,6 +4,7 @@
 @using System.Globalization
 @using System.IO
 @using System.Text.Json
+@using System.Text.RegularExpressions
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarDevFolderCatalog DevFolderCatalog
 @inject QuasarPluginCatalogService PluginCatalog
@@ -135,8 +136,15 @@
                         </MudAlert>
                     }
 
+                    @if (HasInvalidSteamIdDrafts)
+                    {
+                        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
+                            Fix the SteamID64 values in Access before saving this profile.
+                        </MudAlert>
+                    }
+
                     <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-4">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveTemplateAsync">Save Profile</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveTemplateAsync" Disabled="@HasInvalidSteamIdDrafts">Save Profile</MudButton>
                         <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="ResetEditorAsync">Reset</MudButton>
                         <MudButton
                             Variant="Variant.Outlined"
@@ -150,7 +158,8 @@
                             Variant="Variant.Outlined"
                             Color="Color.Secondary"
                             StartIcon="@Icons.Material.Filled.ContentCopy"
-                            OnClick="CloneCurrentProfileForCrossplayAsync">
+                            OnClick="CloneCurrentProfileForCrossplayAsync"
+                            Disabled="@HasInvalidSteamIdDrafts">
                             Clone for Crossplay
                         </MudButton>
                     </MudStack>
@@ -296,7 +305,7 @@
                                                         <div style="@ConfigOptionTooltipStyle">@GetAccessTooltipText("Steam IDs that receive administrator rights on this server.")</div>
                                                     </TooltipContent>
                                                     <ChildContent>
-                                                        <MudTextField T="string" Value="GetAdministratorText()" ValueChanged="@(v => SetAdministratorText(FilterNumericListInput(v)))" Label="Admin User IDs" Variant="Variant.Outlined" Lines="4" Sizing="InputSizing.Auto" MaxLines="10000" HelperText="Comma, space, or newline separated Steam IDs (numeric only)." id="@AccessAdministratorsAnchorId"/>
+                                                        <MudTextField T="string" Value="_administratorText" ValueChanged="SetAdministratorText" Label="Admin User IDs" Variant="Variant.Outlined" Lines="4" Sizing="InputSizing.Auto" MaxLines="10000" Immediate="true" Error="@(GetSteamIdListError(_administratorText) is not null)" ErrorText="@GetSteamIdListError(_administratorText)" HelperText="Comma, space, or newline separated 17-digit SteamID64 values." id="@AccessAdministratorsAnchorId"/>
                                                     </ChildContent>
                                                 </MudTooltip>
                                                 <MudTooltip Placement="Placement.Top" Arrow="true" Delay="350" Inline="false">
@@ -304,7 +313,7 @@
                                                         <div style="@ConfigOptionTooltipStyle">@GetAccessTooltipText("Steam IDs allowed to use reserved player slots.")</div>
                                                     </TooltipContent>
                                                     <ChildContent>
-                                                        <MudTextField T="string" Value="GetReservedText()" ValueChanged="@(v => SetReservedText(FilterNumericListInput(v)))" Label="Reserved Slot User IDs" Variant="Variant.Outlined" Lines="4" Sizing="InputSizing.Auto" MaxLines="10000" HelperText="Comma, space, or newline separated numeric IDs." id="@AccessReservedAnchorId"/>
+                                                        <MudTextField T="string" Value="_reservedText" ValueChanged="SetReservedText" Label="Reserved Slot User IDs" Variant="Variant.Outlined" Lines="4" Sizing="InputSizing.Auto" MaxLines="10000" Immediate="true" Error="@(GetSteamIdListError(_reservedText) is not null)" ErrorText="@GetSteamIdListError(_reservedText)" HelperText="Comma, space, or newline separated 17-digit SteamID64 values." id="@AccessReservedAnchorId"/>
                                                     </ChildContent>
                                                 </MudTooltip>
                                                 <MudTooltip Placement="Placement.Top" Arrow="true" Delay="350" Inline="false">
@@ -312,7 +321,7 @@
                                                         <div style="@ConfigOptionTooltipStyle">@GetAccessTooltipText("Steam IDs blocked from joining this server.")</div>
                                                     </TooltipContent>
                                                     <ChildContent>
-                                                        <MudTextField T="string" Value="GetBannedText()" ValueChanged="@(v => SetBannedText(FilterNumericListInput(v)))" Label="Banned / Blacklisted User IDs" Variant="Variant.Outlined" Lines="4" Sizing="InputSizing.Auto" MaxLines="10000" HelperText="Comma, space, or newline separated numeric IDs." id="@AccessBannedAnchorId"/>
+                                                        <MudTextField T="string" Value="_bannedText" ValueChanged="SetBannedText" Label="Banned / Blacklisted User IDs" Variant="Variant.Outlined" Lines="4" Sizing="InputSizing.Auto" MaxLines="10000" Immediate="true" Error="@(GetSteamIdListError(_bannedText) is not null)" ErrorText="@GetSteamIdListError(_bannedText)" HelperText="Comma, space, or newline separated 17-digit SteamID64 values." id="@AccessBannedAnchorId"/>
                                                     </ChildContent>
                                                 </MudTooltip>
                                             </MudStack>
@@ -989,6 +998,9 @@
     private int _activeConfigTabIndex = WorldTabIndex;
     private string _selectedProfileId = string.Empty;
     private QuasarConfigProfile? _editor;
+    private string _administratorText = string.Empty;
+    private string _reservedText = string.Empty;
+    private string _bannedText = string.Empty;
     private string _newProfileName = string.Empty;
     private string _worldSearch = string.Empty;
     private string _pluginSearch = string.Empty;
@@ -1173,12 +1185,21 @@
             return false;
         }
 
+        if (HasInvalidSteamIdDrafts)
+        {
+            Snackbar.Add("Fix the SteamID64 values in Access before saving this profile.", Severity.Warning);
+            return false;
+        }
+
         await ResolveProfileModDependenciesAsync(_editor);
         await ConfigProfiles.UpsertAsync(_editor);
         if (reselectAfterSave)
             SelectProfile(_editor.ConfigProfileId);
         else
+        {
             _selectedProfileSnapshot = CreateProfileSnapshot(_editor);
+            LoadSteamIdDraftsFromEditor();
+        }
 
         Snackbar.Add("Config profile saved.", Severity.Success);
         return true;
@@ -1359,6 +1380,12 @@
         if (_editor is null)
             return;
 
+        if (HasInvalidSteamIdDrafts)
+        {
+            Snackbar.Add("Fix the SteamID64 values in Access before cloning this profile.", Severity.Warning);
+            return;
+        }
+
         var sourceName = string.IsNullOrWhiteSpace(_editor.Name)
             ? "current profile"
             : _editor.Name.Trim();
@@ -1459,6 +1486,7 @@
         _editor = string.IsNullOrWhiteSpace(_selectedProfileId)
             ? null
             : ConfigProfiles.GetProfile(_selectedProfileId);
+        LoadSteamIdDraftsFromEditor();
         _selectedProfileSnapshot = CreateProfileSnapshot(_editor);
         _deadModCleanupSummary = string.Empty;
         _deadModCleanupRemoved = [];
@@ -1485,7 +1513,10 @@
     }
 
     private bool HasPendingChanges() =>
-        !string.Equals(CreateProfileSnapshot(_editor), _selectedProfileSnapshot, StringComparison.Ordinal);
+        !string.Equals(CreateProfileSnapshot(_editor), _selectedProfileSnapshot, StringComparison.Ordinal) ||
+        !string.Equals(_administratorText, GetAdministratorText(), StringComparison.Ordinal) ||
+        !string.Equals(_reservedText, GetReservedText(), StringComparison.Ordinal) ||
+        !string.Equals(_bannedText, GetBannedText(), StringComparison.Ordinal);
 
     private static string CreateProfileSnapshot(QuasarConfigProfile? profile)
     {
@@ -2034,12 +2065,33 @@
             ? string.Empty
             : string.Join(Environment.NewLine, _editor.RootSettings.Banned.Select(value => value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
 
+    private void LoadSteamIdDraftsFromEditor()
+    {
+        _administratorText = GetAdministratorText();
+        _reservedText = GetReservedText();
+        _bannedText = GetBannedText();
+    }
+
+    private bool HasInvalidSteamIdDrafts =>
+        GetSteamIdListError(_administratorText) is not null ||
+        GetSteamIdListError(_reservedText) is not null ||
+        GetSteamIdListError(_bannedText) is not null;
+
+    private static string? GetSteamIdListError(string? value) =>
+        SplitListTokens(value).Any(token => !Regex.IsMatch(token, "^[0-9]{17}$", RegexOptions.CultureInvariant))
+            ? "Each entry must be a 17-digit SteamID64."
+            : null;
+
     private void SetAdministratorText(string? value)
     {
         if (_editor is null)
             return;
 
-        _editor.RootSettings.Administrators = SplitListTokens(value)
+        _administratorText = value ?? string.Empty;
+        if (GetSteamIdListError(_administratorText) is not null)
+            return;
+
+        _editor.RootSettings.Administrators = SplitListTokens(_administratorText)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(token => token, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -2050,7 +2102,11 @@
         if (_editor is null)
             return;
 
-        _editor.RootSettings.Reserved = ParseUnsignedLongList(value, "reserved slot");
+        _reservedText = value ?? string.Empty;
+        if (GetSteamIdListError(_reservedText) is not null)
+            return;
+
+        _editor.RootSettings.Reserved = ParseUnsignedLongList(_reservedText);
     }
 
     private void SetBannedText(string? value)
@@ -2058,7 +2114,11 @@
         if (_editor is null)
             return;
 
-        _editor.RootSettings.Banned = ParseUnsignedLongList(value, "banned");
+        _bannedText = value ?? string.Empty;
+        if (GetSteamIdListError(_bannedText) is not null)
+            return;
+
+        _editor.RootSettings.Banned = ParseUnsignedLongList(_bannedText);
     }
 
     private bool IsPluginSelected(string pluginId)
@@ -2820,9 +2880,6 @@
         return Task.CompletedTask;
     }
 
-    private static string FilterNumericListInput(string? value) =>
-        value is null ? string.Empty : new string(value.Where(c => char.IsDigit(c) || c is ',' or ';' or ' ' or '\n' or '\r' or '\t').ToArray());
-
     private static bool MatchesSearchTerms(string searchText, params string[] values)
     {
         if (string.IsNullOrWhiteSpace(searchText))
@@ -2834,30 +2891,12 @@
             .All(term => blob.Contains(term, StringComparison.OrdinalIgnoreCase));
     }
 
-    private List<ulong> ParseUnsignedLongList(string? value, string label)
-    {
-        var valid = new List<ulong>();
-        var invalid = new List<string>();
-
-        foreach (var token in SplitListTokens(value))
-        {
-            if (ulong.TryParse(token, out var parsed) && parsed > 0)
-            {
-                valid.Add(parsed);
-                continue;
-            }
-
-            invalid.Add(token);
-        }
-
-        if (invalid.Count > 0)
-            Snackbar.Add($"Ignored invalid {label} ID values: {string.Join(", ", invalid.Take(3))}{(invalid.Count > 3 ? "..." : string.Empty)}", Severity.Warning);
-
-        return valid
+    private static List<ulong> ParseUnsignedLongList(string? value) =>
+        SplitListTokens(value)
+            .Select(token => ulong.Parse(token, NumberStyles.None, CultureInfo.InvariantCulture))
             .Distinct()
             .OrderBy(item => item)
             .ToList();
-    }
 
     private static List<string> SplitListTokens(string? value)
     {
