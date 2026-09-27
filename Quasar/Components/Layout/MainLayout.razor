@@ -6,7 +6,7 @@
 @inject WebServiceOptions WebServiceOptions
 @inject BrandingService BrandingService
 @inject QuasarUpdateService UpdateService
-@inject PushNotificationService PushNotifications
+@inject BrowserPushState BrowserPush
 @inject ClusterReleaseMonitor ClusterReleases
 @inject ClusterContentMonitor ClusterContent
 @inject ClusterCatalog ClusterCatalog
@@ -16,7 +16,6 @@
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @inject IDialogService DialogService
-@inject ILogger<MainLayout> Logger
 
 <MudThemeProvider Theme="@ThemePreference.Theme" IsDarkMode="@_isDarkMode" IsDarkModeChanged="OnSystemDarkModeChangedAsync" ObserveSystemDarkModeChange="@(_themeMode == ThemeMode.System)" />
 <MudPopoverProvider />
@@ -40,32 +39,9 @@
         <MudSpacer />
         <MudTooltip Text="@GetUpdateBellTooltip()">
             <MudBadge Visible="@HasUpdateBellBadge" Color="Color.Warning" Dot="true" Overlap="true">
-                <MudMenu Icon="@(_pushEnabled ? Icons.Material.Filled.Notifications : Icons.Material.Outlined.Notifications)"
-                         Color="@GetUpdateBellColor()" Dense="true" OpenChanged="OnBellOpenChangedAsync"
-                         AriaLabel="Notifications"
-                         AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
-                    <MudMenuItem OnClick="EnablePushAsync" Disabled="@(!_pushChecked || !_pushSupported || !_pushServiceAvailable || _pushEnabled)">Enable push notifications</MudMenuItem>
-                    @foreach (var notice in Notices)
-                    {
-                        <MudMenuItem Href="@notice.Url">@notice.Body</MudMenuItem>
-                    }
-                    @if (!HasUpdateBellBadge)
-                    {
-                        <MudMenuItem Disabled="true">No update notifications</MudMenuItem>
-                    }
-                    @if (_pushEnabled)
-                    {
-                        <MudMenuItem OnClick="DisablePushAsync">Disable push notifications on this browser</MudMenuItem>
-                    }
-                    @if (_pushChecked && !_pushSupported)
-                    {
-                        <MudMenuItem Disabled="true">Push requires HTTPS or localhost and a supported browser</MudMenuItem>
-                    }
-                    else if (_pushChecked && !_pushServiceAvailable)
-                    {
-                        <MudMenuItem Disabled="true">Push settings are unavailable. Check Quasar logs.</MudMenuItem>
-                    }
-                </MudMenu>
+                <MudIconButton Href="@(CurrentNotice?.Url ?? "/settings/updates")"
+                               Icon="@(BrowserPush.Enabled ? Icons.Material.Filled.Notifications : Icons.Material.Outlined.Notifications)"
+                               Color="@GetUpdateBellColor()" aria-label="Open current update notice" />
             </MudBadge>
         </MudTooltip>
         <MudMenu Icon="@GetThemeModeIcon()" Color="Color.Inherit" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Dense="true">
@@ -147,8 +123,6 @@
     private QuasarUpdateSnapshot _updateSnapshot = new();
     private ClusterReleaseSnapshot _clusterReleaseSnapshot = new(null, null, null);
     private System.Security.Claims.ClaimsPrincipal? _currentUser;
-    private bool _pushChecked, _pushSupported, _pushEnabled, _pushServiceAvailable = true;
-    private sealed record BrowserPushStatus(bool Supported, BrowserPushSubscription? Subscription);
 
     // The worker is restartable only when it was launched by the Quasar launcher, which
     // injects QUASAR_LAUNCHER_TOKEN (surfaced as WebServiceOptions.LauncherToken).
@@ -189,6 +163,7 @@
         UpdateService.Changed += OnUpdatesChanged;
         ClusterReleases.Changed += OnClusterReleasesChanged;
         ClusterContent.Changed += OnClusterCatalogChanged;
+        BrowserPush.Changed += OnClusterCatalogChanged;
         ClusterCatalog.Changed += OnClusterCatalogChanged;
         RbacConfigCatalog.Changed += OnRbacChanged;
         _updateSnapshot = UpdateService.GetSnapshot();
@@ -202,6 +177,7 @@
         UpdateService.Changed -= OnUpdatesChanged;
         ClusterReleases.Changed -= OnClusterReleasesChanged;
         ClusterContent.Changed -= OnClusterCatalogChanged;
+        BrowserPush.Changed -= OnClusterCatalogChanged;
         ClusterCatalog.Changed -= OnClusterCatalogChanged;
         RbacConfigCatalog.Changed -= OnRbacChanged;
     }
@@ -282,7 +258,7 @@
         var (mode, isDark) = await ThemePreference.InitializeAsync();
         _themeMode = mode;
         _isDarkMode = isDark;
-        await RefreshPushStatusAsync();
+        await BrowserPush.RefreshAsync();
         await InvokeAsync(StateHasChanged);
     }
 
@@ -332,69 +308,6 @@
     }
 
     private string GetUpdateBellTooltip() => CurrentNotice?.Body ?? "Notifications";
-
-    private Task OnBellOpenChangedAsync(bool open) => open ? RefreshPushStatusAsync() : Task.CompletedTask;
-
-    private async Task RefreshPushStatusAsync()
-    {
-        _pushSupported = false;
-        _pushServiceAvailable = true;
-        try
-        {
-            var status = await JS.InvokeAsync<BrowserPushStatus>("quasarPush.status");
-            _pushSupported = status.Supported;
-            if (_pushSupported) await PushNotifications.GetPublicKeyAsync();
-            _pushEnabled = status.Subscription is not null && _currentUser is not null
-                && await PushNotifications.IsRegisteredAsync(_currentUser, status.Subscription.Endpoint);
-        }
-        catch (Exception error)
-        {
-            Logger.LogWarning(error, "Could not read this browser's push subscription.");
-            _pushEnabled = false;
-            if (_pushSupported) _pushServiceAvailable = false;
-        }
-        _pushChecked = true;
-    }
-
-    private async Task EnablePushAsync()
-    {
-        try
-        {
-            var user = _currentUser ?? throw new InvalidOperationException("Sign in to enable push notifications.");
-            string key = await PushNotifications.GetPublicKeyAsync();
-            var subscription = await JS.InvokeAsync<BrowserPushSubscription>("quasarPush.subscribe", key);
-            await PushNotifications.SubscribeAsync(user, subscription);
-            _pushEnabled = true;
-            Snackbar.Add("Push notifications enabled on this browser.", Severity.Success);
-        }
-        catch (JSException error) when (error.Message.Contains("Registration failed - push service error", StringComparison.OrdinalIgnoreCase))
-        {
-            Logger.LogWarning(error, "The browser's push service could not register a subscription.");
-            Snackbar.Add("Browser push service unavailable. Check your network; in Brave, enable Google services for push messaging in Privacy settings.", Severity.Error);
-        }
-        catch (Exception error)
-        {
-            Logger.LogWarning(error, "Could not enable browser push notifications.");
-            Snackbar.Add("Could not enable push notifications. Check browser permission and try again.", Severity.Error);
-        }
-    }
-
-    private async Task DisablePushAsync()
-    {
-        try
-        {
-            string? endpoint = await JS.InvokeAsync<string?>("quasarPush.unsubscribe");
-            if (endpoint is not null && _currentUser is not null)
-                await PushNotifications.UnsubscribeAsync(_currentUser, endpoint);
-            _pushEnabled = false;
-            Snackbar.Add("Push notifications disabled on this browser.", Severity.Info);
-        }
-        catch (Exception error)
-        {
-            Logger.LogWarning(error, "Could not disable browser push notifications.");
-            Snackbar.Add("Could not disable push notifications. Try again.", Severity.Error);
-        }
-    }
 
     private static QuasarUpdateCandidate? GetPrimaryWebUpdate(QuasarUpdateSnapshot snapshot) =>
         snapshot.WebReleases.FirstOrDefault(candidate => candidate.IsNewer && candidate.IsStaged) ??

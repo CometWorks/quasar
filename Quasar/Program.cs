@@ -287,6 +287,7 @@ public class Program
             if (!webServiceOptions.Headless)
             {
                 builder.Services.AddSingleton<PushNotificationService>();
+                builder.Services.AddScoped<BrowserPushState>();
                 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PushNotificationService>());
             }
             builder.Services.AddSingleton<QuasarBackupSettingsService>();

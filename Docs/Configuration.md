@@ -384,11 +384,18 @@ use Quasar's stable unique names, not display names.
 
 ## Browser push notifications
 
+**Tools → Notifications** (`/notifications`) lists outstanding update notices with
+links to their details. It updates as checks finish and respects cluster access.
+Clicking the bell opens the current notice's destination directly (Updates or the
+affected cluster), with Updates as its default destination. Hovering shows the current
+notice's details. Notifications is a view of current notices, not a notification history. The page also
+provides browser push controls and a **Refresh status** button.
+
 The top-bar bell is outlined until the current browser has a push subscription
-registered with this Quasar account. Open the bell and select **Enable push
-notifications** to grant browser permission; a filled bell means push is enabled
-here. The same menu lists outstanding update notices or disables push on this
-browser. Browser push requires HTTPS (or localhost) and browser support for
+registered with this Quasar account. On **Notifications**, select **Enable push
+notifications** to grant browser permission or **Disable push notifications** to
+unsubscribe this browser. The bell becomes filled while push is enabled and updates
+when these controls change the subscription. Browser push requires HTTPS (or localhost) and browser support for
 service workers and Push API. It does not require installing Quasar as a PWA.
 The browser must also reach its own push provider to create a subscription.
 If enabling push reports that the browser push service is unavailable, check

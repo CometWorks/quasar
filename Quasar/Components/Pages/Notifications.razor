@@ -1,0 +1,109 @@
+@page "/notifications"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
+@implements IDisposable
+@inject QuasarUpdateService Updates
+@inject ClusterReleaseMonitor Releases
+@inject ClusterContentMonitor Content
+@inject ClusterCatalog Clusters
+@inject AuthenticationStateProvider AuthenticationState
+@inject BrowserPushState Push
+
+<PageTitle>Notifications</PageTitle>
+
+<MudStack Spacing="3">
+    <MudText Typo="Typo.h5">Notifications</MudText>
+    <MudText Typo="Typo.body2">
+        Outstanding Quasar and cluster update notices. Open a notice to review its details.
+    </MudText>
+    <MudPaper Class="pa-4" Outlined="true">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">Browser push notifications</MudText>
+            <MudText Typo="Typo.body2">@(!Push.Checked ? "Checking this browser…" : Push.Enabled ? "Push notifications are enabled on this browser." : "Push notifications are not enabled on this browser.")</MudText>
+            <MudText Typo="Typo.caption">These controls affect only this browser and account. Other subscribed clients keep receiving notifications.</MudText>
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+                @if (Push.Enabled)
+                {
+                    <MudButton OnClick="Push.DisableAsync" Disabled="@Push.Busy" Variant="Variant.Outlined"
+                               Color="Color.Primary" StartIcon="@Icons.Material.Filled.NotificationsOff">Disable push notifications</MudButton>
+                }
+                else
+                {
+                    <MudButton OnClick="Push.EnableAsync" Disabled="@(!Push.Checked || !Push.Supported || !Push.ServiceAvailable || Push.Busy)"
+                               Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.NotificationsActive">Enable push notifications</MudButton>
+                }
+                <MudButton OnClick="Push.RefreshAsync" Disabled="@Push.Busy" Variant="Variant.Outlined"
+                           StartIcon="@Icons.Material.Filled.Refresh">Refresh status</MudButton>
+            </MudStack>
+            @if (Push.Error is not null)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@Push.Error</MudAlert>
+            }
+            else if (Push.Checked && !Push.Supported)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">Push requires HTTPS or localhost and a supported browser.</MudAlert>
+            }
+        </MudStack>
+    </MudPaper>
+    @if (_notices.Length == 0)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No update notifications.</MudAlert>
+    }
+    else
+    {
+        @foreach (var notice in _notices)
+        {
+            <MudPaper @key="notice.Key" Class="pa-4" Outlined="true">
+                <MudStack Spacing="2">
+                    <MudText Typo="Typo.h6">@notice.Title</MudText>
+                    <MudText Typo="Typo.body2">@notice.Body</MudText>
+                    <div>
+                        <MudButton Href="@notice.Url" Variant="Variant.Outlined" Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.OpenInNew" aria-label="@($"Open {notice.Title}: {notice.Body}")">
+                            Open details
+                        </MudButton>
+                    </div>
+                </MudStack>
+            </MudPaper>
+        }
+    }
+</MudStack>
+
+@code {
+    private UpdateNotice[] _notices = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        Updates.Changed += Changed;
+        Releases.Changed += Changed;
+        Content.Changed += Changed;
+        Clusters.Changed += Changed;
+        Push.Changed += Changed;
+        AuthenticationState.AuthenticationStateChanged += AuthenticationChanged;
+        await RefreshAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await Push.RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+        _notices = UpdateNotices.All(Updates.GetSnapshot(), Releases.GetSnapshot(), Clusters.GetClusters(),
+            user, Content.GetSnapshot).ToArray();
+    }
+
+    private void Changed() => _ = InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); });
+    private void AuthenticationChanged(Task<AuthenticationState> _) => Changed();
+
+    public void Dispose()
+    {
+        Updates.Changed -= Changed;
+        Releases.Changed -= Changed;
+        Content.Changed -= Changed;
+        Clusters.Changed -= Changed;
+        Push.Changed -= Changed;
+        AuthenticationState.AuthenticationStateChanged -= AuthenticationChanged;
+    }
+}

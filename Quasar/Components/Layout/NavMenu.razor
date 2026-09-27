@@ -37,6 +37,11 @@
         <MudNavLink Href="/hosts" Icon="@Icons.Material.Filled.Dns">
             Hosts
         </MudNavLink>
+        <AuthorizeView Policy="@QuasarPolicyNames.CanView">
+            <MudNavLink Href="/notifications" Icon="@Icons.Material.Filled.Notifications">
+                Notifications
+            </MudNavLink>
+        </AuthorizeView>
         <PluginNavItems Items="@UiPlugins.NavItems" Zone="@QuasarNavZones.Tools" />
     </MudNavMenu>
 
