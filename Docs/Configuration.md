@@ -474,6 +474,52 @@ Protection key ring. Keep that key ring with the data directory during
 migration or restore; losing it makes existing subscriptions unreadable.
 Headless mode does not run browser push delivery.
 
+## Discord bot presence
+
+In **Discord → Bot Settings → Bot presence**, administrators choose which servers
+contribute to the bot's public status and activity. **Per-Server Bindings** lists
+each cluster once and counts it as one server, including clusters spanning Hosts.
+
+- **Include all servers** includes registered standalone servers and clusters,
+  including future additions. Turn it off to select one, two, or any other subset.
+  An empty selection hides activity; removed selections never fall back to all.
+- **Status indicator** can be Automatic, Online, Idle, Do not disturb, or Invisible.
+  Automatic considers only selected servers: issues produce Do not disturb, an
+  online server produces Online, and otherwise the indicator is Idle.
+- **Show activity text** can be disabled independently of the indicator. Choose
+  Watching, Playing, Listening to, or Competing in, then select online server count,
+  player count, issues/warnings, server names, or names with lifecycle states.
+- The preview reflects unsaved choices using currently available observations.
+  **Save Bot Settings** applies them. Presence settings do not change chat relays,
+  lifecycle notifications, logs, or alert subscriptions.
+
+Cluster presence uses Gateway counts once per cluster; node replicas do not add
+extra servers or players. Stale/unavailable observations are shown as unavailable,
+with partial player totals labelled explicitly. Discord limits activity text to
+128 characters; Quasar shortens longer text and limits changed presence updates
+to once every five seconds.
+
+These settings live under `presence` in `discord-options.json`. For example:
+
+```json
+"presence": {
+  "allServers": false,
+  "selectedTargets": ["survival", "cluster:production"],
+  "status": "Automatic",
+  "activityType": "Watching",
+  "showActivity": true,
+  "showServerCount": true,
+  "showPlayerCount": true,
+  "showHealth": false,
+  "showServerNames": true,
+  "showServerStates": false
+}
+```
+
+Existing configurations default to all servers, automatic status, and the server,
+player, and health summary. Cluster selection keys use `cluster:<unique-name>`;
+standalone keys use their unique name, keeping equal names distinct.
+
 ## Discord player and server notifications
 
 The Discord page includes two independent per-server switches, both enabled by

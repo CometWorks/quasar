@@ -29,7 +29,8 @@ public sealed class DiscordBotService : IHostedService, IDisposable
     private int _disposed;
     private string _stateText = "Stopped";
     private string _lastError = string.Empty;
-    private PresenceSnapshot? _lastPresence;
+    private DiscordPresenceSnapshot? _lastPresence;
+    private DateTimeOffset _nextPresenceUpdateUtc;
     private bool _statusReady;
 
     public DiscordBotService(
@@ -310,6 +311,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
             _client = null;
             _botLifetime = null;
             _lastPresence = null;
+            _nextPresenceUpdateUtc = DateTimeOffset.MinValue;
             _statusReady = false;
             _statusRelayService.Reset();
         }
@@ -424,11 +426,11 @@ public sealed class DiscordBotService : IHostedService, IDisposable
 
     private async Task UpdatePresenceAsync(DiscordSocketClient client, CancellationToken cancellationToken)
     {
-        var presence = BuildPresenceSnapshot();
-
         await _presenceGate.WaitAsync(cancellationToken);
         try
         {
+            if (DateTimeOffset.UtcNow < _nextPresenceUpdateUtc) return;
+            var presence = BuildPresenceSnapshot();
             lock (_sync)
             {
                 if (_lastPresence == presence)
@@ -436,7 +438,8 @@ public sealed class DiscordBotService : IHostedService, IDisposable
             }
 
             await client.SetStatusAsync(presence.Status);
-            await client.SetGameAsync(presence.Activity, type: ActivityType.Watching);
+            await client.SetGameAsync(presence.Activity, type: presence.ActivityType);
+            _nextPresenceUpdateUtc = DateTimeOffset.UtcNow.AddSeconds(5);
 
             lock (_sync)
             {
@@ -449,70 +452,10 @@ public sealed class DiscordBotService : IHostedService, IDisposable
         }
     }
 
-    private PresenceSnapshot BuildPresenceSnapshot()
-    {
-        var snapshots = _supervisor.GetSnapshots();
-        var agents = _registry.GetAgents();
-        var clusterPresence = _clusters.Presence();
-        var totalServers = snapshots.Count + clusterPresence.Total;
-        var activeServers = snapshots.Count(snapshot => IsActive(snapshot.State)) + clusterPresence.Active;
-        var issueCount = snapshots.Count(HasIssue) + clusterPresence.Issues;
-        var warningCount = snapshots.Count(snapshot => snapshot.HealthState == DedicatedServerHealthState.Warning);
-        var playersOnline = agents
-            .Where(agent => !agent.IsCluster && agent.IsConnected)
-            .Sum(agent => agent.Snapshot?.Metrics.PlayersOnline ?? 0) + clusterPresence.Players;
+    private DiscordPresenceSnapshot BuildPresenceSnapshot() => PreviewPresence(_optionsCatalog.GetOptions().Presence);
 
-        var status = issueCount > 0
-            ? UserStatus.DoNotDisturb
-            : activeServers > 0
-                ? UserStatus.Online
-                : UserStatus.Idle;
-
-        var activity = totalServers == 0
-            ? "0 servers configured"
-            : BuildActivityText(activeServers, totalServers, playersOnline, issueCount, warningCount);
-
-        return new PresenceSnapshot(status, TruncateActivity(activity));
-    }
-
-    private static string BuildActivityText(
-        int activeServers,
-        int totalServers,
-        int playersOnline,
-        int issueCount,
-        int warningCount)
-    {
-        var text = $"{activeServers}/{totalServers} servers online, {playersOnline} players";
-
-        if (issueCount > 0)
-            return $"{text}, {issueCount} issues";
-
-        if (warningCount > 0)
-            return $"{text}, {warningCount} warnings";
-
-        return text;
-    }
-
-    private static bool IsActive(DedicatedServerProcessState state)
-    {
-        return state is DedicatedServerProcessState.Starting
-            or DedicatedServerProcessState.Running
-            or DedicatedServerProcessState.Stopping
-            or DedicatedServerProcessState.Restarting;
-    }
-
-    private static bool HasIssue(DedicatedServerRuntimeSnapshot snapshot)
-    {
-        return snapshot.State is DedicatedServerProcessState.Crashed
-                or DedicatedServerProcessState.Faulted ||
-            snapshot.HealthState == DedicatedServerHealthState.Unhealthy;
-    }
-
-    private static string TruncateActivity(string activity)
-    {
-        const int maxLength = 128;
-        return activity.Length <= maxLength ? activity : activity[..maxLength];
-    }
+    internal DiscordPresenceSnapshot PreviewPresence(DiscordPresenceOptions options) => DiscordPresence.Build(options,
+        DiscordPresence.Standalone(_supervisor.GetSnapshots(), _registry.GetAgents()).Concat(_clusters.PresenceServers()));
 
     private void SetState(string stateText, string lastError)
     {
@@ -525,7 +468,6 @@ public sealed class DiscordBotService : IHostedService, IDisposable
         Changed?.Invoke();
     }
 
-    private readonly record struct PresenceSnapshot(UserStatus Status, string Activity);
 }
 
 public sealed class DiscordBotStatusSnapshot

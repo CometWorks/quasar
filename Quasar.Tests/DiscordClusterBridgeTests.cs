@@ -121,6 +121,31 @@ public sealed class DiscordClusterBridgeTests
         finally { catalog.Dispose(); if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 
+    [Fact]
+    public async Task PresenceWithoutChannelBindingsCountsClusterOnceUsingGatewayPlayers()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "discord-presence-" + Guid.NewGuid());
+        using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = directory }).Build());
+        try
+        {
+            await catalog.CreateAsync(new("cluster-a", "Cluster", "http://gateway.test", ""), default);
+            var status = Status(Node("wa", 7, "host-1"), Node("a", 8, "host-1"), Node("b", 9, "host-2"));
+            status = status with { Counts = status.Counts with { ConnectedClients = 12 } };
+            using var http = new HttpClient(new GatewayHandler(status));
+            var bridge = new DiscordClusterBridge(catalog, new ClusterGatewayClient(http), null!, null!, null!, null!,
+                NullLogger<DiscordClusterBridge>.Instance);
+            // No Discord client or relay dependencies are needed for presence-only observation.
+            await bridge.PollAsync(null!, new DiscordOptions(), default);
+            var server = Assert.Single(bridge.PresenceServers());
+            Assert.Equal("cluster:cluster-a", server.Key);
+            Assert.Equal(12, server.Players);
+            Assert.True(server.Online);
+            Assert.Equal("1/1 servers online, 12 players", DiscordPresence.Build(new(), [server]).Activity);
+        }
+        finally { catalog.Dispose(); if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
     private static Admin.NodeStatus Node(string name, long epoch, string host) => new(name, name, epoch,
         Admin.NodeRole.Regular, Admin.NodeState.Active, "endpoint", null, Now, Now.AddMinutes(1), 0, 0, host, true);
     private static AgentRuntimeState Agent(string node, long epoch, string host) => new()

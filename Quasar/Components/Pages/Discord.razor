@@ -63,6 +63,45 @@
                                  Variant="Variant.Outlined"
                                  Min="0" />
 
+                <MudDivider />
+                <MudText Typo="Typo.h6">Bot presence</MudText>
+                <MudText Typo="Typo.caption">Choose which servers contribute to the bot's status and activity. Each cluster counts as one server. Relay and notification settings are independent.</MudText>
+                <MudCheckBox T="bool" @bind-Value="_options.Presence.AllServers" Label="Include all servers" />
+                @if (!_options.Presence.AllServers)
+                {
+                    <MudSelect T="string" Label="Servers shown in presence" Variant="Variant.Outlined" MultiSelection="true"
+                               SelectedValues="_options.Presence.SelectedTargets"
+                               SelectedValuesChanged="values => _options.Presence.SelectedTargets = values.ToList()">
+                        @foreach (var definition in ServerDefinitions)
+                        {
+                            <MudSelectItem T="string" Value="@definition.UniqueName">@GetServerName(definition.UniqueName)</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudText Typo="Typo.caption">Only selected servers contribute. New servers are not added automatically. Selecting none clears the activity.</MudText>
+                }
+                <MudSelect T="DiscordPresenceStatus" @bind-Value="_options.Presence.Status" Label="Status indicator" Variant="Variant.Outlined">
+                    <MudSelectItem Value="DiscordPresenceStatus.Automatic">Automatic (selected servers)</MudSelectItem>
+                    <MudSelectItem Value="DiscordPresenceStatus.Online">Online</MudSelectItem>
+                    <MudSelectItem Value="DiscordPresenceStatus.Idle">Idle</MudSelectItem>
+                    <MudSelectItem Value="DiscordPresenceStatus.DoNotDisturb">Do not disturb</MudSelectItem>
+                    <MudSelectItem Value="DiscordPresenceStatus.Invisible">Invisible</MudSelectItem>
+                </MudSelect>
+                <MudCheckBox T="bool" @bind-Value="_options.Presence.ShowActivity" Label="Show activity text" />
+                <MudSelect T="DiscordPresenceActivity" @bind-Value="_options.Presence.ActivityType" Label="Activity type" Variant="Variant.Outlined" Disabled="@(!_options.Presence.ShowActivity)">
+                    <MudSelectItem Value="DiscordPresenceActivity.Watching">Watching</MudSelectItem>
+                    <MudSelectItem Value="DiscordPresenceActivity.Playing">Playing</MudSelectItem>
+                    <MudSelectItem Value="DiscordPresenceActivity.Listening">Listening to</MudSelectItem>
+                    <MudSelectItem Value="DiscordPresenceActivity.Competing">Competing in</MudSelectItem>
+                </MudSelect>
+                <MudCheckBox T="bool" @bind-Value="_options.Presence.ShowServerCount" Label="Online server count" Disabled="@(!_options.Presence.ShowActivity)" />
+                <MudCheckBox T="bool" @bind-Value="_options.Presence.ShowPlayerCount" Label="Player count" Disabled="@(!_options.Presence.ShowActivity)" />
+                <MudCheckBox T="bool" @bind-Value="_options.Presence.ShowHealth" Label="Issues and warnings" Disabled="@(!_options.Presence.ShowActivity)" />
+                <MudCheckBox T="bool" @bind-Value="_options.Presence.ShowServerNames" Label="Server names" Disabled="@(!_options.Presence.ShowActivity || _options.Presence.ShowServerStates)" />
+                <MudCheckBox T="bool" @bind-Value="_options.Presence.ShowServerStates" Label="Server names and states" Disabled="@(!_options.Presence.ShowActivity)" />
+                @{ var presencePreview = DiscordBotService.PreviewPresence(_options.Presence); }
+                <MudText Typo="Typo.caption">Preview: @presencePreview.Status · @(presencePreview.Activity is null ? "Activity hidden" : $"{presencePreview.ActivityType}: {presencePreview.Activity}")</MudText>
+                <MudText Typo="Typo.caption">Discord limits activity text to 128 characters. Save Bot Settings to apply.</MudText>
+
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveBotSettingsAsync">
                     Save Bot Settings
                 </MudButton>
@@ -73,8 +112,8 @@
     <MudItem xs="12" xl="8">
         <MudPaper Class="pa-4 server-card">
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
-                <MudText Typo="Typo.h6">Server and cluster bindings</MudText>
-                <MudText Typo="Typo.caption">@($"{ServerDefinitions.Count} server(s) and cluster(s)")</MudText>
+                <MudText Typo="Typo.h6">Per-Server Bindings</MudText>
+                <MudText Typo="Typo.caption">@($"{ServerDefinitions.Count} server(s)")</MudText>
             </MudStack>
 
             @if (ServerDefinitions.Count == 0)

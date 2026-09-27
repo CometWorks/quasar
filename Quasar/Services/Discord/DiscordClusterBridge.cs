@@ -19,12 +19,21 @@ public sealed class DiscordClusterBridge(
     private readonly Dictionary<string, DateTimeOffset> _errors = new(StringComparer.OrdinalIgnoreCase);
     private DateTimeOffset _started = DateTimeOffset.UtcNow;
 
-    public (int Total, int Active, int Players, int Issues) Presence()
+    internal IEnumerable<DiscordPresenceServer> PresenceServers()
     {
-        var configured = catalog.GetClusters();
-        var fresh = _observations.Values.Where(o => DateTimeOffset.UtcNow - o.At <= TimeSpan.FromSeconds(15)).ToArray();
-        return (configured.Count, fresh.Count(o => o.Status.Phase is Admin.ClusterPhase.Serving or Admin.ClusterPhase.Degraded),
-            fresh.Sum(o => o.Status.Counts.ConnectedClients), fresh.Count(o => o.Status.Health == Admin.AdminHealth.Unhealthy));
+        foreach (var cluster in catalog.GetClusters())
+        {
+            _observations.TryGetValue(cluster.UniqueName, out var observation);
+            var status = observation != null && DateTimeOffset.UtcNow - observation.At <= TimeSpan.FromSeconds(15)
+                ? observation.Status : null;
+            var stopped = cluster.GoalState == DedicatedServerGoalState.Off && cluster.ShutdownProof?.LifecycleId == cluster.GetLifecycleId();
+            yield return new("cluster:" + cluster.UniqueName, cluster.UniqueName,
+                status?.Phase is Admin.ClusterPhase.Serving or Admin.ClusterPhase.Degraded,
+                status?.Counts.ConnectedClients ?? (stopped ? 0 : (int?)null),
+                status?.Phase.ToString() ?? (stopped ? "Stopped" : "Unavailable"),
+                status?.Health == Admin.AdminHealth.Unhealthy,
+                status?.Health == Admin.AdminHealth.Warning || status == null && !stopped);
+        }
     }
 
     public void Reset()
@@ -53,7 +62,12 @@ public sealed class DiscordClusterBridge(
 
     public async Task PollAsync(DiscordSocketClient client, DiscordOptions options, CancellationToken token)
     {
-        foreach (var settings in options.Servers.Where(s => s.IsCluster).DistinctBy(s => s.TargetKey, StringComparer.OrdinalIgnoreCase))
+        // Presence also works before a cluster has chat/channel bindings. Those observations must not enable relays.
+        var targets = options.Servers.Where(s => s.IsCluster).Concat(catalog.GetClusters()
+            .Where(c => options.Presence.Includes("cluster:" + c.UniqueName))
+            .Select(c => new DiscordServerOptions { UniqueName = c.UniqueName, IsCluster = true,
+                EnableChatRelay = false, EnablePlayerNotifications = false, EnableServerNotifications = false }));
+        foreach (var settings in targets.DistinctBy(s => s.TargetKey, StringComparer.OrdinalIgnoreCase))
         {
             try
             {
@@ -68,7 +82,8 @@ public sealed class DiscordClusterBridge(
                 }
                 var status = (await gateway.GetStatusAsync(cluster, token)).Data;
                 ValidateIdentity(cluster, status);
-                var clients = (await gateway.GetClientsAsync(cluster, token)).Data;
+                var clients = settings.EnablePlayerNotifications || settings.EnableChatRelay
+                    ? (await gateway.GetClientsAsync(cluster, token)).Data : Array.Empty<Admin.ClientSummary>();
                 _observations.TryGetValue(settings.UniqueName, out var previous);
                 var current = new Observation(DateTimeOffset.UtcNow, status, clients);
                 _observations[settings.UniqueName] = current;
