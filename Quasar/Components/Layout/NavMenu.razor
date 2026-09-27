@@ -34,18 +34,14 @@
 
     <MudText Typo="Typo.overline" Class="px-4">Tools</MudText>
     <MudNavMenu Class="magnetar-nav-menu">
-        <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
-            <Authorized>
-                <MudNavLink Href="/settings/security" Icon="@Icons.Material.Filled.Security">
-                    Security
-                </MudNavLink>
-            </Authorized>
-        </AuthorizeView>
         <MudNavLink Href="/hosts" Icon="@Icons.Material.Filled.Dns">
             Hosts
         </MudNavLink>
         <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
             <Authorized>
+                <MudNavLink Href="/settings/security" Icon="@Icons.Material.Filled.Security">
+                    Security
+                </MudNavLink>
                 <MudNavLink Href="/settings/ui-plugins" Icon="@Icons.Material.Filled.Extension">
                     UI Plugins
                 </MudNavLink>

@@ -432,7 +432,7 @@ miss events during Agent outages. No durable Discord message archive is created.
 
 ## Browser push notifications
 
-The Tools section lists Security, Hosts, UI Plugins, and Backups (subject to permissions).
+The Tools section lists Hosts, Security, UI Plugins, and Backups (subject to permissions).
 Notifications appears in the section below Tools, alongside Appearance and Updates.
 
 **Notifications** (`/notifications`) in the lower navigation section lists outstanding update notices with
