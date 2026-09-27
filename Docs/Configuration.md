@@ -1122,7 +1122,8 @@ snapshots and edits are bound to a connection; reconnecting clears prior snapsho
 and an editor from the old connection cannot apply to its replacement. The ordinary
 Plugins page and log selector display cluster/slot/node/epoch labels.
 
-The cluster detail page shows node status, performance and players while the Gateway
+The **Cluster overview** card groups status, world/configuration references, runtime
+details and the node plan. The cluster detail page shows node status, performance and players while the Gateway
 is running. Process telemetry, plugin runtime state, statistics/profiler snapshots,
 recent logs and a capped event history remain available in the node details and tabs.
 Drain and force removal use the shared command service; force removal is in the
@@ -1141,6 +1142,15 @@ The current Plugins editor still addresses individual Agents; it does not synchr
 cluster settings or confirm fleet-wide application. Do not treat a per-Agent edit as
 a cluster-wide change. Replacing that path, persisting cluster revisions and enforcing
 startup/config consistency are planned integration work, not shipped behavior.
+
+On the cluster page, **Cluster administration → Plugin configuration** edits the
+plugin schemas in the saved deployment preparation. Saving prepares the configuration
+for all nodes; it does not apply settings to running Agents. Activate the prepared
+deployment with a full-downtime update under **Cluster maintenance**. Deployment
+tools pick up the newly saved preparation and activation request automatically.
+If no editable schemas are available, complete guided setup or prepare an imported
+deployment first. Unsaved imported requests remain in the advanced deployment tools
+until prepared. Cluster management permission and cluster access are required to save.
 
 ## Cluster content update observations
 
@@ -1521,7 +1531,7 @@ available for explicit recovery.
 ## Managed cluster workflows
 
 Cluster cards use compact header controls. Configuration profiles, world templates
-and node plugin configuration are accessible through the navigation bar rather than
+are accessible through the navigation bar rather than
 duplicated as shortcuts on cluster cards or the cluster control page. Start changes
 the managed goal to On; Stop confirms a graceful
 cluster shutdown and changes the goal to Off. Restart Gateway only restarts the

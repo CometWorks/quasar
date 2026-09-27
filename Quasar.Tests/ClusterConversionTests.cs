@@ -269,7 +269,7 @@ public sealed class ClusterConversionTests : IDisposable
         var plugin = multiple ? new System.Text.Json.Nodes.JsonObject { ["configurations"] = new System.Text.Json.Nodes.JsonArray(primary, other) } : primary;
         var specification = new System.Text.Json.Nodes.JsonObject {
             ["pluginConfigurations"] = new System.Text.Json.Nodes.JsonObject { ["plugin"] = plugin } };
-        Quasar.Components.Dashboard.ClusterDeploymentPanel.SetPluginValues(specification, "plugin", "Primary", "{\"limit\":9}");
+        Quasar.Components.Dashboard.ClusterPluginConfigurationPanel.SetPluginValues(specification, "plugin", "Primary", "{\"limit\":9}");
         Assert.Equal(9, primary["configuration"]!["values"]!["limit"]!.GetValue<int>());
         Assert.Equal("primary", primary["configuration"]!["schema"]!["name"]!.GetValue<string>());
         Assert.Equal(unchanged, other.ToJsonString());

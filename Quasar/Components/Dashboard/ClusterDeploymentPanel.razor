@@ -9,7 +9,6 @@
 @inject ClusterDependencyService Dependencies
 @inject ClusterReleaseMonitor Releases
 @inject ManagedDedicatedServerRuntimeResolver Runtime
-@inject QuasarConfigProfileCatalog Profiles
 @inject QuasarPermissionService Permissions
 @inject AuthenticationStateProvider AuthenticationState
 @inject QuasarRoleMapper RoleMapper
@@ -20,7 +19,7 @@
     <MudCard Class="server-card">
     <MudCardContent>
     <MudStack Spacing="3">
-        <MudText Typo="Typo.h6">Deployment and backups</MudText>
+        <MudText Typo="Typo.h6">Cluster maintenance</MudText>
         <MudText Class="cluster-long-value">Active revision: @(Current.ActiveDeployment?.Revision ?? "None")</MudText>
         @if (Current.ActiveDeployment is not null && !ClusterReleaseMonitor.IsOnLatestRelease(Current, Releases.GetSnapshot().Release))
         {
@@ -121,15 +120,6 @@
                 <MudText Typo="Typo.caption">To change installation or topology inputs, edit the downloaded file and import it here.</MudText>
                 <InputFile OnChange="ImportPreparationAsync" accept=".json,application/json" disabled="@_busy" />
                 <MudButton OnClick="PrepareAsync" Disabled="@(_busy || _preparationRequest is null)" Variant="Variant.Outlined" Color="Color.Primary">Prepare all Hosts</MudButton>
-                <MudExpansionPanels>
-                @foreach (var plugin in PreparedPlugins())
-                {
-                    <MudExpansionPanel Text="@plugin.DisplayName">
-                        <PluginConfigEditor Plugin="plugin" AgentId="" ConnectionId="" SaveValues="@(values => SavePluginAsync(plugin.PluginId, plugin.ConfigType, values))"
-                            ApplyLabel="Prepare configuration for all nodes" SuccessMessage="Cluster configuration prepared. Activate it with a full-downtime update." />
-                    </MudExpansionPanel>
-                }
-                </MudExpansionPanels>
                 </MudStack>
             </MudExpansionPanel>
             <MudExpansionPanel Text="Activate prepared deployment">
@@ -154,7 +144,7 @@
     [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = default!;
     private ClusterDefinition Current => Catalog.GetCluster(Cluster.UniqueName) ?? Cluster;
     private string _artifactId = "";
-    private ClusterPreparationRequest? _preparationRequest;
+    private ClusterPreparationRequest? _preparationRequest, _savedPreparation;
     private string _activation = "", _restore = "";
     private string? _backups;
     private string? _message;
@@ -163,63 +153,17 @@
     protected override void OnInitialized()
     {
         Catalog.Changed += CatalogChanged;
-        _preparationRequest = Current.Preparation;
+        RefreshSavedPreparation();
     }
-    private void CatalogChanged() => _ = InvokeAsync(StateHasChanged);
+    private void CatalogChanged() => _ = InvokeAsync(() => { RefreshSavedPreparation(); StateHasChanged(); });
+    private void RefreshSavedPreparation()
+    {
+        var current = Current;
+        if (current.Preparation == _savedPreparation) return;
+        _preparationRequest = _savedPreparation = current.Preparation;
+        _activation = current.PreparedDeployment is { } prepared ? JsonSerializer.Serialize(prepared, Json) : "";
+    }
     public void Dispose() => Catalog.Changed -= CatalogChanged;
-    private Magnetar.Protocol.Model.PluginConfigData[] PreparedPlugins()
-    {
-        try
-        {
-            using var spec = JsonDocument.Parse(_preparationRequest?.SpecificationJson ?? "{}");
-            if (!spec.RootElement.TryGetProperty("pluginConfigurations", out var plugins)) return [];
-            return plugins.EnumerateObject().SelectMany(plugin =>
-                (plugin.Value.TryGetProperty("configurations", out var configs) ? configs.EnumerateArray().ToArray() : [plugin.Value])
-                .Where(config => config.TryGetProperty("configuration", out _))
-                .Select(config => new Magnetar.Protocol.Model.PluginConfigData { PluginId = plugin.Name,
-                    DisplayName = PluginDisplayName(plugin.Name) + (plugin.Value.TryGetProperty("configurations", out _) ? " / " + config.GetProperty("configType").GetString() : ""),
-                    ConfigType = config.GetProperty("configType").GetString() ?? "",
-                    ConfigJson = config.GetProperty("configuration").GetRawText() })).ToArray();
-        }
-        catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException)
-        { return []; }
-    }
-    private string PluginDisplayName(string pluginId)
-    {
-        string? name = Profiles.GetProfile(Current.ConfigProfileId)?.Plugins
-            .FirstOrDefault(plugin => plugin.PluginId.Equals(pluginId, StringComparison.OrdinalIgnoreCase))?.DisplayName;
-        if (!string.IsNullOrWhiteSpace(name)) return name;
-        return pluginId switch
-        {
-            "direct-transport" => "Direct Transport",
-            "dotnet-compat" => ".NET Compatibility",
-            "linux-compat" => "Linux Compatibility",
-            "quasar-agent" => "Quasar Agent",
-            _ => pluginId,
-        };
-    }
-    private async Task SavePluginAsync(string pluginId, string configType, string values)
-    {
-        if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) throw new InvalidOperationException("Cluster management is unavailable.");
-        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
-        if (!user.CanQueryCluster(Cluster.UniqueName)) throw new InvalidOperationException("Cluster access denied.");
-        var request = _preparationRequest ?? throw new InvalidDataException("Preparation is required.");
-        var spec = System.Text.Json.Nodes.JsonNode.Parse(request.SpecificationJson)!;
-        SetPluginValues(spec, pluginId, configType, values);
-        string json = spec.ToJsonString();
-        string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
-        request = request with { SpecificationJson = json, Hosts = request.Hosts.Select(h => h with {
-            ConfigurationDirectory = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(h.ConfigurationDirectory)!, "config-" + hash) }).ToArray() };
-        _busy = true;
-        try
-        {
-            var result = await Deployments.PrepareAsync(Cluster.UniqueName, request, "plugin-config-" + hash, user.Identity?.Name ?? "web-ui", default);
-            if (result.State != ClusterOperationState.Succeeded) throw new InvalidOperationException(result.Error?.Message ?? "Configuration preparation is incomplete.");
-            _preparationRequest = request;
-            _activation = JsonSerializer.Serialize(result.Result, Json);
-        }
-        finally { _busy = false; }
-    }
     private Task DownloadPreparationAsync()
     {
         if (_preparationRequest is null) return Task.CompletedTask;
@@ -253,13 +197,6 @@
             or InvalidOperationException or ArgumentException)
         { _message = error.Message; }
         finally { _busy = false; }
-    }
-    internal static void SetPluginValues(System.Text.Json.Nodes.JsonNode specification, string pluginId, string configType, string values)
-    {
-        var plugin = specification["pluginConfigurations"]![pluginId]!;
-        var config = plugin["configurations"] is System.Text.Json.Nodes.JsonArray configs
-            ? configs.Single(c => c?["configType"]?.GetValue<string>() == configType)! : plugin;
-        config["configuration"]!["values"] = System.Text.Json.Nodes.JsonNode.Parse(values);
     }
     private void ListBackups() => _backups = JsonSerializer.Serialize(Backups.List(Cluster.UniqueName)
         .Select(b => new { b.SnapshotId, b.CreatedAt, b.Consistency }), Json);

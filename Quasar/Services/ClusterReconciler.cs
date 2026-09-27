@@ -246,7 +246,7 @@ public sealed class ClusterReconciler : BackgroundService
                     Set(cluster, ClusterReconcileState.ConfigurationRequired, hostGateway.Observed, gateway.Phase,
                         "shutdown_recovery_required",
                         $"{result.Error?.Message ?? "Cluster shutdown failed."} No active nodes remain; "
-                        + "the Gateway cannot create missing final saves. In Deployment and backups → Recovery, "
+                        + "the Gateway cannot create missing final saves. In Cluster maintenance → Recovery, "
                         + "recover the stopped cluster after an unclean shutdown. Clean shutdown was not verified.");
                     return;
                 }

@@ -54,7 +54,8 @@
             }
             @if (!Compact)
             {
-            <MudExpansionPanels>
+            <MudExpansionPanels MultiExpansion="true">
+                <ClusterPluginConfigurationPanel Cluster="Cluster" />
                 <MudExpansionPanel Text="Advanced Gateway controls">
                 @if (Cluster.GoalState == DedicatedServerGoalState.On && Cluster.Gateway is not null)
                 {
