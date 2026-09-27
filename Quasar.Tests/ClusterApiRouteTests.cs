@@ -15,6 +15,8 @@ public sealed class ClusterApiRouteTests
     [Theory]
     [InlineData("/api/v1/clusters/{uniqueName}/fleet", false)]
     [InlineData("/api/v1/clusters/{uniqueName}/events", false)]
+    [InlineData("/api/v1/clusters/{uniqueName}/content-updates", false)]
+    [InlineData("/api/v1/clusters/{uniqueName}/content-updates/check", true)]
     [InlineData("/api/v1/clusters/{uniqueName}/commands", true)]
     [InlineData("/api/v1/clusters/{uniqueName}", true)]
     [InlineData("/api/v1/clusters/{uniqueName}/registration", true)]

@@ -156,6 +156,45 @@ public sealed class ClusterDependencyService
         finally { _gate.Release(); }
     }
 
+    // Read once per active revision, then retain the observations independently of
+    // candidate selection. A selected snapshot alone is not evidence of deployment.
+    internal async Task<ClusterPluginPin[]> ReadActivePluginPinsAsync(ClusterDefinition cluster, CancellationToken token)
+    {
+        var preparation = cluster.Preparation
+            ?? throw new InvalidDataException("Active deployment has no retained preparation provenance.");
+        if (cluster.ActiveDeployment is null || DeploymentRevision(preparation) != cluster.ActiveDeployment.Revision)
+            throw new InvalidDataException("Retained preparation belongs to another deployment. Active plugin pins are unknown.");
+        var inputs = await GetDeploymentInputsAsync(cluster, token);
+        if (Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, JsonOptions)) != preparation.InputsSha256)
+            throw new InvalidDataException("Selected dependencies belong to another deployment. Active plugin pins are unknown.");
+        var pins = new List<ClusterPluginPin>();
+        foreach (var (path, file) in inputs.Files.OrderBy(x => x.Key, StringComparer.Ordinal))
+        {
+            string[] parts = path.Split('/');
+            bool common = parts.Length == 5 && parts[0] == "Dependencies" && parts[1] == "payload"
+                && parts[2] == "CommonPlugins" && parts[4] == parts[3] + ".xml";
+            if (!common && path != "Dependencies/payload/DirectTransport/DirectTransport.xml") continue;
+            if (file.Bytes > 1024 * 1024) throw new InvalidDataException("Plugin metadata exceeds the supported size.");
+            byte[] bytes = await File.ReadAllBytesAsync(Path.Combine(inputs.DependencyDirectory, path["Dependencies/".Length..]), token);
+            if (bytes.LongLength != file.Bytes || Hash(bytes) != file.Sha256)
+                throw new InvalidDataException("Pinned plugin metadata changed during inspection.");
+            using var stream = new MemoryStream(bytes);
+            using var reader = XmlReader.Create(stream, new XmlReaderSettings
+                { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 1024 * 1024 });
+            var root = XDocument.Load(reader).Root ?? throw new InvalidDataException("Plugin metadata is empty.");
+            string id = root.Element("Id")?.Value ?? "";
+            string commit = root.Element("Commit")?.Value ?? "";
+            if (string.IsNullOrWhiteSpace(id) || !ClusterPackageService.IsHash(commit, 40)
+                || pins.Any(pin => pin.Id == id)) throw new InvalidDataException("Plugin provenance is invalid.");
+            pins.Add(new(id, root.Element("FriendlyName")?.Value ?? id,
+                root.Element("RepoId")?.Value ?? "", commit.ToLowerInvariant()));
+        }
+        return pins.ToArray();
+    }
+
+    internal static string DeploymentRevision(ClusterPreparationRequest preparation) => Hash(
+        System.Text.Encoding.UTF8.GetBytes(Hash(System.Text.Encoding.UTF8.GetBytes(preparation.SpecificationJson)) + preparation.InputsSha256));
+
     private async Task<ClusterDependencyCandidate> VerifyAsyncCore(ClusterPackageSelection selected, string hash,
         CancellationToken token)
     {

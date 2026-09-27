@@ -8,6 +8,7 @@
 @inject QuasarUpdateService UpdateService
 @inject PushNotificationService PushNotifications
 @inject ClusterReleaseMonitor ClusterReleases
+@inject ClusterContentMonitor ClusterContent
 @inject ClusterCatalog ClusterCatalog
 @inject RbacConfigCatalog RbacConfigCatalog
 @inject AuthenticationStateProvider AuthenticationState
@@ -44,7 +45,14 @@
                          AriaLabel="Notifications"
                          AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
                     <MudMenuItem OnClick="EnablePushAsync" Disabled="@(!_pushChecked || !_pushSupported || !_pushServiceAvailable || _pushEnabled)">Enable push notifications</MudMenuItem>
-                    <MudMenuItem Href="@GetUpdateBellHref()" Disabled="@(!HasUpdateBellBadge)">Open current notification</MudMenuItem>
+                    @foreach (var notice in Notices)
+                    {
+                        <MudMenuItem Href="@notice.Url">@notice.Body</MudMenuItem>
+                    }
+                    @if (!HasUpdateBellBadge)
+                    {
+                        <MudMenuItem Disabled="true">No update notifications</MudMenuItem>
+                    }
                     @if (_pushEnabled)
                     {
                         <MudMenuItem OnClick="DisablePushAsync">Disable push notifications on this browser</MudMenuItem>
@@ -180,6 +188,7 @@
         BrandingService.Changed += OnBrandingChanged;
         UpdateService.Changed += OnUpdatesChanged;
         ClusterReleases.Changed += OnClusterReleasesChanged;
+        ClusterContent.Changed += OnClusterCatalogChanged;
         ClusterCatalog.Changed += OnClusterCatalogChanged;
         RbacConfigCatalog.Changed += OnRbacChanged;
         _updateSnapshot = UpdateService.GetSnapshot();
@@ -192,6 +201,7 @@
         BrandingService.Changed -= OnBrandingChanged;
         UpdateService.Changed -= OnUpdatesChanged;
         ClusterReleases.Changed -= OnClusterReleasesChanged;
+        ClusterContent.Changed -= OnClusterCatalogChanged;
         ClusterCatalog.Changed -= OnClusterCatalogChanged;
         RbacConfigCatalog.Changed -= OnRbacChanged;
     }
@@ -302,8 +312,9 @@
         _ => Icons.Material.Filled.BrightnessAuto,
     };
 
-    private UpdateNotice? CurrentNotice => UpdateNotices.Current(_updateSnapshot, _clusterReleaseSnapshot,
-        ClusterCatalog.GetClusters(), _currentUser ?? new System.Security.Claims.ClaimsPrincipal());
+    private UpdateNotice[] Notices => UpdateNotices.All(_updateSnapshot, _clusterReleaseSnapshot,
+        ClusterCatalog.GetClusters(), _currentUser ?? new System.Security.Claims.ClaimsPrincipal(), ClusterContent.GetSnapshot).ToArray();
+    private UpdateNotice? CurrentNotice => Notices.FirstOrDefault();
 
     private bool HasUpdateBellBadge => CurrentNotice is not null;
 
@@ -321,8 +332,6 @@
     }
 
     private string GetUpdateBellTooltip() => CurrentNotice?.Body ?? "Notifications";
-
-    private string GetUpdateBellHref() => CurrentNotice?.Url ?? "/settings/updates";
 
     private Task OnBellOpenChangedAsync(bool open) => open ? RefreshPushStatusAsync() : Task.CompletedTask;
 

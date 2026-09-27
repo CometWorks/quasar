@@ -14,6 +14,27 @@ namespace Quasar.Tests;
 
 public sealed class ClusterDependencyTests
 {
+    [LinuxFact]
+    public async Task ContentInventoryMustMatchActivePreparationAndVerifiedDependencies()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var candidate = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        await fixture.Service.StageAsync(fixture.Cluster, new(candidate.ManifestSha256, 1, null), default);
+        fixture.Cluster.DependencyManifestSha256 = candidate.ManifestSha256;
+        var inputs = await fixture.Service.GetDeploymentInputsAsync(fixture.Cluster, default);
+        string hash = ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, ClusterDeploymentFiles.JsonOptions));
+        fixture.Cluster.Preparation = new(hash, "{}", "http://gateway.test", []);
+        fixture.Cluster.ActiveDeployment = new(ClusterDependencyService.DeploymentRevision(fixture.Cluster.Preparation), [], DateTimeOffset.UtcNow);
+        var pins = await fixture.Service.ReadActivePluginPinsAsync(fixture.Cluster, default);
+        Assert.Equal(3, pins.Length);
+        Assert.Equal(new string('c', 40), Assert.Single(pins, p => p.Id == "direct-transport").Commit);
+        fixture.Cluster.Preparation = fixture.Cluster.Preparation with { SpecificationJson = "{\"candidate\":true}" };
+        await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Service.ReadActivePluginPinsAsync(fixture.Cluster, default));
+        fixture.Cluster.Preparation = fixture.Cluster.Preparation with { SpecificationJson = "{}" };
+        File.AppendAllText(Path.Combine(inputs.DependencyDirectory, "payload/CommonPlugins/linux-compat/linux-compat.xml"), "changed");
+        await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Service.ReadActivePluginPinsAsync(fixture.Cluster, default));
+    }
+
     [Fact]
     public void ClusterSdkPinRejectsMalformedReleaseMetadata()
     {

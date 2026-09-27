@@ -244,6 +244,8 @@ public class Program
             builder.Services.AddSingleton<ClusterPackageService>();
             builder.Services.AddSingleton<ClusterReleaseMonitor>();
             builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterReleaseMonitor>());
+            builder.Services.AddSingleton<ClusterContentMonitor>();
+            builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterContentMonitor>());
             builder.Services.AddSingleton<ClusterDependencyService>();
             builder.Services.AddSingleton<ClusterOperationStore>();
             builder.Services.AddHostedService<ClusterOperationReconciler>();

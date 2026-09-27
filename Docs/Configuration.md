@@ -387,7 +387,7 @@ use Quasar's stable unique names, not display names.
 The top-bar bell is outlined until the current browser has a push subscription
 registered with this Quasar account. Open the bell and select **Enable push
 notifications** to grant browser permission; a filled bell means push is enabled
-here. The same menu opens the current update notice or disables push on this
+here. The same menu lists outstanding update notices or disables push on this
 browser. Browser push requires HTTPS (or localhost) and browser support for
 service workers and Push API. It does not require installing Quasar as a PWA.
 The browser must also reach its own push provider to create a subscription.
@@ -397,10 +397,12 @@ push messaging** under `brave://settings/privacy`, then retry. Quasar cannot
 register a subscription when the browser's push provider is disabled or
 unreachable.
 
-Quasar sends update notices for the current top-bar item: GitHub update
-credential warnings, Quasar UI and launcher releases, and newer cluster
-packages. It checks for pending notices every 30 seconds and suppresses repeats
-while the same notice remains current. The notification click opens the matching Quasar Updates
+Quasar sends update notices for GitHub update credential warnings, Quasar UI and
+launcher releases, newer cluster packages, and observed cluster mod/plugin changes.
+It checks for pending notices every 30 seconds and retains successful delivery receipts
+per browser while each notice remains outstanding. Multiple notices coexist; a Quasar
+release does not hide a content update. Each sweep sends up to ten pending notices per
+browser. Failed deliveries remain pending. The notification click opens the matching Quasar Updates
 or cluster page on the same origin; no callback URL needs configuring. Browser
 permission and subscriptions belong to each browser profile. Only enable push
 on a device where notifications for your Quasar account are appropriate.
@@ -1028,6 +1030,48 @@ The current Plugins editor still addresses individual Agents; it does not synchr
 cluster settings or confirm fleet-wide application. Do not treat a per-Agent edit as
 a cluster-wide change. Replacing that path, persisting cluster revisions and enforcing
 startup/config consistency are planned integration work, not shipped behavior.
+
+## Cluster content update observations
+
+The cluster detail page includes **Mods and plugins**, independently of whether its
+cluster package is current. **Check content updates** refreshes observations; scheduled
+checks use the existing `Quasar:Updates` enable/interval settings (15 minutes by default).
+Repeated manual/API checks share a sweep and are limited to one per minute.
+
+- **Mods:** Quasar batches configured Workshop IDs across clusters and reads Steam's
+  `time_updated` timestamp without requiring a Web API key. The first successful check
+  establishes an observation baseline. Later differences show **Changed since first check**
+  and link to the Workshop changelog. These timestamps are not pins or evidence of which
+  bytes a running node loaded. Only profile-listed mods are covered; implicit companions
+  and plugin-associated dependencies need the upcoming complete content manifest.
+- **Plugins:** Quasar reads exact `<Commit>` values from verified dependency metadata only
+  after binding that snapshot and preparation to the active deployment revision. It retains
+  those pins independently of candidate selection and compares them to MagnetarHub's
+  declared source commits. Repository changes or missing provenance show an explicit warning.
+  The hub manifest file's Git SHA, description and displayed version are not plugin versions.
+  Commit comparison links show source changes. Packaged cluster role plugins remain covered
+  by cluster package updates, not the common-plugin monitor.
+- **Failures:** partial Workshop/hub failures retain last successful observations and display
+  errors with their observation times. They do not mark content current. A selected candidate
+  cannot become the active comparison baseline. Imported deployments without verifiable local
+  preparation provenance show their plugin inventory as unknown.
+
+Observations and verified plugin inventories persist in `ClusterContentUpdates.json` under
+the Quasar data directory. Keep it with normal Quasar backups. A damaged file pauses content
+checks and shows an error; restoring the file and restarting preserves the original baselines.
+A mod observation baseline is retained across deployments until real mod pins are available;
+an ordinary cluster restart/update cannot prove that a mod change was applied.
+
+API: `GET /api/v1/clusters/{name}/content-updates` requires cluster-query access;
+`POST /api/v1/clusters/{name}/content-updates/check` requires cluster-manage access.
+Both enforce the credential's cluster allow-list. The check batches all managed clusters
+but returns only the requested cluster's observations. Results use the normal admin envelope.
+
+Changes appear in the bell and reach each authorized browser push subscription, with a link
+to the affected cluster's content panel. Checks do not download mod/plugin payloads, change
+deployment pins, restart nodes, block player admission or apply updates. Content preparation,
+activation and rolling replacement remain unavailable pending the upstream pin/preparation
+contracts described in the [content update plan](https://git.cometworks.se/CometWorks/clustering-plan/src/branch/main/Plan/ClusterContentUpdatesPlan.md).
 
 ## Cluster release staging and selection (Linux)
 

@@ -1,5 +1,17 @@
 # Cluster plugins: one server, existing SDK
 
+## Content update monitoring (2026-09-27)
+
+Quasar now observes common-plugin manifest commits against verified active deployment
+provenance and watches configured Workshop mod timestamps. The cluster content panel,
+bell and browser push expose changes even when the cluster package is current. Mod
+observations are not deployed byte pins. Applying content updates and rolling plugin/WA
+replacement still require upstream contracts. See [configuration](Configuration.md#cluster-content-update-observations)
+for the shipped behavior and the [maintained plan](https://git.cometworks.se/CometWorks/clustering-plan/src/branch/main/Plan/ClusterContentUpdatesPlan.md)
+for the remaining implementation.
+
+## Original design audit
+
 Design requirements and source audit, 2026-09-19. This document distinguishes the
 required behavior from the branch's current implementation. It does not claim the
 release already supplies plugin synchronization or transparent global plugin state.

@@ -64,6 +64,12 @@ else
         <ClusterAdminPanel @ref="_admin" Cluster="Cluster" />
         <ClusterDetailPanel Cluster="Cluster" ShowConfigurationLinks="false" />
         <ClusterFleetPanel Cluster="Cluster" Command="ExecuteCommandAsync" />
+        @if (Cluster.ActiveDeployment is not null)
+        {
+            <section id="cluster-content" aria-label="Cluster content updates">
+                <ClusterContentPanel Cluster="Cluster" />
+            </section>
+        }
         <section id="cluster-configuration" aria-label="Cluster configuration">
             <ClusterDeploymentPanel Cluster="Cluster" />
         </section>

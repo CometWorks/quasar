@@ -132,6 +132,28 @@ internal static class ClusterApi
         RouteHandlerBuilder selectPackage = routes.MapPut("/{uniqueName}/package-selection", SelectPackage);
         routes.MapGet("/{uniqueName}/dependency-candidate", GetDependencyCandidate);
         routes.MapGet("/{uniqueName}/dependencies", GetDependencies);
+        routes.MapGet("/{uniqueName}/content-updates", (string uniqueName, HttpContext context,
+            ClusterCatalog catalog, [FromServices] ClusterContentMonitor content) =>
+        {
+            SetProtocolHeader(context);
+            if (!context.User.CanQueryCluster(uniqueName)) return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+            var cluster = catalog.GetCluster(uniqueName);
+            return cluster is null ? Error(404, "cluster_not_found", "Cluster not found.")
+                : Results.Json(Envelope(content.GetSnapshot(cluster)), JsonOptions);
+        });
+        var checkContent = routes.MapPost("/{uniqueName}/content-updates/check", async (string uniqueName,
+            HttpContext context, ClusterCatalog catalog, [FromServices] ClusterContentMonitor content, CancellationToken token) =>
+        {
+            SetProtocolHeader(context);
+            if (!context.User.CanQueryCluster(uniqueName)) return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+            if (catalog.GetCluster(uniqueName) is null) return Error(404, "cluster_not_found", "Cluster not found.");
+            try { await content.CheckNowAsync(token); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            { return Error(503, "content_observations_unavailable", "Content observations could not be saved. Check Quasar logs."); }
+            var cluster = catalog.GetCluster(uniqueName);
+            return cluster is null ? Error(404, "cluster_not_found", "Cluster not found.")
+                : Results.Json(Envelope(content.GetSnapshot(cluster)), JsonOptions);
+        });
         RouteHandlerBuilder deploymentInputs = routes.MapGet("/{uniqueName}/deployment-inputs", GetDeploymentInputs);
         routes.MapGet("/{uniqueName}/backups", (string uniqueName, HttpContext context, [FromServices] ClusterBackupService backups) =>
         {
@@ -225,6 +247,7 @@ internal static class ClusterApi
         if (authOptions.Enabled)
         {
             routes.RequireAuthorization(QuasarPolicyNames.ClusterQuery);
+            checkContent.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             cancelOperation.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             submitCommand.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             stagePackage.RequireAuthorization(QuasarPolicyNames.ClusterManage);

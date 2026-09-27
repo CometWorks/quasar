@@ -10,10 +10,11 @@ namespace Quasar.Services.Updates;
 
 public sealed record BrowserPushSubscription(string Endpoint, string P256dh, string Auth);
 
-/// <summary>Stores browser subscriptions and sends the current update notice to each authorized viewer.</summary>
+/// <summary>Stores browser subscriptions and delivers outstanding notices to each authorized viewer.</summary>
 public sealed class PushNotificationService(
     IDataProtectionProvider protection, QuasarUpdateService updates, ClusterReleaseMonitor releases,
-    ClusterCatalog clusters, QuasarRoleMapper roles, ILogger<PushNotificationService> logger) : BackgroundService
+    ClusterCatalog clusters, QuasarRoleMapper roles, ILogger<PushNotificationService> logger,
+    ClusterContentMonitor content) : BackgroundService
 {
     private const string VapidSubject = "https://github.com/CometWorks/quasar";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -47,9 +48,8 @@ public sealed class PushNotificationService(
         try
         {
             var state = await LoadAsync(token);
-            var notice = CurrentNotice(user);
             var next = state with { Subscriptions = RegisterSubscription(state.Subscriptions,
-                identity.Provider, identity.Subject, subscription, notice?.Key) };
+                identity.Provider, identity.Subject, subscription, null) };
             await SaveAsync(next, token);
         }
         finally { _gate.Release(); }
@@ -97,26 +97,42 @@ public sealed class PushNotificationService(
                 _ => null,
             };
             if (principal is null || !CanView(principal)) continue;
-            var notice = CurrentNotice(principal);
-            if (notice is null || notice.Key == item.LastNoticeKey) continue;
-            try
+            var notices = UpdateNotices.All(updates.GetSnapshot(), releases.GetSnapshot(), clusters.GetClusters(),
+                principal, content.GetSnapshot).ToArray();
+            var current = item;
+            // Keep receipts only for outstanding notices. Each browser owns its delivery history.
+            string[] retained = DeliveredKeys(current).Intersect(notices.Select(n => n.Key)).ToArray();
+            if (!DeliveredKeys(current).SequenceEqual(retained))
+                current = await UpdateSubscriptionAsync(current, null, false, token, retained);
+            if (current is null) continue;
+            foreach (var notice in PendingNotices(notices, current).Take(10))
             {
-                await _client.SendNotificationAsync(new PushSubscription(item.Endpoint, item.P256dh, item.Auth),
-                    JsonSerializer.Serialize(new { title = notice.Title, body = notice.Body, url = notice.Url, tag = notice.Key }, Json),
-                    new VapidDetails(VapidSubject, state.PublicKey, state.PrivateKey), token);
-                await UpdateSubscriptionAsync(item, notice.Key, remove: false, token);
+                if (current is null) break;
+                var expected = current;
+                try
+                {
+                    await _client.SendNotificationAsync(new PushSubscription(item.Endpoint, item.P256dh, item.Auth),
+                        JsonSerializer.Serialize(new { title = notice.Title, body = notice.Body, url = notice.Url, tag = notice.Key }, Json),
+                        new VapidDetails(VapidSubject, state.PublicKey, state.PrivateKey), token);
+                    current = await UpdateSubscriptionAsync(expected, notice.Key, remove: false, token);
+                    if (current is null) break;
+                }
+                catch (WebPushException error) when (error.StatusCode is HttpStatusCode.Gone or HttpStatusCode.NotFound)
+                {
+                    await UpdateSubscriptionAsync(expected, null, remove: true, token);
+                    break;
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                catch (Exception error) { logger.LogWarning(error, "Could not send browser push notification."); }
             }
-            catch (WebPushException error) when (error.StatusCode is HttpStatusCode.Gone or HttpStatusCode.NotFound)
-            {
-                await UpdateSubscriptionAsync(item, null, remove: true, token);
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-            catch (Exception error) { logger.LogWarning(error, "Could not send browser push notification."); }
         }
     }
 
-    private UpdateNotice? CurrentNotice(ClaimsPrincipal user) =>
-        UpdateNotices.Current(updates.GetSnapshot(), releases.GetSnapshot(), clusters.GetClusters(), user);
+    internal static string[] DeliveredKeys(StoredSubscription item) => item.DeliveredNoticeKeys
+        ?? (item.LastNoticeKey is null ? [] : [item.LastNoticeKey]);
+
+    internal static UpdateNotice[] PendingNotices(IEnumerable<UpdateNotice> notices, StoredSubscription item) =>
+        notices.Where(n => !DeliveredKeys(item).Contains(n.Key, StringComparer.Ordinal)).ToArray();
 
     internal static List<StoredSubscription> RegisterSubscription(List<StoredSubscription> existing,
         string provider, string subject, BrowserPushSubscription subscription, string? noticeKey)
@@ -128,7 +144,8 @@ public sealed class PushNotificationService(
 
         var stored = new StoredSubscription(provider, subject, subscription.Endpoint, subscription.P256dh,
             subscription.Auth, previous?.Provider == provider && previous.Subject == subject
-                ? previous.LastNoticeKey : noticeKey);
+                ? previous.LastNoticeKey : noticeKey,
+            previous?.Provider == provider && previous.Subject == subject ? previous.DeliveredNoticeKeys : null);
         return existing.Where(item => item.Endpoint != subscription.Endpoint).Append(stored).ToList();
     }
 
@@ -136,16 +153,20 @@ public sealed class PushNotificationService(
         string provider, string subject, string endpoint) =>
         existing.Where(item => item.Endpoint != endpoint || item.Provider != provider || item.Subject != subject).ToList();
 
-    private async Task UpdateSubscriptionAsync(StoredSubscription expected, string? key, bool remove, CancellationToken token)
+    private async Task<StoredSubscription?> UpdateSubscriptionAsync(StoredSubscription expected, string? key,
+        bool remove, CancellationToken token, string[]? retained = null)
     {
         await _gate.WaitAsync(token);
         try
         {
             var state = await LoadAsync(token);
             var current = state.Subscriptions.FirstOrDefault(item => item.Endpoint == expected.Endpoint);
-            if (current != expected) return;
+            if (current != expected) return null;
+            var updated = remove ? null : expected with { LastNoticeKey = key,
+                DeliveredNoticeKeys = retained ?? DeliveredKeys(expected).Concat(key is null ? [] : new[] { key }).Distinct().ToArray() };
             await SaveAsync(state with { Subscriptions = state.Subscriptions.Select(item => item == expected
-                ? remove ? null : item with { LastNoticeKey = key } : item).OfType<StoredSubscription>().ToList() }, token);
+                ? updated : item).OfType<StoredSubscription>().ToList() }, token);
+            return updated;
         }
         finally { _gate.Release(); }
     }
@@ -219,5 +240,5 @@ public sealed class PushNotificationService(
 
     private sealed record PushState(string PublicKey, string PrivateKey, List<StoredSubscription> Subscriptions);
     internal sealed record StoredSubscription(string Provider, string Subject, string Endpoint, string P256dh, string Auth,
-        string? LastNoticeKey);
+        string? LastNoticeKey, string[]? DeliveredNoticeKeys = null);
 }

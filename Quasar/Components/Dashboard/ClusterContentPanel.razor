@@ -1,0 +1,92 @@
+@implements IDisposable
+@inject ClusterContentMonitor Content
+@inject QuasarPermissionService Permissions
+@inject AuthenticationStateProvider AuthenticationState
+@inject QuasarRoleMapper RoleMapper
+@inject ILogger<ClusterContentPanel> Logger
+
+<MudCard Class="server-card">
+    <MudCardContent>
+        <MudStack Spacing="2">
+            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                <MudText Typo="Typo.h6">Mods and plugins</MudText>
+                <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+                    <MudButton OnClick="CheckAsync" Disabled="@_busy" Variant="Variant.Outlined" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.SystemUpdateAlt">@(_busy ? "Checking…" : "Check content updates")</MudButton>
+                </AuthorizeView>
+            </MudStack>
+            <MudText Typo="Typo.caption">Last check: @(Snapshot.CheckedAt?.ToLocalTime().ToString("g") ?? "Not checked") · Scheduled checks @(Content.ScheduledChecksEnabled ? "enabled" : "disabled")</MudText>
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                Mod timestamps track changes since the first successful check; they do not identify the running mod bytes.
+                Only configured mods are monitored. Implicit companion and plugin dependencies need the upcoming content pins.
+                Plugin commits are compared with verified active deployment provenance.
+            </MudAlert>
+            @if (_error is not null || Snapshot.InventoryError is not null || Snapshot.CheckError is not null)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@(_error ?? Snapshot.InventoryError ?? Snapshot.CheckError)</MudAlert>
+            }
+            <MudTable T="ClusterContentItem" Items="Snapshot.Items" Dense="true" Hover="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Content</MudTh><MudTh>Active pin / first observed</MudTh><MudTh>Latest observed</MudTh><MudTh>Status</MudTh><MudTh>Changes</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Content">@context.Name <MudText Typo="Typo.caption">@context.Kind · @context.Id</MudText></MudTd>
+                    <MudTd DataLabel="Active pin / first observed">@Version(context, context.PinnedVersion ?? context.BaselineVersion)</MudTd>
+                    <MudTd DataLabel="Latest observed">@Version(context, context.LatestVersion)<MudText Typo="Typo.caption">@(context.ObservedAt?.ToLocalTime().ToString("g"))</MudText></MudTd>
+                    <MudTd DataLabel="Status">
+                        @if (context.Error is not null)
+                        {
+                            <MudText Color="Color.Warning">@context.Error</MudText>
+                            @if (context.HasUpdate) { <MudText Typo="Typo.caption">Change detected at the last successful check</MudText> }
+                        }
+                        else
+                        {
+                            <MudText Color="@(context.HasUpdate ? Color.Warning : Color.Default)">@(context.HasUpdate ? context.Kind == "mod" ? "Changed since first check" : "Different manifest commit available" : context.Kind == "mod" ? "No change observed" : "Matches active pin")</MudText>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Changes">
+                        @if (context.DetailsUrl is { } url)
+                        {
+                            <MudLink Href="@url" Target="_blank" rel="noopener noreferrer">@(context.Kind == "mod" ? "Workshop changelog" : "Source changes")</MudLink>
+                        }
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText>No content observations yet.</MudText></NoRecordsContent>
+            </MudTable>
+            <MudText Typo="Typo.body2">Applying content updates is unavailable until cluster and Magnetar support pinned content preparation. Checks do not change running servers or block players from joining.</MudText>
+        </MudStack>
+    </MudCardContent>
+</MudCard>
+
+@code {
+    [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = default!;
+    private bool _busy;
+    private string? _error;
+    private ClusterContentSnapshot Snapshot => Content.GetSnapshot(Cluster);
+    protected override void OnInitialized() => Content.Changed += Changed;
+    private void Changed() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Content.Changed -= Changed;
+
+    private async Task CheckAsync()
+    {
+        if (_busy) return;
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        if (!user.CanQueryCluster(Cluster.UniqueName) || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage))
+        { _error = "Cluster management permission is required to check for updates."; return; }
+        _busy = true; _error = null;
+        try { await Content.CheckNowAsync(); }
+        catch (Exception error)
+        {
+            Logger.LogWarning(error, "Cluster content check failed for {Cluster}.", Cluster.UniqueName);
+            _error = "Content updates could not be checked or saved. Previous observations are retained. Check Quasar logs.";
+        }
+        finally { _busy = false; }
+    }
+
+    private static string Version(ClusterContentItem item, string? value)
+    {
+        if (value is null) return "Unknown";
+        return item.Kind == "mod" && long.TryParse(value, out long timestamp) && timestamp is >= 0 and <= 253402300799
+            ? DateTimeOffset.FromUnixTimeSeconds(timestamp).ToString("u") : value;
+    }
+}
