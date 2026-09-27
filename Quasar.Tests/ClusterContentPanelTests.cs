@@ -1,5 +1,7 @@
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using MudBlazor;
 using MudBlazor.Services;
 using Quasar.Components.Dashboard;
@@ -18,6 +20,8 @@ public sealed class ClusterContentPanelTests
     {
         using var fixture = new ClusterContentMonitorTests.Fixture();
         using var monitor = fixture.Create();
+        using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(Path.GetDirectoryName(fixture.Path)!, "clusters") }).Build());
         await monitor.CheckCoreAsync(default);
         await using var context = new BunitContext();
         context.Services.AddMudServices();
@@ -26,6 +30,7 @@ public sealed class ClusterContentPanelTests
         auth.SetAuthorized("viewer");
         if (manage) auth.SetPolicies(QuasarPolicyNames.ClusterManage);
         context.Services.AddSingleton(monitor);
+        context.Services.AddSingleton(catalog);
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
         context.Services.AddSingleton<QuasarPermissionService>();
         var panel = context.Render<ClusterContentPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
@@ -38,6 +43,7 @@ public sealed class ClusterContentPanelTests
         Assert.Contains("No change observed", panel.Markup);
         Assert.Equal(manage, panel.FindAll("button").Any(b => b.TextContent.Contains("Check content updates")));
         await panel.InvokeAsync(() => expansion.Instance.CollapseAsync());
+        Assert.Equal(manage, panel.FindAll("button").Any(b => b.TextContent.Contains("Queue mod and plugin updates")));
         fixture.Timestamp++;
         await monitor.CheckCoreAsync(default);
         await panel.WaitForAssertionAsync(() => Assert.Contains("Changed since first check", panel.Markup));

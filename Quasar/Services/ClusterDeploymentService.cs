@@ -173,6 +173,8 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
         ClusterDeploymentRequest request, CancellationToken token, bool restore = false, bool dryRun = false, bool preflight = false, bool update = false)
     {
         if (preflight && !dryRun) throw new InvalidOperationException("Online preflight cannot activate a deployment.");
+        if (!restore && cluster.QueuedContentUpdates is not null)
+            throw new InvalidOperationException("Remove queued mod/plugin changes before activating a deployment. Pinned content preparation is not supported yet.");
         if (!update && cluster.Update is { Phase: not ClusterUpdatePhase.Complete })
             throw new InvalidOperationException("A managed update owns this cluster lifecycle.");
         if (request.Hosts is null || request.Hosts.Length is < 1 or > 64

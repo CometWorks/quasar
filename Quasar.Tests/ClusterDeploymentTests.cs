@@ -17,6 +17,54 @@ public sealed class ClusterDeploymentTests : IDisposable
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     [Fact]
+    public async Task QueuedContentPersistsExactVersionsAndBlocksActivationWithoutChangingShutdownProof()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var deployments = Service(catalog, handler);
+        await deployments.ActivateAsync("demo", Request(), "initial", "test", default);
+        var cluster = catalog.GetCluster("demo")!;
+        var proof = new ClusterShutdownProof(cluster.GetLifecycleId(), DateTimeOffset.UtcNow,
+            new GatewayStopFence(123, DateTimeOffset.UtcNow));
+        await catalog.RecordShutdownProofAsync(cluster, proof, default);
+        var snapshot = new ClusterContentSnapshot("demo", cluster.ActiveDeployment!.Revision, DateTimeOffset.UtcNow, [],
+            [new("mod", "123", "Mod", null, "1700000000", "1700000010", DateTimeOffset.UtcNow, null, null),
+             new("plugin", "plugin", "Plugin", new string('a', 40), null, new string('b', 40), DateTimeOffset.UtcNow, null, null)], null, null);
+        await catalog.QueueContentUpdatesAsync("demo", snapshot);
+        using (var reloaded = Catalog())
+        {
+            var queued = reloaded.GetCluster("demo")!;
+            Assert.Equal(new[] { "1700000010", new string('b', 40) }, queued.QueuedContentUpdates!.Items.Select(i => i.TargetVersion));
+            Assert.Equal(proof, queued.ShutdownProof);
+            Assert.Equal(cluster.GetLifecycleId(), queued.GetLifecycleId());
+        }
+        var candidate = Request() with { ExpectedRevision = cluster.ActiveDeployment.Revision, Revision = "candidate" };
+        var activationError = await Assert.ThrowsAsync<InvalidOperationException>(() => deployments.ActivateAsync("demo", candidate, "blocked", "test", default));
+        Assert.Contains("queued mod/plugin", activationError.Message);
+        var operations = new ClusterOperationStore(Path.Combine(root, "queue-operations"));
+        using var updates = new ClusterUpdateService(catalog, deployments, null!, null!, operations, NullLogger<ClusterUpdateService>.Instance);
+        var updateError = await Assert.ThrowsAsync<InvalidOperationException>(() => updates.BeginAsync("demo", new(Guid.NewGuid(), candidate), "blocked", "test", default));
+        Assert.Contains("Queued mod/plugin", updateError.Message);
+        Assert.Equal(2, handler.Applied.Count); // Initial activation only; queuing never contacts Hosts.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.QueueContentUpdatesAsync("demo", snapshot with { DeploymentRevision = "stale" }));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.QueueContentUpdatesAsync("demo", snapshot with { CheckError = "offline" }));
+        await catalog.ClearQueuedContentUpdatesAsync("demo");
+        Assert.Null(catalog.GetCluster("demo")!.QueuedContentUpdates);
+        Assert.Equal(proof, catalog.GetCluster("demo")!.ShutdownProof);
+    }
+
+    [Theory]
+    [InlineData("active", "candidate", true)]
+    [InlineData("active", "active", false)]
+    [InlineData("stale", "candidate", false)]
+    public void PendingConfigurationDoesNotRequireANewerPackage(string expected, string prepared, bool pending)
+    {
+        var cluster = new ClusterDefinition { ActiveDeployment = new("active", [], DateTimeOffset.UtcNow, "1.1.6"),
+            PreparedDeployment = new(expected, prepared, []), PreparedForSelectedRelease = false };
+        Assert.Equal(pending, cluster.HasPreparedUpdate);
+    }
+
+    [Fact]
     public async Task PreparedCandidateSurvivesCatalogReload()
     {
         using var catalog = Catalog();

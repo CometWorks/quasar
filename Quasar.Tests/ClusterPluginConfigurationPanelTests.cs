@@ -30,7 +30,7 @@ public sealed class ClusterPluginConfigurationPanelTests
             context.JSInterop.Mode = JSRuntimeMode.Loose;
             context.AddAuthorization().SetAuthorized("viewer");
             context.Services.AddSingleton(catalog);
-            context.Services.AddSingleton(new ClusterDeploymentService(catalog, null!, null!));
+            context.Services.AddSingleton(new ClusterUpdatePreparationService(catalog, null!, null!, null!));
             context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
             context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
             context.Services.AddSingleton<QuasarPermissionService>();

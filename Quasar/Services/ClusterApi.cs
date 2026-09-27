@@ -154,6 +154,33 @@ internal static class ClusterApi
             return cluster is null ? Error(404, "cluster_not_found", "Cluster not found.")
                 : Results.Json(Envelope(content.GetSnapshot(cluster)), JsonOptions);
         });
+        routes.MapGet("/{uniqueName}/content-updates/queue", (string uniqueName, HttpContext context, ClusterCatalog catalog) =>
+        {
+            SetProtocolHeader(context);
+            if (!context.User.CanQueryCluster(uniqueName)) return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+            var cluster = catalog.GetCluster(uniqueName);
+            return cluster is null ? Error(404, "cluster_not_found", "Cluster not found.")
+                : Results.Json(Envelope(cluster.QueuedContentUpdates), JsonOptions);
+        });
+        var queueContent = routes.MapPost("/{uniqueName}/content-updates/queue", async (string uniqueName,
+            HttpContext context, ClusterCatalog catalog, [FromServices] ClusterContentMonitor content, CancellationToken token) =>
+        {
+            SetProtocolHeader(context);
+            if (!context.User.CanQueryCluster(uniqueName)) return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+            var cluster = catalog.GetCluster(uniqueName);
+            if (cluster is null) return Error(404, "cluster_not_found", "Cluster not found.");
+            try { return Results.Json(Envelope((await catalog.QueueContentUpdatesAsync(uniqueName, content.GetSnapshot(cluster), token)).QueuedContentUpdates), JsonOptions); }
+            catch (InvalidOperationException error) { return Error(409, "content_queue_unavailable", error.Message); }
+        });
+        var clearContent = routes.MapDelete("/{uniqueName}/content-updates/queue", async (string uniqueName,
+            HttpContext context, ClusterCatalog catalog, CancellationToken token) =>
+        {
+            SetProtocolHeader(context);
+            if (!context.User.CanQueryCluster(uniqueName)) return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+            if (catalog.GetCluster(uniqueName) is null) return Error(404, "cluster_not_found", "Cluster not found.");
+            try { await catalog.ClearQueuedContentUpdatesAsync(uniqueName, token); return Results.Ok(); }
+            catch (InvalidOperationException error) { return Error(409, "content_queue_unavailable", error.Message); }
+        });
         RouteHandlerBuilder deploymentInputs = routes.MapGet("/{uniqueName}/deployment-inputs", GetDeploymentInputs);
         routes.MapGet("/{uniqueName}/backups", (string uniqueName, HttpContext context, [FromServices] ClusterBackupService backups) =>
         {
@@ -248,6 +275,8 @@ internal static class ClusterApi
         {
             routes.RequireAuthorization(QuasarPolicyNames.ClusterQuery);
             checkContent.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            queueContent.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            clearContent.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             cancelOperation.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             submitCommand.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             stagePackage.RequireAuthorization(QuasarPolicyNames.ClusterManage);

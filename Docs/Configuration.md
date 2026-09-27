@@ -1146,9 +1146,10 @@ a cluster-wide change. Replacing that path, persisting cluster revisions and enf
 startup/config consistency are planned integration work, not shipped behavior.
 
 On the cluster page, **Administration → Plugin configuration** edits the
-plugin schemas in the saved deployment preparation. Saving prepares the configuration
-for all nodes; it does not apply settings to running Agents. Activate the prepared
-deployment with a full-downtime update under **Maintenance**. Deployment
+plugin schemas in the saved deployment preparation. **Save and stage update** prepares the configuration
+for all nodes; it does not apply settings to running Agents. Use **Maintenance → Pending
+update → Apply pending update** for the full-downtime activation. Pending configuration
+changes remain visible even when the cluster package is already current. Deployment
 tools pick up the newly saved preparation and activation request automatically.
 If no editable schemas are available, complete guided setup or prepare an imported
 deployment first. Unsaved imported requests remain in the advanced deployment tools
@@ -1189,8 +1190,20 @@ an ordinary cluster restart/update cannot prove that a mod change was applied.
 
 API: `GET /api/v1/clusters/{name}/content-updates` requires cluster-query access;
 `POST /api/v1/clusters/{name}/content-updates/check` requires cluster-manage access.
-Both enforce the credential's cluster allow-list. The check batches all managed clusters
+Both enforce the credential's cluster allow-list. `GET`, `POST`, and `DELETE`
+`/api/v1/clusters/{name}/content-updates/queue` read, replace, or clear queued observations;
+mutations require cluster-manage access. The check batches all managed clusters
 but returns only the requested cluster's observations. Results use the normal admin envelope.
+
+**Queue mod and plugin updates** copies successfully checked changes into a persistent
+pending request: Workshop timestamps for mods and source manifest commits for plugins.
+Later checks do not silently change those targets. Queuing again replaces the request
+with the currently observed changes. The targets appear under **Maintenance → Pending
+update**, with application explicitly blocked until upstream pinned-content preparation
+exists. They are requested versions, not downloaded or frozen bytes. Remove queued
+content changes to apply a prepared configuration/release update on its own. Queuing
+and removing content preserve clean-shutdown proof and never contact Hosts. Stale
+observations from another active deployment cannot be queued.
 
 Changes appear in the bell and reach each authorized browser push subscription, with a link
 to the affected cluster's content panel. Checks do not download mod/plugin payloads, change
@@ -1577,14 +1590,14 @@ Cluster actions use outlined buttons against the card surface, while the update 
 uses a filled button. Disabled controls keep a visible muted border and label.
 
 The cluster deployment panel persists one preparation specification for all Hosts.
-The **Update this cluster** section is hidden when the active deployment matches
-the latest known stable cluster release. A package selected for a future update
-does not hide it before activation; if the release check is unavailable, the
-section remains visible. When shown, it has two normal actions:
-**Prepare latest cluster update** and **Start cluster update with full downtime**.
-The first action stages and selects the latest stable release when needed, freezes
-its dependencies, and prepares every Host from the saved world seed and topology.
-The three individual preparation actions remain under **Advanced update steps**.
+The **Release update** section is hidden when the active deployment matches the
+latest known stable cluster release. **Stage latest release** automatically selects
+that release, freezes matching dependencies, and prepares every Host from the saved
+world seed and topology. **Pending update** remains visible for any staged configuration
+or deployment change, including changes on the current package version. **Apply pending
+update** starts the durable full-downtime workflow without requiring JSON input.
+Fine-grained package, dependency, import and activation overrides share one flat
+**Advanced deployment tools** expansion panel.
 Staging checks the release's pinned PluginSdk against a verified existing dependency
 snapshot or installed Magnetar before changing the package selection. The normal action
 can reuse the existing frozen DS, Magnetar, Direct Transport and common plugins when
@@ -1602,7 +1615,7 @@ the running cluster. A stopped cluster without clean shutdown proof must use the
 The panel shows a short summary of the saved request instead of binding its large,
 nested JSON string to a browser text field. Download the request to inspect or edit
 advanced installation and topology inputs, then import the JSON file before selecting
-**Prepare all Hosts**. Importing only loads the request in the page; preparation runs
+**Stage imported preparation**. Importing only loads the request in the page; preparation runs
 when selected. Release checks only notify; they do not prepare or apply deployments.
 PluginSdk configuration schemas reuse the ordinary editor. Each configuration type has
 its own editor when a plugin owns multiple types. The editor labels selected plugins

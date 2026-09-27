@@ -23,34 +23,44 @@
         <MudText Class="cluster-long-value">Active revision: @(Current.ActiveDeployment?.Revision ?? "None")</MudText>
         @if (Current.ActiveDeployment is not null && !ClusterReleaseMonitor.IsOnLatestRelease(Current, Releases.GetSnapshot().Release))
         {
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Release update</MudText>
+                <MudText>Latest stable: @(Releases.GetSnapshot().Release?.Version ?? "Unknown")</MudText>
+                <MudButton OnClick="PrepareLatestUpdateAsync" Disabled="@(_busy || UpdateLocked || Current.Preparation is null)"
+                           Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Stage latest release</MudButton>
+                <MudText Typo="Typo.caption">Quasar selects the release, freezes matching dependencies and prepares every Host automatically. The cluster stays online until you apply the pending update.</MudText>
+                @if (Current.Preparation is null)
+                {
+                    <MudText Typo="Typo.caption">Complete guided setup first. For externally provisioned clusters, import their preparation once using Advanced deployment tools.</MudText>
+                }
+            </MudStack>
+        }
+        @if (Current.HasPreparedUpdate || Current.QueuedContentUpdates is not null)
+        {
             <MudPaper Outlined="true" Class="pa-4">
                 <MudStack Spacing="2">
-                    <MudText Typo="Typo.h6">Update this cluster</MudText>
-                    <MudText Typo="Typo.body2">The update stops the entire cluster, switches every Host to the prepared revision, then starts it and waits for readiness.</MudText>
-                    <MudText Typo="Typo.body2">Selected package: @(Current.PackageSelection?.Version ?? "None") · Latest stable: @(Releases.GetSnapshot().Release?.Version ?? "Unknown") · Candidate: @(Current.PreparedForSelectedRelease ? Current.PreparedDeployment?.Revision : "Not prepared")</MudText>
-                    <MudButton OnClick="PrepareLatestUpdateAsync" Disabled="@(_busy || Current.Preparation is null || Current.PendingDeploymentHash is not null || Current.PendingRestoreHash is not null || Current.Update is { Phase: not ClusterUpdatePhase.Complete })"
-                               Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Prepare latest cluster update</MudButton>
-                    @if (Current.Preparation is null)
+                    <MudText Typo="Typo.h6">Pending update</MudText>
+                    @if (Current.HasPreparedUpdate)
                     {
-                        <MudText Typo="Typo.caption">A saved deployment request is needed for the current world and topology. Import one under Prepare or import a deployment below.</MudText>
+                        <MudText>Deployment prepared on all Hosts. Configuration and release changes are ready to apply.</MudText>
                     }
-                    @if (Current.GoalState == DedicatedServerGoalState.Off && Current.ShutdownProof?.LifecycleId != Current.GetLifecycleId())
+                    @if (Current.QueuedContentUpdates is { } queued)
                     {
-                        <MudAlert Severity="Severity.Warning">This cluster has no clean shutdown proof. Recover the stopped cluster after an unclean shutdown before starting the update.</MudAlert>
+                        @foreach (var item in queued.Items)
+                        {
+                            <MudText Class="cluster-long-value">@item.Name · @item.Kind · @item.TargetVersion</MudText>
+                        }
+                        <MudAlert Severity="Severity.Warning">Content changes are queued, not downloaded or pinned. Applying this update is blocked until cluster and Magnetar support pinned content preparation.</MudAlert>
+                        <MudButton OnClick="ClearQueuedContentAsync" Disabled="@(_busy || UpdateLocked)" Variant="Variant.Outlined" Color="Color.Primary">Remove queued content changes</MudButton>
+                    }
+                    @if (Current.GoalState == DedicatedServerGoalState.Off && Current.Gateway is not null && Current.ShutdownProof?.LifecycleId != Current.GetLifecycleId())
+                    {
+                        <MudAlert Severity="Severity.Warning">Recover the stopped cluster after its unclean shutdown before applying an update.</MudAlert>
                     }
                     <MudButton OnClick="StartPreparedUpdateAsync" Color="Color.Primary" Variant="Variant.Filled"
-                               Disabled="@(_busy || !Current.PreparedForSelectedRelease || Current.PreparedDeployment is null || Current.PreparedDeployment.Revision == Current.ActiveDeployment?.Revision || Current.PendingDeploymentHash is not null || Current.PendingRestoreHash is not null || Current.Update is { Phase: not ClusterUpdatePhase.Complete } || Current.GoalState == DedicatedServerGoalState.Off && Current.ShutdownProof?.LifecycleId != Current.GetLifecycleId())"
-                               StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Start cluster update with full downtime</MudButton>
-                    <MudText Typo="Typo.caption">Preparation stages the latest stable package, freezes matching dependencies, and prepares every Host. It leaves the running cluster online. The final button begins full downtime.</MudText>
-                    <MudExpansionPanels>
-                        <MudExpansionPanel Text="Advanced update steps">
-                            <MudStack Spacing="2" Class="py-2 cluster-form-section">
-                                <MudButton OnClick="StageLatestAsync" Disabled="@(_busy || Current.Update is { Phase: not ClusterUpdatePhase.Complete })" Variant="Variant.Outlined" Color="Color.Primary">Stage and select latest release</MudButton>
-                                <MudButton OnClick="FreezeDependenciesAsync" Disabled="@(_busy || Current.PackageSelection is null || Current.Update is { Phase: not ClusterUpdatePhase.Complete })" Variant="Variant.Outlined" Color="Color.Primary">Freeze dependencies for selected release</MudButton>
-                                <MudButton OnClick="PrepareSelectedAsync" Disabled="@(_busy || Current.DependencyManifestSha256 is null || Current.Preparation is null || Current.Update is { Phase: not ClusterUpdatePhase.Complete })" Variant="Variant.Outlined" Color="Color.Primary">Prepare selected release on all Hosts</MudButton>
-                            </MudStack>
-                        </MudExpansionPanel>
-                    </MudExpansionPanels>
+                               Disabled="@(_busy || UpdateLocked || !Current.HasPreparedUpdate || Current.QueuedContentUpdates is not null || Current.GoalState == DedicatedServerGoalState.Off && Current.Gateway is not null && Current.ShutdownProof?.LifecycleId != Current.GetLifecycleId())"
+                               StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Apply pending update</MudButton>
+                    <MudText Typo="Typo.caption">Applying stops the entire cluster, activates the staged deployment on every Host, and restarts it. Plan for full downtime.</MudText>
                 </MudStack>
             </MudPaper>
         }
@@ -110,28 +120,24 @@
                 </MudStack>
             </MudExpansionPanel>
             <MudExpansionPanel Text="Advanced deployment tools">
-                <MudExpansionPanels Class="py-2">
-            <MudExpansionPanel Text="Prepare or import a deployment">
                 <MudStack Spacing="3" Class="py-2 cluster-form-section">
-                <MudText Typo="Typo.body2">@(_preparationRequest is null
-                    ? "No preparation request is saved. Import one to prepare a deployment."
-                    : $"Preparation request loaded for {_preparationRequest.Hosts.Length} Host(s).")</MudText>
-                <MudButton OnClick="DownloadPreparationAsync" Disabled="@(_busy || _preparationRequest is null)" Variant="Variant.Outlined" Color="Color.Primary">Download request JSON</MudButton>
-                <MudText Typo="Typo.caption">To change installation or topology inputs, edit the downloaded file and import it here.</MudText>
-                <InputFile OnChange="ImportPreparationAsync" accept=".json,application/json" disabled="@_busy" />
-                <MudButton OnClick="PrepareAsync" Disabled="@(_busy || _preparationRequest is null)" Variant="Variant.Outlined" Color="Color.Primary">Prepare all Hosts</MudButton>
+                    <MudText Typo="Typo.body2">Normal updates generate these requests automatically. Use these overrides only for custom installation or topology inputs.</MudText>
+                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+                        <MudButton OnClick="StageLatestAsync" Disabled="@(_busy || UpdateLocked)" Variant="Variant.Outlined" Color="Color.Primary">Select latest release only</MudButton>
+                        <MudButton OnClick="FreezeDependenciesAsync" Disabled="@(_busy || UpdateLocked || Current.PackageSelection is null)" Variant="Variant.Outlined" Color="Color.Primary">Freeze selected dependencies</MudButton>
+                        <MudButton OnClick="PrepareSelectedAsync" Disabled="@(_busy || UpdateLocked || Current.DependencyManifestSha256 is null || Current.Preparation is null)" Variant="Variant.Outlined" Color="Color.Primary">Stage selected release</MudButton>
+                    </MudStack>
+                    <MudDivider />
+                    <MudButton OnClick="DownloadPreparationAsync" Disabled="@(_busy || _preparationRequest is null)" Variant="Variant.Outlined" Color="Color.Primary">Download generated preparation</MudButton>
+                    <MudText Typo="Typo.caption">Import an edited preparation to override installation or topology. Staging prepares all Hosts and generates the activation request.</MudText>
+                    <InputFile OnChange="ImportPreparationAsync" accept=".json,application/json" disabled="@(_busy || UpdateLocked)" />
+                    <MudButton OnClick="PrepareAsync" Disabled="@(_busy || UpdateLocked || _preparationRequest is null)" Variant="Variant.Outlined" Color="Color.Primary">Stage imported preparation</MudButton>
+                    <MudTextField T="string" Label="Generated activation request (JSON override)" @bind-Value="_activation" Lines="8" Disabled="@(_busy || UpdateLocked)" />
+                    <MudButton OnClick="UpdateFromJsonAsync" Disabled="@(_busy || UpdateLocked || Current.QueuedContentUpdates is not null || string.IsNullOrWhiteSpace(_activation))" Variant="Variant.Outlined" Color="Color.Primary">Apply JSON override with downtime</MudButton>
+                    <MudButton OnClick="ActivateAsync" Disabled="@(_busy || Current.QueuedContentUpdates is not null || Current.GoalState != DedicatedServerGoalState.Off || string.IsNullOrWhiteSpace(_activation))" Variant="Variant.Outlined" Color="Color.Primary">Activate on stopped Hosts</MudButton>
+                    <MudButton OnClick="RollbackAsync" Disabled="@(_busy || UpdateLocked || Current.QueuedContentUpdates is not null || Current.PreviousDeployment is null)" Variant="Variant.Outlined" Color="Color.Warning">Roll back binaries and configuration</MudButton>
+                    <MudText Typo="Typo.caption">Rollback preserves current world and plugin data.</MudText>
                 </MudStack>
-            </MudExpansionPanel>
-            <MudExpansionPanel Text="Activate prepared deployment">
-                <MudStack Spacing="3" Class="py-2 cluster-form-section">
-                <MudTextField T="string" Label="Deployment activation request (JSON)" @bind-Value="_activation" Lines="10" Disabled="_busy" />
-                <MudButton OnClick="UpdateFromJsonAsync" Disabled="@(_busy || Current.Update is { Phase: not ClusterUpdatePhase.Complete })" Variant="Variant.Outlined" Color="Color.Primary">Update from JSON request</MudButton>
-                <MudButton OnClick="RollbackAsync" Disabled="@(_busy || Current.PreviousDeployment is null || Current.Update is { Phase: not ClusterUpdatePhase.Complete })" Variant="Variant.Outlined" Color="Color.Warning">Roll back binaries and configuration</MudButton>
-                <MudText Typo="Typo.body2">Updates stop the whole cluster, activate the verified installation, then wait for fleet readiness. Rollback keeps current world and plugin data.</MudText>
-                <MudButton OnClick="ActivateAsync" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off)" Variant="Variant.Outlined" Color="Color.Primary">Activate deployment</MudButton>
-                </MudStack>
-            </MudExpansionPanel>
-                </MudExpansionPanels>
             </MudExpansionPanel>
         </MudExpansionPanels>
         @if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
@@ -149,6 +155,8 @@
     private string? _backups;
     private string? _message;
     private bool _busy;
+    private bool UpdateLocked => Current.PendingDeploymentHash is not null || Current.PendingRestoreHash is not null
+        || Current.Update is { Phase: not ClusterUpdatePhase.Complete };
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     protected override void OnInitialized()
     {
@@ -191,7 +199,7 @@
                 || clusterId.ValueKind != JsonValueKind.String || clusterId.GetString() != Cluster.UniqueName)
                 throw new InvalidDataException("Preparation request identifies a different cluster.");
             _preparationRequest = request;
-            _message = "Preparation request imported. Select Prepare all Hosts to create a candidate deployment.";
+            _message = "Preparation imported. Select Stage imported preparation to create the pending update.";
         }
         catch (Exception error) when (error is IOException or InvalidDataException or JsonException
             or InvalidOperationException or ArgumentException)
@@ -285,6 +293,7 @@
         if (result.State == ClusterOperationState.Succeeded) _preparationRequest = Current.Preparation;
         return result;
     });
+    private Task ClearQueuedContentAsync() => ExecuteAsync(_ => Catalog.ClearQueuedContentUpdatesAsync(Cluster.UniqueName));
     private Task StartPreparedUpdateAsync() => ExecuteAsync(actor => Updates.BeginAsync(Cluster.UniqueName,
         new(Guid.NewGuid(), Current.PreparedDeployment ?? throw new InvalidDataException("Prepare a deployment first.")),
         Guid.NewGuid().ToString("N"), actor, default));
@@ -311,7 +320,7 @@
         {
             var result = await run(user.Identity?.Name ?? "web-ui");
             _message = result is ClusterOperation operation
-                ? $"{operation.State}: {operation.Error?.Message ?? operation.OperationId}"
+                ? operation.State == ClusterOperationState.Succeeded ? "Completed. Review the pending update or current operation above." : $"{operation.State}: {operation.Error?.Message ?? operation.OperationId}"
                 : "Step completed. Continue with the next update step.";
         }
         catch (Exception error)

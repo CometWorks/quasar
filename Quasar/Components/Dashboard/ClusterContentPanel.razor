@@ -1,5 +1,6 @@
 @implements IDisposable
 @inject ClusterContentMonitor Content
+@inject ClusterCatalog Catalog
 @inject QuasarPermissionService Permissions
 @inject AuthenticationStateProvider AuthenticationState
 @inject QuasarRoleMapper RoleMapper
@@ -7,14 +8,20 @@
 
 <MudExpansionPanels Class="server-card">
     <MudExpansionPanel Text="Mods and plugins" @bind-Expanded="_expanded">
-        <MudStack Spacing="2">
+        <MudStack Spacing="2" Class="pt-3">
             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                 <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
                     <MudButton OnClick="CheckAsync" Disabled="@_busy" Variant="Variant.Outlined" Color="Color.Primary"
                                StartIcon="@Icons.Material.Filled.SystemUpdateAlt">@(_busy ? "Checking…" : "Check content updates")</MudButton>
+                    <MudButton OnClick="QueueAsync" Disabled="@(_busy || Snapshot.CheckError is not null || !Snapshot.Items.Any(item => item.HasUpdate && item.Error is null && item.ObservedAt is not null))"
+                               Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save">Queue mod and plugin updates</MudButton>
                 </AuthorizeView>
             </MudStack>
             <MudText Typo="Typo.caption">Last check: @(Snapshot.CheckedAt?.ToLocalTime().ToString("g") ?? "Not checked") · Scheduled checks @(Content.ScheduledChecksEnabled ? "enabled" : "disabled")</MudText>
+            @if (HasQueuedContent)
+            {
+                <MudAlert Severity="Severity.Info">Observed versions queued. Review Pending update in Maintenance. Applying content changes remains blocked until pinned content preparation is supported.</MudAlert>
+            }
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
                 Mod timestamps track changes since the first successful check; they do not identify the running mod bytes.
                 Only configured mods are monitored. Implicit companion and plugin dependencies need the upcoming content pins.
@@ -60,14 +67,15 @@
 @code {
     [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = default!;
     private bool _busy;
+    private bool HasQueuedContent => Catalog.GetCluster(Cluster.UniqueName)?.QueuedContentUpdates is not null;
     private bool _expanded;
     private bool? _hasUpdates;
     private string? _error;
     private ClusterContentSnapshot Snapshot => Content.GetSnapshot(Cluster);
-    protected override void OnInitialized() => Content.Changed += Changed;
+    protected override void OnInitialized() { Content.Changed += Changed; Catalog.Changed += Changed; }
     protected override void OnParametersSet() => UpdateExpansion();
     private void Changed() => _ = InvokeAsync(() => { UpdateExpansion(); StateHasChanged(); });
-    public void Dispose() => Content.Changed -= Changed;
+    public void Dispose() { Content.Changed -= Changed; Catalog.Changed -= Changed; }
 
     private void UpdateExpansion()
     {
@@ -89,6 +97,22 @@
         {
             Logger.LogWarning(error, "Cluster content check failed for {Cluster}.", Cluster.UniqueName);
             _error = "Content updates could not be checked or saved. Previous observations are retained. Check Quasar logs.";
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task QueueAsync()
+    {
+        if (_busy) return;
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        if (!user.CanQueryCluster(Cluster.UniqueName) || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage))
+        { _error = "Cluster management permission is required to queue updates."; return; }
+        _busy = true; _error = null;
+        try { await Catalog.QueueContentUpdatesAsync(Cluster.UniqueName, Snapshot); }
+        catch (Exception error)
+        {
+            Logger.LogWarning(error, "Could not queue content updates for {Cluster}.", Cluster.UniqueName);
+            _error = error.Message;
         }
         finally { _busy = false; }
     }

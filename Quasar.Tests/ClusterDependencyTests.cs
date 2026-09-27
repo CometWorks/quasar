@@ -15,6 +15,65 @@ namespace Quasar.Tests;
 public sealed class ClusterDependencyTests
 {
     [LinuxFact]
+    public async Task SavingPluginConfigurationStagesEveryHostAndRetainsActiveRevision()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var candidate = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        await fixture.Service.StageAsync(fixture.Cluster, new(candidate.ManifestSha256, 1, null), default);
+        fixture.Cluster.DependencyManifestSha256 = candidate.ManifestSha256;
+        var inputs = await fixture.Service.GetDeploymentInputsAsync(fixture.Cluster, default);
+        string hash = ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, ClusterDeploymentFiles.JsonOptions));
+        string credential = "CONFIG_STAGE_" + Guid.NewGuid().ToString("N");
+        Environment.SetEnvironmentVariable(credential, "token");
+        try
+        {
+            fixture.Cluster.ActiveDeployment = new("active", [], DateTimeOffset.UtcNow, fixture.Cluster.PackageSelection!.Version);
+            fixture.Cluster.Preparation = new(hash, """
+                {"clusterId":"demo","hosts":[{"id":"one"},{"id":"two"}],
+                "pluginConfigurations":{"plugin":{"configType":"Primary","configuration":{"values":{"limit":1}}}}}
+                """, "http://gateway.test", new[] { "one", "two" }.Select(id => new ClusterPreparationHost(
+                    id, "http://" + id, credential, credential, "/installation", "/world", "/configuration/original")).ToArray());
+            string directory = Path.Combine(fixture.Root, "clusters");
+            Directory.CreateDirectory(Path.Combine(directory, "demo"));
+            File.WriteAllText(Path.Combine(directory, "demo", "cluster.json"), JsonSerializer.Serialize(fixture.Cluster, ClusterDeploymentFiles.JsonOptions));
+            using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = directory }).Build());
+            using var handler = new ConfigurationPreparationHandler();
+            using var http = new HttpClient(handler);
+            var hosts = new ClusterHostClient(http);
+            var deployments = new ClusterDeploymentService(catalog, hosts, new ClusterOperationStore(Path.Combine(fixture.Root, "operations")));
+            var preparation = new ClusterUpdatePreparationService(catalog, fixture.Service, hosts, deployments);
+            var result = await preparation.StagePluginConfigurationAsync("demo", "plugin", "Primary", "{\"limit\":9}", "test", default);
+            Assert.Equal(ClusterOperationState.Succeeded, result.State);
+            var saved = catalog.GetCluster("demo")!;
+            Assert.Equal("active", saved.ActiveDeployment!.Revision);
+            Assert.True(saved.HasPreparedUpdate);
+            Assert.True(saved.PreparedForSelectedRelease);
+            Assert.Equal(new[] { "one", "two" }, handler.Hosts);
+            Assert.All(saved.Preparation!.Hosts, host => Assert.Contains("config-", host.ConfigurationDirectory));
+            using var spec = JsonDocument.Parse(saved.Preparation.SpecificationJson);
+            Assert.Equal(9, spec.RootElement.GetProperty("pluginConfigurations").GetProperty("plugin")
+                .GetProperty("configuration").GetProperty("values").GetProperty("limit").GetInt32());
+        }
+        finally { Environment.SetEnvironmentVariable(credential, null); }
+    }
+
+    private sealed class ConfigurationPreparationHandler : HttpMessageHandler
+    {
+        public List<string> Hosts { get; } = [];
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            Assert.Contains("/deployment-preparations/", request.RequestUri!.AbsolutePath);
+            Hosts.Add(request.RequestUri.Host);
+            var data = new Quasar.Host.Contract.V1.HostPreparedConfiguration(request.RequestUri.Host, "candidate", "/manifest.json", new string('c', 64));
+            var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = System.Net.Http.Json.JsonContent.Create(
+                new Quasar.Host.Contract.V1.HostEnvelope<Quasar.Host.Contract.V1.HostPreparedConfiguration>(1, DateTimeOffset.UtcNow, data)) };
+            response.Headers.Add(Quasar.Host.Contract.V1.HostProtocol.HeaderName, "1");
+            return Task.FromResult(response);
+        }
+    }
+
+    [LinuxFact]
     public async Task ContentInventoryMustMatchActivePreparationAndVerifiedDependencies()
     {
         using var fixture = await Fixture.CreateAsync();

@@ -33,6 +33,11 @@ public sealed class ClusterDefinition
     public Quasar.Services.ClusterPreparationRequest? Preparation { get; set; }
     public Quasar.Services.ClusterDeploymentRequest? PreparedDeployment { get; set; }
     public bool PreparedForSelectedRelease { get; set; }
+    public ClusterContentUpdateQueue? QueuedContentUpdates { get; set; }
+
+    [JsonIgnore]
+    public bool HasPreparedUpdate => ActiveDeployment is { } active && PreparedDeployment is { } prepared
+        && prepared.ExpectedRevision == active.Revision && prepared.Revision != active.Revision;
 
     internal string GetLifecycleId() => Convert.ToHexString(SHA256.HashData(
         JsonSerializer.SerializeToUtf8Bytes(new
@@ -67,8 +72,15 @@ public sealed class ClusterDefinition
         Preparation = Preparation,
         PreparedDeployment = PreparedDeployment,
         PreparedForSelectedRelease = PreparedForSelectedRelease,
+        QueuedContentUpdates = QueuedContentUpdates is { } queued ? queued with { Items = [.. queued.Items] } : null,
     };
 }
+
+// Requested observations only; these are not downloaded or prepared content pins.
+public sealed record ClusterContentUpdateQueue(string DeploymentRevision, DateTimeOffset QueuedAt,
+    ClusterContentUpdateTarget[] Items);
+public sealed record ClusterContentUpdateTarget(string Kind, string Id, string Name, string TargetVersion,
+    DateTimeOffset ObservedAt);
 
 public sealed record ClusterPackageSelection(long Revision, string Version, string Sha256,
     string Commit, string IdempotencyKey);

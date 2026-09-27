@@ -12,6 +12,42 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    public Task<ClusterOperation> StagePluginConfigurationAsync(string clusterId, string pluginId,
+        string configType, string values, string actor, CancellationToken token) =>
+        catalog.WithLifecycleAsync(clusterId, async cluster =>
+        {
+            if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
+                || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
+                throw new InvalidOperationException("Finish the current setup, update or activation before changing configuration.");
+            var request = cluster.Preparation ?? throw new InvalidOperationException("Complete guided setup before changing plugin configuration.");
+            var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
+            if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != request.InputsSha256)
+                throw new InvalidOperationException("Stage the selected release before changing its plugin configuration.");
+            var spec = JsonNode.Parse(request.SpecificationJson)!;
+            SetPluginValues(spec, pluginId, configType, values);
+            string json = spec.ToJsonString();
+            string hash = ClusterDeploymentFiles.Hash(System.Text.Encoding.UTF8.GetBytes(json));
+            request = request with { SpecificationJson = json, Hosts = request.Hosts.Select(h => h with {
+                ConfigurationDirectory = Path.Combine(Path.GetDirectoryName(h.ConfigurationDirectory)!, "config-" + hash) }).ToArray() };
+            var result = await deployments.PrepareAsync(clusterId, request, Guid.NewGuid().ToString("N"), actor, token);
+            if (result.State == ClusterOperationState.Succeeded)
+            {
+                var deployment = result.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)
+                    ?? throw new InvalidDataException("Host preparation returned no deployment.");
+                await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token);
+            }
+            return result;
+        }, token);
+
+    internal static void SetPluginValues(System.Text.Json.Nodes.JsonNode specification, string pluginId, string configType, string values)
+    {
+        var plugin = specification["pluginConfigurations"]![pluginId]!;
+        var config = plugin["configurations"] is System.Text.Json.Nodes.JsonArray configs
+            ? configs.Single(c => c?["configType"]?.GetValue<string>() == configType)! : plugin;
+        config["configuration"]!["values"] = JsonNode.Parse(values) as JsonObject
+            ?? throw new InvalidDataException("Plugin settings must be a JSON object.");
+    }
+
     public async Task<ClusterOperation> PrepareAsync(string clusterId, string actor, CancellationToken token)
     {
         var cluster = catalog.GetCluster(clusterId) ?? throw new KeyNotFoundException(clusterId);

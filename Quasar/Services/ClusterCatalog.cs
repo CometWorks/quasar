@@ -346,6 +346,44 @@ public sealed class ClusterCatalog : IDisposable
         finally { _writeGate.Release(); }
     }
 
+    public Task<ClusterDefinition> QueueContentUpdatesAsync(string uniqueName, ClusterContentSnapshot snapshot,
+        CancellationToken token = default) => UpdateContentQueueAsync(uniqueName, cluster =>
+        {
+            if (cluster.ActiveDeployment?.Revision != snapshot.DeploymentRevision || snapshot.ClusterId != uniqueName)
+                throw new InvalidOperationException("Deployment changed. Refresh content observations before queuing updates.");
+            var items = snapshot.Items.Where(item => item.HasUpdate && item.Error is null && item.ObservedAt is not null)
+                .Select(item => new ClusterContentUpdateTarget(item.Kind, item.Id, item.Name, item.LatestVersion!, item.ObservedAt!.Value)).ToArray();
+            if (snapshot.CheckError is not null || items.Length == 0)
+                throw new InvalidOperationException("No successfully checked content changes are available to queue.");
+            cluster.QueuedContentUpdates = new(snapshot.DeploymentRevision, DateTimeOffset.UtcNow, items);
+        }, token);
+
+    public Task<ClusterDefinition> ClearQueuedContentUpdatesAsync(string uniqueName, CancellationToken token = default) =>
+        UpdateContentQueueAsync(uniqueName, cluster => cluster.QueuedContentUpdates = null, token);
+
+    private Task<ClusterDefinition> UpdateContentQueueAsync(string uniqueName, Action<ClusterDefinition> update,
+        CancellationToken token) => WithLifecycleAsync(uniqueName, async _ =>
+        {
+            await _writeGate.WaitAsync(token);
+            try
+            {
+                var cluster = GetCluster(uniqueName) ?? throw new KeyNotFoundException(uniqueName);
+                EnsureContentQueueEditable(cluster);
+                update(cluster);
+                // Queuing intent changes no running inputs, so retain the clean-shutdown proof.
+                await SaveAsync(cluster, token);
+                return cluster.Clone();
+            }
+            finally { _writeGate.Release(); }
+        }, token);
+
+    private static void EnsureContentQueueEditable(ClusterDefinition cluster)
+    {
+        if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
+            || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
+            throw new InvalidOperationException("Finish the current setup, update or activation before changing queued content.");
+    }
+
     private Task<ClusterDefinition> UpdateAsync(string uniqueName, Action<ClusterDefinition> update,
         CancellationToken cancellationToken) => WithLifecycleAsync(uniqueName,
         _ => UpdateCoreAsync(uniqueName, update, cancellationToken), cancellationToken);
