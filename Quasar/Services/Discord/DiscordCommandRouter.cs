@@ -73,6 +73,12 @@ public sealed class DiscordCommandRouter
                 var tokens = remainder.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 var verb = tokens[0].ToLowerInvariant();
                 var args = tokens.Length > 1 ? tokens[1] : string.Empty;
+                if (verb is not ("chat" or "status" or "help") &&
+                    (message.Author is not SocketGuildUser administrator || !administrator.GuildPermissions.Administrator))
+                {
+                    await message.Channel.SendMessageAsync("Discord Administrator permission required.", allowedMentions: AllowedMentions.None);
+                    return;
+                }
                 await _dispatcher.DispatchAsync(serverOptions, verb, args, message);
                 return;
             }
@@ -129,7 +135,7 @@ public sealed class DiscordCommandRouter
             .WithName(WhisperCommandName)
             .WithDescription("Whisper to an online Space Engineers player.")
             .WithContextTypes(InteractionContextType.Guild)
-            .AddOption("server", ApplicationCommandOptionType.String, "Quasar server unique name", isRequired: true)
+            .AddOption("server", ApplicationCommandOptionType.String, "Server name, or cluster:<name>", isRequired: true)
             .AddOption("user", ApplicationCommandOptionType.String, "Online player name or Steam ID", isRequired: true)
             .AddOption("message", ApplicationCommandOptionType.String, "Whisper text", isRequired: true);
 
@@ -138,7 +144,7 @@ public sealed class DiscordCommandRouter
             .WithDescription("Create an admin-only Discord channel for a game faction.")
             .WithContextTypes(InteractionContextType.Guild)
             .WithDefaultMemberPermissions(GuildPermission.Administrator)
-            .AddOption("server", ApplicationCommandOptionType.String, "Quasar server unique name", isRequired: true)
+            .AddOption("server", ApplicationCommandOptionType.String, "Server name, or cluster:<name>", isRequired: true)
             .AddOption("faction", ApplicationCommandOptionType.String, "Space Engineers faction tag", isRequired: true);
 
         await guild.BulkOverwriteApplicationCommandAsync([whisper.Build(), factionChannel.Build()]);
@@ -265,7 +271,7 @@ public sealed class DiscordCommandRouter
     private static DiscordServerOptions ResolveServer(DiscordOptions options, string uniqueName)
     {
         return options.Servers.FirstOrDefault(server =>
-                   string.Equals(server.UniqueName, uniqueName.Trim(), StringComparison.OrdinalIgnoreCase))
+                   string.Equals(server.TargetKey, uniqueName.Trim(), StringComparison.OrdinalIgnoreCase))
                ?? throw new InvalidOperationException($"Discord bridge server '{uniqueName}' was not found.");
     }
 

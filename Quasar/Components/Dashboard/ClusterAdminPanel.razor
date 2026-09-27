@@ -19,11 +19,11 @@
                 <MudAlert Severity="Severity.Warning">@message</MudAlert>
             }
             <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Justify="@(Compact ? Justify.FlexEnd : Justify.FlexStart)">
-                @if (Compact)
+                @if (Cluster.GoalState == DedicatedServerGoalState.On && Compact)
                 {
                     <MudTooltip Text="Save world"><MudIconButton aria-label="Save world" Icon="@Icons.Material.Filled.Save" Size="Size.Small" Disabled="@(!CanRun("POST /admin/v1/save-all"))" OnClick="SaveAsync" /></MudTooltip>
                 }
-                else
+                else if (Cluster.GoalState == DedicatedServerGoalState.On)
                 {
                     <MudButton Disabled="@(!CanRun("POST /admin/v1/save-all"))" OnClick="SaveAsync" Variant="Variant.Outlined" Color="Color.Primary">Save world</MudButton>
                 }
@@ -36,10 +36,8 @@
                 }
                 else
                 {
-                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Filled.RestartAlt"
-                               Disabled="@(!CanRun("POST /admin/v1/gateway/restart") || Cluster.Gateway is null)" OnClick="RestartAsync">Restart Gateway</MudButton>
                     <MudButton Variant="Variant.Filled" Color="Color.Error" Size="Size.Small" StartIcon="@Icons.Material.Filled.Stop"
-                               Disabled="@(!CanRun("POST /admin/v1/shutdown"))" OnClick="ShutdownAsync">Stop</MudButton>
+                               Disabled="@(Busy || !ManagedLifecycle && !CanRun("POST /admin/v1/shutdown"))" OnClick="ShutdownAsync">Stop</MudButton>
                 }
             </MudStack>
             @if (_capabilities?.Scope == Admin.AdminScope.Query)
@@ -57,6 +55,13 @@
             @if (!Compact)
             {
             <MudExpansionPanels>
+                <MudExpansionPanel Text="Advanced Gateway controls">
+                @if (Cluster.GoalState == DedicatedServerGoalState.On && Cluster.Gateway is not null)
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.RestartAlt"
+                               Disabled="@(!CanRun("POST /admin/v1/gateway/restart"))" OnClick="RestartAsync">Restart Gateway</MudButton>
+                }
+                <MudExpansionPanels Class="py-2">
                 <MudExpansionPanel Text="Diagnostics, maintenance and exports">
                     <MudStack Spacing="3" Class="py-2 cluster-form-section">
                     <MudButton OnClick="LoadDiagnosticsAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">Load diagnostics</MudButton>
@@ -92,6 +97,8 @@
                         <MudButton OnClick="ApplyConfigAsync" Disabled="@(!CanRun("PUT /admin/v1/config"))" Variant="Variant.Outlined" Color="Color.Primary">Apply configuration</MudButton>
                     }
                 </MudExpansionPanel>
+                </MudExpansionPanels>
+                </MudExpansionPanel>
             </MudExpansionPanels>
             }
         </MudStack>
@@ -113,6 +120,7 @@
     private bool _submitting;
     private bool _canStart;
     private bool Busy => _submitting || _operation?.State == ClusterOperationState.Running;
+    private bool ManagedLifecycle => Cluster.Gateway is not null && !string.IsNullOrWhiteSpace(Cluster.HostCommandUrl);
     private bool CanRun(string operation) => !Busy && _capabilities?.Scope == Admin.AdminScope.Manage
         && _capabilities.Operations.Contains(operation, StringComparer.Ordinal);
 
@@ -134,7 +142,13 @@
             _capabilities = (await Gateway.GetCapabilitiesAsync(Cluster, _shutdown.Token)).Data;
             _capabilityError = null;
         }
-        catch (ClusterGatewayException error) { _capabilities = null; _capabilityError = error.Message; }
+        catch (ClusterGatewayException error)
+        {
+            _capabilities = null;
+            _capabilityError = Cluster.Gateway is not null && Cluster.GoalState == DedicatedServerGoalState.Off
+                && error.IsConnectivityFailure
+                ? null : error.Message;
+        }
     }
     private async Task PollAsync()
     {
@@ -195,7 +209,7 @@
     {
         if (await Dialogs.ShowMessageBoxAsync("Shut down cluster?", "Players will disconnect while the cluster saves and drains.", yesText: "Shut down", cancelText: "Cancel") == true)
         {
-            if (Cluster.Gateway is not null && !string.IsNullOrWhiteSpace(Cluster.HostCommandUrl))
+            if (ManagedLifecycle)
                 await ChangeGoalAsync(DedicatedServerGoalState.Off);
             else await SubmitAsync(ClusterAdminCommand.Create("shutdown", new Admin.ShutdownRequest()));
         }

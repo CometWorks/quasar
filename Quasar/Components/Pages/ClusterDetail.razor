@@ -5,6 +5,7 @@
 @inject AuthenticationStateProvider AuthenticationState
 @inject ClusterSetupService Setup
 @inject ClusterReleaseMonitor ClusterReleases
+@inject ClusterReconciler Reconciler
 
 <PageTitle>@(Cluster?.DisplayName ?? "Cluster")</PageTitle>
 
@@ -56,14 +57,18 @@ else
                 }
                 else
                 {
-                    <MudText>This registration has no active managed deployment. If its Gateway is unavailable, check the machine running it. For a fresh deployment, use guided setup with a new cluster ID. The Delete button also offers an explicitly confirmed Forget registration option for unreachable or stale installations.</MudText>
+                    <MudText>This cluster has no active deployment. Use guided setup to create a managed cluster, or remove this registration if it is no longer needed.</MudText>
                     <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage"><MudButton Href="/clusters/new" Variant="Variant.Outlined" Color="Color.Primary">Set up a new cluster</MudButton></AuthorizeView>
                 }
             </MudAlert>
         }
         <ClusterAdminPanel @ref="_admin" Cluster="Cluster" />
         <ClusterDetailPanel Cluster="Cluster" ShowConfigurationLinks="false" />
-        <ClusterFleetPanel Cluster="Cluster" Command="ExecuteCommandAsync" />
+        @if (Cluster.Gateway is null || Cluster.GoalState == DedicatedServerGoalState.On
+            || Reconciler.GetStatus(Cluster.UniqueName).GatewayObserved == Quasar.Host.Contract.V1.GatewayObservedState.Running)
+        {
+            <ClusterFleetPanel Cluster="Cluster" Command="ExecuteCommandAsync" />
+        }
         @if (Cluster.ActiveDeployment is not null)
         {
             <section id="cluster-content" aria-label="Cluster content updates">

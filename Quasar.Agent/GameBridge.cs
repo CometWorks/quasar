@@ -82,6 +82,7 @@ namespace Quasar.Agent
         private AgentHello _latestHello;
         private AgentSnapshot _latestSnapshot;
         private volatile bool _quasarRequestedStop;
+        private readonly ClusterChatRelay _clusterChat = new ClusterChatRelay();
 
         /// <summary>
         /// True once Quasar itself asked this server to stop (via a
@@ -107,6 +108,7 @@ namespace Quasar.Agent
         public void Dispose()
         {
             MySession.OnSaved -= OnWorldSaved;
+            _clusterChat.Dispose();
             if (_chatSource != null)
                 _chatSource.ChatMessageReceived -= OnChatMessageReceived;
         }
@@ -123,6 +125,7 @@ namespace Quasar.Agent
             AgentProfiler.MarkGameThread();
             AgentProfiler.Update();
             RefreshChatSubscription();
+            if (_options.ClusterMode) _clusterChat.Update();
 
             if ((DateTime.UtcNow - _lastSnapshotUtc) < SnapshotInterval)
                 return;
@@ -155,6 +158,9 @@ namespace Quasar.Agent
             if (!_options.AllowsCommand(command.CommandType))
                 return Task.FromResult(CreateResult(command, false,
                     "Cluster nodes reject agent-local save and stop commands; use the Gateway cluster API."));
+
+            if (_options.ClusterMode && ClusterChatRelay.Handles(command.CommandType))
+                return _clusterChat.SendAsync(command, cancellationToken);
 
             if (command.CommandType == ServerCommandType.PluginRequest)
                 return ExecuteCompanionPluginRequestAsync(command, cancellationToken);
@@ -304,6 +310,7 @@ namespace Quasar.Agent
                 ServerName = hello.ServerName,
                 WorldName = hello.WorldName,
                 ClusterMode = hello.ClusterMode,
+                ClusterChatReady = hello.ClusterMode && _clusterChat.IsReady,
                 ClusterId = hello.ClusterId,
                 ClusterNodeId = hello.ClusterNodeId,
                 ClusterNodeRole = hello.ClusterNodeRole,

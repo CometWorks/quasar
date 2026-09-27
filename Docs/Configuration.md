@@ -382,6 +382,54 @@ server's supported per-player private delivery rather than impersonating a playe
 Slash commands are guild-scoped and refresh when the bot connects. Server values
 use Quasar's stable unique names, not display names.
 
+## Discord clusters and multiple Hosts
+
+The Discord page lists each cluster once, alongside standalone servers. Configure
+channels and rules on that cluster entry; individual nodes need no Discord settings
+or bot tokens. Entries in `discord-options.json` use `isCluster: true` with the
+cluster's `uniqueName`. Slash commands address these entries as `cluster:<name>`
+(for example `/whisper server:cluster:survival user:7656119... message:Hello`).
+A standalone server and a cluster with the same name remain separate targets.
+
+Cluster chat requires the current Quasar Agent on **every active node, including
+the World Authority**, and the PluginSdk cluster facilities shipped in Magnetar
+**v2.4.2.4** (or newer). Each Agent advertises chat readiness. Quasar refuses to
+fall back to local chat if an Agent is old, disconnected, ambiguous, or stale.
+
+- **Game → Discord:** Quasar polls the Gateway's accepted global chat history and
+  tracks its sequence cursor and World Authority epoch. Private/faction chat uses
+  only the current authority's Agent snapshot, retaining the admin-only channel
+  checks above. Private history entries never fall through to the global channel.
+- **Discord → game:** the authority determines recipients, including faction
+  membership. The Agent uses the SDK's authenticated, fenced broadcast to reach
+  nodes across Hosts. Each node sends server-authored private messages only to its
+  assigned local recipients. This avoids impersonating a Steam player and prevents
+  messages looping back through the global player-chat admission path.
+- **Whispers and faction messages:** recipient lookup spans the cluster. A player
+  moving or disconnecting during delivery can produce a partial-delivery error;
+  Quasar does not claim success or automatically resend the entire message.
+- **Lifecycle and moderation:** `start`, `stop`, `restart`, `save`, `kick`, `ban`,
+  and `unban` use the cluster control services/Gateway. Restart performs a clean
+  stop and waits up to ten minutes for safe start eligibility. Failure leaves the
+  cluster stopped rather than starting it in an unstable state. Promotion commands
+  run on the current authority and await the Agent's result. Management commands
+  require Discord Administrator permission; chat, help, and status remain available
+  through their configured channels.
+- **Status and presence:** cluster phase and connected clients come from the
+  Gateway. Moving a player between nodes or Hosts produces no leave/join pair.
+  A failed observation resets the player baseline instead of announcing everyone
+  disconnected. Presence counts a cluster once, without summing replicated players.
+- **Monitoring:** death events, simspeed alerts, and analytics cover current node
+  incarnations across Hosts. Metrics/alerts identify their node. Cluster log export
+  uses the Agent's bounded plugin-log stream, not local Dedicated Server log files;
+  remote filesystem mounts are unnecessary.
+
+Delivery remains best effort: SDK acknowledgements confirm node-side sending,
+not that a game client displayed the message. Chat queues, Gateway history and
+Agent histories are bounded; prolonged outages can lose messages. Old chat from
+before bot startup is not replayed. Private snapshots and death notifications can
+miss events during Agent outages. No durable Discord message archive is created.
+
 ## Browser push notifications
 
 **Tools → Notifications** (`/notifications`) lists outstanding update notices with
@@ -1021,10 +1069,13 @@ snapshots and edits are bound to a connection; reconnecting clears prior snapsho
 and an editor from the old connection cannot apply to its replacement. The ordinary
 Plugins page and log selector display cluster/slot/node/epoch labels.
 
-The cluster detail page includes fleet process telemetry, plugin runtime state,
-statistics/profiler snapshots, recent logs, Registry players with kick/ban controls,
-and an event tail capped at 200 rows with truncation/reset indication. Drain and force
-removal use the shared command service; force removal includes the displayed epoch.
+The cluster detail page shows node status, performance and players while the Gateway
+is running. Process telemetry, plugin runtime state, statistics/profiler snapshots,
+recent logs and a capped event history remain available in the node details and tabs.
+Drain and force removal use the shared command service; force removal is in the
+node's More menu and includes the displayed epoch. Managed clusters with goal Off
+do not show Gateway connection warnings when the Gateway is offline; recovery and
+other actionable errors remain visible.
 Profile and world-template links reuse the existing catalogs. Applying those references,
 generating boot images and converting worlds remain part of packaged provisioning.
 

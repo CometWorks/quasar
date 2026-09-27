@@ -402,3 +402,12 @@ For offline package validation, run the extracted `Quasar.Host --self-test`. Thi
 inert child processes and temporary state, without launching Space Engineers or Quasar's
 web service. Host source, shared deployment code and contract changes trigger release
 builds alongside the web/launcher projects.
+
+### Discord cluster SDK requirement
+
+Quasar.Agent's cluster Discord bridge compiles against the PluginSdk cluster
+broadcast and player-view contracts shipped in Magnetar v2.4.2.4 or newer. Set
+`MagnetarBin` to the directory containing that release's `PluginSdk.dll`; when
+building the worker locally, export `MagnetarBin` in the environment so its nested
+Agent build receives the same reference. The SDK remains supplied by Magnetar at
+runtime. The release workflows already obtain the latest full Magnetar release.

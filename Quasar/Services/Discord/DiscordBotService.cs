@@ -10,6 +10,8 @@ public sealed class DiscordBotService : IHostedService, IDisposable
     private readonly SemaphoreSlim _restartGate = new(1, 1);
     private readonly SemaphoreSlim _presenceGate = new(1, 1);
     private readonly DiscordOptionsCatalog _optionsCatalog;
+    private readonly DiscordClusterBridge _clusters;
+    private Task _clusterPolling = Task.CompletedTask;
     private readonly AgentRegistry _registry;
     private readonly DedicatedServerSupervisor _supervisor;
     private readonly DiscordCommandRouter _commandRouter;
@@ -41,9 +43,10 @@ public sealed class DiscordBotService : IHostedService, IDisposable
         DiscordSimSpeedAlertService simSpeedAlertService,
         DiscordLogRelayService logRelayService,
         DiscordAnalyticsExportService analyticsExportService,
-        ILogger<DiscordBotService> logger)
+        ILogger<DiscordBotService> logger, DiscordClusterBridge clusters)
     {
         _optionsCatalog = optionsCatalog;
+        _clusters = clusters;
         _registry = registry;
         _supervisor = supervisor;
         _commandRouter = commandRouter;
@@ -252,6 +255,8 @@ public sealed class DiscordBotService : IHostedService, IDisposable
                 await _simSpeedAlertService.HandleChangedAsync(client, options, botLifetime.Token);
                 await UpdatePresenceAsync(client, botLifetime.Token);
 
+                _clusters.Reset();
+                _clusterPolling = PollClustersAsync(client, botLifetime.Token);
                 SetState("Running", string.Empty);
             }
             catch (Exception exception)
@@ -310,6 +315,8 @@ public sealed class DiscordBotService : IHostedService, IDisposable
         }
 
         botLifetime?.Cancel();
+        await _clusterPolling;
+        _clusters.Reset();
         _chatRelayService.Reset();
         _deathRelayService.Reset();
         _simSpeedAlertService.Reset();
@@ -341,6 +348,21 @@ public sealed class DiscordBotService : IHostedService, IDisposable
             client.Dispose();
             botLifetime?.Dispose();
         }
+    }
+
+    private async Task PollClustersAsync(DiscordSocketClient client, CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                await _clusters.PollAsync(client, _optionsCatalog.GetOptions(), token);
+                await UpdatePresenceAsync(client, token);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception error) { _logger.LogError(error, "Discord cluster polling stopped."); }
     }
 
     private DiscordSocketClient? GetClient()
@@ -431,13 +453,14 @@ public sealed class DiscordBotService : IHostedService, IDisposable
     {
         var snapshots = _supervisor.GetSnapshots();
         var agents = _registry.GetAgents();
-        var totalServers = snapshots.Count;
-        var activeServers = snapshots.Count(snapshot => IsActive(snapshot.State));
-        var issueCount = snapshots.Count(HasIssue);
+        var clusterPresence = _clusters.Presence();
+        var totalServers = snapshots.Count + clusterPresence.Total;
+        var activeServers = snapshots.Count(snapshot => IsActive(snapshot.State)) + clusterPresence.Active;
+        var issueCount = snapshots.Count(HasIssue) + clusterPresence.Issues;
         var warningCount = snapshots.Count(snapshot => snapshot.HealthState == DedicatedServerHealthState.Warning);
         var playersOnline = agents
-            .Where(agent => agent.IsConnected)
-            .Sum(agent => agent.Snapshot?.Metrics.PlayersOnline ?? 0);
+            .Where(agent => !agent.IsCluster && agent.IsConnected)
+            .Sum(agent => agent.Snapshot?.Metrics.PlayersOnline ?? 0) + clusterPresence.Players;
 
         var status = issueCount > 0
             ? UserStatus.DoNotDisturb

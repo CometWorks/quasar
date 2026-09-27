@@ -29,6 +29,16 @@ Magnetar with an unrecognized preparation flag.
    inputs to every Host, prepares one revision and activates it stopped. Choose
    **Start** on the cluster controls when ready.
 
+On cluster details, the main controls are Start, Stop, Save world (while running)
+and the guided cluster update. A managed cluster can be told to stop even when its
+Gateway admin endpoint is temporarily unreachable. Live node and player information
+appears while a cluster is running
+or its managed Gateway is still running during shutdown. When a managed cluster is
+stopped, Gateway connection failures are expected and are not shown as warnings.
+Recovery requirements, credential errors and other actionable failures remain visible.
+Backups and recovery have their own sections; manual JSON deployment requests and
+Gateway maintenance controls, including Gateway restart, are under advanced sections.
+
 Machines need Python 3, util-linux `flock`, .NET 10 and a working systemd user session. Quasar itself
 also needs .NET 10 for the shipped world converter. Remote enrollment requires a
 Quasar HTTPS origin reachable from the target; loopback HTTP is allowed locally.

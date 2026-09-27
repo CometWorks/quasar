@@ -30,7 +30,7 @@ public sealed class DiscordStatusRelayService(
             var messages = new List<(ulong ChannelId, string Text)>();
             foreach (var server in supervisor.GetSnapshots())
             {
-                var settings = options.Servers.FirstOrDefault(item =>
+                var settings = options.Servers.FirstOrDefault(item => !item.IsCluster &&
                     string.Equals(item.UniqueName, server.UniqueName, StringComparison.OrdinalIgnoreCase));
                 if (settings is null)
                     continue;

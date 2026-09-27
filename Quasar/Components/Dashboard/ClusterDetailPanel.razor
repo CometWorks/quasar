@@ -13,16 +13,16 @@
     {
         <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
     }
-    @if (_error is not null && !IsCleanlyStopped)
+    @if (_error is not null)
     {
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
     }
-    @if (ShutdownRecoveryRequired)
+    @if (RecoveryRequired)
     {
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@Reconciler.GetStatus(Cluster.UniqueName).Message</MudAlert>
     }
 
-    @if (_observedAt is { } observed)
+    @if (Cluster.GoalState == DedicatedServerGoalState.On && _observedAt is { } observed)
     {
         <MudText Typo="Typo.caption">@(_stale ? "Stale observation" : "Observed") · @observed.ToString("u") · Health: @(_stale ? "Unknown" : _status?.Health.ToString())</MudText>
     }
@@ -40,6 +40,8 @@
                 <MudText Typo="Typo.caption" Class="d-block">World Authority · @WorldAuthorityText</MudText>
             </MudPaper>
         </MudItem>
+        @if (Cluster.GoalState == DedicatedServerGoalState.On)
+        {
         <MudItem xs="12" sm="6" lg="3">
             <MudPaper Class="pa-3 server-card" Elevation="0">
                 <MudText Typo="Typo.overline">Players</MudText>
@@ -61,9 +63,10 @@
                 <MudText Typo="Typo.caption">@RecoveryDetail</MudText>
             </MudPaper>
         </MudItem>
+        }
     </MudGrid>
 
-    @if (!_stale && _status?.ReasonCodes.Length > 0)
+    @if (Cluster.GoalState == DedicatedServerGoalState.On && !_stale && _status?.ReasonCodes.Length > 0)
     {
         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
             @string.Join(" · ", _status.ReasonCodes)
@@ -183,7 +186,7 @@
             }
             catch (ClusterGatewayException exception)
             {
-                errors.Add(exception.Message);
+                if (!ExpectedOffline(exception)) errors.Add(exception.Message);
             }
             try
             {
@@ -191,7 +194,7 @@
             }
             catch (ClusterGatewayException exception)
             {
-                errors.Add(exception.Message);
+                if (!ExpectedOffline(exception)) errors.Add(exception.Message);
             }
             try
             {
@@ -199,7 +202,7 @@
             }
             catch (ClusterGatewayException exception)
             {
-                errors.Add(exception.Message);
+                if (!ExpectedOffline(exception)) errors.Add(exception.Message);
             }
             try
             {
@@ -220,7 +223,7 @@
         {
             _stale = true;
             _capabilities = null;
-            _error = exception.Message;
+            _error = ExpectedOffline(exception) ? null : exception.Message;
         }
         finally
         {
@@ -230,9 +233,13 @@
 
     private bool IsCleanlyStopped => Cluster.GoalState == DedicatedServerGoalState.Off
         && Reconciler.GetStatus(Cluster.UniqueName) is { State: ClusterReconcileState.Converged, ClusterPhase: Admin.ClusterPhase.Down };
-    private bool ShutdownRecoveryRequired => Reconciler.GetStatus(Cluster.UniqueName).ErrorCode == "shutdown_recovery_required";
-    private string PhaseText => ShutdownRecoveryRequired ? "Recovery required" : IsCleanlyStopped ? "Stopped" : _stale ? "Unavailable" : _status?.Phase.ToString() ?? "Unavailable";
-    private Color PhaseColor => ShutdownRecoveryRequired ? Color.Error : _stale ? Color.Default : _status?.Health switch
+    private bool RecoveryRequired => Cluster.GoalState == DedicatedServerGoalState.Off
+        && Reconciler.GetStatus(Cluster.UniqueName).State == ClusterReconcileState.ConfigurationRequired;
+    private bool ExpectedOffline(ClusterGatewayException error) => Cluster.Gateway is not null
+        && Cluster.GoalState == DedicatedServerGoalState.Off
+        && error.IsConnectivityFailure;
+    private string PhaseText => RecoveryRequired ? "Recovery required" : IsCleanlyStopped ? "Stopped" : _stale ? "Unavailable" : _status?.Phase.ToString() ?? "Unavailable";
+    private Color PhaseColor => RecoveryRequired ? Color.Error : _stale ? Color.Default : _status?.Health switch
     {
         Admin.AdminHealth.Healthy => Color.Success,
         Admin.AdminHealth.Warning => Color.Warning,

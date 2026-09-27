@@ -168,6 +168,7 @@ public sealed class ClusterGatewayClient
 
 public sealed class ClusterGatewayException : Exception
 {
+    public bool IsConnectivityFailure => Code is "gateway_unavailable" or "gateway_timeout";
     public ClusterGatewayException(HttpStatusCode statusCode, string code, string message, Exception? inner = null)
         : base(message, inner)
     {

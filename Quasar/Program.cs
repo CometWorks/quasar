@@ -271,6 +271,7 @@ public class Program
             builder.Services.AddSingleton<DiscordOptionsCatalog>();
             builder.Services.AddSingleton<DiscordRateLimiter>();
             builder.Services.AddSingleton<DeathMessagesCatalog>();
+            builder.Services.AddSingleton<DiscordClusterBridge>();
             builder.Services.AddSingleton<DiscordCommandDispatcher>();
             builder.Services.AddSingleton<DiscordCommandRouter>();
             builder.Services.AddSingleton<DiscordChatRelayService>();

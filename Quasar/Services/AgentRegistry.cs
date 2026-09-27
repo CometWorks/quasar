@@ -147,6 +147,7 @@ public sealed class AgentRegistry
     public void UpdateCommandResult(ServerCommandResult result, string connectionId)
     {
         ServerCommandEnvelope? command = null;
+        bool clusterCommand = false;
         TaskCompletionSource<ServerCommandResult>? awaiter = null;
 
         lock (_sync)
@@ -155,6 +156,7 @@ public sealed class AgentRegistry
                 || !_pendingCommands.TryGetValue(result.CommandId, out var expected) || expected.AgentId != result.AgentId)
                 return;
             state.LastSeenUtc = DateTimeOffset.UtcNow;
+            clusterCommand = state.IsCluster;
             state.CommandResults.Insert(0, result);
             if (state.CommandResults.Count > 20)
                 state.CommandResults.RemoveRange(20, state.CommandResults.Count - 20);
@@ -171,7 +173,7 @@ public sealed class AgentRegistry
 
         awaiter?.TrySetResult(result);
 
-        if (command is not null)
+        if (command is not null && !clusterCommand)
             _knownPlayers.ApplyCommandOutcome(command, result);
 
         NotifyChanged();

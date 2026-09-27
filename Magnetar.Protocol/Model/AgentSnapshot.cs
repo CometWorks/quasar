@@ -31,6 +31,9 @@ public class AgentSnapshot
 
     public long ClusterEpoch { get; set; }
 
+    /// <summary>Fenced cluster chat handler and SDK broadcast capability are available.</summary>
+    public bool ClusterChatReady { get; set; }
+
     public string DeploymentRevision { get; set; } = string.Empty;
     public bool? ReadinessVerified { get; set; }
     public string DeploymentFailure { get; set; } = string.Empty;

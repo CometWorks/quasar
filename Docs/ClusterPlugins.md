@@ -285,3 +285,22 @@ need explicit migration to regain new-key capacity. Storage is opened lazily onl
 a standalone plugin opts into shared state, and storage failures report unavailability.
 The SDK documentation release-tag link becomes available after the coordinated release;
 review changes are in Magnetar #57, not a requirement to install from a mutable branch.
+
+## Discord bridge
+
+Discord is configured once per cluster in Quasar. Game-to-Discord global chat uses
+Gateway history with an epoch-scoped cursor; private/faction chat comes from the
+current World Authority Agent. Discord-to-game chat uses the Agent's
+`PluginCluster.ForPlugin("quasar-agent")` client: WA recipient preparation followed
+by SDK broadcast to fenced node incarnations, including the WA and nodes on remote
+Hosts. Agent consumes the SDK provider; it does not register a replacement provider.
+
+All nodes must advertise `AgentSnapshot.ClusterChatReady`. Receivers suppress
+repeated operation IDs, reject expired requests, validate local player attachments,
+and report partial delivery. WA preparation determines faction membership before
+fan-out. Local unicast delivery bypasses the player-originated chat request path,
+so no fabricated Steam identity or global echo is needed. Lifecycle and admission
+commands use the existing Gateway control services.
+
+See [Discord clusters and multiple Hosts](Configuration.md#discord-clusters-and-multiple-hosts)
+for setup, monitoring coverage and bounded-history delivery limits.

@@ -43,6 +43,11 @@ public sealed class DiscordOptions
 
 public sealed class DiscordServerOptions
 {
+    public bool IsCluster { get; set; }
+
+    [JsonIgnore]
+    public string TargetKey => IsCluster ? "cluster:" + UniqueName : UniqueName;
+
     public string UniqueName { get; set; } = string.Empty;
 
     public string CommandPrefix { get; set; } = string.Empty;
@@ -113,6 +118,7 @@ public sealed class DiscordServerOptions
         return new DiscordServerOptions
         {
             UniqueName = UniqueName,
+            IsCluster = IsCluster,
             CommandPrefix = CommandPrefix,
             CommandChannelId = CommandChannelId,
             ChatRelayChannelId = ChatRelayChannelId,
@@ -153,6 +159,7 @@ public sealed class DiscordServerOptions
         return new DiscordServerOptions
         {
             UniqueName = options.UniqueName?.Trim() ?? string.Empty,
+            IsCluster = options.IsCluster,
             CommandPrefix = options.CommandPrefix?.Trim() ?? string.Empty,
             CommandChannelId = NormalizeChannelId(options.CommandChannelId),
             ChatRelayChannelId = NormalizeChannelId(options.ChatRelayChannelId),
