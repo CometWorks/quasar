@@ -70,7 +70,7 @@ public sealed class BrowserPushState(PushNotificationService subscriptions, IJSR
         catch (JSException error) when (error.Message.Contains("Registration failed - push service error", StringComparison.OrdinalIgnoreCase))
         {
             logger.LogWarning(error, "The browser's push service could not register a subscription.");
-            Error = "Browser push service unavailable. Check your network.";
+            Error = "Browser push service unavailable. Check your network; in Brave, enable ‘Use Google services for push messaging’ in Settings → Privacy and security, then try again.";
         }
         catch (Exception error)
         {

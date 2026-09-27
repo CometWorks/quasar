@@ -451,7 +451,9 @@ service workers and Push API. It does not require installing Quasar as a PWA.
 The browser must also reach its own push provider to create a subscription.
 If enabling push reports that the browser push service is unavailable, check
 network access to that provider. Quasar cannot register a subscription when the
-browser's push provider is disabled or unreachable.
+browser's push provider is disabled or unreachable. In Brave, enable **Use Google
+services for push messaging** under **Settings → Privacy and security**
+(`brave://settings/privacy`), then retry enabling push in Quasar.
 
 Enabling push waits for Quasar's own `/push-worker.js` registration to reach the
 activated state. Another worker's readiness does not satisfy this check. Push-worker
