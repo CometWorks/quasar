@@ -18,9 +18,53 @@ window.quasarPush = (() => {
         return Uint8Array.from(decoded, character => character.charCodeAt(0));
     }
 
+    function isOurWorker(worker) {
+        return worker?.scriptURL === new URL(workerUrl, location.origin).href;
+    }
+
+    function isActive(registration) {
+        return isOurWorker(registration?.active) && registration.active.state === 'activated';
+    }
+
     async function registration() {
         const worker = await navigator.serviceWorker.getRegistration('/');
-        return worker?.active?.scriptURL === new URL(workerUrl, location.origin).href ? worker : null;
+        return isActive(worker) ? worker : null;
+    }
+
+    async function activeRegistration() {
+        let registration;
+        try {
+            registration = await navigator.serviceWorker.register(workerUrl, { scope: '/' });
+        } catch (error) {
+            throw new Error(`Quasar push service worker registration failed: ${error.message ?? error}`);
+        }
+        if (isActive(registration)) return registration;
+
+        // The global serviceWorker.ready promise can resolve to an older/different worker.
+        // Follow the registration we just created, including its installing/waiting worker.
+        await new Promise((resolve, reject) => {
+            const watched = new Set();
+            const timeout = setTimeout(() => finish(new Error('Quasar push service worker activation timed out.')), 15000);
+            function finish(error) {
+                clearTimeout(timeout);
+                registration.removeEventListener('updatefound', check);
+                for (const worker of watched) worker.removeEventListener('statechange', check);
+                if (error) reject(error); else resolve();
+            }
+            function check() {
+                for (const worker of [registration.installing, registration.waiting, registration.active]) {
+                    if (!isOurWorker(worker) || watched.has(worker)) continue;
+                    watched.add(worker);
+                    worker.addEventListener('statechange', check);
+                }
+                if (isActive(registration)) return finish();
+                if (watched.size && [...watched].every(worker => worker.state === 'redundant'))
+                    finish(new Error('Quasar push service worker installation failed.'));
+            }
+            registration.addEventListener('updatefound', check);
+            check();
+        });
+        return registration;
     }
 
     return {
@@ -34,8 +78,7 @@ window.quasarPush = (() => {
             if (!supported()) throw new Error('Browser push requires a supported browser and HTTPS or localhost.');
             if (Notification.permission !== 'granted' && await Notification.requestPermission() !== 'granted')
                 throw new Error('Browser notification permission was denied.');
-            await navigator.serviceWorker.register(workerUrl, { scope: '/' });
-            const worker = await navigator.serviceWorker.ready;
+            const worker = await activeRegistration();
             const serverKey = keyBytes(publicKey);
             let current = await worker.pushManager.getSubscription();
             if (current) {

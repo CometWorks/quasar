@@ -432,7 +432,10 @@ miss events during Agent outages. No durable Discord message archive is created.
 
 ## Browser push notifications
 
-**Tools → Notifications** (`/notifications`) lists outstanding update notices with
+The Tools section lists Security, Hosts, UI Plugins, and Backups (subject to permissions).
+Notifications appears in the section below Tools, alongside Appearance and Updates.
+
+**Notifications** (`/notifications`) in the lower navigation section lists outstanding update notices with
 links to their details. It updates as checks finish and respects cluster access.
 Clicking the bell opens the current notice's destination directly (Updates or the
 affected cluster), with Updates as its default destination. Hovering shows the current
@@ -447,10 +450,14 @@ when these controls change the subscription. Browser push requires HTTPS (or loc
 service workers and Push API. It does not require installing Quasar as a PWA.
 The browser must also reach its own push provider to create a subscription.
 If enabling push reports that the browser push service is unavailable, check
-network access to that provider. In Brave, enable **Use Google services for
-push messaging** under `brave://settings/privacy`, then retry. Quasar cannot
-register a subscription when the browser's push provider is disabled or
-unreachable.
+network access to that provider. Quasar cannot register a subscription when the
+browser's push provider is disabled or unreachable.
+
+Enabling push waits for Quasar's own `/push-worker.js` registration to reach the
+activated state. Another worker's readiness does not satisfy this check. Push-worker
+updates activate without requiring all tabs to close. Installation failures or a
+15-second activation timeout produce a service-worker error; refresh the page and
+retry. This is separate from a browser push-provider registration failure.
 
 Quasar sends update notices for GitHub update credential warnings, Quasar UI and
 launcher releases, newer cluster packages, and observed cluster mod/plugin changes.

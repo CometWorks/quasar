@@ -411,3 +411,10 @@ broadcast and player-view contracts shipped in Magnetar v2.4.2.4 or newer. Set
 building the worker locally, export `MagnetarBin` in the environment so its nested
 Agent build receives the same reference. The SDK remains supplied by Magnetar at
 runtime. The release workflows already obtain the latest full Magnetar release.
+
+### Browser push readiness regression tests
+
+Run `node --test Quasar.Tests/Browser/push-worker.test.mjs` with a current Node.js
+release. These dependency-free tests exercise worker identity, activation races,
+registration/installation failure, timeouts, and update activation. Browser APIs
+are simulated; no push subscription or running Quasar service is required.

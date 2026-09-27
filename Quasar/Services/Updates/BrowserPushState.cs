@@ -62,10 +62,15 @@ public sealed class BrowserPushState(PushNotificationService subscriptions, IJSR
             await subscriptions.SubscribeAsync(user, subscription);
             Enabled = true;
         }
+        catch (JSException error) when (error.Message.Contains("Quasar push service worker", StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogWarning(error, "Quasar's push service worker did not activate.");
+            Error = "Notification service worker is not ready. Refresh this page and try again.";
+        }
         catch (JSException error) when (error.Message.Contains("Registration failed - push service error", StringComparison.OrdinalIgnoreCase))
         {
             logger.LogWarning(error, "The browser's push service could not register a subscription.");
-            Error = "Browser push service unavailable. Check your network; in Brave, enable Google services for push messaging in Privacy settings.";
+            Error = "Browser push service unavailable. Check your network.";
         }
         catch (Exception error)
         {

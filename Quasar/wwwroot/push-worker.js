@@ -1,3 +1,8 @@
+// This worker only handles push; activate updates without waiting for open tabs to close.
+self.addEventListener('install', event => {
+    event.waitUntil(self.skipWaiting());
+});
+
 self.addEventListener('push', event => {
     let notice;
     try { notice = event.data?.json(); } catch { return; }
