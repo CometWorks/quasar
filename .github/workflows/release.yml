@@ -92,8 +92,15 @@ jobs:
               continue
             fi
 
-            echo "Deleting draft release and tag: $tag"
-            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+            echo "Deleting draft release and any existing tag: $tag"
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes
+            ref="repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}"
+            if ref_response=$(gh api "$ref" 2>&1); then
+              gh api --method DELETE "$ref" --silent
+            elif [[ "$ref_response" != *"HTTP 404"* ]]; then
+              printf '%s\n' "$ref_response" >&2
+              exit 1
+            fi
             deleted=$((deleted + 1))
           done < <(
             gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
@@ -730,8 +737,15 @@ jobs:
           fi
 
           while IFS= read -r tag; do
-            echo "Deleting old release and tag: $tag"
-            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+            echo "Deleting old release and any existing tag: $tag"
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes
+            ref="repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}"
+            if ref_response=$(gh api "$ref" 2>&1); then
+              gh api --method DELETE "$ref" --silent
+            elif [[ "$ref_response" != *"HTTP 404"* ]]; then
+              printf '%s\n' "$ref_response" >&2
+              exit 1
+            fi
           done < releases-to-delete.txt
 
   publish-container:

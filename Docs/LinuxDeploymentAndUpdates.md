@@ -70,7 +70,9 @@ After publishing, the workflow prunes older GitHub releases with their tags. It
 keeps the newest two full active releases, plus the newest two draft/prerelease
 review builds per PR/manual stream. Closing or merging a pull request cancels any
 in-progress release build for that PR, then deletes all remaining draft releases
-and tags whose names begin with that PR's exact `pr-<number>/` prefix.
+and tags whose names begin with that PR's exact `pr-<number>/` prefix. Draft
+releases may not have Git tags yet, so cleanup deletes a matching tag only when
+it exists.
 
 ## First Start
 
