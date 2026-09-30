@@ -1,6 +1,9 @@
 @implements IAsyncDisposable
 @using Admin = CometWorks.ClusterGateway.AdminContract.V1
 @inject ClusterCommandService Commands
+@inject ClusterCatalog Catalog
+@inject QuasarConfigProfileCatalog Profiles
+@inject ClusterUpdatePreparationService UpdatePreparation
 @inject ClusterOperationStore Operations
 @inject ClusterGatewayClient Gateway
 @inject QuasarPermissionService Permissions
@@ -55,6 +58,39 @@
             @if (!Compact)
             {
             <MudExpansionPanels MultiExpansion="true">
+                <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs" Context="configurationAuthorization">
+                    <Authorized>
+                        <MudExpansionPanel Text="Cluster settings">
+                            <MudStack Spacing="2" Class="py-2 cluster-form-section">
+                                <MudTextField T="string" @bind-Value="_displayName" Label="Display name" Variant="Variant.Outlined"
+                                              HelperText="Name shown in Quasar lists and dashboards." />
+                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                                    Stage a compatible profile, then apply the pending update from Maintenance during full downtime. Existing worlds currently support only max player changes through this control. Other world settings, administrators, mods, and plugin selections require deployment support that is not available yet.
+                                </MudAlert>
+                                <MudSelect T="string" @bind-Value="_configProfileId" Label="Selected config profile" Variant="Variant.Outlined"
+                                           HelperText="Selection remains pending until the prepared cluster update is applied.">
+                                    @foreach (var profile in Profiles.GetProfiles())
+                                    {
+                                        <MudSelectItem T="string" Value="@profile.ConfigProfileId">@profile.Name</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                <MudButton Href="/configs" Variant="Variant.Text" Color="Color.Primary">Manage config profiles</MudButton>
+                                @if (Catalog.GetCluster(Cluster.UniqueName)?.PreparedProfile is { } pendingProfile)
+                                {
+                                    <MudText Typo="Typo.body2">Pending profile: @(Profiles.GetProfile(pendingProfile.ProfileId)?.Name ?? pendingProfile.ProfileId). Apply it from Maintenance.</MudText>
+                                }
+                                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                                           Disabled="@(Busy || Cluster.ActiveDeployment is null || string.IsNullOrWhiteSpace(_configProfileId) || _configProfileId == Cluster.ConfigProfileId)"
+                                           OnClick="StageProfileAsync">Stage selected profile</MudButton>
+                                <MudNumericField T="int" @bind-Value="_shutdownGracePeriodSeconds" Label="Shutdown grace period (seconds)"
+                                                 Variant="Variant.Outlined" Min="0" Max="3600"
+                                                 HelperText="Time allowed for the Gateway to save and drain when Quasar stops the cluster." />
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Busy || string.IsNullOrWhiteSpace(_displayName))"
+                                           OnClick="SaveAdministrationAsync">Save cluster settings</MudButton>
+                            </MudStack>
+                        </MudExpansionPanel>
+                    </Authorized>
+                </AuthorizeView>
                 <ClusterPluginConfigurationPanel Cluster="Cluster" />
                 <MudExpansionPanel Text="Advanced Gateway controls">
                 @if (Cluster.GoalState == DedicatedServerGoalState.On && Cluster.Gateway is not null)
@@ -119,6 +155,9 @@
     private string? _capabilityError;
     private Task? _poll;
     private bool _submitting;
+    private string _displayName = string.Empty;
+    private string _configProfileId = string.Empty;
+    private int _shutdownGracePeriodSeconds;
     private bool _canStart;
     private bool Busy => _submitting || _operation?.State == ClusterOperationState.Running;
     private bool ManagedLifecycle => Cluster.Gateway is not null && !string.IsNullOrWhiteSpace(Cluster.HostCommandUrl);
@@ -127,6 +166,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _displayName = Cluster.DisplayName;
+        _configProfileId = Cluster.PreparedProfile?.ProfileId ?? Cluster.ConfigProfileId;
+        _shutdownGracePeriodSeconds = Cluster.ShutdownGracePeriodSeconds;
         await RefreshCapabilitiesAsync();
         await RefreshStartAvailabilityAsync();
         _poll = PollAsync();
@@ -194,6 +236,44 @@
         catch (System.Text.Json.JsonException error) { _error = error.Message; }
     }
     private Task SaveAsync() => SubmitAsync(new("save-all"));
+    private async Task SaveAdministrationAsync()
+    {
+        if (Busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)
+            || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        if (!user.CanQueryCluster(Cluster.UniqueName)) return;
+        _submitting = true;
+        _error = null;
+        try
+        {
+            var updated = await Catalog.UpdateAdministrationAsync(Cluster.UniqueName,
+                new(_displayName, _shutdownGracePeriodSeconds), _shutdown.Token);
+            _displayName = updated.DisplayName;
+            _shutdownGracePeriodSeconds = updated.ShutdownGracePeriodSeconds;
+        }
+        catch (Exception error) when (error is InvalidDataException or KeyNotFoundException)
+        { _error = error.Message; }
+        finally { _submitting = false; }
+    }
+    private async Task StageProfileAsync()
+    {
+        if (Busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)
+            || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        if (!user.CanQueryCluster(Cluster.UniqueName)) return;
+        _submitting = true;
+        _error = null;
+        try
+        {
+            _operation = await UpdatePreparation.StageProfileSelectionAsync(Cluster.UniqueName,
+                _configProfileId, user.Identity?.Name ?? "web-ui", _shutdown.Token);
+            if (_operation.State != ClusterOperationState.Succeeded)
+                _error = _operation.Error?.Message ?? "Profile preparation did not complete.";
+        }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException or KeyNotFoundException)
+        { _error = error.Message; }
+        finally { _submitting = false; }
+    }
     private Task StartAsync() => ChangeGoalAsync(DedicatedServerGoalState.On);
     private async Task ChangeGoalAsync(DedicatedServerGoalState goal)
     {

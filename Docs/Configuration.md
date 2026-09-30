@@ -1124,9 +1124,11 @@ snapshots and edits are bound to a connection; reconnecting clears prior snapsho
 and an editor from the old connection cannot apply to its replacement. The ordinary
 Plugins page and log selector display cluster/slot/node/epoch labels.
 
-The **Cluster overview** card groups status, world/configuration references, runtime
-details and the node plan. The cluster detail page shows node status, performance and players while the Gateway
-is running. Process telemetry, plugin runtime state, statistics/profiler snapshots,
+The **Cluster overview** card groups status, world/configuration references and runtime
+details. The **Nodes and players** section shows planned slots (host, role, goal and
+observed state), registered nodes, performance and players while the Gateway is running.
+Slots without a registered node remain visible. Process telemetry, plugin runtime
+state, statistics/profiler snapshots,
 recent logs and a capped event history remain available in the node details and tabs.
 Drain and force removal use the shared command service; force removal is in the
 node's More menu and includes the displayed epoch. Managed clusters with goal Off
@@ -1136,6 +1138,26 @@ Profile and world-template links reuse the existing catalogs. Applying those ref
 generating boot images and converting worlds remain part of packaged provisioning.
 
 ## Cluster plugin configuration status
+
+**Administration → Cluster settings** edits the display name and shutdown grace
+period (0–3600 seconds). The display name is used in Quasar; the grace period
+is used on the next managed shutdown. Save these with
+`PUT /api/v1/clusters/{uniqueName}/administration`. A clean shutdown proof
+remains valid after these settings change.
+
+**Stage selected profile** prepares every Host and records the selected profile
+for the pending deployment. Apply it from **Maintenance → Pending update**
+during full downtime. Until activation finishes, the active profile and content
+checks remain unchanged. The API equivalent is
+`POST /api/v1/clusters/{uniqueName}/config-profile-preparation` with
+`{"configProfileId":"..."}`. Both endpoints require cluster management and
+config editing permissions.
+
+The current deployment format preserves existing mutable worlds when activating
+a new revision. Consequently, this control accepts profiles that differ from the
+active profile only in max players, which the prepared Gateway admission
+configuration applies. Changes to world settings, administrators, mods, or plugin selections are rejected with an
+explanation. Profile staging does not replace the cluster world.
 
 The one-server plugin-management requirement is specified in
 [Cluster Plugins](ClusterPlugins.md). Common plugin artifacts and effective config

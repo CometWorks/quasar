@@ -8,9 +8,60 @@ namespace Quasar.Services;
 
 /// <summary>Builds a candidate with the selected installation and the cluster's retained world seed and topology.</summary>
 public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, ClusterDependencyService dependencies,
-    ClusterHostClient hosts, ClusterDeploymentService deployments)
+    ClusterHostClient hosts, ClusterDeploymentService deployments, QuasarConfigProfileCatalog? profiles = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    public Task<ClusterOperation> StageProfileSelectionAsync(string clusterId, string profileId,
+        string actor, CancellationToken token) => catalog.WithLifecycleAsync(clusterId, async cluster =>
+        {
+            if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
+                || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
+                throw new InvalidOperationException("Finish the current setup, update or activation before changing profiles.");
+            var current = profiles?.GetProfile(cluster.ConfigProfileId)
+                ?? throw new InvalidOperationException("The active profile is unavailable; its deployed settings cannot be checked.");
+            var selected = profiles.GetProfile(profileId)
+                ?? throw new InvalidOperationException("Choose an existing configuration profile.");
+            if (current.UpdatedAtUtc > cluster.ActiveDeployment.ActivatedAt)
+                throw new InvalidOperationException("The active profile changed since deployment; its deployed world settings cannot be verified.");
+            EnsureCompatibleProfileSelection(current, selected);
+            var request = cluster.Preparation ?? throw new InvalidOperationException("Complete guided setup before changing profiles.");
+            var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
+            if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != request.InputsSha256)
+                throw new InvalidOperationException("Stage the selected release before changing profiles.");
+            var spec = JsonNode.Parse(request.SpecificationJson)!.AsObject();
+            spec["memberLimit"] = ClusterConversionService.MemberLimit(selected);
+            spec["administrators"] = JsonSerializer.SerializeToNode(ClusterConversionService.Administrators(selected), Json);
+            spec["selectedConfigProfileId"] = selected.ConfigProfileId;
+            string json = spec.ToJsonString();
+            string hash = ClusterDeploymentFiles.Hash(System.Text.Encoding.UTF8.GetBytes(json));
+            request = request with { SpecificationJson = json, Hosts = request.Hosts.Select(h => h with {
+                ConfigurationDirectory = Path.Combine(Path.GetDirectoryName(h.ConfigurationDirectory)!, "config-" + hash) }).ToArray() };
+            var result = await deployments.PrepareAsync(clusterId, request, Guid.NewGuid().ToString("N"), actor, token);
+            if (result.State == ClusterOperationState.Succeeded)
+            {
+                var deployment = result.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)
+                    ?? throw new InvalidDataException("Host preparation returned no deployment.");
+                await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token, selected.ConfigProfileId);
+            }
+            return result;
+        }, token);
+
+    internal static void EnsureCompatibleProfileSelection(QuasarConfigProfile current, QuasarConfigProfile selected)
+    {
+        ClusterConversionService.ValidateAdmission(selected);
+        static JsonObject Settings(object value) => JsonSerializer.SerializeToNode(value, Json)!.AsObject();
+        var currentRoot = Settings(current.RootSettings);
+        var selectedRoot = Settings(selected.RootSettings);
+        var currentSession = Settings(current.SessionSettings);
+        var selectedSession = Settings(selected.SessionSettings);
+        currentSession.Remove("maxPlayers");
+        selectedSession.Remove("maxPlayers");
+        if (!JsonNode.DeepEquals(currentRoot, selectedRoot) || !JsonNode.DeepEquals(currentSession, selectedSession)
+            || JsonSerializer.Serialize(current.Mods, Json) != JsonSerializer.Serialize(selected.Mods, Json)
+            || JsonSerializer.Serialize(current.Plugins, Json) != JsonSerializer.Serialize(selected.Plugins, Json))
+            throw new InvalidOperationException("This profile changes world settings, administrators, mods or plugin selection. The current deployment format cannot apply those changes to an existing world. Select a profile differing only in max players.");
+    }
 
     public Task<ClusterOperation> StagePluginConfigurationAsync(string clusterId, string pluginId,
         string configType, string values, string actor, CancellationToken token) =>
@@ -34,7 +85,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             {
                 var deployment = result.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)
                     ?? throw new InvalidDataException("Host preparation returned no deployment.");
-                await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token);
+                await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token, cluster.PreparedProfile?.ProfileId);
             }
             return result;
         }, token);
@@ -97,7 +148,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             {
                 var deployment = result.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)
                     ?? throw new InvalidDataException("Host preparation returned no deployment.");
-                await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token);
+                await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token, cluster.PreparedProfile?.ProfileId);
             }
             return result;
         }

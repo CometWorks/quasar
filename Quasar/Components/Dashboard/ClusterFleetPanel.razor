@@ -12,32 +12,44 @@
     @if (_capturedAt is { } captured) { <MudText Typo="Typo.caption">Registry observation: @captured.ToString("u")</MudText> }
     <MudTabs>
         <MudTabPanel Text="Fleet">
-            <MudTable T="ClusterFleetNode" Items="_fleet?.Nodes" Dense="true" Hover="true">
-                <HeaderContent><MudTh>Node</MudTh><MudTh>Machine</MudTh><MudTh>Status</MudTh><MudTh>Performance</MudTh><MudTh>Actions</MudTh></HeaderContent>
+            <MudTable T="NodeRow" Items="NodeRows" Dense="true" Hover="true">
+                <HeaderContent><MudTh>Slot / node</MudTh><MudTh>Machine / role</MudTh><MudTh>Goal / observed</MudTh><MudTh>Registry status</MudTh><MudTh>Performance</MudTh><MudTh>Actions</MudTh></HeaderContent>
                 <RowTemplate>
-                    <MudTd DataLabel="Node">@context.Registry.Node</MudTd>
-                    <MudTd DataLabel="Machine">@context.Registry.Host · @(context.Registry.Role == Admin.NodeRole.WorldAuthority ? "World Authority" : "Game node")</MudTd>
-                    <MudTd DataLabel="Status">@context.Registry.State</MudTd>
+                    <MudTd DataLabel="Slot / node">@(context.Plan?.SlotKey ?? context.Fleet?.Registry.SlotKey ?? "-")
+                        <MudText Typo="Typo.caption">@(context.Fleet is { } node ? $"{node.Registry.Node} · epoch {node.Registry.Epoch}" : "No registered node")</MudText>
+                    </MudTd>
+                    <MudTd DataLabel="Machine / role">@(context.Plan?.Host ?? context.Fleet?.Registry.Host ?? "-") · @RoleText(context.Plan?.Role ?? context.Fleet?.Registry.Role)
+                        @if (context.Plan is { } planned && context.Fleet is { } registered
+                            && (planned.Host != registered.Registry.Host || planned.Role != registered.Registry.Role))
+                        {
+                            <MudText Typo="Typo.caption">Registered: @(registered.Registry.Host ?? "-") · @RoleText(registered.Registry.Role)</MudText>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Goal / observed">@(context.Plan is { } plan ? $"{plan.Goal} / {plan.Observed}" : "-")</MudTd>
+                    <MudTd DataLabel="Registry status">@(context.Fleet?.Registry.State.ToString() ?? "No registered node")</MudTd>
                     <MudTd DataLabel="Performance">
-                        @if (context.Telemetry is { } telemetry)
+                        @if (context.Fleet?.Telemetry is { } telemetry)
                         {
                             <MudText Typo="Typo.body2">@(telemetry.Connected ? "Connected" : "Telemetry unavailable")</MudText>
                             <MudText Typo="Typo.body2">Sim speed @telemetry.Metrics?.SimSpeed.ToString("0.00") · Memory @telemetry.Metrics?.MemoryWorkingSetMb MB</MudText>
                             @if (telemetry.ReadinessVerified == false) { <MudText Color="Color.Warning">Deployment not ready</MudText> }
                             @if (!string.IsNullOrWhiteSpace(telemetry.DeploymentFailure)) { <MudText Color="Color.Warning">@telemetry.DeploymentFailure</MudText> }
-                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => _selectedNode = context.Registry.Node)">Details</MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => _selectedNode = context.Fleet!.Registry.Node)">Details</MudButton>
                         }
                         else { <MudText Typo="Typo.body2">Telemetry unavailable</MudText> }
                     </MudTd>
                     <MudTd DataLabel="Actions">
+                        @if (context.Fleet is { } fleetNode)
+                        {
                         <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="authorization">
                             <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
-                                       Disabled="@(!_available || context.Registry.Role != Admin.NodeRole.Regular || context.Registry.State != Admin.NodeState.Active || string.IsNullOrWhiteSpace(context.Registry.SlotKey))"
-                                       OnClick="@(() => CloseAsync(context.Registry))">Drain</MudButton>
+                                       Disabled="@(!_available || fleetNode.Registry.Role != Admin.NodeRole.Regular || fleetNode.Registry.State != Admin.NodeState.Active || string.IsNullOrWhiteSpace(fleetNode.Registry.SlotKey))"
+                                       OnClick="@(() => CloseAsync(fleetNode.Registry))">Drain</MudButton>
                             <MudMenu Label="More" Dense="true" Size="Size.Small" Variant="Variant.Outlined" Disabled="@(!_available)">
-                                <MudMenuItem OnClick="@(() => KillAsync(context.Registry))">Force remove node…</MudMenuItem>
+                                <MudMenuItem OnClick="@(() => KillAsync(fleetNode.Registry))">Force remove node…</MudMenuItem>
                             </MudMenu>
                         </AuthorizeView>
+                        }
                     </MudTd>
                 </RowTemplate>
             </MudTable>
@@ -94,6 +106,7 @@
     [Parameter] public EventCallback<ClusterAdminCommand> Command { get; set; }
     private readonly CancellationTokenSource _shutdown = new();
     private ClusterFleet? _fleet;
+    private Admin.NodePlan[] _plan = [];
     private Admin.ClientSummary[] _clients = [];
     private Admin.AdminEvent[] _events = [];
     private long _cursor;
@@ -101,6 +114,21 @@
     private DateTimeOffset? _capturedAt;
     private string? _error, _selectedNode;
     private Task? _loop;
+    internal sealed record NodeRow(Admin.NodePlan? Plan, ClusterFleetNode? Fleet);
+    private IEnumerable<NodeRow> NodeRows => MergeNodes(_plan, _fleet?.Nodes ?? []);
+    internal static IEnumerable<NodeRow> MergeNodes(Admin.NodePlan[] plan, ClusterFleetNode[] fleet)
+    {
+        var planned = plan.Select(slot => new NodeRow(slot, fleet.FirstOrDefault(node =>
+            node.Registry.SlotKey == slot.SlotKey && node.Registry.Node == slot.ObservedNode))).ToArray();
+        return planned.Concat(fleet.Where(node => !planned.Any(row => ReferenceEquals(row.Fleet, node)))
+            .Select(node => new NodeRow(null, node)));
+    }
+    private static string RoleText(Admin.NodeRole? role) => role switch
+    {
+        Admin.NodeRole.WorldAuthority => "World Authority",
+        Admin.NodeRole.Regular => "Game node",
+        _ => "-",
+    };
     protected override async Task OnInitializedAsync() { await RefreshAsync(); _loop = LoopAsync(); }
     private async Task RefreshAsync()
     {
@@ -123,6 +151,13 @@
             _error = Cluster.Gateway is not null && Cluster.GoalState == DedicatedServerGoalState.Off
                 && error.IsConnectivityFailure
                 ? null : error.Message;
+        }
+        try { _plan = (await Gateway.GetPlanAsync(Cluster, _shutdown.Token)).Data; }
+        catch (ClusterGatewayException error)
+        {
+            _plan = [];
+            if (!(Cluster.Gateway is not null && Cluster.GoalState == DedicatedServerGoalState.Off && error.IsConnectivityFailure))
+                _error = error.Message;
         }
     }
     private async Task LoopAsync()

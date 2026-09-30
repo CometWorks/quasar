@@ -94,25 +94,6 @@
             <tr><th>Registry WAL</th><td>@RegistryText</td></tr>
         </tbody>
     </MudSimpleTable>
-    @if (_plan.Length > 0)
-    {
-        <MudTable T="Admin.NodePlan" Items="_plan" Dense="true" Hover="true">
-            <HeaderContent>
-                <MudTh>Slot</MudTh>
-                <MudTh>Host</MudTh>
-                <MudTh>Role</MudTh>
-                <MudTh>Goal</MudTh>
-                <MudTh>Observed</MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd DataLabel="Slot" Class="mono">@context.SlotKey</MudTd>
-                <MudTd DataLabel="Host">@context.Host</MudTd>
-                <MudTd DataLabel="Role">@RoleText(context.Role)</MudTd>
-                <MudTd DataLabel="Goal">@context.Goal</MudTd>
-                <MudTd DataLabel="Observed">@context.Observed</MudTd>
-            </RowTemplate>
-        </MudTable>
-    }
 </MudStack>
 </MudCardContent>
 </MudCard>
@@ -286,9 +267,6 @@
         : $"{(_recovery.Registry.SnapshotPresent ? "snapshot present" : "no snapshot")} · {_recovery.Registry.WalRecords} WAL records";
 
     private static string ValueOrDash(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
-    private static string RoleText(Admin.NodeRole role) =>
-        role == Admin.NodeRole.WorldAuthority ? "World Authority" : "Node";
-
     public async ValueTask DisposeAsync()
     {
         await _shutdown.CancelAsync();

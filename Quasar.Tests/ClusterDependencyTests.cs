@@ -14,6 +14,22 @@ namespace Quasar.Tests;
 
 public sealed class ClusterDependencyTests
 {
+    [Fact]
+    public void ProfileSelectionRejectsWorldChangesButAcceptsGatewayCapacity()
+    {
+        var current = new QuasarConfigProfile();
+        var selected = new QuasarConfigProfile();
+        selected.SessionSettings.MaxPlayers = 40;
+        ClusterUpdatePreparationService.EnsureCompatibleProfileSelection(current, selected);
+        selected.SessionSettings.InventorySizeMultiplier = 10;
+        Assert.Throws<InvalidOperationException>(() =>
+            ClusterUpdatePreparationService.EnsureCompatibleProfileSelection(current, selected));
+        selected.SessionSettings.InventorySizeMultiplier = current.SessionSettings.InventorySizeMultiplier;
+        selected.RootSettings.Administrators.Add("76561198000000000");
+        Assert.Throws<InvalidOperationException>(() =>
+            ClusterUpdatePreparationService.EnsureCompatibleProfileSelection(current, selected));
+    }
+
     [LinuxFact]
     public async Task SavingPluginConfigurationStagesEveryHostAndRetainsActiveRevision()
     {

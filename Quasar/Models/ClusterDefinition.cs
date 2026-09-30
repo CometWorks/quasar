@@ -33,6 +33,7 @@ public sealed class ClusterDefinition
     public Quasar.Services.ClusterPreparationRequest? Preparation { get; set; }
     public Quasar.Services.ClusterDeploymentRequest? PreparedDeployment { get; set; }
     public bool PreparedForSelectedRelease { get; set; }
+    public ClusterPreparedProfile? PreparedProfile { get; set; }
     public ClusterContentUpdateQueue? QueuedContentUpdates { get; set; }
 
     [JsonIgnore]
@@ -72,6 +73,7 @@ public sealed class ClusterDefinition
         Preparation = Preparation,
         PreparedDeployment = PreparedDeployment,
         PreparedForSelectedRelease = PreparedForSelectedRelease,
+        PreparedProfile = PreparedProfile,
         QueuedContentUpdates = QueuedContentUpdates is { } queued ? queued with { Items = [.. queued.Items] } : null,
     };
 }
@@ -84,6 +86,7 @@ public sealed record ClusterContentUpdateTarget(string Kind, string Id, string N
 
 public sealed record ClusterPackageSelection(long Revision, string Version, string Sha256,
     string Commit, string IdempotencyKey);
+public sealed record ClusterPreparedProfile(string ProfileId, string DeploymentRevision);
 
 // Recorded before Gateway teardown, so a lost Host response does not erase the
 // authoritative clean-Down observation. Valid only for the exact lifecycle identity.

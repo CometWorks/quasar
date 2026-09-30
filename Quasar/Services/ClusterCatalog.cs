@@ -6,6 +6,8 @@ using Quasar.Models;
 
 namespace Quasar.Services;
 
+public sealed record ClusterAdministrationSettings(string DisplayName, int ShutdownGracePeriodSeconds);
+
 public sealed class ClusterCatalog : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -105,6 +107,24 @@ public sealed class ClusterCatalog : IDisposable
                     current.Gateway = current.Gateway with { StartGeneration = Guid.NewGuid(), Recover = false };
             }, cancellationToken), cancellationToken);
 
+    public Task<ClusterDefinition> UpdateAdministrationAsync(string uniqueName, ClusterAdministrationSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        string displayName = settings.DisplayName?.Trim() ?? string.Empty;
+        if (displayName.Length == 0) throw new InvalidDataException("Cluster display name is required.");
+        if (settings.ShutdownGracePeriodSeconds is < 0 or > 3600)
+            throw new InvalidDataException("Cluster shutdown grace period must be between 0 and 3600 seconds.");
+        return WithLifecycleAsync(uniqueName, cluster =>
+            cluster.DisplayName == displayName
+                && cluster.ShutdownGracePeriodSeconds == settings.ShutdownGracePeriodSeconds
+                ? Task.FromResult(cluster)
+                : UpdateCoreAsync(uniqueName, current =>
+                {
+                    current.DisplayName = displayName;
+                    current.ShutdownGracePeriodSeconds = settings.ShutdownGracePeriodSeconds;
+                }, cancellationToken, preserveShutdownProof: true), cancellationToken);
+    }
+
     public Task<ClusterDefinition> SetGatewayAsync(string uniqueName,
         Quasar.Host.Contract.V1.GatewaySpec gateway, CancellationToken cancellationToken = default) =>
         UpdateAsync(uniqueName, cluster =>
@@ -125,6 +145,9 @@ public sealed class ClusterCatalog : IDisposable
             var host = active.Hosts.Single(host => host.Deployment.Gateway is not null);
             cluster.PreviousDeployment = cluster.ActiveDeployment;
             cluster.ActiveDeployment = active;
+            if (cluster.PreparedProfile?.DeploymentRevision == active.Revision)
+                cluster.ConfigProfileId = cluster.PreparedProfile.ProfileId;
+            cluster.PreparedProfile = null;
             cluster.PreparedDeployment = null;
             cluster.PreparedForSelectedRelease = false;
             cluster.PendingDeploymentHash = null;
@@ -150,13 +173,14 @@ public sealed class ClusterCatalog : IDisposable
             current.Preparation = request;
             current.PreparedDeployment = deployment;
             current.PreparedForSelectedRelease = false;
+            current.PreparedProfile = null;
             await SaveAsync(current, token);
         }
         finally { _writeGate.Release(); }
     }
 
     internal async Task RecordSelectedReleasePreparationAsync(ClusterDefinition expected,
-        ClusterDeploymentRequest deployment, CancellationToken token)
+        ClusterDeploymentRequest deployment, CancellationToken token, string? preparedProfileId = null)
     {
         await _writeGate.WaitAsync(token);
         try
@@ -167,7 +191,16 @@ public sealed class ClusterCatalog : IDisposable
                 || current.ActiveDeployment?.Revision != expected.ActiveDeployment?.Revision
                 || JsonSerializer.Serialize(current.PreparedDeployment, JsonOptions) != JsonSerializer.Serialize(deployment, JsonOptions))
                 throw new InvalidOperationException("Cluster inputs changed during preparation. Prepare the selected release again.");
+            if (preparedProfileId is not null)
+            {
+                using var specification = JsonDocument.Parse(current.Preparation?.SpecificationJson ?? "{}");
+                if (!specification.RootElement.TryGetProperty("selectedConfigProfileId", out var selected)
+                    || selected.GetString() != preparedProfileId)
+                    throw new InvalidOperationException("Prepared profile does not match the deployment specification.");
+            }
             current.PreparedForSelectedRelease = true;
+            if (preparedProfileId is not null)
+                current.PreparedProfile = new(preparedProfileId, deployment.Revision);
             await SaveAsync(current, token);
         }
         finally { _writeGate.Release(); }
@@ -389,17 +422,21 @@ public sealed class ClusterCatalog : IDisposable
         _ => UpdateCoreAsync(uniqueName, update, cancellationToken), cancellationToken);
 
     private async Task<ClusterDefinition> UpdateCoreAsync(string uniqueName, Action<ClusterDefinition> update,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool preserveShutdownProof = false)
     {
         await _writeGate.WaitAsync(cancellationToken);
         try
         {
             ClusterDefinition cluster = GetCluster(uniqueName)
                 ?? throw new KeyNotFoundException($"Unknown cluster '{uniqueName}'.");
+            var cleanProof = preserveShutdownProof && cluster.ShutdownProof?.LifecycleId == cluster.GetLifecycleId()
+                ? cluster.ShutdownProof : null;
             update(cluster);
             cluster.UpdatedAtUtc = DateTimeOffset.UtcNow;
             cluster.ShutdownProof = null;
             Normalize(cluster);
+            if (cleanProof is not null)
+                cluster.ShutdownProof = cleanProof with { LifecycleId = cluster.GetLifecycleId() };
             await SaveAsync(cluster, cancellationToken);
             return cluster.Clone();
         }

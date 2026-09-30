@@ -262,6 +262,8 @@ internal static class ClusterApi
         RouteHandlerBuilder stageDependencies = routes.MapPut("/{uniqueName}/dependencies", StageDependencies);
         RouteHandlerBuilder submitCommand = routes.MapPost("/{uniqueName}/commands", SubmitCommand);
         RouteHandlerBuilder setConfig = routes.MapPut("/{uniqueName}/config", SetPolicy);
+        RouteHandlerBuilder setAdministration = routes.MapPut("/{uniqueName}/administration", SetAdministration);
+        RouteHandlerBuilder stageProfile = routes.MapPost("/{uniqueName}/config-profile-preparation", StageProfile);
         RouteHandlerBuilder setGoal = routes.MapPut("/{uniqueName}/goal", SetGoal);
         RouteHandlerBuilder setGatewaySpec = routes.MapPut("/{uniqueName}/gateway-spec", SetGatewaySpec);
         RouteHandlerBuilder restartGateway = routes.MapPost("/{uniqueName}/gateway/restart", RestartGateway);
@@ -296,6 +298,8 @@ internal static class ClusterApi
             restoreBackup.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             deploymentInputs.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setConfig.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            setAdministration.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
+            stageProfile.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             setGoal.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setGatewaySpec.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             restartGateway.RequireAuthorization(QuasarPolicyNames.ClusterManage);
@@ -760,6 +764,31 @@ internal static class ClusterApi
         HttpContext context, ClusterCatalog catalog, ClusterCommandService commands, CancellationToken token) =>
         SubmitCommand(uniqueName, ClusterAdminCommand.Create("config-set", policy), context, catalog, commands, token);
 
+    private static async Task<IResult> SetAdministration(string uniqueName, ClusterAdministrationSettings settings,
+        HttpContext context, ClusterCatalog catalog, CancellationToken token)
+    {
+        SetProtocolHeader(context);
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+        if (catalog.GetCluster(uniqueName) is null)
+            return Error(404, "unknown_cluster", "Cluster was not found.");
+        try { return Results.Json(Envelope(await catalog.UpdateAdministrationAsync(uniqueName, settings, token)), JsonOptions); }
+        catch (InvalidDataException error) { return Error(400, "invalid_administration", error.Message); }
+    }
+
+    private static async Task<IResult> StageProfile(string uniqueName, ClusterProfileSelection request,
+        HttpContext context, ClusterUpdatePreparationService preparation, CancellationToken token)
+    {
+        SetProtocolHeader(context);
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+        try { return AcceptedOperation(uniqueName, context, await preparation.StageProfileSelectionAsync(uniqueName,
+            request.ConfigProfileId, context.User.Identity?.Name ?? "anonymous", token)); }
+        catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Cluster was not found."); }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException)
+        { return Error(409, "profile_preparation_conflict", error.Message); }
+    }
+
     private static async Task<IResult> GetHostStatus(string uniqueName, HttpContext context,
         ClusterCatalog catalog, ClusterHostClient client, CancellationToken cancellationToken)
     {
@@ -984,3 +1013,4 @@ internal static class ClusterApi
 }
 
 public sealed record ClusterRecoveryRequest(Guid Generation);
+public sealed record ClusterProfileSelection(string ConfigProfileId);

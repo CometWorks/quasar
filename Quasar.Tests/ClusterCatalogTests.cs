@@ -84,6 +84,35 @@ public sealed class ClusterCatalogTests : IDisposable
         Assert.Contains("\"goalState\": \"On\"", File.ReadAllText(path));
     }
 
+    [Fact]
+    public async Task AdministrationSettingsKeepCleanShutdownProofAndProfile()
+    {
+        Directory.CreateDirectory(Path.Combine(_directory, "demo"));
+        File.WriteAllText(Path.Combine(_directory, "demo", "cluster.json"), """
+        { "uniqueName": "demo", "gatewayUrl": "http://gateway.test",
+          "configProfileId": "old", "updatedAtUtc": "2026-09-19T12:00:00Z" }
+        """);
+        using var catalog = CreateCatalog();
+        var before = catalog.GetCluster("demo")!;
+        var proof = new ClusterShutdownProof(before.GetLifecycleId(), DateTimeOffset.UtcNow,
+            new GatewayStopFence(123, DateTimeOffset.UtcNow));
+        await catalog.RecordShutdownProofAsync(before, proof, default);
+
+        var updated = await catalog.UpdateAdministrationAsync("demo", new("New name", 120));
+
+        Assert.Equal("New name", updated.DisplayName);
+        Assert.Equal("old", updated.ConfigProfileId);
+        Assert.Equal(120, updated.ShutdownGracePeriodSeconds);
+        Assert.Equal(updated.GetLifecycleId(), updated.ShutdownProof?.LifecycleId);
+        Assert.Equal(proof.StopFence, updated.ShutdownProof?.StopFence);
+        var repeated = await catalog.UpdateAdministrationAsync("demo", new("New name", 120));
+        Assert.Equal(updated.UpdatedAtUtc, repeated.UpdatedAtUtc);
+        using var reloaded = CreateCatalog();
+        Assert.Equal("old", reloaded.GetCluster("demo")!.ConfigProfileId);
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            catalog.UpdateAdministrationAsync("demo", new("", 120)));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory))
