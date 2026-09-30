@@ -30,6 +30,21 @@ public sealed class ClusterDependencyTests
             ClusterUpdatePreparationService.EnsureCompatibleProfileSelection(current, selected));
     }
 
+    [Fact]
+    public void StagedProfileActivationRejectsChangesAndMissingProfiles()
+    {
+        var selected = new QuasarConfigProfile { ConfigProfileId = "survival" };
+        var prepared = new ClusterPreparedProfile("survival", "candidate",
+            ClusterUpdatePreparationService.ProfileHash(selected));
+        ClusterDeploymentService.EnsurePreparedProfileCurrent(prepared, "candidate", selected);
+        selected.SessionSettings.MaxPlayers++;
+        Assert.Throws<InvalidOperationException>(() =>
+            ClusterDeploymentService.EnsurePreparedProfileCurrent(prepared, "candidate", selected));
+        Assert.Throws<InvalidOperationException>(() =>
+            ClusterDeploymentService.EnsurePreparedProfileCurrent(prepared, "candidate", null));
+        ClusterDeploymentService.EnsurePreparedProfileCurrent(prepared, "another-revision", null);
+    }
+
     [LinuxFact]
     public async Task SavingPluginConfigurationStagesEveryHostAndRetainsActiveRevision()
     {

@@ -180,7 +180,8 @@ public sealed class ClusterCatalog : IDisposable
     }
 
     internal async Task RecordSelectedReleasePreparationAsync(ClusterDefinition expected,
-        ClusterDeploymentRequest deployment, CancellationToken token, string? preparedProfileId = null)
+        ClusterDeploymentRequest deployment, CancellationToken token, string? preparedProfileId = null,
+        string? preparedProfileSha256 = null)
     {
         await _writeGate.WaitAsync(token);
         try
@@ -193,6 +194,9 @@ public sealed class ClusterCatalog : IDisposable
                 throw new InvalidOperationException("Cluster inputs changed during preparation. Prepare the selected release again.");
             if (preparedProfileId is not null)
             {
+                if (preparedProfileSha256 is null || preparedProfileSha256.Length != 64
+                    || !preparedProfileSha256.All(Uri.IsHexDigit))
+                    throw new InvalidDataException("Prepared profile content hash is required.");
                 using var specification = JsonDocument.Parse(current.Preparation?.SpecificationJson ?? "{}");
                 if (!specification.RootElement.TryGetProperty("selectedConfigProfileId", out var selected)
                     || selected.GetString() != preparedProfileId)
@@ -200,7 +204,7 @@ public sealed class ClusterCatalog : IDisposable
             }
             current.PreparedForSelectedRelease = true;
             if (preparedProfileId is not null)
-                current.PreparedProfile = new(preparedProfileId, deployment.Revision);
+                current.PreparedProfile = new(preparedProfileId, deployment.Revision, preparedProfileSha256);
             await SaveAsync(current, token);
         }
         finally { _writeGate.Release(); }

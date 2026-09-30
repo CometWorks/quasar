@@ -6,7 +6,8 @@ using HostContract = Quasar.Host.Contract.V1;
 
 namespace Quasar.Services;
 
-public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHostClient hosts, ClusterOperationStore operations)
+public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHostClient hosts, ClusterOperationStore operations,
+    QuasarConfigProfileCatalog? profiles = null)
 {
     public Task ForgetAsync(string clusterId, string confirmation, CancellationToken token = default) =>
         catalog.WithLifecycleAsync(clusterId, async cluster =>
@@ -172,6 +173,10 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
     internal async Task<ClusterActiveRevision> ActivateCoreAsync(ClusterDefinition cluster,
         ClusterDeploymentRequest request, CancellationToken token, bool restore = false, bool dryRun = false, bool preflight = false, bool update = false)
     {
+        // Once a Host activation is partly committed, the same request must remain resumable.
+        if (cluster.PendingDeploymentHash is null)
+            EnsurePreparedProfileCurrent(cluster.PreparedProfile, request.Revision,
+                cluster.PreparedProfile is { } prepared ? profiles?.GetProfile(prepared.ProfileId) : null);
         if (preflight && !dryRun) throw new InvalidOperationException("Online preflight cannot activate a deployment.");
         if (!restore && cluster.QueuedContentUpdates is not null)
             throw new InvalidOperationException("Remove queued mod/plugin changes before activating a deployment. Pinned content preparation is not supported yet.");
@@ -242,6 +247,15 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             ActivePackageVersion(cluster, request));
         await catalog.RecordActiveDeploymentAsync(cluster, active, token);
         return active;
+    }
+
+    internal static void EnsurePreparedProfileCurrent(ClusterPreparedProfile? prepared, string revision,
+        QuasarConfigProfile? selected)
+    {
+        if (prepared is not null && prepared.DeploymentRevision == revision
+            && (prepared.ProfileSha256 is null || selected is null
+                || ClusterUpdatePreparationService.ProfileHash(selected) != prepared.ProfileSha256))
+            throw new InvalidOperationException("The selected profile changed or is unavailable. Stage it again before activation.");
     }
 
     private static string? ActivePackageVersion(ClusterDefinition cluster, ClusterDeploymentRequest request)

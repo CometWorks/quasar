@@ -25,6 +25,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             if (current.UpdatedAtUtc > cluster.ActiveDeployment.ActivatedAt)
                 throw new InvalidOperationException("The active profile changed since deployment; its deployed world settings cannot be verified.");
             EnsureCompatibleProfileSelection(current, selected);
+            string selectedHash = ProfileHash(selected);
             var request = cluster.Preparation ?? throw new InvalidOperationException("Complete guided setup before changing profiles.");
             var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
             if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != request.InputsSha256)
@@ -40,12 +41,17 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             var result = await deployments.PrepareAsync(clusterId, request, Guid.NewGuid().ToString("N"), actor, token);
             if (result.State == ClusterOperationState.Succeeded)
             {
+                if (profiles.GetProfile(profileId) is not { } latest || ProfileHash(latest) != selectedHash)
+                    throw new InvalidOperationException("The selected profile changed during preparation. Stage it again.");
                 var deployment = result.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)
                     ?? throw new InvalidDataException("Host preparation returned no deployment.");
-                await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token, selected.ConfigProfileId);
+                await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token, selected.ConfigProfileId, selectedHash);
             }
             return result;
         }, token);
+
+    internal static string ProfileHash(QuasarConfigProfile profile) =>
+        ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(profile, Json));
 
     internal static void EnsureCompatibleProfileSelection(QuasarConfigProfile current, QuasarConfigProfile selected)
     {
@@ -85,7 +91,8 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             {
                 var deployment = result.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)
                     ?? throw new InvalidDataException("Host preparation returned no deployment.");
-                await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token, cluster.PreparedProfile?.ProfileId);
+                await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token,
+                    cluster.PreparedProfile?.ProfileId, cluster.PreparedProfile?.ProfileSha256);
             }
             return result;
         }, token);
@@ -148,7 +155,8 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             {
                 var deployment = result.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)
                     ?? throw new InvalidDataException("Host preparation returned no deployment.");
-                await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token, cluster.PreparedProfile?.ProfileId);
+                await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token,
+                    cluster.PreparedProfile?.ProfileId, cluster.PreparedProfile?.ProfileSha256);
             }
             return result;
         }

@@ -215,8 +215,7 @@
         && Reconciler.GetStatus(Cluster.UniqueName) is { State: ClusterReconcileState.Converged, ClusterPhase: Admin.ClusterPhase.Down };
     private bool RecoveryRequired => Cluster.GoalState == DedicatedServerGoalState.Off
         && Reconciler.GetStatus(Cluster.UniqueName).State == ClusterReconcileState.ConfigurationRequired;
-    private bool ExpectedOffline(ClusterGatewayException error) => Cluster.Gateway is not null
-        && Cluster.GoalState == DedicatedServerGoalState.Off
+    private bool ExpectedOffline(ClusterGatewayException error) => Cluster.GoalState == DedicatedServerGoalState.Off
         && error.IsConnectivityFailure;
     private string PhaseText => RecoveryRequired ? "Recovery required" : IsCleanlyStopped ? "Stopped" : _stale ? "Unavailable" : _status?.Phase.ToString() ?? "Unavailable";
     private Color PhaseColor => RecoveryRequired ? Color.Error : _stale ? Color.Default : _status?.Health switch

@@ -80,6 +80,38 @@ runtime itself does not lock an archive or moved hub pin for an entire run.
 Managed Quasar updates therefore must keep activation behind the existing
 verified full-downtime workflow and never restage active content in place.
 
+### Content update hookup audit: Cluster 1.1.9
+
+Checked the published `v1.1.9` source at
+[`2463d7b12546664c18eb316a2fa092b8e51b79aa`](https://github.com/CometWorks/cluster/tree/2463d7b12546664c18eb316a2fa092b8e51b79aa).
+The release provides local loading, but not the complete pinned-content preparation
+contract described in the content update plan:
+
+- `Shared/Cluster/Patches/LocalWorldModsPatch.cs` binds each world mod to a nonempty
+  local directory. It does not verify a timestamp, file inventory or content hash.
+  Dependency discovery is skipped, so preparation must supply the complete mod list.
+- `Cli/managed_deployment.py` prepares frozen plugin configurations and initial world
+  seeds. It has no mod inventory or payload input and does not populate node/WA
+  `data/Mods` folders. Its capability marker does not advertise managed mod preparation.
+- Quasar still needs to acquire and seal the exact queued mod revisions, transfer the
+  verified payload to every Host, and bind the content inventory to the candidate
+  revision. The planned Magnetar preparation process must supply the complete effective
+  mod set, including dependencies and companions; the current plugin export does not.
+- Host initial data seeds deliberately preserve existing mutable worlds. Content
+  activation needs a separate verified replacement of the stopped slots' mod content;
+  putting new files into an initial seed does not update an existing cluster.
+- Plugin bundles already carry source commits and hashes. Queued plugin updates still
+  need exact-target export, preservation of unchanged pins and configuration validation
+  before the candidate can be marked prepared. Hub observations alone are not artifacts.
+
+Host forces `CLUSTER_LOCAL_WORLD_MODS=1` for managed regular nodes and World Authority,
+including replacements. Imported environment settings cannot re-enable Workshop
+downloads on recycle. Cluster 1.1.9 managed preparation rejects modded seeds until
+verified local payload staging exists. Existing modded deployments without local mod
+payloads cannot be recycled under this Host behavior and need migration before upgrade.
+Queued content application remains blocked until preparation and activation are
+verified across Hosts.
+
 Schema-2 dependency snapshots now include common/compatibility bundles and resolved
 native assets. The upstream CLI accepts `DIRECT_TRANSPORT_BINARIES` and
 `CLUSTER_COMMON_PLUGINS`, disables source/hub resolution in frozen mode, keeps compatibility

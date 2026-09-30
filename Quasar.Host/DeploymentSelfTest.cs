@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Admin = CometWorks.ClusterGateway.AdminContract.V1;
 using HostContract = global::Quasar.Host.Contract.V1;
 
 namespace Quasar.Host;
@@ -9,6 +10,7 @@ internal static class DeploymentSelfTest
     internal static void Run()
     {
         CredentialInstallation();
+        LocalWorldModsRequired();
         SteamClientLibraryInstallation();
         string root = Path.Combine(Path.GetTempPath(), "host-deployment-" + Guid.NewGuid());
         try
@@ -152,6 +154,36 @@ internal static class DeploymentSelfTest
             AssertThrows(() => ExecutionBundle.Load(path, hash));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    private static void LocalWorldModsRequired()
+    {
+        string variable = "QUASAR_TEST_MOD_LOADING_" + Guid.NewGuid().ToString("N");
+        Environment.SetEnvironmentVariable(variable, "0");
+        try
+        {
+            var attachment = new HostContract.HostAttachmentSpec("cluster", "http://gateway", "TOKEN",
+                "/bundle.json", new('a', 64), Path.GetTempPath());
+            foreach (var role in new[] { Admin.NodeRole.Regular, Admin.NodeRole.WorldAuthority })
+            {
+                var plan = new Admin.NodePlan("slot", "host", role, Admin.NodeGoal.Wanted,
+                    Admin.NodeObservation.Missing, null, Admin.IncumbentAction.None,
+                    null, 0, null, null, null, null, 0, false, true);
+                var spec = new NodeSpawnSpec("slot", role, "node", "runtime", "", [],
+                    new() { ["CLUSTER_LOCAL_WORLD_MODS"] = "0" }, [],
+                    SecretEnvironment: new() { ["CLUSTER_LOCAL_WORLD_MODS"] = variable });
+                var start = NodeActualizer.CreateStartInfo(attachment, plan, spec, Path.GetTempPath(),
+                    Path.GetTempPath(), "ready", "attempt", "runtime", "revision");
+                Assert(start.Environment["CLUSTER_LOCAL_WORLD_MODS"] == "1",
+                    "managed node can enable Workshop downloads on recycle");
+                var defaultStart = NodeActualizer.CreateStartInfo(attachment, plan,
+                    spec with { Environment = [], SecretEnvironment = null }, Path.GetTempPath(),
+                    Path.GetTempPath(), "ready", "attempt", "runtime", "revision");
+                Assert(defaultStart.Environment["CLUSTER_LOCAL_WORLD_MODS"] == "1",
+                    "managed node can download Workshop mods by omitting the setting");
+            }
+        }
+        finally { Environment.SetEnvironmentVariable(variable, null); }
     }
 
     private static void SteamClientLibraryInstallation()

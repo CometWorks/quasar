@@ -17,7 +17,7 @@ public sealed class ClusterDetailPanelTests
 {
     [Theory]
     [InlineData(DedicatedServerGoalState.Off, true, false)]
-    [InlineData(DedicatedServerGoalState.Off, false, true)]
+    [InlineData(DedicatedServerGoalState.Off, false, false)]
     [InlineData(DedicatedServerGoalState.On, true, true)]
     public async Task GatewayConnectionWarningDependsOnGoalState(DedicatedServerGoalState goal, bool managed, bool shouldWarn)
     {

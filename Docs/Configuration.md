@@ -1131,7 +1131,7 @@ Slots without a registered node remain visible. Process telemetry, plugin runtim
 state, statistics/profiler snapshots,
 recent logs and a capped event history remain available in the node details and tabs.
 Drain and force removal use the shared command service; force removal is in the
-node's More menu and includes the displayed epoch. Managed clusters with goal Off
+node's More menu and includes the displayed epoch. Clusters with goal Off
 do not show Gateway connection warnings when the Gateway is offline; recovery and
 other actionable errors remain visible.
 Profile and world-template links reuse the existing catalogs. Applying those references,
@@ -1148,7 +1148,9 @@ remains valid after these settings change.
 **Stage selected profile** prepares every Host and records the selected profile
 for the pending deployment. Apply it from **Maintenance → Pending update**
 during full downtime. Until activation finishes, the active profile and content
-checks remain unchanged. The API equivalent is
+checks remain unchanged. Quasar records a hash of the selected profile at
+preparation time and refuses to begin activation if that profile is changed or deleted;
+stage the selection again after editing it. The API equivalent is
 `POST /api/v1/clusters/{uniqueName}/config-profile-preparation` with
 `{"configProfileId":"..."}`. Both endpoints require cluster management and
 config editing permissions.

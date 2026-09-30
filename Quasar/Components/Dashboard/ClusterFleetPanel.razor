@@ -148,7 +148,7 @@
         }
         catch (ClusterGatewayException error)
         {
-            _error = Cluster.Gateway is not null && Cluster.GoalState == DedicatedServerGoalState.Off
+            _error = Cluster.GoalState == DedicatedServerGoalState.Off
                 && error.IsConnectivityFailure
                 ? null : error.Message;
         }
@@ -156,7 +156,7 @@
         catch (ClusterGatewayException error)
         {
             _plan = [];
-            if (!(Cluster.Gateway is not null && Cluster.GoalState == DedicatedServerGoalState.Off && error.IsConnectivityFailure))
+            if (!(Cluster.GoalState == DedicatedServerGoalState.Off && error.IsConnectivityFailure))
                 _error = error.Message;
         }
     }

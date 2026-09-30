@@ -86,7 +86,7 @@ public sealed record ClusterContentUpdateTarget(string Kind, string Id, string N
 
 public sealed record ClusterPackageSelection(long Revision, string Version, string Sha256,
     string Commit, string IdempotencyKey);
-public sealed record ClusterPreparedProfile(string ProfileId, string DeploymentRevision);
+public sealed record ClusterPreparedProfile(string ProfileId, string DeploymentRevision, string? ProfileSha256 = null);
 
 // Recorded before Gateway teardown, so a lost Host response does not erase the
 // authoritative clean-Down observation. Valid only for the exact lifecycle identity.

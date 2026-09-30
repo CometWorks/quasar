@@ -328,7 +328,7 @@ internal sealed class NodeActualizer
         }
     }
 
-    private static ProcessStartInfo CreateStartInfo(HostContract.HostAttachmentSpec attachment, Admin.NodePlan plan,
+    internal static ProcessStartInfo CreateStartInfo(HostContract.HostAttachmentSpec attachment, Admin.NodePlan plan,
         NodeSpawnSpec spec, string bundleRoot, string runDirectory, string readyPath,
         string attemptKey, string executablePath, string deploymentRevision)
     {
@@ -373,6 +373,8 @@ internal sealed class NodeActualizer
         start.Environment["CLUSTER_NODE_ID"] = spec.NodeId;
         start.Environment["CLUSTER_NODE_ROLE"] = role;
         ExecutionBundle.ApplySecrets(start, spec.SecretEnvironment);
+        // A managed node must never download a newer Workshop mod on recycle.
+        start.Environment["CLUSTER_LOCAL_WORLD_MODS"] = "1";
         return start;
     }
 

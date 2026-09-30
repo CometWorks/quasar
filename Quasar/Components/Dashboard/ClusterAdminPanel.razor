@@ -188,7 +188,7 @@
         catch (ClusterGatewayException error)
         {
             _capabilities = null;
-            _capabilityError = Cluster.Gateway is not null && Cluster.GoalState == DedicatedServerGoalState.Off
+            _capabilityError = Cluster.GoalState == DedicatedServerGoalState.Off
                 && error.IsConnectivityFailure
                 ? null : error.Message;
         }
