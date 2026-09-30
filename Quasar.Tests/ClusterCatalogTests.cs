@@ -149,6 +149,35 @@ public sealed class ClusterCatalogTests : IDisposable
         Assert.Equal("old-world", restored.WorldTemplateId);
     }
 
+    [Fact]
+    public async Task ActiveProvenanceBackfillPreservesStoppedLifecycle()
+    {
+        string directory = Path.Combine(_directory, "demo");
+        Directory.CreateDirectory(directory);
+        var preparation = new ClusterPreparationRequest("inputs", "{}", "http://gateway.test", []);
+        var current = new ClusterDefinition
+        {
+            UniqueName = "demo", GatewayUrl = "http://gateway.test",
+            PackageSelection = new(1, "1.1.11", new string('a', 64), new string('b', 40), "selection"),
+            DependencyManifestSha256 = new string('c', 64), Preparation = preparation,
+            ActiveDeployment = new(ClusterDependencyService.DeploymentRevision(preparation), [], DateTimeOffset.UtcNow)
+        };
+        current.ShutdownProof = new(current.GetLifecycleId(), DateTimeOffset.UtcNow,
+            new GatewayStopFence(123, DateTimeOffset.UtcNow));
+        await File.WriteAllTextAsync(Path.Combine(directory, "cluster.json"),
+            JsonSerializer.Serialize(current, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        using var catalog = CreateCatalog();
+        var before = catalog.GetCluster("demo")!;
+
+        await catalog.RecordActiveProvenanceAsync(before, default);
+
+        var after = catalog.GetCluster("demo")!;
+        Assert.Equal(before.UpdatedAtUtc, after.UpdatedAtUtc);
+        Assert.Equal(before.GetLifecycleId(), after.GetLifecycleId());
+        Assert.Equal(before.ShutdownProof, after.ShutdownProof);
+        Assert.Equal(preparation.SpecificationJson, after.ActiveDeployment!.Provenance!.Preparation.SpecificationJson);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory))

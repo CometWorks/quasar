@@ -159,7 +159,8 @@ backup, even when a newer candidate was already staged. It prepares a restore re
 with fresh Host credentials, then the Restore action verifies and replaces saved world
 and plugin data. The previous runtime is retained by each Host. A profile edited since
 its saved deployment is left unbound after restore; choose a matching profile before
-staging another update.
+staging another update. For existing managed clusters, profile staging records the
+verified active inputs before replacing them with candidate inputs.
 
 When a config profile with Workshop mods is opened, saved, or receives imported
 mods, Quasar checks declared Steam Workshop child/dependency metadata, adds

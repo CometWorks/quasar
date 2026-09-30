@@ -38,6 +38,8 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 ClusterDeploymentFiles.RequireProfileUpdates(inputs.PackageDirectory);
                 if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != request.InputsSha256)
                     throw new InvalidOperationException("Stage the selected release before changing profiles.");
+                if (activeDeployment.Provenance is null)
+                    await catalog.RecordActiveProvenanceAsync(cluster, token);
 
                 var resolved = await workshop.ResolveDependenciesAsync(selected.Mods, sortLoadOrder: true, cancellationToken: token);
                 var unresolved = resolved.Warnings.Where(w => !w.StartsWith("Reordered dependency ", StringComparison.Ordinal)).ToArray();

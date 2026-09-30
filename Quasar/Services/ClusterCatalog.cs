@@ -186,6 +186,32 @@ public sealed class ClusterCatalog : IDisposable
         finally { _writeGate.Release(); }
     }
 
+    // Upgrade existing managed catalogs only after the caller verifies the retained inputs.
+    // This must not advance the lifecycle or invalidate clean shutdown proof.
+    internal async Task RecordActiveProvenanceAsync(ClusterDefinition expected, CancellationToken token)
+    {
+        await _writeGate.WaitAsync(token);
+        try
+        {
+            var current = GetCluster(expected.UniqueName) ?? throw new KeyNotFoundException(expected.UniqueName);
+            if (current.GetLifecycleId() != expected.GetLifecycleId()
+                || current.ActiveDeployment?.Revision != expected.ActiveDeployment?.Revision
+                || current.PackageSelection != expected.PackageSelection
+                || current.DependencyManifestSha256 != expected.DependencyManifestSha256
+                || current.Preparation != expected.Preparation)
+                throw new InvalidOperationException("Active deployment inputs changed while recording provenance.");
+            if (current.ActiveDeployment?.Provenance is not null) return;
+            if (current.ActiveDeployment is null || current.PackageSelection is null
+                || current.DependencyManifestSha256 is null || current.Preparation is null
+                || ClusterDependencyService.DeploymentRevision(current.Preparation) != current.ActiveDeployment.Revision)
+                throw new InvalidOperationException("Active deployment has no verified preparation provenance.");
+            current.ActiveDeployment = current.ActiveDeployment with
+            { Provenance = new(current.PackageSelection, current.DependencyManifestSha256, current.Preparation) };
+            await SaveAsync(current, token);
+        }
+        finally { _writeGate.Release(); }
+    }
+
     internal async Task RecordSelectedReleasePreparationAsync(ClusterDefinition expected,
         ClusterDeploymentRequest deployment, CancellationToken token, string? preparedProfileId = null,
         string? preparedProfileSha256 = null)
