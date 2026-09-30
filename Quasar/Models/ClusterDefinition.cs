@@ -94,7 +94,12 @@ public sealed record ClusterShutdownProof(string LifecycleId, DateTimeOffset Cle
     HostContract.GatewayStopFence StopFence);
 
 public sealed record ClusterActiveRevision(string Revision, ClusterHostRevision[] Hosts, DateTimeOffset ActivatedAt,
-    string? PackageVersion = null);
+    string? PackageVersion = null)
+{
+    public ClusterDeploymentProvenance? Provenance { get; init; }
+}
+public sealed record ClusterDeploymentProvenance(ClusterPackageSelection PackageSelection,
+    string DependencyManifestSha256, Quasar.Services.ClusterPreparationRequest Preparation);
 public sealed record ClusterHostRevision(string HostId, string CommandUrl, string TokenEnvironmentVariable,
     HostContract.HostActiveDeployment Deployment);
 

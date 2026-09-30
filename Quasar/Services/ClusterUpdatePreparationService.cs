@@ -21,8 +21,9 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
                 throw new InvalidOperationException("Finish the current setup, update or activation before changing profiles.");
             var activeDeployment = cluster.ActiveDeployment;
-            var current = profiles.GetProfile(cluster.ConfigProfileId)
-                ?? throw new InvalidOperationException("The active profile is unavailable; its deployed settings cannot be checked.");
+            var current = string.IsNullOrEmpty(cluster.ConfigProfileId) ? new QuasarConfigProfile()
+                : profiles.GetProfile(cluster.ConfigProfileId)
+                    ?? throw new InvalidOperationException("The active profile is unavailable; its deployed settings cannot be checked.");
             var selected = profiles.GetProfile(profileId)
                 ?? throw new InvalidOperationException("Choose an existing configuration profile.");
             EnsureCompatibleProfileSelection(current, selected);

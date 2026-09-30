@@ -276,6 +276,7 @@ internal static class DeploymentSelfTest
     {
         string directory = Path.Combine(Path.GetTempPath(), "host-credentials-" + Guid.NewGuid().ToString("N"));
         string cluster = "test-" + Guid.NewGuid().ToString("N");
+        string generation = Guid.NewGuid().ToString("N");
         string Ref(string purpose) => HostContract.ManagedCredentialReference.Cluster(cluster, purpose);
         try
         {
@@ -295,6 +296,15 @@ internal static class DeploymentSelfTest
             Assert(original.SequenceEqual(File.ReadAllBytes(Path.Combine(directory, "credentials.json"))), "credential replay changed file");
             AssertThrows(() => HostCredentials.Install(directory, request with { ExecutorTokens = new() { ["one"] = new('c', 64) } }));
             AssertThrows(() => HostCredentials.Install(directory, request with { AdminToken = new('f', 64) }));
+            var rotated = request with { Generation = generation, AdminToken = new('e', 64), JoinToken = new('f', 64),
+                ExecutorTokens = new() { ["one"] = new('1', 64), ["two"] = new('2', 64) } };
+            HostCredentials.Install(directory, rotated);
+            HostCredentials.Install(directory, rotated);
+            Assert(File.Exists(Path.Combine(directory, "credentials", cluster, generation, "tokens.json")),
+                "restore credential roster was not isolated from active tokens");
+            Assert(Environment.GetEnvironmentVariable(Ref("restore:" + generation + ":join")) == rotated.JoinToken,
+                "restore credential reference was not installed");
+            AssertThrows(() => HostCredentials.Install(directory, rotated with { JoinToken = new('9', 64) }));
             var start = new System.Diagnostics.ProcessStartInfo();
             ExecutionBundle.ApplySecrets(start, new() { ["CLUSTER_JOIN_TOKEN"] = Ref("join") });
             Assert(start.Environment["CLUSTER_JOIN_TOKEN"] == request.JoinToken, "required child credential missing");
@@ -304,6 +314,8 @@ internal static class DeploymentSelfTest
         {
             foreach (string purpose in new[] { "admin", "join", "executor:one", "executor:two", "token-file" })
                 Environment.SetEnvironmentVariable(Ref(purpose), null);
+            foreach (string purpose in new[] { "admin", "join", "executor:one", "executor:two", "token-file" })
+                Environment.SetEnvironmentVariable(Ref("restore:" + generation + ":" + purpose), null);
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }

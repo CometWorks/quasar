@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Nodes;
 using Quasar.Models;
 using Quasar.Services.Backup;
 using Admin = CometWorks.ClusterGateway.AdminContract.V1;
@@ -10,7 +11,8 @@ namespace Quasar.Services;
 
 public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClient hosts, ClusterOperationStore operations,
     ClusterDeploymentService deployments, WebServiceOptions options, QuasarBackupSettingsService settings, ClusterGatewayClient gateway,
-    ILogger<ClusterBackupService>? logger = null)
+    ILogger<ClusterBackupService>? logger = null, ClusterDependencyService? dependencies = null,
+    ClusterCredentialStore? credentials = null, QuasarConfigProfileCatalog? profiles = null)
 {
     // A failed scheduled capture is tried again this long after its failure, within the same stopped lifecycle.
     internal static readonly TimeSpan ScheduledRetryDelay = TimeSpan.FromHours(1);
@@ -235,6 +237,75 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             await hosts.ReleaseSnapshotAsync(Target(backup.Deployment, host), backup.Hosts.Single(s => s.HostId == host.HostId), token);
     }
 
+    public Task<ClusterOperation> PrepareRestoreAsync(string clusterId, Guid snapshotId, Guid restoreId,
+        string key, string actor, CancellationToken token) =>
+        operations.ExecuteAsync(clusterId, "cluster.backup.prepare-restore", key, actor,
+            new { snapshotId, restoreId }, async ct => new Admin.AdminEnvelope<ClusterRestoreRequest>(
+                Admin.AdminProtocol.Version, DateTimeOffset.UtcNow,
+                await catalog.WithLifecycleAsync(clusterId,
+                    cluster => PrepareRestoreCoreAsync(cluster, snapshotId, restoreId, actor, ct), ct)), token);
+
+    private async Task<ClusterRestoreRequest> PrepareRestoreCoreAsync(ClusterDefinition cluster, Guid snapshotId,
+        Guid restoreId, string actor, CancellationToken token)
+    {
+        if (snapshotId == Guid.Empty || restoreId == Guid.Empty || cluster.GoalState != DedicatedServerGoalState.Off
+            || cluster.ActiveDeployment is null || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null
+            || cluster.Update is { Phase: not ClusterUpdatePhase.Complete })
+            throw new InvalidOperationException("Prepare a restore only for a stopped, settled managed cluster.");
+        if (dependencies is null || credentials is null)
+            throw new InvalidOperationException("Restore preparation services are unavailable.");
+        var backup = Verify(Path.Combine(Root(cluster.UniqueName), snapshotId.ToString("N")), cluster.UniqueName);
+        var provenance = backup.Deployment.ActiveDeployment?.Provenance
+            ?? throw new InvalidDataException("The backup has no active deployment provenance.");
+        var original = provenance.Preparation;
+        if (backup.Deployment.ActiveDeployment!.Revision != ClusterDependencyService.DeploymentRevision(original))
+            throw new InvalidDataException("Backup preparation does not identify the saved deployment.");
+        var source = backup.Deployment.Clone();
+        source.PackageSelection = provenance.PackageSelection;
+        source.DependencyManifestSha256 = provenance.DependencyManifestSha256;
+        var inputs = await dependencies.GetDeploymentInputsAsync(source, token);
+        if (Quasar.ClusterDeployment.ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != original.InputsSha256)
+            throw new InvalidDataException("Backup installation inputs are no longer available or verified.");
+        string generation = restoreId.ToString("N");
+        string purpose = "restore:" + generation + ":";
+        string owner = "cluster:" + cluster.UniqueName;
+        string Ref(string name) => HostContract.ManagedCredentialReference.Cluster(cluster.UniqueName, purpose + name);
+        string Secret(string name) => credentials.Resolve(credentials.Create(owner, purpose + name))!;
+        string admin = Secret("admin"), join = Secret("join");
+        var executor = cluster.ActiveDeployment.Hosts.ToDictionary(h => h.HostId, h => Secret("executor:" + h.HostId));
+        var values = new HostContract.HostManagedCredentials(cluster.UniqueName, admin, join, executor, generation);
+        var spec = JsonNode.Parse(original.SpecificationJson)!.AsObject();
+        spec["joinTokenEnvironmentVariable"] = Ref("join");
+        spec["adminTokenEnvironmentVariable"] = Ref("admin");
+        spec["adminTokensFileEnvironmentVariable"] = Ref("token-file");
+        foreach (var host in spec["hosts"]!.AsArray())
+        {
+            string id = host!["id"]!.GetValue<string>();
+            if (!executor.ContainsKey(id)) throw new InvalidDataException("Backup Host inventory differs from the active cluster.");
+            host["executorTokenEnvironmentVariable"] = Ref("executor:" + id);
+        }
+        string specification = spec.ToJsonString();
+        var preparedHosts = new List<ClusterPreparationHost>();
+        foreach (var old in original.Hosts)
+        {
+            var active = cluster.ActiveDeployment.Hosts.Single(h => h.HostId == old.HostId);
+            var target = Target(cluster, active);
+            await hosts.InstallCredentialsAsync(target, values, token);
+            preparedHosts.Add(old with { CommandUrl = active.CommandUrl,
+                TokenEnvironmentVariable = active.TokenEnvironmentVariable,
+                ExecutorTokenEnvironmentVariable = Ref("executor:" + old.HostId),
+                ConfigurationDirectory = Path.Combine(Path.GetDirectoryName(old.ConfigurationDirectory)!, "restore-" + generation) });
+        }
+        var preparation = original with { SpecificationJson = specification, Hosts = preparedHosts.ToArray() };
+        var staged = await deployments.PrepareAsync(cluster.UniqueName, preparation,
+            "restore-prepare-" + generation, actor, token);
+        if (staged.State != ClusterOperationState.Succeeded)
+            throw new InvalidOperationException(staged.Error?.Message ?? "Restore preparation failed.");
+        var deployment = staged.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)
+            ?? throw new InvalidDataException("Restore preparation returned no deployment.");
+        return new(snapshotId, restoreId, deployment);
+    }
+
     public Task<ClusterOperation> RestoreAsync(string clusterId, ClusterRestoreRequest request, string key, string actor, CancellationToken token) =>
         operations.ExecuteAsync(clusterId, "cluster.backup.restore", key, actor, request,
             async ct => new Admin.AdminEnvelope<ClusterActiveRevision>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow,
@@ -246,9 +317,20 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             throw new InvalidOperationException("Restore requires a restore ID and a stopped managed cluster.");
         string hash = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(request, Json)));
         if (cluster.LastRestoreHash == hash && cluster.ActiveDeployment.Revision == request.Deployment.Revision)
-            return cluster.ActiveDeployment;
+        {
+            if (cluster.PreviousDeployment is null
+                && cluster.ActiveDeployment.Provenance?.Preparation is { } activePreparation
+                && ClusterDependencyService.DeploymentRevision(activePreparation) == request.Deployment.Revision)
+                return cluster.ActiveDeployment;
+            var saved = Verify(Path.Combine(Root(cluster.UniqueName), request.SnapshotId.ToString("N")), cluster.UniqueName);
+            await catalog.RecordRestoredProvenanceAsync(cluster.UniqueName, request.Deployment.Revision,
+                saved.Deployment, RestoredProfileId(saved), token);
+            return catalog.GetCluster(cluster.UniqueName)!.ActiveDeployment!;
+        }
         string directory = Path.Combine(Root(cluster.UniqueName), request.SnapshotId.ToString("N"));
         var backup = Verify(directory, cluster.UniqueName);
+        if (backup.Deployment.ActiveDeployment?.Provenance is null)
+            throw new InvalidDataException("The backup has no active deployment provenance; restore cannot verify its saved package and dependencies.");
         if (!backup.Hosts.Select(h => h.HostId).Order().SequenceEqual(request.Deployment.Hosts.Select(h => h.HostId).Order())
             || !backup.Hosts.Select(h => h.HostId).Order().SequenceEqual(cluster.ActiveDeployment.Hosts.Select(h => h.HostId).Order()))
             throw new InvalidDataException("Restore must retain the complete saved Host inventory.");
@@ -274,7 +356,18 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
         await catalog.RecordPendingDeploymentAsync(cluster, hash, token, restore: true);
         await operations.FenceGatewayOperationsForRestoreAsync(cluster.UniqueName, token);
         foreach (var (target, restore) in prepared) await hosts.RestoreSnapshotAsync(target, restore, token);
-        return await deployments.ActivateCoreAsync(cluster, request.Deployment, token, restore: true);
+        var active = await deployments.ActivateCoreAsync(cluster, request.Deployment, token, restore: true);
+        await catalog.RecordRestoredProvenanceAsync(cluster.UniqueName, active.Revision, backup.Deployment,
+            RestoredProfileId(backup), token);
+        return catalog.GetCluster(cluster.UniqueName)!.ActiveDeployment!;
+    }
+
+    private string RestoredProfileId(ClusterBackup backup)
+    {
+        if (profiles is null) return backup.Deployment.ConfigProfileId;
+        var profile = profiles.GetProfile(backup.Deployment.ConfigProfileId);
+        return profile is not null && profile.UpdatedAtUtc <= backup.Deployment.ActiveDeployment!.ActivatedAt
+            ? profile.ConfigProfileId : string.Empty;
     }
 
     private static ClusterDefinition Target(ClusterDefinition cluster, ClusterHostRevision host)
@@ -300,6 +393,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
 }
 
 public sealed record ClusterBackupRequest(Guid SnapshotId, bool AllowCrashConsistent = false, bool Automatic = false);
+public sealed record ClusterRestorePreparationRequest(Guid SnapshotId, Guid RestoreId);
 public sealed record ClusterRestoreRequest(Guid SnapshotId, Guid RestoreId, ClusterDeploymentRequest Deployment);
 public sealed record ClusterBackup(Guid SnapshotId, string ClusterId, DateTimeOffset CreatedAt, Admin.ExportConsistency Consistency,
     ClusterDefinition Deployment, HostContract.HostSnapshot[] Hosts, bool Automatic);

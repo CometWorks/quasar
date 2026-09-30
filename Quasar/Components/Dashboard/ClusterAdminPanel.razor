@@ -67,6 +67,10 @@
                                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
                                     Stage session settings, administrators, mods and plugin selections, then apply the pending update from Maintenance during full downtime. Quasar downloads and pins each mod, prepares matching plugins and backs up the stopped cluster before changing preserved worlds. Network and dedicated-server root settings cannot be changed here.
                                 </MudAlert>
+                                @if (string.IsNullOrEmpty(Cluster.ConfigProfileId))
+                                {
+                                    <MudAlert Severity="Severity.Warning" Dense="true">The restored world has no matching saved profile because that profile changed after its deployment. Choose a profile and stage it before the next update.</MudAlert>
+                                }
                                 <MudSelect T="string" @bind-Value="_configProfileId" Label="Selected config profile" Variant="Variant.Outlined"
                                            HelperText="Selection remains pending until the prepared cluster update is applied.">
                                     @foreach (var profile in Profiles.GetProfiles())

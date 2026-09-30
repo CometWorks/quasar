@@ -13,6 +13,7 @@
 @inject AuthenticationStateProvider AuthenticationState
 @inject QuasarRoleMapper RoleMapper
 @inject IJSRuntime JS
+@inject IDialogService DialogService
 @inject ILogger<ClusterDeploymentPanel> Logger
 
 <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
@@ -92,15 +93,26 @@
                 }
                 <MudButton OnClick="ListBackups" Disabled="_busy" Variant="Variant.Outlined" Color="Color.Primary">List backups</MudButton>
                 @if (_backups is not null) { <pre style="max-height:300px;overflow:auto">@_backups</pre> }
+                @if (Current.GoalState == DedicatedServerGoalState.Off && Backups.List(Cluster.UniqueName).Length != 0)
+                {
+                    <MudSelect T="Guid" @bind-Value="RestoreSnapshotId" Label="Backup to restore" Variant="Variant.Outlined">
+                        @foreach (var backup in Backups.List(Cluster.UniqueName))
+                        {
+                            <MudSelectItem T="Guid" Value="@backup.SnapshotId">@backup.CreatedAt.ToLocalTime() · @backup.SnapshotId</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudButton OnClick="PrepareRestoreAsync" Disabled="@(_busy || _restoreSnapshotId == Guid.Empty || UpdateLocked)"
+                               Variant="Variant.Outlined" Color="Color.Warning">Prepare restore with fresh credentials</MudButton>
+                }
                 <MudExpansionPanels>
                 <MudExpansionPanel Text="Archive Gateway export">
                 <MudTextField T="string" Label="Gateway world export artifact ID" @bind-Value="_artifactId" Disabled="_busy" />
                 <MudButton OnClick="ArchiveExportAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_artifactId))" Variant="Variant.Outlined" Color="Color.Primary">Verify and store world export</MudButton>
                 </MudExpansionPanel>
-                <MudExpansionPanel Text="Restore from a prepared request">
+                <MudExpansionPanel Text="Restore prepared backup">
                 <MudTextField T="string" Label="Restore request (JSON)" @bind-Value="_restore" Lines="8" Disabled="_busy" />
-                <MudText Typo="Typo.body2">Restore replaces current world and plugin data. Previous runtime data is retained. The prepared revision must use new runtime credentials.</MudText>
-                <MudButton OnClick="RestoreAsync" Color="Color.Warning" Variant="Variant.Outlined" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off)">Restore backup</MudButton>
+                <MudText Typo="Typo.body2">Select a backup above and prepare it to fill this request. Restoring replaces current world and plugin data. Host keeps the previous runtime data for recovery.</MudText>
+                <MudButton OnClick="RestoreAsync" Color="Color.Warning" Variant="Variant.Outlined" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off || string.IsNullOrWhiteSpace(_restore))">Restore backup</MudButton>
                 </MudExpansionPanel>
                 </MudExpansionPanels>
                 </MudStack>
@@ -156,6 +168,12 @@
     private string _artifactId = "";
     private ClusterPreparationRequest? _preparationRequest, _savedPreparation;
     private string _activation = "", _restore = "";
+    private Guid _restoreSnapshotId;
+    private Guid RestoreSnapshotId
+    {
+        get => _restoreSnapshotId;
+        set { if (_restoreSnapshotId != value) _restore = ""; _restoreSnapshotId = value; }
+    }
     private string? _backups;
     private string? _message;
     private bool _busy;
@@ -219,9 +237,24 @@
         _artifactId, Guid.NewGuid().ToString("N"), actor, default));
     private Task BackupAsync() => ExecuteAsync(actor => Backups.CaptureAsync(Cluster.UniqueName,
         new(Guid.NewGuid()), Guid.NewGuid().ToString("N"), actor, default));
-    private Task RestoreAsync() => ExecuteAsync(actor => Backups.RestoreAsync(Cluster.UniqueName,
-        JsonSerializer.Deserialize<ClusterRestoreRequest>(_restore, Json) ?? throw new InvalidDataException("Restore request is required."),
-        Guid.NewGuid().ToString("N"), actor, default));
+    private async Task RestoreAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_restore)) return;
+        if (await DialogService.ShowMessageBoxAsync("Restore cluster backup?",
+            "This replaces the stopped cluster's world, plugin data and deployment with the backup identified in the prepared request. Each Host retains its previous runtime data. Continue?",
+            yesText: "Restore", cancelText: "Cancel") != true) return;
+        await ExecuteAsync(actor => Backups.RestoreAsync(Cluster.UniqueName,
+            JsonSerializer.Deserialize<ClusterRestoreRequest>(_restore, Json) ?? throw new InvalidDataException("Restore request is required."),
+            Guid.NewGuid().ToString("N"), actor, default));
+    }
+    private Task PrepareRestoreAsync() => ExecuteAsync(async actor =>
+    {
+        var result = await Backups.PrepareRestoreAsync(Cluster.UniqueName, _restoreSnapshotId,
+            Guid.NewGuid(), Guid.NewGuid().ToString("N"), actor, default);
+        if (result.State == ClusterOperationState.Succeeded)
+            _restore = JsonSerializer.Serialize(result.Result!.Value.Deserialize<ClusterRestoreRequest>(Json), Json);
+        return result;
+    });
     private Task PrepareAsync() => ExecuteAsync(async actor =>
     {
         var request = _preparationRequest ?? throw new InvalidDataException("Preparation request is required.");

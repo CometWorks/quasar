@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Text.Json;
 using Quasar.Models;
 using Quasar.Services;
 using Quasar.Host.Contract.V1;
@@ -111,6 +112,41 @@ public sealed class ClusterCatalogTests : IDisposable
         Assert.Equal("old", reloaded.GetCluster("demo")!.ConfigProfileId);
         await Assert.ThrowsAsync<InvalidDataException>(() =>
             catalog.UpdateAdministrationAsync("demo", new("", 120)));
+    }
+
+    [Fact]
+    public async Task RestoreUsesSavedActiveProvenanceAfterCandidateStaging()
+    {
+        string directory = Path.Combine(_directory, "demo");
+        Directory.CreateDirectory(directory);
+        var oldPreparation = new ClusterPreparationRequest("old-inputs", "{\"adminTokenEnvironmentVariable\":\"OLD_ADMIN\"}", "http://gateway.test", []);
+        var restorePreparation = oldPreparation with { SpecificationJson = "{\"adminTokenEnvironmentVariable\":\"NEW_ADMIN\"}" };
+        var selected = new ClusterPackageSelection(1, "1.1.10", new string('a', 64), new string('b', 40), "old");
+        var candidate = selected with { Revision = 2, Version = "1.1.11" };
+        string oldRevision = ClusterDependencyService.DeploymentRevision(oldPreparation);
+        string restoredRevision = ClusterDependencyService.DeploymentRevision(restorePreparation);
+        var saved = new ClusterDefinition
+        {
+            UniqueName = "demo", GatewayUrl = "http://gateway.test", ConfigProfileId = "old-profile",
+            WorldTemplateId = "old-world", PackageSelection = candidate, DependencyManifestSha256 = new string('c', 64),
+            Preparation = restorePreparation,
+            ActiveDeployment = new ClusterActiveRevision(oldRevision, [], DateTimeOffset.UtcNow)
+            { Provenance = new(selected, new string('d', 64), oldPreparation) }
+        };
+        var current = saved.Clone();
+        current.ActiveDeployment = new ClusterActiveRevision(restoredRevision, [], DateTimeOffset.UtcNow);
+        current.Preparation = restorePreparation;
+        await File.WriteAllTextAsync(Path.Combine(directory, "cluster.json"),
+            JsonSerializer.Serialize(current, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        using var catalog = CreateCatalog();
+
+        var restored = await catalog.RecordRestoredProvenanceAsync("demo", restoredRevision, saved, "old-profile", default);
+
+        Assert.Equal(selected, restored.PackageSelection);
+        Assert.Equal(new string('d', 64), restored.DependencyManifestSha256);
+        Assert.Equal(restorePreparation.SpecificationJson, restored.ActiveDeployment!.Provenance!.Preparation.SpecificationJson);
+        Assert.Equal("old-profile", restored.ConfigProfileId);
+        Assert.Equal("old-world", restored.WorldTemplateId);
     }
 
     public void Dispose()

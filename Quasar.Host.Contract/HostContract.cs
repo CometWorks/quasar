@@ -2,7 +2,8 @@ using System.Text.Json.Serialization;
 
 namespace Quasar.Host.Contract.V1;
 
-public sealed record HostManagedCredentials(string ClusterId, string AdminToken, string JoinToken, Dictionary<string, string> ExecutorTokens);
+public sealed record HostManagedCredentials(string ClusterId, string AdminToken, string JoinToken,
+    Dictionary<string, string> ExecutorTokens, string? Generation = null);
 
 public static class ManagedCredentialReference
 {

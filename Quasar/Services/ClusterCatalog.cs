@@ -154,6 +154,13 @@ public sealed class ClusterCatalog : IDisposable
             cluster.LastRestoreHash = cluster.PendingRestoreHash ?? cluster.LastRestoreHash;
             cluster.PendingRestoreHash = null;
             cluster.Gateway = host.Deployment.Gateway;
+            if (cluster.Preparation is { } preparation
+                && ClusterDependencyService.DeploymentRevision(preparation) == active.Revision)
+            {
+                using var specification = JsonDocument.Parse(preparation.SpecificationJson);
+                cluster.GatewayAdminTokenEnvironmentVariable = specification.RootElement
+                    .GetProperty("adminTokenEnvironmentVariable").GetString() ?? string.Empty;
+            }
             cluster.HostCommandUrl = host.CommandUrl;
             cluster.HostCommandTokenEnvironmentVariable = host.TokenEnvironmentVariable;
             cluster.GatewayUrl = host.Deployment.Attachment.GatewayUrl;
@@ -258,6 +265,26 @@ public sealed class ClusterCatalog : IDisposable
             if (cluster.GetLifecycleId() != expected.GetLifecycleId()) throw new InvalidOperationException("Cluster changed during conversion.");
             cluster.ConfigProfileId = profileId;
             if (worldTemplateId is not null) cluster.WorldTemplateId = worldTemplateId;
+        }, token);
+
+    internal Task<ClusterDefinition> RecordRestoredProvenanceAsync(string clusterId, string revision,
+        ClusterDefinition saved, string restoredProfileId, CancellationToken token) => UpdateCoreAsync(clusterId, cluster =>
+        {
+            var provenance = saved.ActiveDeployment?.Provenance;
+            if (cluster.ActiveDeployment?.Revision != revision || provenance is null
+                || cluster.Preparation is not { } preparation
+                || ClusterDependencyService.DeploymentRevision(preparation) != revision)
+                throw new InvalidOperationException("Restored deployment or saved package provenance is unavailable.");
+            cluster.ConfigProfileId = restoredProfileId;
+            cluster.WorldTemplateId = saved.WorldTemplateId;
+            cluster.PackageSelection = provenance.PackageSelection;
+            cluster.DependencyManifestSha256 = provenance.DependencyManifestSha256;
+            cluster.ActiveDeployment = cluster.ActiveDeployment with
+            {
+                PackageVersion = provenance.PackageSelection.Version,
+                Provenance = provenance with { Preparation = preparation }
+            };
+            cluster.PreviousDeployment = null;
         }, token);
 
     internal Task<ClusterDefinition> RecordRecoveryAsync(ClusterDefinition expected, Guid generation, CancellationToken token) =>

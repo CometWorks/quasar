@@ -153,6 +153,13 @@ keyring and keeps the temporary SteamCMD login script private. Steam Guard may r
 an interactive SteamCMD login before the account can fetch protected items. The
 profile update is prepared offline and applied during a full cluster downtime after
 a verified backup; a failed download never changes active nodes.
+For rollback, stop the cluster and select the pre-migration backup under Maintenance.
+Quasar records the active deployment's package, dependencies and preparation in each
+backup, even when a newer candidate was already staged. It prepares a restore revision
+with fresh Host credentials, then the Restore action verifies and replaces saved world
+and plugin data. The previous runtime is retained by each Host. A profile edited since
+its saved deployment is left unbound after restore; choose a matching profile before
+staging another update.
 
 When a config profile with Workshop mods is opened, saved, or receives imported
 mods, Quasar checks declared Steam Workshop child/dependency metadata, adds
@@ -1566,16 +1573,14 @@ previous-token slots, must not remain in the candidate scoped-token file. Host c
 credentials can remain unchanged. The previous runtime directory remains beside the restored
 one for explicit recovery and is not removed by backup retention.
 
-Before restore, copy the preparation specification and replace its join/admin token,
-scoped-token-file and Host executor token environment references with new names. Provision
-fresh values on each Host, then prepare this candidate using the same package, game build,
-world and topology. The secret references are hashed specification inputs, so this required
-rotation produces a new deployment revision automatically; no unrelated setting needs to
-change. Merely replacing values behind the existing environment names is insufficient:
-Host must still resolve the currently attached credentials to reject reuse. Submit the
-restore against this prepared candidate, then activate it before starting. A failed restore
-can be retried with the same restore ID and identical inputs; previous runtime data remains
-available for explicit recovery.
+Under **Maintenance → Backups**, select the backup and choose **Prepare restore with fresh
+credentials**. Quasar verifies the saved package and dependencies, provisions fresh join,
+admin and executor tokens on each Host, and stages a candidate using the saved deployment
+inputs. Review the generated restore request, then choose **Restore backup**. The new
+credential references produce a new revision; replacing values behind existing references
+cannot satisfy Host's reuse checks. A failed restore can be retried with the same restore ID
+and identical request. Backups created before active deployment provenance was recorded
+cannot use this generated restore flow.
 
 ## Managed cluster workflows
 

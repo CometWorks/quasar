@@ -25,8 +25,14 @@ then migrates preserved checkpoints and node mod directories. It starts the flee
 after every Host activates the same revision. Interrupted activation replays the pinned
 candidate. An older bundle without profile migration metadata cannot be used as a
 binary-only rollback after a profile migration; restore the saved snapshot with a
-newly prepared deployment and rotated runtime credentials. Network and dedicated-server
-root settings remain outside this preserved-world profile operation.
+newly prepared deployment and rotated runtime credentials. In Maintenance, select the
+backup ID, choose **Prepare restore with fresh credentials**, review the generated
+request, then choose **Restore backup** while stopped. Quasar restores the saved
+active package and dependency selection with the world and plugin data, even when a
+newer candidate was staged before the backup. If the saved profile
+was edited after its deployment, Quasar leaves the restored cluster's profile
+selection unbound so an administrator can choose a matching profile explicitly.
+Network and dedicated-server root settings remain outside this preserved-world profile operation.
 
 ## Original design audit
 

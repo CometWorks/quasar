@@ -247,8 +247,13 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             ValidateResult(result, host, request, hostIds);
             activated.Add(new(host.HostId, host.CommandUrl, host.TokenEnvironmentVariable, result));
         }
+        var provenance = cluster.Preparation is { } preparation
+            && ClusterDependencyService.DeploymentRevision(preparation) == request.Revision
+            && cluster.PackageSelection is { } selection && cluster.DependencyManifestSha256 is { } dependencies
+                ? new ClusterDeploymentProvenance(selection, dependencies, preparation)
+                : cluster.PreviousDeployment?.Revision == request.Revision ? cluster.PreviousDeployment.Provenance : null;
         var active = new ClusterActiveRevision(request.Revision, activated.ToArray(), DateTimeOffset.UtcNow,
-            ActivePackageVersion(cluster, request));
+            ActivePackageVersion(cluster, request)) { Provenance = provenance };
         await catalog.RecordActiveDeploymentAsync(cluster, active, token);
         return active;
     }

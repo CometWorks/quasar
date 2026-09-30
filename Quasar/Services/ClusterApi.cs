@@ -203,6 +203,7 @@ internal static class ClusterApi
                 () => backups.ArchiveExportAsync(uniqueName, id, context.Request.Headers["Idempotency-Key"].ToString(),
                     context.User.Identity?.Name ?? "anonymous", token)));
         RouteHandlerBuilder captureBackup = routes.MapPost("/{uniqueName}/backups", CaptureBackup);
+        RouteHandlerBuilder prepareRestore = routes.MapPost("/{uniqueName}/restore/prepare", PrepareRestore);
         RouteHandlerBuilder restoreBackup = routes.MapPost("/{uniqueName}/restore", RestoreBackup);
         var convertToCluster = routes.MapPost("/{uniqueName}/convert/from-server", (string uniqueName, ServerToClusterRequest request,
             HttpContext context, [FromServices] ClusterConversionService conversions, CancellationToken token) => RunBackup(uniqueName, context,
@@ -292,6 +293,7 @@ internal static class ClusterApi
             deleteCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             forgetCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             captureBackup.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            prepareRestore.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             archiveExport.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             beginUpdate.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             abandonUpdate.RequireAuthorization(QuasarPolicyNames.ClusterManage);
@@ -455,6 +457,11 @@ internal static class ClusterApi
         [FromServices] ClusterBackupService backups, CancellationToken token) => RunBackup(uniqueName, context,
             () => backups.RestoreAsync(uniqueName, request, context.Request.Headers["Idempotency-Key"].ToString(),
                 context.User.Identity?.Name ?? "anonymous", token));
+
+    private static Task<IResult> PrepareRestore(string uniqueName, ClusterRestorePreparationRequest request, HttpContext context,
+        [FromServices] ClusterBackupService backups, CancellationToken token) => RunBackup(uniqueName, context,
+            () => backups.PrepareRestoreAsync(uniqueName, request.SnapshotId, request.RestoreId,
+                context.Request.Headers["Idempotency-Key"].ToString(), context.User.Identity?.Name ?? "anonymous", token));
 
     private static async Task<IResult> RunBackup(string uniqueName, HttpContext context, Func<Task<ClusterOperation>> execute)
     {

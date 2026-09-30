@@ -9,11 +9,13 @@ internal static class HostCredentials
     {
         if (string.IsNullOrWhiteSpace(request.ClusterId) || !System.Text.RegularExpressions.Regex.IsMatch(request.ClusterId, "^[a-zA-Z0-9_-]{1,64}$")
             || request.ExecutorTokens is null || request.ExecutorTokens.Count is < 1 or > 64
-            || request.ExecutorTokens.Keys.Any(k => !System.Text.RegularExpressions.Regex.IsMatch(k, "^[a-zA-Z0-9_-]{1,64}$")))
+            || request.ExecutorTokens.Keys.Any(k => !System.Text.RegularExpressions.Regex.IsMatch(k, "^[a-zA-Z0-9_-]{1,64}$"))
+            || request.Generation is not null && !System.Text.RegularExpressions.Regex.IsMatch(request.Generation, "^[a-f0-9]{32}$"))
             throw new InvalidDataException("Invalid cluster credential identity.");
         var all = request.ExecutorTokens.Values.Append(request.AdminToken).Append(request.JoinToken);
         if (all.Any(v => v is null || v.Length != 64 || !v.All(Uri.IsHexDigit))) throw new InvalidDataException("Invalid cluster credential format.");
-        string Ref(string purpose) => global::Quasar.Host.Contract.V1.ManagedCredentialReference.Cluster(request.ClusterId, purpose);
+        string Ref(string purpose) => global::Quasar.Host.Contract.V1.ManagedCredentialReference.Cluster(request.ClusterId,
+            request.Generation is null ? purpose : "restore:" + request.Generation + ":" + purpose);
         ClusterWorldFiles.Private(stateDirectory);
         string path = Path.Combine(stateDirectory, "credentials.json");
         if (File.Exists(path)) ClusterWorldFiles.Private(path);
@@ -24,6 +26,7 @@ internal static class HostCredentials
             if (values.TryGetValue(name, out var current) && current != value)
                 throw new InvalidOperationException("Managed credentials are immutable; use a new cluster identity to replace them.");
         string directory = Path.Combine(stateDirectory, "credentials", request.ClusterId);
+        if (request.Generation is not null) directory = Path.Combine(directory, request.Generation);
         Directory.CreateDirectory(directory); ClusterWorldFiles.Private(directory);
         string tokenFile = Path.Combine(directory, "tokens.json");
         // The Gateway requires the polling Host ID to equal the token name.
