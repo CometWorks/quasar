@@ -66,6 +66,20 @@ The earlier implicit-hub proposal is superseded by consuming the release's built
 artifacts. Existing Quasar package/dependency staging is preparation, not evidence that
 managed lifecycle and offline replacements already work.
 
+Cluster 1.1.9 adds a local world-mod loader for regular nodes and World Authority:
+it reads pre-staged `<data>/Mods/<id>.sbm` folders and fails when a folder is
+missing instead of downloading from Workshop. Quasar's managed dependency
+snapshot does not yet collect or transfer those mod folders, so this loader
+alone does not enable a managed profile change that adds or updates mods. The
+managed deployment generator also treats `Sandbox.sbc` as an initial seed;
+Host activation preserves existing mutable worlds. Applying a new profile's
+world settings needs a separate stopped-world migration with backup and
+versioned Host support.
+The local loader reads its staged bytes at each process start; the cluster
+runtime itself does not lock an archive or moved hub pin for an entire run.
+Managed Quasar updates therefore must keep activation behind the existing
+verified full-downtime workflow and never restage active content in place.
+
 Schema-2 dependency snapshots now include common/compatibility bundles and resolved
 native assets. The upstream CLI accepts `DIRECT_TRANSPORT_BINARIES` and
 `CLUSTER_COMMON_PLUGINS`, disables source/hub resolution in frozen mode, keeps compatibility
