@@ -103,7 +103,7 @@ public sealed record HostActiveDeployment(string ClusterId, string Revision, str
 
 public sealed record HostDeploymentPreparation(string ClusterId, string InstallationDirectory,
     string InputsSha256, string SpecificationJson, string SpecificationSha256, string WorldDirectory,
-    string ConfigurationDirectory);
+    string ConfigurationDirectory, string? ModDirectory = null);
 public sealed record HostPreparedConfiguration(string HostId, string Revision, string Manifest, string Sha256);
 
 public sealed record HostSnapshotRequest(string ClusterId, Guid SnapshotId, string ExpectedBundleManifestSha256, string CaptureFence);

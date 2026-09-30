@@ -29,6 +29,8 @@ internal static class ManagedPreparation
             foreach (string value in new[] { Path.Combine(root, "Package/cli/managed_deployment.py"), "--installation", root,
                 "prepare", "--spec", temporary, "--sha256", request.SpecificationSha256, "--host", hostId,
                 "--world", request.WorldDirectory, "--destination", request.ConfigurationDirectory }) start.ArgumentList.Add(value);
+            if (request.ModDirectory is { } mods)
+            { start.ArgumentList.Add("--mods"); start.ArgumentList.Add(mods); }
             using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start packaged preparation.");
             var output = process.StandardOutput.ReadToEndAsync(token);
             var error = process.StandardError.ReadToEndAsync(token);
@@ -52,7 +54,8 @@ internal static class ManagedPreparation
         for (int i = 0; i < args.Length; i += 2)
             if (i + 1 == args.Length || !values.TryAdd(args[i], args[i + 1])) return 2;
         string[] required = ["--installation", "--file", "--sha256", "--host", "--world", "--directory"];
-        if (values.Count != required.Length || required.Any(key => !values.ContainsKey(key)))
+        if (values.Count is < 6 or > 7 || required.Any(key => !values.ContainsKey(key))
+            || values.Keys.Any(key => !required.Contains(key) && key != "--mods"))
         {
             Console.Error.WriteLine("Usage: Quasar.Host deployment configure --installation DIR --file SPEC --sha256 SHA256 --host HOST --world SEED --directory DIR");
             return 2;
@@ -71,6 +74,8 @@ internal static class ManagedPreparation
             foreach (string argument in new[] { script, "--installation", root, "prepare", "--spec", values["--file"],
                 "--sha256", values["--sha256"], "--host", values["--host"], "--world", values["--world"],
                 "--destination", values["--directory"] }) start.ArgumentList.Add(argument);
+            if (values.TryGetValue("--mods", out string? mods))
+            { start.ArgumentList.Add("--mods"); start.ArgumentList.Add(mods); }
             using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start packaged preparation.");
             await process.WaitForExitAsync();
             if (process.ExitCode != 0) return process.ExitCode;

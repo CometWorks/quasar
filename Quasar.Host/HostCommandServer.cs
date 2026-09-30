@@ -436,6 +436,8 @@ internal sealed class HostCommandServer : IDisposable
                     context.Request.InputStream, hash, Path.Combine(root, "installations"), cancellationToken)).Directory,
                 "world" => await Quasar.ClusterDeployment.ClusterWorldFiles.UnpackAsync(
                     context.Request.InputStream, hash, Path.Combine(root, "worlds"), cancellationToken),
+                "mods" => await Quasar.ClusterDeployment.ClusterWorldFiles.UnpackAsync(
+                    context.Request.InputStream, hash, Path.Combine(root, "mods"), cancellationToken, requireCheckpoint: false),
                 _ => throw new InvalidDataException("Unknown conversion input."),
             };
             string workspace = Path.Combine(root, id.ToString("N"));

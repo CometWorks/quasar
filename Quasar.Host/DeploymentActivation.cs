@@ -65,6 +65,7 @@ internal sealed class DeploymentActivation(string stateDirectory, string hostId,
             gateway.EnsureStopped(request.ClusterId);
         }
         var bundle = ExecutionBundle.Load(request.BundleManifestPath, request.BundleManifestSha256);
+        ProfileContentMigration.Validate(bundle, request.BundleManifestPath);
         if (bundle.Manifest.ClusterId != request.ClusterId || bundle.Manifest.HostId != hostId
             || bundle.Manifest.RuntimeRoot is not { } runtime || !Path.IsPathFullyQualified(runtime))
             throw new InvalidDataException("Execution bundle belongs to a different cluster/host or lacks a runtime root.");
@@ -88,6 +89,7 @@ internal sealed class DeploymentActivation(string stateDirectory, string hostId,
         if (preview) return active;
         var transaction = new Transaction(request, active, false);
         Write(path, transaction); // Intent precedes both writes; restart replays it before any process can start.
+        ProfileContentMigration.Apply(bundle, request.BundleManifestPath);
         attachments.Apply(active.Attachment);
         if (active.Gateway is not null) gateways.Apply(active.Gateway);
         bundle.ConfirmRestoreActivation();

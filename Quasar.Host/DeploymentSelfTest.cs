@@ -11,6 +11,7 @@ internal static class DeploymentSelfTest
     {
         CredentialInstallation();
         LocalWorldModsRequired();
+        ProfileContentUpdate();
         SteamClientLibraryInstallation();
         string root = Path.Combine(Path.GetTempPath(), "host-deployment-" + Guid.NewGuid());
         try
@@ -184,6 +185,72 @@ internal static class DeploymentSelfTest
             }
         }
         finally { Environment.SetEnvironmentVariable(variable, null); }
+    }
+
+    private static void ProfileContentUpdate()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "host-profile-content-" + Guid.NewGuid().ToString("N"));
+        string runtime = Path.Combine(root, "runtime"), slot = "node-1";
+        string data = Path.Combine(runtime, "nodes", ExecutionBundle.Hash(System.Text.Encoding.UTF8.GetBytes(slot))[..24], "data");
+        static string Checkpoint(string id, string speed) =>
+            $"<MyObjectBuilder_Checkpoint><Settings><SyncDistance>{speed}</SyncDistance><Unmodeled>keep</Unmodeled></Settings>" +
+            $"<Mods><ModItem><Name>{id}.sbm</Name><PublishedFileId>{id}</PublishedFileId></ModItem></Mods>" +
+            "<Entities>preserved</Entities></MyObjectBuilder_Checkpoint>";
+        try
+        {
+            foreach (string directory in new[] { Path.Combine(runtime, "world"),
+                         Path.Combine(data, "premade-world"), Path.Combine(data, "Saves/world-1") })
+            {
+                Directory.CreateDirectory(directory);
+                File.WriteAllText(Path.Combine(directory, "Sandbox.sbc"), Checkpoint("111", "3000"));
+            }
+            File.WriteAllText(Path.Combine(data, ".quasar-seed.json"), "managed");
+            Directory.CreateDirectory(Path.Combine(data, "Mods/111.sbm"));
+            File.WriteAllText(Path.Combine(data, "Mods/.quasar-profile-mods"), "old");
+            File.WriteAllText(Path.Combine(data, "Mods/111.sbm/Data.sbc"), "old mod");
+            (string Path, string Hash) Bundle(string revision, string id, string speed, bool legacy = false)
+            {
+                string config = Path.Combine(root, revision);
+                string settings = Path.Combine(config, "seed/world/Sandbox.sbc");
+                string mod = Path.Combine(config, $"seed/{slot}/Mods/{id}.sbm/Data.sbc");
+                Directory.CreateDirectory(Path.GetDirectoryName(settings)!);
+                Directory.CreateDirectory(Path.GetDirectoryName(mod)!);
+                File.WriteAllText(settings, Checkpoint(id, speed));
+                File.WriteAllText(mod, revision + " mod");
+                var node = new NodeSpawnSpec(slot, Admin.NodeRole.Regular, slot, "unused", "", [],
+                    new() { ["CLUSTER_WORLD_ID"] = "world-1" }, []);
+                var manifest = new BundleManifest(1, revision, [], [node], RuntimeRoot: runtime,
+                    ConfigFiles: [new("seed/world/Sandbox.sbc", ExecutionBundle.Hash(File.ReadAllBytes(settings))),
+                        new($"seed/{slot}/Mods/{id}.sbm/Data.sbc", ExecutionBundle.Hash(File.ReadAllBytes(mod)))],
+                    ProfileContent: legacy ? null : new("seed/world/Sandbox.sbc", [id], new() { [slot] = $"seed/{slot}/Mods" }));
+                string path = Path.Combine(config, "bundle.json");
+                File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                return (path, ExecutionBundle.Hash(File.ReadAllBytes(path)));
+            }
+            var old = Bundle("old", "111", "3000");
+            var next = Bundle("next", "222", "5000");
+            var legacy = Bundle("legacy", "111", "3000", legacy: true);
+            var candidate = ExecutionBundle.Load(next.Path, next.Hash);
+            ProfileContentMigration.Apply(candidate, next.Path);
+            ProfileContentMigration.Apply(candidate, next.Path);
+            Assert(File.Exists(Path.Combine(data, "Mods/222.sbm/Data.sbc"))
+                && !Directory.Exists(Path.Combine(data, "Mods/111.sbm")), "profile mod payload was not replaced");
+            foreach (string directory in new[] { Path.Combine(runtime, "world"),
+                         Path.Combine(data, "premade-world"), Path.Combine(data, "Saves/world-1") })
+            {
+                string updated = File.ReadAllText(Path.Combine(directory, "Sandbox.sbc"));
+                Assert(updated.Contains("<SyncDistance>5000</SyncDistance>")
+                    && updated.Contains("222.sbm") && updated.Contains("<Entities>preserved</Entities>")
+                    && updated.Contains("<Unmodeled>keep</Unmodeled>"),
+                    "profile update lost world state or missed settings");
+            }
+            AssertThrows(() => ProfileContentMigration.Apply(ExecutionBundle.Load(legacy.Path, legacy.Hash), legacy.Path));
+            ProfileContentMigration.Apply(ExecutionBundle.Load(old.Path, old.Hash), old.Path);
+            Assert(File.Exists(Path.Combine(data, "Mods/111.sbm/Data.sbc"))
+                && File.ReadAllText(Path.Combine(runtime, "world/Sandbox.sbc")).Contains("<SyncDistance>3000</SyncDistance>"),
+                "profile rollback did not restore the previous selection");
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
     private static void SteamClientLibraryInstallation()

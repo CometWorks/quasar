@@ -60,7 +60,7 @@
                     <MudButton OnClick="StartPreparedUpdateAsync" Color="Color.Primary" Variant="Variant.Filled"
                                Disabled="@(_busy || UpdateLocked || !Current.HasPreparedUpdate || Current.QueuedContentUpdates is not null || Current.GoalState == DedicatedServerGoalState.Off && Current.Gateway is not null && Current.ShutdownProof?.LifecycleId != Current.GetLifecycleId())"
                                StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Apply pending update</MudButton>
-                    <MudText Typo="Typo.caption">Applying stops the entire cluster, activates the staged deployment on every Host, and restarts it. Plan for full downtime.</MudText>
+                    <MudText Typo="Typo.caption">Applying stops the entire cluster, captures a verified backup for profile changes, activates the staged deployment on every Host, and restarts it. Plan for full downtime.</MudText>
                 </MudStack>
             </MudPaper>
         }
@@ -71,6 +71,10 @@
         @if (Current.Update is { } update)
         {
             <MudText>Update @update.Id: @update.Phase</MudText>
+            @if (update.BackupRequired)
+            {
+                <MudText Typo="Typo.caption">Pre-migration backup ID: @update.Id. Keep this backup until the updated cluster has been checked. Restoring it requires a newly prepared deployment with rotated runtime credentials.</MudText>
+            }
             @if (update.LastError is not null) { <MudAlert Severity="Severity.Warning">@update.LastError</MudAlert> }
             @if (update.Phase != ClusterUpdatePhase.Complete)
             {
@@ -135,8 +139,8 @@
                     <MudTextField T="string" Label="Generated activation request (JSON override)" @bind-Value="_activation" Lines="8" Disabled="@(_busy || UpdateLocked)" />
                     <MudButton OnClick="UpdateFromJsonAsync" Disabled="@(_busy || UpdateLocked || Current.QueuedContentUpdates is not null || string.IsNullOrWhiteSpace(_activation))" Variant="Variant.Outlined" Color="Color.Primary">Apply JSON override with downtime</MudButton>
                     <MudButton OnClick="ActivateAsync" Disabled="@(_busy || Current.QueuedContentUpdates is not null || Current.GoalState != DedicatedServerGoalState.Off || string.IsNullOrWhiteSpace(_activation))" Variant="Variant.Outlined" Color="Color.Primary">Activate on stopped Hosts</MudButton>
-                    <MudButton OnClick="RollbackAsync" Disabled="@(_busy || UpdateLocked || Current.QueuedContentUpdates is not null || Current.PreviousDeployment is null)" Variant="Variant.Outlined" Color="Color.Warning">Roll back binaries and configuration</MudButton>
-                    <MudText Typo="Typo.caption">Rollback preserves current world and plugin data.</MudText>
+                    <MudButton OnClick="RollbackAsync" Disabled="@(_busy || UpdateLocked || Current.QueuedContentUpdates is not null || !CanRollbackWithoutDataRestore)" Variant="Variant.Outlined" Color="Color.Warning">Roll back binaries and configuration</MudButton>
+                    <MudText Typo="Typo.caption">Rollback preserves current world and plugin data. After a profile migration from a pre-1.1.11 release, restore the pre-migration backup with rotated credentials instead.</MudText>
                 </MudStack>
             </MudExpansionPanel>
         </MudExpansionPanels>
@@ -157,6 +161,9 @@
     private bool _busy;
     private bool UpdateLocked => Current.PendingDeploymentHash is not null || Current.PendingRestoreHash is not null
         || Current.Update is { Phase: not ClusterUpdatePhase.Complete };
+    private bool CanRollbackWithoutDataRestore => Current.PreviousDeployment is { } previous
+        && (Current.Update?.BackupRequired != true || Version.TryParse(previous.PackageVersion?.Split('-')[0], out var version)
+            && version >= new Version(1, 1, 11));
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     protected override void OnInitialized()
     {

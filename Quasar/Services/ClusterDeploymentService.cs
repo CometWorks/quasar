@@ -89,7 +89,8 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
                     target.HostCommandUrl = host.CommandUrl;
                     target.HostCommandTokenEnvironmentVariable = host.TokenEnvironmentVariable;
                     var prepared = (await hosts.PrepareDeploymentAsync(target, new(clusterId, host.InstallationDirectory,
-                        request.InputsSha256, request.SpecificationJson, hash, host.WorldDirectory, host.ConfigurationDirectory), cancellation)).Data;
+                        request.InputsSha256, request.SpecificationJson, hash, host.WorldDirectory, host.ConfigurationDirectory,
+                        host.ModDirectory), cancellation)).Data;
                     if (prepared.HostId != host.HostId || revision is not null && prepared.Revision != revision)
                         throw new InvalidDataException("Hosts prepared different deployment identities.");
                     revision = prepared.Revision;
@@ -178,6 +179,9 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             EnsurePreparedProfileCurrent(cluster.PreparedProfile, request.Revision,
                 cluster.PreparedProfile is { } prepared ? profiles?.GetProfile(prepared.ProfileId) : null);
         if (preflight && !dryRun) throw new InvalidOperationException("Online preflight cannot activate a deployment.");
+        if (!update && !restore && cluster.ActiveDeployment is not null
+            && ClusterUpdatePreparationService.RequiresProfileMigration(cluster, request.Revision))
+            throw new InvalidOperationException("Apply a staged profile through the managed update workflow so Quasar backs up the stopped cluster before migration.");
         if (!restore && cluster.QueuedContentUpdates is not null)
             throw new InvalidOperationException("Remove queued mod/plugin changes before activating a deployment. Pinned content preparation is not supported yet.");
         if (!update && cluster.Update is { Phase: not ClusterUpdatePhase.Complete })
@@ -286,4 +290,5 @@ public sealed record ClusterHostActivation(string HostId, string CommandUrl, str
 
 public sealed record ClusterPreparationRequest(string InputsSha256, string SpecificationJson, string GatewayUrl, ClusterPreparationHost[] Hosts);
 public sealed record ClusterPreparationHost(string HostId, string CommandUrl, string TokenEnvironmentVariable,
-    string ExecutorTokenEnvironmentVariable, string InstallationDirectory, string WorldDirectory, string ConfigurationDirectory);
+    string ExecutorTokenEnvironmentVariable, string InstallationDirectory, string WorldDirectory, string ConfigurationDirectory,
+    string? ModDirectory = null);

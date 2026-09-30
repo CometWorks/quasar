@@ -101,4 +101,4 @@ public sealed record ClusterHostRevision(string HostId, string CommandUrl, strin
 public enum ClusterUpdatePhase { Stopping, Activating, Starting, Complete }
 public sealed record ClusterUpdate(Guid Id, Quasar.Services.ClusterDeploymentRequest Deployment,
     ClusterActiveRevision Previous, bool Rollback, ClusterUpdatePhase Phase, DateTimeOffset StartedAt,
-    DateTimeOffset UpdatedAt, string? LastError = null);
+    DateTimeOffset UpdatedAt, string? LastError = null, bool BackupRequired = false);

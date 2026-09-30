@@ -235,6 +235,7 @@ public class Program
             builder.Services.AddSingleton<SteamWorkshopCredentialsCatalog>();
             builder.Services.AddSingleton<GitHubUpdateCredentialsCatalog>();
             builder.Services.AddSingleton<QuasarWorkshopModResolver>();
+            builder.Services.AddSingleton<ClusterWorkshopModStager>();
             builder.Services.AddSingleton<ManagedDedicatedServerRuntimeResolver>();
             builder.Services.AddSingleton<ManagedRuntimeWarmupService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ManagedRuntimeWarmupService>());

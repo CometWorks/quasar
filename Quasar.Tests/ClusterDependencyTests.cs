@@ -15,17 +15,18 @@ namespace Quasar.Tests;
 public sealed class ClusterDependencyTests
 {
     [Fact]
-    public void ProfileSelectionRejectsWorldChangesButAcceptsGatewayCapacity()
+    public void ProfileSelectionAcceptsSessionAndContentChangesButRejectsRootSettings()
     {
         var current = new QuasarConfigProfile();
         var selected = new QuasarConfigProfile();
         selected.SessionSettings.MaxPlayers = 40;
         ClusterUpdatePreparationService.EnsureCompatibleProfileSelection(current, selected);
         selected.SessionSettings.InventorySizeMultiplier = 10;
-        Assert.Throws<InvalidOperationException>(() =>
-            ClusterUpdatePreparationService.EnsureCompatibleProfileSelection(current, selected));
-        selected.SessionSettings.InventorySizeMultiplier = current.SessionSettings.InventorySizeMultiplier;
+        selected.Mods.Add(new QuasarModSelection { WorkshopId = 123456789 });
+        selected.Plugins.Add(new QuasarPluginSelection { PluginId = "example", SelectedVersion = new string('a', 40) });
         selected.RootSettings.Administrators.Add("76561198000000000");
+        ClusterUpdatePreparationService.EnsureCompatibleProfileSelection(current, selected);
+        selected.RootSettings.ServerPassword = "unsupported";
         Assert.Throws<InvalidOperationException>(() =>
             ClusterUpdatePreparationService.EnsureCompatibleProfileSelection(current, selected));
     }
@@ -73,7 +74,8 @@ public sealed class ClusterDependencyTests
             using var http = new HttpClient(handler);
             var hosts = new ClusterHostClient(http);
             var deployments = new ClusterDeploymentService(catalog, hosts, new ClusterOperationStore(Path.Combine(fixture.Root, "operations")));
-            var preparation = new ClusterUpdatePreparationService(catalog, fixture.Service, hosts, deployments);
+            var preparation = new ClusterUpdatePreparationService(catalog, fixture.Service, hosts, deployments,
+                null!, null!, null!, null!);
             var result = await preparation.StagePluginConfigurationAsync("demo", "plugin", "Primary", "{\"limit\":9}", "test", default);
             Assert.Equal(ClusterOperationState.Succeeded, result.State);
             var saved = catalog.GetCluster("demo")!;

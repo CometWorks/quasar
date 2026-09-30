@@ -816,6 +816,9 @@
                                     <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="OpenWorkshopApiKeyDialogAsync" StartIcon="@Icons.Material.Filled.Key">
                                         @(WorkshopCredentials.HasWebApiKey ? "Update API Key" : "Add API Key")
                                     </MudButton>
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="OpenSteamAccountDialogAsync" StartIcon="@Icons.Material.Filled.AccountCircle">
+                                        @(string.IsNullOrWhiteSpace(WorkshopCredentials.GetCredentials().SteamUsername) ? "Add SteamCMD account" : "Update SteamCMD account")
+                                    </MudButton>
                                 </MudStack>
 
                                 @if (!string.IsNullOrWhiteSpace(_workshopSearchError))
@@ -1581,14 +1584,26 @@
         if (result is null || result.Canceled || result.Data is not string webApiKey)
             return;
 
-        await WorkshopCredentials.SaveAsync(new SteamWorkshopCredentials
-        {
-            WebApiKey = webApiKey,
-        });
+        var credentials = WorkshopCredentials.GetCredentials();
+        credentials.WebApiKey = webApiKey;
+        await WorkshopCredentials.SaveAsync(credentials);
 
         _workshopSearchError = null;
         Snackbar.Add("Steam Workshop API key saved.", Severity.Success);
         await LoadPopularWorkshopModsAsync();
+    }
+
+    private async Task OpenSteamAccountDialogAsync()
+    {
+        var current = WorkshopCredentials.GetCredentials();
+        var dialog = await DialogService.ShowAsync<SteamWorkshopAccountDialog>("SteamCMD account",
+            new DialogParameters { ["CurrentUsername"] = current.SteamUsername });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not SteamWorkshopAccountDialog.SteamAccountUpdate update) return;
+        current.SteamUsername = update.Username;
+        current.SteamPassword = update.Clear ? "" : string.IsNullOrEmpty(update.Password) ? current.SteamPassword : update.Password;
+        await WorkshopCredentials.SaveAsync(current);
+        Snackbar.Add(update.Clear ? "SteamCMD account removed." : "SteamCMD account saved.", Severity.Success);
     }
 
     private List<QuasarConfigOptionDefinition> GetCategoryOptions(string categoryKey)

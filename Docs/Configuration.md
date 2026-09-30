@@ -144,6 +144,16 @@ corrected or removed. Reset discards unsaved edits.
 
 ## Steam Workshop mod dependencies
 
+Managed cluster profile staging requires the Web API key to resolve the complete
+dependency set. Quasar then downloads exact mod payloads with its managed SteamCMD in
+private staging, trying anonymous access first. If an item needs an account, save its
+Steam username and password with the **SteamCMD account** control on the config
+profile's Workshop panel. Quasar encrypts these values with its local Data Protection
+keyring and keeps the temporary SteamCMD login script private. Steam Guard may require
+an interactive SteamCMD login before the account can fetch protected items. The
+profile update is prepared offline and applied during a full cluster downtime after
+a verified backup; a failed download never changes active nodes.
+
 When a config profile with Workshop mods is opened, saved, or receives imported
 mods, Quasar checks declared Steam Workshop child/dependency metadata, adds
 missing dependency mods, and marks dependency rows in the profile JSON and the

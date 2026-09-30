@@ -121,9 +121,12 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             async ct => new Admin.AdminEnvelope<ClusterBackup>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow,
                 await catalog.WithLifecycleAsync(clusterId, cluster => CaptureCoreAsync(cluster, request, ct), ct)), token);
 
-    internal async Task<ClusterBackup> CaptureCoreAsync(ClusterDefinition cluster, ClusterBackupRequest request, CancellationToken token)
+    internal async Task<ClusterBackup> CaptureCoreAsync(ClusterDefinition cluster, ClusterBackupRequest request, CancellationToken token,
+        Guid? updateId = null)
     {
-        if (cluster.Update is { Phase: not ClusterUpdatePhase.Complete } || request.SnapshotId == Guid.Empty || cluster.GoalState != DedicatedServerGoalState.Off
+        if (cluster.Update is { Phase: not ClusterUpdatePhase.Complete } activeUpdate
+            && (updateId is null || activeUpdate.Id != updateId || activeUpdate.Phase != ClusterUpdatePhase.Stopping)
+            || request.SnapshotId == Guid.Empty || cluster.GoalState != DedicatedServerGoalState.Off
             || cluster.ActiveDeployment is null || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
             throw new InvalidOperationException("Backup requires a snapshot ID, goal Off and a complete managed deployment.");
         bool clean = cluster.ShutdownProof?.LifecycleId == cluster.GetLifecycleId();

@@ -65,7 +65,7 @@
                                 <MudTextField T="string" @bind-Value="_displayName" Label="Display name" Variant="Variant.Outlined"
                                               HelperText="Name shown in Quasar lists and dashboards." />
                                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                                    Stage a compatible profile, then apply the pending update from Maintenance during full downtime. Existing worlds currently support only max player changes through this control. Other world settings, administrators, mods, and plugin selections require deployment support that is not available yet.
+                                    Stage session settings, administrators, mods and plugin selections, then apply the pending update from Maintenance during full downtime. Quasar downloads and pins each mod, prepares matching plugins and backs up the stopped cluster before changing preserved worlds. Network and dedicated-server root settings cannot be changed here.
                                 </MudAlert>
                                 <MudSelect T="string" @bind-Value="_configProfileId" Label="Selected config profile" Variant="Variant.Outlined"
                                            HelperText="Selection remains pending until the prepared cluster update is applied.">
@@ -80,8 +80,8 @@
                                     <MudText Typo="Typo.body2">Pending profile: @(Profiles.GetProfile(pendingProfile.ProfileId)?.Name ?? pendingProfile.ProfileId). Apply it from Maintenance.</MudText>
                                 }
                                 <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                                           Disabled="@(Busy || Cluster.ActiveDeployment is null || string.IsNullOrWhiteSpace(_configProfileId) || _configProfileId == Cluster.ConfigProfileId)"
-                                           OnClick="StageProfileAsync">Stage selected profile</MudButton>
+                                           Disabled="@(Busy || Cluster.ActiveDeployment is null || string.IsNullOrWhiteSpace(_configProfileId))"
+                                           OnClick="StageProfileAsync">Stage profile changes</MudButton>
                                 <MudNumericField T="int" @bind-Value="_shutdownGracePeriodSeconds" Label="Shutdown grace period (seconds)"
                                                  Variant="Variant.Outlined" Min="0" Max="3600"
                                                  HelperText="Time allowed for the Gateway to save and drain when Quasar stops the cluster." />

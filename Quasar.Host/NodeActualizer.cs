@@ -671,7 +671,10 @@ internal sealed record BundleManifest(
     BundleFile[]? ConfigFiles = null,
     string? RuntimeRoot = null, Dictionary<string, string>? InitialDirectories = null,
     string? ClusterId = null, string? HostId = null, string[]? RequiredHosts = null,
-    Dictionary<string, string>? StorageFormats = null);
+    Dictionary<string, string>? StorageFormats = null, ProfileContentManifest? ProfileContent = null);
+
+internal sealed record ProfileContentManifest(string SettingsSeed, string[] ModIds,
+    Dictionary<string, string> NodeModSeeds);
 
 internal sealed record BundleFile(string Path, string Sha256);
 

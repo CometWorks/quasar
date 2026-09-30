@@ -195,6 +195,14 @@ internal static partial class ClusterDeploymentFiles
             throw new InvalidDataException("Cluster package does not support frozen plugin bundles.");
     }
 
+    internal static void RequireProfileUpdates(string package)
+    {
+        ValidateCapabilities(package);
+        using var capabilities = JsonDocument.Parse(File.ReadAllBytes(Resolve(package, "cli/deployment-capabilities.json")));
+        if (!capabilities.RootElement.TryGetProperty("managedProfileMigration", out var version) || version.GetInt32() < 1)
+            throw new InvalidDataException("Select cluster 1.1.11 or newer to stage profile settings, mods and plugins.");
+    }
+
     private static Dictionary<string, string> EnvironmentFor(string root) => new()
     {
         ["SPACE_ENGINEERS_BIN64"] = Path.Combine(root, "Dependencies/payload/DedicatedServer/DedicatedServer64"),

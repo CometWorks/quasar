@@ -5,7 +5,8 @@ namespace Quasar.Services;
 
 /// <summary>Durable full-downtime workflow; ordinary reconciliation owns shutdown and startup.</summary>
 public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeploymentService deployments,
-    ClusterGatewayClient gateway, ClusterHostClient hosts, ClusterOperationStore operations, ILogger<ClusterUpdateService> logger) : BackgroundService
+    ClusterGatewayClient gateway, ClusterHostClient hosts, ClusterOperationStore operations, ILogger<ClusterUpdateService> logger,
+    ClusterBackupService? backups = null) : BackgroundService
 {
     public Task<ClusterOperation> BeginAsync(string clusterId, ClusterUpdateRequest request, string key, string actor, CancellationToken token) =>
         operations.ExecuteAsync(clusterId, "cluster.update.begin", key, actor, request,
@@ -33,8 +34,11 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
             ?? throw new InvalidDataException("Candidate deployment is required.");
         if (candidate.Revision == cluster.ActiveDeployment.Revision) throw new InvalidOperationException("Candidate must be a different deployment revision.");
         await deployments.ActivateCoreAsync(cluster, candidate, token, dryRun: true, preflight: true, update: true);
+        bool backupRequired = ClusterUpdatePreparationService.RequiresProfileMigration(cluster, candidate.Revision);
+        if (backupRequired && backups is null)
+            throw new InvalidOperationException("Profile migration needs cluster backup service.");
         var workflow = new ClusterUpdate(request.Id, candidate, cluster.ActiveDeployment, request.Rollback,
-            ClusterUpdatePhase.Stopping, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+            ClusterUpdatePhase.Stopping, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, BackupRequired: backupRequired);
         await catalog.RecordUpdateAsync(cluster, workflow, token, DedicatedServerGoalState.Off);
         return workflow; // Accepted, not converged. Query Update.Phase until Complete.
     }
@@ -65,6 +69,9 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
     private static ClusterDeploymentRequest RollbackDeployment(ClusterDefinition cluster)
     {
         var previous = cluster.PreviousDeployment ?? throw new InvalidOperationException("No previous installation is recorded.");
+        if (cluster.Update?.BackupRequired == true && (!Version.TryParse(previous.PackageVersion?.Split('-')[0], out var parsed)
+            || parsed < new Version(1, 1, 11)))
+            throw new InvalidOperationException("The previous cluster release cannot reverse preserved profile changes. Restore the pre-migration backup using a newly prepared deployment with rotated credentials.");
         return new(cluster.ActiveDeployment!.Revision, previous.Revision, previous.Hosts.Select(host => new ClusterHostActivation(
             host.HostId, host.CommandUrl, host.TokenEnvironmentVariable, new(cluster.UniqueName,
                 cluster.ActiveDeployment.Hosts.Single(h => h.HostId == host.HostId).Deployment.BundleManifestSha256,
@@ -102,6 +109,8 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                         case ClusterUpdatePhase.Stopping:
                             if (cluster.ShutdownProof?.LifecycleId != cluster.GetLifecycleId())
                                 return await OverdueAsync(cluster, workflow, StoppingDeadline, "a verified clean shutdown");
+                            if (workflow.BackupRequired)
+                                await backups!.CaptureCoreAsync(cluster, new(workflow.Id), token, updateId: workflow.Id);
                             await deployments.ActivateCoreAsync(cluster, workflow.Deployment, token, dryRun: true, update: true);
                             await catalog.RecordUpdateAsync(cluster, workflow with { Phase = ClusterUpdatePhase.Activating,
                                 LastError = null, UpdatedAt = DateTimeOffset.UtcNow }, token);

@@ -42,10 +42,10 @@ internal static class ClusterWorldFiles
             throw new InvalidDataException("World inventory or contents changed.");
     }
 
-    internal static async Task<string> PackAsync(string root, string archive, CancellationToken token)
+    internal static async Task<string> PackAsync(string root, string archive, CancellationToken token, bool requireCheckpoint = true)
     {
         var pins = await ClusterDeploymentFiles.InspectAsync(root, token);
-        if (!pins.ContainsKey("Sandbox.sbc")) throw new InvalidDataException("World has no Sandbox.sbc.");
+        if (requireCheckpoint && !pins.ContainsKey("Sandbox.sbc")) throw new InvalidDataException("World has no Sandbox.sbc.");
         byte[] metadata = JsonSerializer.SerializeToUtf8Bytes(pins, ClusterDeploymentFiles.JsonOptions);
         using var output = new FileStream(archive, FileMode.Create, FileAccess.Write, FileShare.None);
         using (var writer = new TarWriter(output, leaveOpen: true))
@@ -63,7 +63,8 @@ internal static class ClusterWorldFiles
         return ClusterDeploymentFiles.Hash(metadata);
     }
 
-    internal static async Task<string> UnpackAsync(Stream input, string hash, string directory, CancellationToken token)
+    internal static async Task<string> UnpackAsync(Stream input, string hash, string directory, CancellationToken token,
+        bool requireCheckpoint = true)
     {
         if (hash.Length != 64 || !hash.All(Uri.IsHexDigit)) throw new InvalidDataException("Invalid world hash.");
         Directory.CreateDirectory(directory);
@@ -81,7 +82,7 @@ internal static class ClusterWorldFiles
             await header.DataStream.CopyToAsync(bytes, token);
             if (ClusterDeploymentFiles.Hash(bytes.ToArray()) != hash) throw new InvalidDataException("World manifest hash mismatch.");
             var pins = JsonSerializer.Deserialize<Dictionary<string, DeploymentFile>>(bytes.ToArray(), ClusterDeploymentFiles.JsonOptions)!;
-            if (pins is null || !pins.ContainsKey("Sandbox.sbc") || pins.Count > 200_000
+            if (pins is null || requireCheckpoint && !pins.ContainsKey("Sandbox.sbc") || pins.Count > 200_000
                 || pins.Values.Any(p => p is null || p.Bytes < 0 || p.Sha256 is null || p.Sha256.Length != 64 || !p.Sha256.All(Uri.IsHexDigit))
                 || pins.Values.Sum(p => (decimal)p.Bytes) > 100m * 1024 * 1024 * 1024)
                 throw new InvalidDataException("Invalid world inventory.");

@@ -295,6 +295,19 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
 
     private async Task ExportPluginsAsync(ClusterSetupRequest request, QuasarConfigProfile profile, string work, string destination, CancellationToken token)
     {
+        var excluded = await ExportProfilePluginsAsync(request.UniqueName, request.DisplayName, request.ConfigProfileId,
+            Path.Combine(work, "source-world"), profile, work, destination, token);
+        if (excluded.Count != 0)
+        {
+            string names = string.Join(", ", excluded);
+            logger?.LogWarning("Cluster {Cluster} setup leaves out local plugins without provenance metadata: {Plugins}. Cluster nodes run only plugins with a pinned source.", request.UniqueName, names);
+            await StageAsync(request, "Preparing identical plugins and canonical configuration (left out, no provenance metadata: " + names + ")", null, token);
+        }
+    }
+
+    internal async Task<IReadOnlyList<string>> ExportProfilePluginsAsync(string clusterId, string displayName,
+        string profileId, string sourceWorld, QuasarConfigProfile profile, string work, string destination, CancellationToken token)
+    {
         string magnetar = runtime.GetInstalledVersions().MagnetarPath;
         await RequirePreparationCommandAsync(magnetar, token);
         var selectedProfile = JsonSerializer.Deserialize<QuasarConfigProfile>(JsonSerializer.Serialize(profile, Json), Json)!;
@@ -304,25 +317,20 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         // The ordinary runtime preparer edits world configuration. Keep those edits out of the pinned seed.
         string preparationWorld = Path.Combine(work, "preparation/world");
         if (Directory.Exists(preparationWorld)) Directory.Delete(preparationWorld, true);
-        await ClusterWorldFiles.CopyAsync(Path.Combine(work, "source-world"), preparationWorld, token);
-        var source = new DedicatedServerDefinition { UniqueName = "setup-" + request.UniqueName, DisplayName = request.DisplayName,
-            InGameServerName = request.DisplayName, ConfigProfileId = request.ConfigProfileId, ServerPort = request.PlayerPort,
+        await ClusterWorldFiles.CopyAsync(sourceWorld, preparationWorld, token);
+        var source = new DedicatedServerDefinition { UniqueName = "setup-" + clusterId, DisplayName = displayName,
+            InGameServerName = displayName, ConfigProfileId = profileId,
             DedicatedServerAppDataPath = Path.Combine(work, "preparation/DedicatedServer"), MagnetarAppDataPath = Path.Combine(work, "preparation/Magnetar"),
             WorldPath = Path.Combine(work, "preparation"), WorldSaveName = "world" };
         var prepared = await preparer.PrepareAsync(source, runtime.ResolveInstalledDedicatedServer64Path(), MagnetarLaunchArgumentStyle.Current, token, selectedProfile);
         PrepareAgentMetadata(prepared.MagnetarAppDataPath);
         RemoveDirectTransportDevSource(prepared.MagnetarAppDataPath);
         var excluded = ExcludeLocalPluginsWithoutProvenance(prepared.MagnetarAppDataPath);
-        if (excluded.Count != 0)
-        {
-            string names = string.Join(", ", excluded);
-            logger?.LogWarning("Cluster {Cluster} setup leaves out local plugins without provenance metadata: {Plugins}. Cluster nodes run only plugins with a pinned source.", request.UniqueName, names);
-            await StageAsync(request, "Preparing identical plugins and canonical configuration (left out, no provenance metadata: " + names + ")", null, token);
-        }
         if (Directory.Exists(destination)) Directory.Delete(destination, true); // Export has no committed receipt yet.
         await RunMagnetarAsync(magnetar, ["-prepareManaged", destination, "-config", prepared.MagnetarAppDataPath,
             "-profile", Path.Combine(prepared.MagnetarAppDataPath, "Profiles/Current.xml"),
             "-ds64", prepared.DedicatedServer64Path, "-consent", "deny", "-noupdate"], prepared.GitHubToken, token);
+        return excluded;
     }
     internal static void RemoveDirectTransportDevSource(string config)
     {

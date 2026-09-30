@@ -2,13 +2,31 @@
 
 ## Content update monitoring (2026-09-27)
 
-Quasar now observes common-plugin manifest commits against verified active deployment
-provenance and watches configured Workshop mod timestamps. The cluster content panel,
-bell and browser push expose changes even when the cluster package is current. Mod
-observations are not deployed byte pins. Applying content updates and rolling plugin/WA
-replacement still require upstream contracts. See [configuration](Configuration.md#cluster-content-update-observations)
-for the shipped behavior and the [maintained plan](https://git.cometworks.se/CometWorks/clustering-plan/src/branch/main/Plan/ClusterContentUpdatesPlan.md)
-for the remaining implementation.
+Quasar observes common-plugin manifest commits and Workshop mod timestamps. The cluster
+content panel, bell and browser push expose changes even when the package is current.
+An observation alone does not deploy content: edit or select a config profile and stage
+it to freeze the exact bytes. See [configuration](Configuration.md#cluster-content-update-observations)
+and the [maintained plan](https://git.cometworks.se/CometWorks/clustering-plan/src/branch/main/Plan/ClusterContentUpdatesPlan.md).
+
+## Staged profile changes (cluster 1.1.11)
+
+Administrators can stage the active profile again after editing it, or choose another
+profile. Staging resolves complete Workshop dependencies with the configured Web API
+key, downloads each payload with Quasar-managed SteamCMD, and transfers hash-pinned
+`<id>.sbm` directories to every Host. Anonymous SteamCMD access is attempted first;
+private items require a saved Steam account. Quasar exports the chosen common plugin
+selection through Magnetar's managed preparation command, freezes its exact bundles
+in a matching dependency snapshot, and keeps existing plugin values only when the
+exported configuration schema still matches. A single changed session setting uses
+the same path as a complete session-settings and mod/plugin change.
+
+The update workflow stops the fleet, captures a verified backup under its update ID,
+then migrates preserved checkpoints and node mod directories. It starts the fleet only
+after every Host activates the same revision. Interrupted activation replays the pinned
+candidate. An older bundle without profile migration metadata cannot be used as a
+binary-only rollback after a profile migration; restore the saved snapshot with a
+newly prepared deployment and rotated runtime credentials. Network and dedicated-server
+root settings remain outside this preserved-world profile operation.
 
 ## Original design audit
 
@@ -66,7 +84,8 @@ The earlier implicit-hub proposal is superseded by consuming the release's built
 artifacts. Existing Quasar package/dependency staging is preparation, not evidence that
 managed lifecycle and offline replacements already work.
 
-Cluster 1.1.9 adds a local world-mod loader for regular nodes and World Authority:
+Historical 1.1.9 gap, closed by the staged profile path above: cluster 1.1.9 added a
+local world-mod loader for regular nodes and World Authority:
 it reads pre-staged `<data>/Mods/<id>.sbm` folders and fails when a folder is
 missing instead of downloading from Workshop. Quasar's managed dependency
 snapshot does not yet collect or transfer those mod folders, so this loader
@@ -77,7 +96,7 @@ world settings needs a separate stopped-world migration with backup and
 versioned Host support.
 The local loader reads its staged bytes at each process start; the cluster
 runtime itself does not lock an archive or moved hub pin for an entire run.
-Managed Quasar updates therefore must keep activation behind the existing
+Managed Quasar updates therefore keep activation behind the existing
 verified full-downtime workflow and never restage active content in place.
 
 ### Content update hookup audit: Cluster 1.1.9
