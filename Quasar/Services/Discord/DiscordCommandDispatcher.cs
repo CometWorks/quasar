@@ -9,6 +9,7 @@ namespace Quasar.Services.Discord;
 public sealed class DiscordCommandDispatcher
 {
     private readonly AgentRegistry _registry;
+    private readonly DiscordClusterBridge? _clusters;
     private readonly DedicatedServerSupervisor _supervisor;
     private readonly DedicatedServerCatalog _serverCatalog;
     private readonly DiscordChatRelayService _chatRelayService;
@@ -19,9 +20,11 @@ public sealed class DiscordCommandDispatcher
         DedicatedServerSupervisor supervisor,
         DedicatedServerCatalog serverCatalog,
         DiscordChatRelayService chatRelayService,
-        ILogger<DiscordCommandDispatcher> logger)
+        ILogger<DiscordCommandDispatcher> logger,
+        DiscordClusterBridge? clusters = null)
     {
         _registry = registry;
+        _clusters = clusters;
         _supervisor = supervisor;
         _serverCatalog = serverCatalog;
         _chatRelayService = chatRelayService;
@@ -37,6 +40,13 @@ public sealed class DiscordCommandDispatcher
     {
         try
         {
+            if (serverOptions.IsCluster && verb is "start" or "stop" or "restart" or "save" or "kick" or "ban" or "unban")
+            {
+                var reply = await RequireClusters().ExecuteAsync(serverOptions, verb, args,
+                    $"discord:{message.Id}", $"discord:{message.Author.Id}", cancellationToken);
+                await ReplyAsync(message, reply);
+                return;
+            }
             switch (verb)
             {
                 case "chat":
@@ -47,13 +57,13 @@ public sealed class DiscordCommandDispatcher
                     }
 
                     var commandChatText = FormatDiscordGameMessage(message, args);
-                    _chatRelayService.TrackDiscordToGameMessage(serverOptions.UniqueName, commandChatText);
-                    await SendAgentCommandAsync(serverOptions.UniqueName, ServerCommandType.SendChat, text: commandChatText, cancellationToken: cancellationToken);
+                    _chatRelayService.TrackDiscordToGameMessage(serverOptions.TargetKey, commandChatText);
+                    await SendTargetCommandAsync(serverOptions, ServerCommandType.SendChat, text: commandChatText, cancellationToken: cancellationToken);
                     await ReplyAsync(message, "Chat sent.");
                     return;
 
                 case "save":
-                    await SendAgentCommandAsync(serverOptions.UniqueName, ServerCommandType.SaveWorld, cancellationToken: cancellationToken);
+                    await SendTargetCommandAsync(serverOptions, ServerCommandType.SaveWorld, cancellationToken: cancellationToken);
                     await ReplyAsync(message, "Save requested.");
                     return;
 
@@ -74,27 +84,29 @@ public sealed class DiscordCommandDispatcher
                     return;
 
                 case "kick":
-                    await DispatchSteamIdCommandAsync(message, serverOptions.UniqueName, args, ServerCommandType.KickPlayer, "Kick requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, serverOptions, args, ServerCommandType.KickPlayer, "Kick requested.", cancellationToken);
                     return;
 
                 case "ban":
-                    await DispatchSteamIdCommandAsync(message, serverOptions.UniqueName, args, ServerCommandType.BanPlayer, "Ban requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, serverOptions, args, ServerCommandType.BanPlayer, "Ban requested.", cancellationToken);
                     return;
 
                 case "unban":
-                    await DispatchSteamIdCommandAsync(message, serverOptions.UniqueName, args, ServerCommandType.UnbanPlayer, "Unban requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, serverOptions, args, ServerCommandType.UnbanPlayer, "Unban requested.", cancellationToken);
                     return;
 
                 case "promote":
-                    await DispatchSteamIdCommandAsync(message, serverOptions.UniqueName, args, ServerCommandType.PromotePlayer, "Promote requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, serverOptions, args, ServerCommandType.PromotePlayer, "Promote requested.", cancellationToken);
                     return;
 
                 case "demote":
-                    await DispatchSteamIdCommandAsync(message, serverOptions.UniqueName, args, ServerCommandType.DemotePlayer, "Demote requested.", cancellationToken);
+                    await DispatchSteamIdCommandAsync(message, serverOptions, args, ServerCommandType.DemotePlayer, "Demote requested.", cancellationToken);
                     return;
 
                 case "status":
-                    await message.Channel.SendMessageAsync(embed: BuildStatusEmbed(serverOptions.UniqueName).Build());
+                    await message.Channel.SendMessageAsync(embed: (serverOptions.IsCluster
+                        ? await RequireClusters().BuildStatusAsync(serverOptions, cancellationToken)
+                        : BuildStatusEmbed(serverOptions.UniqueName)).Build());
                     return;
 
                 case "help":
@@ -129,8 +141,8 @@ public sealed class DiscordCommandDispatcher
             if (string.IsNullOrWhiteSpace(gameText))
                 return;
 
-            _chatRelayService.TrackDiscordToGameMessage(serverOptions.UniqueName, gameText);
-            await SendAgentCommandAsync(serverOptions.UniqueName, ServerCommandType.SendChat, text: gameText, cancellationToken: cancellationToken);
+            _chatRelayService.TrackDiscordToGameMessage(serverOptions.TargetKey, gameText);
+            await SendTargetCommandAsync(serverOptions, ServerCommandType.SendChat, text: gameText, cancellationToken: cancellationToken);
         }
         catch (Exception exception)
         {
@@ -146,17 +158,19 @@ public sealed class DiscordCommandDispatcher
         string discordAuthor,
         CancellationToken cancellationToken = default)
     {
-        var player = ResolveOnlinePlayer(serverOptions.UniqueName, recipient);
+        var steamId = serverOptions.IsCluster
+            ? await RequireClusters().ResolvePlayerAsync(serverOptions, recipient, cancellationToken)
+            : ResolveOnlinePlayer(serverOptions.UniqueName, recipient).SteamId;
         var gameText = FormatDiscordGameMessage(discordAuthor, text);
         if (string.IsNullOrWhiteSpace(gameText))
             throw new InvalidOperationException("Whisper message is empty.");
 
-        _chatRelayService.TrackDiscordToGameMessage(serverOptions.UniqueName, gameText);
-        await SendAgentCommandAsync(
-            serverOptions.UniqueName,
+        _chatRelayService.TrackDiscordToGameMessage(serverOptions.TargetKey, gameText);
+        await SendTargetCommandAsync(
+            serverOptions,
             ServerCommandType.SendWhisper,
             text: gameText,
-            steamId: player.SteamId,
+            steamId: steamId,
             cancellationToken: cancellationToken);
     }
 
@@ -173,8 +187,8 @@ public sealed class DiscordCommandDispatcher
             if (string.IsNullOrWhiteSpace(gameText))
                 return;
 
-            await SendAgentCommandAsync(
-                serverOptions.UniqueName,
+            await SendTargetCommandAsync(
+                serverOptions,
                 ServerCommandType.SendFactionChat,
                 text: gameText,
                 payload: factionTag,
@@ -193,7 +207,7 @@ public sealed class DiscordCommandDispatcher
 
     private async Task DispatchSteamIdCommandAsync(
         IMessage message,
-        string uniqueName,
+        DiscordServerOptions serverOptions,
         string args,
         ServerCommandType commandType,
         string successReply,
@@ -205,9 +219,17 @@ public sealed class DiscordCommandDispatcher
             return;
         }
 
-        await SendAgentCommandAsync(uniqueName, commandType, steamId: steamId, cancellationToken: cancellationToken);
+        await SendTargetCommandAsync(serverOptions, commandType, steamId: steamId, cancellationToken: cancellationToken);
         await ReplyAsync(message, successReply);
     }
+
+    private DiscordClusterBridge RequireClusters() => _clusters
+        ?? throw new InvalidOperationException("Cluster Discord services are unavailable.");
+
+    private Task SendTargetCommandAsync(DiscordServerOptions target, ServerCommandType type, string text = "",
+        long? steamId = null, string payload = "", CancellationToken cancellationToken = default) => target.IsCluster
+        ? RequireClusters().SendCommandAsync(target, type, text, steamId, payload, cancellationToken)
+        : SendAgentCommandAsync(target.UniqueName, type, text, steamId, payload, cancellationToken);
 
     private async Task SendAgentCommandAsync(
         string uniqueName,
@@ -262,7 +284,7 @@ public sealed class DiscordCommandDispatcher
     private AgentRuntimeState? ResolveConnectedAgent(string uniqueName)
     {
         return _registry.GetAgents().FirstOrDefault(agent =>
-            agent.IsConnected &&
+            !agent.IsCluster && agent.IsConnected &&
             string.Equals(agent.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
     }
 

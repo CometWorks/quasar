@@ -8,6 +8,7 @@ namespace Quasar.Services.Discord;
 public sealed class DiscordAnalyticsExportService
 {
     private readonly object _sync = new();
+    private readonly DiscordClusterBridge? _clusters;
     private readonly MetricsStoreService _metricsStore;
     private readonly DedicatedServerSupervisor _supervisor;
     private readonly DiscordRateLimiter _rateLimiter;
@@ -18,9 +19,10 @@ public sealed class DiscordAnalyticsExportService
         MetricsStoreService metricsStore,
         DedicatedServerSupervisor supervisor,
         DiscordRateLimiter rateLimiter,
-        ILogger<DiscordAnalyticsExportService> logger)
+        ILogger<DiscordAnalyticsExportService> logger, DiscordClusterBridge? clusters = null)
     {
         _metricsStore = metricsStore;
+        _clusters = clusters;
         _supervisor = supervisor;
         _rateLimiter = rateLimiter;
         _logger = logger;
@@ -69,39 +71,46 @@ public sealed class DiscordAnalyticsExportService
     {
         try
         {
-            var store = _metricsStore.GetStore(serverOptions.UniqueName);
-            if (store is null)
-                return;
+            var targets = serverOptions.IsCluster
+                ? (_clusters?.GetAgents(serverOptions) ?? []).Select(a => (Key: a.TelemetryKey,
+                    Label: $"{serverOptions.UniqueName}/{a.ClusterNodeId}/{a.ClusterEpoch}")).ToArray()
+                : [(Key: serverOptions.UniqueName, Label: serverOptions.UniqueName)];
+            foreach (var target in targets)
+            {
+                var store = _metricsStore.GetStore(target.Key);
+                if (store is null)
+                    continue;
 
-            var intervalMinutes = Math.Max(1, serverOptions.AnalyticsExportIntervalMinutes);
-            var samples = store.OneMinute.ReadLatest(intervalMinutes);
-            if (samples.Length == 0)
-                return;
+                var intervalMinutes = Math.Max(1, serverOptions.AnalyticsExportIntervalMinutes);
+                var samples = store.OneMinute.ReadLatest(intervalMinutes);
+                if (samples.Length == 0)
+                    continue;
 
-            if (client.GetChannel(serverOptions.AnalyticsChannelId!.Value) is not IMessageChannel channel)
-                return;
+                if (client.GetChannel(serverOptions.AnalyticsChannelId!.Value) is not IMessageChannel channel)
+                    continue;
 
-            var snapshot = _supervisor.GetSnapshots()
-                .FirstOrDefault(item => string.Equals(item.UniqueName, serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
-            var latest = samples[^1];
-            var simCpu = samples.Average(item => item.SimCpuPercent);
-            var embed = new EmbedBuilder()
-                .WithTitle($"{snapshot?.UniqueName ?? serverOptions.UniqueName} analytics")
-                .WithColor(Color.DarkBlue)
-                .WithTimestamp(DateTimeOffset.FromUnixTimeSeconds(latest.TimestampUnixSeconds))
-                .AddField("Window", $"{intervalMinutes} minute(s)", inline: true)
-                .AddField("Avg SimSpeed", Average(samples, item => item.SimSpeed).ToString("0.000"), inline: true)
-                .AddField("Avg Process CPU (100% = 1 logical CPU)", $"{Average(samples, item => item.CpuPercent):0.0}%", inline: true)
-                .AddField("Avg Server Simulation CPU (frame budget)", simCpu.HasValue ? $"{simCpu:0.0}%" : "n/a", inline: true)
-                .AddField("Avg Memory", $"{Average(samples, item => item.MemoryMb):0.0} MB", inline: true)
-                .AddField("Max Players", samples.Max(item => item.PlayersOnline).ToString(), inline: true)
-                .AddField("Latest PCU", latest.UsedPcu.ToString(), inline: true)
-                .AddField("Latest Grids", latest.ActiveGridCount >= 0 ? latest.ActiveGridCount.ToString() : "n/a", inline: true)
-                .AddField("Latest Entities", latest.ActiveEntityCount >= 0 ? latest.ActiveEntityCount.ToString() : "n/a", inline: true)
-                .AddField("Uptime", FormatUptime(snapshot), inline: true)
-                .AddField("State", snapshot?.State.ToString() ?? "Unknown", inline: true);
+                var snapshot = serverOptions.IsCluster ? null : _supervisor.GetSnapshots()
+                    .FirstOrDefault(item => string.Equals(item.UniqueName, serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
+                var latest = samples[^1];
+                var simCpu = samples.Average(item => item.SimCpuPercent);
+                var embed = new EmbedBuilder()
+                    .WithTitle($"{target.Label} analytics")
+                    .WithColor(Color.DarkBlue)
+                    .WithTimestamp(DateTimeOffset.FromUnixTimeSeconds(latest.TimestampUnixSeconds))
+                    .AddField("Window", $"{intervalMinutes} minute(s)", inline: true)
+                    .AddField("Avg SimSpeed", Average(samples, item => item.SimSpeed).ToString("0.000"), inline: true)
+                    .AddField("Avg Process CPU (100% = 1 logical CPU)", $"{Average(samples, item => item.CpuPercent):0.0}%", inline: true)
+                    .AddField("Avg Server Simulation CPU (frame budget)", simCpu.HasValue ? $"{simCpu:0.0}%" : "n/a", inline: true)
+                    .AddField("Avg Memory", $"{Average(samples, item => item.MemoryMb):0.0} MB", inline: true)
+                    .AddField("Max Players", samples.Max(item => item.PlayersOnline).ToString(), inline: true)
+                    .AddField("Latest PCU", latest.UsedPcu.ToString(), inline: true)
+                    .AddField("Latest Grids", latest.ActiveGridCount >= 0 ? latest.ActiveGridCount.ToString() : "n/a", inline: true)
+                    .AddField("Latest Entities", latest.ActiveEntityCount >= 0 ? latest.ActiveEntityCount.ToString() : "n/a", inline: true)
+                    .AddField("Uptime", FormatUptime(snapshot), inline: true)
+                    .AddField("State", snapshot?.State.ToString() ?? "Unknown", inline: true);
 
-            await _rateLimiter.RunAsync(serverOptions.AnalyticsChannelId.Value, () => channel.SendMessageAsync(embed: embed.Build()), cancellationToken);
+                await _rateLimiter.RunAsync(serverOptions.AnalyticsChannelId.Value, () => channel.SendMessageAsync(embed: embed.Build()), cancellationToken);
+            }
         }
         catch (OperationCanceledException)
         {

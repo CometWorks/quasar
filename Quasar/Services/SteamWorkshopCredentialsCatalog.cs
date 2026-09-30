@@ -159,6 +159,8 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
     private sealed class PersistedCredentials
     {
         public string? ProtectedWebApiKey { get; set; }
+        public string? ProtectedSteamUsername { get; set; }
+        public string? ProtectedSteamPassword { get; set; }
 
         public static PersistedCredentials FromCredentials(SteamWorkshopCredentials credentials, IDataProtector protector)
         {
@@ -166,6 +168,10 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
             return new PersistedCredentials
             {
                 ProtectedWebApiKey = string.IsNullOrWhiteSpace(key) ? null : protector.Protect(key),
+                ProtectedSteamUsername = string.IsNullOrWhiteSpace(credentials.SteamUsername)
+                    ? null : protector.Protect(credentials.SteamUsername),
+                ProtectedSteamPassword = string.IsNullOrWhiteSpace(credentials.SteamPassword)
+                    ? null : protector.Protect(credentials.SteamPassword),
             };
         }
 
@@ -173,25 +179,20 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
             IDataProtector protector,
             ILogger logger)
         {
-            if (!string.IsNullOrWhiteSpace(ProtectedWebApiKey))
+            try
             {
-                try
+                return new SteamWorkshopCredentials
                 {
-                    return new SteamWorkshopCredentials
-                    {
-                        WebApiKey = protector.Unprotect(ProtectedWebApiKey),
-                    };
-                }
-                catch (Exception exception)
-                {
-                    logger.LogWarning(exception,
-                        "Failed unprotecting Steam Workshop Web API key. " +
-                        "The Data Protection keyring may have been rotated or replaced; clearing the stored key.");
-                    return new SteamWorkshopCredentials();
-                }
+                    WebApiKey = string.IsNullOrWhiteSpace(ProtectedWebApiKey) ? string.Empty : protector.Unprotect(ProtectedWebApiKey),
+                    SteamUsername = string.IsNullOrWhiteSpace(ProtectedSteamUsername) ? string.Empty : protector.Unprotect(ProtectedSteamUsername),
+                    SteamPassword = string.IsNullOrWhiteSpace(ProtectedSteamPassword) ? string.Empty : protector.Unprotect(ProtectedSteamPassword),
+                };
             }
-
-            return new SteamWorkshopCredentials();
+            catch (Exception exception)
+            {
+                logger.LogWarning(exception, "Failed unprotecting Steam Workshop credentials; the Data Protection keyring may have changed.");
+                return new SteamWorkshopCredentials();
+            }
         }
     }
 }
@@ -199,14 +200,20 @@ public sealed class SteamWorkshopCredentialsCatalog : IDisposable
 public sealed class SteamWorkshopCredentials
 {
     public string WebApiKey { get; set; } = string.Empty;
+    public string SteamUsername { get; set; } = string.Empty;
+    public string SteamPassword { get; set; } = string.Empty;
 
     public SteamWorkshopCredentials Clone() => new()
     {
         WebApiKey = WebApiKey,
+        SteamUsername = SteamUsername,
+        SteamPassword = SteamPassword,
     };
 
     public static SteamWorkshopCredentials Normalize(SteamWorkshopCredentials? credentials) => new()
     {
         WebApiKey = credentials?.WebApiKey?.Trim() ?? string.Empty,
+        SteamUsername = credentials?.SteamUsername?.Trim() ?? string.Empty,
+        SteamPassword = credentials?.SteamPassword ?? string.Empty,
     };
 }

@@ -8,6 +8,7 @@ public sealed class DiscordDeathRelayService
 {
     private readonly object _sync = new();
     private readonly AgentRegistry _registry;
+    private readonly DiscordClusterBridge? _clusters;
     private readonly DeathMessagesCatalog _deathMessagesCatalog;
     private readonly DiscordRateLimiter _rateLimiter;
     private readonly ILogger<DiscordDeathRelayService> _logger;
@@ -17,9 +18,10 @@ public sealed class DiscordDeathRelayService
         AgentRegistry registry,
         DeathMessagesCatalog deathMessagesCatalog,
         DiscordRateLimiter rateLimiter,
-        ILogger<DiscordDeathRelayService> logger)
+        ILogger<DiscordDeathRelayService> logger, DiscordClusterBridge? clusters = null)
     {
         _registry = registry;
+        _clusters = clusters;
         _deathMessagesCatalog = deathMessagesCatalog;
         _rateLimiter = rateLimiter;
         _logger = logger;
@@ -41,25 +43,23 @@ public sealed class DiscordDeathRelayService
             if (!deathChannelId.HasValue)
                 continue;
 
-            var agent = agents.FirstOrDefault(item =>
-                item.IsConnected &&
-                item.Snapshot is not null &&
-                string.Equals(item.UniqueNameKey, serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
-
-            if (agent?.Snapshot is null)
-                continue;
-
-            var deaths = CollectFreshDeaths(serverOptions.UniqueName, agent.Snapshot.RecentDeaths);
-            if (deaths.Count == 0)
-                continue;
-
-            if (client.GetChannel(deathChannelId.Value) is not IMessageChannel channel)
-                continue;
-
-            foreach (var death in deaths)
+            if (serverOptions.IsCluster && _clusters == null) continue;
+            var targets = _clusters?.GetAgents(serverOptions) ?? agents.Where(a => !a.IsCluster && a.IsConnected
+                && a.Snapshot != null && a.UniqueNameKey.Equals(serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase)).ToArray();
+            foreach (var agent in targets)
             {
-                var message = BuildMessage(config, serverOptions, death);
-                await _rateLimiter.RunAsync(deathChannelId.Value, () => channel.SendMessageAsync(text: message), cancellationToken);
+                var deaths = CollectFreshDeaths(serverOptions.IsCluster ? agent.TelemetryKey : serverOptions.UniqueName, agent.Snapshot!.RecentDeaths);
+                if (deaths.Count == 0)
+                    continue;
+
+                if (client.GetChannel(deathChannelId.Value) is not IMessageChannel channel)
+                    continue;
+
+                foreach (var death in deaths)
+                {
+                    var message = BuildMessage(config, serverOptions, death);
+                    await _rateLimiter.RunAsync(deathChannelId.Value, () => channel.SendMessageAsync(text: message, allowedMentions: AllowedMentions.None), cancellationToken);
+                }
             }
         }
     }

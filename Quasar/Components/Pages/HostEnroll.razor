@@ -1,0 +1,100 @@
+@page "/hosts/enroll"
+@implements IDisposable
+@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
+@inject ClusterHostCatalog Hosts
+@inject ClusterHostInstaller Installer
+@inject ClusterHostTunnels Tunnels
+@inject QuasarPermissionService Permissions
+@inject NavigationManager Navigation
+
+<PageTitle>Add cluster machine</PageTitle>
+<MudCard Class="server-card"><MudCardContent>
+    <MudStack Spacing="3">
+        <MudText Typo="Typo.h5">Add cluster machine</MudText>
+        <MudText>Install a Quasar Host on a Linux x64 machine. It connects back to Quasar securely; its control port stays on loopback. Gateways and game nodes continue running if Quasar disconnects.</MudText>
+        <MudSelect T="string" Label="Registration" Value="_existing" ValueChanged="SelectExisting">
+            <MudSelectItem Value="@(string.Empty)">New machine</MudSelectItem>
+            @foreach (var host in Hosts.GetAll()) { <MudSelectItem Value="host.Id">@host.Name — resume or update Host</MudSelectItem> }
+        </MudSelect>
+        <MudTextField T="string" Label="Machine ID" @bind-Value="_id" Disabled="@(_host is not null)" HelperText="A unique lowercase name, such as game-host-1. Letters, numbers and hyphens only." />
+        <MudTextField T="string" Label="Display name" @bind-Value="_name" Disabled="@(_host is not null)" HelperText="A friendly name shown in placement and monitoring." />
+        <MudTextField T="string" Label="Cluster network IP address" @bind-Value="_address" Disabled="@(_host is not null)" HelperText="The private LAN or VPN address reachable by the other cluster machines and Quasar. Use 127.0.0.1 only for a cluster entirely on this PC." />
+        <MudTextField T="string" Label="Quasar address reachable by this machine" @bind-Value="_origin" HelperText="Your Quasar HTTPS URL, for example https://quasar.example.com. Remote machines cannot use localhost. Local installation may use HTTP on loopback." />
+        <MudSelect T="string" Label="Installation method" @bind-Value="_method">
+            <MudSelectItem Value="@("local")">Install on this PC</MudSelectItem>
+            <MudSelectItem Value="@("command")">Run an enrollment command on the machine</MudSelectItem>
+            <MudSelectItem Value="@("ssh")">Install over SSH</MudSelectItem>
+        </MudSelect>
+        @if (_method == "ssh")
+        {
+            <MudTextField T="string" Label="SSH address" @bind-Value="_sshAddress" HelperText="DNS name or IP used to log in to the remote machine." />
+            <MudTextField T="string" Label="SSH username" @bind-Value="_sshUser" HelperText="The account that will own the cluster processes and data." />
+            <MudNumericField T="int" Label="SSH port" @bind-Value="_sshPort" Min="1" Max="65535" />
+            <MudTextField T="string" Label="SSH private key file (optional)" @bind-Value="_sshKey" HelperText="An existing key path on the Quasar machine. Leave empty to use its SSH agent/default keys. The remote host key must already be trusted in known_hosts; Quasar never disables host-key checking." />
+        }
+        <MudText Typo="Typo.body2">The machine needs Python 3, util-linux flock, the .NET 10 runtime, and a working systemd user session. Installation uses your account and generates its authentication credentials automatically. Enrolled Hosts check Quasar for binary updates every 15 minutes. Updating keeps configuration, credentials, state, and managed cluster processes. Enable user lingering (loginctl enable-linger) if the Host must stay running after logout.</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InstallAsync" Disabled="_busy">@(_method == "command" ? "Generate enrollment command" : "Install Host")</MudButton>
+        @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
+        @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+        @if (_ticket is not null)
+        {
+            <MudText>Run this command as the account that will own the cluster. It expires at @_ticket.ExpiresAt.ToString("u") and can be downloaded once. Treat it as a password.</MudText>
+            <MudTextField T="string" Label="Enrollment command" Value="_ticket.Command" ReadOnly="true" Lines="5" />
+        }
+        @if (_host is not null)
+        {
+            <MudButton OnClick="CheckConnection">Check connection</MudButton>
+            @if (_connected) { <MudAlert Severity="Severity.Success">Machine connected. It is ready for cluster placement.</MudAlert> }
+            else { <MudText>Waiting for this Host to connect. Check its service log if installation has finished.</MudText> }
+            <MudButton Href="/clusters/new">Continue cluster setup</MudButton>
+        }
+    </MudStack>
+</MudCardContent></MudCard>
+
+@code {
+    private readonly CancellationTokenSource _stop = new();
+    private string _existing = "";
+    private string _id = "host-1", _name = "", _address = "127.0.0.1", _origin = "", _method = "local";
+    private string _sshAddress = "", _sshUser = "", _sshKey = "";
+    private int _sshPort = 22;
+    private bool _busy, _connected;
+    private string? _error;
+    private EnrolledClusterHost? _host;
+    private HostInstallTicket? _ticket;
+    protected override void OnInitialized() { _origin = Navigation.BaseUri; _ = RefreshAsync(); }
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            while (await timer.WaitForNextTickAsync(_stop.Token))
+                await InvokeAsync(() => { CheckConnection(); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) { }
+    }
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+    private void SelectExisting(string id)
+    {
+        _existing = id; _host = Hosts.Get(id); _ticket = null; _error = null;
+        if (_host is not null) { _id = _host.Id; _name = _host.Name; _address = _host.Address; }
+        CheckConnection();
+    }
+    private void CheckConnection() => _connected = _host is not null && Tunnels.IsConnected(_host.Id);
+    private async Task InstallAsync()
+    {
+        if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity)) return;
+        _busy = true; _error = null;
+        try
+        {
+            ClusterHostInstaller.ValidateOrigin(_origin);
+            _host ??= await Hosts.RegisterAsync(_id, _name, _address, 18400, default);
+            if (_method == "command") _ticket = Installer.Issue(_host.Id, _origin);
+            else if (_method == "ssh") await Installer.InstallSshAsync(_host.Id, _origin, new(_sshAddress, _sshUser, _sshPort, _sshKey), default);
+            else await Installer.InstallLocalAsync(_host.Id, _origin, default);
+            CheckConnection();
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or IOException or System.ComponentModel.Win32Exception or OperationCanceledException)
+        { _error = error.Message; }
+        finally { _busy = false; }
+    }
+}

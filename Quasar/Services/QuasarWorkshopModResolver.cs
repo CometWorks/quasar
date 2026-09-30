@@ -43,6 +43,40 @@ public sealed class QuasarWorkshopModResolver
             limit: _authOptions.Workshop.PopularLimit,
             cancellationToken);
 
+    // Workshop exposes time_updated without a Web API key. It is an observation,
+    // not proof of the bytes currently loaded by a dedicated server.
+    public async Task<IReadOnlyDictionary<long, WorkshopUpdateObservation>> CheckUpdatesAsync(
+        IEnumerable<long> workshopIds, CancellationToken token = default)
+    {
+        var ids = workshopIds.Where(id => id > 0).Distinct().ToArray();
+        var result = new Dictionary<long, WorkshopUpdateObservation>();
+        foreach (var batch in ids.Chunk(BatchSize))
+        {
+            try
+            {
+                var details = await GetPublishedFileDetailsAsync(batch, token);
+                foreach (long id in batch)
+                {
+                    details.TryGetValue(id, out var detail);
+                    bool valid = detail is { Result: 1, TimeUpdated: > 0 }
+                        && detail.ConsumerAppId == SpaceEngineersAppId && !IsClearlyNonMod(detail)
+                        && !IsWorkshopCollection(detail) && detail.TimeUpdated <= 253402300799;
+                    result[id] = new(id, detail?.Title ?? id.ToString(CultureInfo.InvariantCulture),
+                        valid ? detail!.TimeUpdated : null,
+                        valid ? null : "Workshop item is unavailable or has no valid update timestamp.");
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+            catch (Exception error) when (error is HttpRequestException or JsonException or OperationCanceledException)
+            {
+                _logger.LogWarning(error, "Workshop content update check failed for a batch.");
+                foreach (long id in batch) result[id] = new(id, id.ToString(CultureInfo.InvariantCulture), null,
+                    "Workshop check failed. The last successful observation is retained.");
+            }
+        }
+        return result;
+    }
+
     public Task<QuasarWorkshopSearchResultSet> SearchModsAsync(string searchText, CancellationToken cancellationToken = default) =>
         QueryFilesAsync(
             searchText: searchText,
@@ -1195,6 +1229,9 @@ public sealed class QuasarWorkshopModResolver
 
     private sealed class PublishedFileDetailsItem
     {
+        [JsonPropertyName("time_updated")]
+        public long TimeUpdated { get; set; }
+
         [JsonPropertyName("publishedfileid")]
         public string PublishedFileId { get; set; } = string.Empty;
 
@@ -1249,6 +1286,8 @@ public sealed class QuasarWorkshopModResolver
 public sealed record QuasarWorkshopResolutionResult(
     IReadOnlyList<QuasarModSelection> Mods,
     IReadOnlyList<string> Warnings);
+
+public sealed record WorkshopUpdateObservation(long WorkshopId, string Name, long? UpdatedTimestamp, string? Error);
 
 public sealed record QuasarModDependencyResolutionResult(
     IReadOnlyList<QuasarModSelection> Mods,

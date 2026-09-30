@@ -10,6 +10,8 @@ public sealed class DiscordOptions
 
     public bool Enabled { get; set; }
 
+    public DiscordPresenceOptions Presence { get; set; } = new();
+
     public List<DiscordServerOptions> Servers { get; set; } = [];
 
     public DiscordOptions Clone()
@@ -19,6 +21,7 @@ public sealed class DiscordOptions
             BotToken = BotToken,
             GuildId = GuildId,
             Enabled = Enabled,
+            Presence = DiscordPresenceOptions.Normalize(Presence),
             Servers = Servers.Select(server => server.Clone()).ToList(),
         };
     }
@@ -32,6 +35,7 @@ public sealed class DiscordOptions
             BotToken = options.BotToken?.Trim() ?? string.Empty,
             GuildId = options.GuildId,
             Enabled = options.Enabled,
+            Presence = DiscordPresenceOptions.Normalize(options.Presence),
             Servers = (options.Servers ?? [])
                 .Select(DiscordServerOptions.Normalize)
                 .OrderBy(server => server.UniqueName, StringComparer.OrdinalIgnoreCase)
@@ -43,6 +47,11 @@ public sealed class DiscordOptions
 
 public sealed class DiscordServerOptions
 {
+    public bool IsCluster { get; set; }
+
+    [JsonIgnore]
+    public string TargetKey => IsCluster ? "cluster:" + UniqueName : UniqueName;
+
     public string UniqueName { get; set; } = string.Empty;
 
     public string CommandPrefix { get; set; } = string.Empty;
@@ -113,6 +122,7 @@ public sealed class DiscordServerOptions
         return new DiscordServerOptions
         {
             UniqueName = UniqueName,
+            IsCluster = IsCluster,
             CommandPrefix = CommandPrefix,
             CommandChannelId = CommandChannelId,
             ChatRelayChannelId = ChatRelayChannelId,
@@ -153,6 +163,7 @@ public sealed class DiscordServerOptions
         return new DiscordServerOptions
         {
             UniqueName = options.UniqueName?.Trim() ?? string.Empty,
+            IsCluster = options.IsCluster,
             CommandPrefix = options.CommandPrefix?.Trim() ?? string.Empty,
             CommandChannelId = NormalizeChannelId(options.CommandChannelId),
             ChatRelayChannelId = NormalizeChannelId(options.ChatRelayChannelId),
@@ -235,6 +246,42 @@ public sealed class DiscordFactionChannelOptions
         {
             FactionTag = options.FactionTag?.Trim().ToUpperInvariant() ?? string.Empty,
             ChannelId = options.ChannelId,
+        };
+    }
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<DiscordPresenceStatus>))]
+public enum DiscordPresenceStatus { Automatic, Online, Idle, DoNotDisturb, Invisible }
+[JsonConverter(typeof(JsonStringEnumConverter<DiscordPresenceActivity>))]
+public enum DiscordPresenceActivity { Watching, Playing, Listening, Competing }
+
+public sealed class DiscordPresenceOptions
+{
+    public bool AllServers { get; set; } = true;
+    public List<string> SelectedTargets { get; set; } = [];
+    public DiscordPresenceStatus Status { get; set; }
+    public DiscordPresenceActivity ActivityType { get; set; }
+    public bool ShowActivity { get; set; } = true;
+    public bool ShowServerCount { get; set; } = true;
+    public bool ShowPlayerCount { get; set; } = true;
+    public bool ShowHealth { get; set; } = true;
+    public bool ShowServerNames { get; set; }
+    public bool ShowServerStates { get; set; }
+
+    public bool Includes(string key) => AllServers || SelectedTargets.Contains(key, StringComparer.OrdinalIgnoreCase);
+
+    public static DiscordPresenceOptions Normalize(DiscordPresenceOptions? value)
+    {
+        value ??= new();
+        return new()
+        {
+            AllServers = value.AllServers,
+            SelectedTargets = (value.SelectedTargets ?? []).Where(k => !string.IsNullOrWhiteSpace(k))
+                .Select(k => k.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToList(),
+            Status = Enum.IsDefined(value.Status) ? value.Status : DiscordPresenceStatus.Automatic,
+            ActivityType = Enum.IsDefined(value.ActivityType) ? value.ActivityType : DiscordPresenceActivity.Watching,
+            ShowActivity = value.ShowActivity, ShowServerCount = value.ShowServerCount, ShowPlayerCount = value.ShowPlayerCount,
+            ShowHealth = value.ShowHealth, ShowServerNames = value.ShowServerNames, ShowServerStates = value.ShowServerStates,
         };
     }
 }

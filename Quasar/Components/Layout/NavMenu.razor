@@ -32,13 +32,11 @@
 
     <MudDivider />
 
+    <MudText Typo="Typo.overline" Class="px-4">Tools</MudText>
     <MudNavMenu Class="magnetar-nav-menu">
-        <AuthorizeView Policy="@QuasarPolicyNames.CanManageAppearance">
-            <Authorized>
-                <MudNavLink Href="/settings/appearance" Icon="@Icons.Material.Filled.Palette">Appearance</MudNavLink>
-            </Authorized>
-        </AuthorizeView>
-        <PluginNavItems Items="@UiPlugins.NavItems" Zone="@QuasarNavZones.Settings" />
+        <MudNavLink Href="/hosts" Icon="@Icons.Material.Filled.Dns">
+            Hosts
+        </MudNavLink>
         <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
             <Authorized>
                 <MudNavLink Href="/settings/security" Icon="@Icons.Material.Filled.Security">
@@ -48,8 +46,29 @@
                     UI Plugins
                 </MudNavLink>
                 <MudNavLink Href="/backup" Icon="@Icons.Material.Filled.Backup">
-                    Backup
+                    Backups
                 </MudNavLink>
+            </Authorized>
+        </AuthorizeView>
+        <PluginNavItems Items="@UiPlugins.NavItems" Zone="@QuasarNavZones.Tools" />
+    </MudNavMenu>
+
+    <MudDivider />
+
+    <MudNavMenu Class="magnetar-nav-menu">
+        <AuthorizeView Policy="@QuasarPolicyNames.CanView">
+            <MudNavLink Href="/notifications" Icon="@Icons.Material.Filled.Notifications">
+                Notifications
+            </MudNavLink>
+        </AuthorizeView>
+        <AuthorizeView Policy="@QuasarPolicyNames.CanManageAppearance">
+            <Authorized>
+                <MudNavLink Href="/settings/appearance" Icon="@Icons.Material.Filled.Palette">Appearance</MudNavLink>
+            </Authorized>
+        </AuthorizeView>
+        <PluginNavItems Items="@UiPlugins.NavItems" Zone="@QuasarNavZones.Settings" />
+        <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
+            <Authorized>
                 <MudNavLink Href="/settings/updates" Icon="@Icons.Material.Filled.Upgrade">
                     Updates
                 </MudNavLink>

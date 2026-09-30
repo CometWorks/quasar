@@ -78,9 +78,11 @@ namespace Quasar.Agent
         private DateTime _lastProcessCpuSampleUtc = DateTime.MinValue;
         private float _lastProcessCpuLoadPercent;
         private DateTime _lastSnapshotUtc = DateTime.MinValue;
+        private readonly string _clusterProcessIdentity = Guid.NewGuid().ToString("N");
         private AgentHello _latestHello;
         private AgentSnapshot _latestSnapshot;
         private volatile bool _quasarRequestedStop;
+        private readonly ClusterChatRelay _clusterChat = new ClusterChatRelay();
 
         /// <summary>
         /// True once Quasar itself asked this server to stop (via a
@@ -106,6 +108,7 @@ namespace Quasar.Agent
         public void Dispose()
         {
             MySession.OnSaved -= OnWorldSaved;
+            _clusterChat.Dispose();
             if (_chatSource != null)
                 _chatSource.ChatMessageReceived -= OnChatMessageReceived;
         }
@@ -122,6 +125,7 @@ namespace Quasar.Agent
             AgentProfiler.MarkGameThread();
             AgentProfiler.Update();
             RefreshChatSubscription();
+            if (_options.ClusterMode) _clusterChat.Update();
 
             if ((DateTime.UtcNow - _lastSnapshotUtc) < SnapshotInterval)
                 return;
@@ -154,6 +158,9 @@ namespace Quasar.Agent
             if (!_options.AllowsCommand(command.CommandType))
                 return Task.FromResult(CreateResult(command, false,
                     "Cluster nodes reject agent-local save and stop commands; use the Gateway cluster API."));
+
+            if (_options.ClusterMode && ClusterChatRelay.Handles(command.CommandType))
+                return _clusterChat.SendAsync(command, cancellationToken);
 
             if (command.CommandType == ServerCommandType.PluginRequest)
                 return ExecuteCompanionPluginRequestAsync(command, cancellationToken);
@@ -258,7 +265,8 @@ namespace Quasar.Agent
             var serverName = GetServerName(session);
             var worldName = GetWorldName(session);
             var serverId = _uniqueName;
-            var agentId = $"{serverId}:{_processId}";
+            _options.RefreshClusterIdentity(_processId);
+            var agentId = _options.ClusterMode ? $"{serverId}:{_clusterProcessIdentity}" : $"{serverId}:{_processId}";
 
             return new AgentHello
             {
@@ -273,6 +281,11 @@ namespace Quasar.Agent
                 ClusterId = _options.ClusterId,
                 ClusterNodeId = _options.ClusterNodeId,
                 ClusterNodeRole = _options.ClusterNodeRole,
+                ClusterSlot = _options.ClusterSlot,
+                ClusterEpoch = _options.ClusterEpoch,
+                DeploymentRevision = _options.DeploymentRevision,
+                ReadinessVerified = _options.ReadinessVerified,
+                DeploymentFailure = _options.DeploymentFailure,
                 PluginId = "quasar-agent",
                 PluginVersion = _pluginVersion,
                 ProcessId = _processId,
@@ -297,9 +310,15 @@ namespace Quasar.Agent
                 ServerName = hello.ServerName,
                 WorldName = hello.WorldName,
                 ClusterMode = hello.ClusterMode,
+                ClusterChatReady = hello.ClusterMode && _clusterChat.IsReady,
                 ClusterId = hello.ClusterId,
                 ClusterNodeId = hello.ClusterNodeId,
                 ClusterNodeRole = hello.ClusterNodeRole,
+                ClusterSlot = hello.ClusterSlot,
+                ClusterEpoch = hello.ClusterEpoch,
+                DeploymentRevision = hello.DeploymentRevision,
+                ReadinessVerified = hello.ReadinessVerified,
+                DeploymentFailure = hello.DeploymentFailure,
                 IsRunning = session != null && session.Ready,
                 CapturedAtUtc = DateTimeOffset.UtcNow,
                 Metrics = BuildMetrics(session),
@@ -343,11 +362,13 @@ namespace Quasar.Agent
                 string pluginId;
                 string displayName;
                 string json;
+                PluginConfigurationData[] additional;
                 try
                 {
                     pluginId = provider.PluginId ?? string.Empty;
                     displayName = provider.DisplayName ?? provider.PluginId ?? string.Empty;
                     json = provider.GetConfigJson();
+                    additional = provider.GetAdditionalConfigurations();
                 }
                 catch (Exception exception)
                 {
@@ -362,7 +383,9 @@ namespace Quasar.Agent
                 {
                     PluginId = pluginId,
                     DisplayName = displayName,
+                    ConfigType = provider.ConfigType,
                     ConfigJson = json,
+                    AdditionalConfigurations = additional,
                 });
             }
 
@@ -376,6 +399,8 @@ namespace Quasar.Agent
         /// </summary>
         public Task ApplyPluginConfigAsync(string pluginId, string valuesJson)
         {
+            if (_options.ClusterMode)
+                throw new InvalidOperationException("Cluster plugin configuration must be activated for the whole cluster.");
             if (string.IsNullOrWhiteSpace(pluginId))
                 return Task.CompletedTask;
 
@@ -571,23 +596,39 @@ namespace Quasar.Agent
                 .Single(method => method.Name == nameof(ConfigStorage.LoadJson)
                                   && method.IsGenericMethodDefinition);
 
+            // Reflective lookup preserves support for SDK releases predating tracked configs.
+            private static readonly MethodInfo GetLoadedConfigurationsMethod = typeof(ConfigStorage)
+                .GetMethod("GetLoadedConfigurations", BindingFlags.Public | BindingFlags.Static,
+                    null, new[] { typeof(Assembly) }, null);
+
             private readonly IQuasarConfigProvider _explicitProvider;
             private readonly PluginConfig _sdkConfig;
+            private readonly PluginConfig[] _additionalConfigs;
+            private readonly bool _canConvert;
+            private readonly bool _hasPublicConfig;
 
             private ConfigProviderAdapter(
                 string pluginId,
                 string displayName,
                 IQuasarConfigProvider explicitProvider,
-                PluginConfig sdkConfig)
+                PluginConfig sdkConfig,
+                PluginConfig[] additionalConfigs = null,
+                bool canConvert = true,
+                bool hasPublicConfig = true)
             {
                 PluginId = pluginId;
                 DisplayName = displayName;
                 _explicitProvider = explicitProvider;
                 _sdkConfig = sdkConfig;
+                _additionalConfigs = additionalConfigs ?? Array.Empty<PluginConfig>();
+                _canConvert = canConvert;
+                _hasPublicConfig = hasPublicConfig;
             }
 
             public string PluginId { get; }
             public string DisplayName { get; }
+            // Explicit providers may serialize a different envelope; never infer an SDK type.
+            public string ConfigType => _explicitProvider == null && _canConvert ? _sdkConfig.GetType().FullName : string.Empty;
 
             public static ConfigProviderAdapter ForExplicit(LoadedPlugin loaded, IQuasarConfigProvider provider)
             {
@@ -600,25 +641,38 @@ namespace Quasar.Agent
 
             public static ConfigProviderAdapter TryCreateForSdkConfig(LoadedPlugin loaded)
             {
-                var config = GetSdkConfig(loaded.Plugin);
-                if (config == null)
+                var publicConfigs = GetPublicSdkConfigs(loaded.Plugin).ToArray();
+                var tracked = GetLoadedConfigurationsMethod?.Invoke(null, new object[] { loaded.Plugin.GetType().Assembly })
+                    as IEnumerable<PluginConfig> ?? Array.Empty<PluginConfig>();
+                var groups = publicConfigs.Concat(tracked).GroupBy(config => config.GetType().FullName, StringComparer.Ordinal).ToArray();
+                var configs = groups.Select(group => group.First()).ToArray();
+                // A private-only type with different live copies has no provable source of truth.
+                // Keep the ordinary editor available, but block automatic conversion of this snapshot.
+                bool canConvert = groups.All(group => publicConfigs.Any(config => config.GetType().FullName == group.Key)
+                    || group.Select(SerializeConfig).Distinct(StringComparer.Ordinal).Take(2).Count() <= 1);
+                if (configs.Length == 0)
                     return null;
 
                 return new ConfigProviderAdapter(
                     loaded.PluginId,
                     loaded.DisplayName,
                     null,
-                    config);
+                    configs[0], configs.Skip(1).ToArray(), canConvert, publicConfigs.Length > 0);
             }
+
+            public PluginConfigurationData[] GetAdditionalConfigurations() => _additionalConfigs
+                .Select(config => new PluginConfigurationData { ConfigType = config.GetType().FullName,
+                    ConfigJson = SerializeConfig(config) }).ToArray();
+
+            private static string SerializeConfig(PluginConfig config) => (string)SaveJsonMethod
+                .MakeGenericMethod(config.GetType()).Invoke(null, new object[] { config });
 
             public string GetConfigJson()
             {
                 if (_explicitProvider != null)
                     return _explicitProvider.GetConfigJson();
 
-                return (string)SaveJsonMethod
-                    .MakeGenericMethod(_sdkConfig.GetType())
-                    .Invoke(null, new object[] { _sdkConfig });
+                return SerializeConfig(_sdkConfig);
             }
 
             public void ApplyConfigJson(string json)
@@ -629,6 +683,9 @@ namespace Quasar.Agent
                     return;
                 }
 
+                if (!_hasPublicConfig)
+                    throw new InvalidOperationException("SDK-tracked configuration is read-only here. Edit its plugin-owned settings directly, or prepare cluster configuration.");
+
                 var updated = (PluginConfig)LoadJsonMethod
                     .MakeGenericMethod(_sdkConfig.GetType())
                     .Invoke(null, new object[] { json ?? string.Empty });
@@ -637,8 +694,9 @@ namespace Quasar.Agent
                     property.SetValue(_sdkConfig, property.GetValue(updated));
             }
 
-            private static PluginConfig GetSdkConfig(IPlugin plugin)
+            private static IEnumerable<PluginConfig> GetPublicSdkConfigs(IPlugin plugin)
             {
+                // Existing public primary stays first so standalone editing keeps its target.
                 return plugin.GetType()
                     .GetProperties(BindingFlags.Public | BindingFlags.Instance)
                     .Where(property => property.CanRead
@@ -647,7 +705,7 @@ namespace Quasar.Agent
                     .OrderByDescending(property => string.Equals(property.Name, "PluginConfig", StringComparison.OrdinalIgnoreCase))
                     .ThenBy(property => property.Name, StringComparer.OrdinalIgnoreCase)
                     .Select(property => property.GetValue(plugin) as PluginConfig)
-                    .FirstOrDefault(config => config != null);
+                    .Where(config => config != null);
             }
 
             private static IEnumerable<PropertyInfo> GetOptionProperties(Type configType)

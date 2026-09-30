@@ -68,6 +68,7 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
             profile.ConfigProfileId = GenerateUniqueProfileId(profile.Name);
 
         var normalized = Normalize(Clone(profile));
+        normalized.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
         lock (_sync)
         {
@@ -153,8 +154,6 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
 
     private async Task SaveProfileAsync(QuasarConfigProfile profile, CancellationToken cancellationToken)
     {
-        profile.UpdatedAtUtc = DateTimeOffset.UtcNow;
-
         var path = GetProfilePath(profile.ConfigProfileId);
         var historyDirectory = GetProfileHistoryDirectory(profile.ConfigProfileId);
         var json = JsonSerializer.Serialize(profile, JsonOptions);
