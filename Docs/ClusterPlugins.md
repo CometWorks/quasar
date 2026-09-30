@@ -106,7 +106,7 @@ contract described in the content update plan:
 
 Host forces `CLUSTER_LOCAL_WORLD_MODS=1` for managed regular nodes and World Authority,
 including replacements. Imported environment settings cannot re-enable Workshop
-downloads on recycle. Cluster 1.1.9 managed preparation rejects modded seeds until
+downloads on recycle. Cluster 1.1.10 managed preparation rejects modded seeds until
 verified local payload staging exists. Existing modded deployments without local mod
 payloads cannot be recycled under this Host behavior and need migration before upgrade.
 Queued content application remains blocked until preparation and activation are
