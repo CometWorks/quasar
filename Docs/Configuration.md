@@ -1255,10 +1255,10 @@ contracts described in the [content update plan](https://git.cometworks.se/Comet
 
 ## Cluster release staging and selection (Linux)
 
-Quasar checks the latest stable cluster release on the configured update interval
+Quasar checks the latest published cluster release on the configured update interval
 (15 minutes by default) when update checks
-are enabled and at least one cluster has a selected package. A newer version than
-that selected pin lights the top-bar update bell, opens the affected cluster page,
+are enabled and at least one cluster has a selected package. A different release
+identity from that selected pin lights the top-bar update bell, opens the affected cluster page,
 and appears under **Settings → Updates → Cluster packages** for users with access
 to that page. This check uses the GitHub token with access to the
 private `CometWorks/cluster` repository. The Updates page also has a manual
@@ -1266,13 +1266,13 @@ private `CometWorks/cluster` repository. The Updates page also has a manual
 select, prepare, or activate a cluster package. The comparison is against the
 selected package, which may differ from the active deployment.
 
-For an already registered cluster, discover the latest stable package and explicitly
+For an already registered cluster, discover the latest published package and explicitly
 stage its version and archive SHA-256 on the Quasar worker host:
 
 ```bash
 ./Quasar cluster package-release production --url https://quasar.internal
-./Quasar cluster package-stage production 1.0.3 <sha256-from-release> \
-  --url https://quasar.internal --idempotency-key stage-production-1.0.3 --timeout 900
+./Quasar cluster package-stage production 0.1.0 <sha256-from-release> \
+  --url https://quasar.internal --idempotency-key stage-production-0.1.0 --timeout 900
 ```
 
 Equivalent API: `GET /api/v1/clusters/{name}/package-release`, then
@@ -1585,6 +1585,10 @@ cannot use this generated restore flow.
 
 ## Managed cluster workflows
 
+Managed clusters are in beta. The setup, conversion and cluster detail pages show each
+signed-in user a warning until they close it. Quasar stores that acknowledgement per
+account, so it stays dismissed across browsers and restarts.
+
 Cluster cards use compact header controls. Configuration profiles, world templates
 are accessible through the navigation bar rather than
 duplicated as shortcuts on cluster cards or the cluster control page. Start changes
@@ -1630,8 +1634,8 @@ Cluster actions use outlined buttons against the card surface, while the update 
 uses a filled button. Disabled controls keep a visible muted border and label.
 
 The cluster deployment panel persists one preparation specification for all Hosts.
-The **Release update** section is hidden when the active deployment matches the
-latest known stable cluster release. **Stage latest release** automatically selects
+The **Release update** section is hidden when the active deployment's recorded
+version and SHA-256 match the latest known cluster release. **Stage latest release** automatically selects
 that release, freezes matching dependencies, and prepares every Host from the saved
 world seed and topology. **Pending update** remains visible for any staged configuration
 or deployment change, including changes on the current package version. **Apply pending
@@ -1692,7 +1696,7 @@ Host activation and restore compare the complete nonempty `storageFormats` map
 prepared package's exact PluginSdk hash must match the frozen Magnetar dependency.
 Guided setup provisions current managed Magnetar before choosing a cluster package.
 If a stopped, incomplete setup has an older package whose PluginSdk pin no longer
-matches, **Resume guided setup** downloads and selects the latest stable package only
+matches, **Resume guided setup** downloads and selects the latest package only
 when its pin matches the installed SDK. It clears the prior dependency selection and
 rebuilds an export made with an older SDK. Until a matching release exists, setup
 remains interrupted with the expected and installed hashes in its error.

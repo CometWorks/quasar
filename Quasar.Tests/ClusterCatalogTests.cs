@@ -122,7 +122,7 @@ public sealed class ClusterCatalogTests : IDisposable
         var oldPreparation = new ClusterPreparationRequest("old-inputs", "{\"adminTokenEnvironmentVariable\":\"OLD_ADMIN\"}", "http://gateway.test", []);
         var restorePreparation = oldPreparation with { SpecificationJson = "{\"adminTokenEnvironmentVariable\":\"NEW_ADMIN\"}" };
         var selected = new ClusterPackageSelection(1, "1.1.10", new string('a', 64), new string('b', 40), "old");
-        var candidate = selected with { Revision = 2, Version = "1.1.11" };
+        var candidate = selected with { Revision = 2, Version = "0.1.0" };
         string oldRevision = ClusterDependencyService.DeploymentRevision(oldPreparation);
         string restoredRevision = ClusterDependencyService.DeploymentRevision(restorePreparation);
         var saved = new ClusterDefinition
@@ -158,7 +158,7 @@ public sealed class ClusterCatalogTests : IDisposable
         var current = new ClusterDefinition
         {
             UniqueName = "demo", GatewayUrl = "http://gateway.test",
-            PackageSelection = new(1, "1.1.11", new string('a', 64), new string('b', 40), "selection"),
+            PackageSelection = new(1, "0.1.0", new string('a', 64), new string('b', 40), "selection"),
             DependencyManifestSha256 = new string('c', 64), Preparation = preparation,
             ActiveDeployment = new(ClusterDependencyService.DeploymentRevision(preparation), [], DateTimeOffset.UtcNow)
         };

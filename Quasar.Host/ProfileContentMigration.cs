@@ -11,7 +11,13 @@ internal static class ProfileContentMigration
     internal static void Validate(ExecutionBundle bundle, string manifestPath)
     {
         var profile = bundle.Manifest.ProfileContent;
-        if (profile is null) return;
+        if (profile is null)
+        {
+            if (bundle.Manifest.RuntimeRoot is { } runtime
+                && File.Exists(Path.Combine(runtime, ".quasar-profile-migration")))
+                throw new InvalidOperationException("This older bundle cannot restore preserved profile settings and mods. Restore the pre-update cluster backup with a newly prepared deployment.");
+            return;
+        }
         var pins = (bundle.Manifest.ConfigFiles ?? []).ToDictionary(f => f.Path, f => f.Sha256, StringComparer.Ordinal);
         string root = Path.GetDirectoryName(Path.GetFullPath(manifestPath))!;
         if (!pins.ContainsKey(profile.SettingsSeed)) throw new InvalidDataException("Profile settings seed is not pinned.");
@@ -43,14 +49,8 @@ internal static class ProfileContentMigration
     internal static void Apply(ExecutionBundle bundle, string manifestPath)
     {
         var profile = bundle.Manifest.ProfileContent;
-        if (profile is null)
-        {
-            if (bundle.Manifest.RuntimeRoot is { } oldRuntime
-                && File.Exists(Path.Combine(oldRuntime, ".quasar-profile-migration")))
-                throw new InvalidOperationException("This older bundle cannot restore preserved profile settings and mods. Restore the pre-update cluster backup with a newly prepared deployment.");
-            return;
-        }
         Validate(bundle, manifestPath);
+        if (profile is null) return;
         string runtime = bundle.Manifest.RuntimeRoot ?? throw new InvalidDataException("Profile update needs a runtime root.");
         if (!Path.IsPathFullyQualified(runtime)) throw new InvalidDataException("Profile runtime root must be absolute.");
         if (!Directory.Exists(runtime)) return; // First deployment uses the pinned initial seeds.

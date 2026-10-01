@@ -26,7 +26,7 @@
         {
             <MudStack Spacing="2">
                 <MudText Typo="Typo.h6">Release update</MudText>
-                <MudText>Latest stable: @(Releases.GetSnapshot().Release?.Version ?? "Unknown")</MudText>
+                <MudText>Latest release: @(Releases.GetSnapshot().Release?.Version ?? "Unknown")</MudText>
                 <MudButton OnClick="PrepareLatestUpdateAsync" Disabled="@(_busy || UpdateLocked || Current.Preparation is null)"
                            Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Stage latest release</MudButton>
                 <MudText Typo="Typo.caption">Quasar selects the release, freezes matching dependencies and prepares every Host automatically. The cluster stays online until you apply the pending update.</MudText>
@@ -152,7 +152,7 @@
                     <MudButton OnClick="UpdateFromJsonAsync" Disabled="@(_busy || UpdateLocked || Current.QueuedContentUpdates is not null || string.IsNullOrWhiteSpace(_activation))" Variant="Variant.Outlined" Color="Color.Primary">Apply JSON override with downtime</MudButton>
                     <MudButton OnClick="ActivateAsync" Disabled="@(_busy || Current.QueuedContentUpdates is not null || Current.GoalState != DedicatedServerGoalState.Off || string.IsNullOrWhiteSpace(_activation))" Variant="Variant.Outlined" Color="Color.Primary">Activate on stopped Hosts</MudButton>
                     <MudButton OnClick="RollbackAsync" Disabled="@(_busy || UpdateLocked || Current.QueuedContentUpdates is not null || !CanRollbackWithoutDataRestore)" Variant="Variant.Outlined" Color="Color.Warning">Roll back binaries and configuration</MudButton>
-                    <MudText Typo="Typo.caption">Rollback preserves current world and plugin data. After a profile migration from a pre-1.1.11 release, restore the pre-migration backup with rotated credentials instead.</MudText>
+                    <MudText Typo="Typo.caption">Rollback preserves current world and plugin data. The Host refuses an older bundle that cannot preserve migrated profile content; restore the pre-migration backup with fresh credentials in that case.</MudText>
                 </MudStack>
             </MudExpansionPanel>
         </MudExpansionPanels>
@@ -179,9 +179,7 @@
     private bool _busy;
     private bool UpdateLocked => Current.PendingDeploymentHash is not null || Current.PendingRestoreHash is not null
         || Current.Update is { Phase: not ClusterUpdatePhase.Complete };
-    private bool CanRollbackWithoutDataRestore => Current.PreviousDeployment is { } previous
-        && (Current.Update?.BackupRequired != true || Version.TryParse(previous.PackageVersion?.Split('-')[0], out var version)
-            && version >= new Version(1, 1, 11));
+    private bool CanRollbackWithoutDataRestore => Current.PreviousDeployment is not null;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     protected override void OnInitialized()
     {
@@ -264,7 +262,7 @@
     });
     private Task PrepareLatestUpdateAsync() => ExecuteAsync(async actor =>
     {
-        await ShowProgressAsync("Checking and staging the latest stable cluster release...");
+        await ShowProgressAsync("Checking and staging the latest cluster release...");
         var release = await Packages.GetReleaseAsync(null, default);
         var prior = Current;
         var changingPackage = prior.PackageSelection?.Version != release.Version || prior.PackageSelection.Sha256 != release.Sha256;
@@ -296,9 +294,6 @@
         var release = latest ?? await Packages.GetReleaseAsync(null, default);
         if (Current.PackageSelection is { } selected && selected.Version == release.Version && selected.Sha256 == release.Sha256)
             return reusable is not null;
-        if (Current.PackageSelection is { } pin && Version.TryParse(pin.Version, out var pinnedVersion)
-            && Version.TryParse(release.Version, out var latestVersion) && pinnedVersion > latestVersion)
-            throw new InvalidOperationException("The selected package is newer than the latest stable release. Use the advanced controls to keep its current pin.");
         var package = await Packages.StageAsync(new(release.Version, release.Sha256), default);
         string? pinnedSdk = Quasar.ClusterDeployment.ClusterDeploymentFiles.GetPinnedPluginSdkSha256(package.PackagePath);
         bool reuse = reusable is not null && pinnedSdk == Quasar.ClusterDeployment.ClusterDeploymentFiles.Hash(

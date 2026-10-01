@@ -17,8 +17,7 @@ public sealed class ClusterReleaseMonitor(ClusterCatalog catalog, ClusterPackage
 
     public static bool IsUpdateAvailable(ClusterDefinition cluster, ClusterPackageRelease? release) =>
         cluster.PackageSelection is { } selection && release is not null
-        && Version.TryParse(selection.Version, out var selected)
-        && Version.TryParse(release.Version, out var latest) && latest > selected;
+        && (selection.Version != release.Version || !selection.Sha256.Equals(release.Sha256, StringComparison.OrdinalIgnoreCase));
 
     public static bool IsOnLatestRelease(ClusterDefinition cluster, ClusterPackageRelease? release)
     {
@@ -26,11 +25,13 @@ public sealed class ClusterReleaseMonitor(ClusterCatalog catalog, ClusterPackage
             return false;
 
         // Existing first deployments predate the recorded active package version.
-        var activeVersion = cluster.ActiveDeployment.PackageVersion
-            ?? (cluster.PackageSelection is { Revision: 1 } selection
+        var activeSelection = cluster.ActiveDeployment.Provenance?.PackageSelection
+            ?? (cluster.ActiveDeployment.PackageVersion is null
+                && cluster.PackageSelection is { Revision: 1 } selection
                 && cluster.PreviousDeployment is null && cluster.PreparedDeployment is null
-                && cluster.Update is null ? selection.Version : null);
-        return string.Equals(activeVersion, release.Version, StringComparison.Ordinal);
+                && cluster.Update is null ? selection : null);
+        return activeSelection is not null && activeSelection.Version == release.Version
+            && activeSelection.Sha256.Equals(release.Sha256, StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task CheckNowAsync(CancellationToken token = default)

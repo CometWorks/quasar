@@ -8,7 +8,7 @@ An observation alone does not deploy content: edit or select a config profile an
 it to freeze the exact bytes. See [configuration](Configuration.md#cluster-content-update-observations)
 and the [maintained plan](https://git.cometworks.se/CometWorks/clustering-plan/src/branch/main/Plan/ClusterContentUpdatesPlan.md).
 
-## Staged profile changes (cluster 1.1.11)
+## Staged profile changes (cluster 0.1.0 beta)
 
 Administrators can stage the active profile again after editing it, or choose another
 profile. Staging resolves complete Workshop dependencies with the configured Web API
@@ -23,8 +23,8 @@ the same path as a complete session-settings and mod/plugin change.
 The update workflow stops the fleet, captures a verified backup under its update ID,
 then migrates preserved checkpoints and node mod directories. It starts the fleet only
 after every Host activates the same revision. Interrupted activation replays the pinned
-candidate. An older bundle without profile migration metadata cannot be used as a
-binary-only rollback after a profile migration; restore the saved snapshot with a
+candidate. Host preflight rejects an older bundle without profile migration metadata
+after a profile migration, before Quasar stops the fleet. Restore the saved snapshot with a
 newly prepared deployment and rotated runtime credentials. In Maintenance, select the
 backup ID, choose **Prepare restore with fresh credentials**, review the generated
 request, then choose **Restore backup** while stopped. Quasar restores the saved

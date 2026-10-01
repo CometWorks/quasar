@@ -2,8 +2,9 @@
 
 The branch implements machine enrollment and guided creation on top of the
 seven-stage deployment work. This is a separate acceptance gate from the historical
-live cluster tests. The current package pair is Magnetar 2.4.2.3 and cluster 1.1.7;
-Quasar verifies the cluster release's exact PluginSdk binary pin. If either installed release lacks
+live cluster tests. The original package pair was Magnetar 2.4.2.3 and cluster 1.1.7;
+the published cluster release is now v0.1.0 (beta). Quasar verifies the cluster
+release's exact PluginSdk binary pin. If either installed release lacks
 the required capability or pin, setup stops and can be resumed. It never starts an older
 Magnetar with an unrecognized preparation flag.
 
@@ -21,7 +22,7 @@ Magnetar with an unrecognized preparation flag.
    Quasar runs a prerelease. The cluster package pin does not select the Host binary.
 3. Select a world template, configuration profile, Gateway machine and node counts.
    At least two regular nodes are required. The Gateway machine also runs the WA.
-4. Quasar provisions DS/Magnetar, stages a verified stable cluster release whose
+4. Quasar provisions DS/Magnetar, stages the verified latest cluster release whose
    PluginSdk pin matches the installed Magnetar, prepares common plugins and Direct
    Transport, and freezes the runtime snapshot.
    Magnetar exports default SDK configuration without starting a game server.
@@ -79,7 +80,7 @@ Removed IDs remain reserved while their Host state and operation history exist.
 
 Before each attempt, guided setup updates managed Magnetar and checks its actual
 PluginSdk bytes against the selected cluster release. When the pins differ, it
-downloads the latest stable cluster release and selects it if its SDK pin matches.
+downloads the latest cluster release and selects it if its SDK pin matches.
 Selection clears the previous dependency snapshot; a plugin export made with an older
 SDK is prepared again. If no compatible release is published, setup stops with both
 hashes in the error and can be resumed after publication. Activated deployments keep

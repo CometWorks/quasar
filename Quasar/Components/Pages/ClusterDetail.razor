@@ -17,6 +17,7 @@
 }
 else
 {
+    <ClusterBetaNotice />
     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center"
               Justify="Justify.SpaceBetween" Spacing="2" Class="mb-3">
         <div>
@@ -39,7 +40,7 @@ else
         @if (ClusterReleaseMonitor.IsUpdateAvailable(Cluster, ClusterReleases.GetSnapshot().Release))
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                Cluster package @ClusterReleases.GetSnapshot().Release!.Version is available.
+                The latest published cluster package (@ClusterReleases.GetSnapshot().Release!.Version) differs from the selected package.
                 <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
                     <MudButton Href="#cluster-configuration" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Open cluster update</MudButton>
                 </AuthorizeView>

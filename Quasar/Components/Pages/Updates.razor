@@ -251,7 +251,7 @@
                     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                         <div>
                             <MudText Typo="Typo.h6">Cluster packages</MudText>
-                            <MudText Typo="Typo.body2">Latest stable release: @(_clusterReleaseSnapshot.Release?.Version ?? "Unknown") · Last check: @FormatTimestamp(_clusterReleaseSnapshot.LastCheckedUtc)</MudText>
+                            <MudText Typo="Typo.body2">Latest release: @(_clusterReleaseSnapshot.Release?.Version ?? "Unknown") · Last check: @FormatTimestamp(_clusterReleaseSnapshot.LastCheckedUtc)</MudText>
                         </div>
                         <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" Disabled="_clusterBusy" OnClick="CheckClusterNowAsync">Check cluster release</MudButton>
                     </MudStack>
@@ -264,7 +264,7 @@
                         <RowTemplate>
                             <MudTd DataLabel="Cluster">@context.DisplayName</MudTd>
                             <MudTd DataLabel="Selected package">@context.PackageSelection!.Version</MudTd>
-                            <MudTd DataLabel="Status">@(_clusterReleaseSnapshot.Release is null ? "Release check pending or unavailable" : ClusterReleaseMonitor.IsUpdateAvailable(context, _clusterReleaseSnapshot.Release) ? "New release available" : "No newer release detected")</MudTd>
+                            <MudTd DataLabel="Status">@(_clusterReleaseSnapshot.Release is null ? "Release check pending or unavailable" : ClusterReleaseMonitor.IsUpdateAvailable(context, _clusterReleaseSnapshot.Release) ? "Latest release differs" : "Latest release selected")</MudTd>
                             <MudTd><MudButton Href="@($"/clusters/{Uri.EscapeDataString(context.UniqueName)}")" Variant="Variant.Text">Open cluster</MudButton></MudTd>
                         </RowTemplate>
                     </MudTable>

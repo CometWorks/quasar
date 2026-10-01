@@ -69,9 +69,6 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
     private static ClusterDeploymentRequest RollbackDeployment(ClusterDefinition cluster)
     {
         var previous = cluster.PreviousDeployment ?? throw new InvalidOperationException("No previous installation is recorded.");
-        if (cluster.Update?.BackupRequired == true && (!Version.TryParse(previous.PackageVersion?.Split('-')[0], out var parsed)
-            || parsed < new Version(1, 1, 11)))
-            throw new InvalidOperationException("The previous cluster release cannot reverse preserved profile changes. Restore the pre-migration backup using a newly prepared deployment with rotated credentials.");
         return new(cluster.ActiveDeployment!.Revision, previous.Revision, previous.Hosts.Select(host => new ClusterHostActivation(
             host.HostId, host.CommandUrl, host.TokenEnvironmentVariable, new(cluster.UniqueName,
                 cluster.ActiveDeployment.Hosts.Single(h => h.HostId == host.HostId).Deployment.BundleManifestSha256,

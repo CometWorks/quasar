@@ -1064,7 +1064,7 @@ This document supersedes older assumptions that the DS plugin might directly own
 
 ## Managed cluster data and update ownership
 
-`ClusterReleaseMonitor` checks the private stable cluster release stream on the
+`ClusterReleaseMonitor` checks the private published cluster release stream on the
 normal update interval for clusters with a selected package. Its observation feeds
 the update bell and the Updates page; selecting and deploying a new pin remain
 explicit operator actions. Release check errors do not interrupt Quasar UI or

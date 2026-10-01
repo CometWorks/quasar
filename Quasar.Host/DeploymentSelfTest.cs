@@ -244,7 +244,9 @@ internal static class DeploymentSelfTest
                     && updated.Contains("<Unmodeled>keep</Unmodeled>"),
                     "profile update lost world state or missed settings");
             }
-            AssertThrows(() => ProfileContentMigration.Apply(ExecutionBundle.Load(legacy.Path, legacy.Hash), legacy.Path));
+            var legacyBundle = ExecutionBundle.Load(legacy.Path, legacy.Hash);
+            AssertThrows(() => ProfileContentMigration.Validate(legacyBundle, legacy.Path));
+            AssertThrows(() => ProfileContentMigration.Apply(legacyBundle, legacy.Path));
             ProfileContentMigration.Apply(ExecutionBundle.Load(old.Path, old.Hash), old.Path);
             Assert(File.Exists(Path.Combine(data, "Mods/111.sbm/Data.sbc"))
                 && File.ReadAllText(Path.Combine(runtime, "world/Sandbox.sbc")).Contains("<SyncDistance>3000</SyncDistance>"),

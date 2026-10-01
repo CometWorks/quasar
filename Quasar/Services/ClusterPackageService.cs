@@ -67,7 +67,7 @@ public sealed class ClusterPackageService
         using var request = new HttpRequestMessage(HttpMethod.Get, RepositoryApi + "/releases/"
             + (version is null ? "latest" : "tags/v" + version));
         using var response = await SendPackageRequestAsync(client, request,
-            version is null ? "fetch the latest stable cluster release" : $"fetch cluster release v{version}",
+            version is null ? "fetch the latest cluster release" : $"fetch cluster release v{version}",
             HttpCompletionOption.ResponseContentRead, token);
         await response.Content.LoadIntoBufferAsync(1024 * 1024, token);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
@@ -75,7 +75,7 @@ public sealed class ClusterPackageService
         string tag = release.GetProperty("tag_name").GetString() ?? "";
         if (release.GetProperty("draft").GetBoolean() || release.GetProperty("prerelease").GetBoolean()
             || !tag.StartsWith('v'))
-            throw new InvalidDataException("Only published stable cluster releases can be staged.");
+            throw new InvalidDataException("Only published non-prerelease cluster releases can be staged.");
         string resolved = tag[1..];
         ValidateVersion(resolved);
         if (version is not null && version != resolved)
@@ -399,7 +399,7 @@ public sealed class ClusterPackageService
     internal static void ValidateVersion(string? version)
     {
         if (version is null || version.Length > 40 || !Regex.IsMatch(version, @"\A[0-9]+\.[0-9]+\.[0-9]+\z"))
-            throw new InvalidDataException("A stable cluster version such as 1.0.3 is required.");
+            throw new InvalidDataException("A cluster version such as 0.1.0 is required.");
     }
 
     internal static bool IsHash(string? value, int length) => value?.Length == length && value.All(Uri.IsHexDigit);

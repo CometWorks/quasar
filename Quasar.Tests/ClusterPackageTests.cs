@@ -18,17 +18,16 @@ namespace Quasar.Tests;
 public sealed class ClusterPackageTests
 {
     [Fact]
-    public void ReleaseNoticeRequiresVersionNewerThanSelectedPin()
+    public void ReleaseNoticeFollowsPublishedIdentityAcrossBetaRenumbering()
     {
         var cluster = new Quasar.Models.ClusterDefinition();
-        var release = new ClusterPackageRelease("1.0.4", 1, 2, 3, new string('a', 64));
+        var release = new ClusterPackageRelease("0.1.0", 1, 2, 3, new string('a', 64));
         Assert.False(ClusterReleaseMonitor.IsUpdateAvailable(cluster, release));
-        cluster.PackageSelection = new(1, "1.0.3", new string('b', 64), new string('c', 40), "selection");
+        cluster.PackageSelection = new(1, "1.1.10", new string('b', 64), new string('c', 40), "selection");
         Assert.True(ClusterReleaseMonitor.IsUpdateAvailable(cluster, release));
-        Assert.False(ClusterReleaseMonitor.IsUpdateAvailable(cluster, release with { Version = "1.0.3" }));
-        Assert.False(ClusterReleaseMonitor.IsUpdateAvailable(cluster, release with { Version = "1.0.2" }));
-        cluster.PackageSelection = cluster.PackageSelection with { Version = "1.0.9" };
-        Assert.True(ClusterReleaseMonitor.IsUpdateAvailable(cluster, release with { Version = "1.0.10" }));
+        cluster.PackageSelection = cluster.PackageSelection with { Version = "0.1.0", Sha256 = release.Sha256 };
+        Assert.False(ClusterReleaseMonitor.IsUpdateAvailable(cluster, release));
+        Assert.True(ClusterReleaseMonitor.IsUpdateAvailable(cluster, release with { Sha256 = new string('d', 64) }));
     }
 
     [Fact]
@@ -37,13 +36,24 @@ public sealed class ClusterPackageTests
         var release = new ClusterPackageRelease("1.0.4", 1, 2, 3, new string('a', 64));
         var cluster = new Quasar.Models.ClusterDefinition
         {
-            PackageSelection = new(2, "1.0.4", new string('b', 64), new string('c', 40), "selection"),
+            PackageSelection = new(2, "1.0.4", release.Sha256, new string('c', 40), "selection"),
             ActiveDeployment = new("active", [], DateTimeOffset.UtcNow, "1.0.3"),
         };
 
         Assert.False(ClusterReleaseMonitor.IsOnLatestRelease(cluster, release));
         cluster.ActiveDeployment = cluster.ActiveDeployment with { PackageVersion = "1.0.4" };
+        Assert.False(ClusterReleaseMonitor.IsOnLatestRelease(cluster, release));
+        cluster.ActiveDeployment = cluster.ActiveDeployment with
+        {
+            Provenance = new(cluster.PackageSelection!, new string('d', 64), new("pin", "{}", "", []))
+        };
         Assert.True(ClusterReleaseMonitor.IsOnLatestRelease(cluster, release));
+        cluster.ActiveDeployment = cluster.ActiveDeployment with
+        {
+            Provenance = cluster.ActiveDeployment.Provenance! with
+                { PackageSelection = cluster.PackageSelection! with { Sha256 = new string('b', 64) } }
+        };
+        Assert.False(ClusterReleaseMonitor.IsOnLatestRelease(cluster, release));
         Assert.False(ClusterReleaseMonitor.IsOnLatestRelease(cluster, null));
         Assert.False(ClusterReleaseMonitor.IsOnLatestRelease(cluster, release with { Version = "1.0.5" }));
     }
@@ -54,11 +64,12 @@ public sealed class ClusterPackageTests
         var release = new ClusterPackageRelease("1.0.4", 1, 2, 3, new string('a', 64));
         var cluster = new Quasar.Models.ClusterDefinition
         {
-            PackageSelection = new(1, "1.0.4", new string('b', 64), new string('c', 40), "selection"),
+            PackageSelection = new(1, "1.0.4", release.Sha256, new string('c', 40), "selection"),
             ActiveDeployment = new("active", [], DateTimeOffset.UtcNow),
         };
 
         Assert.True(ClusterReleaseMonitor.IsOnLatestRelease(cluster, release));
+        Assert.False(ClusterReleaseMonitor.IsOnLatestRelease(cluster, release with { Sha256 = new string('b', 64) }));
         cluster.PackageSelection = cluster.PackageSelection with { Revision = 2 };
         Assert.False(ClusterReleaseMonitor.IsOnLatestRelease(cluster, release));
     }
@@ -72,7 +83,7 @@ public sealed class ClusterPackageTests
     {
         using var fixture = new Fixture { FailurePath = "/latest", FailureStatus = status };
         var error = await Assert.ThrowsAsync<ClusterPackageException>(() => fixture.Service.GetReleaseAsync(null, default));
-        Assert.Contains("fetch the latest stable cluster release from GitHub repository CometWorks/cluster", error.Message);
+        Assert.Contains("fetch the latest cluster release from GitHub repository CometWorks/cluster", error.Message);
         Assert.Contains($"HTTP {(int)status}", error.Message);
         Assert.Contains(reason, error.Message);
         Assert.Contains(recovery, error.Message);
