@@ -159,6 +159,9 @@ public sealed class QuasarUiPluginCatalog
             {
                 FileProvider = new PhysicalFileProvider(staticAssetsDirectory),
                 RequestPath = $"{StaticAssetRequestPathPrefix}/{loadedPlugin.Id}",
+                // Plugin updates replace files at these fixed URLs. Browsers and
+                // reverse proxies must not retain a previous plugin's module graph.
+                OnPrepareResponse = context => context.Context.Response.Headers.CacheControl = "no-store",
             });
         }
     }

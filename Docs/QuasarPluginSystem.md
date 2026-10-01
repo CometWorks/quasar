@@ -609,6 +609,21 @@ viewer assets into `Quasar/wwwroot`; the QuasarHub installer downloads the pinne
 viewer repository archive, builds the adapter project, and loads the package from
 the Quasar install directory.
 
+Runtime plugin files use `Cache-Control: no-store` because a plugin update can
+replace their contents without changing their URLs. Reverse proxies must honor
+that header. In Nginx Proxy Manager, disable **Cache Assets** for the Quasar proxy
+host. In Cloudflare, configure a cache rule to **Bypass cache** for paths starting
+with `/_quasar/plugins/`; for legacy Entity Viewer assets, also bypass
+`/_content/CometWorks.EntityViewer/`. Purge existing cached files once after
+changing those rules, since previously cached responses may still be served.
+Also clear the browser's cached files or reload the entire Quasar page with
+DevTools **Disable cache** enabled; purging Cloudflare does not clear copies
+already stored in a browser. A response such as `Cache-Control: max-age=14400`
+allows the browser to reuse old JavaScript for four hours even after an update.
+If the viewer works on localhost but an external URL logs warnings removed in
+the installed version, compare the JavaScript served by both URLs before
+changing streaming consent or asset roots.
+
 Plugins can also ask Quasar to inject package stylesheets into the host page by
 declaring manifest-relative paths:
 
