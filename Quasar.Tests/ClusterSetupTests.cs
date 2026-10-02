@@ -14,6 +14,23 @@ public sealed class ClusterSetupTests
 {
     private static EnrolledClusterHost Host(string id, string address) => new(id, id, address, 18400, "credential");
     private static ClusterSetupRequest Request(params ClusterSetupPlacement[] machines) => new("demo", "Demo", "world", "profile", "one", 28000, machines);
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(33)]
+    public void EverySelectedHostRequiresOneToThirtyTwoRegularNodes(int nodes)
+    {
+        Assert.Throws<ArgumentException>(() => ClusterSetupService.Validate(
+            Request(new("one", 2), new("two", nodes)), [Host("one", "10.1.0.1"), Host("two", "10.1.0.2")]));
+
+        var cluster = new ClusterDefinition { GatewayUrl = "http://10.1.0.1:28016", GatewayAdminTokenEnvironmentVariable = "ADMIN" };
+        var conversion = new ServerToClusterRequest(Guid.NewGuid(), "server", "revision", "1210014", "one", 28000,
+            "JOIN", "TOKENS", ["10.1.0.0/24"],
+            [new("one", "http://one:18400", "HOST_ONE", "EXEC_ONE", "10.1.0.1", 2),
+             new("two", "http://two:18400", "HOST_TWO", "EXEC_TWO", "10.1.0.2", nodes)]);
+        Assert.Throws<InvalidDataException>(() => ClusterConversionService.ValidateTopology(cluster, conversion));
+    }
+
     [Fact]
     public void PlacementSupportsBothLocalAndRemoteButRefusesMixedLoopback()
     {

@@ -10,10 +10,14 @@ Magnetar with an unrecognized preparation flag.
 
 ## Operator flow
 
-1. Open **Create and deploy** at `/clusters/new`. **Connect existing Gateway** is a
+1. Choose **Create Cluster** beside **Create Server** on the Dashboard (cards or list),
+   then open **Create and deploy** at `/clusters/new`. **Connect existing Gateway** is a
    separate advanced tab for independently installed Gateways.
-2. Enroll Linux x64 machines at **Hosts → Add cluster machine**. Choose local
-   installation, a one-time command to run on the target, or installation over SSH.
+2. Quasar automatically enrolls and prepares its Linux x64 localhost using the bundled
+   Host. It prefers a private LAN/VPN address for multi-host support, falling back to
+   loopback for a single-host cluster. Existing enrollments on this machine are reused.
+   Add other Linux x64 hosts at **Hosts → Add cluster host**. Choose local
+   installation, a one-time command, SSH, or a manual enrollment package.
    The same matching Quasar.Host executable is used in all three cases. Enrollment
    requires security-administration permission; SSH uses keys/agent and strict
    `known_hosts` verification. Password login and host-key bypass are not supported.
@@ -21,14 +25,20 @@ Magnetar with an unrecognized preparation flag.
    web release every 15 minutes and updates the Host automatically, including when
    Quasar runs a prerelease. The cluster package pin does not select the Host binary.
 3. Select a world template, configuration profile, Gateway machine and node counts.
-   At least two regular nodes are required. The Gateway machine also runs the WA.
+   Every selected host requires 1–32 regular nodes, with at least two in total.
+   The Gateway host also runs the WA. Every selected host must be connected before
+   creation or resume is enabled. Quasar checks authenticated host identity and
+   required capabilities before creating a cluster registration; an offline or
+   incompatible host leaves no new cluster registration.
 4. Quasar provisions DS/Magnetar, stages the verified latest cluster release whose
    PluginSdk pin matches the installed Magnetar, prepares common plugins and Direct
    Transport, and freezes the runtime snapshot.
    Magnetar exports default SDK configuration without starting a game server.
 5. Quasar converts a copy of the world, generates credentials, transfers verified
-   inputs to every Host, prepares one revision and activates it stopped. Choose
-   **Start** on the cluster controls when ready.
+   inputs to every Host, prepares one revision and activates it stopped. Setup checks
+   each host's configured deployment before reporting success, including when a
+   previously completed setup is submitted again. Successful creation or import
+   returns to Dashboard. Choose **Start** on the cluster controls when ready.
 
 On cluster details, the main controls are Start, Stop, Save world (while running)
 and the guided cluster update. A managed cluster can be told to stop even when its
@@ -40,12 +50,25 @@ Recovery requirements, credential errors and other actionable failures remain vi
 Backups and recovery have their own sections; manual JSON deployment requests and
 Gateway maintenance controls, including Gateway restart, are under advanced sections.
 
-Machines need Python 3, util-linux `flock`, .NET 10 and a working systemd user session. Quasar itself
-also needs .NET 10 for the shipped world converter. Remote enrollment requires a
+Automatic installation needs a working systemd user session. It installs missing
+Python 3 and util-linux through the native package manager when root or passwordless
+sudo is available; otherwise it reports the prerequisites without enabling deployment.
+Local installation uses the .NET 10 toolchain already installed for Quasar.
+It does not provision a separate SDK. Remote hosts need .NET 10 installed.
+Quasar itself also needs .NET 10 for the shipped world converter. Remote enrollment requires a
 Quasar HTTPS origin reachable from the target; loopback HTTP is allowed locally.
 Machines use private IPv4 LAN/VPN addresses or IPv6 ULA addresses for cluster traffic.
 Loopback placement is allowed only for a single-machine cluster. Enabling user
 lingering (`loginctl enable-linger`) keeps a user service running after logout.
+
+**Manual installation** downloads a ZIP containing the matching Host binary,
+`host.json`, a private enrollment credential file and run instructions. Extract it
+into a private directory on the registered machine and run
+`./Quasar.Host run --config host.json` under your preferred service manager. This
+path does not require systemd; the administrator supplies Python 3, util-linux and
+.NET 10 and maintains the Host binary. The download requires security-administration
+permission and is not cached. Enrollment alone never makes a host deployable: its
+authenticated connection and setup capability checks must succeed.
 
 Single-Host setup automatically gives `PluginStorage.GetSharedDirectory` a path
 under that Host's runtime root. The path is included in stopped Host snapshots.
@@ -73,9 +96,9 @@ Source templates and profiles are preserved. The cluster receives its own profil
 copy, and remains stopped after activation.
 
 The setup form keeps a bound request read-only while it can be resumed. After a
-failed attempt, **Start a new setup** clears the form's bound request and ID so
-the operator can revise inputs under a new ID. If the registration was removed,
-the form unlocks automatically and clears the old ID while showing the failure.
+failed attempt, inputs remain bound and visible so an administrator can reconnect
+the hosts and resume. **Start a new setup** explicitly clears the bound request and
+ID so the operator can revise inputs under a new ID. Failures do not clear the form.
 Removed IDs remain reserved while their Host state and operation history exist.
 
 Before each attempt, guided setup updates managed Magnetar and checks its actual

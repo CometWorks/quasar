@@ -27,6 +27,53 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
     }
     public void Dispose() => Directory.Delete(root, true);
 
+    [Fact]
+    public async Task AutomaticLocalEnrollmentReportsMissingBinaryWithoutCreatingAnUnusableHost()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var installer = new ClusterHostInstaller(hosts, credentials, Path.Combine(root, "missing-host"), TimeProvider.System);
+        var preparation = new ClusterLocalHostUpdater(hosts, installer, new ClusterHostTunnels(), new WebServiceOptions(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ClusterLocalHostUpdater>.Instance);
+        await preparation.EnsureLocalHostAsync(default);
+        Assert.Empty(hosts.GetAll());
+        Assert.NotNull(preparation.Error);
+        Assert.Equal("Local cluster host is not ready.", preparation.Status);
+    }
+
+    [Fact]
+    public void AutomaticLocalHostPrefersAPrivateAddressForMultiHostClusters()
+    {
+        Assert.Equal("192.168.1.10", ClusterLocalHostUpdater.SelectLocalAddress(
+            [IPAddress.Loopback, IPAddress.Parse("8.8.8.8"), IPAddress.Parse("fd00::10"), IPAddress.Parse("192.168.1.10")]));
+        Assert.Equal("fd00::10", ClusterLocalHostUpdater.SelectLocalAddress([IPAddress.Parse("fd00::10")]));
+        Assert.Equal("127.0.0.1", ClusterLocalHostUpdater.SelectLocalAddress([IPAddress.Loopback, IPAddress.Parse("8.8.8.8")]));
+    }
+
+    [Fact]
+    public async Task ManualEnrollmentPackageContainsTheMatchingPrivateHostIdentityWithoutSystemd()
+    {
+        var host = await hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);
+        string binary = Path.Combine(root, "Quasar.Host");
+        await File.WriteAllTextAsync(binary, "host binary");
+        var installer = new ClusterHostInstaller(hosts, credentials, binary, TimeProvider.System);
+        using var archive = new System.IO.Compression.ZipArchive(new MemoryStream(installer.CreateManualPackage(host.Id, "https://quasar.example.com")));
+        string Read(string name)
+        {
+            using var reader = new StreamReader(archive.GetEntry(name)!.Open());
+            return reader.ReadToEnd();
+        }
+        using var config = JsonDocument.Parse(Read("host.json"));
+        Assert.Equal(host.Id, config.RootElement.GetProperty("hostId").GetString());
+        Assert.Equal("http://127.0.0.1:18400", config.RootElement.GetProperty("command").GetProperty("url").GetString());
+        Assert.Equal("https://quasar.example.com/", config.RootElement.GetProperty("connection").GetProperty("quasarUrl").GetString());
+        Assert.Equal(credentials.Resolve(host.CredentialReference), JsonSerializer.Deserialize<Dictionary<string, string>>(Read("state/credentials.json"))![host.CredentialReference]);
+        Assert.Equal("host binary", Read("Quasar.Host"));
+        Assert.Equal(0x180, (archive.GetEntry("state/credentials.json")!.ExternalAttributes >> 16) & 0x1ff);
+        Assert.Contains("./Quasar.Host run --config host.json", Read("README.txt"));
+        Assert.Throws<ArgumentException>(() => installer.CreateManualPackage(host.Id, "http://remote.example.com"));
+        Assert.Throws<KeyNotFoundException>(() => installer.CreateManualPackage("unknown", "https://quasar.example.com"));
+    }
+
     [Theory]
     [InlineData("http://remote.example.com")]
     [InlineData("https://user:pass@example.com")]
@@ -289,7 +336,7 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddAuthorization();
         builder.Services.AddSingleton(hosts); builder.Services.AddSingleton<ClusterHostTunnels>();
-        builder.Services.AddSingleton(new ClusterHostInstaller(hosts, credentials));
+        builder.Services.AddSingleton(new ClusterHostInstaller(hosts, credentials, Path.Combine(root, "Quasar.Host"), TimeProvider.System));
         await using var app = builder.Build();
         app.UseWebSockets(); app.MapClusterHostEnrollmentApi();
         await app.StartAsync();
@@ -315,7 +362,7 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddAuthorization();
         builder.Services.AddSingleton(hosts); builder.Services.AddSingleton(tunnels);
-        builder.Services.AddSingleton(new ClusterHostInstaller(hosts, credentials));
+        builder.Services.AddSingleton(new ClusterHostInstaller(hosts, credentials, Path.Combine(root, "Quasar.Host"), TimeProvider.System));
         await using var app = builder.Build();
         app.UseWebSockets(); app.MapClusterHostEnrollmentApi();
         await app.StartAsync();

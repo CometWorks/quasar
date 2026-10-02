@@ -1117,7 +1117,7 @@ for development tests. Automatic node actualization is disabled with
 versioned executor report contract. The legacy registry heartbeat is not used.
 Packaged lifecycle integration and live executor acceptance remain pending.
 
-## Cluster Agent identity and fleet observation
+## Cluster Agent identity and node observations
 
 `GET /api/v1/clusters/{name}/fleet` (CLI: `cluster fleet NAME`) joins a single
 Registry status snapshot with Agent telemetry. Matching requires the exact cluster ID,
@@ -1181,9 +1181,9 @@ explanation. Profile staging does not replace the cluster world.
 
 The one-server plugin-management requirement is specified in
 [Cluster Plugins](ClusterPlugins.md). Common plugin artifacts and effective config
-must be identical across the fleet, with centrally managed role-specific infrastructure.
+must be identical across the cluster, with centrally managed role-specific infrastructure.
 The current Plugins editor still addresses individual Agents; it does not synchronize
-cluster settings or confirm fleet-wide application. Do not treat a per-Agent edit as
+cluster settings or confirm cluster-wide application. Do not treat a per-Agent edit as
 a cluster-wide change. Replacing that path, persisting cluster revisions and enforcing
 startup/config consistency are planned integration work, not shipped behavior.
 
@@ -1625,7 +1625,7 @@ This leaves any remote processes running and retains all data. Its API is
 and scope checks. Removed IDs, including case variants, cannot be reused. This avoids
 silently attaching a new registration to retained runtime or operation state.
 
-The control page places administration first, followed by status, fleet observations
+The control page places administration first, followed by status, node observations
 and deployment. Sections use consistent cards and spacing; recovery and conversion
 are grouped under deployment. Gateway and World Authority appear in the status tile,
 while node readiness appears in capacity, avoiding the repeated component summary.

@@ -61,7 +61,11 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         if (await File.ReadAllTextAsync(identity, ct) != JsonSerializer.Serialize(request, Json))
                             throw new InvalidOperationException("This setup is already bound to another request. Resume its original settings or choose a new cluster ID.");
                         if (catalog.GetCluster(request.UniqueName)?.ActiveDeployment is not null && GetStatus(request.UniqueName)?.Phase == "Ready to start")
-                            return Envelope(GetStatus(request.UniqueName)!);
+                        {
+                            bound = true;
+                            await CheckHostsAsync(request, selected, ct);
+                            return Envelope(await StageAsync(request, "Ready to start", null, ct));
+                        }
                     }
                     else
                     {
@@ -74,6 +78,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         await WriteAsync(identity, request, ct);
                     }
                     bound = true;
+                    await CheckHostsAsync(request, selected, ct);
                     string adminReference = credentials.Create("cluster:" + request.UniqueName, "admin");
                     await catalog.CreateAsync(new(request.UniqueName, request.DisplayName, origin, adminReference), ct);
                     return await catalog.WithLifecycleAsync(request.UniqueName, async cluster =>
@@ -84,17 +89,11 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         {
                             var resume = Read<ClusterDeploymentRequest>(activationFile);
                             if (cluster.ActiveDeployment?.Revision != resume.Revision) await deployments.ActivateCoreAsync(cluster, resume, ct);
+                            await CheckHostsAsync(request, selected, ct);
                             return Envelope(await StageAsync(request, "Ready to start", null, ct));
                         }
                         if (cluster.ActiveDeployment is not null || cluster.Gateway is not null)
                             throw new InvalidOperationException("This registration already has a deployment. Use its update controls.");
-                        await StageAsync(request, "Checking enrolled machines", null, ct);
-                        foreach (var machine in selected)
-                        {
-                            var status = (await hosts.GetStatusAsync(Target(cluster, machine), ct)).Data;
-                            if (status.HostId != machine.Id) throw new InvalidDataException("Connected Host identity differs from its registration.");
-                            if (!status.GatewayStopFencing) throw new InvalidOperationException("This Host lacks a required capability. Enrolled Hosts check Quasar for updates every 15 minutes; resume setup after it updates. Legacy remote enrollments need one final reinstall to enable automatic updates.");
-                        }
                         await StageAsync(request, "Provisioning Dedicated Server and Magnetar", null, ct);
                         var ready = await runtime.EnsureManagedRuntimeReadyAsync(cancellationToken: ct);
                         if (!ready.IsReady) throw new InvalidOperationException(ready.FailureMessage);
@@ -203,6 +202,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         cluster = catalog.GetCluster(cluster.UniqueName)!;
                         await WriteAsync(activationFile, activation, ct);
                         await deployments.ActivateCoreAsync(cluster, activation, ct);
+                        await CheckHostsAsync(request, selected, ct);
                         return Envelope(await StageAsync(request, "Ready to start", null, ct));
                     }, ct);
                 }
@@ -231,6 +231,26 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
     { var copy = cluster.Clone(); copy.HostCommandUrl = host.CommandUrl; copy.HostCommandTokenEnvironmentVariable = host.CredentialReference; return copy; }
     private static void ValidateId(string id)
     { if (string.IsNullOrWhiteSpace(id) || !Regex.IsMatch(id, "^[a-zA-Z0-9_-]{1,64}$")) throw new ArgumentException("Use a cluster ID with 1–64 letters, numbers, hyphens or underscores."); }
+    private async Task CheckHostsAsync(ClusterSetupRequest request, EnrolledClusterHost[] selected, CancellationToken token)
+    {
+        await StageAsync(request, "Checking cluster hosts", null, token);
+        foreach (var host in selected)
+        {
+            var status = (await hosts.GetStatusAsync(Target(new() { UniqueName = request.UniqueName }, host), token)).Data;
+            if (status.HostId != host.Id || string.IsNullOrWhiteSpace(status.ExecutorId) || status.Attachments is null)
+                throw new InvalidDataException($"Host '{host.Name}' does not match its enrollment or has no executor identity.");
+            if (!status.GatewayStopFencing || host.Id == request.GatewayHost && !status.SteamClientLibrary)
+                throw new InvalidOperationException($"Host '{host.Name}' lacks a required cluster capability. Update Quasar.Host on that machine, then resume setup.");
+            var active = catalog.GetCluster(request.UniqueName)?.ActiveDeployment;
+            var deployment = active?.Hosts.SingleOrDefault(h => h.HostId == host.Id)?.Deployment;
+            if (active is not null && deployment is null)
+                throw new InvalidOperationException($"Host '{host.Name}' is missing from this cluster deployment.");
+            if (deployment is not null && !status.Attachments.Any(a => a.ClusterId == request.UniqueName
+                && a.ActualizationConfigured && a.BundleManifestSha256 == deployment.BundleManifestSha256
+                && a.RunRoot == deployment.Attachment.RunRoot))
+                throw new InvalidOperationException($"Host '{host.Name}' has not configured this cluster deployment. Resume setup after the Host is ready.");
+        }
+    }
     private void CheckReservedPorts(ClusterSetupRequest request, EnrolledClusterHost[] selected)
     {
         var addresses = selected.Select(h => IPAddress.Parse(h.Address)).ToHashSet();
@@ -261,9 +281,9 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
     {
         ValidateId(request.UniqueName);
         if (string.IsNullOrWhiteSpace(request.DisplayName) || request.PlayerPort is < 1024 or > 65000 || request.Machines is null || request.Machines.Length is < 1 or > 64
-            || request.Machines.Any(m => m is null || m.RegularNodes is < 0 or > 32) || request.Machines.Sum(m => (long)m.RegularNodes) is < 2 or > 254
+            || request.Machines.Any(m => m is null || m.RegularNodes is < 1 or > 32) || request.Machines.Sum(m => (long)m.RegularNodes) is < 2 or > 254
             || request.Machines.Select(m => m.HostId).Distinct().Count() != request.Machines.Length)
-            throw new ArgumentException("Choose a display name, player port 1024–65000, and at least two nodes across enrolled machines (maximum 32 per machine).");
+            throw new ArgumentException("Choose a display name, player port 1024–65000, and 1–32 regular nodes per host, with at least two in total.");
         var selected = request.Machines.Select(m => enrolled.SingleOrDefault(h => h.Id == m.HostId) ?? throw new ArgumentException("Enroll every selected machine first.")).ToArray();
         if (!selected.Any(h => h.Id == request.GatewayHost) || selected.Select(h => IPAddress.Parse(h.Address)).Distinct().Count() != selected.Length
             || selected.Length > 1 && selected.Any(h => IPAddress.IsLoopback(IPAddress.Parse(h.Address))))

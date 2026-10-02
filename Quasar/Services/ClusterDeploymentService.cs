@@ -285,7 +285,7 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             || result.Attachment.BundleManifestPath != host.Activation.BundleManifestPath
             || result.Attachment.GatewayUrl != host.Activation.GatewayUrl.TrimEnd('/')
             || result.RequiredHosts is null || !result.RequiredHosts.Order(StringComparer.Ordinal).SequenceEqual(hostIds))
-            throw new InvalidDataException("Host deployment identity or required fleet does not match activation.");
+            throw new InvalidDataException("Host deployment identity or required cluster hosts do not match activation.");
     }
 }
 

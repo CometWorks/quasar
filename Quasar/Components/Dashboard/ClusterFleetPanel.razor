@@ -11,7 +11,7 @@
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">Observations may be stale: @_error</MudAlert> }
     @if (_capturedAt is { } captured) { <MudText Typo="Typo.caption">Registry observation: @captured.ToString("u")</MudText> }
     <MudTabs>
-        <MudTabPanel Text="Fleet">
+        <MudTabPanel Text="Nodes">
             <MudTable T="NodeRow" Items="NodeRows" Dense="true" Hover="true">
                 <HeaderContent><MudTh>Slot / node</MudTh><MudTh>Machine / role</MudTh><MudTh>Goal / observed</MudTh><MudTh>Registry status</MudTh><MudTh>Performance</MudTh><MudTh>Actions</MudTh></HeaderContent>
                 <RowTemplate>

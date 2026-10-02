@@ -352,8 +352,8 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
         foreach (var host in request.Hosts)
         {
             if (!Regex.IsMatch(host.HostId, "^[a-zA-Z0-9_-]{1,64}$") || !IPAddress.TryParse(host.Address, out _)
-                || host.RegularNodes is < 0 or > 32 || !Uri.TryCreate(host.CommandUrl, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
-                throw new InvalidDataException("Host identity, IP address or command URL is invalid.");
+                || host.RegularNodes is < 1 or > 32 || !Uri.TryCreate(host.CommandUrl, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+                throw new InvalidDataException("Choose a valid Host identity, IP address, command URL and 1–32 regular nodes per host.");
             foreach (string variable in new[] { host.TokenEnvironmentVariable, host.ExecutorTokenEnvironmentVariable }) Variable(variable);
         }
         Variable(request.JoinTokenEnvironmentVariable); Variable(request.AdminTokensFileEnvironmentVariable);

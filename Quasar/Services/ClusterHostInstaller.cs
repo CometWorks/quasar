@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -60,6 +61,56 @@ public sealed class ClusterHostInstaller
     public Task InstallLocalAsync(string hostId, string quasarUrl, CancellationToken token) =>
         RunAsync(new ProcessStartInfo("bash"), BuildScript(hosts.Get(hostId) ?? throw new KeyNotFoundException(), ValidateOrigin(quasarUrl)), token);
 
+    private static object HostConfiguration(EnrolledClusterHost host, Uri origin) => new
+    {
+        executorId = "quasar-" + host.Id, hostId = host.Id, pollIntervalSeconds = 2,
+        attachments = Array.Empty<object>(), stateDirectory = "state",
+        command = new { url = "http://127.0.0.1:" + host.CommandPort, tokenEnvironmentVariable = host.CredentialReference },
+        connection = new { quasarUrl = origin.AbsoluteUri, tokenEnvironmentVariable = host.CredentialReference },
+    };
+
+    public byte[] CreateManualPackage(string hostId, string quasarUrl)
+    {
+        var host = hosts.Get(hostId) ?? throw new KeyNotFoundException("Host is not registered.");
+        var origin = ValidateOrigin(quasarUrl);
+        using var output = new MemoryStream();
+        using (var archive = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            var binaryEntry = archive.CreateEntry("Quasar.Host");
+            binaryEntry.ExternalAttributes = (0x8000 | 0x1c0) << 16; // Regular file, owner read/write/execute.
+            using (var binaryOutput = binaryEntry.Open())
+            using (var input = File.OpenRead(binary)) input.CopyTo(binaryOutput);
+            void Write(string name, string content)
+            {
+                var entry = archive.CreateEntry(name);
+                entry.ExternalAttributes = (0x8000 | 0x180) << 16; // Regular file, owner read/write.
+                using var writer = new StreamWriter(entry.Open());
+                writer.Write(content);
+            }
+            Write("host.json", JsonSerializer.Serialize(HostConfiguration(host, origin)));
+            Write("state/credentials.json", JsonSerializer.Serialize(new Dictionary<string, string>
+                { [host.CredentialReference] = credentials.Resolve(host.CredentialReference)! }));
+            Write("README.txt", """
+                Quasar cluster host — manual installation
+
+                Extract into a private directory on the registered Linux x64 host.
+                This package contains that host's enrollment credential; keep it private.
+                Run:
+                  chmod 700 Quasar.Host
+                  chmod 600 host.json state/credentials.json
+                  ./Quasar.Host run --config host.json
+
+                Keep this process running using your preferred service manager.
+                It connects back to the Quasar address in host.json. The command listener
+                stays on loopback; do not expose it to the network. Wait until Quasar
+                shows the host as connected before deploying a cluster.
+                Install Python 3, util-linux and .NET 10 for cluster runtime tools.
+                No systemd user session is required for this manual installation.
+                """);
+        }
+        return output.ToArray();
+    }
+
     public Task InstallSshAsync(string hostId, string quasarUrl, HostSshInstall request, CancellationToken token)
     {
         var origin = ValidateOrigin(quasarUrl);
@@ -83,9 +134,7 @@ public sealed class ClusterHostInstaller
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("Guided cluster setup currently requires Linux x64.");
         if (!File.Exists(binary)) throw new InvalidOperationException($"This Quasar build does not include the Host installer ({binary}). Install a release containing Host/Quasar.Host, or for a development build set {BinaryVariable} to a published single-file Quasar.Host.");
-        var config = new { executorId = "quasar-" + host.Id, hostId = host.Id, pollIntervalSeconds = 2, attachments = Array.Empty<object>(), stateDirectory = "state",
-            command = new { url = "http://127.0.0.1:" + host.CommandPort, tokenEnvironmentVariable = host.CredentialReference },
-            connection = new { quasarUrl = origin.AbsoluteUri, tokenEnvironmentVariable = host.CredentialReference } };
+        var config = HostConfiguration(host, origin);
         string Config(object value) => Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(value));
         byte[] binaryBytes = File.ReadAllBytes(binary);
         string binaryHash = Convert.ToHexString(SHA256.HashData(binaryBytes)).ToLowerInvariant();
@@ -100,10 +149,28 @@ public sealed class ClusterHostInstaller
             set -euo pipefail
             umask 077
             test "$(uname -s)" = Linux && test "$(uname -m)" = x86_64 || { echo 'A Linux x64 machine is required.' >&2; exit 1; }
-            command -v python3 >/dev/null || { echo 'Install Python 3 before enrolling this machine.' >&2; exit 1; }
-            command -v flock >/dev/null || { echo 'Install util-linux flock before enrolling this machine.' >&2; exit 1; }
-            command -v dotnet >/dev/null && dotnet --list-runtimes | grep -q '^Microsoft.NETCore.App 10\.' || { echo 'Install the .NET 10 runtime before enrolling this machine. Gateway and world tools require it.' >&2; exit 1; }
             systemctl --user show-environment >/dev/null || { echo 'A working systemd user session is required.' >&2; exit 1; }
+            if ! command -v python3 >/dev/null || ! command -v flock >/dev/null; then
+                qsr_admin=()
+                if test "$(id -u)" != 0; then
+                    command -v sudo >/dev/null && sudo -n true || { echo 'Install Python 3 and util-linux manually, or allow passwordless sudo for automatic tool installation.' >&2; exit 1; }
+                    qsr_admin=(sudo -n)
+                fi
+                if command -v apt-get >/dev/null; then
+                    "${qsr_admin[@]}" apt-get update
+                    "${qsr_admin[@]}" apt-get install -y --no-install-recommends python3 util-linux
+                elif command -v dnf >/dev/null; then
+                    "${qsr_admin[@]}" dnf install -y python3 util-linux
+                elif command -v yum >/dev/null; then
+                    "${qsr_admin[@]}" yum install -y python3 util-linux
+                elif command -v pacman >/dev/null; then
+                    "${qsr_admin[@]}" pacman -S --needed --noconfirm python util-linux
+                else
+                    echo 'Install Python 3 and util-linux with your system package manager, then retry.' >&2; exit 1
+                fi
+            fi
+            command -v python3 >/dev/null && command -v flock >/dev/null || { echo 'Python 3 and util-linux are required.' >&2; exit 1; }
+            command -v dotnet >/dev/null && dotnet --list-runtimes | grep -q '^Microsoft.NETCore.App 10\.' || { echo 'Install the .NET 10 runtime before enrolling this machine. Gateway and world tools require it.' >&2; exit 1; }
             qsr_root="$HOME/.local/share/Quasar/Hosts/{{host.Id}}"
             qsr_unit=quasar-host-{{host.Id}}.service
             mkdir -p "$(dirname "$qsr_root")" "$HOME/.config/systemd/user"

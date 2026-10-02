@@ -20,11 +20,11 @@ in a matching dependency snapshot, and keeps existing plugin values only when th
 exported configuration schema still matches. A single changed session setting uses
 the same path as a complete session-settings and mod/plugin change.
 
-The update workflow stops the fleet, captures a verified backup under its update ID,
-then migrates preserved checkpoints and node mod directories. It starts the fleet only
+The update workflow stops the cluster, captures a verified backup under its update ID,
+then migrates preserved checkpoints and node mod directories. It starts the cluster only
 after every Host activates the same revision. Interrupted activation replays the pinned
 candidate. Host preflight rejects an older bundle without profile migration metadata
-after a profile migration, before Quasar stops the fleet. Restore the saved snapshot with a
+after a profile migration, before Quasar stops the cluster. Restore the saved snapshot with a
 newly prepared deployment and rotated runtime credentials. In Maintenance, select the
 backup ID, choose **Prepare restore with fresh credentials**, review the generated
 request, then choose **Restore backup** while stopped. Quasar restores the saved
@@ -160,17 +160,17 @@ or silently promote a node's local changes to every other node.
   full-cluster downtime for plugin binaries and config. Live fan-out alone cannot
   preserve identical settings across serving nodes. Any later live activation needs
   its own proven consistency protocol.
-- Stage and validate artifacts/config on the target hosts, shut down the old fleet,
+- Stage and validate artifacts/config on the target hosts, shut down the old cluster,
   persist/activate one revision, then validate effective config and successful plugin
   initialization before admitting nodes. Plugins may normalize or reject values;
   read-back must match the intended canonical result. Replacements/spares follow the
   same gate, including when Quasar is unavailable, using locally persisted active state.
 - Track a durable operation, expected revision and per-target pending/applied/rejected/
   unknown result tied to cluster/slot/node/incarnation and process identity. A send or
-  an old incarnation's acknowledgement is not successful application. Expected fleet
+  an old incarnation's acknowledgement is not successful application. Expected cluster
   membership comes from the Registry, not only the connected Agents.
 - Interrupted activation resumes the selected operation, or explicitly restores the
-  previous complete revision. Keep admission closed while a mixed or unverified fleet
+  previous complete revision. Keep admission closed while a mixed or unverified cluster
   exists. A staged edit must not change which revision replacement nodes use.
 - Block standalone per-Agent plugin writes for cluster Agents in the application
   layer as well as the UI. Route UI/API/CLI edits through shared cluster management,
@@ -308,11 +308,11 @@ capture an external shared mount. See Magnetar's
 
 The cluster deployment panel reuses the ordinary PluginSdk schema/editor against the
 persisted common preparation specification. An edit prepares a new immutable candidate
-on every Host. Activation uses the stopped-fleet/full-downtime workflow. No per-node
+on every Host. Activation requires a stopped cluster and full downtime. No per-node
 configuration write bypass is allowed. Canonical storage precedes plugin construction;
 continuous live read-back gates runtime readiness independently of Agent.
 
-Registry owns fleet readiness and topology. Agent reports process/slot/incarnation,
+Registry owns cluster readiness and topology. Agent reports process/slot/incarnation,
 revision, proof failure and plugin statistics. `cluster-plugin-services` adds availability,
 pending operations, conflicts, failures and ownership changes. Do not sum replica observations into logical
 shared-record counts. Missing telemetry stays unknown, not a fabricated mismatch.
