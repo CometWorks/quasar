@@ -86,6 +86,17 @@ checksum. No neighboring Gateway checkout or private contract package is needed.
   managed data directory, choose to install it with the system package manager,
   or cancel the plugin operation.
 
+## Local development plugins
+
+Register a plugin manifest under Configs → Dev folders, then select that local
+plugin in a config profile. On server preparation, Quasar writes the manifest's
+relative path to `Sources/sources.xml` as `LocalPlugin/File`. Magnetar 2.4.x uses
+that manifest for source directory filtering, NuGet dependencies and metadata.
+The generated `Profiles/Current.xml` uses the manifest's `Id` for
+`LocalFolderConfig/Id`, falling back to the folder name when the ID is absent.
+`DebugBuild` remains in the profile; the obsolete profile `DataFile` field is
+not generated. Existing Quasar profile selections keep their stored selection key.
+
 ## Managed runtime selection
 
 - On Windows, managed servers can run on either Magnetar build — .NET 10 (the
