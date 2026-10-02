@@ -4,22 +4,25 @@
 @inject ClusterCatalog ClusterCatalog
 @inject ClusterHostClient ClusterHostClient
 @inject ClusterHostCatalog EnrolledHosts
+@inject ClusterLocalHostUpdater LocalHost
 
 <PageTitle>Hosts</PageTitle>
 
 <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
-    <MudButton Href="/hosts/enroll" Variant="Variant.Filled" Color="Color.Primary" Class="mb-3">Add cluster machine</MudButton>
+    <MudButton Href="/hosts/enroll" Variant="Variant.Filled" Color="Color.Primary" Class="mb-3">Add cluster host</MudButton>
 </AuthorizeView>
 
 <MudText Typo="Typo.h5" Class="mb-2">Hosts</MudText>
+<MudText Typo="Typo.body2" Class="mb-2">@LocalHost.Status</MudText>
+@if (LocalHost.Error is not null) { <MudAlert Severity="Severity.Warning" Class="mb-3">@LocalHost.Error</MudAlert> }
 <MudText Typo="Typo.body2" Class="mb-4">Process agents report standalone-server health. Enrolled Quasar.Host executors independently keep cluster Gateways and node slots reconciled while the central Quasar worker restarts.</MudText>
 
 <MudPaper Class="server-card mb-4">
     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center"
               Justify="Justify.SpaceBetween" Spacing="2" Class="pa-4 pb-2">
         <div>
-            <MudText Typo="Typo.h6">Cluster executors</MudText>
-            <MudText Typo="Typo.body2">Reachability and persisted cluster attachments from the authenticated Host contract.</MudText>
+            <MudText Typo="Typo.h6">Cluster hosts</MudText>
+            <MudText Typo="Typo.body2">Connection status and configured clusters across your hosts.</MudText>
         </div>
         <MudChip T="string" Variant="Variant.Outlined">@($"{ExecutorRows.Count} executor(s)")</MudChip>
     </MudStack>

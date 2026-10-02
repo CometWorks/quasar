@@ -5,6 +5,7 @@
 @inject ClusterSetupService Setup
 @inject ClusterHostCatalog Hosts
 @inject ClusterHostTunnels Tunnels
+@inject ClusterLocalHostUpdater LocalHost
 @inject QuasarWorldTemplateCatalog Worlds
 @inject QuasarConfigProfileCatalog Profiles
 @inject QuasarPermissionService Permissions
@@ -28,10 +29,12 @@
                 <MudSelect T="string" Label="Configuration profile" @bind-Value="_profile" Disabled="Locked" HelperText="Game settings, mods and plugin selection. New clusters start with the selected plugins' SDK defaults, shared across every node.">
                     @foreach (var profile in Profiles.GetProfiles()) { <MudSelectItem Value="profile.ConfigProfileId">@profile.Name</MudSelectItem> }
                 </MudSelect>
-                <MudText Typo="Typo.h6">Machines and node placement</MudText>
-                <MudText Typo="Typo.body2">Choose at least two regular nodes in total. The Gateway machine also runs the World Authority. All machines need mutually reachable LAN/VPN addresses; Quasar also needs to reach the Gateway's control port.</MudText>
+                <MudText Typo="Typo.h6">Cluster hosts</MudText>
+                <MudText Typo="Typo.caption">@LocalHost.Status</MudText>
+                @if (LocalHost.Error is not null) { <MudAlert Severity="Severity.Warning">@LocalHost.Error</MudAlert> }
+                <MudText Typo="Typo.body2">Choose 1–32 regular nodes per selected host, with at least two in total. The Gateway host also runs the World Authority. Multi-host clusters need mutually reachable LAN/VPN addresses; Quasar also needs to reach the Gateway's control port.</MudText>
                 <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
-                    <MudButton Href="/hosts/enroll" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add">Add machine — local, command or SSH</MudButton>
+                    <MudButton Href="/hosts/enroll" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add">Add cluster host</MudButton>
                 </AuthorizeView>
                 @if (_machines.Count == 0) { <MudAlert Severity="Severity.Info">Enroll a machine from Hosts before deploying. Administrators can install locally, generate a one-time command, or install over SSH.</MudAlert> }
                 @foreach (var machine in _machines)
@@ -39,7 +42,7 @@
                     <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="3">
                         <MudCheckBox T="bool" @bind-Value="machine.Selected" Disabled="Locked" Label="@($"{machine.Host.Name} ({machine.Host.Address})")" />
                         <MudChip T="string" Size="Size.Small" Color="@(Tunnels.IsConnected(machine.Host.Id) ? Color.Success : Color.Warning)">@(Tunnels.IsConnected(machine.Host.Id) ? "Connected" : "Offline")</MudChip>
-                        <MudNumericField T="int" Label="Regular nodes" @bind-Value="machine.Nodes" Min="0" Max="32" Disabled="@(!machine.Selected || Locked)" />
+                        <MudNumericField T="int" Label="Regular nodes" @bind-Value="machine.Nodes" Min="1" Max="32" Disabled="@(!machine.Selected || Locked)" />
                     </MudStack>
                 }
                 <MudSelect T="string" Label="Gateway and World Authority machine" @bind-Value="_gateway" Disabled="Locked" HelperText="Players connect to this machine. Quasar generates and installs the Gateway credentials automatically.">
@@ -47,7 +50,11 @@
                 </MudSelect>
                 <MudNumericField T="int" Label="Player port" @bind-Value="_port" Min="1024" Max="65000" Disabled="Locked" HelperText="UDP port players use, usually 28000. Setup also reserves this port through port +264 for Gateway control and node communication; keep that range free on these machines." />
                 <MudText Typo="Typo.body2">Allow the player UDP port through your firewall. Keep internal cluster traffic on your LAN/VPN. The Host command listener stays on loopback and connects back to Quasar over HTTPS.</MudText>
-                <MudButton OnClick="DeployAsync" Disabled="@(_busy || _machines.Count == 0 || string.IsNullOrWhiteSpace(_id))" Variant="Variant.Filled" Color="Color.Primary">@(_request is null ? "Create and deploy cluster" : "Resume setup")</MudButton>
+                @if (HasOfflineHosts)
+                {
+                    <MudAlert Severity="Severity.Warning">Every selected host must be connected before you can deploy. Start or reconnect the offline hosts. To change hosts after an interrupted attempt, choose Start a new setup.</MudAlert>
+                }
+                <MudButton OnClick="DeployAsync" Disabled="@(!CanDeploy)" Variant="Variant.Filled" Color="Color.Primary">@(_request is null ? "Create and deploy cluster" : "Resume setup")</MudButton>
                 @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
                 @if (_status is not null)
                 {
@@ -89,11 +96,29 @@
     private ClusterSetupStatus? _status;
     private List<MachineRow> _machines = [];
     private bool Locked => _busy || _request is not null;
+    private bool HasOfflineHosts => (_request?.Machines.Select(m => m.HostId)
+        ?? _machines.Where(m => m.Selected).Select(m => m.Host.Id)).Any(id => !Tunnels.IsConnected(id));
+    private bool CanDeploy => !_busy && !HasOfflineHosts && !string.IsNullOrWhiteSpace(_id)
+        && !string.IsNullOrWhiteSpace(_name) && !string.IsNullOrWhiteSpace(_world) && !string.IsNullOrWhiteSpace(_profile)
+        && _machines.Any(m => m.Selected && m.Host.Id == _gateway)
+        && _port is >= 1024 and <= 65000
+        && _machines.Where(m => m.Selected).All(m => m.Nodes is >= 1 and <= 32)
+        && _machines.Where(m => m.Selected).Sum(m => (long)m.Nodes) is >= 2 and <= 254;
     protected override void OnInitialized()
     {
-        _machines = Hosts.GetAll().Select(h => new MachineRow(h)).ToList();
-        if (_machines.Count == 1) { _machines[0].Selected = true; _machines[0].Nodes = 2; _gateway = _machines[0].Host.Id; }
+        RefreshMachines();
         _ = RefreshAsync();
+    }
+    private void RefreshMachines()
+    {
+        foreach (var host in Hosts.GetAll())
+            if (!_machines.Any(m => m.Host.Id == host.Id))
+            {
+                var row = new MachineRow(host);
+                if (_machines.Count == 0 && _request is null)
+                { row.Selected = true; row.Nodes = 2; _gateway = host.Id; }
+                _machines.Add(row);
+            }
     }
     protected override async Task OnParametersSetAsync()
     {
@@ -106,8 +131,7 @@
             _id = _request.UniqueName; _name = _request.DisplayName; _world = _request.WorldTemplateId;
             _profile = _request.ConfigProfileId; _gateway = _request.GatewayHost; _port = _request.PlayerPort;
             foreach (var row in _machines)
-            { var placement = _request.Machines.SingleOrDefault(m => m.HostId == row.Host.Id); row.Selected = placement is not null; row.Nodes = placement?.RegularNodes ?? 0; }
-            UnlockWithoutRegistration();
+            { var placement = _request.Machines.SingleOrDefault(m => m.HostId == row.Host.Id); row.Selected = placement is not null; row.Nodes = placement?.RegularNodes ?? 1; }
         }
         catch (ArgumentException error) { _error = error.Message; }
     }
@@ -119,10 +143,10 @@
             while (await timer.WaitForNextTickAsync(_stop.Token))
                 await InvokeAsync(() =>
                 {
+                    RefreshMachines();
                     if (_request is not null)
                     {
                         _status = Setup.GetStatus(_request.UniqueName);
-                        UnlockWithoutRegistration();
                     }
                     StateHasChanged();
                 });
@@ -150,20 +174,15 @@
             _request = request;
             var result = await Setup.RunAsync(request, Guid.NewGuid().ToString("N"), user.Identity?.Name ?? "ui", default);
             _status = Setup.GetStatus(request.UniqueName);
-            if (result.State == ClusterOperationState.Succeeded && !_disposed) Navigation.NavigateTo("/clusters/" + Uri.EscapeDataString(request.UniqueName));
-            else _error = result.Error?.Message;
-            UnlockWithoutRegistration();
+            if (result.State == ClusterOperationState.Succeeded)
+            {
+                if (!_disposed) Navigation.NavigateTo("/", replace: true);
+                return;
+            }
+            _error = result.Error?.Message;
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or IOException) { _error = error.Message; }
         finally { if (_status is null) _request = null; _busy = false; }
-    }
-    private void UnlockWithoutRegistration()
-    {
-        if (_request is not null && _status?.Error is not null && Catalog.GetCluster(_request.UniqueName) is null)
-        {
-            _request = null;
-            _id = "";
-        }
     }
     private void StartNewSetup()
     {
@@ -179,8 +198,8 @@
         _busy = true; _error = null;
         try
         {
-            var created = await Catalog.CreateAsync(new(_importId, _importName, _url, _credential), default);
-            Navigation.NavigateTo("/clusters/" + Uri.EscapeDataString(created.UniqueName));
+            await Catalog.CreateAsync(new(_importId, _importName, _url, _credential), default);
+            if (!_disposed) Navigation.NavigateTo("/", replace: true);
         }
         catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException) { _error = error.Message; }
         finally { _busy = false; }

@@ -56,7 +56,7 @@
                 <MudTextField Label="Host command token environment variable" @bind-Value="host.Token" Disabled="@Locked" />
                 <MudTextField Label="Executor token environment variable on Host" @bind-Value="host.Executor" Disabled="@Locked" />
                 <MudTextField Label="Private IP address" @bind-Value="host.Address" Disabled="@Locked" />
-                <MudNumericField T="int" Label="Regular nodes" @bind-Value="host.Nodes" Min="0" Max="32" Disabled="@Locked" />
+                <MudNumericField T="int" Label="Regular nodes" @bind-Value="host.Nodes" Min="1" Max="32" Disabled="@Locked" />
                 <MudButton OnClick="@(() => _hosts.Remove(host))" Disabled="@(Locked || _hosts.Count == 1)">Remove Host</MudButton>
             </MudPaper>
         }

@@ -215,8 +215,13 @@ public sealed class ClusterHostClient
         }
         catch (HttpRequestException exception)
         {
+            var endpoint = new Uri(cluster.HostCommandUrl);
+            const string tunnelSuffix = ".quasar-host.invalid";
+            string message = endpoint.Host.EndsWith(tunnelSuffix, StringComparison.Ordinal)
+                ? $"Cannot reach cluster host '{endpoint.Host[..^tunnelSuffix.Length]}'. Start Quasar.Host on that machine and wait for it to reconnect before retrying."
+                : $"Cannot reach the cluster host at {endpoint.GetComponents(UriComponents.SchemeAndServer, UriFormat.SafeUnescaped)} ({exception.HttpRequestError}). Install or start Quasar.Host on that machine and check its control port.";
             throw new ClusterHostException(HttpStatusCode.ServiceUnavailable, "host_unavailable",
-                $"Cannot reach the Host executor at {new Uri(cluster.HostCommandUrl).GetComponents(UriComponents.SchemeAndServer, UriFormat.SafeUnescaped)} ({exception.HttpRequestError}). Install or start Quasar.Host on that machine and check its control port.", exception);
+                message, exception);
         }
         catch (JsonException exception)
         {

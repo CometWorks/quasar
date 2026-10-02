@@ -34,6 +34,11 @@
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialogAsync">
                 Create Server
             </MudButton>
+            <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+                <MudButton Href="/clusters/new" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">
+                    Create Cluster
+                </MudButton>
+            </AuthorizeView>
         </MudStack>
     </MudStack>
 

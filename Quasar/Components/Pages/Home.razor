@@ -50,9 +50,6 @@
 }
 
 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Spacing="2" Class="mb-2">
-    <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
-        <MudButton Href="/clusters/new" Variant="Variant.Outlined">Create or import cluster</MudButton>
-    </AuthorizeView>
     <MudButton Variant="@(ShowSetupWizard ? Variant.Filled : Variant.Outlined)"
                Color="Color.Primary"
                Disabled="@ShowSetupWizard"
@@ -489,6 +486,11 @@
                        OnClick="OpenCreateServerDialogAsync">
                 Create Server
             </MudButton>
+            <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+                <MudButton Href="/clusters/new" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">
+                    Create Cluster
+                </MudButton>
+            </AuthorizeView>
         }
         <MudButton Variant="@(IsCardsView ? Variant.Filled : Variant.Outlined)"
                    Color="Color.Primary"
