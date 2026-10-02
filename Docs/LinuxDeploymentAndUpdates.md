@@ -66,7 +66,9 @@ their numeric run number before the channel label, so update checks and release
 retention compare them by numeric build first instead of treating `-pr` or
 `-manual` as older than the base release.
 
-After publishing, the workflow prunes older GitHub releases with their tags. It
+After publishing, the workflow prunes older GitHub releases by API ID, then
+deletes their tags when present. Draft releases may not resolve through GitHub's
+release-by-tag endpoint, so pruning uses the ID returned by the release list. It
 keeps the newest two full active releases, plus the newest two draft/prerelease
 review builds per PR/manual stream. Closing or merging a pull request cancels any
 in-progress release build for that PR, then deletes all remaining draft releases
