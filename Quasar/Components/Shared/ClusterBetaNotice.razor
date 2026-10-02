@@ -1,0 +1,38 @@
+@inject ClusterBetaNoticeCatalog Notices
+@inject AuthenticationStateProvider AuthenticationState
+
+@if (_show)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+            <MudText>Managed clusters are still in beta. Review your backups before changing worlds, mods, or plugins.</MudText>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Inherit" Size="Size.Small"
+                           Disabled="_closing" OnClick="CloseAsync" aria-label="Dismiss cluster beta notice" />
+        </MudStack>
+        @if (_error is not null) { <MudText Typo="Typo.caption">@_error</MudText> }
+    </MudAlert>
+}
+
+@code {
+    private bool _show, _closing;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+        _show = user.Identity?.IsAuthenticated == true && !Notices.IsDismissed(user);
+    }
+
+    private async Task CloseAsync()
+    {
+        _closing = true;
+        try
+        {
+            await Notices.DismissAsync((await AuthenticationState.GetAuthenticationStateAsync()).User);
+            _show = false;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { _error = "Could not save this dismissal. Try again."; }
+        finally { _closing = false; }
+    }
+}

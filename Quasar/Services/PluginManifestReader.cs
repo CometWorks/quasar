@@ -3,17 +3,15 @@ using System.Xml.Linq;
 namespace Quasar.Services;
 
 /// <summary>
-/// Validates a local plugin's manifest XML (the profile's <c>&lt;DataFile&gt;</c>)
+/// Validates a local plugin's manifest XML (the source's <c>&lt;File&gt;</c>)
 /// when an admin registers a dev folder. The manifest is what Magnetar reads to
 /// discover the source directories to compile and any dependencies.
 /// </summary>
 /// <remarks>
-/// Magnetar identifies a dev-folder plugin by the <em>source folder name</em>
-/// (e.g. <c>se-test-plugin</c>), not by the manifest's own <c>&lt;Id&gt;</c>
-/// (a GUID for typical plugins). That folder name is carried into the active
-/// profile's <c>&lt;LocalFolderConfig&gt;&lt;Id&gt;</c> and the
-/// <c>&lt;LocalPlugin&gt;&lt;Name&gt;</c> source entry. See
-/// <see cref="Quasar.Models.QuasarDevFolderSelection.SourceFolderName"/>.
+/// Magnetar 2.4.x reads the manifest from the <c>&lt;LocalPlugin&gt;&lt;File&gt;</c>
+/// source entry and identifies the plugin by its manifest's <c>&lt;Id&gt;</c>,
+/// falling back to the source folder name when no ID is provided. The generated
+/// profile's <c>&lt;LocalFolderConfig&gt;&lt;Id&gt;</c> must match that identity.
 /// </remarks>
 public static class PluginManifestReader
 {
@@ -58,7 +56,8 @@ public static class PluginManifestReader
                     GetValue(root, "Author"),
                     GetValue(root, "Description"),
                     GetValue(root, "Tooltip"),
-                    GetValue(root, "Runtimes"));
+                    GetValue(root, "Runtimes"),
+                    GetValue(root, "Id"));
         }
         catch
         {
@@ -75,4 +74,5 @@ public sealed record PluginManifestMetadata(
     string Author = "",
     string Description = "",
     string Tooltip = "",
-    string Runtimes = "");
+    string Runtimes = "",
+    string Id = "");

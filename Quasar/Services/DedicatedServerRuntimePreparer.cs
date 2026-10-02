@@ -70,14 +70,14 @@ public sealed class DedicatedServerRuntimePreparer
         DedicatedServerDefinition definition,
         string dedicatedServer64Path,
         MagnetarLaunchArgumentStyle launchArgumentStyle,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, QuasarConfigProfile? profileOverride = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
 
         var paths = DedicatedServerPathResolver.Resolve(definition);
         var dedicatedServerAppDataPath = paths.DedicatedServerAppDataPath;
         var magnetarAppDataPath = paths.MagnetarAppDataPath;
-        var configProfile = ResolveConfigProfile(definition);
+        var configProfile = profileOverride ?? ResolveConfigProfile(definition);
         var worldPath = ResolveConfiguredWorldPath(paths);
         var runtimeConfigPath = Path.Combine(dedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg");
         var lastSessionPath = Path.Combine(dedicatedServerAppDataPath, "Saves", "LastSession.sbl");
@@ -300,6 +300,7 @@ public sealed class DedicatedServerRuntimePreparer
                         "LocalPlugin",
                         new XElement("Name", QuasarPluginCatalogService.GetDevFolderPluginId(devFolder)),
                         new XElement("Folder", devFolder.FolderPath),
+                        new XElement("File", devFolder.DataFile),
                         new XElement("Enabled", "true")))),
                 new XElement(
                     "ModSources",
@@ -330,11 +331,16 @@ public sealed class DedicatedServerRuntimePreparer
                 new XElement(
                     "DevFolder",
                     selectedDevFolders
-                    .Select(devFolder => new XElement(
-                        "LocalFolderConfig",
-                        new XElement("Id", QuasarPluginCatalogService.GetDevFolderPluginId(devFolder)),
-                        new XElement("DataFile", devFolder.DataFile),
-                        new XElement("DebugBuild", devFolder.DebugBuild ? "true" : "false")))),
+                    .Select(devFolder =>
+                    {
+                        var manifestId = PluginManifestReader.ReadMetadata(Path.Combine(devFolder.FolderPath, devFolder.DataFile)).Id;
+                        // Magnetar loads the manifest before matching the active profile.
+                        var runtimeId = string.IsNullOrWhiteSpace(manifestId) ? devFolder.SourceFolderName : manifestId;
+                        return new XElement(
+                            "LocalFolderConfig",
+                            new XElement("Id", runtimeId),
+                            new XElement("DebugBuild", devFolder.DebugBuild ? "true" : "false"));
+                    })),
                 new XElement(
                     "Local",
                     localPluginFileNames.Select(fileName => new XElement("string", fileName))),

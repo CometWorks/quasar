@@ -66,16 +66,15 @@ public sealed class QuasarDevFolderSelection
 
     public string DataFile { get; set; } = string.Empty;   // manifest XML filename, relative to FolderPath
 
-    public string PluginId { get; set; } = string.Empty;   // source folder name; carried into <LocalPlugin><Name> and <LocalFolderConfig><Id>
+    public string PluginId { get; set; } = string.Empty;   // Quasar selection key; defaults to the source folder name
 
     public bool DebugBuild { get; set; } = true;
 
     /// <summary>
     /// The innermost folder name of <see cref="FolderPath"/>. This is the
-    /// identity Magnetar uses for a dev-folder plugin: it is written to the
-    /// source's <c>&lt;LocalPlugin&gt;&lt;Name&gt;</c> and the active profile's
-    /// <c>&lt;LocalFolderConfig&gt;&lt;Id&gt;</c> (e.g. <c>se-test-plugin</c>),
-    /// not the manifest's GUID <c>&lt;Id&gt;</c>.
+    /// default Quasar selection key and Magnetar's fallback identity when the
+    /// manifest has no <c>&lt;Id&gt;</c>. Magnetar's generated active profile uses
+    /// the manifest ID when available.
     /// </summary>
     [JsonIgnore]
     public string SourceFolderName => GetSourceFolderName(FolderPath);
@@ -560,6 +559,8 @@ public sealed class QuasarModSelection
 
 public sealed class QuasarPluginCatalogEntry
 {
+    public string SourceCommit { get; set; } = string.Empty;
+
     public string PluginId { get; set; } = string.Empty;
 
     public string FriendlyName { get; set; } = string.Empty;

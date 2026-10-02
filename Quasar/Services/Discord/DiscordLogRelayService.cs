@@ -2,6 +2,7 @@ using Discord;
 using Discord.WebSocket;
 using Magnetar.Protocol.Runtime;
 using Quasar.Models;
+using Quasar.Services.PluginSdk;
 
 namespace Quasar.Services.Discord;
 
@@ -9,6 +10,9 @@ public sealed class DiscordLogRelayService
 {
     private const int ChunkSize = 1900;
     private readonly object _sync = new();
+    private readonly DiscordClusterBridge? _clusters;
+    private readonly PluginLogStream? _pluginLogs;
+    private readonly Dictionary<string, PluginLogEntry> _clusterCursors = new();
     private readonly DedicatedServerSupervisor _supervisor;
     private readonly DedicatedServerCatalog _catalog;
     private readonly DiscordRateLimiter _rateLimiter;
@@ -20,9 +24,11 @@ public sealed class DiscordLogRelayService
         DedicatedServerSupervisor supervisor,
         DedicatedServerCatalog catalog,
         DiscordRateLimiter rateLimiter,
-        ILogger<DiscordLogRelayService> logger)
+        ILogger<DiscordLogRelayService> logger, DiscordClusterBridge? clusters = null, PluginLogStream? pluginLogs = null)
     {
         _supervisor = supervisor;
+        _clusters = clusters;
+        _pluginLogs = pluginLogs;
         _catalog = catalog;
         _rateLimiter = rateLimiter;
         _logger = logger;
@@ -51,6 +57,7 @@ public sealed class DiscordLogRelayService
         lock (_sync)
         {
             _offsets.Clear();
+            _clusterCursors.Clear();
             _tasks.Clear();
         }
     }
@@ -72,6 +79,11 @@ public sealed class DiscordLogRelayService
     {
         try
         {
+            if (serverOptions.IsCluster)
+            {
+                await ExportClusterAsync(client, serverOptions, cancellationToken);
+                return;
+            }
             var snapshot = _supervisor.GetSnapshots()
                 .FirstOrDefault(item => string.Equals(item.UniqueName, serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase));
             if (snapshot is null)
@@ -101,6 +113,25 @@ public sealed class DiscordLogRelayService
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Discord log export failed for server {UniqueName}", serverOptions.UniqueName);
+        }
+    }
+
+    private async Task ExportClusterAsync(DiscordSocketClient client, DiscordServerOptions settings, CancellationToken token)
+    {
+        if (_clusters == null || _pluginLogs == null || settings.LogChannelId is not { } channelId
+            || client.GetChannel(channelId) is not IMessageChannel channel) return;
+        foreach (var agent in _clusters.GetAgents(settings))
+        {
+            var entries = _pluginLogs.GetEntries(agent.TelemetryKey).ToArray();
+            PluginLogEntry? previous;
+            lock (_sync) _clusterCursors.TryGetValue(agent.TelemetryKey, out previous);
+            var start = previous == null ? 0 : Array.IndexOf(entries, previous) + 1;
+            var delta = string.Join("\n", entries.Skip(start).Select(e =>
+                $"[{settings.UniqueName}/{agent.ClusterNodeId}/{agent.ClusterEpoch}] {e.TimestampUtc:O} {e.Level} {e.Plugin}: {e.Message} {e.Exception}"));
+            foreach (var chunk in ChunkText(delta, ChunkSize))
+                await _rateLimiter.RunAsync(channelId, () => channel.SendMessageAsync(
+                    text: $"```\n{EscapeCodeBlock(chunk)}\n```", allowedMentions: AllowedMentions.None), token);
+            if (entries.Length > 0) lock (_sync) _clusterCursors[agent.TelemetryKey] = entries[^1];
         }
     }
 

@@ -1,0 +1,28 @@
+@using MudBlazor
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText>Quasar tries anonymous SteamCMD downloads first. A Steam account is used only when an item cannot be downloaded anonymously.</MudText>
+            <MudTextField T="string" Label="Steam account name" @bind-Value="_username" Variant="Variant.Outlined" />
+            <MudTextField T="string" Label="Steam password" @bind-Value="_password" InputType="InputType.Password" Variant="Variant.Outlined" HelperText="Leave blank to keep the saved password." />
+            <MudText Typo="Typo.caption">Credentials are encrypted by this Quasar installation. Steam Guard may still require an interactive SteamCMD login before a managed download succeeds.</MudText>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Warning" OnClick="Clear">Remove account</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@string.IsNullOrWhiteSpace(_username)" OnClick="Save">Save account</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public string CurrentUsername { get; set; } = "";
+    private string _username = "", _password = "";
+    protected override void OnInitialized() => _username = CurrentUsername;
+    private void Cancel() => MudDialog.Cancel();
+    private void Clear() => MudDialog.Close(DialogResult.Ok(new SteamAccountUpdate("", "", true)));
+    private void Save() => MudDialog.Close(DialogResult.Ok(new SteamAccountUpdate(_username.Trim(), _password, false)));
+    public sealed record SteamAccountUpdate(string Username, string Password, bool Clear);
+}

@@ -1,6 +1,7 @@
 @page "/discord"
 @attribute [Authorize(Policy = QuasarPolicyNames.CanManageDiscord)]
 @implements IDisposable
+@inject ClusterCatalog ClusterCatalog
 @inject DiscordOptionsCatalog DiscordOptionsCatalog
 @inject DeathMessagesCatalog DeathMessagesCatalog
 @inject DedicatedServerCatalog ServerCatalog
@@ -13,7 +14,7 @@
 <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-2">
     <div>
         <MudText Typo="Typo.h5" Class="mb-2">Discord</MudText>
-        <MudText Typo="Typo.body2">One bot, many Quasar servers. Bind command, chat, log, and analytics channels per server.</MudText>
+        <MudText Typo="Typo.body2">One bot for your servers and clusters. Bind command, chat, log, and analytics channels for each.</MudText>
     </div>
     <MudTooltip Text="Show Discord integration log">
         <MudButton StartIcon="@Icons.Material.Filled.Terminal"
@@ -62,6 +63,45 @@
                                  Variant="Variant.Outlined"
                                  Min="0" />
 
+                <MudDivider />
+                <MudText Typo="Typo.h6">Bot presence</MudText>
+                <MudText Typo="Typo.caption">Choose which servers contribute to the bot's status and activity. Each cluster counts as one server. Relay and notification settings are independent.</MudText>
+                <MudCheckBox T="bool" @bind-Value="_options.Presence.AllServers" Label="Include all servers" />
+                @if (!_options.Presence.AllServers)
+                {
+                    <MudSelect T="string" Label="Servers shown in presence" Variant="Variant.Outlined" MultiSelection="true"
+                               SelectedValues="_options.Presence.SelectedTargets"
+                               SelectedValuesChanged="values => _options.Presence.SelectedTargets = values.ToList()">
+                        @foreach (var definition in ServerDefinitions)
+                        {
+                            <MudSelectItem T="string" Value="@definition.UniqueName">@GetServerName(definition.UniqueName)</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudText Typo="Typo.caption">Only selected servers contribute. New servers are not added automatically. Selecting none clears the activity.</MudText>
+                }
+                <MudSelect T="DiscordPresenceStatus" @bind-Value="_options.Presence.Status" Label="Status indicator" Variant="Variant.Outlined">
+                    <MudSelectItem Value="DiscordPresenceStatus.Automatic">Automatic (selected servers)</MudSelectItem>
+                    <MudSelectItem Value="DiscordPresenceStatus.Online">Online</MudSelectItem>
+                    <MudSelectItem Value="DiscordPresenceStatus.Idle">Idle</MudSelectItem>
+                    <MudSelectItem Value="DiscordPresenceStatus.DoNotDisturb">Do not disturb</MudSelectItem>
+                    <MudSelectItem Value="DiscordPresenceStatus.Invisible">Invisible</MudSelectItem>
+                </MudSelect>
+                <MudCheckBox T="bool" @bind-Value="_options.Presence.ShowActivity" Label="Show activity text" />
+                <MudSelect T="DiscordPresenceActivity" @bind-Value="_options.Presence.ActivityType" Label="Activity type" Variant="Variant.Outlined" Disabled="@(!_options.Presence.ShowActivity)">
+                    <MudSelectItem Value="DiscordPresenceActivity.Watching">Watching</MudSelectItem>
+                    <MudSelectItem Value="DiscordPresenceActivity.Playing">Playing</MudSelectItem>
+                    <MudSelectItem Value="DiscordPresenceActivity.Listening">Listening to</MudSelectItem>
+                    <MudSelectItem Value="DiscordPresenceActivity.Competing">Competing in</MudSelectItem>
+                </MudSelect>
+                <MudCheckBox T="bool" @bind-Value="_options.Presence.ShowServerCount" Label="Online server count" Disabled="@(!_options.Presence.ShowActivity)" />
+                <MudCheckBox T="bool" @bind-Value="_options.Presence.ShowPlayerCount" Label="Player count" Disabled="@(!_options.Presence.ShowActivity)" />
+                <MudCheckBox T="bool" @bind-Value="_options.Presence.ShowHealth" Label="Issues and warnings" Disabled="@(!_options.Presence.ShowActivity)" />
+                <MudCheckBox T="bool" @bind-Value="_options.Presence.ShowServerNames" Label="Server names" Disabled="@(!_options.Presence.ShowActivity || _options.Presence.ShowServerStates)" />
+                <MudCheckBox T="bool" @bind-Value="_options.Presence.ShowServerStates" Label="Server names and states" Disabled="@(!_options.Presence.ShowActivity)" />
+                @{ var presencePreview = DiscordBotService.PreviewPresence(_options.Presence); }
+                <MudText Typo="Typo.caption">Preview: @presencePreview.Status · @(presencePreview.Activity is null ? "Activity hidden" : $"{presencePreview.ActivityType}: {presencePreview.Activity}")</MudText>
+                <MudText Typo="Typo.caption">Discord limits activity text to 128 characters. Save Bot Settings to apply.</MudText>
+
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveBotSettingsAsync">
                     Save Bot Settings
                 </MudButton>
@@ -79,7 +119,7 @@
             @if (ServerDefinitions.Count == 0)
             {
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                    No Quasar servers defined yet.
+                    No Quasar servers or clusters defined yet.
                 </MudAlert>
             }
             else
@@ -98,6 +138,10 @@
 
                                 <MudStack Spacing="2" Class="pt-2">
                                     <MudText Typo="Typo.caption" Class="mono">@definition.UniqueName</MudText>
+                                    @if (definition.IsCluster)
+                                    {
+                                        <MudAlert Severity="Severity.Info" Dense="true">Applies to the whole cluster across all Hosts. Chat requires the current Quasar Agent on every node, including the World Authority. Log export includes Agent plugin logs.</MudAlert>
+                                    }
 
                                     <MudTextField @bind-Value="serverOptions.CommandPrefix"
                                                   Label="Command prefix"
@@ -259,7 +303,7 @@
                                     </MudGrid>
 
                                     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SaveServerAsync(definition.UniqueName))">
-                                        Save Server
+                                        Save settings
                                     </MudButton>
                                 </MudStack>
                             }
@@ -359,7 +403,11 @@
     private readonly HashSet<string> _expandedServerPanels = new(StringComparer.OrdinalIgnoreCase);
     private bool _deathTemplatesExpanded;
 
-    private IReadOnlyList<DedicatedServerDefinition> ServerDefinitions => ServerCatalog.GetServers();
+    private sealed record TargetDefinition(string UniqueName, string Name, string DisplayName, bool IsCluster);
+    private IReadOnlyList<TargetDefinition> ServerDefinitions => ServerCatalog.GetServers()
+        .Select(s => new TargetDefinition(s.UniqueName, s.UniqueName, s.DisplayName, false))
+        .Concat(ClusterCatalog.GetClusters().Select(c => new TargetDefinition("cluster:" + c.UniqueName,
+            c.UniqueName, (string.IsNullOrWhiteSpace(c.DisplayName) ? c.UniqueName : c.DisplayName) + " (cluster)", true))).ToArray();
 
     private DiscordBotStatusSnapshot BotStatus => DiscordBotService.GetStatus();
 
@@ -382,6 +430,7 @@
         DiscordOptionsCatalog.Changed += HandleOptionsChanged;
         DeathMessagesCatalog.Changed += HandleDeathMessagesChanged;
         ServerCatalog.Changed += HandleServerCatalogChanged;
+        ClusterCatalog.Changed += HandleServerCatalogChanged;
         DiscordBotService.Changed += HandleBotStatusChanged;
     }
 
@@ -390,6 +439,7 @@
         DiscordOptionsCatalog.Changed -= HandleOptionsChanged;
         DeathMessagesCatalog.Changed -= HandleDeathMessagesChanged;
         ServerCatalog.Changed -= HandleServerCatalogChanged;
+        ClusterCatalog.Changed -= HandleServerCatalogChanged;
         DiscordBotService.Changed -= HandleBotStatusChanged;
     }
 
@@ -488,7 +538,7 @@
     private DiscordServerOptions GetServerOptions(string uniqueName)
     {
         return _options.Servers.First(server =>
-            string.Equals(server.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase));
+            string.Equals(server.TargetKey, uniqueName, StringComparison.OrdinalIgnoreCase));
     }
 
     private string GetServerName(string uniqueName)
@@ -583,14 +633,15 @@
         foreach (var definition in ServerDefinitions)
         {
             if (_options.Servers.Any(server =>
-                    string.Equals(server.UniqueName, definition.UniqueName, StringComparison.OrdinalIgnoreCase)))
+                    string.Equals(server.TargetKey, definition.UniqueName, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }
 
             _options.Servers.Add(new DiscordServerOptions
             {
-                UniqueName = definition.UniqueName,
+                UniqueName = definition.Name,
+                IsCluster = definition.IsCluster,
             });
         }
 
