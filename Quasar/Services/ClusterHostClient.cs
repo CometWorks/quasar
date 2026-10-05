@@ -95,7 +95,7 @@ public sealed class ClusterHostClient
             + "/artifacts/" + Uri.EscapeDataString(cluster.UniqueName) + "/" + Uri.EscapeDataString(artifact.ArtifactId));
         TunnelAuthority(request);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ResolveCredential(cluster.HostCommandTokenEnvironmentVariable)
-            ?? throw new InvalidOperationException("Host credential is unavailable."));
+            ?? throw new InvalidOperationException("Host executor credential is unavailable."));
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
         response.EnsureSuccessStatusCode();
         using var input = await response.Content.ReadAsStreamAsync(token);
@@ -130,7 +130,7 @@ public sealed class ClusterHostClient
             + Uri.EscapeDataString(cluster.UniqueName) + "/" + snapshot.SnapshotId + (upload ? "?sha256=" + snapshot.ArchiveSha256 : "");
         using var request = new HttpRequestMessage(upload ? HttpMethod.Put : HttpMethod.Get, url);
         string credential = ResolveCredential(cluster.HostCommandTokenEnvironmentVariable)
-            ?? throw new InvalidOperationException("Host credential is unavailable.");
+            ?? throw new InvalidOperationException("Host executor credential is unavailable.");
         TunnelAuthority(request);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
         if (upload) request.Content = new StreamContent(File.OpenRead(file));
@@ -179,11 +179,11 @@ public sealed class ClusterHostClient
     {
         if (string.IsNullOrWhiteSpace(cluster.HostCommandUrl))
             throw new ClusterHostException(HttpStatusCode.ServiceUnavailable, "host_command_unconfigured",
-                "Cluster Host command endpoint is not configured.");
+                "Host executor command endpoint is not configured.");
         string? token = ResolveCredential(cluster.HostCommandTokenEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(token))
             throw new ClusterHostException(HttpStatusCode.ServiceUnavailable, "host_credential_missing",
-                $"Host credential environment variable '{cluster.HostCommandTokenEnvironmentVariable}' is not set.");
+                $"Host executor credential environment variable '{cluster.HostCommandTokenEnvironmentVariable}' is not set.");
         using var request = new HttpRequestMessage(method, cluster.HostCommandUrl + route);
         TunnelAuthority(request);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -203,7 +203,7 @@ public sealed class ClusterHostClient
                     JsonSerializer.Deserialize<HostContract.HostErrorEnvelope>(json, JsonOptions);
                 throw new ClusterHostException(response.StatusCode,
                     error?.Error.Code ?? "host_rejected",
-                    error?.Error.Message ?? "Host rejected the command.");
+                    error?.Error.Message ?? "Host executor rejected the command.");
             }
             return JsonSerializer.Deserialize<HostContract.HostEnvelope<T>>(json, JsonOptions)
                 ?? throw ProtocolMismatch();
@@ -211,22 +211,22 @@ public sealed class ClusterHostClient
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw new ClusterHostException(HttpStatusCode.GatewayTimeout, "host_timeout",
-                "Host command timed out.");
+                "Host executor command timed out.");
         }
         catch (HttpRequestException exception)
         {
             var endpoint = new Uri(cluster.HostCommandUrl);
             const string tunnelSuffix = ".quasar-host.invalid";
             string message = endpoint.Host.EndsWith(tunnelSuffix, StringComparison.Ordinal)
-                ? $"Cannot reach cluster host '{endpoint.Host[..^tunnelSuffix.Length]}'. Start Quasar.Host on that machine and wait for it to reconnect before retrying."
-                : $"Cannot reach the cluster host at {endpoint.GetComponents(UriComponents.SchemeAndServer, UriFormat.SafeUnescaped)} ({exception.HttpRequestError}). Install or start Quasar.Host on that machine and check its control port.";
+                ? $"Cannot reach Host executor '{endpoint.Host[..^tunnelSuffix.Length]}'. Start the Host executor (Quasar.Host) on that host machine and wait for it to reconnect before retrying."
+                : $"Cannot reach the Host executor at {endpoint.GetComponents(UriComponents.SchemeAndServer, UriFormat.SafeUnescaped)} ({exception.HttpRequestError}). Install or start the Host executor (Quasar.Host) on that host machine and check its control port.";
             throw new ClusterHostException(HttpStatusCode.ServiceUnavailable, "host_unavailable",
                 message, exception);
         }
         catch (JsonException exception)
         {
             throw new ClusterHostException(HttpStatusCode.BadGateway, "host_protocol_mismatch",
-                "Host returned invalid contract JSON.", exception);
+                "Host executor returned invalid contract JSON.", exception);
         }
     }
 
@@ -243,7 +243,7 @@ public sealed class ClusterHostClient
     }
 
     private static ClusterHostException ProtocolMismatch() => new(HttpStatusCode.BadGateway,
-        "host_protocol_mismatch", "Host command contract version is incompatible.");
+        "host_protocol_mismatch", "Host executor command contract version is incompatible.");
 }
 
 public sealed class ClusterHostException : Exception

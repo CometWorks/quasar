@@ -104,11 +104,10 @@ before resetting paths, especially when both the old and new roots still exist.
 
 ## Server and world names
 
-The server editor's **Identity** section keeps Quasar's display name separate
+The server editor's **Identity** section keeps **Server name** separate
 from the names advertised by Space Engineers. **In-game server name** controls
 the server-list title. **In-game world name** controls the world name shown in
-the server browser. Blank values fall back to the Quasar display name and server
-identifier respectively.
+the server browser. Blank values fall back to the Server name and Server ID respectively.
 
 Quasar writes the selected world name into both the generated Dedicated Server
 configuration and the selected save's `Sandbox_config.sbc` before each start.
@@ -133,6 +132,12 @@ server definition's configured Listen IP.
 
 `0.0.0.0` means “listen on every local interface”; it is not a valid remote
 client address and is not treated as localhost by the join guard.
+
+New server dialogs fill **Server name** and **Server ID** with editable generated
+suggestions. Clearing Server name fills a new suggestion when the field loses focus
+or the form is saved. The suggestion is a saved value, not a placeholder. Existing
+servers and explicit Server IDs keep their identity. The separate **In-game server
+name** field continues to control the advertised name when supplied.
 
 ## Config profile access IDs
 
@@ -1157,8 +1162,8 @@ generating boot images and converting worlds remain part of packaged provisionin
 
 ## Cluster plugin configuration status
 
-**Administration → Cluster settings** edits the display name and shutdown grace
-period (0–3600 seconds). The display name is used in Quasar; the grace period
+**Administration → Cluster settings** edits **Server name** and shutdown grace
+period (0–3600 seconds). The Server name is used in Quasar; the grace period
 is used on the next managed shutdown. Save these with
 `PUT /api/v1/clusters/{uniqueName}/administration`. A clean shutdown proof
 remains valid after these settings change.

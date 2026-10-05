@@ -37,7 +37,7 @@ public sealed class ClusterDetailPanelTests
                 Gateway = managed ? new GatewaySpec("test", GatewayGoal.Off, "/bundle", "hash", "rev", [], "/run") : null })
             .Add(p => p.ShowConfigurationLinks, false));
 
-        Assert.Equal(shouldWarn, panel.Markup.Contains("Cannot reach the Gateway", StringComparison.Ordinal));
+        Assert.Equal(shouldWarn, panel.Markup.Contains("Cannot reach the Cluster Registry", StringComparison.Ordinal));
     }
 
     [Fact]

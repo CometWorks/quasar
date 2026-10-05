@@ -111,7 +111,7 @@ public sealed class ClusterCatalog : IDisposable
         CancellationToken cancellationToken = default)
     {
         string displayName = settings.DisplayName?.Trim() ?? string.Empty;
-        if (displayName.Length == 0) throw new InvalidDataException("Cluster display name is required.");
+        if (displayName.Length == 0) throw new InvalidDataException("Server name is required.");
         if (settings.ShutdownGracePeriodSeconds is < 0 or > 3600)
             throw new InvalidDataException("Cluster shutdown grace period must be between 0 and 3600 seconds.");
         return WithLifecycleAsync(uniqueName, cluster =>
@@ -130,7 +130,7 @@ public sealed class ClusterCatalog : IDisposable
         UpdateAsync(uniqueName, cluster =>
         {
             if (cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null || cluster.ActiveDeployment is not null)
-                throw new InvalidOperationException("Managed Gateway specs change through deployment activation.");
+                throw new InvalidOperationException("Managed cluster-service specifications change through deployment activation.");
             cluster.Gateway = NormalizeGatewaySpec(cluster.UniqueName, gateway);
         },
             cancellationToken);
@@ -565,14 +565,14 @@ public sealed class ClusterCatalog : IDisposable
     {
         cluster.UniqueName = (cluster.UniqueName ?? string.Empty).Trim();
         if (!UniqueNameRegex.IsMatch(cluster.UniqueName))
-            throw new InvalidDataException("Cluster unique name must contain only letters, digits, underscores, and hyphens.");
+            throw new InvalidDataException("Cluster ID must contain only letters, digits, underscores, and hyphens.");
         cluster.DisplayName = string.IsNullOrWhiteSpace(cluster.DisplayName)
             ? cluster.UniqueName
             : cluster.DisplayName.Trim();
         cluster.GatewayUrl = (cluster.GatewayUrl ?? string.Empty).Trim().TrimEnd('/');
         if (!Uri.TryCreate(cluster.GatewayUrl, UriKind.Absolute, out Uri? gateway)
             || gateway.Scheme is not ("http" or "https"))
-            throw new InvalidDataException("Cluster Gateway URL must be an absolute HTTP or HTTPS URL.");
+            throw new InvalidDataException("Cluster Registry admin URL must be an absolute HTTP or HTTPS URL.");
         cluster.GatewayAdminTokenEnvironmentVariable =
             (cluster.GatewayAdminTokenEnvironmentVariable ?? string.Empty).Trim();
         cluster.HostCommandUrl = (cluster.HostCommandUrl ?? string.Empty).Trim().TrimEnd('/');
@@ -581,9 +581,9 @@ public sealed class ClusterCatalog : IDisposable
         if (cluster.HostCommandUrl.Length != 0
             && (!Uri.TryCreate(cluster.HostCommandUrl, UriKind.Absolute, out Uri? hostCommand)
                 || hostCommand.Scheme is not ("http" or "https")))
-            throw new InvalidDataException("Cluster Host command URL must be an absolute HTTP or HTTPS URL.");
+            throw new InvalidDataException("Host executor command URL must be an absolute HTTP or HTTPS URL.");
         if (cluster.HostCommandUrl.Length != 0 && cluster.HostCommandTokenEnvironmentVariable.Length == 0)
-            throw new InvalidDataException("Cluster Host command credential environment variable is required.");
+            throw new InvalidDataException("Host executor command credential environment variable is required.");
         cluster.ConfigProfileId = (cluster.ConfigProfileId ?? string.Empty).Trim();
         cluster.WorldTemplateId = (cluster.WorldTemplateId ?? string.Empty).Trim();
         if (cluster.ShutdownGracePeriodSeconds is < 0 or > 3600)
@@ -609,21 +609,21 @@ public sealed class ClusterCatalog : IDisposable
     {
         string clusterId = gateway.ClusterId?.Trim() ?? string.Empty;
         if (!string.Equals(clusterId, uniqueName, StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("Gateway spec cluster ID must match the cluster unique name.");
+            throw new ArgumentException("Cluster-service specification Cluster ID must match the registered Cluster ID.");
         string manifest = gateway.BundleManifestPath?.Trim() ?? string.Empty;
         string runRoot = gateway.RunRoot?.Trim() ?? string.Empty;
         string revision = gateway.ConfigRevision?.Trim() ?? string.Empty;
         string hash = gateway.BundleManifestSha256?.Trim().ToLowerInvariant() ?? string.Empty;
         int[] ports = gateway.Ports ?? [];
         if (manifest.Length == 0 || runRoot.Length == 0)
-            throw new ArgumentException("Gateway bundle manifest and run root are required.");
+            throw new ArgumentException("Cluster-service bundle manifest and run root are required.");
         if (revision.Length is 0 or > 256)
-            throw new ArgumentException("Gateway config revision is required and cannot exceed 256 characters.");
+            throw new ArgumentException("Cluster-service configuration revision is required and cannot exceed 256 characters.");
         if (hash.Length != 64 || hash.Any(character => !Uri.IsHexDigit(character)))
-            throw new ArgumentException("Gateway bundle manifest SHA-256 must contain 64 hexadecimal characters.");
+            throw new ArgumentException("Cluster-service bundle manifest SHA-256 must contain 64 hexadecimal characters.");
         if (ports.Length == 0 || ports.Any(port => port is < 1 or > 65535)
             || ports.Distinct().Count() != ports.Length)
-            throw new ArgumentException("Gateway ports must contain unique values between 1 and 65535.");
+            throw new ArgumentException("Cluster-service ports must contain unique values between 1 and 65535.");
         return gateway with
         {
             ClusterId = uniqueName,

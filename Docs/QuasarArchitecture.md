@@ -266,19 +266,21 @@ companions can be prepared without loading their UI code.
 
 The headless foundation exposes process liveness, readiness, discovery, and the
 same authenticated APIs as the UI host. The first Phase 4 vertical slice adds a
-durable cluster catalog and proxies Gateway contract-version-1 health, status,
+durable cluster catalog and proxies Cluster Registry contract-version-1 health, status,
 and desired-node-plan queries without referencing Gateway implementation types.
-Gateway responses retain their capture time and stable error envelope so dark-
+Cluster Registry responses retain their capture time and stable error envelope so dark-
 factory callers can distinguish unavailable, rejected, and incompatible peers.
-The same surface carries Gateway-computed recovery readiness: newest complete cut,
+The same surface carries Cluster Registry-computed recovery readiness: newest complete cut,
 consistency class, current save-age bounds, replica/distinct-host coverage, missing
 artifacts, and Registry checkpoint/WAL state.
 
-The contract assembly is published by Cluster Gateway as
-`CometWorks.ClusterGateway.AdminContract`; Quasar, Gateway, and automation clients
-consume that implementation-free package. The catalog stores only the Gateway
-URL and the name of the environment variable holding its credential. Quasar
-readiness reports catalog availability without contacting Gateway, so a failed
+The Cluster Registry admin contract retains the compatibility package/namespace
+`CometWorks.ClusterGateway.AdminContract`; its upstream source directory is
+`ClusterRegistry.AdminContract`. Quasar vendors the pinned implementation-free
+sources under `Contracts/ClusterGateway.AdminContract`. The catalog's legacy
+`GatewayUrl` and `GatewayAdminTokenEnvironmentVariable` fields identify the Cluster
+Registry admin endpoint and its credential. Quasar
+readiness reports catalog availability without contacting Cluster Registry, so a failed
 cluster does not make the management plane itself unready.
 
 The `cluster.query` automation scope authenticates bearer service principals from

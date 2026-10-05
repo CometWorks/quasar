@@ -4,6 +4,9 @@ namespace Quasar.Services;
 
 public static class IdentifierSlug
 {
+    /// <summary>Suggests an editable name that is also valid as a new entity's identifier.</summary>
+    internal static string SuggestName(string entity) => $"{entity}-{Guid.NewGuid().ToString("N")[..12]}";
+
     /// <summary>
     /// Converts a human-readable name into a lowercase identifier slug containing
     /// only letters, digits, and single hyphens. Whitespace, underscores, and

@@ -6,38 +6,38 @@
 @inject ClusterHostCatalog EnrolledHosts
 @inject ClusterLocalHostUpdater LocalHost
 
-<PageTitle>Hosts</PageTitle>
+<PageTitle>Host machines</PageTitle>
 
 <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
-    <MudButton Href="/hosts/enroll" Variant="Variant.Filled" Color="Color.Primary" Class="mb-3">Add cluster host</MudButton>
+    <MudButton Href="/hosts/enroll" Variant="Variant.Filled" Color="Color.Primary" Class="mb-3">Add host machine</MudButton>
 </AuthorizeView>
 
-<MudText Typo="Typo.h5" Class="mb-2">Hosts</MudText>
+<MudText Typo="Typo.h5" Class="mb-2">Host machines</MudText>
 <MudText Typo="Typo.body2" Class="mb-2">@LocalHost.Status</MudText>
 @if (LocalHost.Error is not null) { <MudAlert Severity="Severity.Warning" Class="mb-3">@LocalHost.Error</MudAlert> }
-<MudText Typo="Typo.body2" Class="mb-4">Process agents report standalone-server health. Enrolled Quasar.Host executors independently keep cluster Gateways and node slots reconciled while the central Quasar worker restarts.</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Process agents report standalone-server health. Enrolled Host executors independently keep Cluster Registry, Cluster Gateway and node slots reconciled while the central Quasar worker restarts.</MudText>
 
 <MudPaper Class="server-card mb-4">
     <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center"
               Justify="Justify.SpaceBetween" Spacing="2" Class="pa-4 pb-2">
         <div>
-            <MudText Typo="Typo.h6">Cluster hosts</MudText>
-            <MudText Typo="Typo.body2">Connection status and configured clusters across your hosts.</MudText>
+            <MudText Typo="Typo.h6">Host machines</MudText>
+            <MudText Typo="Typo.body2">Connection status and configured clusters across your host machines.</MudText>
         </div>
         <MudChip T="string" Variant="Variant.Outlined">@($"{ExecutorRows.Count} executor(s)")</MudChip>
     </MudStack>
     <MudTable T="ExecutorHostRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="ExecutorRows">
         <HeaderContent>
-            <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.HostName)">Host</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.ExecutorId)">Executor</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.HostName)">Host machine</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.ExecutorId)">Host executor</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.Reachable)">Reachability</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.ClusterNames)">Clusters</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.GatewaySummary)">Gateway</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.ActualizationCount)">Prepared</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.GatewaySummary)">Cluster services</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.ActualizationCount)">Configured clusters</MudTableSortLabel></MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd DataLabel="Host">@context.HostName</MudTd>
-            <MudTd DataLabel="Executor" Class="mono">@context.ExecutorId</MudTd>
+            <MudTd DataLabel="Host machine">@context.HostName</MudTd>
+            <MudTd DataLabel="Host executor" Class="mono">@context.ExecutorId</MudTd>
             <MudTd DataLabel="Reachability">
                 <MudTooltip Text="@context.Error">
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
@@ -47,12 +47,12 @@
                 </MudTooltip>
             </MudTd>
             <MudTd DataLabel="Clusters">@context.ClusterNames</MudTd>
-            <MudTd DataLabel="Gateway">@context.GatewaySummary</MudTd>
-            <MudTd DataLabel="Prepared">@($"{context.ActualizationCount}/{context.AttachmentCount}")</MudTd>
+            <MudTd DataLabel="Cluster services">@context.GatewaySummary</MudTd>
+            <MudTd DataLabel="Configured clusters">@($"{context.ActualizationCount}/{context.AttachmentCount}")</MudTd>
         </RowTemplate>
         <NoRecordsContent>
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
-                No cluster Host command endpoints are configured.
+                No Host executor command endpoints are configured.
             </MudAlert>
         </NoRecordsContent>
     </MudTable>
@@ -62,20 +62,20 @@
     <MudText Typo="Typo.h6" Class="pa-4 pb-2">In-process agents</MudText>
     <MudTable T="HostRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="HostRows">
         <HeaderContent>
-            <MudTh><MudTableSortLabel SortBy="new Func<HostRow, object>(x => x.HostName)">Host</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<HostRow, object>(x => x.HostName)">Host machine</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<HostRow, object>(x => x.ServerCount)">Servers</MudTableSortLabel></MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<HostRow, object>(x => x.ConnectedAgents)">Connected Agents</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<HostRow, object>(x => x.ConnectedAgents)">Connected agents</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<HostRow, object>(x => x.PlayersOnline)">Players</MudTableSortLabel></MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd DataLabel="Host">@context.HostName</MudTd>
+            <MudTd DataLabel="Host machine">@context.HostName</MudTd>
             <MudTd DataLabel="Servers">@context.ServerCount</MudTd>
-            <MudTd DataLabel="Connected Agents">@context.ConnectedAgents</MudTd>
+            <MudTd DataLabel="Connected agents">@context.ConnectedAgents</MudTd>
             <MudTd DataLabel="Players">@context.PlayersOnline</MudTd>
         </RowTemplate>
         <NoRecordsContent>
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
-                No host data yet.
+                No host machine data yet.
             </MudAlert>
         </NoRecordsContent>
     </MudTable>

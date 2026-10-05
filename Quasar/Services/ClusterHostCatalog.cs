@@ -39,7 +39,7 @@ public sealed class ClusterHostCatalog
         catch (Exception exception) when (exception is JsonException or InvalidDataException or IOException or UnauthorizedAccessException)
         {
             if (_reported.TryAdd(path, true))
-                _logger?.LogError(exception, "Host registration {Path} is unreadable and was ignored; enroll that Host again.", path);
+                _logger?.LogError(exception, "Host registration {Path} is unreadable and was ignored; enroll that Host executor again.", path);
             return null;
         }
     }
@@ -47,14 +47,14 @@ public sealed class ClusterHostCatalog
     public async Task<EnrolledClusterHost> RegisterAsync(string id, string name, string address, int commandPort, CancellationToken token)
     {
         if (string.IsNullOrEmpty(id) || !Regex.IsMatch(id, "^[a-z][a-z0-9-]{0,62}$") || !IsClusterAddress(address)
-            || commandPort is < 1024 or > 65535) throw new ArgumentException("Use a lowercase machine ID, a private IP address and a control port from 1024 to 65535.");
+            || commandPort is < 1024 or > 65535) throw new ArgumentException("Use a lowercase Host machine ID, a private IP address and a control port from 1024 to 65535.");
         await _gate.WaitAsync(token);
         try
         {
-            if (Get(id) is not null) throw new InvalidOperationException("A machine with this ID is already registered.");
+            if (Get(id) is not null) throw new InvalidOperationException("A host machine with this ID is already registered.");
             address = System.Net.IPAddress.Parse(address).ToString();
             if (GetAll().Any(h => h.Address == address && h.CommandPort == commandPort))
-                throw new InvalidOperationException("This machine address and Host control port are already registered. Resume the existing enrollment.");
+                throw new InvalidOperationException("This host machine address and Host executor control port are already registered. Resume the existing enrollment.");
             var host = new EnrolledClusterHost(id, string.IsNullOrWhiteSpace(name) ? id : name.Trim(), address, commandPort, credentials.Create("host:" + id, "control"));
             string directory = Path.Combine(_root, id); Directory.CreateDirectory(directory);
             await AtomicFileWriter.WriteTextAsync(Path.Combine(directory, "host.json"), JsonSerializer.Serialize(host), token);

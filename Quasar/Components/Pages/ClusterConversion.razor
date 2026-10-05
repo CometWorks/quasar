@@ -26,15 +26,15 @@
         <MudButton OnClick="Review" Disabled="@Locked">Refresh source review</MudButton>
         @if (_review is not null)
         {
-            <MudText>Profile: @_review.ProfileName</MudText>
+            <MudText>Configuration profile: @_review.ProfileName</MudText>
             <MudText>Plugin settings captured: @(_review.PluginConfigurationCapturedAt?.ToLocalTime().ToString("g") ?? "No snapshot needed for an empty plugin selection")</MudText>
             <MudText>@_review.ConfigurablePlugins configurable plugins. Settings shown here are a recorded snapshot, not live state. Review source plugin settings before stopping it.</MudText>
             @foreach (string plugin in _review.Plugins) { <MudText Typo="Typo.body2">@plugin</MudText> }
             @foreach (string warning in _review.Warnings) { <MudAlert Severity="Severity.Warning">@warning</MudAlert> }
         }
         <MudText Typo="Typo.h6" Class="mt-4">2. Choose the destination and verified release</MudText>
-        <MudText>Choose an empty cluster with its release package and dependency snapshot selected. The snapshot must contain the same common plugins as this server. Its frozen commits determine the deployed versions, including when the source follows a moving version label.</MudText>
-        <MudButton Href="/clusters/new" Target="_blank">Register a new cluster</MudButton>
+        <MudText>Choose an empty registered cluster with its release package and dependency snapshot selected. The snapshot must contain the same common plugins as this server. Its frozen commits determine the deployed versions, including when the source follows a moving version label.</MudText>
+        <MudButton Href="/clusters/new?register=true" Target="_blank">Register existing cluster</MudButton>
         <MudSelect T="string" Label="Destination cluster" @bind-Value="_targetCluster" Disabled="@Locked">
             @foreach (var cluster in Clusters.GetClusters().Where(c => c.ActiveDeployment is null && c.GoalState == DedicatedServerGoalState.Off))
             { <MudSelectItem Value="@cluster.UniqueName">@cluster.DisplayName (@cluster.UniqueName)</MudSelectItem> }
@@ -47,40 +47,40 @@
             <MudButton Href="@("/clusters/" + Uri.EscapeDataString(_targetCluster))" Target="_blank">Review release and dependencies</MudButton>
         }
         <MudText Typo="Typo.h6" Class="mt-4">3. Place the cluster</MudText>
-        <MudText>The shipped converter requires at least two regular nodes. Each Host receives the verified package, frozen dependencies and the same converted world. Enter routable private IP addresses. Credential fields name existing environment variables; do not enter secrets.</MudText>
+        <MudText>The shipped converter requires at least two regular nodes. Each Host executor receives the verified package, frozen dependencies and the same converted world. Enter routable private IP addresses. Credential fields name existing environment variables; do not enter secrets.</MudText>
         @foreach (var host in _hosts)
         {
             <MudPaper Outlined="true" Class="pa-3 my-2" @key="host">
-                <MudTextField Label="Host ID" @bind-Value="host.Id" Disabled="@Locked" />
-                <MudTextField Label="Host command URL" @bind-Value="host.Url" Disabled="@Locked" />
-                <MudTextField Label="Host command token environment variable" @bind-Value="host.Token" Disabled="@Locked" />
-                <MudTextField Label="Executor token environment variable on Host" @bind-Value="host.Executor" Disabled="@Locked" />
+                <MudTextField Label="Host machine ID" @bind-Value="host.Id" Disabled="@Locked" />
+                <MudTextField Label="Host executor command URL" @bind-Value="host.Url" Disabled="@Locked" />
+                <MudTextField Label="Host executor command token environment variable" @bind-Value="host.Token" Disabled="@Locked" />
+                <MudTextField Label="Host executor token environment variable" @bind-Value="host.Executor" Disabled="@Locked" />
                 <MudTextField Label="Private IP address" @bind-Value="host.Address" Disabled="@Locked" />
                 <MudNumericField T="int" Label="Regular nodes" @bind-Value="host.Nodes" Min="1" Max="32" Disabled="@Locked" />
-                <MudButton OnClick="@(() => _hosts.Remove(host))" Disabled="@(Locked || _hosts.Count == 1)">Remove Host</MudButton>
+                <MudButton OnClick="@(() => _hosts.Remove(host))" Disabled="@(Locked || _hosts.Count == 1)">Remove placement</MudButton>
             </MudPaper>
         }
-        <MudButton OnClick="@(() => _hosts.Add(new HostForm()))" Disabled="@Locked">Add Host</MudButton>
-        <MudSelect T="string" Label="Gateway and World Authority Host" @bind-Value="_gatewayHost" Disabled="@Locked">
+        <MudButton OnClick="@(() => _hosts.Add(new HostForm()))" Disabled="@Locked">Add placement</MudButton>
+        <MudSelect T="string" Label="Cluster Gateway and World Authority host machine" @bind-Value="_gatewayHost" Disabled="@Locked">
             @foreach (var host in _hosts.Where(h => !string.IsNullOrWhiteSpace(h.Id))) { <MudSelectItem Value="@host.Id">@host.Id</MudSelectItem> }
         </MudSelect>
         <MudTextField Label="Game build reported by the nodes" @bind-Value="_binaryVersion" Disabled="@Locked" HelperText="Must match MySandboxGame.BuildVersion for the selected Dedicated Server build." />
-        <MudNumericField T="int" Label="Public Steam port" @bind-Value="_steamPort" Min="1" Max="65535" Disabled="@Locked" />
+        <MudNumericField T="int" Label="Public server port" @bind-Value="_steamPort" Min="1" Max="65535" Disabled="@Locked" />
         <MudTextField Label="Allowed internal networks (comma-separated CIDRs)" @bind-Value="_networks" Disabled="@Locked" />
-        <MudTextField Label="Join token environment variable on Hosts" @bind-Value="_joinToken" Disabled="@Locked" />
-        <MudTextField Label="Gateway token-file environment variable" @bind-Value="_tokenFile" Disabled="@Locked" />
-        <MudText Typo="Typo.caption">Regular nodes use backend ports 28417 upward and control ports 29417 upward on each Host. World Authority uses 28700/29700. Gateway control uses the destination cluster URL.</MudText>
+        <MudTextField Label="Join token environment variable on host machines" @bind-Value="_joinToken" Disabled="@Locked" />
+        <MudTextField Label="Cluster Registry token-file environment variable" @bind-Value="_tokenFile" Disabled="@Locked" />
+        <MudText Typo="Typo.caption">Regular nodes use backend ports 28417 upward and control ports 29417 upward on each host machine. World Authority uses 28700/29700. Cluster Registry administration uses the destination cluster URL.</MudText>
     }
     else
     {
         <MudText Typo="Typo.h6">1. Review the source cluster: @ClusterName</MudText>
-        <MudText>Shut down the cluster cleanly first. Quasar verifies every Host is stopped, captures a native backup, and converts those copies. Shared filesystem access is not required.</MudText>
+        <MudText>Shut down the cluster cleanly first. Quasar verifies every Host executor has stopped its cluster processes, captures a native backup, and converts those copies. Shared filesystem access is not required.</MudText>
         <MudButton Href="@("/clusters/" + Uri.EscapeDataString(ClusterName ?? ""))">Open source cluster</MudButton>
         <MudText Typo="Typo.h6" Class="mt-4">2. Configure the standalone destination</MudText>
-        <MudTextField Label="Unique server name" @bind-Value="_serverId" Disabled="@Locked" />
-        <MudTextField Label="Display name" @bind-Value="_displayName" Disabled="@Locked" />
-        <MudNumericField T="int" Label="Server port" @bind-Value="_serverPort" Min="1" Max="65535" Disabled="@Locked" />
-        <MudSelect T="string" Label="Base profile for server settings and plugin selections" @bind-Value="_profileId" Disabled="@Locked">
+        <MudTextField Label="Server ID" @bind-Value="_serverId" Disabled="@Locked" />
+        <MudTextField Label="Server name" @bind-Value="_displayName" OnBlur="@(_ => EnsureDestinationName())" Disabled="@Locked" HelperText="A blank name receives an editable generated suggestion." />
+        <MudNumericField T="int" Label="Public server port" @bind-Value="_serverPort" Min="1" Max="65535" Disabled="@Locked" />
+        <MudSelect T="string" Label="Base configuration profile for server settings and plugin selections" @bind-Value="_profileId" Disabled="@Locked">
             @foreach (var profile in Profiles.GetProfiles()) { <MudSelectItem Value="@profile.ConfigProfileId">@profile.Name</MudSelectItem> }
         </MudSelect>
         <MudText>Session settings and mods come from the converted world. Server settings and ordinary plugin selections are copied into a new profile. Cluster role and transport plugins are removed.</MudText>
@@ -123,6 +123,14 @@
     private ClusterConversionStatus? _status;
     private readonly CancellationTokenSource _cancel = new();
     protected override void OnInitialized() => Conversions.Changed += Changed;
+    private void EnsureDestinationName()
+    {
+        if (ToCluster || Locked) return;
+        if (string.IsNullOrWhiteSpace(_displayName))
+            _displayName = IdentifierSlug.SuggestName("server");
+        if (string.IsNullOrWhiteSpace(_serverId))
+            _serverId = Servers.GenerateUniqueServerName(IdentifierSlug.SuggestName("server"));
+    }
     protected override async Task OnParametersSetAsync()
     {
         var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
@@ -155,6 +163,7 @@
         if (ToCluster && _request is null) Review();
         else if (!ToCluster && _request is null && Clusters.GetCluster(ClusterName!) is { } cluster)
         { _profileId = cluster.ConfigProfileId; _serverId = cluster.UniqueName + "-standalone"; _displayName = cluster.DisplayName; }
+        EnsureDestinationName();
     }
     private async Task ReviewDestinationAsync()
     {
@@ -181,6 +190,7 @@
     private void Changed() => _ = InvokeAsync(() => { if (_id != Guid.Empty) _status = Conversions.GetStatus(_id); StateHasChanged(); });
     private async Task RunAsync()
     {
+        EnsureDestinationName();
         if (_busy || !_confirmed || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)
             || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditServers)
             || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;

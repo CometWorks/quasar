@@ -9,16 +9,16 @@
 <MudStack Spacing="3">
     <MudText Typo="Typo.h6">Nodes and players</MudText>
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">Observations may be stale: @_error</MudAlert> }
-    @if (_capturedAt is { } captured) { <MudText Typo="Typo.caption">Registry observation: @captured.ToString("u")</MudText> }
+    @if (_capturedAt is { } captured) { <MudText Typo="Typo.caption">Cluster Registry observation: @captured.ToString("u")</MudText> }
     <MudTabs>
         <MudTabPanel Text="Nodes">
             <MudTable T="NodeRow" Items="NodeRows" Dense="true" Hover="true">
-                <HeaderContent><MudTh>Slot / node</MudTh><MudTh>Machine / role</MudTh><MudTh>Goal / observed</MudTh><MudTh>Registry status</MudTh><MudTh>Performance</MudTh><MudTh>Actions</MudTh></HeaderContent>
+                <HeaderContent><MudTh>Slot / node</MudTh><MudTh>Host machine / role</MudTh><MudTh>Goal / observed</MudTh><MudTh>Cluster Registry status</MudTh><MudTh>Performance</MudTh><MudTh>Actions</MudTh></HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Slot / node">@(context.Plan?.SlotKey ?? context.Fleet?.Registry.SlotKey ?? "-")
                         <MudText Typo="Typo.caption">@(context.Fleet is { } node ? $"{node.Registry.Node} · epoch {node.Registry.Epoch}" : "No registered node")</MudText>
                     </MudTd>
-                    <MudTd DataLabel="Machine / role">@(context.Plan?.Host ?? context.Fleet?.Registry.Host ?? "-") · @RoleText(context.Plan?.Role ?? context.Fleet?.Registry.Role)
+                    <MudTd DataLabel="Host machine / role">@(context.Plan?.Host ?? context.Fleet?.Registry.Host ?? "-") · @RoleText(context.Plan?.Role ?? context.Fleet?.Registry.Role)
                         @if (context.Plan is { } planned && context.Fleet is { } registered
                             && (planned.Host != registered.Registry.Host || planned.Role != registered.Registry.Role))
                         {
@@ -26,7 +26,7 @@
                         }
                     </MudTd>
                     <MudTd DataLabel="Goal / observed">@(context.Plan is { } plan ? $"{plan.Goal} / {plan.Observed}" : "-")</MudTd>
-                    <MudTd DataLabel="Registry status">@(context.Fleet?.Registry.State.ToString() ?? "No registered node")</MudTd>
+                    <MudTd DataLabel="Cluster Registry status">@(context.Fleet?.Registry.State.ToString() ?? "No registered node")</MudTd>
                     <MudTd DataLabel="Performance">
                         @if (context.Fleet?.Telemetry is { } telemetry)
                         {
