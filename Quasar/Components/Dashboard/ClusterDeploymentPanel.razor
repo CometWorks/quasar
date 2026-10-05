@@ -29,7 +29,7 @@
                 <MudText>Latest release: @(Releases.GetSnapshot().Release?.Version ?? "Unknown")</MudText>
                 <MudButton OnClick="PrepareLatestUpdateAsync" Disabled="@(_busy || UpdateLocked || Current.Preparation is null)"
                            Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Stage latest release</MudButton>
-                <MudText Typo="Typo.caption">Quasar selects the release, freezes matching dependencies and prepares every Host automatically. The cluster stays online until you apply the pending update.</MudText>
+                <MudText Typo="Typo.caption">Quasar selects the release, freezes matching dependencies and prepares every Host executor automatically. The cluster stays online until you apply the pending update.</MudText>
                 @if (Current.Preparation is null)
                 {
                     <MudText Typo="Typo.caption">Complete guided setup first. For externally provisioned clusters, import their preparation once using Advanced deployment tools.</MudText>
@@ -43,7 +43,7 @@
                     <MudText Typo="Typo.h6">Pending update</MudText>
                     @if (Current.HasPreparedUpdate)
                     {
-                        <MudText>Deployment prepared on all Hosts. Configuration and release changes are ready to apply.</MudText>
+                        <MudText>Deployment prepared on all host machines. Configuration and release changes are ready to apply.</MudText>
                     }
                     @if (Current.QueuedContentUpdates is { } queued)
                     {
@@ -61,7 +61,7 @@
                     <MudButton OnClick="StartPreparedUpdateAsync" Color="Color.Primary" Variant="Variant.Filled"
                                Disabled="@(_busy || UpdateLocked || !Current.HasPreparedUpdate || Current.QueuedContentUpdates is not null || Current.GoalState == DedicatedServerGoalState.Off && Current.Gateway is not null && Current.ShutdownProof?.LifecycleId != Current.GetLifecycleId())"
                                StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Apply pending update</MudButton>
-                    <MudText Typo="Typo.caption">Applying stops the entire cluster, captures a verified backup for profile changes, activates the staged deployment on every Host, and restarts it. Plan for full downtime.</MudText>
+                    <MudText Typo="Typo.caption">Applying stops the entire cluster, captures a verified backup for profile changes, activates the staged deployment on every host machine, and restarts it. Plan for full downtime.</MudText>
                 </MudStack>
             </MudPaper>
         }
@@ -86,7 +86,7 @@
         <MudExpansionPanels>
             <MudExpansionPanel Text="Backups">
                 <MudStack Spacing="3" Class="py-2 cluster-form-section">
-                <MudText Typo="Typo.body2">Backups require a clean stop. Running clusters can store a Gateway world export.</MudText>
+                <MudText Typo="Typo.body2">Backups require a clean stop. Running clusters can store a Cluster Registry world export.</MudText>
                 @if (Current.GoalState == DedicatedServerGoalState.Off)
                 {
                     <MudButton OnClick="BackupAsync" Disabled="@_busy" Variant="Variant.Outlined" Color="Color.Primary">Back up stopped cluster</MudButton>
@@ -105,13 +105,13 @@
                                Variant="Variant.Outlined" Color="Color.Warning">Prepare restore with fresh credentials</MudButton>
                 }
                 <MudExpansionPanels>
-                <MudExpansionPanel Text="Archive Gateway export">
-                <MudTextField T="string" Label="Gateway world export artifact ID" @bind-Value="_artifactId" Disabled="_busy" />
+                <MudExpansionPanel Text="Archive Cluster Registry export">
+                <MudTextField T="string" Label="Cluster Registry world export artifact ID" @bind-Value="_artifactId" Disabled="_busy" />
                 <MudButton OnClick="ArchiveExportAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_artifactId))" Variant="Variant.Outlined" Color="Color.Primary">Verify and store world export</MudButton>
                 </MudExpansionPanel>
                 <MudExpansionPanel Text="Restore prepared backup">
                 <MudTextField T="string" Label="Restore request (JSON)" @bind-Value="_restore" Lines="8" Disabled="_busy" />
-                <MudText Typo="Typo.body2">Select a backup above and prepare it to fill this request. Restoring replaces current world and plugin data. Host keeps the previous runtime data for recovery.</MudText>
+                <MudText Typo="Typo.body2">Select a backup above and prepare it to fill this request. Restoring replaces current world and plugin data. The Host executor keeps the previous runtime data for recovery.</MudText>
                 <MudButton OnClick="RestoreAsync" Color="Color.Warning" Variant="Variant.Outlined" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off || string.IsNullOrWhiteSpace(_restore))">Restore backup</MudButton>
                 </MudExpansionPanel>
                 </MudExpansionPanels>
@@ -121,8 +121,8 @@
             {
             <MudExpansionPanel Text="Recovery">
                 <MudStack Spacing="3" Class="py-2 cluster-form-section">
-        <MudButton OnClick="RecoverAsync" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off || Current.ActiveDeployment is null)" Variant="Variant.Outlined" Color="Color.Primary">Recover missing Gateway</MudButton>
-        <MudText Typo="Typo.caption">Recovery resumes the recorded Gateway and any pending shutdown. It does not erase world state or mark a dirty shutdown as clean.</MudText>
+        <MudButton OnClick="RecoverAsync" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off || Current.ActiveDeployment is null)" Variant="Variant.Outlined" Color="Color.Primary">Recover missing cluster services</MudButton>
+        <MudText Typo="Typo.caption">Recovery resumes the recorded cluster services and any pending shutdown. It does not erase world state or mark a dirty shutdown as clean.</MudText>
         <MudButton OnClick="RecoverStoppedAsync" Color="Color.Warning" Variant="Variant.Outlined" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off || Current.ActiveDeployment is null)">Recover stopped cluster after an unclean shutdown</MudButton>
         <MudText Typo="Typo.caption">Requires every node to be stopped. Starts a new recovery generation from retained saves and plugin data; unsaved game changes may be lost.</MudText>
                 </MudStack>
@@ -145,14 +145,14 @@
                     </MudStack>
                     <MudDivider />
                     <MudButton OnClick="DownloadPreparationAsync" Disabled="@(_busy || _preparationRequest is null)" Variant="Variant.Outlined" Color="Color.Primary">Download generated preparation</MudButton>
-                    <MudText Typo="Typo.caption">Import an edited preparation to override installation or topology. Staging prepares all Hosts and generates the activation request.</MudText>
+                    <MudText Typo="Typo.caption">Import an edited preparation to override installation or topology. Staging prepares all host machines and generates the activation request.</MudText>
                     <InputFile OnChange="ImportPreparationAsync" accept=".json,application/json" disabled="@(_busy || UpdateLocked)" />
                     <MudButton OnClick="PrepareAsync" Disabled="@(_busy || UpdateLocked || _preparationRequest is null)" Variant="Variant.Outlined" Color="Color.Primary">Stage imported preparation</MudButton>
                     <MudTextField T="string" Label="Generated activation request (JSON override)" @bind-Value="_activation" Lines="8" Disabled="@(_busy || UpdateLocked)" />
                     <MudButton OnClick="UpdateFromJsonAsync" Disabled="@(_busy || UpdateLocked || Current.QueuedContentUpdates is not null || string.IsNullOrWhiteSpace(_activation))" Variant="Variant.Outlined" Color="Color.Primary">Apply JSON override with downtime</MudButton>
-                    <MudButton OnClick="ActivateAsync" Disabled="@(_busy || Current.QueuedContentUpdates is not null || Current.GoalState != DedicatedServerGoalState.Off || string.IsNullOrWhiteSpace(_activation))" Variant="Variant.Outlined" Color="Color.Primary">Activate on stopped Hosts</MudButton>
+                    <MudButton OnClick="ActivateAsync" Disabled="@(_busy || Current.QueuedContentUpdates is not null || Current.GoalState != DedicatedServerGoalState.Off || string.IsNullOrWhiteSpace(_activation))" Variant="Variant.Outlined" Color="Color.Primary">Activate on stopped host machines</MudButton>
                     <MudButton OnClick="RollbackAsync" Disabled="@(_busy || UpdateLocked || Current.QueuedContentUpdates is not null || !CanRollbackWithoutDataRestore)" Variant="Variant.Outlined" Color="Color.Warning">Roll back binaries and configuration</MudButton>
-                    <MudText Typo="Typo.caption">Rollback preserves current world and plugin data. The Host refuses an older bundle that cannot preserve migrated profile content; restore the pre-migration backup with fresh credentials in that case.</MudText>
+                    <MudText Typo="Typo.caption">Rollback preserves current world and plugin data. The Host executor refuses an older bundle that cannot preserve migrated profile content; restore the pre-migration backup with fresh credentials in that case.</MudText>
                 </MudStack>
             </MudExpansionPanel>
         </MudExpansionPanels>

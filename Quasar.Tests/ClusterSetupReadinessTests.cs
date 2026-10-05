@@ -83,7 +83,7 @@ public sealed class ClusterSetupReadinessTests : IDisposable
         else { Assert.NotNull(result.Error); Assert.NotNull(setup.GetStatus("demo")!.Error); }
         if (fault == "offline")
         {
-            Assert.Contains("cluster host 'two'", result.Error!.Message);
+            Assert.Contains("Host executor 'two'", result.Error!.Message);
             Assert.DoesNotContain(".quasar-host.invalid", result.Error.Message);
         }
         Assert.Equal(request.UniqueName, setup.GetStatus("demo")!.Request.UniqueName);

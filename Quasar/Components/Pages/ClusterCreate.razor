@@ -17,67 +17,104 @@
 <ClusterBetaNotice />
 <MudCard Class="server-card"><MudCardContent>
     <MudText Typo="Typo.h5" Class="mb-3">Set up cluster</MudText>
-    <MudTabs>
+    <MudTabs KeepPanelsAlive="true" ActivePanelIndex="@(Register ? 1 : 0)">
         <MudTabPanel Text="Create and deploy">
-            <MudStack Spacing="3" Class="pt-4">
-                <MudText>Quasar downloads the verified cluster release, prepares identical plugins and configuration, copies your world, and deploys it to the selected machines. The finished cluster remains stopped until you choose Start.</MudText>
-                <MudTextField T="string" Label="Cluster ID" @bind-Value="_id" Disabled="Locked" HelperText="A unique name for stored data, using letters, numbers, hyphens or underscores. Removed IDs cannot be reused." />
-                <MudTextField T="string" Label="Server name" @bind-Value="_name" Disabled="Locked" HelperText="The name shown to players and in Quasar." />
-                <MudSelect T="string" Label="World template" @bind-Value="_world" Disabled="Locked" HelperText="Quasar converts a copy. The original template is preserved.">
-                    @foreach (var world in Worlds.GetTemplates()) { <MudSelectItem Value="world.WorldTemplateId">@world.Name</MudSelectItem> }
-                </MudSelect>
-                <MudSelect T="string" Label="Configuration profile" @bind-Value="_profile" Disabled="Locked" HelperText="Game settings, mods and plugin selection. New clusters start with the selected plugins' SDK defaults, shared across every node.">
-                    @foreach (var profile in Profiles.GetProfiles()) { <MudSelectItem Value="profile.ConfigProfileId">@profile.Name</MudSelectItem> }
-                </MudSelect>
-                <MudText Typo="Typo.h6">Cluster hosts</MudText>
-                <MudText Typo="Typo.caption">@LocalHost.Status</MudText>
-                @if (LocalHost.Error is not null) { <MudAlert Severity="Severity.Warning">@LocalHost.Error</MudAlert> }
-                <MudText Typo="Typo.body2">Choose 1–32 regular nodes per selected host, with at least two in total. The Gateway host also runs the World Authority. Multi-host clusters need mutually reachable LAN/VPN addresses; Quasar also needs to reach the Gateway's control port.</MudText>
-                <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
-                    <MudButton Href="/hosts/enroll" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add">Add cluster host</MudButton>
-                </AuthorizeView>
-                @if (_machines.Count == 0) { <MudAlert Severity="Severity.Info">Enroll a machine from Hosts before deploying. Administrators can install locally, generate a one-time command, or install over SSH.</MudAlert> }
-                @foreach (var machine in _machines)
-                {
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="3">
-                        <MudCheckBox T="bool" @bind-Value="machine.Selected" Disabled="Locked" Label="@($"{machine.Host.Name} ({machine.Host.Address})")" />
-                        <MudChip T="string" Size="Size.Small" Color="@(Tunnels.IsConnected(machine.Host.Id) ? Color.Success : Color.Warning)">@(Tunnels.IsConnected(machine.Host.Id) ? "Connected" : "Offline")</MudChip>
-                        <MudNumericField T="int" Label="Regular nodes" @bind-Value="machine.Nodes" Min="1" Max="32" Disabled="@(!machine.Selected || Locked)" />
-                    </MudStack>
-                }
-                <MudSelect T="string" Label="Gateway and World Authority machine" @bind-Value="_gateway" Disabled="Locked" HelperText="Players connect to this machine. Quasar generates and installs the Gateway credentials automatically.">
-                    @foreach (var machine in _machines.Where(m => m.Selected)) { <MudSelectItem Value="machine.Host.Id">@machine.Host.Name</MudSelectItem> }
-                </MudSelect>
-                <MudNumericField T="int" Label="Player port" @bind-Value="_port" Min="1024" Max="65000" Disabled="Locked" HelperText="UDP port players use, usually 28000. Setup also reserves this port through port +264 for Gateway control and node communication; keep that range free on these machines." />
-                <MudText Typo="Typo.body2">Allow the player UDP port through your firewall. Keep internal cluster traffic on your LAN/VPN. The Host command listener stays on loopback and connects back to Quasar over HTTPS.</MudText>
-                @if (HasOfflineHosts)
-                {
-                    <MudAlert Severity="Severity.Warning">Every selected host must be connected before you can deploy. Start or reconnect the offline hosts. To change hosts after an interrupted attempt, choose Start a new setup.</MudAlert>
-                }
-                <MudButton OnClick="DeployAsync" Disabled="@(!CanDeploy)" Variant="Variant.Filled" Color="Color.Primary">@(_request is null ? "Create and deploy cluster" : "Resume setup")</MudButton>
-                @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
-                @if (_status is not null)
-                {
-                    <MudAlert Severity="@(_status.Error is null ? Severity.Info : Severity.Warning)">@_status.Phase @(_status.Error is null ? "" : ": " + _status.Error)</MudAlert>
-                    @if (_request is not null && _status.Error is not null)
+            <MudStepper @bind-ActiveIndex="_setupStep" NonLinear="true" Vertical="true">
+                <ChildContent>
+                    <MudStep Title="Host enrollment" Disabled="_busy" Completed="HasConnectedHosts">
+                        <MudStack Spacing="3">
+                            <MudText>Use an enrolled host machine or add one here before configuring the cluster. Quasar automatically prepares its local Host executor on supported Linux x64 installations.</MudText>
+                            <MudText Typo="Typo.caption">@LocalHost.Status</MudText>
+                            @if (LocalHost.Error is not null) { <MudAlert Severity="Severity.Warning">@LocalHost.Error</MudAlert> }
+                            @foreach (var machine in _machines)
+                            {
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                    <MudText>@machine.Host.Name (@machine.Host.Address)</MudText>
+                                    <MudChip T="string" Size="Size.Small" Color="@(Tunnels.IsConnected(machine.Host.Id) ? Color.Success : Color.Warning)">@(Tunnels.IsConnected(machine.Host.Id) ? "Connected" : "Offline")</MudChip>
+                                </MudStack>
+                            }
+                            <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
+                                <Authorized>
+                                    <MudExpansionPanels>
+                                        <MudExpansionPanel Text="Add host machine" @bind-Expanded="_showEnrollment">
+                                            <HostEnrollment />
+                                        </MudExpansionPanel>
+                                    </MudExpansionPanels>
+                                </Authorized>
+                                <NotAuthorized>
+                                    <MudAlert Severity="Severity.Info">A security administrator must enroll host machines. You can continue with an existing connected host machine.</MudAlert>
+                                </NotAuthorized>
+                            </AuthorizeView>
+                            @if (!HasConnectedHosts) { <MudAlert Severity="Severity.Info">Waiting for an enrolled Host executor to connect. Enrollment alone does not make a host machine ready for deployment.</MudAlert> }
+                        </MudStack>
+                    </MudStep>
+                    <MudStep Title="Configure and deploy" Disabled="@(_busy || !HasConnectedHosts && _request is null)">
+                        <MudStack Spacing="3" Class="pt-4">
+                            <MudText>Quasar downloads the verified cluster release, prepares identical plugins and configuration, copies your world, and deploys it to the selected host machines. The finished cluster remains stopped until you choose Start.</MudText>
+                            <MudTextField T="string" Label="Cluster ID" @bind-Value="_id" Disabled="Locked" HelperText="A permanent ID for stored data, using letters, numbers, hyphens or underscores. Removed IDs cannot be reused." />
+                            <MudTextField T="string" Label="Server name" @bind-Value="_name" OnBlur="@(_ => EnsureNames())" Disabled="Locked" HelperText="The name shown to players and in Quasar. A blank name receives an editable generated suggestion." />
+                            <MudSelect T="string" Label="World template" @bind-Value="_world" Disabled="Locked" HelperText="Quasar converts a copy. The original template is preserved.">
+                                @foreach (var world in Worlds.GetTemplates()) { <MudSelectItem Value="world.WorldTemplateId">@world.Name</MudSelectItem> }
+                            </MudSelect>
+                            <MudSelect T="string" Label="Configuration profile" @bind-Value="_profile" Disabled="Locked" HelperText="Game settings, mods and plugin selection. New clusters start with the selected plugins' SDK defaults, shared across every node.">
+                                @foreach (var profile in Profiles.GetProfiles()) { <MudSelectItem Value="profile.ConfigProfileId">@profile.Name</MudSelectItem> }
+                            </MudSelect>
+                            <MudText Typo="Typo.h6">Host machines</MudText>
+                            <MudText Typo="Typo.body2">Choose 1–32 regular nodes per selected host machine, with at least two in total. The Cluster Gateway host machine also runs the Cluster Registry and World Authority. Clusters on multiple host machines need mutually reachable LAN/VPN addresses; Quasar also needs to reach the Cluster Registry admin port.</MudText>
+                            @foreach (var machine in _machines)
+                            {
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="3">
+                                    <MudCheckBox T="bool" @bind-Value="machine.Selected" Disabled="Locked" Label="@($"{machine.Host.Name} ({machine.Host.Address})")" />
+                                    <MudChip T="string" Size="Size.Small" Color="@(Tunnels.IsConnected(machine.Host.Id) ? Color.Success : Color.Warning)">@(Tunnels.IsConnected(machine.Host.Id) ? "Connected" : "Offline")</MudChip>
+                                    <MudNumericField T="int" Label="Regular nodes" @bind-Value="machine.Nodes" Min="1" Max="32" Disabled="@(!machine.Selected || Locked)" />
+                                </MudStack>
+                            }
+                            <MudSelect T="string" Label="Cluster Gateway and World Authority host machine" @bind-Value="_gateway" Disabled="Locked" HelperText="Players connect to this host machine. Quasar generates and installs the Cluster Registry credentials automatically.">
+                                @foreach (var machine in _machines.Where(m => m.Selected)) { <MudSelectItem Value="machine.Host.Id">@machine.Host.Name</MudSelectItem> }
+                            </MudSelect>
+                            <MudNumericField T="int" Label="Public server port" @bind-Value="_port" Min="1024" Max="65000" Disabled="Locked" HelperText="UDP port players use, usually 28000. Setup also reserves this port through port +264 for Cluster Registry administration and node communication; keep that range free on these host machines." />
+                            <MudText Typo="Typo.body2">Allow the player UDP port through your firewall. Keep internal cluster traffic on your LAN/VPN. The Host executor command listener stays on loopback and connects back to Quasar over HTTPS.</MudText>
+                            @if (HasOfflineHosts)
+                            {
+                                <MudAlert Severity="Severity.Warning">Every selected host machine must be connected before you can deploy. Start or reconnect the offline host machines. To change host machines after an interrupted attempt, choose Start a new setup.</MudAlert>
+                            }
+                            <MudButton OnClick="DeployAsync" Disabled="@(!CanDeploy)" Variant="Variant.Filled" Color="Color.Primary">@(_request is null ? "Create and deploy cluster" : "Resume setup")</MudButton>
+                            @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
+                            @if (_status is not null)
+                            {
+                                <MudAlert Severity="@(_status.Error is null ? Severity.Info : Severity.Warning)">@_status.Phase @(_status.Error is null ? "" : ": " + _status.Error)</MudAlert>
+                                @if (_request is not null && _status.Error is not null)
+                                {
+                                    <MudButton OnClick="StartNewSetup" Disabled="_busy">Start a new setup</MudButton>
+                                }
+                                @if (Catalog.GetCluster(_status.Request.UniqueName) is not null)
+                                {
+                                    <MudButton Href="@($"/clusters/{Uri.EscapeDataString(_status.Request.UniqueName)}")">Open cluster controls</MudButton>
+                                }
+                            }
+                        </MudStack>
+                    </MudStep>
+                </ChildContent>
+                <ActionContent>
+                    @if (_setupStep == 0)
                     {
-                        <MudButton OnClick="StartNewSetup" Disabled="_busy">Start a new setup</MudButton>
+                        <MudButton OnClick="@(() => _setupStep = 1)" Disabled="@(_busy || !HasConnectedHosts)" Variant="Variant.Filled" Color="Color.Primary">Continue to cluster configuration</MudButton>
                     }
-                    @if (Catalog.GetCluster(_status.Request.UniqueName) is not null)
+                    else
                     {
-                        <MudButton Href="@($"/clusters/{Uri.EscapeDataString(_status.Request.UniqueName)}")">Open cluster controls</MudButton>
+                        <MudButton OnClick="@(() => _setupStep = 0)" Disabled="_busy">Back to host enrollment</MudButton>
                     }
-                }
-            </MudStack>
+                </ActionContent>
+            </MudStepper>
         </MudTabPanel>
-        <MudTabPanel Text="Connect existing Gateway (advanced)">
+        <MudTabPanel Text="Register existing cluster (advanced)">
             <MudStack Spacing="3" Class="pt-4">
-                <MudText>Use this only for a Gateway already installed and running. Connecting registers it for monitoring and administration; it does not provision machines or deploy a new cluster.</MudText>
+                <MudText>Use this for a cluster already installed and running. Registration connects its Cluster Registry for monitoring and administration; it does not provision host machines or deploy a new cluster.</MudText>
                 <MudTextField T="string" Label="Cluster ID" @bind-Value="_importId" HelperText="A unique Quasar registration name, using letters, numbers, hyphens or underscores." />
-                <MudTextField T="string" Label="Display name" @bind-Value="_importName" />
-                <MudTextField T="string" Label="Gateway control URL" @bind-Value="_url" Placeholder="http://10.0.0.10:28016" HelperText="The Gateway's HTTP administration endpoint, reachable from the Quasar machine. This is separate from the player UDP port and the Quasar website address." />
-                <MudTextField T="string" Label="Admin token environment variable name" @bind-Value="_credential" Placeholder="MY_CLUSTER_ADMIN_TOKEN" HelperText="Enter the variable name, not the token itself. Set that variable on the Quasar service to the same admin token configured on this Gateway, then restart Quasar. Guided creation manages credentials automatically." />
-                <MudButton OnClick="ImportAsync" Disabled="_busy" Variant="Variant.Filled" Color="Color.Primary">Connect existing Gateway</MudButton>
+                <MudTextField T="string" Label="Server name" @bind-Value="_importName" OnBlur="@(_ => EnsureNames())" HelperText="A blank name receives an editable generated suggestion." />
+                <MudTextField T="string" Label="Cluster Registry admin URL" @bind-Value="_url" Placeholder="http://10.0.0.10:28016" HelperText="The Cluster Registry HTTP administration endpoint, reachable from the Quasar host machine. This is separate from the player UDP port and the Quasar website address." />
+                <MudTextField T="string" Label="Admin token environment variable name" @bind-Value="_credential" Placeholder="MY_CLUSTER_ADMIN_TOKEN" HelperText="Enter the variable name, not the token itself. Set that variable on the Quasar service to the same admin token configured on this Cluster Registry, then restart Quasar. Guided creation manages credentials automatically." />
+                <MudButton OnClick="ImportAsync" Disabled="_busy" Variant="Variant.Filled" Color="Color.Primary">Register existing cluster</MudButton>
             </MudStack>
         </MudTabPanel>
     </MudTabs>
@@ -86,15 +123,17 @@
 
 @code {
     [SupplyParameterFromQuery] public string? Resume { get; set; }
+    [SupplyParameterFromQuery] public bool Register { get; set; }
     private readonly CancellationTokenSource _stop = new();
     private string _id = "", _name = "", _world = "", _profile = "", _gateway = "";
     private string _importId = "", _importName = "", _url = "", _credential = "";
-    private int _port = 28000;
-    private bool _busy, _disposed;
+    private int _port = 28000, _setupStep;
+    private bool _busy, _disposed, _showEnrollment;
     private string? _error;
     private ClusterSetupRequest? _request;
     private ClusterSetupStatus? _status;
     private List<MachineRow> _machines = [];
+    private bool HasConnectedHosts => _machines.Any(m => Tunnels.IsConnected(m.Host.Id));
     private bool Locked => _busy || _request is not null;
     private bool HasOfflineHosts => (_request?.Machines.Select(m => m.HostId)
         ?? _machines.Where(m => m.Selected).Select(m => m.Host.Id)).Any(id => !Tunnels.IsConnected(id));
@@ -106,8 +145,23 @@
         && _machines.Where(m => m.Selected).Sum(m => (long)m.Nodes) is >= 2 and <= 254;
     protected override void OnInitialized()
     {
+        EnsureNames();
         RefreshMachines();
+        _showEnrollment = _machines.Count == 0;
         _ = RefreshAsync();
+    }
+    private void EnsureNames()
+    {
+        if (_busy) return;
+        if (_request is null)
+        {
+            if (string.IsNullOrWhiteSpace(_name))
+            { _name = IdentifierSlug.SuggestName("cluster"); if (string.IsNullOrWhiteSpace(_id)) _id = _name; }
+            if (string.IsNullOrWhiteSpace(_id)) _id = IdentifierSlug.SuggestName("cluster");
+        }
+        if (string.IsNullOrWhiteSpace(_importName))
+        { _importName = IdentifierSlug.SuggestName("cluster"); if (string.IsNullOrWhiteSpace(_importId)) _importId = _importName; }
+        if (string.IsNullOrWhiteSpace(_importId)) _importId = IdentifierSlug.SuggestName("cluster");
     }
     private void RefreshMachines()
     {
@@ -128,6 +182,7 @@
         {
             _status = Setup.GetStatus(Resume); _request = _status?.Request;
             if (_request is null) return;
+            _setupStep = 1;
             _id = _request.UniqueName; _name = _request.DisplayName; _world = _request.WorldTemplateId;
             _profile = _request.ConfigProfileId; _gateway = _request.GatewayHost; _port = _request.PlayerPort;
             foreach (var row in _machines)
@@ -164,6 +219,7 @@
     }
     private async Task DeployAsync()
     {
+        EnsureNames();
         if (_busy || !await AuthorizedAsync(_id, true)) return;
         _busy = true; _error = null;
         var request = _request ?? new(_id, _name, _world, _profile, _gateway, _port,
@@ -190,10 +246,12 @@
         _status = null;
         _error = null;
         _id = "";
+        EnsureNames();
         Navigation.NavigateTo("/clusters/new", replace: true);
     }
     private async Task ImportAsync()
     {
+        EnsureNames();
         if (_busy || !await AuthorizedAsync(_importId)) return;
         _busy = true; _error = null;
         try

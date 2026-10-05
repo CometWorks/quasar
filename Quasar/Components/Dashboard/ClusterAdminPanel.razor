@@ -32,7 +32,7 @@
                 }
                 @if (Cluster.GoalState == DedicatedServerGoalState.Off)
                 {
-                    <MudTooltip Text="@(_canStart ? "Start cluster" : "Wait for a stable stopped Gateway before starting")">
+                    <MudTooltip Text="@(_canStart ? "Start cluster" : "Wait for stable stopped cluster services before starting")">
                         <MudButton Variant="Variant.Filled" Color="@(_canStart ? Color.Success : Color.Default)" Size="Size.Small" StartIcon="@Icons.Material.Filled.PlayArrow"
                                    Disabled="@(Busy || !_canStart)" OnClick="StartAsync">Start</MudButton>
                     </MudTooltip>
@@ -45,7 +45,7 @@
             </MudStack>
             @if (_capabilities?.Scope == Admin.AdminScope.Query)
             {
-                <MudText>Gateway credentials allow observation only.</MudText>
+                <MudText>Cluster Registry credentials allow observation only.</MudText>
             }
             @if (_operation is not null)
             {
@@ -62,8 +62,8 @@
                     <Authorized>
                         <MudExpansionPanel Text="Cluster settings">
                             <MudStack Spacing="2" Class="py-2 cluster-form-section">
-                                <MudTextField T="string" @bind-Value="_displayName" Label="Display name" Variant="Variant.Outlined"
-                                              HelperText="Name shown in Quasar lists and dashboards." />
+                                <MudTextField T="string" @bind-Value="_displayName" Label="Server name" Variant="Variant.Outlined"
+                                              OnBlur="@(_ => EnsureServerName())" HelperText="Server name shown in Quasar lists and dashboards. A blank name receives an editable generated suggestion." />
                                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
                                     Stage session settings, administrators, mods and plugin selections, then apply the pending update from Maintenance during full downtime. Quasar downloads and pins each mod, prepares matching plugins and backs up the stopped cluster before changing preserved worlds. Network and dedicated-server root settings cannot be changed here.
                                 </MudAlert>
@@ -71,14 +71,14 @@
                                 {
                                     <MudAlert Severity="Severity.Warning" Dense="true">The restored world has no matching saved profile because that profile changed after its deployment. Choose a profile and stage it before the next update.</MudAlert>
                                 }
-                                <MudSelect T="string" @bind-Value="_configProfileId" Label="Selected config profile" Variant="Variant.Outlined"
+                                <MudSelect T="string" @bind-Value="_configProfileId" Label="Configuration profile" Variant="Variant.Outlined"
                                            HelperText="Selection remains pending until the prepared cluster update is applied.">
                                     @foreach (var profile in Profiles.GetProfiles())
                                     {
                                         <MudSelectItem T="string" Value="@profile.ConfigProfileId">@profile.Name</MudSelectItem>
                                     }
                                 </MudSelect>
-                                <MudButton Href="/configs" Variant="Variant.Text" Color="Color.Primary">Manage config profiles</MudButton>
+                                <MudButton Href="/configs" Variant="Variant.Text" Color="Color.Primary">Manage configuration profiles</MudButton>
                                 @if (Catalog.GetCluster(Cluster.UniqueName)?.PreparedProfile is { } pendingProfile)
                                 {
                                     <MudText Typo="Typo.body2">Pending profile: @(Profiles.GetProfile(pendingProfile.ProfileId)?.Name ?? pendingProfile.ProfileId). Apply it from Maintenance.</MudText>
@@ -88,7 +88,7 @@
                                            OnClick="StageProfileAsync">Stage profile changes</MudButton>
                                 <MudNumericField T="int" @bind-Value="_shutdownGracePeriodSeconds" Label="Shutdown grace period (seconds)"
                                                  Variant="Variant.Outlined" Min="0" Max="3600"
-                                                 HelperText="Time allowed for the Gateway to save and drain when Quasar stops the cluster." />
+                                                 HelperText="Time allowed for the Cluster Registry to save and drain when Quasar stops the cluster." />
                                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Busy || string.IsNullOrWhiteSpace(_displayName))"
                                            OnClick="SaveAdministrationAsync">Save cluster settings</MudButton>
                             </MudStack>
@@ -96,11 +96,11 @@
                     </Authorized>
                 </AuthorizeView>
                 <ClusterPluginConfigurationPanel Cluster="Cluster" />
-                <MudExpansionPanel Text="Advanced Gateway controls">
+                <MudExpansionPanel Text="Advanced cluster controls">
                 @if (Cluster.GoalState == DedicatedServerGoalState.On && Cluster.Gateway is not null)
                 {
                     <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.RestartAlt"
-                               Disabled="@(!CanRun("POST /admin/v1/gateway/restart"))" OnClick="RestartAsync">Restart Gateway</MudButton>
+                               Disabled="@(!CanRun("POST /admin/v1/gateway/restart"))" OnClick="RestartAsync">Restart Cluster Gateway</MudButton>
                 }
                 <MudExpansionPanels Class="py-2">
                 <MudExpansionPanel Text="Diagnostics, maintenance and exports">
@@ -108,7 +108,7 @@
                     <MudButton OnClick="LoadDiagnosticsAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">Load diagnostics</MudButton>
                     <MudButton OnClick="LoadArtifactsAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">List world exports</MudButton>
                     <MudButton OnClick="ExportAsync" Disabled="@(!CanRun("POST /admin/v1/world-exports"))" Variant="Variant.Outlined" Color="Color.Primary">Export vanilla world</MudButton>
-                    <MudText Typo="Typo.body2">Online exports are crash-consistent unless the Gateway proves a stronger consistency level.</MudText>
+                    <MudText Typo="Typo.body2">Online exports are crash-consistent unless the Cluster Registry proves a stronger consistency level.</MudText>
                     <MudTextField T="string" Label="Maintenance command (JSON)" @bind-Value="_advancedCommand" Lines="5" />
                     <MudText Typo="Typo.caption">Example: {"action":"trigger","target":"compact","parameters":{"node":"node-1"}}</MudText>
                     <MudButton OnClick="AdvancedAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">Run command</MudButton>
@@ -122,11 +122,11 @@
                     <MudButton OnClick="LoadConfigAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">Load current configuration</MudButton>
                     @if (_config is not null)
                     {
-                        <MudText Typo="Typo.caption">Policy revision @_config.PolicyRevision. Registry owns placement and drain decisions.</MudText>
+                        <MudText Typo="Typo.caption">Policy revision @_config.PolicyRevision. Cluster Registry owns placement and drain decisions.</MudText>
                         <MudTable T="Admin.AdminSlotSpec" Items="_config.Slots" Dense="true">
-                            <HeaderContent><MudTh>Slot</MudTh><MudTh>Host</MudTh><MudTh>Role</MudTh><MudTh>Desired state</MudTh></HeaderContent>
+                            <HeaderContent><MudTh>Slot</MudTh><MudTh>Host machine</MudTh><MudTh>Role</MudTh><MudTh>Desired state</MudTh></HeaderContent>
                             <RowTemplate>
-                                <MudTd>@context.SlotKey</MudTd><MudTd>@context.Host</MudTd><MudTd>@context.Role</MudTd>
+                                <MudTd>@context.SlotKey</MudTd><MudTd>@context.Host</MudTd><MudTd>@(context.Role == Admin.NodeRole.WorldAuthority ? "World Authority" : context.Role.ToString())</MudTd>
                                 <MudTd>
                                     <MudSelect T="Admin.NodeGoal" Value="context.Goal" ValueChanged="@(value => ChangeGoal(context.SlotKey, value))" Disabled="@Busy">
                                         <MudSelectItem Value="Admin.NodeGoal.Wanted">Wanted</MudSelectItem>
@@ -240,12 +240,18 @@
         catch (System.Text.Json.JsonException error) { _error = error.Message; }
     }
     private Task SaveAsync() => SubmitAsync(new("save-all"));
+    private void EnsureServerName()
+    {
+        if (!Busy && string.IsNullOrWhiteSpace(_displayName))
+            _displayName = IdentifierSlug.SuggestName("cluster");
+    }
     private async Task SaveAdministrationAsync()
     {
         if (Busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)
             || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
         if (!user.CanQueryCluster(Cluster.UniqueName)) return;
+        EnsureServerName();
         _submitting = true;
         _error = null;
         try
@@ -301,7 +307,7 @@
     }
     private async Task RestartAsync()
     {
-        if (await Dialogs.ShowMessageBoxAsync("Restart Gateway?", "Clients will reconnect; nodes keep simulating.", yesText: "Restart", cancelText: "Cancel") == true)
+        if (await Dialogs.ShowMessageBoxAsync("Restart Cluster Gateway?", "Clients will reconnect; nodes keep simulating.", yesText: "Restart", cancelText: "Cancel") == true)
             await SubmitAsync(new("gateway-restart"));
     }
     public async Task SubmitAsync(ClusterAdminCommand command)

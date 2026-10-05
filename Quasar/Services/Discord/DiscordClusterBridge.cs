@@ -210,7 +210,7 @@ public sealed class DiscordClusterBridge(
             .AddField("State", status.Phase, true).AddField("Goal", cluster.GoalState, true)
             .AddField("Players", status.Counts.ConnectedClients, true)
             .AddField("Nodes", status.Nodes.Count(n => n.State == Admin.NodeState.Active), true)
-            .AddField("Hosts", status.Nodes.Select(n => n.Host).Where(h => h != null).Distinct().Count(), true)
+            .AddField("Host machines", status.Nodes.Select(n => n.Host).Where(h => h != null).Distinct().Count(), true)
             .AddField("World Authority", status.WorldAuthority.Node ?? "Unavailable", true);
     }
 

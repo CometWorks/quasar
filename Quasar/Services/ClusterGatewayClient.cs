@@ -100,7 +100,7 @@ public sealed class ClusterGatewayClient
         {
             if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 128)
                 throw new ClusterGatewayException(HttpStatusCode.BadRequest, "idempotency_key_required",
-                    "A stable Idempotency-Key is required for Gateway mutations.");
+                    "A stable Idempotency-Key is required for Cluster Registry mutations.");
             request.Headers.Add("Idempotency-Key", idempotencyKey);
         }
         if (body != null)
@@ -111,7 +111,7 @@ public sealed class ClusterGatewayClient
                 ?? Environment.GetEnvironmentVariable(cluster.GatewayAdminTokenEnvironmentVariable);
             if (string.IsNullOrWhiteSpace(token))
                 throw new ClusterGatewayException(HttpStatusCode.ServiceUnavailable, "gateway_credential_missing",
-                    $"Gateway credential environment variable '{cluster.GatewayAdminTokenEnvironmentVariable}' is not set.");
+                    $"Cluster Registry credential environment variable '{cluster.GatewayAdminTokenEnvironmentVariable}' is not set.");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         }
 
@@ -128,7 +128,7 @@ public sealed class ClusterGatewayClient
                 Admin.AdminErrorEnvelope? error = JsonSerializer.Deserialize<Admin.AdminErrorEnvelope>(json, JsonOptions);
                 throw new ClusterGatewayException(response.StatusCode,
                     error?.Error.Code ?? "gateway_rejected",
-                    error?.Error.Message ?? "Gateway rejected the request.");
+                    error?.Error.Message ?? "Cluster Registry rejected the request.");
             }
 
             Admin.AdminEnvelope<T>? envelope = JsonSerializer.Deserialize<Admin.AdminEnvelope<T>>(json, JsonOptions);
@@ -137,17 +137,17 @@ public sealed class ClusterGatewayClient
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw new ClusterGatewayException(HttpStatusCode.GatewayTimeout, "gateway_timeout",
-                "Gateway request timed out.");
+                "Cluster Registry request timed out.");
         }
         catch (HttpRequestException exception)
         {
             throw new ClusterGatewayException(HttpStatusCode.ServiceUnavailable, "gateway_unavailable",
-                $"Cannot reach the Gateway at {new Uri(cluster.GatewayUrl).GetComponents(UriComponents.SchemeAndServer, UriFormat.SafeUnescaped)} ({exception.HttpRequestError}). Check that the Gateway is installed and running, and that its control port is reachable from Quasar.", exception);
+                $"Cannot reach the Cluster Registry at {new Uri(cluster.GatewayUrl).GetComponents(UriComponents.SchemeAndServer, UriFormat.SafeUnescaped)} ({exception.HttpRequestError}). Check that the Cluster Registry is installed and running, and that its admin port is reachable from Quasar.", exception);
         }
         catch (JsonException exception)
         {
             throw new ClusterGatewayException(HttpStatusCode.BadGateway, "protocol_mismatch",
-                "Gateway returned invalid contract JSON.", exception);
+                "Cluster Registry returned invalid contract JSON.", exception);
         }
     }
 
@@ -163,7 +163,7 @@ public sealed class ClusterGatewayClient
     }
 
     private static ClusterGatewayException ProtocolMismatch() =>
-        new(HttpStatusCode.BadGateway, "protocol_mismatch", "Gateway admin contract version is incompatible.");
+        new(HttpStatusCode.BadGateway, "protocol_mismatch", "Cluster Registry admin contract version is incompatible.");
 }
 
 public sealed class ClusterGatewayException : Exception

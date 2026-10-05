@@ -182,7 +182,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                                 await ClusterSteamClientLibrary.ProvisionAsync(hosts, target, ClusterTestFrontend.FromEnvironment(), logger, ct);
                             var remote = await hosts.TransferConversionInputAsync(target, topology.Id, "installation", installationArchive, installed.InputsSha256, ct);
                             var remoteWorld = await hosts.TransferConversionInputAsync(target, topology.Id, "world", worldArchive, worldHash, ct);
-                            if (remote.HostId != machine.Id || remoteWorld.HostId != machine.Id) throw new InvalidDataException("Transfer returned another Host identity.");
+                            if (remote.HostId != machine.Id || remoteWorld.HostId != machine.Id) throw new InvalidDataException("Transfer returned another Host executor identity.");
                             paths.Add(machine.Id, remoteWorld);
                             preparationHosts.Add(new(machine.Id, machine.CommandUrl, machine.CredentialReference,
                                 HostContract.ManagedCredentialReference.Cluster(cluster.UniqueName, "executor:" + machine.Id), remote.Directory, remoteWorld.Directory, remoteWorld.ConfigurationDirectory));
@@ -193,7 +193,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         await StageAsync(request, "Preparing and activating the stopped cluster", null, ct);
                         var preparation = new ClusterPreparationRequest(installed.InputsSha256, specification.ToJsonString(), origin, preparationHosts.ToArray());
                         var result = await deployments.PrepareAsync(cluster.UniqueName, preparation, "setup-prepare-" + key, actor, ct);
-                        if (result.State != ClusterOperationState.Succeeded) throw new InvalidOperationException(result.Error?.Message ?? "Host preparation failed.");
+                        if (result.State != ClusterOperationState.Succeeded) throw new InvalidOperationException(result.Error?.Message ?? "Host executor preparation failed.");
                         var activation = result.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)!;
                         savedProfile.ConfigProfileId = "cluster-" + GuidFrom(cluster.UniqueName).ToString("N");
                         savedProfile.Name = request.DisplayName + " (cluster)";
@@ -238,17 +238,17 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         {
             var status = (await hosts.GetStatusAsync(Target(new() { UniqueName = request.UniqueName }, host), token)).Data;
             if (status.HostId != host.Id || string.IsNullOrWhiteSpace(status.ExecutorId) || status.Attachments is null)
-                throw new InvalidDataException($"Host '{host.Name}' does not match its enrollment or has no executor identity.");
+                throw new InvalidDataException($"Host executor '{host.Name}' does not match its enrollment or has no executor identity.");
             if (!status.GatewayStopFencing || host.Id == request.GatewayHost && !status.SteamClientLibrary)
-                throw new InvalidOperationException($"Host '{host.Name}' lacks a required cluster capability. Update Quasar.Host on that machine, then resume setup.");
+                throw new InvalidOperationException($"Host executor '{host.Name}' lacks a required cluster capability. Update the Host executor (Quasar.Host) on that host machine, then resume setup.");
             var active = catalog.GetCluster(request.UniqueName)?.ActiveDeployment;
             var deployment = active?.Hosts.SingleOrDefault(h => h.HostId == host.Id)?.Deployment;
             if (active is not null && deployment is null)
-                throw new InvalidOperationException($"Host '{host.Name}' is missing from this cluster deployment.");
+                throw new InvalidOperationException($"Host machine '{host.Name}' is missing from this cluster deployment.");
             if (deployment is not null && !status.Attachments.Any(a => a.ClusterId == request.UniqueName
                 && a.ActualizationConfigured && a.BundleManifestSha256 == deployment.BundleManifestSha256
                 && a.RunRoot == deployment.Attachment.RunRoot))
-                throw new InvalidOperationException($"Host '{host.Name}' has not configured this cluster deployment. Resume setup after the Host is ready.");
+                throw new InvalidOperationException($"Host executor '{host.Name}' has not configured this cluster deployment. Resume setup after the Host executor is ready.");
         }
     }
     private void CheckReservedPorts(ClusterSetupRequest request, EnrolledClusterHost[] selected)
@@ -258,23 +258,23 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
             .SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(a => a.Address).ToHashSet();
         if (addresses.Any(a => IPAddress.IsLoopback(a) || local.Contains(a)) && servers.GetServers()
             .Any(s => s.ServerPort >= request.PlayerPort && s.ServerPort <= request.PlayerPort + 264))
-            throw new InvalidOperationException("This port range overlaps a local standalone server. Choose a different player port.");
+            throw new InvalidOperationException("This port range overlaps a local standalone server. Choose a different public server port.");
         foreach (var other in catalog.GetClusters().Where(c => !c.UniqueName.Equals(request.UniqueName, StringComparison.OrdinalIgnoreCase)))
         {
             bool gatewayHere = selected.Any(h => h.CommandUrl == other.HostCommandUrl)
                 || Uri.TryCreate(other.GatewayUrl, UriKind.Absolute, out var gateway) && IPAddress.TryParse(gateway.Host.Trim('[', ']'), out var address) && addresses.Contains(address);
             if (gatewayHere && other.Gateway?.Ports.Any(port => port >= request.PlayerPort && port <= request.PlayerPort + 264) == true)
-                throw new InvalidOperationException($"This port range overlaps Gateway '{other.DisplayName}'. Choose a different player port.");
+                throw new InvalidOperationException($"This port range overlaps Cluster Gateway '{other.DisplayName}'. Choose a different public server port.");
             if (GetStatus(other.UniqueName)?.Request is { } setup && setup.Machines.Any(m => selected.Any(h => h.Id == m.HostId))
                 && request.PlayerPort <= setup.PlayerPort + 264 && setup.PlayerPort <= request.PlayerPort + 264)
-                throw new InvalidOperationException($"This port range overlaps cluster '{other.DisplayName}' on a selected machine. Choose a player port at least 265 ports away.");
+                throw new InvalidOperationException($"This port range overlaps cluster '{other.DisplayName}' on a selected host machine. Choose a public server port at least 265 ports away.");
             if (other.Preparation is not { } preparation) continue;
             var specification = JsonNode.Parse(preparation.SpecificationJson)!;
             var endpoints = specification["nodes"]!.AsArray().SelectMany(n => new[] { n!["backend"]!.GetValue<string>(), n["control"]!.GetValue<string>() })
                 .Append(specification["gatewayControl"]!.GetValue<string>());
             if (endpoints.Any(e => IPEndPoint.TryParse(e, out var endpoint) && addresses.Contains(endpoint.Address)
                 && endpoint.Port >= request.PlayerPort && endpoint.Port <= request.PlayerPort + 264))
-                throw new InvalidOperationException($"This port range overlaps cluster '{other.DisplayName}'. Choose a different player port.");
+                throw new InvalidOperationException($"This port range overlaps cluster '{other.DisplayName}'. Choose a different public server port.");
         }
     }
     internal static EnrolledClusterHost[] Validate(ClusterSetupRequest request, IReadOnlyList<EnrolledClusterHost> enrolled)
@@ -283,11 +283,11 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         if (string.IsNullOrWhiteSpace(request.DisplayName) || request.PlayerPort is < 1024 or > 65000 || request.Machines is null || request.Machines.Length is < 1 or > 64
             || request.Machines.Any(m => m is null || m.RegularNodes is < 1 or > 32) || request.Machines.Sum(m => (long)m.RegularNodes) is < 2 or > 254
             || request.Machines.Select(m => m.HostId).Distinct().Count() != request.Machines.Length)
-            throw new ArgumentException("Choose a display name, player port 1024–65000, and 1–32 regular nodes per host, with at least two in total.");
-        var selected = request.Machines.Select(m => enrolled.SingleOrDefault(h => h.Id == m.HostId) ?? throw new ArgumentException("Enroll every selected machine first.")).ToArray();
+            throw new ArgumentException("Choose a Server name, Public server port 1024–65000, and 1–32 regular nodes per host machine, with at least two in total.");
+        var selected = request.Machines.Select(m => enrolled.SingleOrDefault(h => h.Id == m.HostId) ?? throw new ArgumentException("Enroll every selected host machine first.")).ToArray();
         if (!selected.Any(h => h.Id == request.GatewayHost) || selected.Select(h => IPAddress.Parse(h.Address)).Distinct().Count() != selected.Length
             || selected.Length > 1 && selected.Any(h => IPAddress.IsLoopback(IPAddress.Parse(h.Address))))
-            throw new ArgumentException("Choose the Gateway machine and distinct LAN/VPN addresses. Remote placements cannot use loopback addresses.");
+            throw new ArgumentException("Choose the Cluster Gateway host machine and distinct LAN/VPN addresses. Remote placements cannot use loopback addresses.");
         return selected;
     }
 

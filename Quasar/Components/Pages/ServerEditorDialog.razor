@@ -19,27 +19,27 @@
                             T="string"
                             Value="_editor.DisplayName"
                             ValueChanged="HandleDisplayNameChanged"
-                            Label="Display name"
+                            Label="Server name"
                             Variant="Variant.Outlined"
                             Immediate="true"
                             AutoFocus="@(!_isEditing)"
                             OnBlur="HandleDisplayNameBlur"
                             Required="true"
-                            RequiredError="Display name required."
-                            HelperText="Friendly name shown in lists and dashboards." />
+                            RequiredError="Server name required."
+                            HelperText="Server name shown in lists and dashboards. A blank name receives an editable generated suggestion." />
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudTextField
                             T="string"
                             Value="_editor.UniqueName"
                             ValueChanged="HandleIdentifierChanged"
-                            Label="Identifier"
+                            Label="Server ID"
                             Variant="Variant.Outlined"
                             Immediate="true"
                             Disabled="@_isEditing"
                             Class="mono"
                             Required="true"
-                            RequiredError="Identifier required."
+                            RequiredError="Server ID required."
                             Validation="@(new Func<string, string?>(ValidateUniqueNameField))"
                             HelperText="@GetUniqueNameHelperText()" />
                     </MudItem>
@@ -49,7 +49,7 @@
                             Label="In-game server name"
                             Variant="Variant.Outlined"
                             Immediate="true"
-                            HelperText="Advertised in the Space Engineers multiplayer list. Leave blank to use Display name." />
+                            HelperText="Advertised in the Space Engineers multiplayer list. Leave blank to use Server name." />
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudTextField
@@ -57,18 +57,18 @@
                             Label="In-game world name"
                             Variant="Variant.Outlined"
                             Immediate="true"
-                            HelperText="Advertised as the world name in the Space Engineers server browser. Leave blank to use Identifier." />
+                            HelperText="Advertised as the world name in the Space Engineers server browser. Leave blank to use Server ID." />
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudNumericField T="int"
                                          Value="_editor.ServerPort"
                                          ValueChanged="HandlePortChanged"
-                                         Label="Listen port"
+                                         Label="Public server port"
                                          Variant="Variant.Outlined"
                                          Min="1"
                                          Max="65535"
                                          Required="true"
-                                         RequiredError="Listen port required."
+                                         RequiredError="Public server port required."
                                          Validation="@(new Func<int, string?>(ValidatePortField))"
                                          HelperText="UDP port for clients. Default 27016. Must be unique across local servers." />
                     </MudItem>
@@ -82,10 +82,10 @@
                         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="1">
                             <MudSelect T="string"
                                        @bind-Value="_editor.ConfigProfileId"
-                                       Label="Config profile"
+                                       Label="Configuration profile"
                                        Variant="Variant.Outlined"
                                        Required="true"
-                                       RequiredError="Config profile required."
+                                       RequiredError="Configuration profile required."
                                        Validation="@(new Func<string, string?>(ValidateConfigProfileField))"
                                        HelperText="Reusable world, plugin, and mod preset from Configs page. Profile session settings and mods are written into the world's Sandbox_config.sbc on every start.">
                                 @foreach (var template in ConfigProfiles.GetProfiles())
@@ -95,9 +95,9 @@
                             </MudSelect>
                             @if (string.IsNullOrWhiteSpace(_editor.ConfigProfileId))
                             {
-                                <MudTooltip Text="Create a config profile without leaving this dialog">
+                                <MudTooltip Text="Create a configuration profile without leaving this dialog">
                                     <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateConfigProfileDialogAsync">
-                                        New Profile
+                                        New configuration profile
                                     </MudButton>
                                 </MudTooltip>
                             }
@@ -148,7 +148,7 @@
                 @if (SelectedWorldModsMissingFromProfile.Count > 0)
                 {
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
-                        <MudText Typo="Typo.subtitle2">Selected world has @SelectedWorldModsMissingFromProfile.Count mod(s) not in the selected config profile.</MudText>
+                        <MudText Typo="Typo.subtitle2">Selected world has @SelectedWorldModsMissingFromProfile.Count mod(s) not in the selected configuration profile.</MudText>
                         <MudText Typo="Typo.body2" Class="mt-1">
                             Quasar writes the profile's mods into the world's <code>Sandbox_config.sbc</code> on every start, which will drop these mods from the world.
                         </MudText>
@@ -320,7 +320,7 @@
                                 <MudItem xs="12" md="6">
                                     <MudTextField
                                         @bind-Value="_editor.CpuAffinity"
-                                        Label="@($"CPU affinity (this host has {Environment.ProcessorCount} logical cores: 0-{Environment.ProcessorCount - 1})")"
+                                        Label="@($"CPU affinity (this host machine has {Environment.ProcessorCount} logical cores: 0-{Environment.ProcessorCount - 1})")"
                                         Placeholder="e.g. 0-7 or 0-7,16-23"
                                         Variant="Variant.Outlined"
                                         Validation="@(new Func<string, string?>(ValidateCpuAffinityField))"
@@ -567,9 +567,14 @@
         if (string.IsNullOrWhiteSpace(_editor.DisplayName) && !string.IsNullOrWhiteSpace(_editor.UniqueName))
             _editor.DisplayName = _editor.UniqueName;
 
+        _identifierManuallyEdited = _isEditing || !string.IsNullOrWhiteSpace(_editor.UniqueName);
+        if (string.IsNullOrWhiteSpace(_editor.DisplayName))
+            _editor.DisplayName = IdentifierSlug.SuggestName("server");
+        if (!_identifierManuallyEdited)
+            _editor.UniqueName = ServerCatalog.GenerateUniqueServerName(_editor.DisplayName);
+
         NormalizeWorldPathForEditor();
         RefreshAvailableWorldSaves();
-        _identifierManuallyEdited = _isEditing || !string.IsNullOrWhiteSpace(_editor.UniqueName);
     }
 
     private string DialogTitle => _isEditing
@@ -582,7 +587,7 @@
         ? "Update this Quasar-managed server definition. Stop the server before changing identity or deleting world state."
         : _isClone
             ? "Review the cloned server definition. Pick or create the target save now; after this dialog you can copy the source world state into it."
-            : "Define a new Quasar-managed server. Paths, launch settings, health policy, config profile, and selected world save stay in one definition.";
+            : "Define a new Quasar-managed server. Paths, launch settings, health policy, configuration profile, and selected world save stay in one definition.";
 
     private string PrimaryActionText => _isEditing
         ? "Save Changes"
@@ -605,7 +610,10 @@
     {
         var displayName = NormalizeWhitespace(_editor.DisplayName);
         if (string.IsNullOrEmpty(displayName))
-            return;
+        {
+            displayName = IdentifierSlug.SuggestName("server");
+            HandleDisplayNameChanged(displayName);
+        }
 
         if (string.IsNullOrWhiteSpace(_editor.InGameServerName))
             _editor.InGameServerName = displayName;
@@ -828,6 +836,8 @@
 
     private async Task SaveAsync()
     {
+        HandleDisplayNameBlur(new());
+        await InvokeAsync(StateHasChanged);
         await _form!.ValidateAsync();
         if (!_formIsValid)
             return;
@@ -844,7 +854,7 @@
     private async Task OpenCreateConfigProfileDialogAsync()
     {
         var dialog = await DialogService.ShowAsync<ConfigProfileQuickCreateDialog>(
-            "New Config Profile",
+            "New configuration profile",
             new DialogParameters(),
             new DialogOptions
             {
@@ -892,7 +902,7 @@
 
         if (string.IsNullOrWhiteSpace(_editor.UniqueName))
         {
-            Snackbar.Add("Identifier required before creating a world save.", Severity.Warning);
+            Snackbar.Add("Server ID required before creating a world save.", Severity.Warning);
             return;
         }
 
@@ -1097,7 +1107,7 @@
     private string RuntimeHelperText =>
         IsWindowsHost
             ? "Magnetar build used to launch this server. Defaults to .NET 10; switch to .NET Framework 4.8 only if a plugin requires it."
-            : ".NET 10 is the only runtime available on this host.";
+            : ".NET 10 is the only runtime available on this host machine.";
 
     private string? ValidateUniqueNameField(string? value)
     {
@@ -1143,7 +1153,7 @@
     }
 
     private static string? ValidateConfigProfileField(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? "Config profile required." : null;
+        string.IsNullOrWhiteSpace(value) ? "Configuration profile required." : null;
 
     private string SelectedProfileName =>
         string.IsNullOrWhiteSpace(_editor.ConfigProfileId)
@@ -1228,7 +1238,7 @@
 
         await ResolveProfileModDependenciesAsync(profile);
         await ConfigProfiles.UpsertAsync(profile);
-        Snackbar.Add($"Merged {added} mod(s) into config profile '{profile.Name}'.", Severity.Success);
+        Snackbar.Add($"Merged {added} mod(s) into configuration profile '{profile.Name}'.", Severity.Success);
         await InvokeAsync(StateHasChanged);
     }
 

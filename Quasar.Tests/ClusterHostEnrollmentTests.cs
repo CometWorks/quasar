@@ -37,7 +37,7 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         await preparation.EnsureLocalHostAsync(default);
         Assert.Empty(hosts.GetAll());
         Assert.NotNull(preparation.Error);
-        Assert.Equal("Local cluster host is not ready.", preparation.Status);
+        Assert.Equal("Local Host executor is not ready.", preparation.Status);
     }
 
     [Fact]

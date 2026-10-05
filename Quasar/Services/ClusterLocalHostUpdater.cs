@@ -10,9 +10,9 @@ namespace Quasar.Services;
 public sealed class ClusterLocalHostUpdater(ClusterHostCatalog hosts, ClusterHostInstaller installer,
     ClusterHostTunnels tunnels, WebServiceOptions options, ILogger<ClusterLocalHostUpdater> logger) : BackgroundService
 {
-    private string _status = "Preparing the local cluster host.";
+    private string _status = "Preparing the local Host executor.";
     private string? _error, _localHostId;
-    public string Status => _localHostId is not null && tunnels.IsConnected(_localHostId) ? "Local cluster host connected." : _status;
+    public string Status => _localHostId is not null && tunnels.IsConnected(_localHostId) ? "Local Host executor connected." : _status;
     public string? Error => _localHostId is not null && tunnels.IsConnected(_localHostId) ? null : _error;
 
     internal static string SelectLocalAddress(IEnumerable<IPAddress> addresses) => addresses
@@ -24,7 +24,7 @@ public sealed class ClusterLocalHostUpdater(ClusterHostCatalog hosts, ClusterHos
     {
         if (!OperatingSystem.IsLinux() || RuntimeInformation.ProcessArchitecture != Architecture.X64)
         {
-            _status = "Automatic local cluster hosting requires Linux x64. Enroll a Linux host for multi-host support.";
+            _status = "Automatic local cluster hosting requires Linux x64. Enroll a Linux host machine to run cluster processes.";
             return;
         }
         try
@@ -39,22 +39,22 @@ public sealed class ClusterLocalHostUpdater(ClusterHostCatalog hosts, ClusterHos
             _localHostId = local.Id;
             if (!tunnels.IsConnected(local.Id))
             {
-                _status = "Preparing the local cluster host.";
+                _status = "Preparing the local Host executor.";
                 var listening = new Uri(options.ListenUrl);
                 string origin = listening.Host is "0.0.0.0" or "::" or "[::]" || listening.IsLoopback
                     ? new UriBuilder(listening) { Host = "127.0.0.1" }.Uri.AbsoluteUri : options.BaseUrl;
                 await installer.InstallLocalAsync(local.Id, origin, token);
             }
             _error = null;
-            _status = "Local cluster host installed; waiting for its connection.";
+            _status = "Local Host executor installed; waiting for its connection.";
         }
         catch (Exception error) when (error is IOException or InvalidOperationException or ArgumentException
             or JsonException or KeyNotFoundException or System.ComponentModel.Win32Exception
             || error is OperationCanceledException && !token.IsCancellationRequested)
         {
             _error = error.Message;
-            _status = "Local cluster host is not ready.";
-            logger.LogWarning(error, "Could not prepare the local cluster host.");
+            _status = "Local Host executor is not ready.";
+            logger.LogWarning(error, "Could not prepare the local Host executor.");
         }
     }
 
@@ -80,13 +80,13 @@ public sealed class ClusterLocalHostUpdater(ClusterHostCatalog hosts, ClusterHos
                         string origin = document.RootElement.GetProperty("connection").GetProperty("quasarUrl").GetString()
                             ?? throw new InvalidDataException("Host has no Quasar origin.");
                         await installer.InstallLocalAsync(host.Id, origin, stoppingToken);
-                        logger.LogInformation("Installed automatic updates for local Host {Host}.", host.Id);
+                        logger.LogInformation("Installed automatic updates for local Host executor {Host}.", host.Id);
                     }
                     catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
                     catch (Exception error) when (error is IOException or InvalidDataException or InvalidOperationException
                         or JsonException or KeyNotFoundException or ArgumentException or System.ComponentModel.Win32Exception or OperationCanceledException)
                     {
-                        logger.LogWarning(error, "Could not install automatic updates for local Host {Host}.", host.Id);
+                        logger.LogWarning(error, "Could not install automatic updates for local Host executor {Host}.", host.Id);
                     }
                 }
             try { await Task.Delay(TimeSpan.FromMinutes(15), stoppingToken); }

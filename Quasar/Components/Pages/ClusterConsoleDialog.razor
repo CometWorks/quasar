@@ -10,17 +10,17 @@
 <MudDialog>
     <DialogContent>
         <MudStack Spacing="3">
-            <MudText Typo="Typo.body2">Recent Gateway events and node plugin logs. Full process logs remain on each Host.</MudText>
+            <MudText Typo="Typo.body2">Recent Cluster Registry events and node plugin logs. Full process logs remain on each host machine.</MudText>
             @if (_error is not null) { <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@_error</MudAlert> }
             <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
                 <MudText Typo="Typo.caption">@(_observed is { } at ? $"Updated {at:u} · refreshes every 5 seconds" : "Waiting for observations")</MudText>
                 <MudButton StartIcon="@Icons.Material.Filled.Refresh" Disabled="_loading" OnClick="RefreshAsync">Refresh</MudButton>
             </MudStack>
             <MudTabs TabPanelsClass="pt-3">
-                <MudTabPanel Text="Gateway events" Icon="@Icons.Material.Filled.Terminal">
-                    @if (_gap) { <MudText Typo="Typo.caption">Earlier events were truncated or the Gateway event stream restarted.</MudText> }
-                    <div class="cluster-console-output" role="region" aria-label="Gateway events" tabindex="0">
-                        @if (_events.Length == 0) { <MudText>No Gateway events available.</MudText> }
+                <MudTabPanel Text="Cluster Registry events" Icon="@Icons.Material.Filled.Terminal">
+                    @if (_gap) { <MudText Typo="Typo.caption">Earlier events were truncated or the Cluster Registry event stream restarted.</MudText> }
+                    <div class="cluster-console-output" role="region" aria-label="Cluster Registry events" tabindex="0">
+                        @if (_events.Length == 0) { <MudText>No Cluster Registry events available.</MudText> }
                         @foreach (var entry in _events.OrderByDescending(e => e.Seq))
                         {
                             <div class="cluster-console-line">

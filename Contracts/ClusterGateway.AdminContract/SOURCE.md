@@ -1,4 +1,4 @@
-# Gateway contract source pin
+# Cluster Registry contract source pin
 
 Admin contract 0.4.0 is mirrored byte-for-byte from published cluster v1.1.7,
 commit `98f1e7c5a714c768fef2a428b0f108f09e727260`.
