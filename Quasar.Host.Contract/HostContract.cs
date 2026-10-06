@@ -95,7 +95,9 @@ public sealed record GatewayStatus(
     int? ProcessId,
     DateTimeOffset? LaunchedAt,
     string? Failure,
-    GatewayStopFence? CompletedStopFence = null, Guid? StartGeneration = null);
+    GatewayStopFence? CompletedStopFence = null, Guid? StartGeneration = null,
+    // The last lines the failed Gateway wrote to stdout or stderr, oldest first. Null when the Host did not capture them.
+    string[]? Output = null);
 
 public sealed record HostDeploymentActivation(string ClusterId, string? ExpectedBundleManifestSha256,
     string BundleManifestPath, string BundleManifestSha256, string GatewayUrl, string ExecutorTokenEnvironmentVariable);

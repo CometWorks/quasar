@@ -261,6 +261,27 @@ public sealed class ClusterReconcilerTests : IDisposable
     }
 
     [Fact]
+    public async Task FailedGatewayStartCarriesTheGatewayOutput()
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using ClusterCatalog catalog = CreateCatalog(DedicatedServerGoalState.On);
+        string[] output = ["dlopen failed: steamclient.so", "Steam GameServer.Init failed on 0.0.0.0:31400"];
+        GatewayStatus failed = GatewayStatus(GatewayGoal.On, GatewayObservedState.Failed)
+            with { Failure = "process_exited:exit_code=1", Output = output };
+        var host = new ContractHandler((request, _) =>
+            request.Method == HttpMethod.Put ? HostResponse(failed) : HostResponse(Host([])));
+        var gateway = new ContractHandler((_, _) => throw new HttpRequestException("not started"));
+        var reconciler = CreateReconciler(catalog, gateway, host);
+
+        await reconciler.ReconcileAllAsync(CancellationToken.None);
+
+        ClusterReconcileStatus status = reconciler.GetStatus("demo");
+        Assert.Equal("gateway_start_failed", status.ErrorCode);
+        Assert.Equal("process_exited:exit_code=1", status.Message);
+        Assert.Equal(output, status.GatewayOutput);
+    }
+
+    [Fact]
     public async Task CleanProofSurvivesLostHostResponseAndWorkerRestart()
     {
         Environment.SetEnvironmentVariable(_tokenVariable, "test-token");

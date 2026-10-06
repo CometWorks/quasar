@@ -94,9 +94,18 @@ internal sealed class GatewayActualizer
         if (record is not null && match.State == ProcessMatchState.Missing
             && record.Status == GatewayLaunchStatus.Running)
         {
-            WriteRecord(record with { Status = GatewayLaunchStatus.Failed, Failure = "process_exited" });
+            string failure = "process_exited";
+            string[]? output = null;
+            if (_outputs.Remove(spec.ClusterId, out ProcessOutputTail? tail))
+                using (tail)
+                {
+                    (int? exitCode, output) = await tail.DrainAsync(cancellationToken);
+                    if (exitCode is not null)
+                        failure += ":exit_code=" + exitCode;
+                }
+            WriteRecord(record with { Status = GatewayLaunchStatus.Failed, Failure = failure, Output = output });
             return Status(spec, HostContract.GatewayObservedState.Failed,
-                record.ProcessId, record.LaunchedAt, "process_exited");
+                record.ProcessId, record.LaunchedAt, failure, output);
         }
 
         // A Gateway that keeps failing is respawned with a growing delay: every attempt verifies
@@ -110,7 +119,8 @@ internal sealed class GatewayActualizer
             if (respawn?.SpecKey != specKey) respawn = null;
             if (respawn is not null && now < respawn.NotBefore && record?.Status == GatewayLaunchStatus.Failed)
                 return Status(spec, HostContract.GatewayObservedState.Failed, record.ProcessId, record.LaunchedAt,
-                    (record.Failure ?? "spawn_failed") + $";respawn_in_seconds={(respawn.NotBefore - now + 999) / 1000}");
+                    (record.Failure ?? "spawn_failed") + $";respawn_in_seconds={(respawn.NotBefore - now + 999) / 1000}",
+                    record.Output);
             int attempts = (respawn?.Attempts ?? 0) + 1;
             _respawns[spec.ClusterId] = new(specKey, attempts, now + RespawnDelay(attempts));
         }
@@ -119,7 +129,15 @@ internal sealed class GatewayActualizer
 
     private static readonly TimeSpan StableAfter = TimeSpan.FromMinutes(2);
     private readonly Dictionary<string, Respawn> _respawns = new(StringComparer.OrdinalIgnoreCase);
+    // Output of the Gateways this Host process started; guarded by _gate.
+    private readonly Dictionary<string, ProcessOutputTail> _outputs = new(StringComparer.OrdinalIgnoreCase);
     private sealed record Respawn(string SpecKey, int Attempts, long NotBefore);
+
+    private void DropOutput(string clusterId)
+    {
+        if (_outputs.Remove(clusterId, out ProcessOutputTail? tail))
+            tail.Dispose();
+    }
 
     // 5 s, 10 s, 20 s ... capped at 5 minutes.
     internal static long RespawnDelay(int attempts) =>
@@ -138,8 +156,9 @@ internal sealed class GatewayActualizer
         }
         if (record is null || match.State == ProcessMatchState.Missing)
         {
+            DropOutput(spec.ClusterId);
             if (record is not null && record.Status != GatewayLaunchStatus.Stopped)
-                WriteRecord(record with { Status = GatewayLaunchStatus.Stopped, Failure = null });
+                WriteRecord(record with { Status = GatewayLaunchStatus.Stopped, Failure = null, Output = null });
             return Status(spec, HostContract.GatewayObservedState.Missing,
                 null, null, null);
         }
@@ -152,7 +171,8 @@ internal sealed class GatewayActualizer
         try
         {
             await KillProcessAsync(process, cancellationToken);
-            WriteRecord(record with { Status = GatewayLaunchStatus.Stopped, Failure = null });
+            DropOutput(spec.ClusterId);
+            WriteRecord(record with { Status = GatewayLaunchStatus.Stopped, Failure = null, Output = null });
             return Status(spec, HostContract.GatewayObservedState.Missing,
                 null, null, null);
         }
@@ -193,6 +213,7 @@ internal sealed class GatewayActualizer
             if (!process.Start())
                 throw new InvalidOperationException("Process start returned false");
             processStarted = true;
+            var output = new ProcessOutputTail(process, $"[gateway {spec.ClusterId}] ");
             record = record with
             {
                 ProcessId = process.Id,
@@ -201,6 +222,9 @@ internal sealed class GatewayActualizer
                 Status = GatewayLaunchStatus.Running,
             };
             WriteRecord(record);
+            DropOutput(spec.ClusterId);
+            _outputs[spec.ClusterId] = output;
+            process = null; // Owned by the output tail now.
             return Status(spec, HostContract.GatewayObservedState.Running,
                 record.ProcessId, record.LaunchedAt, null);
         }
@@ -250,6 +274,9 @@ internal sealed class GatewayActualizer
             WorkingDirectory = working,
             UseShellExecute = false,
             CreateNoWindow = true,
+            // Read by ProcessOutputTail, so a failure report can include the Gateway's last output lines.
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
         foreach (string name in start.Environment.Keys.Where(name => name.StartsWith("CLUSTER_", StringComparison.Ordinal)).ToArray())
             start.Environment.Remove(name);
@@ -399,10 +426,11 @@ internal sealed class GatewayActualizer
         && record.Ports.SequenceEqual(spec.Ports);
 
     private static HostContract.GatewayStatus Status(HostContract.GatewaySpec spec,
-        HostContract.GatewayObservedState observed, int? processId, DateTimeOffset? launchedAt, string? failure) =>
+        HostContract.GatewayObservedState observed, int? processId, DateTimeOffset? launchedAt, string? failure,
+        string[]? output = null) =>
         new(spec.ClusterId, spec.Goal, observed, spec.BundleManifestSha256, spec.ConfigRevision,
             spec.Ports, spec.RunRoot, processId, launchedAt, failure,
-            observed == HostContract.GatewayObservedState.Missing ? spec.StopFence : null, spec.StartGeneration);
+            observed == HostContract.GatewayObservedState.Missing ? spec.StopFence : null, spec.StartGeneration, output);
 
     private static int? FindBusyPort(int[] ports)
     {
@@ -517,7 +545,8 @@ internal sealed record GatewayLaunchRecord(
     GatewayLaunchStatus Status,
     string? Failure,
     Guid? StartGeneration = null,
-    string? ProcessIdentity = null);
+    string? ProcessIdentity = null,
+    string[]? Output = null);
 
 internal sealed record GatewayRunRootProvenance(int SchemaVersion, string ClusterId, string HostId);
 

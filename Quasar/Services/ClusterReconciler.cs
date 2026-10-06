@@ -193,7 +193,7 @@ public sealed class ClusterReconciler : BackgroundService
         {
             Set(cluster, ClusterReconcileState.Converging, hostGateway.Observed, null,
                 hostGateway.Failure == null ? null : "gateway_start_failed",
-                hostGateway.Failure ?? "Waiting for the Gateway process.");
+                hostGateway.Failure ?? "Waiting for the Gateway process.", hostGateway.Output);
             return;
         }
 
@@ -318,9 +318,9 @@ public sealed class ClusterReconciler : BackgroundService
 
     private void Set(ClusterDefinition cluster, ClusterReconcileState state,
         HostContract.GatewayObservedState? observed, Admin.ClusterPhase? phase,
-        string? code, string message) => _status[cluster.UniqueName] = new(
+        string? code, string message, string[]? gatewayOutput = null) => _status[cluster.UniqueName] = new(
             cluster.UniqueName, cluster.GoalState, state, observed, phase,
-            DateTimeOffset.UtcNow, code, message);
+            DateTimeOffset.UtcNow, code, message, gatewayOutput);
 }
 
 public enum ClusterReconcileState { Pending, Observing, ConfigurationRequired, Converging, Converged, Failed }
@@ -334,4 +334,6 @@ public sealed record ClusterReconcileStatus(
     Admin.ClusterPhase? ClusterPhase,
     DateTimeOffset UpdatedAt,
     string? ErrorCode,
-    string Message);
+    string Message,
+    // The failed Gateway's last output lines, as captured by the Host.
+    string[]? GatewayOutput = null);

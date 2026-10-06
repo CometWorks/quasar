@@ -35,6 +35,15 @@ internal static class Program
             await Task.Delay(Timeout.InfiniteTimeSpan);
             return 0;
         }
+        if (args.SequenceEqual(["--self-test-exiting-child"]))
+        {
+            for (int line = 1; line <= 25; line++)
+                Console.WriteLine("line " + line);
+            // stdout and stderr are read separately; the pause keeps the last line last.
+            await Task.Delay(300);
+            Console.Error.WriteLine("fatal " + new string('x', 400));
+            return 3;
+        }
         int? hostCommand = await HostCommandCli.TryRunAsync(args);
         if (hostCommand.HasValue)
             return hostCommand.Value;
@@ -494,6 +503,34 @@ internal static class Program
                 .ReconcileAsync(gatewaySpec with { Goal = HostContract.GatewayGoal.Off, StopFence = stopFence }, CancellationToken.None);
             if (uncertainStop.Observed != HostContract.GatewayObservedState.UnmanagedConflict)
                 throw new InvalidOperationException("self-test uncommitted Gateway launch was treated as stopped");
+
+            // A Gateway that exits reports its exit code and last output lines, also while its respawn waits.
+            string exitingManifestPath = Path.Combine(bundleRoot, "exiting-manifest.json");
+            File.WriteAllBytes(exitingManifestPath, JsonSerializer.SerializeToUtf8Bytes(manifest with
+                { Gateway = manifest.Gateway! with { Arguments = ["--self-test-exiting-child"] } }, JsonOptions));
+            var exitingSpec = gatewaySpec with
+            {
+                ClusterId = "exiting", BundleManifestPath = exitingManifestPath,
+                BundleManifestSha256 = ComputeSha256(exitingManifestPath), Ports = [],
+                RunRoot = Path.Combine(root, "exiting-run"), StartGeneration = Guid.NewGuid(),
+            };
+            var exitingGateway = new GatewayActualizer(Path.Combine(root, "exiting-state"), "host-a");
+            HostContract.GatewayStatus exited = await exitingGateway.ReconcileAsync(exitingSpec, CancellationToken.None);
+            for (int poll = 0; poll < 100 && exited.Observed == HostContract.GatewayObservedState.Running; poll++)
+            {
+                await Task.Delay(100);
+                exited = await exitingGateway.ReconcileAsync(exitingSpec, CancellationToken.None);
+            }
+            HostContract.GatewayStatus respawnWait = await exitingGateway.ReconcileAsync(exitingSpec, CancellationToken.None);
+            string[] lastLines = exited.Output ?? [];
+            if (exited.Observed != HostContract.GatewayObservedState.Failed
+                || exited.Failure != "process_exited:exit_code=3"
+                || lastLines.Length != ProcessOutputTail.MaxLines
+                || lastLines[0] != "line 7" || lastLines[^2] != "line 25"
+                || lastLines[^1] != "fatal " + new string('x', ProcessOutputTail.MaxLineLength - "fatal ".Length) + "…"
+                || respawnWait.Output?.SequenceEqual(lastLines) != true)
+                throw new InvalidOperationException("self-test Gateway exit output was not reported: "
+                    + exited.Failure + " | " + string.Join(" | ", lastLines));
 
             var attachment = new HostContract.HostAttachmentSpec("demo", "http://127.0.0.1:28016",
                 "DEMO_EXECUTOR_TOKEN", manifestPath, ComputeSha256(manifestPath), runRoot);
