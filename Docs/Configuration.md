@@ -373,6 +373,13 @@ Quasar keeps Space Engineers chat channels separate when relaying them to Discor
 - scripted, chatbot, broadcast-controller, and unknown chat types never fall
   through to the global relay
 
+Repeated Agent snapshots relay each game chat entry only once. Discord bot and
+webhook messages are ignored on the inbound path. When Quasar forwards Discord
+chat into the game, matching game echoes are suppressed for two minutes, including
+multiple captures with different timestamps. The suppression is scoped to that
+server and matches the exact forwarded text after trimming. Ordinary player chat
+is deduplicated by timestamp, so repeating text remains eligible for relay.
+
 The admin whisper channel and generated faction channels must deny **View Channel**
 to the guild's Everyone role. Quasar checks this before sending private traffic and
 also rejects any non-administrator role or non-bot user overwrite that explicitly
