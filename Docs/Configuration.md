@@ -1086,6 +1086,10 @@ plan read for deployment checks and then reports `executor_contract_unavailable`
 No heartbeat or node actualization occurs, including for attachments without bundle
 configuration.
 
+`Quasar.Host stop-clusters --config host.json` asks the Gateway of every cluster whose
+Gateway this Host runs to shut down with a save, and waits for it. The systemd stop unit
+runs it at logout and machine shutdown.
+
 The optional `command` listener is the Quasar-to-Host control seam. It accepts only an
 HTTP loopback origin and bearer authentication from the named environment variable; the
 raw token is never stored in either JSON file. Quasar uses it for Host status and durable,
