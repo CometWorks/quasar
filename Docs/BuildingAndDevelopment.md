@@ -423,6 +423,23 @@ building the worker locally, export `MagnetarBin` in the environment so its nest
 Agent build receives the same reference. The SDK remains supplied by Magnetar at
 runtime. The release workflows already obtain the latest full Magnetar release.
 
+### Game chat capture regression tests
+
+Run `dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~AgentChatCaptureTests|FullyQualifiedName~Discord'`
+with the current `MagnetarBin` reference configured as above. The tests execute
+the Harmony receive hook against a fixture with recipient fan-out, rejected
+messages, repeated player text, nested sends, and exceptions. They also cover
+Discord snapshot deduplication and echo suppression. No running Quasar or game
+server is required.
+
+The Agent hook preserves the authenticated sender in a thread-local scope, opens
+capture immediately before the receive handler's final `OnChatMessage(ref ChatMsg)`
+call, and restores the previous scope in a Harmony finalizer. An unexpected method
+shape disables capture and is logged. This avoids relaying rejected messages or
+assigning fresh chat timestamps to recipient delivery callbacks. Actual Windows
+server/Discord acceptance still requires a live check after updating and restarting
+the affected server.
+
 ### Browser push readiness regression tests
 
 Run `node --test Quasar.Tests/Browser/push-worker.test.mjs` with a current Node.js

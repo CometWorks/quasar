@@ -41,6 +41,7 @@ namespace Quasar.Agent
             OfflineModeNetworkGuard.Apply();
             AgentProfiler.Configure(options);
             AgentProfilerPatches.Apply(options);
+            ChatCapturePatch.Apply();
             if (!_clusterMode)
                 ServerCommands.Register(typeof(AdminPlugin).Assembly, typeof(StopCommand), typeof(RestartCommand), typeof(QuitCommand));
             _bridge = new GameBridge(gameServer, options);
@@ -86,6 +87,7 @@ namespace Quasar.Agent
             _outbox = null;
             _bridge?.Dispose();
             _bridge = null;
+            ChatCapturePatch.Dispose();
             AgentProfilerPatches.Dispose();
             OfflineModeNetworkGuard.Dispose();
         }
