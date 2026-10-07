@@ -7,6 +7,7 @@
 @inject BrandingService BrandingService
 @inject QuasarUpdateService UpdateService
 @inject BrowserPushState BrowserPush
+@inject PushNotificationService Notifications
 @inject ClusterReleaseMonitor ClusterReleases
 @inject ClusterContentMonitor ClusterContent
 @inject ClusterCatalog ClusterCatalog
@@ -39,9 +40,9 @@
         <MudSpacer />
         <MudTooltip Text="@GetUpdateBellTooltip()">
             <MudBadge Visible="@HasUpdateBellBadge" Color="Color.Warning" Dot="true" Overlap="true">
-                <MudIconButton Href="@(CurrentNotice?.Url ?? "/settings/updates")"
+                <MudIconButton Href="@(CurrentNotice?.Url ?? "/notifications")"
                                Icon="@(BrowserPush.Enabled ? Icons.Material.Filled.Notifications : Icons.Material.Outlined.Notifications)"
-                               Color="@GetUpdateBellColor()" aria-label="Open current update notice" />
+                               Color="@GetUpdateBellColor()" aria-label="Open current notification" />
             </MudBadge>
         </MudTooltip>
         <MudMenu Icon="@GetThemeModeIcon()" Color="Color.Inherit" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Dense="true">
@@ -123,6 +124,7 @@
     private QuasarUpdateSnapshot _updateSnapshot = new();
     private ClusterReleaseSnapshot _clusterReleaseSnapshot = new(null, null, null);
     private System.Security.Claims.ClaimsPrincipal? _currentUser;
+    private UpdateNotice[] _notices = [];
 
     // The worker is restartable only when it was launched by the Quasar launcher, which
     // injects QUASAR_LAUNCHER_TOKEN (surfaced as WebServiceOptions.LauncherToken).
@@ -164,11 +166,13 @@
         ClusterReleases.Changed += OnClusterReleasesChanged;
         ClusterContent.Changed += OnClusterCatalogChanged;
         BrowserPush.Changed += OnClusterCatalogChanged;
+        Notifications.Changed += OnClusterCatalogChanged;
         ClusterCatalog.Changed += OnClusterCatalogChanged;
         RbacConfigCatalog.Changed += OnRbacChanged;
         _updateSnapshot = UpdateService.GetSnapshot();
         _clusterReleaseSnapshot = ClusterReleases.GetSnapshot();
         _currentUser = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+        await RefreshNoticesAsync();
     }
 
     public void Dispose()
@@ -178,6 +182,7 @@
         ClusterReleases.Changed -= OnClusterReleasesChanged;
         ClusterContent.Changed -= OnClusterCatalogChanged;
         BrowserPush.Changed -= OnClusterCatalogChanged;
+        Notifications.Changed -= OnClusterCatalogChanged;
         ClusterCatalog.Changed -= OnClusterCatalogChanged;
         RbacConfigCatalog.Changed -= OnRbacChanged;
     }
@@ -187,14 +192,25 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private void OnClusterCatalogChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnClusterCatalogChanged() => _ = InvokeAsync(async () =>
+    {
+        await RefreshNoticesAsync();
+        StateHasChanged();
+    });
+
+    private async Task RefreshNoticesAsync()
+    {
+        try { _notices = await Notifications.GetNoticesAsync(_currentUser ?? new System.Security.Claims.ClaimsPrincipal()); }
+        catch (Exception) { _notices = []; }
+    }
 
     private void OnClusterReleasesChanged()
     {
         var snapshot = ClusterReleases.GetSnapshot();
-        _ = InvokeAsync(() =>
+        _ = InvokeAsync(async () =>
         {
             _clusterReleaseSnapshot = snapshot;
+            await RefreshNoticesAsync();
             var available = AvailableClusterUpdates;
             if (available.Count > 0 && snapshot.Release is { } release
                 && _lastClusterNotice != release.Version)
@@ -214,9 +230,10 @@
     private void OnUpdatesChanged()
     {
         var snapshot = UpdateService.GetSnapshot();
-        _ = InvokeAsync(() =>
+        _ = InvokeAsync(async () =>
         {
             _updateSnapshot = snapshot;
+            await RefreshNoticesAsync();
             StateHasChanged();
         });
 
@@ -288,9 +305,7 @@
         _ => Icons.Material.Filled.BrightnessAuto,
     };
 
-    private UpdateNotice[] Notices => UpdateNotices.All(_updateSnapshot, _clusterReleaseSnapshot,
-        ClusterCatalog.GetClusters(), _currentUser ?? new System.Security.Claims.ClaimsPrincipal(), ClusterContent.GetSnapshot).ToArray();
-    private UpdateNotice? CurrentNotice => Notices.FirstOrDefault();
+    private UpdateNotice? CurrentNotice => _notices.FirstOrDefault();
 
     private bool HasUpdateBellBadge => CurrentNotice is not null;
 
@@ -301,7 +316,7 @@
 
     private Color GetUpdateBellColor()
     {
-        if (_updateSnapshot.GitHubTokenExpired)
+        if (_updateSnapshot.GitHubTokenExpired && CurrentNotice?.Key.StartsWith("token:", StringComparison.Ordinal) == true)
             return Color.Error;
 
         return HasUpdateBellBadge ? Color.Warning : Color.Inherit;

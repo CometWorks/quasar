@@ -7,13 +7,15 @@
 @inject ClusterCatalog Clusters
 @inject AuthenticationStateProvider AuthenticationState
 @inject BrowserPushState Push
+@inject PushNotificationService NotificationService
+@inject ILogger<Notifications> Logger
 
 <PageTitle>Notifications</PageTitle>
 
 <MudStack Spacing="3">
     <MudText Typo="Typo.h5">Notifications</MudText>
     <MudText Typo="Typo.body2">
-        Outstanding Quasar and cluster update notices. Open a notice to review its details.
+        Quasar and cluster updates, plus optional instance health alerts. Open a notice to review its details.
     </MudText>
     <MudPaper Class="pa-4" Outlined="true">
         <MudStack Spacing="2">
@@ -44,9 +46,60 @@
             }
         </MudStack>
     </MudPaper>
+    <MudPaper Class="pa-4" Outlined="true">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">Notification preferences</MudText>
+            <MudText Typo="Typo.body2">Choose which notices appear here, in the bell, and in browser push. Preferences apply to your account across browsers. Instance alerts are off by default.</MudText>
+            @if (_preferences is not null)
+            {
+                <MudForm @ref="_form">
+                    <MudStack Spacing="2">
+                        <MudCheckBox T="bool" @bind-Value="_preferences.Updates" Label="Quasar and cluster updates" />
+                        <MudCheckBox T="bool" @bind-Value="_preferences.Crashes" Label="Instance crashes and failures (including automatic crash recovery)" />
+                        <MudCheckBox T="bool" @bind-Value="_preferences.HealthRestarts" Label="Restarts caused by health checks or agent attach failures" />
+                        <MudGrid>
+                            <MudItem xs="12" sm="6">
+                                <MudCheckBox T="bool" @bind-Value="_preferences.LowSimSpeed" Label="Low simulation speed" />
+                                <MudNumericField T="float" @bind-Value="_preferences.SimSpeedThreshold" Label="Alert below simulation speed" Min="0.001f" Max="1f" Step="0.05f" Required="true" Disabled="@(!_preferences.LowSimSpeed)" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudCheckBox T="bool" @bind-Value="_preferences.HighCpu" Label="High process CPU usage" />
+                                <MudNumericField T="float" @bind-Value="_preferences.CpuThreshold" Label="Alert above CPU (%)" Min="0.1f" Max="100000f" Required="true" HelperText="100% equals one logical CPU; process usage can exceed 100%." Disabled="@(!_preferences.HighCpu)" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudCheckBox T="bool" @bind-Value="_preferences.HighMemory" Label="High memory usage" />
+                                <MudNumericField T="long" @bind-Value="_preferences.MemoryThresholdMb" Label="Alert above working set (MB)" Min="1L" Max="1048576L" Required="true" Disabled="@(!_preferences.HighMemory)" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudCheckBox T="bool" @bind-Value="_preferences.UnsavedWorld" Label="World has unsaved changes" />
+                                <MudNumericField T="int" @bind-Value="_preferences.UnsavedThresholdMinutes" Label="Alert above unsaved game time (minutes)" Min="1" Max="10080" Required="true" Disabled="@(!_preferences.UnsavedWorld)" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudNumericField T="int" @bind-Value="_preferences.SustainedSeconds" Label="Metric alert duration (seconds)" Min="5" Max="3600" Required="true" HelperText="A metric must stay past its threshold for this long." />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudNumericField T="int" @bind-Value="_preferences.CooldownSeconds" Label="Metric alert cooldown (seconds)" Min="30" Max="86400" Required="true" HelperText="Minimum time between alerts for the same instance and metric." />
+                            </MudItem>
+                        </MudGrid>
+                        <MudCheckBox T="bool" @bind-Value="_preferences.Recoveries" Label="Notify when an alerted metric recovers" />
+                        <MudText Typo="Typo.caption">Metric alerts use fresh telemetry from running instances, including cluster nodes. Crash and health-restart alerts cover locally supervised instances. Recent instance alerts remain here for up to 24 hours (100 per account), until Quasar restarts or preferences are saved.</MudText>
+                        <div><MudButton OnClick="SavePreferencesAsync" Disabled="@_saving" Variant="Variant.Filled" Color="Color.Primary">Save preferences</MudButton></div>
+                    </MudStack>
+                </MudForm>
+            }
+            @if (_settingsError is not null)
+            {
+                <MudAlert Severity="Severity.Error">@_settingsError</MudAlert>
+            }
+            @if (_saved)
+            {
+                <MudAlert Severity="Severity.Success">Notification preferences saved.</MudAlert>
+            }
+        </MudStack>
+    </MudPaper>
     @if (_notices.Length == 0)
     {
-        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No update notifications.</MudAlert>
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No notifications.</MudAlert>
     }
     else
     {
@@ -55,6 +108,10 @@
             <MudPaper @key="notice.Key" Class="pa-4" Outlined="true">
                 <MudStack Spacing="2">
                     <MudText Typo="Typo.h6">@notice.Title</MudText>
+                    @if (notice.OccurredAt is { } occurredAt)
+                    {
+                        <MudText Typo="Typo.caption">@occurredAt.UtcDateTime.ToString("u")</MudText>
+                    }
                     <MudText Typo="Typo.body2">@notice.Body</MudText>
                     <div>
                         <MudButton Href="@notice.Url" Variant="Variant.Outlined" Color="Color.Primary"
@@ -70,6 +127,11 @@
 
 @code {
     private UpdateNotice[] _notices = [];
+    private NotificationPreferences? _preferences;
+    private MudForm? _form;
+    private bool _saving;
+    private bool _saved;
+    private string? _settingsError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -78,8 +140,19 @@
         Content.Changed += Changed;
         Clusters.Changed += Changed;
         Push.Changed += Changed;
+        NotificationService.Changed += Changed;
         AuthenticationState.AuthenticationStateChanged += AuthenticationChanged;
-        await RefreshAsync();
+        try
+        {
+            var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+            _preferences = await NotificationService.GetPreferencesAsync(user);
+            await RefreshAsync();
+        }
+        catch (Exception error)
+        {
+            Logger.LogWarning(error, "Could not load notification preferences.");
+            _settingsError = "Notification settings are unavailable. Check Quasar logs and refresh this page.";
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -90,8 +163,37 @@
     private async Task RefreshAsync()
     {
         var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
-        _notices = UpdateNotices.All(Updates.GetSnapshot(), Releases.GetSnapshot(), Clusters.GetClusters(),
-            user, Content.GetSnapshot).ToArray();
+        try { _notices = await NotificationService.GetNoticesAsync(user); }
+        catch (Exception error)
+        {
+            Logger.LogWarning(error, "Could not load notifications.");
+            _notices = [];
+            _settingsError = "Notifications are unavailable. Check Quasar logs and refresh this page.";
+        }
+    }
+
+    private async Task SavePreferencesAsync()
+    {
+        if (_saving || _preferences is null || _form is null) return;
+        _saving = true;
+        _saved = false;
+        _settingsError = null;
+        try
+        {
+            await _form.ValidateAsync();
+            if (!_form.IsValid) return;
+            var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+            await NotificationService.SavePreferencesAsync(user, _preferences);
+            _saved = true;
+            await RefreshAsync();
+        }
+        catch (InvalidDataException error) { _settingsError = error.Message; }
+        catch (Exception error)
+        {
+            Logger.LogWarning(error, "Could not save notification preferences.");
+            _settingsError = "Could not save notification preferences. Refresh this page and try again.";
+        }
+        finally { _saving = false; }
     }
 
     private void Changed() => _ = InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); });
@@ -104,6 +206,7 @@
         Content.Changed -= Changed;
         Clusters.Changed -= Changed;
         Push.Changed -= Changed;
+        NotificationService.Changed -= Changed;
         AuthenticationState.AuthenticationStateChanged -= AuthenticationChanged;
     }
 }

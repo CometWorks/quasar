@@ -6,7 +6,7 @@ using Quasar.Services.Auth;
 
 namespace Quasar.Services.Updates;
 
-internal sealed record UpdateNotice(string Key, string Title, string Body, string Url);
+internal sealed record UpdateNotice(string Key, string Title, string Body, string Url, DateTimeOffset? OccurredAt = null);
 
 internal static class UpdateNotices
 {

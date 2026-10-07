@@ -550,10 +550,22 @@ If the user closes the browser, `Quasar` keeps running and the user can return v
 ## Self-Update and Version Rollover
 
 The UI bell also supports opt-in browser Web Push. `PushNotificationService`
-persists VAPID keys and per-browser subscriptions in a Data Protection-protected
-file, checks current update snapshots and cluster pins every 30 seconds, and
-sends the same highest-priority notice shown by the bell to each subscribed
-browser independently. Delivery reconstructs
+persists VAPID keys, per-browser subscriptions, and account notification preferences in a Data
+Protection-protected file. The Notifications page, bell, and push delivery share the same
+account-filtered notice list. Update notices are enabled by default; crash/fault, health-restart,
+simulation speed, CPU, memory, unsaved-world, and recovery alerts are optional. Preferences can
+be saved without a browser subscription.
+
+`InstanceNotificationMonitor` observes supervisor and Agent changes synchronously to preserve
+short crash-recovery transitions. It baselines existing lifecycle state, evaluates sustained metric
+thresholds only against fresh running-instance telemetry, and applies cooldown independently per
+account, instance, and metric. Authenticated cluster identity scopes node metrics and access;
+local supervisor snapshots supply standalone crash and health-restart causes. It retains at most
+100 incidents per account for 24 hours in memory; saving that account's preferences or restarting
+Quasar clears its incidents and rule timers. It does not infer a cluster crash from a disconnected Agent.
+
+The service checks pending notices every 30 seconds and sends up to ten per subscribed browser
+independently, retaining delivery receipts for outstanding updates and retained incidents. Delivery reconstructs
 the subscriber's current roles, so role removal stops future sends. The service
 worker handles push and notification clicks only; it does not cache pages or
 intercept fetches. Click destinations are fixed same-origin Quasar routes.
