@@ -330,6 +330,14 @@ public sealed class ClusterCatalog : IDisposable
             cluster.Gateway = cluster.Gateway with { StartGeneration = generation };
         }, token);
 
+    internal Task<ClusterDefinition> RecordNextStartGenerationAsync(ClusterDefinition expected, CancellationToken token) =>
+        UpdateCoreAsync(expected.UniqueName, cluster =>
+        {
+            if (cluster.GetLifecycleId() != expected.GetLifecycleId() || cluster.Gateway is null)
+                throw new InvalidOperationException("Cluster lifecycle changed before its restart.");
+            cluster.Gateway = cluster.Gateway with { StartGeneration = Guid.NewGuid(), Recover = false };
+        }, token);
+
     public void Dispose() => _watcher?.Dispose();
 
     // Keep goal/spec changes and the reconciler's external effects in order. Reload

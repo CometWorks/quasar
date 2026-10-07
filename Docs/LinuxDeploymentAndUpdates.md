@@ -173,7 +173,9 @@ machine. Every 15 minutes it authenticates to the active Quasar worker, compares
 the packaged Host binary's SHA-256, downloads a changed binary, and restarts only
 the Host service. The updater retains the prior binary until the new service stays
 active and restores it after a failed restart. Gateway and node processes stay
-running under the Host unit's `KillMode=process`. Quasar automatically installs
+running under the Host unit's `KillMode=process`; a separate stop unit shuts them
+down with a save at logout or machine shutdown (see `ClusterGuidedSetupPlan.md`).
+Quasar automatically installs
 the timer on older local enrollments; older remote enrollments need one final
 reinstall because their old Host has no updater and Quasar does not retain SSH
 credentials.

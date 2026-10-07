@@ -13,6 +13,9 @@ internal static class DeploymentSelfTest
         LocalWorldModsRequired();
         ProfileContentUpdate();
         SteamClientLibraryInstallation();
+        Assert(HostShutdown.ParseSystemdSeconds("2min") == 120 && HostShutdown.ParseSystemdSeconds("1min 30s") == 90
+            && HostShutdown.ParseSystemdSeconds("500ms\n") == 0.5 && HostShutdown.ParseSystemdSeconds("infinity") is null
+            && HostShutdown.ParseSystemdSeconds("5s junk") is null, "systemd time span parsing");
         string root = Path.Combine(Path.GetTempPath(), "host-deployment-" + Guid.NewGuid());
         try
         {

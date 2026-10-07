@@ -101,6 +101,10 @@ public sealed class ClusterHostInstaller
                   ./Quasar.Host run --config host.json
 
                 Keep this process running using your preferred service manager.
+                Before the machine shuts down, have the service manager run
+                  ./Quasar.Host stop-clusters --config host.json
+                while Quasar.Host still runs, and allow it 110 seconds. It shuts the
+                clusters down with a save; otherwise they are killed without one.
                 It connects back to the Quasar address in host.json. The command listener
                 stays on loopback; do not expose it to the network. Wait until Quasar
                 shows the host as connected before deploying a cluster.
@@ -130,6 +134,7 @@ public sealed class ClusterHostInstaller
         return RunAsync(start, BuildScript(hosts.Get(hostId) ?? throw new KeyNotFoundException(), origin), token);
     }
 
+    private const int HostStopTimeoutSeconds = 110; // Quasar.Host's HostShutdown.StopTimeoutSeconds
     internal byte[] BuildScript(EnrolledClusterHost host, Uri origin)
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("Guided cluster setup currently requires Linux x64.");
@@ -269,6 +274,21 @@ public sealed class ClusterHostInstaller
             [Install]
             WantedBy=timers.target
             QSR_UPDATE_TIMER
+            # Started after the Host, so systemd stops it first, and only when the user manager is torn
+            # down at logout or shutdown: a Host restart or update leaves the clusters running.
+            cat > "$HOME/.config/systemd/user/quasar-host-{{host.Id}}-stop.service" <<'QSR_STOP_UNIT'
+            [Unit]
+            Description=Stop Quasar Host {{host.Id}} clusters with a save at logout or shutdown
+            After=quasar-host-{{host.Id}}.service
+            [Service]
+            Type=oneshot
+            RemainAfterExit=yes
+            ExecStart=/bin/true
+            ExecStop="%h/.local/share/Quasar/Hosts/{{host.Id}}/Quasar.Host" stop-clusters --config "%h/.local/share/Quasar/Hosts/{{host.Id}}/host.json"
+            TimeoutStopSec={{HostStopTimeoutSeconds}}
+            [Install]
+            WantedBy=default.target
+            QSR_STOP_UNIT
             systemctl --user daemon-reload
             if test "$qsr_needs_restart" = 1; then
                 systemctl --user restart "$qsr_unit"
@@ -279,7 +299,15 @@ public sealed class ClusterHostInstaller
                 systemctl --user enable --now "$qsr_unit"
             fi
             systemctl --user enable --now quasar-host-{{host.Id}}-update.timer
-            echo 'Quasar Host installed or updated. Enable user lingering if it must run after logout: loginctl enable-linger'
+            # Never restart this unit: stopping it shuts the clusters down.
+            systemctl --user enable --now quasar-host-{{host.Id}}-stop.service
+            # Without lingering the Host and its clusters stop with the user's last session.
+            if ! test -e "/var/lib/systemd/linger/$(id -un)"; then
+                loginctl --no-ask-password enable-linger 2>/dev/null \
+                    || { command -v sudo >/dev/null && sudo -n loginctl enable-linger "$(id -un)"; } 2>/dev/null \
+                    || echo "Could not enable user lingering; run: sudo loginctl enable-linger $(id -un)" >&2
+            fi
+            echo 'Quasar Host installed or updated.'
             """);
     }
 

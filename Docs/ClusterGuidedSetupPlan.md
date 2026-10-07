@@ -75,13 +75,18 @@ It does not provision a separate SDK. Remote host machines need .NET 10 installe
 Quasar itself also needs .NET 10 for the shipped world converter. Remote enrollment requires a
 Quasar HTTPS origin reachable from the target; loopback HTTP is allowed locally.
 Machines use private IPv4 LAN/VPN addresses or IPv6 ULA addresses for cluster traffic.
-Loopback placement is allowed only for a single-machine cluster. Enabling user
-lingering (`loginctl enable-linger`) keeps a user service running after logout.
+Loopback placement is allowed only for a single-machine cluster. Installation enables
+user lingering (`loginctl enable-linger`) when the account or passwordless sudo allows
+it, so the Host keeps running after logout. The Host reports lingering that is still
+off as a warning on the enrollment page.
 
 **Manual installation** downloads a ZIP containing the matching Host binary,
 `host.json`, a private enrollment credential file and run instructions. Extract it
 into a private directory on the registered machine and run
-`./Quasar.Host run --config host.json` under your preferred service manager. This
+`./Quasar.Host run --config host.json` under your preferred service manager. Have the
+service manager run `./Quasar.Host stop-clusters --config host.json` before shutdown,
+while the Host still runs, and allow it 110 seconds; otherwise a shutdown kills the
+clusters without a save. This
 path does not require systemd; the administrator supplies Python 3, util-linux and
 .NET 10 and maintains the Host executor binary. The download requires security-administration
 permission and is not cached. Enrollment alone never makes a host deployable: its
@@ -195,6 +200,28 @@ referenced secrets, not inherited Host enrollment or unrelated cluster credentia
 The systemd unit uses `KillMode=process`: restarting the Host preserves its managed
 Gateway/node processes for adoption. Quasar outages do not stop them. Stop clusters
 through their lifecycle controls before intentionally removing a Host installation.
+
+At logout or machine shutdown systemd tears down the user manager and kills whatever
+the Host unit left running. To save first, installation adds
+`quasar-host-<id>-stop.service`. It is ordered after the Host unit, so systemd stops it
+first, and its `ExecStop` runs `Quasar.Host stop-clusters`. That asks every local
+Gateway to shut its cluster down (30 s drain grace) and waits up to 105 s. A Host
+restart or update does not touch this unit, and installation only ever starts it,
+because stopping it shuts the clusters down.
+
+systemd gives `user@.service` 120 s to stop by default, enough for this. Ubuntu ships
+`/usr/lib/systemd/system/user@.service.d/timeout.conf` with `TimeoutStopSec=5`, which
+kills the clusters before the save. Drop-ins apply in file name order, so override it
+with a file of the same name, `/etc/systemd/system/user@.service.d/timeout.conf`,
+holding `[Service]` and `TimeoutStopSec=150`, then run `systemctl daemon-reload`. The
+Host checks lingering, the stop unit and this timeout, and the enrollment page shows
+what is wrong.
+
+After the machine is back, the Gateway restarts in the Down phase, because a process
+restart never undoes a shutdown. When the cluster's goal is On, the reconciler starts
+the next generation, as Stop and Start would, but only after a clean shutdown and once
+the Host has restarted. A Down cluster that does not meet both conditions waits for an
+operator.
 
 ## API
 

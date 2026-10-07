@@ -2,6 +2,7 @@
 @inject ClusterHostCatalog Hosts
 @inject ClusterHostInstaller Installer
 @inject ClusterHostTunnels Tunnels
+@inject ClusterHostClient HostClient
 @inject QuasarPermissionService Permissions
 @inject NavigationManager Navigation
 
@@ -28,7 +29,7 @@
         <MudNumericField T="int" Label="SSH port" @bind-Value="_sshPort" Min="1" Max="65535" />
         <MudTextField T="string" Label="SSH private key file (optional)" @bind-Value="_sshKey" HelperText="An existing key path on the Quasar host machine. Leave empty to use its SSH agent/default keys. The remote host key must already be trusted in known_hosts; Quasar never disables host-key checking." />
     }
-    <MudText Typo="Typo.body2">Automatic installation uses your account and generates credentials. Missing Python 3 and util-linux are installed when root or passwordless sudo is available. The local Host executor uses Quasar's installed .NET 10 toolchain. Automatic service installation needs a working systemd user session; choose manual installation to use another service manager. Remote host machines need .NET 10. Enrolled Host executors check for binary updates every 15 minutes and preserve configuration, credentials and cluster processes. Enable user lingering (loginctl enable-linger) if the service must run after logout.</MudText>
+    <MudText Typo="Typo.body2">Automatic installation uses your account and generates credentials. Missing Python 3 and util-linux are installed when root or passwordless sudo is available. The local Host executor uses Quasar's installed .NET 10 toolchain. Automatic service installation needs a working systemd user session; choose manual installation to use another service manager. Remote host machines need .NET 10. Enrolled Host executors check for binary updates every 15 minutes and preserve configuration, credentials and cluster processes. Installation enables user lingering when the account or passwordless sudo allows it, so the Host keeps running after logout. At logout or machine shutdown the Host shuts its clusters down with a save.</MudText>
     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InstallAsync" Disabled="_busy">@(_method == "command" ? "Generate enrollment command" : _method == "manual" ? "Prepare manual enrollment" : "Install Host executor")</MudButton>
     @if (_host is not null && _method == "manual")
     {
@@ -47,6 +48,7 @@
         <MudButton OnClick="CheckConnection">Check connection</MudButton>
         @if (_connected) { <MudAlert Severity="Severity.Success">Host executor connected. It is ready for cluster placement.</MudAlert> }
         else { <MudText>Waiting for this Host executor to connect. Check its service log if installation has finished.</MudText> }
+        @foreach (var warning in _warnings) { <MudAlert Severity="Severity.Warning">@warning</MudAlert> }
     }
 </MudStack>
 
@@ -58,6 +60,7 @@
     private int _sshPort = 22;
     private bool _busy, _connected;
     private string? _error;
+    private string[] _warnings = [];
     private EnrolledClusterHost? _host;
     private HostInstallTicket? _ticket;
     protected override void OnInitialized() { EnsureName(); _origin = Navigation.BaseUri; _ = RefreshAsync(); }
@@ -74,7 +77,10 @@
         {
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
             while (await timer.WaitForNextTickAsync(_stop.Token))
+            {
                 await InvokeAsync(() => { CheckConnection(); StateHasChanged(); });
+                await InvokeAsync(LoadWarningsAsync);
+            }
         }
         catch (OperationCanceledException) { }
     }
@@ -87,6 +93,19 @@
         CheckConnection();
     }
     private void CheckConnection() => _connected = _host is not null && Tunnels.IsConnected(_host.Id);
+    // The Host reports what keeps it from stopping its clusters cleanly, such as lingering being off.
+    private async Task LoadWarningsAsync()
+    {
+        string[] warnings = [];
+        if (_connected && _host is { } host)
+            try
+            {
+                var target = new ClusterDefinition { UniqueName = host.Id, HostCommandUrl = host.CommandUrl, HostCommandTokenEnvironmentVariable = host.CredentialReference };
+                warnings = (await HostClient.GetStatusAsync(target, _stop.Token)).Data.Warnings ?? [];
+            }
+            catch (ClusterHostException) { }
+        if (!warnings.SequenceEqual(_warnings)) { _warnings = warnings; StateHasChanged(); }
+    }
     private async Task InstallAsync()
     {
         if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity)) return;

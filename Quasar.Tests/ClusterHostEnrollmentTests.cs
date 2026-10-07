@@ -186,6 +186,12 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
             exit 0
             """ + "\n");
         File.SetUnixFileMode(systemctl, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        // Never change the lingering setting of the machine running the tests.
+        foreach (string tool in new[] { "loginctl", "sudo" })
+        {
+            File.WriteAllText(Path.Combine(fakeBin, tool), $"#!/bin/sh\necho \"$*\" >> \"$HOME/{tool}.log\"\nexit 1\n");
+            File.SetUnixFileMode(Path.Combine(fakeBin, tool), UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
         var installer = new ClusterHostInstaller(hosts, credentials, binary, TimeProvider.System);
         string installed = Path.Combine(home, ".local/share/Quasar/Hosts/one");
 
@@ -227,7 +233,14 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         Assert.Equal(1, File.ReadAllLines(Path.Combine(home, "systemctl.log")).Count(line => line.Contains(" restart ")));
 
         Assert.Equal(0, await Install("new", "http://127.0.0.1:8080"));
-        Assert.Equal(1, File.ReadAllLines(Path.Combine(home, "systemctl.log")).Count(line => line.Contains(" restart ")));
+        string[] systemctlCalls = File.ReadAllLines(Path.Combine(home, "systemctl.log"));
+        Assert.Equal(1, systemctlCalls.Count(line => line.Contains(" restart ")));
+        // Stopping the stop unit shuts the clusters down, so updates only ever start it.
+        Assert.Contains("--user enable --now quasar-host-one-stop.service", systemctlCalls);
+        Assert.DoesNotContain(systemctlCalls, line => line.Contains("stop.service") && !line.Contains("enable --now"));
+        string stopUnit = File.ReadAllText(Path.Combine(home, ".config/systemd/user/quasar-host-one-stop.service"));
+        Assert.Contains("After=quasar-host-one.service", stopUnit);
+        Assert.Contains("Quasar.Host\" stop-clusters --config", stopUnit);
 
         File.WriteAllText(Path.Combine(home, "fail-restart"), "fail once");
         Assert.NotEqual(0, await Install("broken", "http://127.0.0.1:8080"));
