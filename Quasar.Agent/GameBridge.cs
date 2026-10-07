@@ -1129,13 +1129,21 @@ namespace Quasar.Agent
             long targetId,
             ChatMessageCustomData? customData)
         {
+            // Delivery callbacks may run once per recipient. Capture only the first matching
+            // callback of the accepted server receive operation, using its original sender.
+            if (!ChatCaptureScope.TryCapture(content, (byte)channel, targetId, out var source))
+                return;
+
+            steamId = source.Sender;
             var session = MySession.Static;
-            var authorName = customData.HasValue ? customData.Value.AuthorName : null;
-            if (string.IsNullOrWhiteSpace(authorName))
+            var authorName = source.AuthorName;
+            if (string.IsNullOrWhiteSpace(authorName) && !source.IsServerMessage)
                 authorName = session?.Players?.TryGetIdentityNameFromSteamId(steamId) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(authorName) && !source.IsServerMessage)
+                authorName = _chatSource?.GetMemberName(steamId) ?? string.Empty;
 
             var numericSteamId = (long)steamId;
-            var isServerMessage = IsServerChatMessage(numericSteamId, authorName);
+            var isServerMessage = source.IsServerMessage || IsServerChatMessage(numericSteamId, authorName);
             var snapshot = new ChatMessageSnapshot
             {
                 SteamId = numericSteamId,
