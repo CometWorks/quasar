@@ -1139,6 +1139,13 @@ Gateway-requested node ID and epoch. The released node plugins do not yet write 
 receipt. A mismatched process identity or occupied reserved
 port is reported as `unmanaged_conflict`; Host leaves the process untouched.
 
+When a recorded node process is gone, Host reports the slot `Gone` if the node wrote exit
+code 0 into its receipt right before exiting (a finished drain) or if the machine has
+rebooted since the launch (Linux boot ID; Windows uptime). Any other exit is `Failed` with
+`process_exited:<code>`, or a bare `process_exited` when the node recorded no code. Only
+failures count toward the Gateway's spawn backoff and its `globalSpawnFailure` halt, so a
+reboot of the whole fleet no longer blocks respawns for 10 minutes.
+
 ## Current Gateway commands and operation recovery
 
 `POST /api/v1/clusters/{name}/commands` accepts `{ "action": "save-all" }` and

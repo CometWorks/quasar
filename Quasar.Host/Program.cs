@@ -543,6 +543,40 @@ internal static class Program
                 throw new InvalidOperationException("self-test exact kill failed");
             childProcessId = null;
 
+            // A node that exits 0 after a drain or dies with a reboot is Gone; any other exit is a failure.
+            DateTimeOffset bootedAt = DateTimeOffset.UtcNow - TimeSpan.FromMilliseconds(Environment.TickCount64);
+            foreach ((int? exitCode, bool rebooted, string? failure) in new (int?, bool, string?)[]
+                         { (0, false, null), (3, false, "process_exited:3"), (null, false, "process_exited"), (null, true, null) })
+            {
+                NodeExecutionObservation respawned = (await actualizer.ReconcileAsync(
+                    attachment, [wanted], CancellationToken.None)).Single();
+                record = JsonSerializer.Deserialize<LaunchRecord>(File.ReadAllText(recordPath), JsonOptions)!;
+                childProcessId = record.ProcessId;
+                if (respawned.State != Admin.NodeObservation.Spawning)
+                    throw new InvalidOperationException("self-test respawn failed: " + respawned.Failure);
+                File.WriteAllBytes(Path.Combine(slotDirectory, ".quasar-node-ready.json"),
+                    JsonSerializer.SerializeToUtf8Bytes(receipt with
+                    {
+                        AttemptKey = record.AttemptKey, ProcessId = record.ProcessId!.Value, ExitCode = exitCode,
+                    }, JsonOptions));
+                if (rebooted)
+                    File.WriteAllBytes(recordPath, JsonSerializer.SerializeToUtf8Bytes(record with
+                    {
+                        ProcessIdentity = "another-boot/1", LaunchedAt = bootedAt.AddMinutes(-1),
+                    }, JsonOptions));
+                using (Process child = Process.GetProcessById(record.ProcessId!.Value))
+                {
+                    child.Kill(entireProcessTree: true);
+                    await child.WaitForExitAsync();
+                }
+                childProcessId = null;
+                NodeExecutionObservation exited = (await actualizer.ReconcileAsync(
+                    attachment, [wanted], CancellationToken.None)).Single();
+                if (exited.State != (failure is null ? Admin.NodeObservation.Gone : Admin.NodeObservation.Failed)
+                    || exited.Failure != failure || exited.Node != "node-a")
+                    throw new InvalidOperationException($"self-test exit {exitCode} (rebooted: {rebooted}) reported {exited.State} {exited.Failure}");
+            }
+
             using var conflict = new TcpListener(IPAddress.Loopback, reservedPort);
             conflict.Start();
             NodeExecutionObservation blocked = (await actualizer.ReconcileAsync(

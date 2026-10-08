@@ -120,11 +120,13 @@ internal sealed class NodeActualizer
         if (record is not null && match.State == ProcessMatchState.Missing
             && record.Status is LaunchStatus.Running or LaunchStatus.Ready)
         {
-            record = record with { Status = LaunchStatus.Failed, Failure = "process_exited" };
+            string? failure = ExitFailure(attachment, record);
+            record = record with { Status = failure is null ? LaunchStatus.Gone : LaunchStatus.Failed, Failure = failure };
             WriteRecord(record);
             if (!killRequested && plan.Goal == Admin.NodeGoal.Wanted)
-                return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Failed,
-                    record.NodeId, "process_exited", record.Epoch ?? 0);
+                return Observation(plan.SlotKey, record.AttemptKey,
+                    failure is null ? Admin.NodeObservation.Gone : Admin.NodeObservation.Failed,
+                    record.NodeId, failure, record.Epoch ?? 0);
         }
 
         if (killRequested)
@@ -476,6 +478,20 @@ internal sealed class NodeActualizer
         }
     }
 
+    // Why a recorded node process is gone. Null when it was not a failure: it exited 0 after a
+    // finished drain, or the machine restarted under it. Counting those as failures halts all
+    // spawns for 10 minutes after a reboot (the Registry's globalSpawnFailure).
+    private string? ExitFailure(HostContract.HostAttachmentSpec attachment, LaunchRecord record)
+    {
+        if (ProcessIdentity.StartedThisBoot(record.ProcessIdentity, record.LaunchedAt) == false)
+            return null;
+        ReadyReceipt? receipt = ReadReadyReceipt(attachment, record.SlotKey);
+        return receipt?.AttemptKey == record.AttemptKey && receipt.ProcessId == record.ProcessId
+                && receipt.ExitCode is int code
+            ? code == 0 ? null : "process_exited:" + code
+            : "process_exited";
+    }
+
     private static bool ReceiptMatches(ReadyReceipt receipt, string clusterId,
         LaunchRecord record, NodeSpawnSpec spec) =>
         receipt.SchemaVersion == SchemaVersion
@@ -701,7 +717,8 @@ internal sealed record ReadyReceipt(
     int ProcessId,
     string DeploymentRevision,
     bool Ready = true,
-    string? Failure = null);
+    string? Failure = null,
+    int? ExitCode = null);
 
 internal sealed record LaunchRecord(
     int SchemaVersion,
