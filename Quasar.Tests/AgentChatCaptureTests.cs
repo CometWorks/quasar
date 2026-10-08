@@ -2,7 +2,10 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
+using Magnetar.Protocol.Model;
+using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Agent;
+using Quasar.Services.Discord;
 using Xunit;
 
 namespace Quasar.Tests;
@@ -85,6 +88,59 @@ public sealed class AgentChatCaptureTests
         Assert.Equal(456UL, source.Sender);
         Assert.Equal("Discord [SPRT]", source.AuthorName);
         Assert.False(ChatCaptureScope.TryCapture("announcement", Private, 789, out _));
+    }
+
+    [Fact]
+    public void AcceptedQuasarBroadcastTravelsThroughSnapshotAndRelaysOnce()
+    {
+        var relay = new DiscordChatRelayService(null!, null!, NullLogger<DiscordChatRelayService>.Instance);
+        var settings = new DiscordServerOptions { UniqueName = "survival", ChatRelayChannelId = 10 };
+        Assert.Empty(relay.CollectFreshMessages(settings, []));
+
+        using var send = new ChatCaptureScope(456, "Server", true, "announcement", Global, 0, isBroadcastSend: true);
+        Assert.False(ChatCaptureScope.TryCapture("announcement", Global, 0, out _));
+        using var receive = new ChatCaptureScope(123, null!, false, "announcement", Global, 0);
+        Assert.False(ChatCaptureScope.TryCapture("announcement", Global, 0, out _));
+        ChatCaptureScope.MarkAccepted();
+        Assert.True(ChatCaptureScope.TryCapture("announcement", Global, 0, out var source));
+        Assert.True(source.IsQuasarBroadcast);
+        Assert.True(source.IsServerMessage);
+        Assert.Equal(456UL, source.Sender);
+        Assert.False(ChatCaptureScope.TryCapture("announcement", Global, 0, out _));
+
+        var snapshot = new ChatMessageSnapshot
+        {
+            SteamId = (long)source.Sender, AuthorName = "Server", Content = "announcement",
+            IsServerMessage = source.IsServerMessage, IsQuasarBroadcast = source.IsQuasarBroadcast,
+            Channel = ChatMessageChannel.Global, TimestampTicksUtc = DateTimeOffset.UtcNow.AddSeconds(1).UtcTicks,
+        };
+        // The additive origin flag must survive the wire payload.
+        snapshot = System.Text.Json.JsonSerializer.Deserialize<ChatMessageSnapshot>(
+            System.Text.Json.JsonSerializer.Serialize(snapshot))!;
+        Assert.Equal("**Server**: announcement", Assert.Single(relay.CollectFreshMessages(settings, [snapshot])).Content);
+        Assert.Empty(relay.CollectFreshMessages(settings, [snapshot]));
+    }
+
+    [Fact]
+    public void QuasarBroadcastOriginDoesNotLeakToDifferentOrNestedReceives()
+    {
+        using (var send = new ChatCaptureScope(456, "Server", true, "announcement", Global, 0, isBroadcastSend: true))
+        {
+            using (var unrelated = new ChatCaptureScope(123, null!, false, "other", Global, 0))
+                Assert.False(unrelated.IsQuasarBroadcast);
+            using (var privateChat = new ChatCaptureScope(123, null!, false, "announcement", Private, 0))
+                Assert.False(privateChat.IsQuasarBroadcast);
+            using (var targeted = new ChatCaptureScope(123, null!, false, "announcement", Global, 789))
+                Assert.False(targeted.IsQuasarBroadcast);
+            using (var receive = new ChatCaptureScope(0, null!, true, "announcement", Global, 0))
+            {
+                Assert.True(receive.IsQuasarBroadcast);
+                using var nested = new ChatCaptureScope(123, null!, false, "announcement", Global, 0);
+                Assert.False(nested.IsQuasarBroadcast);
+            }
+        }
+        using var later = new ChatCaptureScope(456, "Server", true, "announcement", Global, 0);
+        Assert.False(later.IsQuasarBroadcast);
     }
 
     [Fact]

@@ -429,8 +429,9 @@ Run `dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~A
 with the current `MagnetarBin` reference configured as above. The tests execute
 the Harmony receive hook against a fixture with recipient fan-out, rejected
 messages, repeated player text, nested sends, and exceptions. They also cover
-Discord snapshot deduplication and echo suppression. No running Quasar or game
-server is required.
+Discord snapshot deduplication and echo suppression, plus accepted Web UI
+broadcast origin tracking through the protocol snapshot and global relay. No
+running Quasar or game server is required.
 
 The Agent hook preserves the authenticated sender in a thread-local scope, opens
 capture immediately before the receive handler's final `OnChatMessage(ref ChatMsg)`

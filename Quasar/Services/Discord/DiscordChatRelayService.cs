@@ -153,7 +153,9 @@ public sealed class DiscordChatRelayService
                 if (message.TimestampTicksUtc <= _relayStartedTicksUtc)
                     continue;
 
-                if (IsServerAuthoredMessage(message))
+                var isQuasarBroadcast = message.IsQuasarBroadcast && message.IsServerMessage &&
+                    message.Channel == ChatMessageChannel.Global;
+                if (IsServerAuthoredMessage(message) && !isQuasarBroadcast)
                     continue;
 
                 if (IsSuppressedDiscordEcho(uniqueName, message.Content))

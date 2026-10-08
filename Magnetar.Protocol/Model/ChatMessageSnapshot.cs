@@ -12,6 +12,12 @@ public class ChatMessageSnapshot
 
     public bool IsServerMessage { get; set; }
 
+    /// <summary>
+    /// Accepted global chat sent through the Quasar Agent's SendChat command.
+    /// Discord-origin sends still require echo suppression at the relay.
+    /// </summary>
+    public bool IsQuasarBroadcast { get; set; }
+
     public ChatMessageChannel Channel { get; set; }
 
     /// <summary>

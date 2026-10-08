@@ -377,7 +377,12 @@ The Agent captures one chat entry per accepted server receive operation, after
 anti-spam/faction validation and recipient fan-out. Delivery callbacks cannot
 create extra entries. Player identity comes from the original network sender,
 with the multiplayer member name used when the session identity name is missing.
-Quasar's own sends retain their server identity and are not echoed to Discord.
+Web UI broadcasts retain their server identity and appear once in the configured
+global Discord relay as **Server**. The Agent marks accepted `SendChat` broadcasts
+explicitly; ordinary server/system messages stay excluded. Discord-origin
+broadcasts use the same game-send path, but their tracked echo matches keep them
+from being posted back to Discord. The broadcast marker never enables private
+or unsupported chat channels.
 After updating Quasar, restart affected game servers to load the updated Agent.
 If the Agent cannot install its receive hook, it logs the failure and disables
 chat capture instead of falling back to unscoped delivery callbacks.
