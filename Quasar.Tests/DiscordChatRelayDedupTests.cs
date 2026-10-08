@@ -46,20 +46,49 @@ public sealed class DiscordChatRelayDedupTests
         Assert.Empty(Observe(message, Message("New chat", 1)));
     }
 
-    [Fact]
-    public void EveryCaptureOfForwardedDiscordChatIsSuppressed()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EveryCaptureOfForwardedDiscordChatIsSuppressed(bool quasarBroadcast)
     {
         Observe();
         const string forwarded = "[Discord] Player: Le teste";
         _relay.TrackDiscordToGameMessage("SURVIVAL", forwarded);
 
-        var firstEcho = Message(forwarded);
+        var firstEcho = Echo(0);
         Assert.Empty(Observe(firstEcho));
         // A second game callback has a new timestamp, even though it echoes the same send.
-        var secondEcho = Message(forwarded, 1);
+        var secondEcho = Echo(1);
         Assert.Empty(Observe(firstEcho, secondEcho));
-        Assert.Empty(Observe(firstEcho, secondEcho, Message(forwarded, 2)));
+        Assert.Empty(Observe(firstEcho, secondEcho, Echo(2)));
         Assert.Single(Observe(Message("Regular player chat", 3)));
+
+        ChatMessageSnapshot Echo(long offset)
+        {
+            var echo = Message(forwarded, offset);
+            echo.IsQuasarBroadcast = quasarBroadcast;
+            echo.IsServerMessage = quasarBroadcast;
+            if (quasarBroadcast) { echo.SteamId = 0; echo.AuthorName = "Server"; }
+            return echo;
+        }
+    }
+
+    [Theory]
+    [InlineData(ChatMessageChannel.Whisper)]
+    [InlineData(ChatMessageChannel.Faction)]
+    [InlineData(ChatMessageChannel.GlobalScripted)]
+    [InlineData(ChatMessageChannel.Unknown)]
+    public void BroadcastFlagDoesNotPermitPrivateOrUnsupportedServerChat(ChatMessageChannel channel)
+    {
+        Observe();
+        _options.AdminChannelId = 20;
+        _options.FactionChannels.Add(new() { FactionTag = "SPRT", ChannelId = 30 });
+        var message = Message("Server message");
+        message.Channel = channel;
+        message.FactionTag = "SPRT";
+        message.IsServerMessage = true;
+        message.IsQuasarBroadcast = true;
+        Assert.Empty(Observe(message));
     }
 
     [Fact]
