@@ -543,6 +543,35 @@ public sealed class ClusterReconcilerTests : IDisposable
         Assert.Equal(ClusterReconcileState.Converging, reconciler.GetStatus("demo").State);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task OnRestartsCleanDownOnlyAfterTheHostRestarted(bool hostRestarted)
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using var catalog = CreateCatalog(DedicatedServerGoalState.On);
+        Guid generation = Guid.NewGuid();
+        await catalog.SetGatewayAsync("demo", Spec() with { StartGeneration = generation });
+        var current = GatewayStatus(GatewayGoal.On, GatewayObservedState.Running) with { StartGeneration = generation };
+        // The Gateway's clean-shutdown marker is UnixEpoch.
+        DateTimeOffset hostStarted = DateTimeOffset.UnixEpoch.AddSeconds(hostRestarted ? 60 : -60);
+        int applies = 0;
+        var host = new ContractHandler((request, _) =>
+        {
+            if (request.Method == HttpMethod.Put) applies++;
+            return HostResponse(Host([current]) with { StartedAt = hostStarted });
+        });
+        var gateway = new ContractHandler((_, _) => GatewayResponse(Status(Admin.ClusterPhase.Down)));
+        var reconciler = CreateReconciler(catalog, gateway, host);
+
+        await reconciler.ReconcileAllAsync(default);
+
+        Assert.Equal(0, applies);
+        Assert.Equal(hostRestarted, catalog.GetCluster("demo")!.Gateway!.StartGeneration != generation);
+        Assert.Equal(hostRestarted ? ClusterReconcileState.Converging : ClusterReconcileState.ConfigurationRequired,
+            reconciler.GetStatus("demo").State);
+    }
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable(_tokenVariable, null);

@@ -116,7 +116,7 @@ public sealed class DiscordChatRelayService
         }
     }
 
-    private IReadOnlyList<RelayMessage> CollectFreshMessages(
+    internal IReadOnlyList<RelayMessage> CollectFreshMessages(
         DiscordServerOptions serverOptions,
         IReadOnlyList<ChatMessageSnapshot> recentChat, string? sourceKey = null)
     {
@@ -153,10 +153,12 @@ public sealed class DiscordChatRelayService
                 if (message.TimestampTicksUtc <= _relayStartedTicksUtc)
                     continue;
 
-                if (IsServerAuthoredMessage(message))
+                var isQuasarBroadcast = message.IsQuasarBroadcast && message.IsServerMessage &&
+                    message.Channel == ChatMessageChannel.Global;
+                if (IsServerAuthoredMessage(message) && !isQuasarBroadcast)
                     continue;
 
-                if (TryConsumeSuppressedDiscordEcho(uniqueName, message.Content))
+                if (IsSuppressedDiscordEcho(uniqueName, message.Content))
                     continue;
 
                 var channelId = ResolveRelayChannelId(serverOptions, message);
@@ -270,7 +272,7 @@ public sealed class DiscordChatRelayService
                string.Equals(normalized, "Server", StringComparison.OrdinalIgnoreCase);
     }
 
-    private bool TryConsumeSuppressedDiscordEcho(string uniqueName, string content)
+    private bool IsSuppressedDiscordEcho(string uniqueName, string content)
     {
         if (!_suppressedDiscordEchoes.TryGetValue(uniqueName, out var messages))
             return false;
@@ -280,13 +282,10 @@ public sealed class DiscordChatRelayService
             return false;
 
         var normalizedContent = NormalizeContent(content);
-        var index = messages.FindIndex(message =>
+        // Multiple game callbacks can capture the same send with different timestamps.
+        // Keep the match until expiry so every echo is suppressed.
+        return messages.Any(message =>
             string.Equals(message.Content, normalizedContent, StringComparison.Ordinal));
-        if (index < 0)
-            return false;
-
-        messages.RemoveAt(index);
-        return true;
     }
 
     private static void PruneSuppressedMessages(List<SuppressedMessage> messages)
@@ -367,7 +366,7 @@ public sealed class DiscordChatRelayService
 
     private sealed record SuppressedMessage(string Content, DateTimeOffset ExpiresAtUtc);
 
-    private sealed record RelayMessage(
+    internal sealed record RelayMessage(
         ulong ChannelId,
         string Content,
         ChatMessageChannel ChatChannel,

@@ -13,7 +13,8 @@ namespace Quasar.Host;
 
 internal static class Program
 {
-    private const string Usage = "Usage: Quasar.Host run --config FILE [--once] | status ..."
+    internal static readonly DateTimeOffset StartedAt = DateTimeOffset.UtcNow;
+    private const string Usage = "Usage: Quasar.Host run --config FILE [--once] | stop-clusters --config FILE | status ..."
         + " | attachment apply ... | gateway apply ... | deployment prepare --file FILE --sha256 SHA256 --directory DIR | --self-test";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -44,6 +45,8 @@ internal static class Program
             Console.Error.WriteLine("fatal " + new string('x', 400));
             return 3;
         }
+        if (args is ["stop-clusters", "--config", var stopConfig])
+            return await HostShutdown.StopClustersAsync(stopConfig);
         int? hostCommand = await HostCommandCli.TryRunAsync(args);
         if (hostCommand.HasValue)
             return hostCommand.Value;
@@ -220,12 +223,14 @@ internal static class Program
                 Admin.ExecutorProtocol.HeartbeatRoute, request, ct)).Data, cancellationToken);
     }
 
-    private static async Task<Admin.AdminEnvelope<T>> SendAsync<T>(HttpClient client,
+    internal static async Task<Admin.AdminEnvelope<T>> SendAsync<T>(HttpClient client,
         HostContract.HostAttachmentSpec attachment, string token, HttpMethod method, string route,
-        object? body, CancellationToken cancellationToken)
+        object? body, CancellationToken cancellationToken, string? idempotencyKey = null)
     {
         using var request = new HttpRequestMessage(method, attachment.GatewayUrl.TrimEnd('/') + route);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (idempotencyKey is not null)
+            request.Headers.Add("Idempotency-Key", idempotencyKey);
         if (body != null)
             request.Content = JsonContent.Create(body, options: JsonOptions);
         using HttpResponseMessage response = await client.SendAsync(request,
@@ -252,7 +257,7 @@ internal static class Program
             throw new InvalidOperationException("Gateway protocol envelope is incompatible");
     }
 
-    private static HostExecutorConfig Load(string path)
+    internal static HostExecutorConfig Load(string path)
     {
         HostExecutorConfig config = JsonSerializer.Deserialize<HostExecutorConfig>(File.ReadAllText(path), JsonOptions)
             ?? throw new ArgumentException("Host executor config is empty");

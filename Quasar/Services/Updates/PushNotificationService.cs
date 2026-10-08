@@ -14,7 +14,7 @@ public sealed record BrowserPushSubscription(string Endpoint, string P256dh, str
 public sealed class PushNotificationService(
     IDataProtectionProvider protection, QuasarUpdateService updates, ClusterReleaseMonitor releases,
     ClusterCatalog clusters, QuasarRoleMapper roles, ILogger<PushNotificationService> logger,
-    ClusterContentMonitor content) : BackgroundService
+    ClusterContentMonitor content, AgentRegistry agents, DedicatedServerSupervisor supervisor) : BackgroundService
 {
     private const string VapidSubject = "https://github.com/CometWorks/quasar";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -23,6 +23,76 @@ public sealed class PushNotificationService(
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly WebPushClient _client = new();
     private PushState? _state;
+    private readonly InstanceNotificationMonitor _instances = new();
+    private readonly object _observationSync = new();
+    public event Action? Changed;
+
+    public async Task<NotificationPreferences> GetPreferencesAsync(ClaimsPrincipal user, CancellationToken token = default)
+    {
+        var identity = BrowserIdentity(user);
+        await _gate.WaitAsync(token);
+        try { return Preferences(await LoadAsync(token), identity.Provider, identity.Subject) with { }; }
+        finally { _gate.Release(); }
+    }
+
+    public async Task SavePreferencesAsync(ClaimsPrincipal user, NotificationPreferences preferences, CancellationToken token = default)
+    {
+        var identity = BrowserIdentity(user);
+        var copy = preferences with { };
+        copy.Validate();
+        await _gate.WaitAsync(token);
+        try
+        {
+            var state = await LoadAsync(token);
+            var settings = (state.Preferences ?? []).Where(p => p.Provider != identity.Provider || p.Subject != identity.Subject)
+                .Append(new AccountPreferences(identity.Provider, identity.Subject, copy)).ToArray();
+            await SaveAsync(state with { Preferences = settings }, token);
+            lock (_observationSync)
+            {
+                _instances.Reset(identity.Provider, identity.Subject);
+                ObserveInstances();
+            }
+        }
+        finally { _gate.Release(); }
+        Changed?.Invoke();
+    }
+
+    internal async Task<UpdateNotice[]> GetNoticesAsync(ClaimsPrincipal user, CancellationToken token = default)
+    {
+        if (!CanView(user)) return [];
+        var identity = BrowserIdentity(user);
+        PushState state;
+        await _gate.WaitAsync(token);
+        try { state = await LoadAsync(token); }
+        finally { _gate.Release(); }
+        return Notices(state, identity.Provider, identity.Subject, user);
+    }
+
+    private UpdateNotice[] Notices(PushState state, string provider, string subject, ClaimsPrincipal user) =>
+        _instances.GetNotices(provider, subject, user, DateTimeOffset.UtcNow)
+            .Concat(Preferences(state, provider, subject).Updates
+                ? UpdateNotices.All(updates.GetSnapshot(), releases.GetSnapshot(), clusters.GetClusters(), user, content.GetSnapshot)
+                : []).ToArray();
+
+    internal static NotificationPreferences Preferences(PushState state, string provider, string subject) =>
+        state.Preferences?.FirstOrDefault(p => p.Provider == provider && p.Subject == subject)?.Options ?? new();
+
+    private void ObserveInstances()
+    {
+        bool changed = false;
+        lock (_observationSync)
+        {
+            var settings = Volatile.Read(ref _state)?.Preferences;
+            if (settings is null || settings.Length == 0) return;
+            var runtime = supervisor.GetSnapshots();
+            var observations = agents.GetAgents();
+            var definitions = clusters.GetClusters();
+            var now = DateTimeOffset.UtcNow;
+            foreach (var account in settings)
+                changed |= _instances.Observe(account.Provider, account.Subject, account.Options, runtime, observations, definitions, now);
+        }
+        if (changed) Changed?.Invoke();
+    }
 
     public async Task<string> GetPublicKeyAsync(CancellationToken token = default)
     {
@@ -71,13 +141,31 @@ public sealed class PushNotificationService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        while (!stoppingToken.IsCancellationRequested)
+        agents.Changed += ObserveInstances;
+        supervisor.Changed += ObserveInstances;
+        try
         {
-            try { await SendPendingAsync(stoppingToken); }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-            catch (Exception error) { logger.LogError(error, "Browser push notification sweep failed."); }
-            try { await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken); }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    // Load persisted preferences even when no browser currently has push enabled.
+                    await _gate.WaitAsync(stoppingToken);
+                    try { await LoadAsync(stoppingToken); }
+                    finally { _gate.Release(); }
+                    ObserveInstances();
+                    await SendPendingAsync(stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+                catch (Exception error) { logger.LogError(error, "Browser push notification sweep failed."); }
+                try { await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken); }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+            }
+        }
+        finally
+        {
+            agents.Changed -= ObserveInstances;
+            supervisor.Changed -= ObserveInstances;
         }
     }
 
@@ -97,8 +185,7 @@ public sealed class PushNotificationService(
                 _ => null,
             };
             if (principal is null || !CanView(principal)) continue;
-            var notices = UpdateNotices.All(updates.GetSnapshot(), releases.GetSnapshot(), clusters.GetClusters(),
-                principal, content.GetSnapshot).ToArray();
+            var notices = Notices(state, item.Provider, item.Subject, principal);
             var current = item;
             // Keep receipts only for outstanding notices. Each browser owns its delivery history.
             string[] retained = DeliveredKeys(current).Intersect(notices.Select(n => n.Key)).ToArray();
@@ -177,11 +264,13 @@ public sealed class PushNotificationService(
         if (File.Exists(_path))
         {
             var encrypted = await File.ReadAllTextAsync(_path, token);
-            _state = JsonSerializer.Deserialize<PushState>(_protector.Unprotect(encrypted), Json)
+            var loaded = JsonSerializer.Deserialize<PushState>(_protector.Unprotect(encrypted), Json)
                 ?? throw new InvalidDataException("Push notification state is empty.");
-            if (string.IsNullOrWhiteSpace(_state.PublicKey) || string.IsNullOrWhiteSpace(_state.PrivateKey)
-                || _state.Subscriptions is null)
+            if (string.IsNullOrWhiteSpace(loaded.PublicKey) || string.IsNullOrWhiteSpace(loaded.PrivateKey)
+                || loaded.Subscriptions is null)
                 throw new InvalidDataException("Push notification state is incomplete.");
+            foreach (var account in loaded.Preferences ?? []) account.Options.Validate();
+            _state = loaded;
             return _state;
         }
         var keys = VapidHelper.GenerateVapidKeys();
@@ -238,7 +327,9 @@ public sealed class PushNotificationService(
         catch (FormatException) { return null; }
     }
 
-    private sealed record PushState(string PublicKey, string PrivateKey, List<StoredSubscription> Subscriptions);
+    internal sealed record PushState(string PublicKey, string PrivateKey, List<StoredSubscription> Subscriptions,
+        AccountPreferences[]? Preferences = null);
+    internal sealed record AccountPreferences(string Provider, string Subject, NotificationPreferences Options);
     internal sealed record StoredSubscription(string Provider, string Subject, string Endpoint, string P256dh, string Auth,
         string? LastNoticeKey, string[]? DeliveredNoticeKeys = null);
 }

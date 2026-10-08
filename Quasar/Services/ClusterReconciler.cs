@@ -211,6 +211,25 @@ public sealed class ClusterReconciler : BackgroundService
         if (!string.Equals(gateway.ClusterId, cluster.UniqueName, StringComparison.OrdinalIgnoreCase))
             throw new ClusterGatewayException(System.Net.HttpStatusCode.Conflict,
                 "cluster_identity_mismatch", "Gateway status belongs to a different cluster.");
+        // A Gateway launched in this pass has not reported its own phase yet.
+        bool launched = !ReferenceEquals(hostGateway, current);
+        if (cluster.GoalState == DedicatedServerGoalState.On && gateway.Phase == Admin.ClusterPhase.Down && !launched)
+        {
+            // The Host shuts its clusters down cleanly at machine shutdown or logout, and a restarted
+            // Gateway stays Down. Start the next generation, as Stop and Start would, but only once the
+            // Host has restarted: until then it is still going down and must not launch anything.
+            if (gateway.LastCleanShutdown is { } clean && !(clean < gateway.ShutdownStarted) && host.StartedAt > clean)
+            {
+                await _catalog.RecordNextStartGenerationAsync(cluster, cancellationToken);
+                Set(cluster, ClusterReconcileState.Converging, hostGateway.Observed, gateway.Phase, null,
+                    "The cluster was stopped cleanly outside Quasar, such as at a machine shutdown; starting it again.");
+            }
+            else
+                Set(cluster, ClusterReconcileState.ConfigurationRequired, hostGateway.Observed, gateway.Phase,
+                    "cluster_down", "The cluster is Down although its goal is On. Stop and start it, or recover it in"
+                    + " Maintenance → Recovery if its shutdown was not clean.");
+            return;
+        }
         if (cluster.GoalState == DedicatedServerGoalState.On)
         {
             Set(cluster, gateway.Phase == Admin.ClusterPhase.Serving

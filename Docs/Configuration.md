@@ -373,6 +373,27 @@ Quasar keeps Space Engineers chat channels separate when relaying them to Discor
 - scripted, chatbot, broadcast-controller, and unknown chat types never fall
   through to the global relay
 
+The Agent captures one chat entry per accepted server receive operation, after
+anti-spam/faction validation and recipient fan-out. Delivery callbacks cannot
+create extra entries. Player identity comes from the original network sender,
+with the multiplayer member name used when the session identity name is missing.
+Web UI broadcasts retain their server identity and appear once in the configured
+global Discord relay as **Server**. The Agent marks accepted `SendChat` broadcasts
+explicitly; ordinary server/system messages stay excluded. Discord-origin
+broadcasts use the same game-send path, but their tracked echo matches keep them
+from being posted back to Discord. The broadcast marker never enables private
+or unsupported chat channels.
+After updating Quasar, restart affected game servers to load the updated Agent.
+If the Agent cannot install its receive hook, it logs the failure and disables
+chat capture instead of falling back to unscoped delivery callbacks.
+
+Repeated Agent snapshots relay each game chat entry only once. Discord bot and
+webhook messages are ignored on the inbound path. When Quasar forwards Discord
+chat into the game, matching game echoes are suppressed for two minutes, including
+multiple captures with different timestamps. The suppression is scoped to that
+server and matches the exact forwarded text after trimming. Ordinary player chat
+is deduplicated by timestamp, so repeating text remains eligible for relay.
+
 The admin whisper channel and generated faction channels must deny **View Channel**
 to the guild's Everyone role. Quasar checks this before sending private traffic and
 also rejects any non-administrator role or non-bot user overwrite that explicitly
@@ -458,12 +479,42 @@ miss events during Agent outages. No durable Discord message archive is created.
 The Tools section lists Hosts, Security, UI Plugins, and Backups (subject to permissions).
 Notifications appears in the section below Tools, alongside Appearance and Updates.
 
-**Notifications** (`/notifications`) in the lower navigation section lists outstanding update notices with
-links to their details. It updates as checks finish and respects cluster access.
+**Notifications** (`/notifications`) in the lower navigation section lists outstanding update notices and
+optional instance health alerts with links to their details. It updates as checks finish and respects cluster access.
 Clicking the bell opens the current notice's destination directly (Updates or the
-affected cluster), with Updates as its default destination. Hovering shows the current
-notice's details. Notifications is a view of current notices, not a notification history. The page also
-provides browser push controls and a **Refresh status** button.
+affected cluster or dashboard), with Notifications as its default destination. Hovering shows the current
+notice's details. Update notices remain visible while outstanding; instance alerts are retained for
+up to 24 hours, with the most recent 100 per account. The page also provides browser push controls,
+a **Refresh status** button, and **Notification preferences**.
+
+Preferences apply to the signed-in account across browsers and control the Notifications panel,
+bell, and browser push together. Choose categories and select **Save preferences**. Quasar and cluster
+update notices remain enabled by default; instance alerts and recovery notices are opt-in. Preferences
+can be saved without enabling browser push. Trusted-network sessions share the trusted-network account.
+
+| Optional alert | Trigger / default threshold |
+| --- | --- |
+| Instance crashes and failures | A new supervised crash/fault or crash-recovery restart, including instances that restart automatically before push delivery. |
+| Health restarts | A new restart caused by health policy or agent attach recovery; manual and scheduled restarts are excluded. |
+| Low simulation speed | Simulation speed below `0.8`. |
+| High process CPU usage | Process CPU above `200%`; `100%` equals one logical CPU. |
+| High memory usage | Process working set above `8192 MB`. |
+| World has unsaved changes | Unsaved **game time** above `15 minutes`, using Agent world-save telemetry. Unknown save age does not trigger an alert. |
+| Metric recovery | An alerted metric returns to its threshold or better. |
+
+Each metric must stay beyond its threshold for the **Metric alert duration** (default `30 seconds`,
+range `5–3600`). Continuing problems repeat no more frequently than the **Metric alert cooldown**
+(default `300 seconds`, range `30–86400`), independently for each instance and metric. Cooldown also
+spans brief recoveries. Metrics use fresh samples from connected, running instances; missing values,
+disconnections, telemetry gaps over 30 seconds, and process reconnections reset the duration without
+reporting a recovery. Duplicate samples do not advance the duration. Startup/load-only telemetry is excluded.
+
+Metric alerts include authenticated cluster nodes and link to their cluster page. Crash and health-restart
+alerts cover locally supervised standalone instances and open the dashboard; cluster process lifecycle
+is owned by its Gateway/Host, so an Agent disconnect is not classified as a cluster crash. Existing lifecycle
+state is baselined when monitoring starts, avoiding replay of old crashes. Recent instance alerts and rule
+timers are in memory: restarting Quasar or saving preferences clears them for that account. Preferences
+persist across Quasar restarts. Update notices continue to reflect current update availability.
 
 The top-bar bell is outlined until the current browser has a push subscription
 registered with this Quasar account. On **Notifications**, select **Enable push
@@ -484,13 +535,14 @@ updates activate without requiring all tabs to close. Installation failures or a
 15-second activation timeout produce a service-worker error; refresh the page and
 retry. This is separate from a browser push-provider registration failure.
 
-Quasar sends update notices for GitHub update credential warnings, Quasar UI and
+Quasar sends enabled update notices for GitHub update credential warnings, Quasar UI and
 launcher releases, newer cluster packages, and observed cluster mod/plugin changes.
+It also sends the selected instance alerts, whether or not a Notifications page is open.
 It checks for pending notices every 30 seconds and retains successful delivery receipts
-per browser while each notice remains outstanding. Multiple notices coexist; a Quasar
+per browser while each notice remains outstanding or retained. Multiple notices coexist; a Quasar
 release does not hide a content update. Each sweep sends up to ten pending notices per
-browser. Failed deliveries remain pending. The notification click opens the matching Quasar Updates
-or cluster page on the same origin; no callback URL needs configuring. Browser
+browser. Failed deliveries remain pending until the notice expires or is cleared. The notification click opens the matching Quasar Updates,
+dashboard, or cluster page on the same origin; no callback URL needs configuring. Browser
 permission and subscriptions belong to each browser profile. Only enable push
 on a device where notifications for your Quasar account are appropriate.
 Each browser profile has its own subscription. Quasar can notify multiple
@@ -500,7 +552,7 @@ can subscribe to one Quasar account at a time; enabling push after switching
 accounts transfers that browser's subscription. An account can register up
 to 16 browser subscriptions.
 
-VAPID keys and subscriptions are kept in the Quasar data directory as
+VAPID keys, subscriptions, and account preferences are kept in the Quasar data directory as
 `PushNotifications.json`, protected with Quasar's persisted ASP.NET Data
 Protection key ring. Keep that key ring with the data directory during
 migration or restore; losing it makes existing subscriptions unreadable.
@@ -1038,6 +1090,10 @@ Run `Quasar.Host run --config host.json`; `--once` performs one deterministic
 plan read for deployment checks and then reports `executor_contract_unavailable`.
 No heartbeat or node actualization occurs, including for attachments without bundle
 configuration.
+
+`Quasar.Host stop-clusters --config host.json` asks the Gateway of every cluster whose
+Gateway this Host runs to shut down with a save, and waits for it. The systemd stop unit
+runs it at logout and machine shutdown.
 
 The optional `command` listener is the Quasar-to-Host control seam. It accepts only an
 HTTP loopback origin and bearer authentication from the named environment variable; the

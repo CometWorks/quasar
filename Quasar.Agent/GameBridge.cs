@@ -1129,13 +1129,21 @@ namespace Quasar.Agent
             long targetId,
             ChatMessageCustomData? customData)
         {
+            // Delivery callbacks may run once per recipient. Capture only the first matching
+            // callback of the accepted server receive operation, using its original sender.
+            if (!ChatCaptureScope.TryCapture(content, (byte)channel, targetId, out var source))
+                return;
+
+            steamId = source.Sender;
             var session = MySession.Static;
-            var authorName = customData.HasValue ? customData.Value.AuthorName : null;
-            if (string.IsNullOrWhiteSpace(authorName))
+            var authorName = source.AuthorName;
+            if (string.IsNullOrWhiteSpace(authorName) && !source.IsServerMessage)
                 authorName = session?.Players?.TryGetIdentityNameFromSteamId(steamId) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(authorName) && !source.IsServerMessage)
+                authorName = _chatSource?.GetMemberName(steamId) ?? string.Empty;
 
             var numericSteamId = (long)steamId;
-            var isServerMessage = IsServerChatMessage(numericSteamId, authorName);
+            var isServerMessage = source.IsServerMessage || IsServerChatMessage(numericSteamId, authorName);
             var snapshot = new ChatMessageSnapshot
             {
                 SteamId = numericSteamId,
@@ -1150,6 +1158,7 @@ namespace Quasar.Agent
                     ? session?.Factions?.TryGetFactionById(targetId)?.Tag ?? string.Empty
                     : string.Empty,
                 IsServerMessage = isServerMessage,
+                IsQuasarBroadcast = source.IsQuasarBroadcast && channel == ChatChannel.Global,
             };
 
             lock (_chatSync)
@@ -1636,7 +1645,13 @@ namespace Quasar.Agent
             if (string.IsNullOrWhiteSpace(text))
                 return CreateResult(command, false, "Chat message is empty.");
 
-            MyMultiplayer.Static?.SendChatMessage(text, ChatChannel.Global, 0L);
+            var multiplayer = MyMultiplayer.Static;
+            if (multiplayer == null)
+                return CreateResult(command, false, "Game session is not ready.");
+
+            using (new ChatCaptureScope(multiplayer.ServerId, ServerChatAuthorName, true,
+                text, (byte)ChatChannel.Global, 0L, isBroadcastSend: true))
+                multiplayer.SendChatMessage(text, ChatChannel.Global, 0L);
 
             return CreateResult(command, true, "Chat message sent.");
         }
