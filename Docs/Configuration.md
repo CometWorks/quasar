@@ -1603,6 +1603,16 @@ without a timer need one final reinstall through **Hosts → Add cluster machine
 older local enrollments gain the timer automatically when Quasar starts. The cluster
 package pin does not select the Host binary.
 
+The Host reads the Gateway's stdout and stderr, prefixes each line with `[gateway CLUSTER]`
+and writes it to its own output. It keeps the last 20 lines, each cut to 300 characters.
+When the Gateway exits, the Host reports `process_exited:exit_code=N` and those lines.
+The cluster detail panel shows them under **Last Cluster Registry process output**, below
+the `gateway_start_failed` reconciler status, so a failure like a missing `steamclient.so`
+is visible without the Host's log. Only a Gateway started by the running Host process
+has this output: after a Host restart, a Gateway that is still running keeps running,
+but its output is lost until it is restarted, and its exit is reported as plain
+`process_exited`.
+
 Executor credentials are separate from Query/Manage credentials. The scoped Gateway
 token file gives each credential scope `Executor` and name equal to the Host ID.
 Host polls every 1–15 seconds, within the 60-second executor lease. Gateway credentials

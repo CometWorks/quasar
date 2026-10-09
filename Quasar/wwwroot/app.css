@@ -768,6 +768,14 @@ td.quasar-actions-column > .plugin-actions {
     overflow-wrap: normal;
 }
 
+.cluster-gateway-output {
+    margin: 0;
+    font-family: var(--mud-typography-code-family, monospace);
+    font-size: .8rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 .cluster-form-section > .mud-button-root {
     align-self: flex-start;
     max-width: 100%;

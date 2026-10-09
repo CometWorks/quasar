@@ -89,6 +89,10 @@
         <tbody>
             <tr><th>Desired state</th><td>@Cluster.GoalState</td></tr>
             <tr><th>Reconciler</th><td>@ReconcileText</td></tr>
+            @if (GatewayOutput is { Length: > 0 } output)
+            {
+                <tr><th>Last Cluster Registry process output</th><td><pre class="cluster-gateway-output">@string.Join('\n', output)</pre></td></tr>
+            }
             <tr><th>Host executor</th><td>@HostText</td></tr>
             <tr><th>Cluster Registry process</th><td>@GatewayExecutorText</td></tr>
             <tr><th>Cluster Registry WAL</th><td>@RegistryText</td></tr>
@@ -262,6 +266,7 @@
                 : $"{status.State} · {status.ErrorCode}: {status.Message}";
         }
     }
+    private string[]? GatewayOutput => Reconciler.GetStatus(Cluster.UniqueName).GatewayOutput;
     private string RegistryText => _recovery is null ? "-"
         : $"{(_recovery.Registry.SnapshotPresent ? "snapshot present" : "no snapshot")} · {_recovery.Registry.WalRecords} WAL records";
 
