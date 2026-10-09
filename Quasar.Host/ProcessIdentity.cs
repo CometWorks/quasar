@@ -24,6 +24,24 @@ internal static class ProcessIdentity
         }
     }
 
+    // False when the process was started before the machine last booted, so it died with the machine.
+    // Null when that is unknown.
+    internal static bool? StartedThisBoot(string? recorded, DateTimeOffset launchedAt)
+    {
+        if (OperatingSystem.IsWindows())
+            return launchedAt > DateTimeOffset.UtcNow - TimeSpan.FromMilliseconds(Environment.TickCount64);
+        if (recorded is null)
+            return null;
+        try
+        {
+            return recorded.StartsWith(File.ReadAllText("/proc/sys/kernel/random/boot_id").Trim() + "/", StringComparison.Ordinal);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     // True: same process. False: the PID now belongs to another process, so the recorded one is gone.
     // Null: unknown (record without identity, or not Linux); the caller falls back to the start time.
     internal static bool? Matches(string? recorded, int processId)
