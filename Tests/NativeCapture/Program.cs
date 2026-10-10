@@ -6,15 +6,6 @@ using Quasar.Diagnostics;
 using Quasar.Host.Contract.V1;
 
 if (!OperatingSystem.IsWindows()) { Console.WriteLine("Windows native capture requires Windows; build passed on this platform."); return; }
-if (args is ["crash"])
-{
-    Native.SetErrorMode(2); // Suppress the fixture's OS crash dialog.
-    var watch = Stopwatch.StartNew();
-    while (!Native.IsDebuggerPresent() && watch.Elapsed < TimeSpan.FromSeconds(10)) Thread.Sleep(50);
-    if (!Native.IsDebuggerPresent()) throw new Exception("Host did not attach its native crash monitor.");
-    Native.RaiseException(0xe0421001, 1, 0, IntPtr.Zero); // Real noncontinuable native exception.
-    throw new Exception("Native exception unexpectedly returned.");
-}
 if (args is ["survive"] or ["survive-silent"])
 {
     var watch = Stopwatch.StartNew();
@@ -52,7 +43,9 @@ await collector.ApplyPolicyAsync(policy, default);
 Process? crash = null, survive = null, monitorProcess = null, orphan = null;
 try
 {
-    var start = Child("crash");
+    if (args is not [var nativeFixture] || !File.Exists(nativeFixture))
+        throw new Exception("Pass the compiled native_crash.exe fixture path.");
+    var start = new ProcessStartInfo(nativeFixture) { UseShellExecute = false };
     string run = collector.Configure(start, new() { ["role"] = "native-fixture" }, native: true)!;
     crash = Process.Start(start)!;
     collector.Started(run, crash);
@@ -125,6 +118,4 @@ static ProcessStartInfo Child(string mode)
 internal static class Native
 {
     [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool IsDebuggerPresent();
-    [DllImport("kernel32.dll")] internal static extern uint SetErrorMode(uint mode);
-    [DllImport("kernel32.dll")] internal static extern void RaiseException(uint code, uint flags, uint count, IntPtr arguments);
 }

@@ -33,8 +33,17 @@ jobs:
       - name: Build archive package
         shell: pwsh
         run: scripts/bootstrap-diagnostics.ps1 diagnostics-source/Diagnostics/CometWorks.Diagnostics.csproj
+      - name: Compile native crash fixture
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $installation) { throw 'An x64 Visual C++ toolchain is required.' }
+          & "$installation\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64
+          cl /nologo /W4 /WX /Zi /Od /Fe:Tests/NativeCapture/native_crash.exe Tests/NativeCapture/native_crash.c
+          if ($LASTEXITCODE -ne 0) { throw 'Native fixture compilation failed.' }
       - name: Exercise native exception and consent withdrawal
         shell: pwsh
         run: |
-          dotnet run --project Tests/NativeCapture/NativeCapture.csproj -c Release
+          dotnet run --project Tests/NativeCapture/NativeCapture.csproj -c Release -- (Resolve-Path Tests/NativeCapture/native_crash.exe).Path
           if ($LASTEXITCODE -ne 0) { throw 'Native capture proof failed.' }
