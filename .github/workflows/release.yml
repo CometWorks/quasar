@@ -27,6 +27,7 @@ on:
       - "scripts/install.ps1"
       - "scripts/package-linux-release.sh"
       - "scripts/package-windows-release.ps1"
+      - "scripts/package-symbols.py"
       - "scripts/readme-install-linux.md"
       - "scripts/readme-install-windows.md"
       - "scripts/uninstall.ps1"
@@ -58,6 +59,7 @@ on:
       - "scripts/install.ps1"
       - "scripts/package-linux-release.sh"
       - "scripts/package-windows-release.ps1"
+      - "scripts/package-symbols.py"
       - "scripts/readme-install-linux.md"
       - "scripts/readme-install-windows.md"
       - "scripts/uninstall.ps1"
@@ -72,6 +74,7 @@ concurrency:
 
 env:
   SE_DS_APPID: "298740"
+  DIAGNOSTICS_SOURCE_REF: ${{ vars.DIAGNOSTICS_SOURCE_REF }}
 
 jobs:
   cleanup-pr-releases:
@@ -348,6 +351,27 @@ jobs:
           fi
           echo "MagnetarBin=$(dirname "$PLUGIN_SDK")" >> "$GITHUB_ENV"
 
+      - name: Validate diagnostic dependency pin
+        run: |
+          if [[ ! "$DIAGNOSTICS_SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'Set the DIAGNOSTICS_SOURCE_REF repository variable to the reviewed error-reporting commit SHA.' >&2
+            exit 1
+          fi
+
+      - name: Checkout diagnostic archive source
+        uses: actions/checkout@v4
+        with:
+          repository: CometWorks/error-reporting
+          ref: ${{ env.DIAGNOSTICS_SOURCE_REF }}
+          path: diagnostics-source
+
+      - name: Build diagnostic archive package
+        run: scripts/bootstrap-diagnostics.sh diagnostics-source/Diagnostics/CometWorks.Diagnostics.csproj
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Package Linux release
         env:
           DS64: ${{ github.workspace }}/ds64
@@ -370,6 +394,7 @@ jobs:
             artifacts/linux/quasar-web-linux-x64.tar.gz
             artifacts/linux/quasar-installer-linux.tar.gz
             artifacts/linux/quasar-host-linux-x64.tar.gz
+            artifacts/linux/quasar-symbols-linux-x64.zip
 
   build-windows:
     needs: metadata
@@ -497,6 +522,28 @@ jobs:
           if (-not $pluginSdk) { throw "PluginSdk.dll not found in Magnetar archive" }
           "MagnetarBin=$($pluginSdk.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
 
+      # Pin ref to the reviewed diagnostics release commit when rolling out this stack.
+      - name: Validate diagnostic dependency pin
+        shell: pwsh
+        run: |
+          if ($env:DIAGNOSTICS_SOURCE_REF -cnotmatch '^[0-9a-f]{40}$') {
+            throw 'Set the DIAGNOSTICS_SOURCE_REF repository variable to the reviewed error-reporting commit SHA.'
+          }
+
+      - name: Checkout diagnostic archive source
+        uses: actions/checkout@v4
+        with:
+          repository: CometWorks/error-reporting
+          ref: ${{ env.DIAGNOSTICS_SOURCE_REF }}
+          path: diagnostics-source
+
+      - name: Build diagnostic archive package
+        run: ./scripts/bootstrap-diagnostics.ps1 -DiagnosticsProject 'diagnostics-source/Diagnostics/CometWorks.Diagnostics.csproj'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Package Windows release
         shell: pwsh
         env:
@@ -532,6 +579,7 @@ jobs:
             artifacts/windows/quasar-web-win-x64.zip
             artifacts/windows/quasar-installer-windows.zip
             artifacts/windows/quasar-host-win-x64.zip
+            artifacts/windows/quasar-symbols-win-x64.zip
 
   # Publish a single GitHub release/tag carrying every Linux and Windows archive
   # plus one combined SHA256SUMS. The updater finds the asset it needs by name,
@@ -555,7 +603,9 @@ jobs:
             quasar-installer-windows.zip \
             quasar-web-win-x64.zip \
             quasar-host-linux-x64.tar.gz \
-            quasar-host-win-x64.zip; do
+            quasar-host-win-x64.zip \
+            quasar-symbols-linux-x64.zip \
+            quasar-symbols-win-x64.zip; do
             found="$(find dist -type f -name "$asset" -print -quit)"
             if [ -z "$found" ]; then
               echo "ERROR: expected release archive not found: $asset" >&2
@@ -571,7 +621,9 @@ jobs:
             quasar-installer-windows.zip \
             quasar-web-win-x64.zip \
             quasar-host-linux-x64.tar.gz \
-            quasar-host-win-x64.zip > SHA256SUMS
+            quasar-host-win-x64.zip \
+            quasar-symbols-linux-x64.zip \
+            quasar-symbols-win-x64.zip > SHA256SUMS
           echo "Combined release archives:"; ls -1
           echo "Combined SHA256SUMS:"; cat SHA256SUMS
 
@@ -603,6 +655,8 @@ jobs:
 
             The two web archives (`quasar-web-linux-x64.tar.gz` and `quasar-web-win-x64.zip`) are updates that Quasar downloads and applies automatically — you never download them by hand.
 
+            Matching `quasar-symbols-linux-x64.zip` and `quasar-symbols-win-x64.zip` are separate debugging artifacts. They contain portable PDBs, matching managed modules, and a source-commit/binary-hash manifest; runtime archives contain no PDBs.
+
             ## Why separate installer and web archives?
 
             Quasar deploys as two layers — a small, stable **Bootstrap launcher** (the installer) and a larger, frequently-updated **web UI worker** — shipped separately so the launcher can update the web UI, and itself, in place with no manual reinstall.
@@ -613,6 +667,8 @@ jobs:
             release/quasar-web-win-x64.zip
             release/quasar-host-linux-x64.tar.gz
             release/quasar-host-win-x64.zip
+            release/quasar-symbols-linux-x64.zip
+            release/quasar-symbols-win-x64.zip
             release/SHA256SUMS
 
       - name: Prune older releases

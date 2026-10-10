@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Quasar.Diagnostics;
 using HostContract = global::Quasar.Host.Contract.V1;
 
 namespace Quasar.Host;
@@ -291,12 +292,13 @@ internal sealed class HostCommandServer : IDisposable
     private readonly SemaphoreSlim _executionGate;
     private readonly DeploymentActivation _deployments;
     private readonly DeploymentSnapshots _snapshots;
+    private readonly DiagnosticCollector _diagnostics;
     private CancellationTokenSource? _shutdown;
     private Task? _loop;
 
     public HostCommandServer(HostCommandConfig command, HostExecutorConfig config,
         AttachmentStore attachments, GatewaySpecStore gateways, GatewayActualizer gatewayActualizer,
-        SemaphoreSlim? executionGate = null, DeploymentActivation? deployments = null)
+        SemaphoreSlim? executionGate = null, DeploymentActivation? deployments = null, DiagnosticCollector? diagnostics = null)
     {
         string? token = Environment.GetEnvironmentVariable(command.TokenEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(token))
@@ -308,9 +310,11 @@ internal sealed class HostCommandServer : IDisposable
         _gateways = gateways;
         _gatewayActualizer = gatewayActualizer;
         _executionGate = executionGate ?? new SemaphoreSlim(1, 1);
+        _diagnostics = diagnostics ?? DiagnosticStorage.Create(Path.Combine(config.StateDirectory, "diagnostics"), config.HostId,
+            config.DiagnosticsDirectory);
         _deployments = deployments ?? new DeploymentActivation(config.StateDirectory, config.HostId,
-            attachments, gateways, new NodeActualizer(config.StateDirectory, config.HostId), gatewayActualizer);
-        _snapshots = new(config.StateDirectory, config.HostId, attachments, new NodeActualizer(config.StateDirectory, config.HostId), gatewayActualizer);
+            attachments, gateways, new NodeActualizer(config.StateDirectory, config.HostId, _diagnostics), gatewayActualizer);
+        _snapshots = new(config.StateDirectory, config.HostId, attachments, new NodeActualizer(config.StateDirectory, config.HostId, _diagnostics), gatewayActualizer);
         _listener.Prefixes.Add(command.Url.TrimEnd('/') + "/");
     }
 
@@ -362,9 +366,11 @@ internal sealed class HostCommandServer : IDisposable
             // Candidate preparation writes only immutable directories and must not suspend executor heartbeats.
             bool preparing = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/conversion-inputs/", StringComparison.Ordinal) == true || context.Request.HttpMethod == "POST" &&
                 context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deployment-preparations/", StringComparison.Ordinal) == true;
-            if (!preparing) { await _executionGate.WaitAsync(cancellationToken); entered = true; }
+            bool diagnostics = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/diagnostics/", StringComparison.Ordinal) == true;
+            if (!preparing && !diagnostics) { await _executionGate.WaitAsync(cancellationToken); entered = true; }
             await HandleAsync(context, cancellationToken);
         }
+        catch (OperationCanceledException) { context.Response.Abort(); }
         catch (Exception exception) when (exception is ArgumentException or InvalidDataException
             or JsonException or IOException or UnauthorizedAccessException)
         {
@@ -396,6 +402,39 @@ internal sealed class HostCommandServer : IDisposable
         }
 
         string path = context.Request.Url?.AbsolutePath.TrimEnd('/') ?? string.Empty;
+        string diagnosticsPrefix = HostContract.HostProtocol.RoutePrefix + "/diagnostics/";
+        if (context.Request.HttpMethod == "PUT" && path == diagnosticsPrefix + "policy")
+        {
+            var policy = await ReadJsonAsync<HostContract.HostDiagnosticPolicy>(context.Request, cancellationToken);
+            await _diagnostics.ApplyPolicyAsync(policy, cancellationToken);
+            await WriteAsync(context, 200, policy, cancellationToken);
+            return;
+        }
+        if (context.Request.HttpMethod == "GET" && path == diagnosticsPrefix + "reports")
+        {
+            await WriteAsync(context, 200, _diagnostics.GetReports(), cancellationToken);
+            return;
+        }
+        if (path.StartsWith(diagnosticsPrefix + "reports/", StringComparison.Ordinal))
+        {
+            string id = path[(diagnosticsPrefix + "reports/").Length..];
+            if (context.Request.HttpMethod == "DELETE")
+            {
+                _diagnostics.DeleteReport(id);
+                await WriteAsync(context, 200, new { acknowledged = true }, cancellationToken);
+                return;
+            }
+            if (context.Request.HttpMethod == "GET")
+            {
+                using var sharing = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _diagnostics.SharingToken);
+                using var input = _diagnostics.OpenReport(id);
+                context.Response.StatusCode = 200;
+                context.Response.ContentType = "application/zip";
+                context.Response.ContentLength64 = input.Length;
+                await input.CopyToAsync(context.Response.OutputStream, sharing.Token);
+                return;
+            }
+        }
         if (context.Request.HttpMethod == "PUT" && path == HostContract.HostProtocol.RoutePrefix + "/managed-credentials")
         {
             var credentials = await ReadJsonAsync<HostContract.HostManagedCredentials>(context.Request, cancellationToken);

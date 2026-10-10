@@ -36,6 +36,7 @@ from the terminal, install it as a background service, or run the GHCR image.
 | [Analytics CPU Usage](Docs/AnalyticsCpuLoad.md) | Why CPU usage can exceed 100% and how it differs from Shift+F11 simulation CPU load. |
 | [Quasar Plugin System](Docs/QuasarPluginSystem.md) | Planned UI plugin loader, hub manifest model, component replacement points, companion data channel, and MudBlazor expectations. |
 | [Entity Viewer](https://github.com/CometWorks/viewer/blob/main/Docs/EntityViewer.md) | Fullscreen metadata-only entity viewer, local Space Engineers `Content` folder requirement, and fallback behavior. |
+| [Diagnostic Consent & Upload](Docs/DiagnosticsUplink.md) | Separate statistics/report/dump consent, configurable storage paths, central upload configuration, durable queues and host leases. |
 | [Building & Development](Docs/BuildingAndDevelopment.md) | Project layout, build setup, managed-runtime selection, and developer utilities. |
 | [Phase 4 Integration](Docs/Phase4IntegrationPlan.md) | Cluster release integration, verified package staging, upstream requirements, and acceptance plan. |
 | [Cluster Integration Verification](Docs/ClusterIntegrationVerification.md) | Implementation checks, review package provenance and remaining live acceptance gates. |

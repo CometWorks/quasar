@@ -15,6 +15,7 @@ public sealed class QuasarPluginCatalogService
     // to appear in the profile. Magnetar 2.3.3.0 and later finds them in the hub source.
     public const string DotNetCompatPluginId = "dotnet-compat";
     public const string LinuxCompatPluginId = "linux-compat";
+    public const string ErrorReportingPluginId = "error-reporting";
     // LEGACY-MAGNETAR-COMPAT: Magnetar before 2.3.3.0 force-loads the se- prefixed ids,
     // which the hub keeps in the *LegacyId.xml manifests. Remove with the Legacy style in
     // the first 2027 Quasar release.
@@ -96,6 +97,7 @@ public sealed class QuasarPluginCatalogService
     {
         var id = pluginId?.Trim();
         return !string.Equals(id, DotNetCompatPluginId, StringComparison.OrdinalIgnoreCase) &&
+               !string.Equals(id, ErrorReportingPluginId, StringComparison.OrdinalIgnoreCase) &&
                !string.Equals(id, LegacyDotNetCompatPluginId, StringComparison.OrdinalIgnoreCase);
     }
 

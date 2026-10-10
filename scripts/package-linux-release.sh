@@ -14,6 +14,7 @@ WEB_ARCHIVE_NAME="quasar-web-linux-x64.tar.gz"
 INSTALLER_ARCHIVE_NAME="quasar-installer-linux.tar.gz"
 INSTALLER_ROOT_NAME="Quasar"
 HOST_ARCHIVE_NAME="quasar-host-linux-x64.tar.gz"
+SYMBOLS_ARCHIVE_NAME="quasar-symbols-linux-x64.zip"
 
 normalize_version_component() {
     local value="${1:-0}"
@@ -152,8 +153,15 @@ dotnet publish "$REPO_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj" \
     -p:AssemblyVersion="$ASSEMBLY_FILE_VERSION" \
     -p:FileVersion="$ASSEMBLY_FILE_VERSION" \
     -p:InformationalVersion="$INFORMATIONAL_VERSION" \
+    -p:DebugSymbols=true -p:DebugType=portable -p:Optimize=true -p:IncludeSymbolsInSingleFile=false \
     -o "$PUBLISH_DIR" \
     -v minimal
+
+python3 "$SCRIPT_DIR/package-symbols.py" --repo "$REPO_DIR" --publish "$PUBLISH_DIR" \
+    --output "$ARTIFACT_DIR/$SYMBOLS_ARCHIVE_NAME" --runtime "$RUNTIME" \
+    --configuration "$CONFIGURATION" --version "$VERSION"
+# Symbols belong exclusively to the matching debug artifact.
+find "$PUBLISH_DIR" -type f -iname '*.pdb' -delete
 
 cp -a "$PUBLISH_DIR/WebService/." "$WEB_DIR/"
 mkdir -p "$WEB_DIR/Host"
@@ -197,7 +205,7 @@ tar -C "$ARTIFACT_DIR" -czf "$ARTIFACT_DIR/$INSTALLER_ARCHIVE_NAME" "$INSTALLER_
 
 (
     cd "$ARTIFACT_DIR"
-    sha256sum "$WEB_ARCHIVE_NAME" "$INSTALLER_ARCHIVE_NAME" "$HOST_ARCHIVE_NAME" > SHA256SUMS
+    sha256sum "$WEB_ARCHIVE_NAME" "$INSTALLER_ARCHIVE_NAME" "$HOST_ARCHIVE_NAME" "$SYMBOLS_ARCHIVE_NAME" > SHA256SUMS
 )
 
 echo "Created Linux release artifacts in $ARTIFACT_DIR"

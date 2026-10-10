@@ -155,6 +155,29 @@
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
                     Running servers keep their current Magnetar consent state until they are restarted.
                 </MudAlert>
+                <MudDivider />
+                <MudText Typo="Typo.subtitle1">Diagnostic reports</MudText>
+                <MudText Typo="Typo.body2">
+                    Allow encrypted diagnostic reports and batched application logs from Quasar and all its enrolled hosts to be sent to CometWorks?
+                    Reports include ordinary log messages, error details, bounded recent logs, software versions and host, cluster and server identifiers.
+                    Logs can contain player names, chat or other private data. Reports are retained locally for up to seven days while delivery is unavailable.
+                    Only incidents captured after enabling this choice are eligible.
+                </MudText>
+                <MudSwitch T="bool" Value="@DataHandlingConsent.GetSettings().DiagnosticsGranted"
+                           ValueChanged="@(value => SaveDiagnosticsConsentAsync(value, DataHandlingConsent.GetSettings().DumpsGranted))"
+                           Color="Color.Primary" Label="Send diagnostic reports" />
+                <MudText Typo="Typo.body2">
+                    Crash dumps may include process memory, credentials, player data and world content. Enable only if you agree to share that sensitive content.
+                    Dumps require diagnostic reports and are encrypted for the backoffice before transfer.
+                </MudText>
+                <MudSwitch T="bool" Value="@DataHandlingConsent.GetSettings().DumpsGranted"
+                           ValueChanged="@(value => SaveDiagnosticsConsentAsync(DataHandlingConsent.GetSettings().DiagnosticsGranted, value))"
+                           Disabled="@(!DataHandlingConsent.GetSettings().DiagnosticsGranted)"
+                           Color="Color.Warning" Label="Include crash dumps" />
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    Turning either choice off cancels active transfers and discards queued reports. Already delivered reports cannot be recalled.
+                    Offline hosts stop collecting when their two-minute consent lease expires.
+                </MudText>
             </MudStack>
         </MudPaper>
     </MudItem>
@@ -344,6 +367,17 @@
         {
             _savingAuthSettings = false;
         }
+    }
+
+    private async Task SaveDiagnosticsConsentAsync(bool diagnostics, bool dumps)
+    {
+        if (!await EnsureAuthorizedAsync()) return;
+        try
+        {
+            await DataHandlingConsent.SaveAsync(DataHandlingConsent.GetSettings().ConsentGranted, diagnostics, dumps);
+            Snackbar.Add("Diagnostic consent saved.", Severity.Success);
+        }
+        catch (Exception exception) { Snackbar.Add($"Failed saving diagnostic consent: {exception.Message}", Severity.Error); }
     }
 
     private async Task SaveDataHandlingConsentAsync(bool consentGranted)

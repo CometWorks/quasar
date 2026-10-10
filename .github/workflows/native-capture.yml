@@ -1,0 +1,40 @@
+name: Windows native crash capture
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'Shared/Diagnostics/**'
+      - 'Tests/NativeCapture/**'
+      - '.github/workflows/native-capture.yml'
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Validate archive dependency pin
+        shell: pwsh
+        env:
+          DIAGNOSTICS_SOURCE_REF: ${{ vars.DIAGNOSTICS_SOURCE_REF }}
+        run: |
+          if ($env:DIAGNOSTICS_SOURCE_REF -cnotmatch '^[0-9a-f]{40}$') {
+            throw 'Set DIAGNOSTICS_SOURCE_REF to the reviewed error-reporting commit SHA.'
+          }
+      - uses: actions/checkout@v4
+        with:
+          repository: CometWorks/error-reporting
+          ref: ${{ vars.DIAGNOSTICS_SOURCE_REF }}
+          path: diagnostics-source
+      - name: Build archive package
+        shell: pwsh
+        run: scripts/bootstrap-diagnostics.ps1 diagnostics-source/Diagnostics/CometWorks.Diagnostics.csproj
+      - name: Exercise native exception and consent withdrawal
+        shell: pwsh
+        run: |
+          dotnet run --project Tests/NativeCapture/NativeCapture.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Native capture proof failed.' }

@@ -410,7 +410,7 @@ public sealed class DedicatedServerRuntimePreparer
         }
         else
         {
-            // Magnetar 2.3.3.0+ force-loads dotnet-compat (and linux-compat on Linux) by id
+            // Modern Magnetar force-loads error-reporting, dotnet-compat and linux-compat on Linux by id
             // from any configured source; they never need to be in the profile. They must come
             // from the hub source rather than per-file RemotePlugin entries: Pulsar keys those
             // by repository, so two manifests from the hub repo would collapse into one and the
