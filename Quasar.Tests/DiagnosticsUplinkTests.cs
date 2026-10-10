@@ -18,6 +18,58 @@ public sealed class DiagnosticsUplinkTests : IDisposable
     private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
 
     [Fact]
+    public async Task EnrollmentIsAutomaticConsentGatedAndMachineIdentitySurvivesRestart()
+    {
+        using var consent = Catalog(Path.Combine(_root, "consent.json"));
+        var hosts = Hosts(out var credentials);
+        using var backofficeKey = RSA.Create(3072);
+        var key = new BackofficeKey(DiagnosticsProtocol.KeyId(backofficeKey), backofficeKey.ExportSubjectPublicKeyInfoPem(), DateTimeOffset.UtcNow.AddDays(1));
+        int enrollments = 0;
+        string? firstPublic = null;
+        using var backend = new HttpClient(new Handler(async (request, token) =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                Assert.EndsWith("/v1/installations/enroll", request.RequestUri!.AbsolutePath);
+                Assert.Null(request.Headers.Authorization);
+                using var document = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+                var body = document.RootElement;
+                var installation = body.GetProperty("installationId").GetString()!;
+                var publicKey = body.GetProperty("publicKey").GetString()!;
+                var issued = body.GetProperty("issuedAt").GetInt64();
+                firstPublic ??= publicKey; Assert.Equal(firstPublic, publicKey);
+                using var machine = RSA.Create(); machine.ImportSubjectPublicKeyInfo(Convert.FromBase64String(publicKey), out _);
+                Assert.True(machine.VerifyData(System.Text.Encoding.UTF8.GetBytes($"CometWorks.Diagnostics.Enrollment.v1\n{installation}\n{publicKey}\n{issued}"),
+                    Convert.FromBase64String(body.GetProperty("signature").GetString()!), HashAlgorithmName.SHA256, RSASignaturePadding.Pss));
+                enrollments++;
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { installationId = installation,
+                    encryptedUploadToken = Convert.ToBase64String(machine.Encrypt(System.Text.Encoding.ASCII.GetBytes(new string('a', 64)), RSAEncryptionPadding.OaepSHA256)) }) };
+            }
+            Assert.Equal(new string('a', 64), request.Headers.Authorization?.Parameter);
+            return new(HttpStatusCode.OK) { Content = JsonContent.Create(key) };
+        }));
+        string installationId;
+        using (var service = Service(consent, hosts, credentials, new Handler((_, _) => throw new Exception("No Hosts expected")), backend, uploadToken: null))
+        {
+            installationId = service.InstallationId;
+            await service.PollOnceAsync(default);
+            Assert.Equal(0, enrollments); Assert.False(File.Exists(Path.Combine(service.StateDirectory, "machine-key.pem")));
+            await consent.SaveAsync(false, true, false);
+            await service.PollOnceAsync(default);
+            Assert.Equal(1, enrollments); Assert.True(service.CurrentPolicy!.DiagnosticsGranted);
+            var generation = consent.GetSettings().Generation;
+            await consent.SaveListingVisibilityAsync(true);
+            Assert.Equal(generation, consent.GetSettings().Generation);
+            Assert.False(consent.GetSettings().ConsentGranted); Assert.True(consent.GetSettings().DiagnosticsGranted);
+            await service.PollOnceAsync(default); Assert.Equal(1, enrollments);
+        }
+        using var restarted = Service(consent, hosts, credentials, new Handler((_, _) => throw new Exception("No Hosts expected")), backend, uploadToken: null);
+        Assert.Equal(installationId, restarted.InstallationId);
+        await restarted.PollOnceAsync(default); Assert.Equal(2, enrollments);
+        if (!OperatingSystem.IsWindows()) Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(Path.Combine(restarted.StateDirectory, "machine-key.pem")));
+    }
+
+    [Fact]
     public void MovingEvidenceDirectoryPreservesInstallationIdentity()
     {
         using var consent = Catalog(Path.Combine(_root, "consent.json"));
@@ -280,10 +332,10 @@ public sealed class DiagnosticsUplinkTests : IDisposable
         return new(credentials, Path.Combine(_root, "hosts"));
     }
     private DiagnosticsUplinkService Service(DataHandlingConsentCatalog consent, ClusterHostCatalog hosts,
-        ClusterCredentialStore credentials, Handler hostHandler, HttpClient backend, string? storageDirectory = null) => new(consent, hosts,
+        ClusterCredentialStore credentials, Handler hostHandler, HttpClient backend, string? storageDirectory = null, string? uploadToken = "upload-secret") => new(consent, hosts,
             new ClusterHostClient(new HttpClient(hostHandler), credentials), backend,
             new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-            { ["Quasar:Diagnostics:BackofficeUrl"] = "https://backoffice.example/", ["Quasar:Diagnostics:UploadToken"] = "upload-secret",
+            { ["Quasar:Diagnostics:BackofficeUrl"] = "https://backoffice.example/", ["Quasar:Diagnostics:UploadToken"] = uploadToken,
                 ["Quasar:Diagnostics:StorageDirectory"] = storageDirectory }).Build(),
             NullLogger<DiagnosticsUplinkService>.Instance, Path.Combine(_root, "state"));
     private static ReportEnvelope Envelope(byte[] bytes, string key, long generation) => new(1, Guid.NewGuid().ToString("N"), key,

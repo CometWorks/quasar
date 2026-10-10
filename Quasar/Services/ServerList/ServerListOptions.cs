@@ -12,11 +12,9 @@ public sealed class ServerListOptions
         var options = new ServerListOptions();
         configuration.GetSection("Quasar:ServerList").Bind(options);
         if (!options.Enabled) return options;
-        if (!Uri.TryCreate(options.DirectoryUrl, UriKind.Absolute, out var url)
-            || !IsAllowedEndpoint(url) || string.IsNullOrWhiteSpace(options.InstallationToken))
-            throw new InvalidDataException("Server list requires an HTTPS directory URL and installation token.");
         if (options.Listings.Count == 0 || options.Listings.Count > 100
-            || options.Listings.Select(l => l.ListingId).Distinct(StringComparer.Ordinal).Count() != options.Listings.Count
+            || options.Listings.Where(l => l.ListingId.Length != 0).Select(l => l.ListingId).Distinct(StringComparer.Ordinal).Count()
+                != options.Listings.Count(l => l.ListingId.Length != 0)
             || options.Listings.Select(l => (l.Kind, l.UniqueName.ToLowerInvariant())).Distinct().Count() != options.Listings.Count)
             throw new InvalidDataException("Server list requires 1–100 distinct listings and sources.");
         foreach (var entry in options.Listings) entry.Validate();
@@ -29,7 +27,7 @@ public sealed class ServerListOptions
 
 public sealed class ServerListEntry
 {
-    // Assigned by the directory during enrollment; independent of mutable server names.
+    // Optional stable ID; omitted IDs derive from installation, kind and source name.
     public string ListingId { get; set; } = "";
     public string Kind { get; set; } = "server";
     public string UniqueName { get; set; } = "";
@@ -39,7 +37,7 @@ public sealed class ServerListEntry
 
     internal void Validate()
     {
-        if (!ServerListProtocol.IsId(ListingId) || Kind is not ("server" or "cluster")
+        if (ListingId.Length != 0 && !ServerListProtocol.IsId(ListingId) || Kind is not ("server" or "cluster")
             || string.IsNullOrWhiteSpace(UniqueName) || string.IsNullOrWhiteSpace(Name) || Name.Length > 128
             || PublicPort is < 1 or > 65535 || Uri.CheckHostName(PublicHost) == UriHostNameType.Unknown
             || PublicHost is "0.0.0.0" or "::" or "localhost"

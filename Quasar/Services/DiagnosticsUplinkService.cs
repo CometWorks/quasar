@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
 using CometWorks.Diagnostics;
@@ -18,7 +19,9 @@ public sealed class DiagnosticsUplinkService : BackgroundService
     private readonly ILogger<DiagnosticsUplinkService> _logger;
     private readonly Quasar.Diagnostics.DiagnosticCollector? _collector;
     private readonly Uri? _url;
-    private readonly string? _uploadToken;
+    private string? _uploadToken;
+    private readonly bool _configuredToken;
+    private readonly SemaphoreSlim _enrollmentGate = new(1, 1);
     private readonly object _sync = new();
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly SemaphoreSlim _policyGate = new(1, 1);
@@ -54,12 +57,12 @@ public sealed class DiagnosticsUplinkService : BackgroundService
             Environment.GetEnvironmentVariable("QUASAR_DIAGNOSTICS_DIRECTORY")
                 ?? configuration["Quasar:Diagnostics:StorageDirectory"], stateDirectory);
         _uploadToken = configuration["Quasar:Diagnostics:UploadToken"];
-        string? configured = configuration["Quasar:Diagnostics:BackofficeUrl"];
+        _configuredToken = !string.IsNullOrWhiteSpace(_uploadToken);
+        string? configured = configuration["Quasar:Diagnostics:BackofficeUrl"] ?? "https://log.se-servers.net/";
         if (!string.IsNullOrWhiteSpace(configured))
         {
-            if (Uri.TryCreate(configured, UriKind.Absolute, out var uri) && IsAllowedEndpoint(uri)
-                && !string.IsNullOrWhiteSpace(_uploadToken)) _url = new Uri(uri.AbsoluteUri.TrimEnd('/') + "/");
-            else logger.LogWarning("Diagnostic uplink disabled: configure an HTTPS backoffice URL (or loopback HTTP) and upload token.");
+            if (Uri.TryCreate(configured, UriKind.Absolute, out var uri) && IsAllowedEndpoint(uri)) _url = new Uri(uri.AbsoluteUri.TrimEnd('/') + "/");
+            else logger.LogWarning("Diagnostic uplink disabled: configure an HTTPS backoffice URL (or loopback HTTP).");
         }
         Directory.CreateDirectory(StateDirectory);
         Quasar.Diagnostics.DiagnosticCollector.PrivateDirectory(_storageDirectory);
@@ -83,6 +86,73 @@ public sealed class DiagnosticsUplinkService : BackgroundService
     internal static bool IsAllowedEndpoint(Uri uri) => string.IsNullOrEmpty(uri.UserInfo)
         && string.IsNullOrEmpty(uri.Query) && string.IsNullOrEmpty(uri.Fragment)
         && (uri.Scheme == "https" || uri.Scheme == "http" && uri.IsLoopback);
+
+    internal Uri? BackofficeUrl => _url;
+
+    internal async Task<HttpRequestMessage?> CreateListingRequestAsync(HttpMethod method, string route, CancellationToken token)
+    {
+        if (_url is null) return null;
+        // Withdrawal uses an already-negotiated credential; it does not enroll or
+        // contact the backoffice for a new identity after diagnostic consent ends.
+        if (string.IsNullOrWhiteSpace(_uploadToken))
+        {
+            if (!_consent.GetSettings().DiagnosticsGranted) return null;
+            await EnsureEnrolledAsync(token);
+        }
+        return Request(method, route);
+    }
+
+    private async Task EnsureEnrolledAsync(CancellationToken token)
+    {
+        await _enrollmentGate.WaitAsync(token);
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(_uploadToken)) return;
+            token.ThrowIfCancellationRequested();
+            if (!_consent.GetSettings().DiagnosticsGranted) throw new OperationCanceledException(token);
+            var path = Path.Combine(StateDirectory, "machine-key.pem");
+            using var key = RSA.Create();
+            if (File.Exists(path))
+            {
+                if (new FileInfo(path).Length > 8192) throw new InvalidDataException("Invalid diagnostic machine key.");
+                key.ImportFromPem(await File.ReadAllTextAsync(path, token));
+            }
+            else
+            {
+                key.KeySize = 3072;
+                await AtomicFileWriter.WriteTextAsync(path, key.ExportPkcs8PrivateKeyPem(), token);
+                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+            if (key.KeySize != 3072) throw new InvalidDataException("Invalid diagnostic machine key.");
+            var publicKey = Convert.ToBase64String(key.ExportSubjectPublicKeyInfo());
+            var issued = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var signed = System.Text.Encoding.UTF8.GetBytes($"CometWorks.Diagnostics.Enrollment.v1\n{InstallationId}\n{publicKey}\n{issued.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(_url!, "v1/installations/enroll"))
+            { Content = JsonContent.Create(new { installationId = InstallationId, publicKey, issuedAt = issued,
+                signature = Convert.ToBase64String(key.SignData(signed, HashAlgorithmName.SHA256, RSASignaturePadding.Pss)) }) };
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            using var response = await _backoffice.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            response.EnsureSuccessStatusCode();
+            var bytes = new byte[4097];
+            await using var input = await response.Content.ReadAsStreamAsync(timeout.Token);
+            int size = 0, read;
+            while (size < bytes.Length && (read = await input.ReadAsync(bytes.AsMemory(size), timeout.Token)) > 0) size += read;
+            if (size > 4096) throw new InvalidDataException("Enrollment response exceeds bound.");
+            using var document = JsonDocument.Parse(bytes.AsMemory(0, size));
+            if (document.RootElement.GetProperty("installationId").GetString() != InstallationId) throw new InvalidDataException("Enrollment identity mismatch.");
+            var encrypted = Convert.FromBase64String(document.RootElement.GetProperty("encryptedUploadToken").GetString()!);
+            var secret = key.Decrypt(encrypted, RSAEncryptionPadding.OaepSHA256);
+            try
+            {
+                var value = System.Text.Encoding.ASCII.GetString(secret);
+                if (value.Length != 64 || !value.All(char.IsAsciiHexDigit)) throw new InvalidDataException("Invalid negotiated credential.");
+                token.ThrowIfCancellationRequested();
+                _uploadToken = value;
+            }
+            finally { CryptographicOperations.ZeroMemory(secret); }
+        }
+        finally { _enrollmentGate.Release(); }
+    }
 
     private void ConsentChanged()
     {
@@ -152,6 +222,7 @@ public sealed class DiagnosticsUplinkService : BackgroundService
             {
                 try
                 {
+                    await EnsureEnrolledAsync(token);
                     if (_key is null || _key.ExpiresAtUtc <= DateTimeOffset.UtcNow.AddMinutes(5))
                     {
                         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -353,6 +424,7 @@ public sealed class DiagnosticsUplinkService : BackgroundService
                 sending = _backoffice.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
             }
             using var response = await sending;
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized && !_configuredToken) _uploadToken = null;
             // A report-specific rejection must not hold the rest of the durable queue hostage.
             // Keep the original evidence for retry until normal retention/consent cleanup.
             if ((int)response.StatusCode is 400 or 409 or 413 or 415 or 422 or 507)

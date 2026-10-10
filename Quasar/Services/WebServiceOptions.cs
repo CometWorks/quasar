@@ -247,6 +247,7 @@ public sealed class DataHandlingConsentSettings
     public int PolicyVersion { get; set; }
     public bool DiagnosticsGranted { get; set; }
     public bool DumpsGranted { get; set; }
+    public bool ListingGranted { get; set; }
     public long Generation { get; set; }
     public DateTimeOffset GrantedSinceUtc { get; set; }
 
@@ -258,6 +259,7 @@ public sealed class DataHandlingConsentSettings
             PolicyVersion = PolicyVersion,
             DiagnosticsGranted = DiagnosticsGranted,
             DumpsGranted = DumpsGranted,
+            ListingGranted = ListingGranted,
             Generation = Generation,
             GrantedSinceUtc = GrantedSinceUtc,
         };
@@ -274,6 +276,7 @@ public sealed class DataHandlingConsentSettings
                 && settings.GrantedSinceUtc != default && settings.DiagnosticsGranted,
             DumpsGranted = settings.PolicyVersion == 2 && settings.Generation > 0
                 && settings.GrantedSinceUtc != default && settings.DiagnosticsGranted && settings.DumpsGranted,
+            ListingGranted = settings.ListingGranted,
             Generation = Math.Max(0, settings.Generation),
             GrantedSinceUtc = settings.GrantedSinceUtc,
             DecisionDateUtc = string.IsNullOrWhiteSpace(settings.DecisionDateUtc)
@@ -335,15 +338,19 @@ public sealed class DataHandlingConsentCatalog : IDisposable
         CancellationToken cancellationToken = default) =>
         SaveCoreAsync(consentGranted, diagnosticsGranted, dumpsGranted, cancellationToken);
 
+    public Task SaveListingVisibilityAsync(bool visible, CancellationToken cancellationToken = default) =>
+        SaveCoreAsync(null, null, null, cancellationToken, visible);
+
     private async Task SaveCoreAsync(bool? consentGranted, bool? diagnosticsGranted, bool? dumpsGranted,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool? listingGranted = null)
     {
         await _saveGate.WaitAsync(cancellationToken);
         try
         {
             var previous = GetSettings();
             var next = previous.Clone();
-            next.ConsentGranted = consentGranted;
+            if (listingGranted.HasValue) next.ListingGranted = listingGranted.Value;
+            else next.ConsentGranted = consentGranted;
             next.DecisionDateUtc = DateTimeOffset.UtcNow.ToString("O");
             if (diagnosticsGranted.HasValue)
             {
