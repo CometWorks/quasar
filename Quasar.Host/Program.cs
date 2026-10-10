@@ -607,11 +607,11 @@ internal static class Program
                     await child.WaitForExitAsync();
                 }
                 childProcessId = null;
-                NodeExecutionObservation exited = (await actualizer.ReconcileAsync(
+                NodeExecutionObservation observed = (await actualizer.ReconcileAsync(
                     attachment, [wanted], CancellationToken.None)).Single();
-                if (exited.State != (failure is null ? Admin.NodeObservation.Gone : Admin.NodeObservation.Failed)
-                    || exited.Failure != failure || exited.Node != "node-a")
-                    throw new InvalidOperationException($"self-test exit {exitCode} (rebooted: {rebooted}) reported {exited.State} {exited.Failure}");
+                if (observed.State != (failure is null ? Admin.NodeObservation.Gone : Admin.NodeObservation.Failed)
+                    || observed.Failure != failure || observed.Node != "node-a")
+                    throw new InvalidOperationException($"self-test exit {exitCode} (rebooted: {rebooted}) reported {observed.State} {observed.Failure}");
             }
 
             using var conflict = new TcpListener(IPAddress.Loopback, reservedPort);
