@@ -44,7 +44,7 @@ public static class ServerListProtocol
         return new(entry.ListingId, entry.Name, entry.PublicHost, entry.PublicPort, snapshot.CapturedAtUtc,
             snapshot.IsRunning, snapshot.IsRunning ? NonNegative(metrics.PlayersOnline) : null,
             NonNegative(metrics.MaxPlayers), snapshot.IsRunning && float.IsFinite(metrics.SimSpeed)
-                && metrics.SimSpeed >= 0 ? metrics.SimSpeed : null);
+                && metrics.SimSpeed >= 0 ? Math.Min(metrics.SimSpeed, 1f) : null);
     }
 
     internal static bool IsFresh(DateTimeOffset observed, DateTimeOffset now) => observed <= now

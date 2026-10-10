@@ -70,7 +70,7 @@ def generate_sample(t: int, rng: random.Random) -> dict[str, float | int]:
         32,
     ))
 
-    sim = clamp(0.65 + 0.25 * day_wave + rng.gauss(0, 0.05), 0.2, 1.35)
+    sim = clamp(0.65 + 0.25 * day_wave + rng.gauss(0, 0.05), 0.2, 1.0)
 
     sim_cpu = clamp(
         22 + 28 * day_wave + 1.4 * players + 7 * burst + rng.uniform(-5, 6),

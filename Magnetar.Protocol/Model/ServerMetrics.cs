@@ -10,7 +10,8 @@ public class ServerMetrics
 
     public ulong SimulationFrameCounter { get; set; }
 
-    public float SimSpeed { get; set; }
+    /// <summary>Finite simulation ratios are capped at 1.00; invalid readings remain available for validation.</summary>
+    public float SimSpeed { get; set => field = value > 1f && !float.IsInfinity(value) ? 1f : value; }
 
     /// <summary>Server update time as a percentage of the 16.67 ms frame budget; may exceed 100%.</summary>
     public float SimCpuLoadPercent { get; set; }
