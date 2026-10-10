@@ -487,7 +487,8 @@ miss events during Agent outages. No durable Discord message archive is created.
 
 ## Browser push notifications
 
-The Tools section lists Hosts, Security, UI Plugins, and Backups (subject to permissions).
+The Tools section lists Host machines, Security, UI Plugins, and Backups (subject to permissions).
+The responsive navigation sidebar is 220 px wide to keep Host machines on one line.
 Notifications appears in the section below Tools, alongside Appearance and Updates.
 
 **Notifications** (`/notifications`) in the lower navigation section lists outstanding update notices and
