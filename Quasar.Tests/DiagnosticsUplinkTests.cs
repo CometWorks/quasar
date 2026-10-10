@@ -54,10 +54,13 @@ public sealed class DiagnosticsUplinkTests : IDisposable
             installationId = service.InstallationId;
             await service.PollOnceAsync(default);
             Assert.Equal(0, enrollments); Assert.False(File.Exists(Path.Combine(service.StateDirectory, "machine-key.pem")));
-            await consent.SaveAsync(false, true, false);
+            await consent.SaveAsync(true, true, false);
             await service.PollOnceAsync(default);
             Assert.Equal(1, enrollments); Assert.True(service.CurrentPolicy!.DiagnosticsGranted);
+            Assert.True(consent.GetSettings().ConsentGranted);
             var generation = consent.GetSettings().Generation;
+            await consent.SaveAsync(false); // Statistics alone remain independently configurable.
+            Assert.Equal(generation, consent.GetSettings().Generation);
             await consent.SaveListingVisibilityAsync(true);
             Assert.Equal(generation, consent.GetSettings().Generation);
             Assert.False(consent.GetSettings().ConsentGranted); Assert.True(consent.GetSettings().DiagnosticsGranted);
@@ -67,6 +70,38 @@ public sealed class DiagnosticsUplinkTests : IDisposable
         Assert.Equal(installationId, restarted.InstallationId);
         await restarted.PollOnceAsync(default); Assert.Equal(2, enrollments);
         if (!OperatingSystem.IsWindows()) Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(Path.Combine(restarted.StateDirectory, "machine-key.pem")));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task UpdateRepromptsEveryPreviousPolicyAndYesEnablesAutomaticEnrollment(int previousPolicy)
+    {
+        var path = Path.Combine(_root, "consent.json");
+        Directory.CreateDirectory(_root);
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new DataHandlingConsentSettings
+        {
+            PolicyVersion = previousPolicy, ConsentGranted = true, DiagnosticsGranted = true, DumpsGranted = true,
+            ListingGranted = true, Generation = 7, GrantedSinceUtc = DateTimeOffset.UtcNow.AddDays(-1),
+            DecisionDateUtc = DateTimeOffset.UtcNow.AddDays(-1).ToString("O"),
+        }, WebJson));
+        using var consent = Catalog(path);
+        var reset = consent.GetSettings();
+        Assert.Null(reset.ConsentGranted); Assert.False(reset.DiagnosticsGranted);
+        Assert.False(reset.DumpsGranted); Assert.False(reset.ListingGranted);
+        using (var disk = JsonDocument.Parse(await File.ReadAllTextAsync(path)))
+        {
+            Assert.Equal(DataHandlingConsentSettings.CurrentPolicyVersion, disk.RootElement.GetProperty("policyVersion").GetInt32());
+            Assert.False(disk.RootElement.GetProperty("diagnosticsGranted").GetBoolean());
+        }
+        // This is the same combined YES action used by Dashboard and Security.
+        await consent.SaveAsync(true, true, false);
+        Assert.True(consent.GetSettings().ConsentGranted); Assert.True(consent.GetSettings().DiagnosticsGranted);
+        Assert.True(consent.GetSettings().Generation > 7); Assert.False(consent.GetSettings().ListingGranted);
+        using var reloaded = Catalog(path);
+        Assert.True(reloaded.GetSettings().DiagnosticsGranted);
+        Assert.Equal(consent.GetSettings().Generation, reloaded.GetSettings().Generation);
     }
 
     [Fact]
@@ -89,13 +124,13 @@ public sealed class DiagnosticsUplinkTests : IDisposable
     }
 
     [Fact]
-    public async Task LegacyYesDoesNotGrantDiagnosticsAndStatisticsSavePreservesCategories()
+    public async Task PreviousConsentIsResetAndStatisticsSavePreservesCategories()
     {
         Directory.CreateDirectory(_root);
         var path = Path.Combine(_root, "consent.json");
         await File.WriteAllTextAsync(path, "{\"consentGranted\":true,\"diagnosticsGranted\":true,\"dumpsGranted\":true}");
         using var consent = Catalog(path);
-        Assert.True(consent.GetSettings().ConsentGranted);
+        Assert.Null(consent.GetSettings().ConsentGranted);
         Assert.False(consent.GetSettings().DiagnosticsGranted);
         Assert.False(consent.GetSettings().DumpsGranted);
         var before = DateTimeOffset.UtcNow;

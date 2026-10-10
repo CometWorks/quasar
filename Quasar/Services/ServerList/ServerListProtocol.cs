@@ -21,7 +21,7 @@ public static class ServerListProtocol
         && Guid.TryParseExact(value, "N", out _) && value == value.ToLowerInvariant();
 
     public static bool HasConsent(DataHandlingConsentSettings settings) => settings.ListingGranted
-        && settings.PolicyVersion == 2 && settings.DiagnosticsGranted && settings.Generation > 0
+        && settings.PolicyVersion == DataHandlingConsentSettings.CurrentPolicyVersion && settings.DiagnosticsGranted && settings.Generation > 0
         && settings.GrantedSinceUtc != default;
 
     public static ServerListAdmin[] GetAdmins(RbacConfig config) => config.SubjectRoleMappings

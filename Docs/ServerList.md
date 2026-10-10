@@ -4,7 +4,7 @@ Quasar's optional publisher sends public server statistics and a private Steam-a
 
 ## Consent and eligibility
 
-Publication requires policy-v2 diagnostic consent, the separate **Show configured servers on se-servers.net** switch in Security, at least one explicit Steam admin mapping in RBAC, and a configured public source/join address. Statistics-sharing consent and memory-dump consent remain independent. Legacy statistics YES never grants diagnostic or listing permission. The existing combined YES/NO actions update statistics/diagnostics; listing visibility remains its own setting.
+Publication requires policy-v3 diagnostic consent, the separate **Show configured servers on se-servers.net** switch in Security, at least one explicit Steam admin mapping in RBAC, and a configured public source/join address. Statistics-sharing consent and memory-dump consent remain independent. This update resets and reprompts prior decisions. Accepting YES starts diagnostic sharing and automatic enrollment, while listing visibility remains off until separately enabled. The existing combined YES/NO actions update statistics/diagnostics; listing visibility remains its own setting.
 
 Quasar sends no listing/admin metadata before the backoffice confirms recent logs. Public data contains the chosen name, observed time, running state, player counts and simulation speed; the validated join action provides the configured public address. Raw diagnostic content and private admin/installation identities do not enter the public feed. Steam subjects are sent privately to authorize description editing.
 
