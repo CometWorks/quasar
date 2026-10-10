@@ -14,7 +14,7 @@ namespace Quasar.Services.Plugins;
 public sealed class QuasarUiPluginHubCatalogService
 {
     private const int CacheSchemaVersion = 1;
-    private const string InstallMetadataFileName = "quasar-ui-plugin-install.json";
+    internal const string InstallMetadataFileName = "quasar-ui-plugin-install.json";
     private const string PluginAbstractionsAssemblyFileName = "Quasar.Plugin.Abstractions.dll";
     private const string MagnetarProtocolAssemblyFileName = "Magnetar.Protocol.dll";
     private const string CompanionOutputRelativeDirectory = ".quasar/companions";
@@ -197,8 +197,7 @@ public sealed class QuasarUiPluginHubCatalogService
     {
         var installDirectory = GetInstallDirectory(entry);
         var manifestPath = Path.Combine(installDirectory, QuasarPluginPackageManifestReader.ManifestFileName);
-        var metadataPath = Path.Combine(installDirectory, InstallMetadataFileName);
-        var metadata = ReadInstallMetadata(metadataPath);
+        var metadata = ReadInstallMetadata(installDirectory);
 
         QuasarPluginManifest? manifest = null;
         string error = string.Empty;
@@ -633,8 +632,9 @@ public sealed class QuasarUiPluginHubCatalogService
         await AtomicFileWriter.WriteTextAsync(Path.Combine(installDirectory, InstallMetadataFileName), json, cancellationToken);
     }
 
-    private static QuasarUiPluginInstallMetadata? ReadInstallMetadata(string path)
+    internal static QuasarUiPluginInstallMetadata? ReadInstallMetadata(string installDirectory)
     {
+        var path = Path.Combine(installDirectory, InstallMetadataFileName);
         try
         {
             if (!File.Exists(path))

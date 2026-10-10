@@ -169,6 +169,56 @@ public sealed class ClusterSetupTests
     }
 
     [Fact]
+    public void HubInstalledCompanionIsPinnedToItsPluginRepositoryAtTheInstalledCommit()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cluster-setup-companion-" + Guid.NewGuid());
+        string config = Path.Combine(root, "Magnetar"), local = Path.Combine(config, "Local"), profile = Path.Combine(config, "Profiles/Current.xml");
+        try
+        {
+            var hub = Companion(root, "viewer", "cometworks.entityviewer", "CometWorks.EntityViewer.Magnetar.dll",
+                new() { RepoId = "CometWorks/viewer", Commit = "7864F2C3AAF14B5F8DCBBE533FA0A6A2D8E17C8B" });
+            var dev = Companion(root, "dev", "dev.companion", "Dev.Companion.dll", null);
+            var shortCommit = Companion(root, "short", "short.companion", "Short.Companion.dll", new() { RepoId = "CometWorks/short", Commit = "7864f2c" });
+            Directory.CreateDirectory(local); Directory.CreateDirectory(Path.GetDirectoryName(profile)!);
+            foreach (string name in new[] { "CometWorks.EntityViewer.Magnetar.dll", "Viewer.Shared.dll", "Dev.Companion.dll", "Short.Companion.dll",
+                         "Magnetar.Protocol.dll", "0Harmony.dll" })
+                File.WriteAllText(Path.Combine(local, name), name);
+            File.WriteAllText(profile, "<Profile><Local><string>quasar-agent</string><string>CometWorks.EntityViewer.Magnetar.dll</string>"
+                + "<string>Dev.Companion.dll</string><string>Short.Companion.dll</string></Local></Profile>");
+
+            ClusterSetupService.PrepareCompanionMetadata(config, [hub, dev, shortCommit]);
+
+            string bundle = Path.Combine(local, "CometWorks.EntityViewer.Magnetar");
+            Assert.Equal(["0Harmony.dll", "CometWorks.EntityViewer.Magnetar.dll", "CometWorks.EntityViewer.Magnetar.xml", "Magnetar.Protocol.dll", "Viewer.Shared.dll"],
+                Directory.GetFiles(bundle).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+            Assert.False(File.Exists(Path.Combine(local, "CometWorks.EntityViewer.Magnetar.dll")));
+            var metadata = System.Xml.Linq.XDocument.Load(Path.Combine(bundle, "CometWorks.EntityViewer.Magnetar.xml")).Root!;
+            Assert.Equal("GitHubPlugin", metadata.Attribute(System.Xml.Linq.XName.Get("type", "http://www.w3.org/2001/XMLSchema-instance"))!.Value);
+            Assert.Equal("cometworks.entityviewer", metadata.Element("Id")!.Value);
+            Assert.Equal("CometWorks/viewer", metadata.Element("RepoId")!.Value);
+            Assert.Equal("7864f2c3aaf14b5f8dcbbe533fa0a6a2d8e17c8b", metadata.Element("Commit")!.Value);
+            Assert.Equal(["quasar-agent", "cometworks.entityviewer", "Dev.Companion.dll", "Short.Companion.dll"],
+                System.Xml.Linq.XDocument.Load(profile).Root!.Element("Local")!.Elements().Select(e => e.Value));
+            // Companions that cannot be attributed are still left out and named.
+            Assert.Equal(["Dev.Companion", "Short.Companion"], ClusterSetupService.ExcludeLocalPluginsWithoutProvenance(config));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    private static UiPluginCompanion Companion(string root, string plugin, string id, string entry, Quasar.Services.Plugins.QuasarUiPluginInstallMetadata? install)
+    {
+        string directory = Path.Combine(root, "UiPlugins", plugin), output = Path.Combine(directory, ".quasar/companions", id);
+        Directory.CreateDirectory(output);
+        // The build output also holds the shared assemblies the runtime preparer never deploys per companion.
+        foreach (string name in new[] { entry, "Magnetar.Protocol.dll", "PluginSdk.dll" }.Concat(plugin == "viewer" ? ["Viewer.Shared.dll"] : []))
+            File.WriteAllText(Path.Combine(output, name), name);
+        if (install is not null)
+            File.WriteAllText(Path.Combine(directory, Quasar.Services.Plugins.QuasarUiPluginHubCatalogService.InstallMetadataFileName),
+                JsonSerializer.Serialize(install, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        return new(id, plugin, plugin, directory, output, Path.Combine(output, entry));
+    }
+
+    [Fact]
     public async Task OlderMagnetarIsOnlyInvokedWithHelpAndNeverStartedAsAServer()
     {
         if (!OperatingSystem.IsLinux()) return;
