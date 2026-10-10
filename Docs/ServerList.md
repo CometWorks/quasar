@@ -8,7 +8,7 @@ Publication requires policy-v3 diagnostic consent, the separate **Show configure
 
 Quasar sends no listing/admin metadata before the backoffice confirms recent logs. Public data contains the chosen name, observed time, running state, player counts and simulation speed; the validated join action provides the configured public address. Raw diagnostic content and private admin/installation identities do not enter the public feed. Steam subjects are sent privately to authorize description editing.
 
-Published simulation speed is capped at **1.00**. Valid readings from 0.00 to 1.00 are preserved; negative or non-finite readings remain unknown. This cap applies to directory publication; the original agent metrics remain available to Quasar diagnostics and analytics.
+Simulation speed is capped at **1.00** in agent metrics, incoming snapshots, analytics samples and directory publication. Valid readings from 0.00 to 1.00 are preserved; negative or non-finite readings remain unknown in directory publication. Existing analytics history is capped when loaded, including minute/hour rollups; files are updated through normal persistence/compaction. The synthetic analytics generator uses the same ceiling. This does not cap process or simulation CPU percentages.
 
 Turning visibility off or withdrawing diagnostic consent cancels active publication and wakes the sender to withdraw. RBAC changes also wake it. A delivered withdrawal wakes the backoffice relay immediately; network outages expire the last signed website lease within 60 seconds. No lease can outlive the last evidence's two-minute lifetime. Already displayed browser content cannot be remotely erased.
 

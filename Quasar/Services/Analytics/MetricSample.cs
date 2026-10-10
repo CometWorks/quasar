@@ -28,7 +28,7 @@ public readonly struct MetricSample
         float? simCpuPercent = null)
     {
         TimestampUnixSeconds = timestampUnixSeconds;
-        SimSpeed = simSpeed;
+        SimSpeed = float.IsFinite(simSpeed) ? Math.Min(simSpeed, 1f) : simSpeed;
         CpuPercent = cpuPercent;
         SimCpuPercent = simCpuPercent is >= 0 && float.IsFinite(simCpuPercent.Value) ? simCpuPercent : null;
         MemoryMb = memoryMb;

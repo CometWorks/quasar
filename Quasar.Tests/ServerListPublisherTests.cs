@@ -357,7 +357,7 @@ public sealed class ServerListPublisherTests : IDisposable
     [InlineData(float.NaN, null)]
     [InlineData(float.PositiveInfinity, null)]
     [InlineData(float.NegativeInfinity, null)]
-    public async Task PublishedSimulationSpeedIsCappedWithoutChangingAgentMetrics(float speed, float? expected)
+    public async Task PublishedSimulationSpeedIsCappedAndInvalidReadingsStayUnknown(float speed, float? expected)
     {
         await GrantAsync(); await SetAdminAsync();
         var now = DateTimeOffset.UtcNow;
@@ -372,7 +372,7 @@ public sealed class ServerListPublisherTests : IDisposable
         var publication = JsonSerializer.Deserialize<ServerListPublication>(_sent[^1].Body,
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         Assert.Equal(expected, Assert.Single(publication.Listings).SimSpeed);
-        Assert.Equal(speed, agent.Snapshot.Metrics.SimSpeed);
+        Assert.Equal(expected ?? speed, agent.Snapshot.Metrics.SimSpeed);
     }
 
     [Theory]
