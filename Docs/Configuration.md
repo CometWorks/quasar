@@ -58,14 +58,25 @@ Quasar always writes the MagnetarHub `RemoteHub` source into the server's
 one. Older builds ask for the `se-` prefixed ids and still get per-file sources
 pointing at the `*LegacyId.xml` manifests.
 
-The Dashboard shows a top-of-page YES/NO consent prompt until a decision is
-stored. The same decision can be changed later from **Settings -> Security**.
-Changes apply to the next server start or restart; running servers keep their
-current Magnetar consent state.
+The Dashboard shows a YES/NO consent prompt until a decision is stored, and asks
+again for legacy YES decisions that covered only anonymous statistics. The same
+decision can be changed later from **Settings -> Security**. YES now explicitly
+allows logging and error reports to CometWorks, including error details, bounded
+recent logs, software versions and execution context. Logs can contain private
+player or server information. Memory dumps require separate consent and YES does
+not enable them. Existing statistics consent never silently grants diagnostics.
+
+The Magnetar flag changes on the next server start or restart. Server directory
+publishing reacts immediately to consent changes. Listings require explicit
+consent and independently verified logging/error-reporting availability; see
+[Server directory uplink](ServerList.md) for configuration and rollout dependencies.
 
 Magnetar sends only the enabled plugin IDs plus a random local instance ID when
 consent is granted. It does not send a Steam ID, account, world, or server
-content.
+content. This describes the anonymous statistics payload only. Explicitly enabled
+directory listings additionally publish their chosen name, public join address
+and summary statistics, and privately share current Steam admin subjects to
+authorize description edits.
 
 ## Implicit Magnetar mod
 

@@ -32,6 +32,7 @@ from the terminal, install it as a background service, or run the GHCR image.
 | [Docker Deployment](Docs/Docker.md) | Run the versioned GHCR image with Compose, persistent state, environment configuration, and upgrades. |
 | [Architecture](Docs/QuasarArchitecture.md) | Supervisor design, runtime ownership, process supervision, configuration model, and self-update. |
 | [Configuration](Docs/Configuration.md) | API/UI host and port, headless mode, browser behavior, and optional instance health notifications. |
+| [Server directory uplink](Docs/ServerList.md) | Consent, diagnostics availability, public statistics, admin authority and directory rollout requirements. |
 | [Analytics CPU Usage](Docs/AnalyticsCpuLoad.md) | Why CPU usage can exceed 100% and how it differs from Shift+F11 simulation CPU load. |
 | [Quasar Plugin System](Docs/QuasarPluginSystem.md) | Planned UI plugin loader, hub manifest model, component replacement points, companion data channel, and MudBlazor expectations. |
 | [Entity Viewer](https://github.com/CometWorks/viewer/blob/main/Docs/EntityViewer.md) | Fullscreen metadata-only entity viewer, local Space Engineers `Content` folder requirement, and fallback behavior. |

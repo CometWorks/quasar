@@ -25,10 +25,10 @@
             <MudStack Spacing="1" Class="setup-wizard-copy">
                 <MudText Typo="Typo.subtitle1">Data Handling Consent</MudText>
                 <MudText Typo="Typo.body2">
-                    Allow Magnetar to send anonymous plugin usage statistics? It sends enabled plugin IDs with a random local instance ID, not Steam ID, account, world, or server content.
+                    Allow anonymous plugin usage statistics and allow CometWorks to receive logging and error reports? Reports include error details, bounded recent logs, software versions and execution context. Logs may contain private player or server information. Memory dumps require separate consent.
                 </MudText>
                 <MudText Typo="Typo.caption" Color="Color.Secondary">
-                    If no decision is stored, Quasar starts Magnetar with no consent.
+                    Server listings require this consent and working log delivery. When a listing is explicitly enabled, its name, public join address and summary statistics are public; Quasar admin Steam identities are shared privately to authorize description edits. Existing statistics consent does not enable reports or listings.
                 </MudText>
             </MudStack>
             <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
@@ -583,7 +583,14 @@ else
             component.Component == ManagedRuntimeInstallComponent.DedicatedServer);
     private bool IsDedicatedServerAvailable =>
         DedicatedServerWarmup?.State == ManagedRuntimeComponentState.Ready;
-    private bool ShowDataHandlingConsentPrompt => DataHandlingConsent.GetSettings().ConsentGranted is null;
+    private bool ShowDataHandlingConsentPrompt
+    {
+        get
+        {
+            var settings = DataHandlingConsent.GetSettings();
+            return settings.ConsentGranted is null || settings.ConsentGranted == true && !settings.DiagnosticsGranted;
+        }
+    }
     private DashboardServerView _serverView = DashboardServerView.Cards;
     private bool _serverViewLoadedFromStorage;
     private bool _firstSetupChoiceAttempted;
@@ -886,7 +893,7 @@ else
 
         try
         {
-            await DataHandlingConsent.SaveAsync(consentGranted);
+            await DataHandlingConsent.SaveAsync(consentGranted, consentGranted, false);
             Snackbar.Add(consentGranted ? "Data handling consent saved: YES." : "Data handling consent saved: NO.", Severity.Success);
         }
         catch (Exception exception)
