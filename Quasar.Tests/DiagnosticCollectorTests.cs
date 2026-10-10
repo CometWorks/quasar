@@ -11,6 +11,17 @@ namespace Quasar.Tests;
 
 public sealed class DiagnosticCollectorTests : IDisposable
 {
+    [Fact]
+    public void WindowsMinidumpInteropMatchesPackedX64WindowsSdkAbi()
+    {
+        if (IntPtr.Size != 8) return;
+        Assert.Equal(16, System.Runtime.InteropServices.Marshal.SizeOf<WindowsCrashMonitor.ExceptionInformation>());
+        Assert.Equal(4, System.Runtime.InteropServices.Marshal.OffsetOf<WindowsCrashMonitor.ExceptionInformation>("Pointers").ToInt32());
+        Assert.Equal(12, System.Runtime.InteropServices.Marshal.OffsetOf<WindowsCrashMonitor.ExceptionInformation>("ClientPointers").ToInt32());
+        Assert.Equal(16, System.Runtime.InteropServices.Marshal.SizeOf<WindowsCrashMonitor.CallbackInputHeader>());
+        Assert.Equal(12, System.Runtime.InteropServices.Marshal.OffsetOf<WindowsCrashMonitor.CallbackInputHeader>("CallbackType").ToInt32());
+    }
+
     private readonly string root = Path.Combine(Path.GetTempPath(), "collector-test-" + Guid.NewGuid().ToString("N"));
     private readonly RSA rsa = RSA.Create(3072);
     private HostDiagnosticPolicy Policy(bool dumps = false) => new(Guid.NewGuid().ToString("N"), true, dumps, 1,

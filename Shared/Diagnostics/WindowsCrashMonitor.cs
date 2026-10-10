@@ -108,7 +108,7 @@ internal static class WindowsCrashMonitor
                     bool bounded = false;
                     Callback callback = (_, input, result) =>
                     {
-                        if (Marshal.ReadInt32(input, 16) == 6) // CancelCallback.
+                        if (Marshal.PtrToStructure<CallbackInputHeader>(input).CallbackType == 6) // CancelCallback.
                         {
                             try { bounded |= output.Length >= DiagnosticsProtocol.MaxArchiveBytes; }
                             catch (IOException) { bounded = true; }
@@ -179,8 +179,11 @@ internal static class WindowsCrashMonitor
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     [return: MarshalAs(UnmanagedType.Bool)] private delegate bool Callback(IntPtr parameter, IntPtr input, IntPtr output);
-    [StructLayout(LayoutKind.Sequential)] private struct CallbackInfo { public IntPtr Routine; public IntPtr Parameter; }
-    [StructLayout(LayoutKind.Sequential)] private struct ExceptionInformation
+    // minidumpapiset.h applies pshpack4.h even on x64; EXCEPTION_POINTERS/CONTEXT retain their own ABI.
+    [StructLayout(LayoutKind.Sequential, Pack = 4)] private struct CallbackInfo { public IntPtr Routine; public IntPtr Parameter; }
+    [StructLayout(LayoutKind.Sequential, Pack = 4)] internal struct CallbackInputHeader
+    { public uint ProcessId; public IntPtr ProcessHandle; public uint CallbackType; }
+    [StructLayout(LayoutKind.Sequential, Pack = 4)] internal struct ExceptionInformation
     { public uint ThreadId; public IntPtr Pointers; [MarshalAs(UnmanagedType.Bool)] public bool ClientPointers; }
     [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool DebugActiveProcess(uint processId);
     [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool DebugActiveProcessStop(uint processId);
