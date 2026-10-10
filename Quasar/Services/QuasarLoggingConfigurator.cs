@@ -3,6 +3,7 @@ using NLog;
 using NLog.Config;
 using NLog.Layouts;
 using NLog.Targets;
+using NLog.Targets.Wrappers;
 using NLog.Web;
 
 namespace Quasar.Services;
@@ -55,10 +56,12 @@ public static class QuasarLoggingConfigurator
 
         var minimumLevel = ParseMinimumLevel(options.LoggingMinimumLevel);
 
-        configuration.AddTarget(fileTarget);
-        configuration.AddTarget(discordFileTarget);
-        configuration.AddRule(minimumLevel, NLog.LogLevel.Fatal, fileTarget);
-        configuration.LoggingRules.Add(new LoggingRule("Quasar.Services.Discord.*", minimumLevel, NLog.LogLevel.Fatal, discordFileTarget));
+        var asyncFile = new AsyncTargetWrapper(fileTarget, 4096, AsyncTargetWrapperOverflowAction.Discard);
+        var asyncDiscord = new AsyncTargetWrapper(discordFileTarget, 4096, AsyncTargetWrapperOverflowAction.Discard);
+        configuration.AddTarget(asyncFile);
+        configuration.AddTarget(asyncDiscord);
+        configuration.AddRule(minimumLevel, NLog.LogLevel.Fatal, asyncFile);
+        configuration.LoggingRules.Add(new LoggingRule("Quasar.Services.Discord.*", minimumLevel, NLog.LogLevel.Fatal, asyncDiscord));
 
         // Bootstrap launches the worker with QUASAR_CONSOLE_LOGGING=true and drains
         // stdout/stderr so worker warnings and errors reach the Bootstrap host console
@@ -71,8 +74,9 @@ public static class QuasarLoggingConfigurator
                 StdErr = false,
             };
 
-            configuration.AddTarget(consoleTarget);
-            configuration.AddRule(minimumLevel, NLog.LogLevel.Fatal, consoleTarget);
+            var asyncConsole = new AsyncTargetWrapper(consoleTarget, 4096, AsyncTargetWrapperOverflowAction.Discard);
+            configuration.AddTarget(asyncConsole);
+            configuration.AddRule(minimumLevel, NLog.LogLevel.Fatal, asyncConsole);
         }
 
         return configuration;

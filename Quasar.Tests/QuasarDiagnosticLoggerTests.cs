@@ -1,8 +1,10 @@
 using System.Text.Json;
 using System.Diagnostics;
 using System.Security.Cryptography;
-using Quasar.Host.Contract.V1;
+using System.Reflection;
+using System.Threading.Channels;
 using CometWorks.Diagnostics;
+using Quasar.Host.Contract.V1;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Quasar.Diagnostics;
@@ -16,7 +18,7 @@ public sealed class QuasarDiagnosticLoggerTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), "quasar-self-diagnostics-" + Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public void LoggingCapturesWithoutConsentAndIgnoresScopesAndRecursiveFormatting()
+    public async Task LoggingCapturesWithoutConsentAndIgnoresScopesAndRecursiveFormatting()
     {
         var collector = new DiagnosticCollector(_root, "test-host");
         using var provider = new QuasarDiagnosticLoggerProvider(collector, TimeProvider.System, subscribe: false);
@@ -28,6 +30,7 @@ public sealed class QuasarDiagnosticLoggerTests : IDisposable
                 logger.LogError("Recursive formatter log");
                 return new string('x', 10000);
             });
+        await provider.DrainAsync();
         var report = Assert.Single(Reports(provider));
         DiagnosticsProtocol.ValidateReport(report);
         Assert.Equal(8192, report.Message.Length);
@@ -41,38 +44,69 @@ public sealed class QuasarDiagnosticLoggerTests : IDisposable
     }
 
     [Fact]
-    public async Task OrdinaryLogsBatchOnlyWithinCurrentConsentGeneration()
+    public async Task OrdinaryLogsAreNotDuplicatedEvenWithDiagnosticConsent()
     {
         var collector = new DiagnosticCollector(_root, "test-host");
         using var provider = new QuasarDiagnosticLoggerProvider(collector, TimeProvider.System, subscribe: false);
-        var logger = provider.CreateLogger("Quasar.Ordinary");
-        logger.LogInformation("before opt in");
-        Assert.False(File.Exists(Path.Combine(provider.DiagnosticDirectory!, "log-batch.pending")));
         using var rsa = RSA.Create(3072);
-        var policy = new HostDiagnosticPolicy(Guid.NewGuid().ToString("N"), true, false, 1, DateTimeOffset.UtcNow,
-            DateTimeOffset.UtcNow.AddMinutes(1), DiagnosticsProtocol.KeyId(rsa), rsa.ExportSubjectPublicKeyInfoPem(), DateTimeOffset.UtcNow.AddDays(1));
-        await collector.ApplyPolicyAsync(policy, default);
-        logger.LogInformation("ordinary one");
-        logger.LogWarning("ordinary two");
+        await collector.ApplyPolicyAsync(new HostDiagnosticPolicy(Guid.NewGuid().ToString("N"), true, false,
+            1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(1), DiagnosticsProtocol.KeyId(rsa),
+            rsa.ExportSubjectPublicKeyInfoPem(), DateTimeOffset.UtcNow.AddDays(1)), default);
+        var logger = provider.CreateLogger("Microsoft.AspNetCore.Components.RenderTree.Renderer");
+        foreach (var level in new[] { LogLevel.Trace, LogLevel.Debug, LogLevel.Information, LogLevel.Warning })
+        {
+            Assert.False(logger.IsEnabled(level));
+            logger.Log(level, "Existing Quasar log sink owns this message");
+        }
+        await provider.DrainAsync();
         Assert.Empty(Reports(provider));
-        LogBatchCapture.Flush(provider.DiagnosticDirectory!, Path.Combine(_root, "policy.json"));
-        Assert.Empty(Directory.GetFiles(provider.DiagnosticDirectory!, "log-*.json"));
-        LogBatchCapture.Flush(provider.DiagnosticDirectory!, Path.Combine(_root, "policy.json"), force: true);
-        string batch = Assert.Single(Directory.GetFiles(provider.DiagnosticDirectory!, "log-*.json"));
-        var report = JsonSerializer.Deserialize<IncidentReport>(File.ReadAllText(batch), DiagnosticsProtocol.Json)!;
-        DiagnosticsProtocol.ValidateReport(report);
-        Assert.Equal("log_batch", report.Kind);
-        Assert.Equal("2", report.Context["lineCount"]);
-        Assert.DoesNotContain("before opt in", report.Message);
-        logger.LogInformation("withdraw this pending log");
-        collector.Revoke(2);
-        provider.Dispose();
         Assert.False(File.Exists(Path.Combine(provider.DiagnosticDirectory!, "log-batch.pending")));
-        Assert.Single(Directory.GetFiles(provider.DiagnosticDirectory!, "log-*.json"));
+        Assert.Empty(Directory.GetFiles(provider.DiagnosticDirectory!, "log-*.json"));
     }
 
     [Fact]
-    public void ErrorStormIsBoundedAndFatalEvidencePreservesRunMetadata()
+    public async Task LoggingReturnsWhenWriterIsBlockedAndQueueIsFull()
+    {
+        using var provider = new QuasarDiagnosticLoggerProvider(new DiagnosticCollector(_root, "test-host"),
+            TimeProvider.System, subscribe: false);
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        // Stall the storage worker deterministically, without relying on disk speed or platform file locks.
+        var queue = (Channel<Action>)typeof(QuasarDiagnosticLoggerProvider)
+            .GetField("_queue", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(provider)!;
+        Assert.True(queue.Writer.TryWrite(() => { entered.Set(); release.Wait(TimeSpan.FromSeconds(10)); }));
+        try
+        {
+            Assert.True(await Task.Run(() => entered.Wait(TimeSpan.FromSeconds(5))));
+            var logger = provider.CreateLogger("Test");
+            await Task.Run(() =>
+            {
+                for (int count = 0; count < 1000; count++) logger.LogError("Failure {Count}", count);
+            }).WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.Equal(256, queue.Reader.Count);
+            Assert.Empty(Reports(provider));
+        }
+        finally { release.Set(); }
+        await provider.DrainAsync();
+        Assert.Equal(32, Reports(provider).Length);
+    }
+
+    [Fact]
+    public void DisposeDrainsAcceptedErrorsAndStopsFurtherLogging()
+    {
+        using var provider = new QuasarDiagnosticLoggerProvider(new DiagnosticCollector(_root, "test-host"),
+            TimeProvider.System, subscribe: false);
+        var logger = provider.CreateLogger("Test");
+        logger.LogError("Accepted before shutdown");
+        provider.Dispose();
+        Assert.Equal("Accepted before shutdown", Assert.Single(Reports(provider)).Message);
+        Assert.False(logger.IsEnabled(LogLevel.Error));
+        logger.LogError("After shutdown");
+        Assert.Single(Reports(provider));
+    }
+
+    [Fact]
+    public async Task ErrorStormIsBoundedAndFatalEvidencePreservesRunMetadata()
     {
         var clock = new ManualClock();
         using var provider = new QuasarDiagnosticLoggerProvider(new DiagnosticCollector(_root, "test-host"), clock, subscribe: false);
@@ -80,6 +114,7 @@ public sealed class QuasarDiagnosticLoggerTests : IDisposable
         for (int minute = 0; minute < 9; minute++)
         {
             for (int count = 0; count < 40; count++) logger.LogError("failure {Count}", count);
+            await provider.DrainAsync();
             Assert.Equal(Math.Min((minute + 1) * 32, 256), Reports(provider).Length);
             clock.Advance();
         }
@@ -107,7 +142,7 @@ public sealed class QuasarDiagnosticLoggerTests : IDisposable
     }
 
     [Fact]
-    public void ProviderAdoptsMatchingBootstrapRunWithoutCreatingAnotherRun()
+    public async Task ProviderAdoptsMatchingBootstrapRunWithoutCreatingAnotherRun()
     {
         var collector = new DiagnosticCollector(_root, "test-host");
         using var process = Process.GetCurrentProcess();
@@ -117,6 +152,7 @@ public sealed class QuasarDiagnosticLoggerTests : IDisposable
         Assert.Equal(inherited, provider.DiagnosticDirectory);
         Assert.Single(Directory.GetDirectories(Path.Combine(_root, "runs")));
         provider.CreateLogger("Test").LogError("Adopted run");
+        await provider.DrainAsync();
         Assert.Single(Reports(provider));
     }
 
@@ -137,7 +173,7 @@ public sealed class QuasarDiagnosticLoggerTests : IDisposable
     }
 
     [Fact]
-    public void ProviderResolvesInsideLoggerFactoryWithoutLifetimeDependencyCycle()
+    public async Task ProviderResolvesInsideLoggerFactoryWithoutLifetimeDependencyCycle()
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -146,7 +182,9 @@ public sealed class QuasarDiagnosticLoggerTests : IDisposable
         services.AddSingleton<ILoggerProvider>(sp => sp.GetRequiredService<QuasarDiagnosticLoggerProvider>());
         using var container = services.BuildServiceProvider();
         container.GetRequiredService<ILoggerFactory>().CreateLogger("Test").LogError("Factory integration");
-        Assert.Single(Reports(container.GetRequiredService<QuasarDiagnosticLoggerProvider>()));
+        var provider = container.GetRequiredService<QuasarDiagnosticLoggerProvider>();
+        await provider.DrainAsync();
+        Assert.Single(Reports(provider));
     }
 
     private static IncidentReport[] Reports(QuasarDiagnosticLoggerProvider provider) =>

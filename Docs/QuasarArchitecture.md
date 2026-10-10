@@ -509,7 +509,7 @@ not mirrored during normal operation.
 
 ### File logging
 
-Use the existing NLog approach already present in the repository rather than introducing a second logging stack.
+Use the existing NLog approach already present in the repository rather than introducing a second logging stack. File, Discord and mirrored-console targets use NLog asynchronous wrappers with fixed 4,096-entry queues. Full queues discard new messages rather than block request or renderer threads; NLog drains accepted messages during normal shutdown. Fatal process evidence is captured separately by the diagnostics provider.
 
 Requirements:
 
