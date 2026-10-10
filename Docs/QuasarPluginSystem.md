@@ -5,10 +5,10 @@ separate from Magnetar Dedicated Server plugins. The first target plugin is the
 Entity Viewer: a heavy, mostly independent UI surface that should live outside the
 Quasar core repository while still feeling native inside Quasar.
 
-For clustered servers, owned companion plugins participate in the common pinned plugin
-set and cluster config revision. UI extension code must use the cluster management
-boundary for shared edits rather than writing to one node Agent. These cluster guarantees
-are planned work; see [Cluster Plugins](ClusterPlugins.md) for the Magnetar PluginSdk
+For clustered servers, owned companion plugins of UI plugins installed from QuasarHub
+are part of the common pinned plugin set (see below). Joining the cluster config
+revision is planned work, and so is the rule that UI extension code uses the cluster
+management boundary for shared edits rather than writing to one node Agent; see [Cluster Plugins](ClusterPlugins.md) for the Magnetar PluginSdk
 audit and the distinction between server and UI-host APIs.
 
 ## Goals

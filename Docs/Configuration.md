@@ -1286,7 +1286,9 @@ Repeated manual/API checks share a sweep and are limited to one per minute.
   declared source commits. Repository changes or missing provenance show an explicit warning.
   The hub manifest file's Git SHA, description and displayed version are not plugin versions.
   Commit comparison links show source changes. Packaged cluster role plugins remain covered
-  by cluster package updates, not the common-plugin monitor.
+  by cluster package updates, not the common-plugin monitor. The Quasar Agent and UI-plugin
+  companions are pinned to Quasar's and QuasarHub's sources, which this check does not look
+  up, so they show an unavailable plugin manifest.
 - **Failures:** partial Workshop/hub failures retain last successful observations and display
   errors with their observation times. They do not mark content current. A selected candidate
   cannot become the active comparison baseline. Imported deployments without verifiable local
