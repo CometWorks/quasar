@@ -348,6 +348,34 @@ public sealed class ServerListPublisherTests : IDisposable
     }
 
     [Theory]
+    [InlineData(0f, 0f)]
+    [InlineData(0.75f, 0.75f)]
+    [InlineData(1f, 1f)]
+    [InlineData(1.01f, 1f)]
+    [InlineData(float.MaxValue, 1f)]
+    [InlineData(-0.01f, null)]
+    [InlineData(float.NaN, null)]
+    [InlineData(float.PositiveInfinity, null)]
+    [InlineData(float.NegativeInfinity, null)]
+    public async Task PublishedSimulationSpeedIsCappedWithoutChangingAgentMetrics(float speed, float? expected)
+    {
+        await GrantAsync(); await SetAdminAsync();
+        var now = DateTimeOffset.UtcNow;
+        var entry = new ServerListEntry { ListingId = Guid.NewGuid().ToString("N"), UniqueName = "local",
+            Name = "Public", PublicHost = "join.example" };
+        var agent = new AgentRuntimeState { IsConnected = true, LastSnapshotReceivedUtc = now,
+            Snapshot = new() { UniqueName = "local", CapturedAtUtc = now, IsRunning = true,
+                Metrics = new() { SimSpeed = speed } } };
+        using var publisher = Publisher(collect: _ => Task.FromResult<IReadOnlyList<ServerListListing>>(
+            [ServerListProtocol.FromAgent(entry, [agent], now)]));
+        await publisher.PublishOnceAsync(default);
+        var publication = JsonSerializer.Deserialize<ServerListPublication>(_sent[^1].Body,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Equal(expected, Assert.Single(publication.Listings).SimSpeed);
+        Assert.Equal(speed, agent.Snapshot.Metrics.SimSpeed);
+    }
+
+    [Theory]
     [InlineData("http://directory.example")]
     [InlineData("https://secret@directory.example")]
     [InlineData("https://directory.example/?secret=key")]
