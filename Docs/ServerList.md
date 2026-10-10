@@ -12,6 +12,16 @@ Turning visibility off or withdrawing diagnostic consent cancels active publicat
 
 ## Configuration
 
+Open **Listings**, directly below Discord in the main navigation (`/settings/server-list`). The page discovers your standalone Magnetar servers and clusters and suggests their public names and game ports. For each server you want visible, enable **Publish this server**, enter its public hostname or IP, confirm the public game port, then choose **Save listings**. For clusters, use the Steam gateway address and port, not the Cluster Registry admin endpoint. The cluster port is suggested from its deployed Steam configuration where available; otherwise it starts at 28000 for you to confirm.
+
+The page shows missing diagnostic consent and Steam-admin mappings, with links to Security. The global **Show configured servers on se-servers.net** switch is available on both pages. Editing destinations does not grant consent or enable the global switch. Saving requires current security-management permission. Changes cancel outdated publication attempts and wake the publisher immediately, without restarting Quasar. Deselecting a server removes it from the next replacement set; deselecting all servers withdraws the installation's listings. Names, addresses and listing IDs remain saved when deselected. Conflicting edits from another session require reloading before saving.
+
+UI settings are stored in `server-list.json` in Quasar's application-data directory. Preserve that file with the diagnostic identity and publication epoch. Existing `Quasar:ServerList` settings below are used as initial defaults only while this file is absent; the first UI save takes precedence across restarts and upgrades. Invalid saved settings disable publication rather than falling back to legacy configuration. New sources remain unselected until explicitly configured. Use **Reload** to refresh sources or discard unsaved edits.
+
+Configuration backups include `server-list.json`. Restart Quasar after restoring a backup to load the restored listing settings.
+
+For headless deployments, the existing `appsettings.json` configuration remains supported:
+
 ```json
 {
   "Quasar": {
@@ -29,11 +39,11 @@ Turning visibility off or withdrawing diagnostic consent cancels active publicat
 }
 ```
 
-Enable the separate Security visibility switch after reviewing this configuration. No website token, installation ID or directory endpoint must be configured. The diagnostics uplink negotiates the credential and routes listing requests to its backoffice. `DirectoryUrl`/`InstallationToken` are legacy configuration fields ignored by the production publisher.
+Enable the separate visibility switch after reviewing this configuration. No website token, installation ID or directory endpoint must be configured. The diagnostics uplink negotiates the credential and routes listing requests to its backoffice. `DirectoryUrl`/`InstallationToken` are legacy configuration fields ignored by the production publisher.
 
 `ListingId` is optional. If absent, Quasar derives a stable ID from its installation identity, kind and case-insensitive source UniqueName. Preserve an existing assigned `ListingId` during migration to retain edited pages/votes. Preserve `Diagnostics/installation-id`, `Diagnostics/machine-key.pem` and `ServerList/epoch` across upgrades; restarting reserves a higher durable epoch before sending. Never run two publishers over the same local state or restore ordering state backwards.
 
-Use `Kind=cluster` with the cluster unique name and its **public Steam gateway address**. The gateway's authoritative connected-client count is published once; node counts are not summed. Cluster max-player count and simulation speed remain unknown. Standalone statistics require one connected agent and observations at most 60 seconds old. Missing, ambiguous, future or stale observations stay unknown. Deleted sources are omitted from the replacement set. Configuration is read at startup. `Enabled=false` stops renewal; use the visibility switch first to withdraw promptly while online.
+Use `Kind=cluster` with the cluster unique name and its **public Steam gateway address**. The gateway's authoritative connected-client count is published once; node counts are not summed. Cluster max-player count and simulation speed remain unknown. Standalone statistics require one connected agent and observations at most 60 seconds old. Missing, ambiguous, future or stale observations stay unknown. Deleted sources are omitted from the replacement set. Legacy configuration and external edits to `server-list.json` are read at startup; UI changes apply live. `Enabled=false` withdraws on the next publication cycle. Use the visibility switch to withdraw promptly while online.
 
 ## Protocol and verification
 
@@ -41,4 +51,4 @@ The negotiated diagnostic credential authenticates `/v1/quasar/challenge`, `/pub
 
 Only current explicit Steam **admin** mappings authorize description editing for the linked instance. Quasar editors, trusted-network identities and other installations inherit no directory authority. Writes retain normal CSRF/concurrency checks. Description drafts and votes survive withdrawal; see server-list's schema-3 backup/rollback instructions.
 
-`ServerListPublisherTests` exercises consent, separate visibility, cancellation, admin changes, ordering, public payload exclusion and observation handling. The cross-repository `error-reporting/Tests/EndToEnd/run.sh` with a server-list checkout runs actual backend/website fixtures and the real uploader/publisher. It never starts Quasar's web service.
+`ServerListPublisherTests` exercises consent, separate visibility, live selection changes, cancellation, admin changes, ordering, public payload exclusion and observation handling. `ServerListSettingsTests` covers persistence, legacy configuration migration, validation, conflicting edits and source discovery; `ServerListingPageTests` exercises both server kinds, saving and permission rechecks. The cross-repository `error-reporting/Tests/EndToEnd/run.sh` with a server-list checkout runs actual backend/website fixtures and the real uploader/publisher. It never starts Quasar's web service.

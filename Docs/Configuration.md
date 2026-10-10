@@ -70,6 +70,8 @@ The Magnetar flag changes on the next server start or restart. Server directory
 publishing reacts immediately to consent changes. Listings require explicit
 consent and independently verified logging/error-reporting availability; see
 [Server directory uplink](ServerList.md) for configuration and rollout dependencies.
+Use **Listings**, below Discord in navigation, to select standalone servers and clusters,
+set public join addresses and save changes without a restart.
 
 Magnetar sends only the enabled plugin IDs plus a random local instance ID when
 consent is granted. It does not send a Steam ID, account, world, or server
@@ -487,8 +489,8 @@ miss events during Agent outages. No durable Discord message archive is created.
 
 ## Browser push notifications
 
-The Tools section lists Host machines, Security, UI Plugins, and Backups (subject to permissions).
-The responsive navigation sidebar is 220 px wide to keep Host machines on one line.
+The Tools section lists Hosts, Security, UI Plugins, and Backups (subject to permissions).
+Listings appears directly below Discord in the main navigation and opens public listing settings.
 Notifications appears in the section below Tools, alongside Appearance and Updates.
 
 **Notifications** (`/notifications`) in the lower navigation section lists outstanding update notices and

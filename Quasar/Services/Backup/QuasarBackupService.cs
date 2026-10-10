@@ -61,6 +61,7 @@ public sealed class QuasarBackupService
         "known-players.json",
         "known-player-settings.json",
         "data-handling-consent.json",
+        "server-list.json",
         "discord.json",
         "death-messages.json",
         "branding.json",

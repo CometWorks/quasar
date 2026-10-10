@@ -212,7 +212,7 @@ public class Program
             builder.Services.AddSingleton(updateOptions);
             builder.Services.AddSingleton(authOptions);
             builder.Services.AddSingleton<DataHandlingConsentCatalog>();
-            builder.Services.AddSingleton(ServerListOptions.Create(builder.Configuration));
+            builder.Services.AddSingleton<ServerListSettingsCatalog>();
             builder.Services.AddHttpClient("ServerList", client => client.Timeout = TimeSpan.FromSeconds(15))
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             builder.Services.AddHostedService<ServerListPublisher>();
