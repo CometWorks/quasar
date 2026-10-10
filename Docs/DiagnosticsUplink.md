@@ -1,5 +1,7 @@
 # Diagnostic consent and central upload
 
+Quasar 1.2.0 introduces this diagnostics framework. Release packaging appends the build number to the base version.
+
 Quasar is the consent authority and the only process that connects to the diagnostic backoffice. Every enrolled Host executor participates, including hosts shared by clusters and hosts added after setup. Existing authenticated reverse tunnels and host credentials carry policy and encrypted archives; cluster topology does not select or exclude hosts.
 
 ## Consent
