@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="CometWorks.Diagnostics" Version="0.1.0" />
+    <Compile Include="../../Shared/Diagnostics/*.cs" Link="Diagnostics/%(Filename)%(Extension)" />
+    <Compile Include="../../Quasar.Host.Contract/HostDiagnostics.cs" Link="HostDiagnostics.cs" />
+  </ItemGroup>
+</Project>

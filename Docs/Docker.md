@@ -66,6 +66,24 @@ makes this the root for all durable Quasar state, including:
 Back up `quasar-data` as one unit. Removing or replacing the container does not
 remove this directory.
 
+Diagnostic capture and queues can use a separate disk. Set
+`QUASAR_DIAGNOSTICS_HOST_DIRECTORY=/mnt/diagnostics/quasar` in `.env`, prepare that
+existing directory with permissions for the container's service account, then use
+the optional override for every lifecycle command:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.diagnostics.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.diagnostics.yml up -d
+```
+
+The override mounts it at `/diagnostics`, sets `QUASAR_DIAGNOSTICS_DIRECTORY`,
+and puts ordinary `quasar.log`/`discord.log` files under `/diagnostics/application`.
+Missing host directories fail instead of being created implicitly. Quasar's
+installation identity, consent and other state remain on `/data`. Changing this
+mount requires a stopped-service evidence copy; see
+[diagnostic storage and migration](DiagnosticsUplink.md#storage-on-a-separate-disk).
+These settings require a release containing the diagnostics implementation.
+
 ## Initial administrator
 
 `QUASAR_ADMIN_STEAM_ID` creates `/data/rbac.json` with one Steam administrator

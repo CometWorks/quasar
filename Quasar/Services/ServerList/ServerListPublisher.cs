@@ -7,7 +7,7 @@ using Quasar.Services.Auth;
 
 namespace Quasar.Services.ServerList;
 
-/// <summary>Outbound publication only. The directory verifies diagnostics and enforces visibility leases.</summary>
+/// <summary>Outbound publication only. The backoffice verifies diagnostics and pushes directory visibility leases.</summary>
 public sealed class ServerListPublisher : BackgroundService
 {
     private readonly ServerListOptions _options;
@@ -18,6 +18,7 @@ public sealed class ServerListPublisher : BackgroundService
     private readonly ILogger<ServerListPublisher> _logger;
     private readonly string _dataDirectory;
     private readonly Uri? _url;
+    private readonly DiagnosticsUplinkService? _diagnostics;
     private readonly object _sync = new();
     private readonly SemaphoreSlim _wake = new(0, 1);
     private CancellationTokenSource _transfers = new();
@@ -29,23 +30,28 @@ public sealed class ServerListPublisher : BackgroundService
 
     public ServerListPublisher(ServerListOptions options, DataHandlingConsentCatalog consent, RbacConfigCatalog rbac,
         IHttpClientFactory factory, AgentRegistry agents, DedicatedServerCatalog servers, ClusterCatalog clusters,
-        ClusterGatewayClient gateway, ILogger<ServerListPublisher> logger)
+        ClusterGatewayClient gateway, ILogger<ServerListPublisher> logger, DiagnosticsUplinkService diagnostics)
         : this(options, consent, rbac, factory.CreateClient("ServerList"),
             token => CollectAsync(options, agents, servers, clusters, gateway, token),
-            MagnetarPaths.GetQuasarDirectory(), logger) { }
+            MagnetarPaths.GetQuasarDirectory(), logger, diagnostics) { }
 
     internal ServerListPublisher(ServerListOptions options, DataHandlingConsentCatalog consent, RbacConfigCatalog rbac,
         HttpClient http, Func<CancellationToken, Task<IReadOnlyList<ServerListListing>>> collect,
-        string dataDirectory, ILogger<ServerListPublisher> logger)
+        string dataDirectory, ILogger<ServerListPublisher> logger, DiagnosticsUplinkService? diagnostics = null)
     {
         (_options, _consent, _rbac, _http, _collect, _dataDirectory, _logger) =
             (options, consent, rbac, http, collect, dataDirectory, logger);
+        _diagnostics = diagnostics;
         if (options.Enabled)
         {
-            if (!Uri.TryCreate(options.DirectoryUrl, UriKind.Absolute, out var url)
-                || !ServerListOptions.IsAllowedEndpoint(url) || string.IsNullOrWhiteSpace(options.InstallationToken))
-                throw new InvalidDataException("Invalid server list endpoint or credential.");
-            _url = new Uri(url.AbsoluteUri.TrimEnd('/') + "/");
+            if (diagnostics is not null) _url = diagnostics.BackofficeUrl;
+            else
+            {
+                if (!Uri.TryCreate(options.DirectoryUrl, UriKind.Absolute, out var url)
+                    || !ServerListOptions.IsAllowedEndpoint(url) || string.IsNullOrWhiteSpace(options.InstallationToken))
+                    throw new InvalidDataException("Invalid server list fixture endpoint or credential.");
+                _url = new Uri(url.AbsoluteUri.TrimEnd('/') + "/");
+            }
         }
         consent.Changed += Invalidate;
         rbac.Changed += Invalidate;
@@ -102,7 +108,8 @@ public sealed class ServerListPublisher : BackgroundService
             var admins = ServerListProtocol.GetAdmins(_rbac.GetConfig());
             if (!ServerListProtocol.HasConsent(consent) || admins.Length == 0)
             {
-                using var withdrawal = Request(HttpMethod.Post, "v1/quasar/withdraw");
+                using var withdrawal = await RequestAsync(HttpMethod.Post, "v1/quasar/withdraw", token);
+                if (withdrawal is null) return;
                 withdrawal.Content = JsonContent.Create(new ServerListWithdrawal(ServerListProtocol.Version,
                     _installationId!, _epoch, sequence));
                 using var response = await _http.SendAsync(withdrawal, token);
@@ -111,7 +118,8 @@ public sealed class ServerListPublisher : BackgroundService
             }
 
             // No server details or admin identities leave Quasar before the backend verifies log availability.
-            using var challengeRequest = Request(HttpMethod.Get, "v1/quasar/challenge");
+            using var challengeRequest = await RequestAsync(HttpMethod.Get, "v1/quasar/challenge", token);
+            if (challengeRequest is null) return;
             challengeRequest.Headers.Add("X-Diagnostics-Generation", consent.Generation.ToString(CultureInfo.InvariantCulture));
             using var challengeResponse = await _http.SendAsync(challengeRequest, HttpCompletionOption.ResponseHeadersRead, token);
             challengeResponse.EnsureSuccessStatusCode();
@@ -122,7 +130,8 @@ public sealed class ServerListPublisher : BackgroundService
                 throw new InvalidDataException("Invalid diagnostics publication challenge.");
 
             var listings = await _collect(token);
-            using var request = Request(HttpMethod.Put, "v1/quasar/publication");
+            using var request = await RequestAsync(HttpMethod.Put, "v1/quasar/publication", token);
+            if (request is null) return;
             request.Content = JsonContent.Create(new ServerListPublication(ServerListProtocol.Version, _installationId!,
                 _epoch, sequence, consent.Generation, consent.DecisionDateUtc, challenge.Nonce, admins, listings));
             Task<HttpResponseMessage> sending;
@@ -166,11 +175,15 @@ public sealed class ServerListPublisher : BackgroundService
         // Reserve before any network activity. A restart always fences earlier in-flight updates.
         await AtomicFileWriter.WriteTextAsync(epochPath, _epoch.ToString(CultureInfo.InvariantCulture), token);
         _installationId = identity;
+        foreach (var entry in _options.Listings.Where(l => l.ListingId.Length == 0))
+            entry.ListingId = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(identity + "\n" + entry.Kind + "\n" + entry.UniqueName.ToLowerInvariant()))[..16]);
         return true;
     }
 
-    private HttpRequestMessage Request(HttpMethod method, string path)
+    private async Task<HttpRequestMessage?> RequestAsync(HttpMethod method, string path, CancellationToken token)
     {
+        if (_diagnostics is not null) return await _diagnostics.CreateListingRequestAsync(method, path, token);
         var request = new HttpRequestMessage(method, new Uri(_url!, path));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.InstallationToken);
         request.Headers.Add("X-Installation-Id", _installationId);

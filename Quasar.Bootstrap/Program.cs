@@ -623,6 +623,8 @@ internal sealed class BootstrapOptions
 
     public int Port { get; init; } = 8080;
 
+    public string? DiagnosticsDirectory { get; init; }
+
     // When true (the default), Quasar leaves managed Magnetar servers running on its
     // own shutdown — they are detached (Magnetar -daemon / setsid) and re-adopted on
     // restart. Set QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN=false to stop them on exit.
@@ -713,6 +715,9 @@ internal sealed class BootstrapOptions
             Host = host,
             AdvertisedHost = advertisedHost,
             Port = port,
+            DiagnosticsDirectory = Environment.GetEnvironmentVariable("QUASAR_DIAGNOSTICS_DIRECTORY")
+                ?? Environment.GetEnvironmentVariable("Quasar__Diagnostics__StorageDirectory")
+                ?? section["Diagnostics:StorageDirectory"],
             PreserveServersOnShutdown = preserveServersOnShutdown,
             UpdatesEnabled = updatesEnabled,
             UpdatesOwner = Environment.GetEnvironmentVariable("QUASAR_UPDATES_OWNER")
@@ -1880,6 +1885,16 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         startInfo.Environment["QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN"] = _options.PreserveServersOnShutdown ? "true" : "false";
         startInfo.Environment["QUASAR_CONSOLE_LOGGING"] = "true";
 
+        var diagnostics = Quasar.Diagnostics.DiagnosticStorage.Create(
+            Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Diagnostics"), Environment.MachineName.ToLowerInvariant(),
+            _options.DiagnosticsDirectory);
+        // Worker and Bootstrap must use the same resolved root to adopt launch-time crash evidence.
+        startInfo.Environment["QUASAR_DIAGNOSTICS_DIRECTORY"] = diagnostics.RootDirectory;
+        string? diagnosticDirectory = diagnostics.Configure(startInfo, new()
+        {
+            ["role"] = "quasar", ["deploymentRevision"] = pointer.Version,
+            ["launchAttempt"] = Guid.NewGuid().ToString("N"),
+        });
         Process process;
         try
         {
@@ -1892,12 +1907,13 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             return null;
         }
 
-        var worker = new WorkerProcessHandle(process, workerBaseUri, pointer, DateTimeOffset.UtcNow);
+        diagnostics.Started(diagnosticDirectory, process);
+        var worker = new WorkerProcessHandle(process, workerBaseUri, pointer, DateTimeOffset.UtcNow, diagnosticDirectory);
         process.EnableRaisingEvents = true;
         process.Exited += (_, _) => HandleWorkerExited(worker);
 
-        _ = PumpWorkerStreamAsync(process.StandardOutput, Console.Out);
-        _ = PumpWorkerStreamAsync(process.StandardError, Console.Error);
+        _ = PumpWorkerStreamAsync(process.StandardOutput, Console.Out, diagnosticDirectory);
+        _ = PumpWorkerStreamAsync(process.StandardError, Console.Error, diagnosticDirectory);
 
         var healthy = await WaitForWorkerHealthyAsync(worker, cancellationToken);
         if (healthy)
@@ -1983,6 +1999,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         bool stopManagedServers,
         CancellationToken cancellationToken)
     {
+        if (worker.DiagnosticDirectory is { } directory) Quasar.Diagnostics.DiagnosticCollector.ExpectExit(directory);
         try
         {
             var drainUri = new Uri(worker.BaseUri, $"/api/internal/drain?delaySeconds={(int)Math.Round(graceDelay.TotalSeconds)}&stopServers={stopManagedServers.ToString().ToLowerInvariant()}");
@@ -2031,6 +2048,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private void HandleWorkerExited(WorkerProcessHandle worker)
     {
         var exitCode = SafeGetExitCode(worker.Process);
+        if (worker.DiagnosticDirectory is { } directory)
+            Quasar.Diagnostics.DiagnosticCollector.Exited(directory, exitCode, _isStopping || _isDrained || exitCode == 0);
         var shouldRestart = false;
 
         if (TryConsumeLauncherShutdownRequest())
@@ -2609,7 +2628,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         return null;
     }
 
-    private static async Task PumpWorkerStreamAsync(StreamReader reader, TextWriter writer)
+    private static async Task PumpWorkerStreamAsync(StreamReader reader, TextWriter writer, string? diagnosticDirectory)
     {
         try
         {
@@ -2619,6 +2638,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 if (line is null)
                     return;
 
+                Quasar.Diagnostics.DiagnosticCollector.RecordOutput(diagnosticDirectory, line);
                 await writer.WriteLineAsync(line);
             }
         }
@@ -2659,7 +2679,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         public DateTimeOffset? RequestedAtUtc { get; set; }
     }
 
-    private sealed record WorkerProcessHandle(Process Process, Uri BaseUri, QuasarActiveReleasePointer Release, DateTimeOffset StartedAtUtc);
+    private sealed record WorkerProcessHandle(Process Process, Uri BaseUri, QuasarActiveReleasePointer Release, DateTimeOffset StartedAtUtc, string? DiagnosticDirectory = null);
 }
 
 internal sealed record LauncherForegroundOptions(bool IsForeground, bool IsService = false, bool Headless = false);

@@ -5,6 +5,7 @@
 #   - quasar-web-win-x64.zip   (replaceable web UI worker + wwwroot)
 #   - quasar-installer-windows.zip (stable launcher + install/uninstall scripts)
 #   - quasar-host-win-x64.zip (independently deployed cluster Host)
+#   - quasar-symbols-win-x64.zip (portable PDBs, managed modules, source/hash manifest)
 #   - SHA256SUMS               (sha256 of all archives, lowercase, two-space separated)
 #
 # The version-normalization rules mirror package-linux-release.sh exactly so the
@@ -26,6 +27,7 @@ $DefaultAssemblyFileVersion = '1.0.0'
 $WebArchiveName = 'quasar-web-win-x64.zip'
 $InstallerArchiveName = 'quasar-installer-windows.zip'
 $InstallerRootName = 'Quasar'
+$SymbolsArchiveName = 'quasar-symbols-win-x64.zip'
 
 function Normalize-VersionComponent {
     param([string]$Value)
@@ -223,9 +225,16 @@ Write-Host "Publishing Quasar.Bootstrap ($Configuration, $Runtime, version $Nuge
     -p:AssemblyVersion=$AssemblyFileVersion `
     -p:FileVersion=$AssemblyFileVersion `
     -p:InformationalVersion=$InformationalVersion `
+    -p:DebugSymbols=true -p:DebugType=portable -p:Optimize=true -p:IncludeSymbolsInSingleFile=false `
     -o $PublishDir `
     -v minimal
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish Quasar.Bootstrap failed with exit code $LASTEXITCODE" }
+
+& python (Join-Path $ScriptDir 'package-symbols.py') --repo $RepoDir --publish $PublishDir `
+    --output (Join-Path $ArtifactDir $SymbolsArchiveName) --runtime $Runtime `
+    --configuration $Configuration --version $Version
+if ($LASTEXITCODE -ne 0) { throw "Matching release symbol packaging failed with exit code $LASTEXITCODE" }
+Get-ChildItem -LiteralPath $PublishDir -Recurse -File -Filter '*.pdb' | Remove-Item -Force
 
 # Web UI worker archive: WebService/* overlaid with the full source wwwroot.
 Copy-Tree (Join-Path $PublishDir 'WebService') $WebDir
@@ -267,7 +276,7 @@ New-ZipFromDirectory $BootstrapDir $bootstrapZip -IncludeBaseDirectory
 
 Push-Location $ArtifactDir
 try {
-    $sumLines = foreach ($name in @($WebArchiveName, $InstallerArchiveName, $HostArchiveName)) {
+    $sumLines = foreach ($name in @($WebArchiveName, $InstallerArchiveName, $HostArchiveName, $SymbolsArchiveName)) {
         $hash = (Get-FileHash -LiteralPath $name -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $name"
     }

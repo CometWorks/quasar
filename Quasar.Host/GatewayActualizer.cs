@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Quasar.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Security.Cryptography;
 using System.Text;
@@ -18,12 +19,15 @@ internal sealed class GatewayActualizer
     };
     private readonly string _stateDirectory;
     private readonly string _hostId;
+    private readonly DiagnosticCollector _diagnostics;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public GatewayActualizer(string stateDirectory, string hostId)
+    public GatewayActualizer(string stateDirectory, string hostId, DiagnosticCollector? diagnostics = null)
     {
         _stateDirectory = Path.GetFullPath(stateDirectory);
         _hostId = hostId;
+        _diagnostics = diagnostics ?? DiagnosticStorage.Create(Path.Combine(_stateDirectory, "diagnostics"), hostId,
+            Environment.GetEnvironmentVariable("QUASAR_HOST_DIAGNOSTICS_DIRECTORY"));
     }
 
     internal void EnsureStopped(string clusterId)
@@ -103,6 +107,7 @@ internal sealed class GatewayActualizer
                     if (exitCode is not null)
                         failure += ":exit_code=" + exitCode;
                 }
+            if (record.DiagnosticDirectory is { } diagnosticDirectory) DiagnosticCollector.Exited(diagnosticDirectory, null, false);
             WriteRecord(record with { Status = GatewayLaunchStatus.Failed, Failure = failure, Output = output });
             return Status(spec, HostContract.GatewayObservedState.Failed,
                 record.ProcessId, record.LaunchedAt, failure, output);
@@ -170,6 +175,7 @@ internal sealed class GatewayActualizer
                 record.ProcessId, record.LaunchedAt, "gateway_stop_fence_mismatch");
         try
         {
+            if (record.DiagnosticDirectory is { } diagnosticDirectory) DiagnosticCollector.ExpectExit(diagnosticDirectory);
             await KillProcessAsync(process, cancellationToken);
             DropOutput(spec.ClusterId);
             WriteRecord(record with { Status = GatewayLaunchStatus.Stopped, Failure = null, Output = null });
@@ -210,10 +216,18 @@ internal sealed class GatewayActualizer
             {
                 StartInfo = CreateStartInfo(spec, spawn, bundle.Root, executablePath),
             };
+            string? diagnosticDirectory = _diagnostics.Configure(process.StartInfo, new()
+            {
+                ["clusterId"] = spec.ClusterId, ["role"] = "gateway-registry",
+                ["deploymentRevision"] = spec.ConfigRevision, ["launchAttempt"] = Guid.NewGuid().ToString("N"),
+            }, native: false);
+            record = record with { DiagnosticDirectory = diagnosticDirectory };
+            WriteRecord(record);
             if (!process.Start())
                 throw new InvalidOperationException("Process start returned false");
             processStarted = true;
-            var output = new ProcessOutputTail(process, $"[gateway {spec.ClusterId}] ");
+            _diagnostics.Started(diagnosticDirectory, process, ProcessIdentity.Capture(process.Id));
+            var output = new ProcessOutputTail(process, $"[gateway {spec.ClusterId}] ", diagnosticDirectory);
             record = record with
             {
                 ProcessId = process.Id,
@@ -546,7 +560,8 @@ internal sealed record GatewayLaunchRecord(
     string? Failure,
     Guid? StartGeneration = null,
     string? ProcessIdentity = null,
-    string[]? Output = null);
+    string[]? Output = null,
+    string? DiagnosticDirectory = null);
 
 internal sealed record GatewayRunRootProvenance(int SchemaVersion, string ClusterId, string HostId);
 

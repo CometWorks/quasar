@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Magnetar.Protocol.Runtime;
 using Magnetar.Protocol.Transport;
 using Quasar.Models;
+using Quasar.Diagnostics;
 using Quasar.Services.Backup;
 using Quasar.Services.PluginSdk;
 
@@ -34,6 +35,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private readonly ManagedDedicatedServerRuntimeResolver _runtimeResolver;
     private readonly ManagedRuntimeWarmupService _runtimeWarmup;
     private readonly WebServiceOptions _options;
+    private readonly DiagnosticCollector? _diagnostics;
     private readonly ILogger<DedicatedServerSupervisor> _logger;
     private readonly ServerRestoreCoordinator _restoreCoordinator;
     private readonly CancellationTokenSource _shutdown = new();
@@ -50,7 +52,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         ManagedRuntimeWarmupService runtimeWarmup,
         WebServiceOptions options,
         ServerRestoreCoordinator restoreCoordinator,
-        ILogger<DedicatedServerSupervisor> logger)
+        ILogger<DedicatedServerSupervisor> logger,
+        DiagnosticCollector? diagnostics = null)
     {
         _catalog = catalog;
         _registry = registry;
@@ -60,6 +63,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _options = options;
         _restoreCoordinator = restoreCoordinator;
         _logger = logger;
+        _diagnostics = diagnostics;
 
         // When set (the default), Quasar leaves managed servers running on its own
         // shutdown instead of stopping them — they are detached (Magnetar -daemon /
@@ -313,6 +317,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 return;
 
             state.StopRequested = true;
+            MarkExpectedDiagnosticExit(state);
             state.IsRestartPending = false;
             state.StartCancellation?.Cancel();
 
@@ -402,6 +407,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             process = state.Process;
             waitForStartCancellation = state.StartInProgress && !IsProcessActive(process);
             state.StopRequested = true;
+            MarkExpectedDiagnosticExit(state);
             state.IsRestartPending = false;
             state.StartCancellation?.Cancel();
             state.State = DedicatedServerProcessState.Stopping;
@@ -479,6 +485,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             state.Definition.AutoStart = true;
             state.StopRequested = false;
             state.IsRestartPending = true;
+            MarkExpectedDiagnosticExit(state);
             state.State = DedicatedServerProcessState.Restarting;
             restart = SetRestartRequested(
                 state,
@@ -554,6 +561,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             {
                 state.StopRequested = false;
                 state.IsRestartPending = true;
+                MarkExpectedDiagnosticExit(state);
                 state.State = DedicatedServerProcessState.Restarting;
                 state.LastMessage = BuildRestartMessage(state.LastRestart);
             }
@@ -928,6 +936,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             attempt = state.AgentAttachRetryAttempts + 1;
             state.AgentAttachRetryAttempts = Math.Min(attempt, maxAttempts);
             state.StopRequested = true;
+            MarkExpectedDiagnosticExit(state);
             state.IsRestartPending = false;
             state.State = DedicatedServerProcessState.Stopping;
 
@@ -1188,6 +1197,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         // lines through the agent relay (LogEnvironment.IsManagedByQuasar).
         process.StartInfo.Environment["QUASAR_AGENT"] = definition.UniqueName;
 
+        string? diagnosticDirectory = _diagnostics?.Configure(process.StartInfo, new()
+        {
+            ["serverId"] = definition.UniqueName, ["role"] = "dedicated-server",
+            ["launchAttempt"] = Guid.NewGuid().ToString("N"),
+        });
         process.Exited += async (_, _) => await HandleProcessExitedAsync(state.UniqueName);
         LogManagedServerLaunchEnvironment(definition, process.StartInfo);
 
@@ -1200,6 +1214,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 process.Dispose();
                 return;
             }
+            _diagnostics?.Started(diagnosticDirectory, process);
         }
         catch (Exception exception)
         {
@@ -1226,6 +1241,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             {
                 var restartPending = current.LastRestart?.Outcome == DedicatedServerRestartOutcome.Pending;
                 current.Process = process;
+                current.DiagnosticDirectory = diagnosticDirectory;
                 current.State = DedicatedServerProcessState.Starting;
                 current.ProcessId = process.Id;
                 current.StartedAtUtc = processStartedAtUtc;
@@ -1255,6 +1271,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         if (discardStartedProcess)
         {
+            if (diagnosticDirectory is not null) DiagnosticCollector.ExpectExit(diagnosticDirectory);
             try
             {
                 process.Kill(entireProcessTree: true);
@@ -1274,8 +1291,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         TryApplyCpuAffinity(state.UniqueName, definition.CpuAffinity, "startup");
         NotifyChanged();
 
-        _ = PumpStandardOutputAsync(process.StandardOutput, state.UniqueName, _shutdown.Token);
-        _ = DrainStandardErrorAsync(process.StandardError, _shutdown.Token);
+        _ = PumpStandardOutputAsync(process.StandardOutput, state.UniqueName, _shutdown.Token, diagnosticDirectory);
+        _ = DrainStandardErrorAsync(process.StandardError, _shutdown.Token, diagnosticDirectory);
     }
 
     private static void ConfigureNativeLibrarySearchPath(
@@ -1688,6 +1705,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (state.StartedAtUtc.HasValue && (now - state.StartedAtUtc.Value) >= RestartCounterResetWindow)
                 state.RestartAttempts = 0;
 
+            if (state.DiagnosticDirectory is { } diagnosticDirectory)
+                DiagnosticCollector.Exited(diagnosticDirectory, exitCode, stopRequested || restartRequested || exitCode == 0);
             errorLogSinceUtc = state.StartedAtUtc;
             state.Process.Dispose();
             state.Process = null;
@@ -1886,6 +1905,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 state.RestartAttempts = Math.Max(0, persistedState.RestartAttempts);
                 state.LastExitCode = persistedState.LastExitCode;
                 state.StartedAtUtc = persistedState.StartedAtUtc;
+                state.DiagnosticDirectory = persistedState.DiagnosticDirectory;
                 state.StoppedAtUtc = persistedState.StoppedAtUtc;
                 state.StandardOutputLogPath = string.Empty;
                 state.StandardErrorLogPath = string.Empty;
@@ -2021,7 +2041,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         if (definition is not null && errorLogSinceUtc.HasValue)
             CaptureLatestErrorLogTail(uniqueName, definition, errorLogSinceUtc);
 
-        _logger.LogWarning("Server {UniqueName} faulted: {Message}", uniqueName, message);
+        _logger.LogError("Server {UniqueName} faulted: {Message}", uniqueName, message);
         if (failedRestart is not null)
         {
             _logger.LogWarning(
@@ -2268,7 +2288,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         return Math.Min(dsLogFilesToKeep, DedicatedServerDefinition.MaximumDsLogFilesToKeep);
     }
 
-    private async Task PumpStandardOutputAsync(StreamReader reader, string uniqueName, CancellationToken cancellationToken)
+    private async Task PumpStandardOutputAsync(StreamReader reader, string uniqueName, CancellationToken cancellationToken, string? diagnosticDirectory)
     {
         try
         {
@@ -2277,6 +2297,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 var line = await reader.ReadLineAsync(cancellationToken);
                 if (line is null)
                     break;
+
+                DiagnosticCollector.RecordOutput(diagnosticDirectory, line);
 
                 // Plugin SDK JSON lines reach the live panel through the agent
                 // path; the agent also writes a formatted copy to Magnetar
@@ -2301,14 +2323,15 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
     }
 
-    private static async Task DrainStandardErrorAsync(StreamReader reader, CancellationToken cancellationToken)
+    private static async Task DrainStandardErrorAsync(StreamReader reader, CancellationToken cancellationToken, string? diagnosticDirectory)
     {
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                if (await reader.ReadLineAsync(cancellationToken) is null)
-                    break;
+                string? line = await reader.ReadLineAsync(cancellationToken);
+                if (line is null) break;
+                DiagnosticCollector.RecordOutput(diagnosticDirectory, line);
             }
         }
         catch (OperationCanceledException)
@@ -3080,6 +3103,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                         ProcessId = state.ProcessId,
                         LastExitCode = state.LastExitCode,
                         StartedAtUtc = state.StartedAtUtc,
+                        DiagnosticDirectory = state.DiagnosticDirectory,
                         StoppedAtUtc = state.StoppedAtUtc,
                         StandardOutputLogPath = state.StandardOutputLogPath,
                         StandardErrorLogPath = state.StandardErrorLogPath,
@@ -3108,6 +3132,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
             restart = SetRestartRequested(state, cause, reason, DateTimeOffset.UtcNow);
             state.IsRestartPending = true;
+            MarkExpectedDiagnosticExit(state);
             state.State = DedicatedServerProcessState.Restarting;
             state.LastMessage = BuildRestartMessage(restart);
         }
@@ -3311,8 +3336,14 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         };
     }
 
+    private static void MarkExpectedDiagnosticExit(ManagedServerState state)
+    {
+        if (state.DiagnosticDirectory is { } directory) DiagnosticCollector.ExpectExit(directory);
+    }
+
     private sealed class ManagedServerState
     {
+        public string? DiagnosticDirectory { get; set; }
         public string UniqueName { get; set; } = string.Empty;
 
         public DedicatedServerDefinition Definition { get; set; } = new();
@@ -3460,6 +3491,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private sealed class PersistedManagedServerState
     {
+        public string? DiagnosticDirectory { get; set; }
         public string UniqueName { get; set; } = string.Empty;
 
         public DedicatedServerProcessState State { get; set; } = DedicatedServerProcessState.Stopped;

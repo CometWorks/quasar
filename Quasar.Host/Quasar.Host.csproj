@@ -7,6 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="CometWorks.Diagnostics" Version="0.1.0" />
+    <Compile Include="..\Shared\Diagnostics\*.cs" Link="Diagnostics\%(Filename)%(Extension)" />
     <Compile Include="..\Shared\ClusterDeployment\*.cs" Link="ClusterDeployment\%(Filename)%(Extension)" />
     <ProjectReference Include="..\Contracts\ClusterGateway.AdminContract\ClusterGateway.AdminContract.csproj" />
     <ProjectReference Include="..\Quasar.Host.Contract\Quasar.Host.Contract.csproj" />

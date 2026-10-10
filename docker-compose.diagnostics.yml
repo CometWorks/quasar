@@ -1,0 +1,12 @@
+# Optional bulk storage override: docker compose -f docker-compose.yml -f docker-compose.diagnostics.yml up -d
+services:
+  quasar:
+    environment:
+      QUASAR_DIAGNOSTICS_DIRECTORY: /diagnostics
+      QUASAR_LOG_DIR: /diagnostics/application
+    volumes:
+      - type: bind
+        source: ${QUASAR_DIAGNOSTICS_HOST_DIRECTORY:?Set an existing absolute diagnostic storage path}
+        target: /diagnostics
+        bind:
+          create_host_path: false

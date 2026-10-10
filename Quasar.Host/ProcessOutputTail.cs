@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Quasar.Diagnostics;
 
 namespace Quasar.Host;
 
@@ -17,13 +18,15 @@ internal sealed class ProcessOutputTail : IDisposable
     internal const int MaxLineLength = 300;
     private readonly Process _process;
     private readonly string _prefix;
+    private readonly string? _diagnosticDirectory;
     private readonly Queue<string> _lines = new();
 
     /// <summary>Starts reading a process started with both streams redirected, and takes ownership of it.</summary>
-    internal ProcessOutputTail(Process process, string prefix)
+    internal ProcessOutputTail(Process process, string prefix, string? diagnosticDirectory = null)
     {
         _process = process;
         _prefix = prefix;
+        _diagnosticDirectory = diagnosticDirectory;
         process.OutputDataReceived += (_, line) => Add(line.Data, Console.Out);
         process.ErrorDataReceived += (_, line) => Add(line.Data, Console.Error);
         process.BeginOutputReadLine();
@@ -35,6 +38,7 @@ internal sealed class ProcessOutputTail : IDisposable
         if (line is null)
             return;
         echo.WriteLine(_prefix + line);
+        DiagnosticCollector.RecordOutput(_diagnosticDirectory, line);
         lock (_lines)
         {
             if (_lines.Count == MaxLines)

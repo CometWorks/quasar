@@ -81,8 +81,22 @@ internal static class Program
             shutdown.Cancel();
         };
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-        var actualizer = new NodeActualizer(config.StateDirectory, config.HostId);
-        var gatewayActualizer = new GatewayActualizer(config.StateDirectory, config.HostId);
+        var diagnostics = Quasar.Diagnostics.DiagnosticStorage.Create(Path.Combine(config.StateDirectory, "diagnostics"),
+            config.HostId, config.DiagnosticsDirectory);
+        string? selfRun = diagnostics.Configure(new ProcessStartInfo(Environment.ProcessPath!), new() { ["role"] = "host" });
+        using (var self = Process.GetCurrentProcess()) diagnostics.Started(selfRun, self);
+        bool fatal = false;
+        AppDomain.CurrentDomain.UnhandledException += (_, error) =>
+        {
+            fatal = true;
+            Quasar.Diagnostics.DiagnosticCollector.ReportFailure(selfRun, "unhandled_exception", "Unhandled Host process exception", error.ExceptionObject as Exception);
+        };
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            if (!fatal && selfRun is not null) Quasar.Diagnostics.DiagnosticCollector.ExpectExit(selfRun);
+        };
+        var actualizer = new NodeActualizer(config.StateDirectory, config.HostId, diagnostics);
+        var gatewayActualizer = new GatewayActualizer(config.StateDirectory, config.HostId, diagnostics);
         Directory.CreateDirectory(config.StateDirectory);
         using var executionLock = new FileStream(Path.Combine(config.StateDirectory, "executor.lock"),
             FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
@@ -98,12 +112,12 @@ internal static class Program
             var deployments = new DeploymentActivation(config.StateDirectory, config.HostId,
                 attachments, gateways, actualizer, gatewayActualizer);
             new DeploymentSnapshots(config.StateDirectory, config.HostId, attachments,
-                new NodeActualizer(config.StateDirectory, config.HostId), gatewayActualizer).Recover();
+                actualizer, gatewayActualizer).Recover();
             deployments.Recover();
             if (config.Command is not null)
             {
                 commandServer = new HostCommandServer(config.Command, config, attachments,
-                    gateways, gatewayActualizer, executionGate, deployments);
+                    gateways, gatewayActualizer, executionGate, deployments, diagnostics);
                 commandServer.Start(shutdown.Token);
             }
         }
@@ -118,6 +132,7 @@ internal static class Program
         using (commandServer)
         {
             Task? connection = config.Connection is null ? null : HostConnection.RunAsync(config, shutdown.Token);
+            Task collection = CollectDiagnosticsAsync(diagnostics, shutdown.Token);
             try
             {
             var connected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -202,12 +217,25 @@ internal static class Program
             finally
             {
                 await shutdown.CancelAsync();
+                await collection;
                 if (connection is not null)
                     try { await connection; }
                     catch (Exception exception) { Console.Error.WriteLine($"Quasar connection stopped ({exception.GetType().Name}): {exception.Message}"); }
             }
         }
         return 0;
+    }
+
+    private static async Task CollectDiagnosticsAsync(Quasar.Diagnostics.DiagnosticCollector collector, CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try { await collector.CollectAsync(token); }
+            catch (OperationCanceledException) { }
+            catch (Exception e) { Console.Error.WriteLine($"Diagnostic collection deferred ({e.GetType().Name})."); }
+            try { await Task.Delay(TimeSpan.FromSeconds(5), token); }
+            catch (OperationCanceledException) { break; }
+        }
     }
 
     private static async Task PollAsync(HttpClient client, NodeActualizer actualizer, HostExecutorConfig config,
@@ -317,6 +345,8 @@ internal static class Program
             ExecutorId = executorId,
             HostId = hostId,
             StateDirectory = stateDirectory,
+            DiagnosticsDirectory = ResolveOptionalPath(configDirectory,
+                Environment.GetEnvironmentVariable("QUASAR_HOST_DIAGNOSTICS_DIRECTORY") ?? config.DiagnosticsDirectory) ?? "",
             Attachments = attachments,
             Command = command,
         };
@@ -360,6 +390,11 @@ internal static class Program
             || !TryParse(["run", "--config", "host.json", "--once"], out string? path, out bool once)
             || path != "host.json" || !once)
             throw new InvalidOperationException("self-test failed");
+
+        var relocated = Normalize(config with { DiagnosticsDirectory = "large disk/logs" }, Path.GetTempPath());
+        if (relocated.DiagnosticsDirectory != Path.GetFullPath(Path.Combine(Path.GetTempPath(), "large disk/logs"))
+            || relocated.StateDirectory != config.StateDirectory)
+            throw new InvalidOperationException("diagnostic storage configuration self-test failed");
 
         string root = Path.Combine(Path.GetTempPath(), "quasar-host-selftest-" + Guid.NewGuid().ToString("N"));
         const string commandTokenVariable = "QUASAR_HOST_SELF_TEST_TOKEN";
@@ -697,6 +732,7 @@ internal sealed record HostExecutorConfig(
     HostContract.HostAttachmentSpec[] Attachments,
     string StateDirectory = "",
     HostCommandConfig? Command = null,
-    HostConnectionConfig? Connection = null);
+    HostConnectionConfig? Connection = null,
+    string DiagnosticsDirectory = "");
 
 internal sealed record HostCommandConfig(string Url, string TokenEnvironmentVariable);

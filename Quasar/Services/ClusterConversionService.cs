@@ -375,7 +375,7 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
             && !pins[p.PluginId].Equals(p.SelectedVersion, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("Frozen plugin commit differs from an explicitly pinned source plugin.");
         var selected = profile.Plugins.Select(p => p.PluginId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (ids.Any(id => id is not ("linux-compat" or "dotnet-compat" or "quasar-agent") && !selected.Contains(id!)))
+        if (ids.Any(id => id is not ("linux-compat" or "dotnet-compat" or "error-reporting" or "quasar-agent") && !selected.Contains(id!)))
             throw new InvalidDataException("Frozen dependency snapshot contains additional common plugins; align it with the reviewed source selection.");
     }
 

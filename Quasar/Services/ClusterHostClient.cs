@@ -7,7 +7,7 @@ using HostContract = global::Quasar.Host.Contract.V1;
 
 namespace Quasar.Services;
 
-public sealed class ClusterHostClient
+public sealed partial class ClusterHostClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {

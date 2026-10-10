@@ -36,7 +36,9 @@ public sealed class CorePluginManifestTests
     [Theory]
     [InlineData("dotnet-compat")]
     [InlineData("se-dotnet-compat")]
-    public void DotNetCompatIsNeverManuallySelectable(string pluginId)
+    [InlineData("error-reporting")]
+    [InlineData("ERROR-REPORTING")]
+    public void RequiredCorePluginsAreNeverManuallySelectable(string pluginId)
     {
         Assert.False(QuasarPluginCatalogService.IsManualSelectionAllowed(pluginId));
     }

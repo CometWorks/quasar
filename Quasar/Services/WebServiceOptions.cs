@@ -239,14 +239,16 @@ public sealed class WebServiceOptions
 
 public sealed class DataHandlingConsentSettings
 {
+    public const int CurrentPolicyVersion = 3;
     public bool? ConsentGranted { get; set; }
 
     public string? DecisionDateUtc { get; set; }
 
-    // Same consent schema as the diagnostics uplink. Legacy YES does not grant diagnostics.
+    // This rollout requires a fresh decision; prior policies grant no categories.
     public int PolicyVersion { get; set; }
     public bool DiagnosticsGranted { get; set; }
     public bool DumpsGranted { get; set; }
+    public bool ListingGranted { get; set; }
     public long Generation { get; set; }
     public DateTimeOffset GrantedSinceUtc { get; set; }
 
@@ -258,6 +260,7 @@ public sealed class DataHandlingConsentSettings
             PolicyVersion = PolicyVersion,
             DiagnosticsGranted = DiagnosticsGranted,
             DumpsGranted = DumpsGranted,
+            ListingGranted = ListingGranted,
             Generation = Generation,
             GrantedSinceUtc = GrantedSinceUtc,
         };
@@ -268,15 +271,16 @@ public sealed class DataHandlingConsentSettings
 
         return new DataHandlingConsentSettings
         {
-            ConsentGranted = settings.ConsentGranted,
-            PolicyVersion = settings.PolicyVersion,
-            DiagnosticsGranted = settings.PolicyVersion == 2 && settings.Generation > 0
+            ConsentGranted = settings.PolicyVersion == CurrentPolicyVersion ? settings.ConsentGranted : null,
+            PolicyVersion = CurrentPolicyVersion,
+            DiagnosticsGranted = settings.PolicyVersion == CurrentPolicyVersion && settings.Generation > 0
                 && settings.GrantedSinceUtc != default && settings.DiagnosticsGranted,
-            DumpsGranted = settings.PolicyVersion == 2 && settings.Generation > 0
+            DumpsGranted = settings.PolicyVersion == CurrentPolicyVersion && settings.Generation > 0
                 && settings.GrantedSinceUtc != default && settings.DiagnosticsGranted && settings.DumpsGranted,
+            ListingGranted = settings.PolicyVersion == CurrentPolicyVersion && settings.ListingGranted,
             Generation = Math.Max(0, settings.Generation),
-            GrantedSinceUtc = settings.GrantedSinceUtc,
-            DecisionDateUtc = string.IsNullOrWhiteSpace(settings.DecisionDateUtc)
+            GrantedSinceUtc = settings.PolicyVersion == CurrentPolicyVersion ? settings.GrantedSinceUtc : default,
+            DecisionDateUtc = settings.PolicyVersion != CurrentPolicyVersion || string.IsNullOrWhiteSpace(settings.DecisionDateUtc)
                 ? null
                 : settings.DecisionDateUtc.Trim(),
         };
@@ -335,19 +339,23 @@ public sealed class DataHandlingConsentCatalog : IDisposable
         CancellationToken cancellationToken = default) =>
         SaveCoreAsync(consentGranted, diagnosticsGranted, dumpsGranted, cancellationToken);
 
+    public Task SaveListingVisibilityAsync(bool visible, CancellationToken cancellationToken = default) =>
+        SaveCoreAsync(null, null, null, cancellationToken, visible);
+
     private async Task SaveCoreAsync(bool? consentGranted, bool? diagnosticsGranted, bool? dumpsGranted,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool? listingGranted = null)
     {
         await _saveGate.WaitAsync(cancellationToken);
         try
         {
             var previous = GetSettings();
             var next = previous.Clone();
-            next.ConsentGranted = consentGranted;
+            if (listingGranted.HasValue) next.ListingGranted = listingGranted.Value;
+            else next.ConsentGranted = consentGranted;
             next.DecisionDateUtc = DateTimeOffset.UtcNow.ToString("O");
             if (diagnosticsGranted.HasValue)
             {
-                next.PolicyVersion = 2;
+                next.PolicyVersion = DataHandlingConsentSettings.CurrentPolicyVersion;
                 next.DiagnosticsGranted = diagnosticsGranted.Value;
                 next.DumpsGranted = diagnosticsGranted.Value && dumpsGranted == true;
             }
@@ -397,7 +405,10 @@ public sealed class DataHandlingConsentCatalog : IDisposable
 
             var json = File.ReadAllText(path);
             var settings = JsonSerializer.Deserialize<DataHandlingConsentSettings>(json, JsonOptions);
-            return DataHandlingConsentSettings.Normalize(settings);
+            var normalized = DataHandlingConsentSettings.Normalize(settings);
+            if (settings is not null && settings.PolicyVersion != DataHandlingConsentSettings.CurrentPolicyVersion)
+                AtomicFileWriter.WriteTextAsync(path, JsonSerializer.Serialize(normalized, JsonOptions), CancellationToken.None).GetAwaiter().GetResult();
+            return normalized;
         }
         catch (Exception exception)
         {

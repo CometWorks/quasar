@@ -128,10 +128,10 @@
                 </MudStack>
 
                 <MudText Typo="Typo.body2">
-                    YES allows anonymous plugin usage statistics and allows CometWorks to receive logging and error reports, including error details, bounded recent logs, software versions and execution context. Logs may contain private player or server information. Memory dumps require separate consent and are not enabled by YES.
+                    YES automatically enrolls this Quasar instance with https://log.se-servers.net and allows anonymous plugin usage statistics and diagnostic reports to CometWorks, including error details, bounded recent logs, software versions and execution context. Logs may contain private player or server information. Memory dumps require separate consent and are not enabled by YES.
                 </MudText>
                 <MudText Typo="Typo.body2">
-                    Server listings require consent and working log delivery. Explicitly enabled listings publish their name, join address and summary statistics; admin Steam identities are shared privately for description editing. NO cancels publishing and requests immediate withdrawal. If the directory is unreachable, its publication lease expires within two minutes. Magnetar's statistics flag changes on the next server start.
+                    Server listings require consent and working log delivery. Explicitly enabled listings publish their name, join address and summary statistics; admin Steam identities are shared privately for description editing. NO cancels publishing and requests immediate withdrawal. If backoffice updates stop, its last signed publication lease expires within 60 seconds. Magnetar's statistics flag changes on the next server start.
                 </MudText>
                 <MudText Typo="Typo.caption" Color="Color.Secondary">
                     Stored at <CopyablePath Value="@DataHandlingConsent.SettingsPath" Inline="true" TextClass="" />.
@@ -155,6 +155,37 @@
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
                     Running servers keep their current Magnetar consent state until they are restarted.
                 </MudAlert>
+                <MudDivider />
+                <MudText Typo="Typo.subtitle1">Diagnostic reports</MudText>
+                <MudText Typo="Typo.body2">
+                    Allow encrypted diagnostic reports and batched application logs from Quasar and all its enrolled hosts to be sent to CometWorks?
+                    Reports include ordinary log messages, error details, bounded recent logs, software versions and host, cluster and server identifiers.
+                    Logs can contain player names, chat or other private data. Reports are retained locally for up to seven days while delivery is unavailable.
+                    Only incidents captured after enabling this choice are eligible.
+                </MudText>
+                <MudSwitch T="bool" Value="@DataHandlingConsent.GetSettings().DiagnosticsGranted"
+                           ValueChanged="@(value => SaveDiagnosticsConsentAsync(value, DataHandlingConsent.GetSettings().DumpsGranted))"
+                           Color="Color.Primary" Label="Send diagnostic reports" />
+                <MudText Typo="Typo.body2">
+                    Crash dumps may include process memory, credentials, player data and world content. Enable only if you agree to share that sensitive content.
+                    Dumps require diagnostic reports and are encrypted for the backoffice before transfer.
+                </MudText>
+                <MudSwitch T="bool" Value="@DataHandlingConsent.GetSettings().DumpsGranted"
+                           ValueChanged="@(value => SaveDiagnosticsConsentAsync(DataHandlingConsent.GetSettings().DiagnosticsGranted, value))"
+                           Disabled="@(!DataHandlingConsent.GetSettings().DiagnosticsGranted)"
+                           Color="Color.Warning" Label="Include crash dumps" />
+                <MudDivider />
+                <MudSwitch T="bool" Value="@DataHandlingConsent.GetSettings().ListingGranted"
+                           ValueChanged="@SaveListingVisibilityAsync"
+                           Color="Color.Primary" Label="Show configured servers on se-servers.net" />
+                <MudText Typo="Typo.body2">
+                    Listing visibility is optional and separate from diagnostic reporting. Public listings require current
+                    log delivery to CometWorks and a configured public join address. Turning this off withdraws the listings.
+                </MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    Turning either choice off cancels active transfers and discards queued reports. Already delivered reports cannot be recalled.
+                    Offline hosts stop collecting when their two-minute consent lease expires.
+                </MudText>
             </MudStack>
         </MudPaper>
     </MudItem>
@@ -344,6 +375,28 @@
         {
             _savingAuthSettings = false;
         }
+    }
+
+    private async Task SaveDiagnosticsConsentAsync(bool diagnostics, bool dumps)
+    {
+        if (!await EnsureAuthorizedAsync()) return;
+        try
+        {
+            await DataHandlingConsent.SaveAsync(DataHandlingConsent.GetSettings().ConsentGranted, diagnostics, dumps);
+            Snackbar.Add("Diagnostic consent saved.", Severity.Success);
+        }
+        catch (Exception exception) { Snackbar.Add($"Failed saving diagnostic consent: {exception.Message}", Severity.Error); }
+    }
+
+    private async Task SaveListingVisibilityAsync(bool visible)
+    {
+        if (!await EnsureAuthorizedAsync()) return;
+        try
+        {
+            await DataHandlingConsent.SaveListingVisibilityAsync(visible);
+            Snackbar.Add("Listing visibility saved.", Severity.Success);
+        }
+        catch (Exception exception) { Snackbar.Add($"Failed saving listing visibility: {exception.Message}", Severity.Error); }
     }
 
     private async Task SaveDataHandlingConsentAsync(bool consentGranted)

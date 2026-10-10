@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Quasar.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Security.Cryptography;
 using System.Text;
@@ -21,11 +22,14 @@ internal sealed class NodeActualizer
 
     private readonly string _stateDirectory;
     private readonly string _hostId;
+    private readonly DiagnosticCollector _diagnostics;
 
-    public NodeActualizer(string stateDirectory, string hostId)
+    public NodeActualizer(string stateDirectory, string hostId, DiagnosticCollector? diagnostics = null)
     {
         _stateDirectory = Path.GetFullPath(stateDirectory);
         _hostId = hostId;
+        _diagnostics = diagnostics ?? DiagnosticStorage.Create(Path.Combine(_stateDirectory, "diagnostics"), hostId,
+            Environment.GetEnvironmentVariable("QUASAR_HOST_DIAGNOSTICS_DIRECTORY"));
     }
 
     internal void EnsureStopped(string clusterId)
@@ -121,6 +125,8 @@ internal sealed class NodeActualizer
             && record.Status is LaunchStatus.Running or LaunchStatus.Ready)
         {
             string? failure = ExitFailure(attachment, record);
+            if (record.DiagnosticDirectory is { } diagnosticDirectory)
+                DiagnosticCollector.Exited(diagnosticDirectory, null, killRequested || failure is null);
             record = record with { Status = failure is null ? LaunchStatus.Gone : LaunchStatus.Failed, Failure = failure };
             WriteRecord(record);
             if (!killRequested && plan.Goal == Admin.NodeGoal.Wanted)
@@ -167,6 +173,11 @@ internal sealed class NodeActualizer
             int timeout = spec?.ReadyTimeoutSeconds is > 0 ? spec.ReadyTimeoutSeconds : 120;
             if (DateTimeOffset.UtcNow - record.LaunchedAt >= TimeSpan.FromSeconds(timeout))
             {
+                if (record.DiagnosticDirectory is { } directory)
+                {
+                    DiagnosticCollector.ReportFailure(directory, "ready_timeout", "Node did not publish readiness before its startup deadline.");
+                    DiagnosticCollector.ExpectExit(directory);
+                }
                 await KillProcessAsync(process, cancellationToken);
                 record = record with { Status = LaunchStatus.Failed, Failure = "ready_timeout" };
                 WriteRecord(record);
@@ -236,9 +247,18 @@ internal sealed class NodeActualizer
                 StartInfo = CreateStartInfo(attachment, plan, spec, bundle.Root, runDirectory,
                     readyPath, attemptKey, executablePath, bundle.Manifest.Revision),
             };
+            string? diagnosticDirectory = _diagnostics.Configure(process.StartInfo, new()
+            {
+                ["clusterId"] = attachment.ClusterId, ["slotId"] = plan.SlotKey,
+                ["launchAttempt"] = attemptKey, ["nodeId"] = spec.NodeId, ["role"] = spec.Role.ToString(),
+                ["deploymentRevision"] = bundle.Manifest.Revision,
+            });
+            record = record with { DiagnosticDirectory = diagnosticDirectory };
+            WriteRecord(record);
             if (!process.Start())
                 throw new InvalidOperationException("Process start returned false");
             processStarted = true;
+            _diagnostics.Started(diagnosticDirectory, process, ProcessIdentity.Capture(process.Id));
             DateTimeOffset startedAt = process.StartTime.ToUniversalTime();
             record = record with
             {
@@ -301,6 +321,7 @@ internal sealed class NodeActualizer
                     record.NodeId, "kill_authority_mismatch", record.Epoch ?? 0);
             try
             {
+                if (record.DiagnosticDirectory is { } diagnosticDirectory) DiagnosticCollector.ExpectExit(diagnosticDirectory);
                 await KillProcessAsync(process, cancellationToken);
             }
             catch (InvalidOperationException exception)
@@ -738,7 +759,8 @@ internal sealed record LaunchRecord(
     DateTimeOffset LaunchedAt,
     LaunchStatus Status,
     string? Failure,
-    string? ProcessIdentity = null);
+    string? ProcessIdentity = null,
+    string? DiagnosticDirectory = null);
 
 internal sealed record RunRootProvenance(int SchemaVersion, string ClusterId, string HostId);
 

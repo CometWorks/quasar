@@ -20,8 +20,8 @@ public static class ServerListProtocol
     public static bool IsId(string? value) => value is { Length: 32 }
         && Guid.TryParseExact(value, "N", out _) && value == value.ToLowerInvariant();
 
-    public static bool HasConsent(DataHandlingConsentSettings settings) => settings.ConsentGranted == true
-        && settings.PolicyVersion == 2 && settings.DiagnosticsGranted && settings.Generation > 0
+    public static bool HasConsent(DataHandlingConsentSettings settings) => settings.ListingGranted
+        && settings.PolicyVersion == DataHandlingConsentSettings.CurrentPolicyVersion && settings.DiagnosticsGranted && settings.Generation > 0
         && settings.GrantedSinceUtc != default;
 
     public static ServerListAdmin[] GetAdmins(RbacConfig config) => config.SubjectRoleMappings

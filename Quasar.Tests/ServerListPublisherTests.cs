@@ -35,7 +35,11 @@ public sealed class ServerListPublisherTests : IDisposable
         _rbac = new(NullLogger<RbacConfigCatalog>.Instance);
     }
 
-    private Task GrantAsync() => _consent.SaveAsync(true, true, false);
+    private async Task GrantAsync()
+    {
+        await _consent.SaveAsync(true, true, false);
+        await _consent.SaveListingVisibilityAsync(true);
+    }
 
     private Task SetAdminAsync(string subject = "76561198000000001") => _rbac.SaveAsync(new()
     {
@@ -81,7 +85,7 @@ public sealed class ServerListPublisherTests : IDisposable
     }
 
     [Fact]
-    public async Task MasterConsentStillRequiredWhenDiagnosticsGranted()
+    public async Task DiagnosticConsentAloneDoesNotPublish()
     {
         await _consent.SaveAsync(false, true, false);
         await SetAdminAsync();

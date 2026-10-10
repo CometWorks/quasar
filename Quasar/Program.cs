@@ -31,6 +31,7 @@ public class Program
 {
     public static void Main(string[] args)
     {
+        QuasarDiagnosticLoggerProvider? diagnosticCapture = null;
         try
         {
             string[] workerArgs = NormalizeWorkerArguments(args);
@@ -197,7 +198,7 @@ public class Program
                 client.Timeout = Timeout.InfiniteTimeSpan)
                 .ConfigurePrimaryHttpMessageHandler(services => new SocketsHttpHandler
                 { ConnectCallback = services.GetRequiredService<ClusterHostTunnels>().OpenAsync, UseProxy = false,
-                    MaxConnectionsPerServer = 8, PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1) });
+                    AllowAutoRedirect = false, MaxConnectionsPerServer = 8, PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1) });
             builder.Services.AddSingleton<ClusterCredentialStore>();
             builder.Services.AddSingleton<ClusterHostCatalog>();
             builder.Services.AddSingleton<ClusterHostTunnels>();
@@ -215,6 +216,18 @@ public class Program
             builder.Services.AddHttpClient("ServerList", client => client.Timeout = TimeSpan.FromSeconds(15))
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             builder.Services.AddHostedService<ServerListPublisher>();
+            builder.Services.AddHttpClient("DiagnosticsBackoffice", client => client.Timeout = TimeSpan.FromMinutes(10))
+                .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+            builder.Services.AddSingleton(_ => Quasar.Diagnostics.DiagnosticStorage.Create(
+                Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Diagnostics"), "quasar-local",
+                Environment.GetEnvironmentVariable("QUASAR_DIAGNOSTICS_DIRECTORY")
+                    ?? builder.Configuration["Quasar:Diagnostics:StorageDirectory"]));
+            builder.Services.AddSingleton(services => diagnosticCapture = new QuasarDiagnosticLoggerProvider(
+                services.GetRequiredService<Quasar.Diagnostics.DiagnosticCollector>()));
+            builder.Services.AddSingleton<ILoggerProvider>(services => services.GetRequiredService<QuasarDiagnosticLoggerProvider>());
+            builder.Logging.AddFilter<QuasarDiagnosticLoggerProvider>(null, Microsoft.Extensions.Logging.LogLevel.Trace);
+            builder.Services.AddSingleton<DiagnosticsUplinkService>();
+            builder.Services.AddHostedService(services => services.GetRequiredService<DiagnosticsUplinkService>());
             builder.Services.AddSingleton<ClusterBetaNoticeCatalog>();
             builder.Services.AddSingleton<RbacConfigCatalog>();
             builder.Services.AddSingleton(analyticsStoreOptions);
@@ -320,6 +333,7 @@ public class Program
             }
 
             var app = builder.Build();
+            app.Lifetime.ApplicationStopping.Register(app.Services.GetRequiredService<QuasarDiagnosticLoggerProvider>().MarkExpectedStop);
             _ = app.Services.GetRequiredService<RbacConfigCatalog>();
 
             if (!webServiceOptions.Headless && !app.Environment.IsDevelopment())
@@ -621,6 +635,7 @@ public class Program
         }
         catch (Exception exception)
         {
+            diagnosticCapture?.CaptureFatal(exception);
             try
             {
                 LogManager.GetCurrentClassLogger().Fatal(exception, "Quasar terminated unexpectedly.");
