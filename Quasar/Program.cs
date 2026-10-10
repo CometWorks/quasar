@@ -4,6 +4,7 @@ using Quasar.Networking;
 using Quasar.Services;
 using Quasar.Services.Analytics;
 using Quasar.Services.Auth;
+using Quasar.Services.ServerList;
 using Quasar.Services.Backup;
 using Quasar.Services.Discord;
 using Quasar.Services.PluginSdk;
@@ -210,6 +211,10 @@ public class Program
             builder.Services.AddSingleton(updateOptions);
             builder.Services.AddSingleton(authOptions);
             builder.Services.AddSingleton<DataHandlingConsentCatalog>();
+            builder.Services.AddSingleton(ServerListOptions.Create(builder.Configuration));
+            builder.Services.AddHttpClient("ServerList", client => client.Timeout = TimeSpan.FromSeconds(15))
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+            builder.Services.AddHostedService<ServerListPublisher>();
             builder.Services.AddSingleton<ClusterBetaNoticeCatalog>();
             builder.Services.AddSingleton<RbacConfigCatalog>();
             builder.Services.AddSingleton(analyticsStoreOptions);

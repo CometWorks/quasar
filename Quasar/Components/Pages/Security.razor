@@ -128,7 +128,10 @@
                 </MudStack>
 
                 <MudText Typo="Typo.body2">
-                    Controls the consent flag Quasar passes to Magnetar on the next server start. YES starts Magnetar with <code>-consent accept</code>; NO and undecided start it with <code>-consent deny</code>. Magnetar builds older than 2.3.3.0 receive the legacy <code>-consent</code> / <code>-noconsent</code> flags instead.
+                    YES allows anonymous plugin usage statistics and allows CometWorks to receive logging and error reports, including error details, bounded recent logs, software versions and execution context. Logs may contain private player or server information. Memory dumps require separate consent and are not enabled by YES.
+                </MudText>
+                <MudText Typo="Typo.body2">
+                    Server listings require consent and working log delivery. Explicitly enabled listings publish their name, join address and summary statistics; admin Steam identities are shared privately for description editing. NO cancels publishing and requests immediate withdrawal. If the directory is unreachable, its publication lease expires within two minutes. Magnetar's statistics flag changes on the next server start.
                 </MudText>
                 <MudText Typo="Typo.caption" Color="Color.Secondary">
                     Stored at <CopyablePath Value="@DataHandlingConsent.SettingsPath" Inline="true" TextClass="" />.
@@ -238,14 +241,20 @@
     private string _newSubject = string.Empty;
     private string _newRole = QuasarRoles.Viewer;
 
-    private bool? DataHandlingConsentChoice =>
-        DataHandlingConsent.GetSettings().ConsentGranted;
+    private bool? DataHandlingConsentChoice
+    {
+        get
+        {
+            var settings = DataHandlingConsent.GetSettings();
+            return settings.ConsentGranted == true && !settings.DiagnosticsGranted ? null : settings.ConsentGranted;
+        }
+    }
 
     private string DataHandlingConsentStatusText => DataHandlingConsentChoice switch
     {
         true => "YES",
         false => "NO",
-        _ => "No choice stored",
+        _ => DataHandlingConsent.GetSettings().ConsentGranted == true ? "Logging consent required" : "No choice stored",
     };
 
     private Color DataHandlingConsentStatusColor => DataHandlingConsentChoice switch
@@ -344,7 +353,7 @@
 
         try
         {
-            await DataHandlingConsent.SaveAsync(consentGranted);
+            await DataHandlingConsent.SaveAsync(consentGranted, consentGranted, false);
             Snackbar.Add(consentGranted ? "Data handling consent saved: YES." : "Data handling consent saved: NO.", Severity.Success);
         }
         catch (Exception exception)

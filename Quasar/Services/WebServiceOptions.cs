@@ -243,11 +243,23 @@ public sealed class DataHandlingConsentSettings
 
     public string? DecisionDateUtc { get; set; }
 
+    // Same consent schema as the diagnostics uplink. Legacy YES does not grant diagnostics.
+    public int PolicyVersion { get; set; }
+    public bool DiagnosticsGranted { get; set; }
+    public bool DumpsGranted { get; set; }
+    public long Generation { get; set; }
+    public DateTimeOffset GrantedSinceUtc { get; set; }
+
     public DataHandlingConsentSettings Clone() =>
         new()
         {
             ConsentGranted = ConsentGranted,
             DecisionDateUtc = DecisionDateUtc,
+            PolicyVersion = PolicyVersion,
+            DiagnosticsGranted = DiagnosticsGranted,
+            DumpsGranted = DumpsGranted,
+            Generation = Generation,
+            GrantedSinceUtc = GrantedSinceUtc,
         };
 
     public static DataHandlingConsentSettings Normalize(DataHandlingConsentSettings? settings)
@@ -257,6 +269,13 @@ public sealed class DataHandlingConsentSettings
         return new DataHandlingConsentSettings
         {
             ConsentGranted = settings.ConsentGranted,
+            PolicyVersion = settings.PolicyVersion,
+            DiagnosticsGranted = settings.PolicyVersion == 2 && settings.Generation > 0
+                && settings.GrantedSinceUtc != default && settings.DiagnosticsGranted,
+            DumpsGranted = settings.PolicyVersion == 2 && settings.Generation > 0
+                && settings.GrantedSinceUtc != default && settings.DiagnosticsGranted && settings.DumpsGranted,
+            Generation = Math.Max(0, settings.Generation),
+            GrantedSinceUtc = settings.GrantedSinceUtc,
             DecisionDateUtc = string.IsNullOrWhiteSpace(settings.DecisionDateUtc)
                 ? null
                 : settings.DecisionDateUtc.Trim(),
@@ -280,8 +299,12 @@ public sealed class DataHandlingConsentCatalog : IDisposable
     private DebouncedFileWatcher? _watcher;
 
     public DataHandlingConsentCatalog(ILogger<DataHandlingConsentCatalog> logger)
+        : this(logger, MagnetarPaths.GetQuasarDataHandlingConsentPath()) { }
+
+    internal DataHandlingConsentCatalog(ILogger<DataHandlingConsentCatalog> logger, string path)
     {
         _logger = logger;
+        SettingsPath = path;
         _settings = LoadSettings();
         _snapshot = CreateSnapshot(_settings);
         StartWatching();
@@ -289,12 +312,12 @@ public sealed class DataHandlingConsentCatalog : IDisposable
 
     public event Action? Changed;
 
-    public string SettingsPath => MagnetarPaths.GetQuasarDataHandlingConsentPath();
+    public string SettingsPath { get; }
 
     public void Dispose()
     {
         _watcher?.Dispose();
-        _saveGate.Dispose();
+        // The watcher can still be completing a reload while shutdown begins.
     }
 
     public DataHandlingConsentSettings GetSettings()
@@ -305,16 +328,31 @@ public sealed class DataHandlingConsentCatalog : IDisposable
         }
     }
 
-    public async Task SaveAsync(bool consentGranted, CancellationToken cancellationToken = default)
+    public Task SaveAsync(bool consentGranted, CancellationToken cancellationToken = default) =>
+        SaveCoreAsync(consentGranted, null, null, cancellationToken);
+
+    public Task SaveAsync(bool? consentGranted, bool diagnosticsGranted, bool dumpsGranted,
+        CancellationToken cancellationToken = default) =>
+        SaveCoreAsync(consentGranted, diagnosticsGranted, dumpsGranted, cancellationToken);
+
+    private async Task SaveCoreAsync(bool? consentGranted, bool? diagnosticsGranted, bool? dumpsGranted,
+        CancellationToken cancellationToken)
     {
         await _saveGate.WaitAsync(cancellationToken);
         try
         {
-            var normalized = DataHandlingConsentSettings.Normalize(new DataHandlingConsentSettings
+            var previous = GetSettings();
+            var next = previous.Clone();
+            next.ConsentGranted = consentGranted;
+            next.DecisionDateUtc = DateTimeOffset.UtcNow.ToString("O");
+            if (diagnosticsGranted.HasValue)
             {
-                ConsentGranted = consentGranted,
-                DecisionDateUtc = DateTimeOffset.UtcNow.ToString("O"),
-            });
+                next.PolicyVersion = 2;
+                next.DiagnosticsGranted = diagnosticsGranted.Value;
+                next.DumpsGranted = diagnosticsGranted.Value && dumpsGranted == true;
+            }
+            AdvanceGeneration(next, previous);
+            var normalized = DataHandlingConsentSettings.Normalize(next);
             var json = JsonSerializer.Serialize(normalized, JsonOptions);
             var path = SettingsPath;
 
@@ -335,6 +373,16 @@ public sealed class DataHandlingConsentCatalog : IDisposable
         finally
         {
             _saveGate.Release();
+        }
+    }
+
+    private static void AdvanceGeneration(DataHandlingConsentSettings next, DataHandlingConsentSettings previous)
+    {
+        if (next.DiagnosticsGranted != previous.DiagnosticsGranted || next.DumpsGranted != previous.DumpsGranted
+            || next.Generation != previous.Generation || next.GrantedSinceUtc != previous.GrantedSinceUtc)
+        {
+            next.Generation = checked(Math.Max(next.Generation, previous.Generation) + 1);
+            next.GrantedSinceUtc = DateTimeOffset.UtcNow;
         }
     }
 
@@ -363,38 +411,36 @@ public sealed class DataHandlingConsentCatalog : IDisposable
         _watcher = DebouncedFileWatcher.WatchFile(SettingsPath, ReloadFromDisk);
     }
 
-    private void ReloadFromDisk()
+    internal void ReloadFromDisk()
     {
-        DataHandlingConsentSettings reloaded;
-        string snapshot;
-
+        _saveGate.Wait();
         try
         {
-            reloaded = LoadSettings();
-            snapshot = CreateSnapshot(reloaded);
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Failed reloading data handling consent settings from disk.");
-            return;
-        }
-
-        var changed = false;
-        lock (_sync)
-        {
-            if (!string.Equals(_snapshot, snapshot, StringComparison.Ordinal))
+            var reloaded = LoadSettings();
+            if (CreateSnapshot(reloaded) == _snapshot) return;
+            AdvanceGeneration(reloaded, GetSettings());
+            var snapshot = CreateSnapshot(reloaded);
+            // External category changes must also fence old diagnostic archives after restart.
+            AtomicFileWriter.WriteTextAsync(SettingsPath, snapshot, CancellationToken.None).GetAwaiter().GetResult();
+            lock (_sync)
             {
                 _settings = reloaded;
                 _snapshot = snapshot;
-                changed = true;
             }
+            _logger.LogInformation("Reloaded data handling consent settings from disk after external edit.");
+            Changed?.Invoke();
         }
-
-        if (!changed)
-            return;
-
-        _logger.LogInformation("Reloaded data handling consent settings from disk after external edit.");
-        Changed?.Invoke();
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed reloading data handling consent; publication disabled.");
+            var denied = GetSettings();
+            denied.ConsentGranted = null;
+            denied.DiagnosticsGranted = denied.DumpsGranted = false;
+            AdvanceGeneration(denied, GetSettings());
+            lock (_sync) { _settings = denied; _snapshot = CreateSnapshot(denied); }
+            Changed?.Invoke();
+        }
+        finally { _saveGate.Release(); }
     }
 
     private static string CreateSnapshot(DataHandlingConsentSettings settings) =>
