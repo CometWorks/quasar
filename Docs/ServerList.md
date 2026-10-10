@@ -4,11 +4,13 @@ Quasar's optional outbound uplink supplies CometWorks/server-list with public
 server statistics and a private description-management roster. It is disabled
 by default. No production endpoint or credential is bundled.
 
-**Rollout dependency:** the directory is currently a design prototype. The
-diagnostics uplink is separate work in progress. Production activation requires
-both that uplink and the directory endpoints below, including their independent
-diagnostics verification. This change does not implement those backend endpoints
-or claim that a deployment is unmodified.
+**Rollout dependency:** the directory implementation lives in
+[CometWorks/server-list](https://github.com/CometWorks/server-list), targeting
+`https://se-servers.net`. The diagnostics uplink and backoffice availability
+verification are separate work in progress. Production listing activation
+requires both; the directory fails closed while verification is unavailable.
+This change does not implement those diagnostics endpoints or claim that a
+deployment is unmodified.
 
 ## Consent and eligibility
 
@@ -52,7 +54,7 @@ Add an explicitly reviewed `Quasar:ServerList` section to service configuration:
   "Quasar": {
     "ServerList": {
       "Enabled": true,
-      "DirectoryUrl": "https://<directory-host>/",
+      "DirectoryUrl": "https://se-servers.net/",
       "Listings": [
         {
           "ListingId": "<directory-issued-lowercase-guid-without-hyphens>",
@@ -112,7 +114,8 @@ listing ID. Do not expose these machine routes to browser sessions.
    challenge, private admins and the complete public listings set. Atomically
    consume the nonce, verify evidence still matches, and replace both the listing
    set and admin roster. Use **server time** for a lease of at most two minutes.
-   Renewals arrive approximately every 30 seconds. Reject expired/used challenges,
+   Heartbeat and latest server information are sent every minute. Consent and RBAC
+   changes wake the sender immediately. Reject expired/used challenges,
    earlier epochs and non-increasing sequences. An identical replay must never
    extend visibility. Persist ordering state across backend restarts.
 3. `POST /v1/quasar/withdraw` receives `ServerListWithdrawal`: schema version,

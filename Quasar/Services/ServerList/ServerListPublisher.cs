@@ -68,6 +68,7 @@ public sealed class ServerListPublisher : BackgroundService
         if (_url is null) return;
         while (!stoppingToken.IsCancellationRequested)
         {
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
             try { await PublishOnceAsync(stoppingToken); }
             catch (OperationCanceledException) { }
             catch (Exception exception)
@@ -75,7 +76,8 @@ public sealed class ServerListPublisher : BackgroundService
                 // Transport messages can contain credentials and private endpoints.
                 _logger.LogWarning("Server list update deferred ({FailureType}).", exception.GetType().Name);
             }
-            try { await _wake.WaitAsync(TimeSpan.FromSeconds(30), stoppingToken); }
+            var remaining = TimeSpan.FromMinutes(1) - System.Diagnostics.Stopwatch.GetElapsedTime(started);
+            try { await _wake.WaitAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, stoppingToken); }
             catch (OperationCanceledException) { break; }
         }
     }
