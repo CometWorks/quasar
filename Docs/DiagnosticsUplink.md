@@ -65,11 +65,13 @@ Quasar retrieves the public key over its validated backoffice connection using `
 
 ## Verification
 
-`DiagnosticsUplinkTests` covers legacy consent migration, external revocation and persistence, statistics-only updates, URL restrictions, multiple enrolled hosts, durable acknowledgment, failed backend delivery with the same report ID, cancellation on revocation, and corrupt download rejection. Run these tests through the normal Quasar test project with the current Magnetar PluginSdk available; no Quasar web service process is launched.
+`QuasarDiagnosticLoggerTests` verifies that ordinary messages are not duplicated even with diagnostic consent, that a blocked/full storage queue cannot stall logger calls, and that disposal drains accepted errors while fatal capture remains available after disposal. `DiagnosticsUplinkTests` covers legacy consent migration, external revocation and persistence, statistics-only updates, URL restrictions, multiple enrolled hosts, durable acknowledgment, failed backend delivery with the same report ID, cancellation on revocation, and corrupt download rejection. Run these tests through the normal Quasar test project with the current Magnetar PluginSdk available; no Quasar web service process is launched.
 
 ## Quasar process errors
 
-Quasar registers an additional logging provider for Error and Critical messages, plus ordinary application logs while a diagnostic consent lease is active. It creates a collector run for its own process, preserving its executable hash, process identity and version so restart recovery can correlate an unexpected disappearance. Capture is local and independent of upload consent. Structured log state, scopes, configuration and environment variables are not serialized.
+Quasar registers an additional logging provider only for Error and Critical messages. Ordinary Quasar messages remain in the existing NLog sinks; the diagnostics provider does not subscribe to framework Trace logging or duplicate ordinary messages into log batches. It creates a collector run for its own process, preserving its executable hash, process identity and version so restart recovery can correlate an unexpected disappearance. Capture is local and independent of upload consent. Structured log state, scopes, configuration and environment variables are not serialized.
+
+Error/Critical logger calls format bounded text and enqueue it without waiting for storage. A single background writer publishes incidents through a fixed 256-entry queue; overload drops new incidents rather than blocking request or renderer threads. Normal disposal allows up to five seconds to drain accepted entries. Abrupt termination can lose queued incidents; fatal capture bypasses the queue and writes synchronously before process termination.
 
 Each run retains at most 256 incident JSON files and accepts at most 32 ordinary error reports per minute. Fatal exceptions bypass the rate limit and evict an old incident if necessary, preserving run metadata. Reports truncate messages and exception text, use durable temporary-file publication, and isolate storage and formatting failures from the application. Recursive logging from a formatter is ignored.
 
@@ -114,7 +116,7 @@ The cross-repository proof is in error-reporting's `Tests/EndToEnd/run.sh`. It s
 
 ## Continuous application logs
 
-The diagnostics choice also covers bounded batches of ordinary Quasar logs, Magnetar SDK logs and supervised process stdout. Each line is accepted only under a current consent lease. Batches retain the capture generation; the collector checks it again before sealing, so enabling diagnostics never uploads earlier console files or a previous consent window's pending lines.
+The diagnostics choice also covers bounded batches of Magnetar SDK logs and supervised process stdout, including Quasar output already captured by Bootstrap. Each line is accepted only under a current consent lease. Batches retain the capture generation; the collector checks it again before sealing, so enabling diagnostics never uploads earlier console files or a previous consent window's pending lines.
 
 The shared `LogBatchCapture` helper persists a pending journal and completes `log_batch` incidents after 30 seconds, 64 lines or 7,680 message characters. Lines carry UTC timestamp, source, severity and a message truncated to 512 characters. Collector polls respect the batching interval; process shutdown can force an eligible partial flush. Completed batches use stable IDs for retry and a separate 32-batch local quota. Ordinary logs cannot evict error/fatal capture files, and archive queues reserve capacity for incidents. At high volume, contention, truncation and quota eviction can discard ordinary lines; this is bounded diagnostic collection, not an audit log.
 

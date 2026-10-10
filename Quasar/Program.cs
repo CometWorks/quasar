@@ -225,7 +225,7 @@ public class Program
             builder.Services.AddSingleton(services => diagnosticCapture = new QuasarDiagnosticLoggerProvider(
                 services.GetRequiredService<Quasar.Diagnostics.DiagnosticCollector>()));
             builder.Services.AddSingleton<ILoggerProvider>(services => services.GetRequiredService<QuasarDiagnosticLoggerProvider>());
-            builder.Logging.AddFilter<QuasarDiagnosticLoggerProvider>(null, Microsoft.Extensions.Logging.LogLevel.Trace);
+            builder.Logging.AddFilter<QuasarDiagnosticLoggerProvider>(null, Microsoft.Extensions.Logging.LogLevel.Error);
             builder.Services.AddSingleton<DiagnosticsUplinkService>();
             builder.Services.AddHostedService(services => services.GetRequiredService<DiagnosticsUplinkService>());
             builder.Services.AddSingleton<ClusterBetaNoticeCatalog>();
