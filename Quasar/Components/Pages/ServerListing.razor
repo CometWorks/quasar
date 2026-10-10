@@ -1,0 +1,131 @@
+@page "/settings/server-list"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
+@using Quasar.Services.ServerList
+@inject ServerListSettingsCatalog Settings
+@inject DedicatedServerCatalog Servers
+@inject ClusterCatalog Clusters
+@inject DataHandlingConsentCatalog Consent
+@inject RbacConfigCatalog Rbac
+@inject QuasarPermissionService Permissions
+@inject ISnackbar Snackbar
+
+<PageTitle>Server listing</PageTitle>
+<MudText Typo="Typo.h5" Class="mb-2">Server listing</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    Choose which standalone Magnetar servers and clusters appear on se-servers.net.
+    Names and game ports are suggested from your existing servers. Enter the address players use to connect.
+</MudText>
+
+<MudPaper Class="pa-4 mb-4">
+    <MudStack Spacing="2">
+        <MudSwitch T="bool" Value="@Consent.GetSettings().ListingGranted" ValueChanged="SaveVisibilityAsync"
+                   Disabled="_saving" Color="Color.Primary" Label="Show configured servers on se-servers.net" />
+        @if (!Consent.GetSettings().DiagnosticsGranted)
+        {
+            <MudAlert Severity="Severity.Warning">Accept diagnostic data handling in <MudLink Href="/settings/security">Security</MudLink> before publishing.</MudAlert>
+        }
+        @if (ServerListProtocol.GetAdmins(Rbac.GetConfig()).Length == 0)
+        {
+            <MudAlert Severity="Severity.Warning">Add a Steam identity with the admin role in <MudLink Href="/settings/security">Security</MudLink> to publish and manage your listings.</MudAlert>
+        }
+        @if (Settings.LoadError is { } error)
+        {
+            <MudAlert Severity="Severity.Error">@error</MudAlert>
+        }
+        <MudText Typo="Typo.body2">
+            Listings become visible when the backoffice confirms current Quasar log delivery.
+            No crash or memory dump is required. Saved changes apply immediately; delivery may take up to two minutes.
+        </MudText>
+    </MudStack>
+</MudPaper>
+
+@if (_entries.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Class="mb-4">Create a standalone server or cluster first. It will appear here automatically.</MudAlert>
+}
+<MudGrid>
+    @foreach (var entry in _entries)
+    {
+        <MudItem xs="12" lg="6" @key="@($"{entry.Kind}:{entry.UniqueName}")">
+            <MudPaper Class="pa-4 server-card">
+                <MudStack Spacing="2">
+                    <MudText Typo="Typo.h6">@SourceName(entry)</MudText>
+                    <MudText Typo="Typo.caption">@(entry.Kind == "cluster" ? "Cluster · Steam gateway" : "Standalone Magnetar server")</MudText>
+                    @if (!SourceExists(entry))
+                    {
+                        <MudAlert Severity="Severity.Warning">This source no longer exists. Its listing will be omitted from publication.</MudAlert>
+                    }
+                    <MudSwitch T="bool" @bind-Value="entry.Enabled" Label="Publish this server" Color="Color.Primary"
+                               Disabled="@(_saving || !SourceExists(entry) && !entry.Enabled)" />
+                    <MudTextField T="string" @bind-Value="entry.Name" Label="Public server name" MaxLength="128"
+                                  Variant="Variant.Outlined" Immediate="true" Disabled="_saving" />
+                    <MudTextField T="string" @bind-Value="entry.PublicHost" Label="Public hostname or IP address"
+                                  HelperText="For example, play.example.org. Enter only the hostname or IP, without a URL scheme or port."
+                                  Variant="Variant.Outlined" Immediate="true" Disabled="_saving" />
+                    <MudNumericField T="int" @bind-Value="entry.PublicPort" Label="Public game port" Min="1" Max="65535"
+                                     HelperText="Use the port exposed to players; for a cluster, use its Steam gateway port."
+                                     Variant="Variant.Outlined" Immediate="true" Disabled="_saving" />
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+    }
+</MudGrid>
+<MudStack Row="true" Spacing="2" Class="mt-4">
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save"
+               OnClick="SaveAsync" Disabled="_saving">Save listings</MudButton>
+    <MudButton Variant="Variant.Outlined" OnClick="Reload" Disabled="_saving">Reload</MudButton>
+</MudStack>
+
+@code {
+    private List<ServerListEntry> _entries = [];
+    private HashSet<(string Kind, string UniqueName)> _savedSources = [];
+    private long _revision;
+    private bool _saving;
+
+    protected override void OnInitialized() => Reload();
+
+    private void Reload()
+    {
+        var (options, revision) = Settings.GetSnapshot();
+        _revision = revision;
+        _savedSources = options.Listings.Select(e => (e.Kind, e.UniqueName.ToLowerInvariant())).ToHashSet();
+        if (!options.Enabled) foreach (var entry in options.Listings) entry.Enabled = false;
+        _entries = ServerListSettingsCatalog.CreateDrafts(options, Servers.GetServers(), Clusters.GetClusters());
+    }
+
+    private bool SourceExists(ServerListEntry entry) => entry.Kind == "server"
+        ? Servers.GetServer(entry.UniqueName) is not null : Clusters.GetCluster(entry.UniqueName) is not null;
+
+    private string SourceName(ServerListEntry entry) => (entry.Kind == "server"
+        ? Servers.GetServer(entry.UniqueName)?.DisplayName : Clusters.GetCluster(entry.UniqueName)?.DisplayName)
+            is { Length: > 0 } name ? name : entry.UniqueName;
+
+    private async Task SaveAsync()
+    {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
+        { Snackbar.Add("You no longer have permission to manage server listings.", Severity.Error); return; }
+        _saving = true;
+        try
+        {
+            var entries = _entries.Where(e => e.Enabled || !string.IsNullOrWhiteSpace(e.PublicHost)
+                || _savedSources.Contains((e.Kind, e.UniqueName.ToLowerInvariant()))).Select(e => e.Clone()).ToList();
+            await Settings.SaveAsync(new() { Enabled = entries.Any(e => e.Enabled), Listings = entries }, _revision);
+            Reload();
+            Snackbar.Add("Server listings saved. Publication will update automatically.", Severity.Success);
+        }
+        catch (Exception error) { Snackbar.Add($"Could not save listings: {error.Message}", Severity.Error); }
+        finally { _saving = false; }
+    }
+
+    private async Task SaveVisibilityAsync(bool visible)
+    {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
+        { Snackbar.Add("You no longer have permission to manage server listings.", Severity.Error); return; }
+        try
+        {
+            await Consent.SaveListingVisibilityAsync(visible);
+            Snackbar.Add("Listing visibility saved.", Severity.Success);
+        }
+        catch (Exception error) { Snackbar.Add($"Could not save visibility: {error.Message}", Severity.Error); }
+    }
+}

@@ -47,7 +47,7 @@ public sealed class ServerListPublisherTests : IDisposable
     });
 
     private ServerListPublisher Publisher(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? send = null,
-        Func<CancellationToken, Task<IReadOnlyList<ServerListListing>>>? collect = null)
+        Func<CancellationToken, Task<IReadOnlyList<ServerListListing>>>? collect = null, ServerListSettingsCatalog? settings = null)
     {
         var http = new HttpClient(new Handler(async (request, token) =>
         {
@@ -61,12 +61,71 @@ public sealed class ServerListPublisherTests : IDisposable
                 : new(HttpStatusCode.NoContent);
         }));
         return new(new() { Enabled = true, DirectoryUrl = "https://directory.example/", InstallationToken = "private-token" },
-            _consent, _rbac, http, collect ?? (_ =>
+            _consent, _rbac, http, (options, token) =>
             {
+                if (collect is not null) return collect(token);
                 _collections++;
+                if (settings is not null) return Task.FromResult<IReadOnlyList<ServerListListing>>(
+                    options.Listings.Where(e => e.Enabled).Select(ServerListProtocol.Unknown).ToArray());
                 return Task.FromResult<IReadOnlyList<ServerListListing>>([new(Guid.NewGuid().ToString("N"),
                     "Public server", "play.example", 27016, DateTimeOffset.UtcNow, true, 3, 16, 1)]);
-            }), _root, NullLogger<ServerListPublisher>.Instance);
+            }, _root, NullLogger<ServerListPublisher>.Instance, diagnostics: null, settings);
+    }
+
+    [Fact]
+    public async Task LiveSettingsEnableAddAndDeselectWithoutRestartOrIdentityLoss()
+    {
+        await GrantAsync(); await SetAdminAsync();
+        var settings = new ServerListSettingsCatalog(Path.Combine(_root, "server-list.json"),
+            new ConfigurationBuilder().Build(), NullLogger<ServerListSettingsCatalog>.Instance);
+        using var publisher = Publisher(settings: settings);
+        await publisher.PublishOnceAsync(default);
+        Assert.Equal("/v1/quasar/withdraw", Assert.Single(_sent).Path);
+        var solo = new ServerListEntry { UniqueName = "solo", Name = "Solo", PublicHost = "play.example" };
+        await settings.SaveAsync(new() { Enabled = true, Listings = [solo] }, 0);
+        await publisher.PublishOnceAsync(default);
+        var first = JsonSerializer.Deserialize<ServerListPublication>(_sent[^1].Body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var id = Assert.Single(first.Listings).ListingId;
+        Assert.True(ServerListProtocol.IsId(id));
+        var fleet = new ServerListEntry { Kind = "cluster", UniqueName = "fleet", Name = "Fleet",
+            PublicHost = "cluster.example", PublicPort = 28000 };
+        await settings.SaveAsync(new() { Enabled = true, Listings = [solo, fleet] }, 1);
+        await publisher.PublishOnceAsync(default);
+        var added = JsonSerializer.Deserialize<ServerListPublication>(_sent[^1].Body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Equal(2, added.Listings.Count);
+        Assert.Equal(id, added.Listings.Single(l => l.Name == "Solo").ListingId);
+        solo.Enabled = false;
+        await settings.SaveAsync(new() { Enabled = true, Listings = [solo, fleet] }, 2);
+        await publisher.PublishOnceAsync(default);
+        var selected = JsonSerializer.Deserialize<ServerListPublication>(_sent[^1].Body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Equal("Fleet", Assert.Single(selected.Listings).Name);
+        await settings.SaveAsync(new() { Enabled = false, Listings = [solo, fleet] }, 3);
+        await publisher.PublishOnceAsync(default);
+        Assert.Equal("/v1/quasar/withdraw", _sent[^1].Path);
+    }
+
+    [Fact]
+    public async Task ChangingSettingsCancelsInFlightPublication()
+    {
+        await GrantAsync(); await SetAdminAsync();
+        var settings = new ServerListSettingsCatalog(Path.Combine(_root, "server-list.json"),
+            new ConfigurationBuilder().Build(), NullLogger<ServerListSettingsCatalog>.Instance);
+        await settings.SaveAsync(new() { Enabled = true, Listings = [new() { UniqueName = "solo", Name = "Solo", PublicHost = "play.example" }] }, 0);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var publisher = Publisher(async (request, token) =>
+        {
+            if (request.Method == HttpMethod.Get)
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new ServerListChallenge(new string('a', 32),
+                    DateTimeOffset.UtcNow.AddSeconds(25), _consent.GetSettings().Generation)) };
+            if (request.Method == HttpMethod.Put) { started.SetResult(); await Task.Delay(Timeout.Infinite, token); }
+            return new(HttpStatusCode.NoContent);
+        }, settings: settings);
+        var sending = publisher.PublishOnceAsync(default);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await settings.SaveAsync(new(), 1);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sending);
+        await publisher.PublishOnceAsync(default);
+        Assert.Equal("/v1/quasar/withdraw", _sent[^1].Path);
     }
 
     [Theory]

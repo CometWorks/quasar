@@ -14,11 +14,14 @@ public sealed class ServerListPublisher : BackgroundService
     private readonly DataHandlingConsentCatalog _consent;
     private readonly RbacConfigCatalog _rbac;
     private readonly HttpClient _http;
-    private readonly Func<CancellationToken, Task<IReadOnlyList<ServerListListing>>> _collect;
+    private readonly Func<ServerListOptions, CancellationToken, Task<IReadOnlyList<ServerListListing>>> _collect;
     private readonly ILogger<ServerListPublisher> _logger;
     private readonly string _dataDirectory;
     private readonly Uri? _url;
     private readonly DiagnosticsUplinkService? _diagnostics;
+    private readonly ServerListSettingsCatalog? _settings;
+    private readonly DedicatedServerCatalog? _servers;
+    private readonly ClusterCatalog? _clusters;
     private readonly object _sync = new();
     private readonly SemaphoreSlim _wake = new(0, 1);
     private CancellationTokenSource _transfers = new();
@@ -28,33 +31,44 @@ public sealed class ServerListPublisher : BackgroundService
     private long _sequence;
     private bool _disposed;
 
-    public ServerListPublisher(ServerListOptions options, DataHandlingConsentCatalog consent, RbacConfigCatalog rbac,
+    public ServerListPublisher(ServerListSettingsCatalog settings, DataHandlingConsentCatalog consent, RbacConfigCatalog rbac,
         IHttpClientFactory factory, AgentRegistry agents, DedicatedServerCatalog servers, ClusterCatalog clusters,
         ClusterGatewayClient gateway, ILogger<ServerListPublisher> logger, DiagnosticsUplinkService diagnostics)
-        : this(options, consent, rbac, factory.CreateClient("ServerList"),
-            token => CollectAsync(options, agents, servers, clusters, gateway, token),
-            MagnetarPaths.GetQuasarDirectory(), logger, diagnostics) { }
+        : this(settings.GetSnapshot().Options, consent, rbac, factory.CreateClient("ServerList"),
+            (options, token) => CollectAsync(options, agents, servers, clusters, gateway, token),
+            MagnetarPaths.GetQuasarDirectory(), logger, diagnostics, settings)
+    {
+        (_servers, _clusters) = (servers, clusters);
+        servers.Changed += Invalidate;
+        clusters.Changed += Invalidate;
+    }
 
     internal ServerListPublisher(ServerListOptions options, DataHandlingConsentCatalog consent, RbacConfigCatalog rbac,
         HttpClient http, Func<CancellationToken, Task<IReadOnlyList<ServerListListing>>> collect,
-        string dataDirectory, ILogger<ServerListPublisher> logger, DiagnosticsUplinkService? diagnostics = null)
+        string dataDirectory, ILogger<ServerListPublisher> logger, DiagnosticsUplinkService? diagnostics = null,
+        ServerListSettingsCatalog? settings = null)
+        : this(options, consent, rbac, http, (_, token) => collect(token), dataDirectory, logger, diagnostics, settings) { }
+
+    internal ServerListPublisher(ServerListOptions options, DataHandlingConsentCatalog consent, RbacConfigCatalog rbac,
+        HttpClient http, Func<ServerListOptions, CancellationToken, Task<IReadOnlyList<ServerListListing>>> collect,
+        string dataDirectory, ILogger<ServerListPublisher> logger, DiagnosticsUplinkService? diagnostics,
+        ServerListSettingsCatalog? settings)
     {
         (_options, _consent, _rbac, _http, _collect, _dataDirectory, _logger) =
             (options, consent, rbac, http, collect, dataDirectory, logger);
         _diagnostics = diagnostics;
-        if (options.Enabled)
+        _settings = settings;
+        if (diagnostics is not null) _url = diagnostics.BackofficeUrl;
+        else if (options.Enabled || settings is not null)
         {
-            if (diagnostics is not null) _url = diagnostics.BackofficeUrl;
-            else
-            {
-                if (!Uri.TryCreate(options.DirectoryUrl, UriKind.Absolute, out var url)
-                    || !ServerListOptions.IsAllowedEndpoint(url) || string.IsNullOrWhiteSpace(options.InstallationToken))
-                    throw new InvalidDataException("Invalid server list fixture endpoint or credential.");
-                _url = new Uri(url.AbsoluteUri.TrimEnd('/') + "/");
-            }
+            if (!Uri.TryCreate(options.DirectoryUrl, UriKind.Absolute, out var url)
+                || !ServerListOptions.IsAllowedEndpoint(url) || string.IsNullOrWhiteSpace(options.InstallationToken))
+                throw new InvalidDataException("Invalid server list fixture endpoint or credential.");
+            _url = new Uri(url.AbsoluteUri.TrimEnd('/') + "/");
         }
         consent.Changed += Invalidate;
         rbac.Changed += Invalidate;
+        if (settings is not null) settings.Changed += Invalidate;
     }
 
     private void Invalidate()
@@ -92,6 +106,10 @@ public sealed class ServerListPublisher : BackgroundService
     internal async Task PublishOnceAsync(CancellationToken stoppingToken)
     {
         if (_url is null || !await InitializeIdentityAsync(stoppingToken)) return;
+        var (options, revision) = _settings?.GetSnapshot() ?? (_options.Clone(), 0L);
+        foreach (var entry in options.Listings.Where(l => l.ListingId.Length == 0))
+            entry.ListingId = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(_installationId + "\n" + entry.Kind + "\n" + entry.UniqueName.ToLowerInvariant()))[..16]);
         DataHandlingConsentSettings consent;
         CancellationTokenSource cycle;
         long sequence;
@@ -106,7 +124,7 @@ public sealed class ServerListPublisher : BackgroundService
             cycle.CancelAfter(TimeSpan.FromSeconds(20));
             var token = cycle.Token;
             var admins = ServerListProtocol.GetAdmins(_rbac.GetConfig());
-            if (!ServerListProtocol.HasConsent(consent) || admins.Length == 0)
+            if (!options.Enabled || !ServerListProtocol.HasConsent(consent) || admins.Length == 0)
             {
                 using var withdrawal = await RequestAsync(HttpMethod.Post, "v1/quasar/withdraw", token);
                 if (withdrawal is null) return;
@@ -129,7 +147,7 @@ public sealed class ServerListPublisher : BackgroundService
                 || challenge.ExpiresAtUtc > now.AddSeconds(30) || challenge.Nonce.Length is < 32 or > 256)
                 throw new InvalidDataException("Invalid diagnostics publication challenge.");
 
-            var listings = await _collect(token);
+            var listings = await _collect(options, token);
             using var request = await RequestAsync(HttpMethod.Put, "v1/quasar/publication", token);
             if (request is null) return;
             request.Content = JsonContent.Create(new ServerListPublication(ServerListProtocol.Version, _installationId!,
@@ -139,6 +157,7 @@ public sealed class ServerListPublisher : BackgroundService
             {
                 token.ThrowIfCancellationRequested();
                 if (!ServerListProtocol.HasConsent(_consent.GetSettings())
+                    || _settings is not null && !_settings.IsCurrent(revision)
                     || _consent.GetSettings().Generation != consent.Generation
                     || _consent.GetSettings().DecisionDateUtc != consent.DecisionDateUtc
                     || !admins.SequenceEqual(ServerListProtocol.GetAdmins(_rbac.GetConfig()))
@@ -175,9 +194,6 @@ public sealed class ServerListPublisher : BackgroundService
         // Reserve before any network activity. A restart always fences earlier in-flight updates.
         await AtomicFileWriter.WriteTextAsync(epochPath, _epoch.ToString(CultureInfo.InvariantCulture), token);
         _installationId = identity;
-        foreach (var entry in _options.Listings.Where(l => l.ListingId.Length == 0))
-            entry.ListingId = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
-                System.Text.Encoding.UTF8.GetBytes(identity + "\n" + entry.Kind + "\n" + entry.UniqueName.ToLowerInvariant()))[..16]);
         return true;
     }
 
@@ -207,7 +223,7 @@ public sealed class ServerListPublisher : BackgroundService
     {
         var result = new List<ServerListListing>();
         var snapshots = agents.GetAgents();
-        foreach (var entry in options.Listings)
+        foreach (var entry in options.Listings.Where(l => l.Enabled))
         {
             if (entry.Kind == "server")
             {
@@ -235,6 +251,9 @@ public sealed class ServerListPublisher : BackgroundService
     {
         _consent.Changed -= Invalidate;
         _rbac.Changed -= Invalidate;
+        if (_settings is not null) _settings.Changed -= Invalidate;
+        if (_servers is not null) _servers.Changed -= Invalidate;
+        if (_clusters is not null) _clusters.Changed -= Invalidate;
         base.Dispose();
         lock (_sync)
         {

@@ -27,6 +27,13 @@
                 <MudNavLink Href="/discord" Icon="@Icons.Material.Filled.Forum">Discord</MudNavLink>
             </Authorized>
         </AuthorizeView>
+        <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
+            <Authorized>
+                <MudNavLink Href="/settings/server-list" Icon="@Icons.Material.Filled.Public">
+                    Listings
+                </MudNavLink>
+            </Authorized>
+        </AuthorizeView>
         <PluginNavItems Items="@UiPlugins.NavItems" Zone="@QuasarNavZones.Main" />
     </MudNavMenu>
 
@@ -35,7 +42,7 @@
     <MudText Typo="Typo.overline" Class="px-4">Tools</MudText>
     <MudNavMenu Class="magnetar-nav-menu">
         <MudNavLink Href="/hosts" Icon="@Icons.Material.Filled.Dns">
-            Host machines
+            Hosts
         </MudNavLink>
         <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
             <Authorized>
