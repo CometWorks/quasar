@@ -226,6 +226,13 @@ the generated Magnetar `Current.xml` profile. Shared loader/protocol files such
 as `Magnetar.Protocol.dll`, `Quasar.Agent.dll`, `0Harmony.dll`, and
 `PluginSdk.dll` are not copied from companion output; Quasar deploys its own
 agent/protocol files.
+Guided cluster setup pins each companion to its UI plugin's QuasarHub repository
+at the installed commit, both recorded in the package's
+`quasar-ui-plugin-install.json` at install. The companion goes through Magnetar
+`-prepareManaged` in a bundle folder of its own, with copies of
+`Magnetar.Protocol.dll` and `0Harmony.dll`, and runs on every cluster node. A
+companion of a UI plugin not installed from QuasarHub has no such record, so
+setup leaves it out of the cluster and names it.
 At startup, Quasar resolves plugin dependencies from the plugin's shadow-copied
 build output and records contribution enumeration failures as plugin load errors
 instead of letting one plugin crash the worker during catalog construction.

@@ -534,50 +534,62 @@ public sealed class DedicatedServerRuntimePreparer
     {
         var enabledNames = new List<string>();
 
-        foreach (var package in _uiPluginCatalog.Packages)
+        foreach (var companion in GetOwnedCompanions())
         {
-            foreach (var companion in package.Manifest.CompanionPluginManifests.Where(companion => companion.IsOwned))
+            if (!Directory.Exists(companion.OutputDirectory))
             {
-                var outputDirectory = Path.Combine(
-                    package.PluginDirectory,
-                    CompanionOutputRelativeDirectory,
-                    SanitizePathSegment(companion.Id));
-                if (!Directory.Exists(outputDirectory))
-                {
-                    _logger.LogWarning(
-                        "Quasar UI plugin companion {CompanionId} for {PluginId} has no built output at {OutputDirectory}; it will not be deployed.",
-                        companion.Id,
-                        package.Manifest.Id,
-                        outputDirectory);
-                    continue;
-                }
-
-                var entryAssemblyPath = ResolveCompanionEntryAssemblyPath(companion, outputDirectory);
-                if (!File.Exists(entryAssemblyPath))
-                {
-                    _logger.LogWarning(
-                        "Quasar UI plugin companion {CompanionId} for {PluginId} entry assembly was not found at {EntryAssemblyPath}; it will not be enabled.",
-                        companion.Id,
-                        package.Manifest.Id,
-                        entryAssemblyPath);
-                    continue;
-                }
-
-                foreach (var sourcePath in Directory.EnumerateFiles(outputDirectory))
-                {
-                    var fileName = Path.GetFileName(sourcePath);
-                    if (ShouldSkipCompanionDeploymentFile(fileName))
-                        continue;
-
-                    await CopyFileIfChangedAsync(sourcePath, Path.Combine(localPluginDirectory, fileName), cancellationToken);
-                }
-
-                enabledNames.Add(Path.GetFileName(entryAssemblyPath));
+                _logger.LogWarning(
+                    "Quasar UI plugin companion {CompanionId} for {PluginId} has no built output at {OutputDirectory}; it will not be deployed.",
+                    companion.Id,
+                    companion.PluginId,
+                    companion.OutputDirectory);
+                continue;
             }
+
+            if (!File.Exists(companion.EntryAssemblyPath))
+            {
+                _logger.LogWarning(
+                    "Quasar UI plugin companion {CompanionId} for {PluginId} entry assembly was not found at {EntryAssemblyPath}; it will not be enabled.",
+                    companion.Id,
+                    companion.PluginId,
+                    companion.EntryAssemblyPath);
+                continue;
+            }
+
+            foreach (var sourcePath in Directory.EnumerateFiles(companion.OutputDirectory))
+            {
+                var fileName = Path.GetFileName(sourcePath);
+                if (ShouldSkipCompanionDeploymentFile(fileName))
+                    continue;
+
+                await CopyFileIfChangedAsync(sourcePath, Path.Combine(localPluginDirectory, fileName), cancellationToken);
+            }
+
+            enabledNames.Add(Path.GetFileName(companion.EntryAssemblyPath));
         }
 
         return enabledNames.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
+
+    internal IReadOnlyList<UiPluginCompanion> GetOwnedCompanions() =>
+        _uiPluginCatalog.Packages
+            .SelectMany(package => package.Manifest.CompanionPluginManifests
+                .Where(companion => companion.IsOwned)
+                .Select(companion =>
+                {
+                    var outputDirectory = Path.Combine(
+                        package.PluginDirectory,
+                        CompanionOutputRelativeDirectory,
+                        SanitizePathSegment(companion.Id));
+                    return new UiPluginCompanion(
+                        companion.Id,
+                        package.Manifest.Id,
+                        package.Manifest.DisplayName,
+                        package.PluginDirectory,
+                        outputDirectory,
+                        ResolveCompanionEntryAssemblyPath(companion, outputDirectory));
+                }))
+            .ToList();
 
     private static string ResolveCompanionEntryAssemblyPath(
         QuasarCompanionPluginManifest companion,
@@ -590,7 +602,7 @@ public sealed class DedicatedServerRuntimePreparer
         return Path.Combine(outputDirectory, Path.GetFileName(entryAssembly));
     }
 
-    private static bool ShouldSkipCompanionDeploymentFile(string fileName) =>
+    internal static bool ShouldSkipCompanionDeploymentFile(string fileName) =>
         string.Equals(fileName, AgentPluginFileName, StringComparison.OrdinalIgnoreCase) ||
         string.Equals(fileName, MagnetarProtocolFileName, StringComparison.OrdinalIgnoreCase) ||
         string.Equals(fileName, HarmonyFileName, StringComparison.OrdinalIgnoreCase) ||
@@ -1091,6 +1103,15 @@ public sealed record PreparedDedicatedServerLaunch(
     string LastSessionPath,
     string Arguments,
     string GitHubToken);
+
+/// <summary>A Magnetar companion built from an installed Quasar UI plugin package.</summary>
+public sealed record UiPluginCompanion(
+    string Id,
+    string PluginId,
+    string PluginDisplayName,
+    string PluginDirectory,
+    string OutputDirectory,
+    string EntryAssemblyPath);
 
 public sealed record AgentDeploymentComparison(
     string BundledPath,
