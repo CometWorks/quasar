@@ -6,6 +6,8 @@ on:
       - 'Shared/Diagnostics/**'
       - 'Tests/NativeCapture/**'
       - '.github/workflows/native-capture.yml'
+env:
+  DIAGNOSTICS_SOURCE_REF: ${{ vars.DIAGNOSTICS_SOURCE_REF || '4629caff434e35312e8c99c776e364e392142d5d' }}
 permissions:
   contents: read
 jobs:
@@ -19,8 +21,6 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Validate archive dependency pin
         shell: pwsh
-        env:
-          DIAGNOSTICS_SOURCE_REF: ${{ vars.DIAGNOSTICS_SOURCE_REF }}
         run: |
           if ($env:DIAGNOSTICS_SOURCE_REF -cnotmatch '^[0-9a-f]{40}$') {
             throw 'Set DIAGNOSTICS_SOURCE_REF to the reviewed error-reporting commit SHA.'
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: CometWorks/error-reporting
-          ref: ${{ vars.DIAGNOSTICS_SOURCE_REF }}
+          ref: ${{ env.DIAGNOSTICS_SOURCE_REF }}
           path: diagnostics-source
       - name: Build archive package
         shell: pwsh
