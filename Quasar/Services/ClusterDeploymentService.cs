@@ -115,41 +115,91 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
                     || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
                     || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
                     throw new InvalidOperationException("Recovery requires goal Off, a new generation and a complete managed deployment.");
-                ClusterDefinition Target(ClusterHostRevision host)
-                {
-                    var target = cluster.Clone(); target.HostCommandUrl = host.CommandUrl;
-                    target.HostCommandTokenEnvironmentVariable = host.TokenEnvironmentVariable; return target;
-                }
-                // First refuse recovery over any live/unknown node before touching the Gateway.
-                foreach (var host in cluster.ActiveDeployment.Hosts)
-                {
-                    var ready = (await hosts.CheckRecoveryAsync(Target(host), host.Deployment.BundleManifestSha256, ct)).Data;
-                    if (ready.HostId != host.HostId || ready.BundleManifestSha256 != host.Deployment.BundleManifestSha256)
-                        throw new InvalidOperationException("Host recovery identity mismatch.");
-                }
-                var status = (await hosts.GetStatusAsync(cluster, ct)).Data;
-                var observed = status.Gateways?.SingleOrDefault(g => g.ClusterId == clusterId);
-                if (status.HostId != cluster.ActiveDeployment.Hosts.Single(h => h.Deployment.Gateway is not null).HostId
-                    || !status.GatewayStopFencing || observed is null
-                    || observed.Observed == HostContract.GatewayObservedState.UnmanagedConflict
-                    || !ClusterReconciler.MatchesSpec(observed, cluster.Gateway))
-                    throw new InvalidOperationException("Recovery requires a fenced, known Gateway process state.");
-                var off = cluster.Gateway with { Goal = HostContract.GatewayGoal.Off, StopFence = observed.ProcessId is { } pid
-                    && observed.LaunchedAt is { } launched ? new(pid, launched) : null };
-                var stopped = (await hosts.ApplyGatewayAsync(cluster, off, ct)).Data;
-                if (stopped.Observed != HostContract.GatewayObservedState.Missing || stopped.Failure is not null
-                    || stopped.CompletedStopFence != off.StopFence || !ClusterReconciler.MatchesSpec(stopped, off))
-                    throw new InvalidOperationException("Gateway stop has not been verified.");
-                // With Gateway stopped, no fresh executor lease can spawn anything. Recheck every
-                // Host under its execution gate, including any action already in flight above.
-                foreach (var host in cluster.ActiveDeployment.Hosts)
-                    await hosts.PreviewDeploymentAsync(Target(host), new(clusterId, host.Deployment.BundleManifestSha256,
-                        host.Deployment.Attachment.BundleManifestPath!, host.Deployment.BundleManifestSha256,
-                        host.Deployment.Attachment.GatewayUrl, host.Deployment.Attachment.TokenEnvironmentVariable), ct);
+                await StopFencedAsync(cluster, ct);
                 await operations.FenceGatewayOperationsForRestoreAsync(clusterId, ct, recovery: true);
                 var recovered = await catalog.RecordRecoveryAsync(cluster, generation, ct);
                 return new Admin.AdminEnvelope<HostContract.GatewaySpec>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow, recovered.Gateway!);
             }, ct), token);
+
+    /// <summary>Stops the recorded Gateway with a fence after every Host proved its nodes stopped. Nothing is
+    /// saved: the caller recovers or replaces the cluster's data afterwards.</summary>
+    internal async Task StopFencedAsync(ClusterDefinition cluster, CancellationToken ct)
+    {
+        string clusterId = cluster.UniqueName;
+        if (cluster.ActiveDeployment is null || cluster.Gateway is null)
+            throw new InvalidOperationException(
+                "A fenced stop needs a complete managed deployment."
+            );
+        ClusterDefinition Target(ClusterHostRevision host)
+        {
+            var target = cluster.Clone();
+            target.HostCommandUrl = host.CommandUrl;
+            target.HostCommandTokenEnvironmentVariable = host.TokenEnvironmentVariable;
+            return target;
+        }
+        // First refuse recovery over any live/unknown node before touching the Gateway.
+        foreach (var host in cluster.ActiveDeployment.Hosts)
+        {
+            var ready = (
+                await hosts.CheckRecoveryAsync(
+                    Target(host),
+                    host.Deployment.BundleManifestSha256,
+                    ct
+                )
+            ).Data;
+            if (
+                ready.HostId != host.HostId
+                || ready.BundleManifestSha256 != host.Deployment.BundleManifestSha256
+            )
+                throw new InvalidOperationException("Host recovery identity mismatch.");
+        }
+        var status = (await hosts.GetStatusAsync(cluster, ct)).Data;
+        var observed = status.Gateways?.SingleOrDefault(g => g.ClusterId == clusterId);
+        if (
+            status.HostId
+                != cluster
+                    .ActiveDeployment.Hosts.Single(h => h.Deployment.Gateway is not null)
+                    .HostId
+            || !status.GatewayStopFencing
+            || observed is null
+            || observed.Observed == HostContract.GatewayObservedState.UnmanagedConflict
+            || !ClusterReconciler.MatchesSpec(observed, cluster.Gateway)
+        )
+            throw new InvalidOperationException(
+                "Recovery requires a fenced, known Gateway process state."
+            );
+        var off = cluster.Gateway with
+        {
+            Goal = HostContract.GatewayGoal.Off,
+            StopFence =
+                observed.ProcessId is { } pid && observed.LaunchedAt is { } launched
+                    ? new(pid, launched)
+                    : null,
+        };
+        var stopped = (await hosts.ApplyGatewayAsync(cluster, off, ct)).Data;
+        if (
+            stopped.Observed != HostContract.GatewayObservedState.Missing
+            || stopped.Failure is not null
+            || stopped.CompletedStopFence != off.StopFence
+            || !ClusterReconciler.MatchesSpec(stopped, off)
+        )
+            throw new InvalidOperationException("Gateway stop has not been verified.");
+        // With Gateway stopped, no fresh executor lease can spawn anything. Recheck every
+        // Host under its execution gate, including any action already in flight above.
+        foreach (var host in cluster.ActiveDeployment.Hosts)
+            await hosts.PreviewDeploymentAsync(
+                Target(host),
+                new(
+                    clusterId,
+                    host.Deployment.BundleManifestSha256,
+                    host.Deployment.Attachment.BundleManifestPath!,
+                    host.Deployment.BundleManifestSha256,
+                    host.Deployment.Attachment.GatewayUrl,
+                    host.Deployment.Attachment.TokenEnvironmentVariable
+                ),
+                ct
+            );
+    }
 
     public Task<ClusterOperation> RecoverGatewayAsync(string clusterId, string idempotencyKey, string actor,
         CancellationToken token) => operations.ExecuteAsync(clusterId, "cluster.gateway.recover", idempotencyKey, actor,

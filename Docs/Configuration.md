@@ -1857,10 +1857,17 @@ Starting, and says why in `lastError`:
 - Before any Host switched, the previous version carries on. If the cluster was On before the update,
   its goal returns to On when its Gateway still runs or stopped with clean proof; otherwise it stays
   stopped and `lastError` says what to recover.
-- After activation the cluster keeps the new deployment, and `lastError` names the backup to restore
-  (goal Off, then the Maintenance restore) to return to the previous version and world.
+- After activation the new version may already have changed the world, so the update reverts
+  from that backup (phase Reverting, the reason in `failure`). It sets goal Off and lets the
+  reconciler stop the failed deployment cleanly; after 10 minutes it stops the Gateway with a fence
+  instead, once every Host reports its nodes stopped, because the backup replaces that data anyway.
+  It then runs the same restore as Maintenance (a fresh preparation with rotated credentials, then
+  the snapshot restore; each Host keeps the replaced data beside the runtime folder) and starts the
+  previous version again if the cluster was On before the update and the normal start check
+  passes. A revert that cannot finish within 3 hours is given up with the backup named in
+  `lastError`, but never while its restore is half applied.
 - A half-applied activation is never given up this way; it keeps retrying the same request.
-Preflight checks every Host before goal Off. Stopping, Activating and Starting are
+Preflight checks every Host before goal Off. Stopping, Activating, Starting and Reverting are
 persistent checkpoints. Errors remain visible/retryable; completion requires matching
 Gateway revision, managed readiness and Host attachments. Previous installations remain
 available. Binary/config rollback preserves current world and plugin state. Direct Host

@@ -553,18 +553,191 @@ public sealed class ClusterDeploymentTests : IDisposable
         await update.AdvanceAllAsync(default);
         Assert.Equal(ClusterUpdatePhase.Starting, catalog.GetCluster("demo")!.Update!.Phase);
 
-        // Starting: the new deployment never serves. Its pre-update backup is the way back.
+        // Starting: the new deployment never serves, so the update reverts from its pre-update backup.
         await update.AdvanceAllAsync(default);
         Assert.Equal(ClusterUpdatePhase.Starting, catalog.GetCluster("demo")!.Update!.Phase);
         await Backdate(ClusterUpdateService.StartingTimeout);
         await update.AdvanceAllAsync(default);
         cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Reverting, cluster.Update!.Phase);
+        Assert.StartsWith(
+            "Update failed after 60 minutes in Starting: still waiting for the Gateway",
+            cluster.Update.Failure
+        );
+        Assert.EndsWith(
+            $"Reverting to the previous version and world from backup {id:D}.",
+            cluster.Update.LastError
+        );
+        Assert.Equal(DedicatedServerGoalState.Off, cluster.GoalState);
+
+        // A revert that cannot even stop the failed deployment gives up and names the backup.
+        await Backdate(ClusterUpdateService.RevertingTimeout);
+        await update.AdvanceAllAsync(default);
+        cluster = catalog.GetCluster("demo")!;
         Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
-        Assert.StartsWith("Update failed after 60 minutes in Starting: still waiting for the Gateway", cluster.Update.LastError);
-        Assert.EndsWith($"set the goal Off, then in Maintenance restore backup {id:D}, taken before activation.", cluster.Update.LastError);
+        Assert.StartsWith("Update failed after 60 minutes in Starting", cluster.Update.LastError);
+        Assert.Contains("The revert did not finish within 3 hours", cluster.Update.LastError);
+        Assert.EndsWith($"restore backup {id:D} in Maintenance.", cluster.Update.LastError);
         Assert.Equal("candidate", cluster.ActiveDeployment!.Revision);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On); // the lifecycle tools are unlocked again
+    }
+
+    [Fact]
+    public async Task FailedStartRevertsFromThePreUpdateBackupAndStartsThePreviousVersion()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var operations = new ClusterOperationStore(Path.Combine(root, "revert-operations"));
+        var client = new ClusterHostClient(new HttpClient(handler));
+        var deployments = new ClusterDeploymentService(catalog, client, operations);
+        await deployments.ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var backups = new ClusterBackupService(
+            catalog,
+            client,
+            operations,
+            null!,
+            new WebServiceOptions { BackupDirectory = Path.Combine(root, "revert-backups") },
+            null!,
+            null!
+        );
+        var gateway = new GatewayHandler();
+        var update = new ClusterUpdateService(
+            catalog,
+            deployments,
+            new ClusterGatewayClient(new HttpClient(gateway)),
+            client,
+            operations,
+            NullLogger<ClusterUpdateService>.Instance,
+            backups
+        );
+        handler.Revision = "candidate";
+        var candidate = new ClusterDeploymentRequest(
+            "revision",
+            "candidate",
+            Request()
+                .Hosts.Select(h =>
+                    h with
+                    {
+                        Activation = h.Activation with
+                        {
+                            ExpectedBundleManifestSha256 = h.Activation.BundleManifestSha256,
+                            BundleManifestSha256 = new string('b', 64),
+                        },
+                    }
+                )
+                .ToArray()
+        );
+        // The restore path itself (fresh preparation, snapshot restore) is the operator's; here it re-activates
+        // a restored revision so the update's own steps can be checked end to end.
+        int prepared = 0;
+        update.PrepareRevertAsync = (cluster, workflow, token) =>
+        {
+            prepared++;
+            return Task.FromResult(
+                new ClusterRestoreRequest(
+                    workflow.Backup!.Value,
+                    workflow.RevertRestoreId!.Value,
+                    new(
+                        "candidate",
+                        "restored",
+                        candidate
+                            .Hosts.Select(h =>
+                                h with
+                                {
+                                    Activation = h.Activation with
+                                    {
+                                        ExpectedBundleManifestSha256 =
+                                            h.Activation.BundleManifestSha256,
+                                        BundleManifestSha256 = new string('c', 64),
+                                    },
+                                }
+                            )
+                            .ToArray()
+                    )
+                )
+            );
+        };
+        update.ApplyRevertAsync = async (cluster, workflow, token) =>
+        {
+            handler.Recovery = false;
+            handler.GatewayStopped = true;
+            handler.Revision = "restored";
+            await deployments.ActivateCoreAsync(
+                cluster,
+                workflow.Revert!.Deployment,
+                token,
+                restore: true,
+                update: true
+            );
+        };
+
+        var id = Guid.NewGuid();
+        await update.BeginAsync("demo", new(id, candidate), "begin", "test", default);
+        var stopped = catalog.GetCluster("demo")!;
+        await catalog.RecordShutdownProofAsync(
+            stopped,
+            new(
+                stopped.GetLifecycleId(),
+                DateTimeOffset.UtcNow,
+                new GatewayStopFence(123, DateTimeOffset.UtcNow)
+            ),
+            default
+        );
+        await update.AdvanceAllAsync(default);
+        await update.AdvanceAllAsync(default);
+        var cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Starting, cluster.Update!.Phase);
+        Assert.Equal(id, cluster.Update.Backup);
+        async Task Backdate(TimeSpan age)
+        {
+            var current = catalog.GetCluster("demo")!;
+            await catalog.RecordUpdateAsync(
+                current,
+                current.Update! with
+                {
+                    PhaseStartedAt = DateTimeOffset.UtcNow - age - TimeSpan.FromSeconds(1),
+                },
+                default
+            );
+        }
+        await Backdate(ClusterUpdateService.StartingTimeout);
+        await update.AdvanceAllAsync(default);
+        Assert.Equal(ClusterUpdatePhase.Reverting, catalog.GetCluster("demo")!.Update!.Phase);
+
+        // First the reconciler gets its chance to stop the failed deployment cleanly.
+        await update.AdvanceAllAsync(default);
+        Assert.Equal(0, prepared);
+        Assert.Equal(0, handler.GatewayStops);
+
+        // Then a fenced stop: the Gateway runs the generation the update started, and every node is down.
+        await Backdate(ClusterUpdateService.RevertStopGrace);
+        handler.Recovery = true;
+        handler.StartGeneration = catalog.GetCluster("demo")!.Gateway!.StartGeneration!.Value;
+        await update.AdvanceAllAsync(default);
+        Assert.Equal(1, handler.GatewayStops);
+        Assert.Equal(1, prepared);
+        cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Reverting, cluster.Update!.Phase);
+        Assert.Equal("restored", cluster.ActiveDeployment!.Revision);
         Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);
-        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off); // the lifecycle tools are unlocked again
+        Assert.EndsWith(
+            $"Reverted to the previous version and world from backup {id:D}. Starting it again.",
+            cluster.Update.LastError
+        );
+
+        await update.AdvanceAllAsync(default);
+        Assert.Equal(ClusterUpdatePhase.Reverting, catalog.GetCluster("demo")!.Update!.Phase);
+        gateway.Revision = "restored";
+        gateway.Ready = true;
+        await update.AdvanceAllAsync(default);
+        cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
+        Assert.Equal(
+            $"{cluster.Update.Failure} Reverted to the previous version and world from backup {id:D}.",
+            cluster.Update.LastError
+        );
+        Assert.Equal(1, prepared);
     }
 
     [Fact]
@@ -709,7 +882,8 @@ public sealed class ClusterDeploymentTests : IDisposable
         internal bool Recovery, RefuseRecovery, RefusePreview;
         internal int GatewayStops;
         private readonly DateTimeOffset launched = DateTimeOffset.UtcNow;
-        private readonly Guid startGeneration = Guid.NewGuid();
+        internal Guid StartGeneration = Guid.NewGuid();
+        internal bool GatewayStopped; // GET reports the Gateway Off and Missing, as after a fresh activation
         internal string Revision = "revision";
         internal string? Deletion;
         internal readonly List<string> DeletePreviews = [];
@@ -754,9 +928,11 @@ public sealed class ClusterDeploymentTests : IDisposable
             }
             else if (request.Method == HttpMethod.Get && Recovery)
                 data = new HostStatus(host, host, [], [new("demo", GatewayGoal.On, GatewayObservedState.Running,
-                    active[host], Revision, [29416], "/runs/one/gateway", 123, launched, null, StartGeneration: startGeneration)], true);
+                    active[host], Revision, [29416], "/runs/one/gateway", 123, launched, null, StartGeneration: StartGeneration)], true);
             else if (request.Method == HttpMethod.Get) data = new HostStatus(host, host, active.TryGetValue(host, out var hash)
-                ? [new("demo", "http://gateway.test", true, hash, "/runs/" + host)] : []);
+                ? [new("demo", "http://gateway.test", true, hash, "/runs/" + host)] : [],
+                GatewayStopped && host == "one" ? [new("demo", GatewayGoal.Off, GatewayObservedState.Missing, active[host], Revision,
+                    [29416], "/runs/one/gateway", null, null, null, StartGeneration: StartGeneration)] : null, GatewayStopped);
             else
             {
                 if (Deletion is not null && request.Method == HttpMethod.Post)
@@ -776,7 +952,7 @@ public sealed class ClusterDeploymentTests : IDisposable
                 data = new HostActiveDeployment("demo", Revision, activation.BundleManifestSha256,
                     new("demo", "http://gateway.test", credential, activation.BundleManifestPath, activation.BundleManifestSha256, "/runs/" + host),
                     host == "one" ? new("demo", GatewayGoal.Off, activation.BundleManifestPath, activation.BundleManifestSha256,
-                        Revision, [29416], "/runs/one/gateway", StartGeneration: startGeneration) : null, ["one", "two"]);
+                        Revision, [29416], "/runs/one/gateway", StartGeneration: StartGeneration) : null, ["one", "two"]);
             }
             var response = new HttpResponseMessage(HttpStatusCode.OK)
                 { Content = JsonContent.Create(new HostEnvelope<object>(1, DateTimeOffset.UtcNow, data)) };

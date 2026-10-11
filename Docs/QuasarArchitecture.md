@@ -1132,7 +1132,8 @@ launcher update checks.
 `ClusterBackupService` verifies native Host snapshots and Gateway world exports before
 retention/release; explicit restore journals each Host and fences earlier operations.
 `ClusterUpdateService` persists Stopping → Activating → Starting → Complete and reuses
-ordinary reconciliation for shutdown/startup. Completion requires the exact runtime
+ordinary reconciliation for shutdown/startup. A failed activation or start goes to Reverting,
+which restores the backup taken before activation through the same restore path as Maintenance. Completion requires the exact runtime
 revision/readiness and Host attachment hashes; compatible rollback retains live data.
 
 PluginSdk shared records/messages bypass Quasar and Agent: the cluster provider uses
