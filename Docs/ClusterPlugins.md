@@ -39,6 +39,9 @@ newer candidate was staged before the backup. If the saved profile
 was edited after its deployment, Quasar leaves the restored cluster's profile
 selection unbound so an administrator can choose a matching profile explicitly.
 Network and dedicated-server root settings remain outside this preserved-world profile operation.
+Existing nondefault root settings do not block mod/plugin updates when they are unchanged
+between the current and selected profiles. Administrators remain supported by the migration;
+changes to other root settings are rejected.
 
 ## Original design audit
 

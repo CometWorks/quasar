@@ -32,6 +32,32 @@ public sealed class ClusterDependencyTests
     }
 
     [Fact]
+    public void ModUpdatesAcceptUnchangedNondefaultRootSettings()
+    {
+        var current = new QuasarConfigProfile();
+        current.RootSettings.AutodetectDependencies = false;
+        current.RootSettings.ServerDescription = "Existing cluster";
+        current.RootSettings.PauseGameWhenEmpty = true;
+        current.RootSettings.AutoRestartTimeInMin = 120;
+        current.Mods = [new() { WorkshopId = 123 }, new() { WorkshopId = 456 }];
+        var selected = JsonSerializer.Deserialize<QuasarConfigProfile>(JsonSerializer.Serialize(current))!;
+
+        // Same-profile content staging uses the existing settings, not factory defaults.
+        ClusterUpdatePreparationService.EnsureCompatibleProfileSelection(current, current);
+        ClusterUpdatePreparationService.EnsureCompatibleProfileSelection(current, selected);
+
+        selected.RootSettings.Administrators.Add("76561198000000000");
+        ClusterUpdatePreparationService.EnsureCompatibleProfileSelection(current, selected);
+        selected.RootSettings.NetworkType = QuasarNetworkType.EOS;
+        Assert.Throws<InvalidOperationException>(() =>
+            ClusterUpdatePreparationService.EnsureCompatibleProfileSelection(current, selected));
+        selected.RootSettings.NetworkType = current.RootSettings.NetworkType;
+        selected.RootSettings.ServerDescription = "Changed cluster";
+        Assert.Throws<InvalidOperationException>(() =>
+            ClusterUpdatePreparationService.EnsureCompatibleProfileSelection(current, selected));
+    }
+
+    [Fact]
     public void StagedProfileActivationRejectsChangesAndMissingProfiles()
     {
         var selected = new QuasarConfigProfile { ConfigProfileId = "survival" };
