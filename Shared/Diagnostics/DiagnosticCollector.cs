@@ -16,6 +16,9 @@ public sealed class DiagnosticCollector
     private readonly string _hostId;
     private HostDiagnosticPolicy? _policy;
     private long _minimumGeneration;
+    private long? _lastLogCollection;
+    private long _logGeneration;
+    internal TimeProvider Clock { get; init; } = TimeProvider.System;
     private CancellationTokenSource _sharing = new();
     public string RootDirectory { get; }
     public string PolicyFilePath { get; }
@@ -269,6 +272,11 @@ public sealed class DiagnosticCollector
                     || path.EndsWith(".zip", StringComparison.Ordinal) && !File.Exists(Path.ChangeExtension(path, ".json"))) File.Delete(path);
             using var work = CancellationTokenSource.CreateLinkedTokenSource(token, SharingToken);
             if (!Directory.Exists(runs)) return;
+            // Deliver the first consented batch promptly, then group ordinary logs every ten minutes.
+            // Incidents and consent lease renewal keep their existing cadence.
+            bool collectLogs = _logGeneration != policy.Generation || _lastLogCollection is not { } last
+                || Clock.GetElapsedTime(last) >= TimeSpan.FromMinutes(10);
+            bool sealedLogs = false;
             // ponytail: fixed local quota and sequential packaging; avoids concurrent multi-GB dump copies.
             foreach (string directory in Directory.EnumerateDirectories(runs))
             {
@@ -292,6 +300,7 @@ public sealed class DiagnosticCollector
                         try { report = Read<IncidentReport>(path); if (report is not null) DiagnosticsProtocol.ValidateReport(report); }
                         catch (Exception e) when (e is JsonException or InvalidDataException) { continue; }
                         if (report is null || report.CapturedAtUtc < policy.GrantedSinceUtc) continue;
+                        if (report.Kind == "log_batch" && !collectLogs) continue;
                         if (report.Kind == "log_batch" && report.Context.GetValueOrDefault("captureConsentGeneration") != policy.Generation.ToString()) continue;
                         string marker = Path.Combine(directory, report.ReportId + ".sealed");
                         if (File.Exists(marker)) continue;
@@ -335,10 +344,16 @@ public sealed class DiagnosticCollector
                             new BackofficeKey(policy.KeyId, policy.PublicKeyPem, policy.KeyExpiresAtUtc), policy.Generation, work.Token);
                         if (CurrentPolicy?.Generation != policy.Generation) { DeleteReport(report.ReportId); continue; }
                         File.WriteAllText(marker, "");
+                        if (report.Kind == "log_batch") sealedLogs = true;
                     }
                 }
                 catch (Exception e) when (CaptureFailure(e))
                 { Console.Error.WriteLine($"Diagnostic collection deferred ({e.GetType().Name})."); }
+            }
+            if (sealedLogs && CurrentPolicy?.Generation == policy.Generation)
+            {
+                _lastLogCollection = Clock.GetTimestamp();
+                _logGeneration = policy.Generation;
             }
         }
         finally { _gate.Release(); }
