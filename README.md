@@ -49,3 +49,11 @@ from the terminal, install it as a background service, or run the GHCR image.
 | [Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) | systemd install, release assets, and the auto-updater flow. |
 | [Windows Deployment & Updates](Docs/WindowsDeploymentAndUpdates.md) | Scheduled Task install, release assets, and the auto-updater flow. |
 | [State Machine Diagrams](Docs/StateMachines/Index.md) | Object states and state machines (server lifecycle, agent connection, self-update, runtime provisioning, backups, …) as Mermaid + PNG. |
+
+Entity Viewer companion plugins can now discover connected servers through
+`IQuasarCompanionChannel.GetConnectedServers()` and collect recording batches in
+background hosted services without an open browser. Stable server IDs are paired
+with current agent IDs. The Entity Viewer owns replay contracts, capture,
+24-hour storage, admin-only history endpoints, and playback; Quasar core supplies
+server discovery and the existing companion request transport. Install matching
+Quasar and Entity Viewer revisions to enable continuous history collection.
