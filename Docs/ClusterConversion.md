@@ -56,6 +56,8 @@ the corresponding credentials on Quasar and Host executors before running the wo
 
 1. Shut down the source cluster cleanly and wait for the matching clean-Down proof
    and stopped cluster processes on every host machine. Select the release/dependencies of its active revision.
+   A cluster activated after a clean Down can be converted before it starts again. A cluster that has never
+   run since setup has no saved state to convert; start it once first.
 2. Open cluster details and choose **Convert to standalone server**. Select a new
    Server name, Public server port and base configuration profile for server settings/plugin selections.
 3. Confirm the conversion. Quasar captures verified native snapshots from every Host executor

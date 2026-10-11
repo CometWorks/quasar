@@ -267,6 +267,60 @@ public sealed class ClusterReconcilerTests : IDisposable
     }
 
     [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(false, false, false)]
+    [InlineData(true, true, false)]
+    public async Task ActivatedGatewayThatNeverRanIsCleanlyDown(
+        bool currentProof,
+        bool stopped,
+        bool converged
+    )
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using ClusterCatalog catalog = CreateCatalog(
+            DedicatedServerGoalState.Off,
+            activation: cluster =>
+                new(currentProof ? cluster.GetLifecycleId() : "older-lifecycle", null)
+        );
+        int gatewayCalls = 0,
+            hostApplies = 0;
+        // A Gateway that ran and stopped reports the fence of its stop; a freshly activated one has none.
+        GatewayStatus hostState = GatewayStatus(GatewayGoal.Off, GatewayObservedState.Missing);
+        if (!stopped)
+            hostState = hostState with { CompletedStopFence = null };
+        var host = new ContractHandler(
+            (request, _) =>
+            {
+                if (request.Method == HttpMethod.Put)
+                    hostApplies++;
+                return HostResponse(Host([hostState]));
+            }
+        );
+        var gateway = new ContractHandler(
+            (_, _) =>
+            {
+                gatewayCalls++;
+                return GatewayResponse(Status(Admin.ClusterPhase.Down));
+            }
+        );
+        var reconciler = CreateReconciler(catalog, gateway, host);
+
+        await reconciler.ReconcileAllAsync(CancellationToken.None);
+
+        var status = reconciler.GetStatus("demo");
+        Assert.Equal(0, gatewayCalls);
+        Assert.Equal(0, hostApplies);
+        Assert.Equal(
+            converged
+                ? ClusterReconcileState.Converged
+                : ClusterReconcileState.ConfigurationRequired,
+            status.State
+        );
+        Assert.Equal(converged ? null : "shutdown_unverified", status.ErrorCode);
+        Assert.Equal(converged ? Admin.ClusterPhase.Down : null, status.ClusterPhase);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task CleanFencedStopCompletesShutdownJournalEvenWhenRemoteAcknowledgementWasLost(bool lostHostReply)
@@ -658,7 +712,8 @@ public sealed class ClusterReconcilerTests : IDisposable
         if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
     }
 
-    private ClusterCatalog CreateCatalog(DedicatedServerGoalState goal, bool observeOnly = false)
+    private ClusterCatalog CreateCatalog(DedicatedServerGoalState goal, bool observeOnly = false,
+        Func<ClusterDefinition, ClusterActivationProof>? activation = null)
     {
         string directory = Path.Combine(_directory, "demo");
         Directory.CreateDirectory(directory);
@@ -674,6 +729,7 @@ public sealed class ClusterReconcilerTests : IDisposable
             Gateway = observeOnly ? null : Spec(),
             UpdatedAtUtc = DateTimeOffset.UnixEpoch,
         };
+        cluster.ActivationProof = activation?.Invoke(cluster);
         File.WriteAllText(Path.Combine(directory, "cluster.json"), JsonSerializer.Serialize(cluster, JsonOptions));
         return OpenCatalog();
     }

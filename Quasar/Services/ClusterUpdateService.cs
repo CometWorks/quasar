@@ -29,7 +29,7 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
         if (cluster.QueuedContentUpdates is not null)
             throw new InvalidOperationException("Queued mod/plugin updates must be staged before applying. Stage the active profile to prepare the queued content, or remove the queue to apply only the prepared deployment.");
         if (cluster.GoalState == DedicatedServerGoalState.Off && cluster.Gateway is not null
-            && cluster.ShutdownProof?.LifecycleId != cluster.GetLifecycleId())
+            && !cluster.IsProvenStopped())
             throw new InvalidOperationException("This stopped cluster has no clean shutdown proof. Recover the stopped cluster after an unclean shutdown before starting an update.");
         var candidate = request.Rollback ? RollbackDeployment(cluster) : request.Deployment
             ?? throw new InvalidDataException("Candidate deployment is required.");
@@ -156,7 +156,7 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                     switch (workflow.Phase)
                     {
                         case ClusterUpdatePhase.Stopping:
-                            if (cluster.ShutdownProof?.LifecycleId != cluster.GetLifecycleId())
+                            if (!cluster.IsProvenStopped())
                                 return await OverdueAsync(cluster, workflow, StoppingDeadline, "a verified clean shutdown");
                             // The stopped cut taken here is the way back to the previous version and world
                             // if the new deployment fails after it ran. Begin refuses a migration without it.
@@ -279,7 +279,7 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
         {
             if (workflow.Revert is null)
             {
-                if (cluster.ShutdownProof?.LifecycleId != cluster.GetLifecycleId())
+                if (!cluster.IsProvenStopped())
                 {
                     if (PhaseAge(workflow) < RevertStopGrace)
                         return false;

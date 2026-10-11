@@ -1037,7 +1037,12 @@ exact Gateway process. Clean-Down evidence is persisted in `cluster.json` as
 `shutdownProof` before teardown and bound to the exact lifecycle identity. It survives
 Quasar restart and a lost Host response. Repeating the same goal preserves that identity;
 changing the goal or Gateway spec clears the proof. Candidate package staging does not.
-Do not hand-edit this evidence. An absent Gateway without matching evidence reports
+Deployment activation after a clean Down, and the first deployment, write
+`activationProof` instead: the activated Gateway has not run, and every way of starting
+it changes the lifecycle identity, which clears the record. While it matches, the cluster
+counts as cleanly stopped for another activation, an update, a rollback and backups, and
+the status reads "Deployment activated; the Gateway has not run since". A restore writes
+no record. Do not hand-edit this evidence. An absent Gateway without matching evidence reports
 `shutdown_unverified`; a mismatched or uncertain process reports
 `gateway_recovery_required`. An Off goal never starts a Gateway for recovery.
 The reconciler is a hosted service in normal and headless mode.
@@ -1293,8 +1298,8 @@ generating boot images and converting worlds remain part of packaged provisionin
 **Administration → Cluster settings** edits **Server name** and shutdown grace
 period (0–3600 seconds). The Server name is used in Quasar; the grace period
 is used on the next managed shutdown. Save these with
-`PUT /api/v1/clusters/{uniqueName}/administration`. A clean shutdown proof
-remains valid after these settings change.
+`PUT /api/v1/clusters/{uniqueName}/administration`. Clean shutdown and
+activation proofs remain valid after these settings change.
 
 **Stage selected profile** prepares every Host and records the selected profile
 for the pending deployment. Apply it from **Maintenance → Pending update**
@@ -1673,7 +1678,8 @@ attachment/Gateway transition for restart recovery. It does not start a process.
 Quasar's `GET/PUT /api/v1/clusters/{uniqueName}/deployment` inspect/activate a revision
 across Hosts. CLI equivalents are `cluster deployment NAME` and
 `cluster deployment-activate NAME REQUEST.json --idempotency-key KEY`.
-Activation requires goal Off and clean-Down proof for an existing deployment. The
+Activation requires goal Off and clean-Down proof for an existing deployment, or an
+activation proof when the Gateway has not run since the last activation. The
 request includes `expectedRevision`, `revision`, and `hosts`; each host names `hostId`,
 `commandUrl`, `tokenEnvironmentVariable` and its Host `activation` request. Each local
 activation names `clusterId`, `expectedBundleManifestSha256`, `bundleManifestPath`,

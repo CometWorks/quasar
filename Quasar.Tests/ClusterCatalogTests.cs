@@ -115,6 +115,73 @@ public sealed class ClusterCatalogTests : IDisposable
     }
 
     [Fact]
+    public async Task AdministrationSettingsKeepActivationProof()
+    {
+        Directory.CreateDirectory(Path.Combine(_directory, "demo"));
+        File.WriteAllText(
+            Path.Combine(_directory, "demo", "cluster.json"),
+            """
+            { "uniqueName": "demo", "gatewayUrl": "http://gateway.test", "updatedAtUtc": "2026-09-19T12:00:00Z" }
+            """
+        );
+        using var catalog = CreateCatalog();
+        await catalog.RecordActiveDeploymentAsync(
+            catalog.GetCluster("demo")!,
+            Revision("first"),
+            default
+        );
+
+        var updated = await catalog.UpdateAdministrationAsync("demo", new("New name", 120));
+
+        Assert.True(updated.HasActivationProof());
+        using var reloaded = CreateCatalog();
+        Assert.True(reloaded.GetCluster("demo")!.IsProvenStopped());
+        Assert.False(reloaded.GetCluster("demo")!.IsProvenStopped(requireRun: true));
+    }
+
+    [Theory]
+    [InlineData("restore")]
+    [InlineData("unproven")]
+    public async Task ActivationWithoutAProvenStopRecordsNoProof(string before)
+    {
+        Directory.CreateDirectory(Path.Combine(_directory, "demo"));
+        File.WriteAllText(
+            Path.Combine(_directory, "demo", "cluster.json"),
+            """
+            { "uniqueName": "demo", "gatewayUrl": "http://gateway.test" }
+            """
+        );
+        using var catalog = CreateCatalog();
+        await catalog.RecordActiveDeploymentAsync(
+            catalog.GetCluster("demo")!,
+            Revision("first"),
+            default
+        );
+        if (before == "restore")
+            await catalog.RecordPendingDeploymentAsync(
+                catalog.GetCluster("demo")!,
+                "restore-hash",
+                default,
+                restore: true
+            );
+        else
+        {
+            // Started and stopped without a recorded clean Down.
+            await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+            await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off);
+        }
+
+        var activated = await catalog.RecordActiveDeploymentAsync(
+            catalog.GetCluster("demo")!,
+            Revision("second"),
+            default
+        );
+
+        Assert.Null(activated.ActivationProof);
+        Assert.False(activated.IsProvenStopped());
+    }
+
+    [Fact]
     public async Task RestoreUsesSavedActiveProvenanceAfterCandidateStaging()
     {
         string directory = Path.Combine(_directory, "demo");
@@ -248,6 +315,14 @@ public sealed class ClusterCatalogTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.CreateAsync(request with { GatewayUrl = "http://another" }, default));
         await Assert.ThrowsAsync<InvalidDataException>(() => catalog.CreateAsync(request with { UniqueName = "../escape" }, default));
     }
+
+    private static ClusterActiveRevision Revision(string revision) => new(revision,
+    [
+        new("one", "http://one", "TOKEN", new HostActiveDeployment("demo", revision, new string('a', 64),
+            new("demo", "http://gateway.test", "TOKEN", "/one/bundle.json", new string('a', 64), "/runs/one"),
+            new("demo", GatewayGoal.Off, "/one/bundle.json", new string('a', 64), revision, [29416], "/runs/one/gateway",
+                StartGeneration: Guid.NewGuid()))),
+    ], DateTimeOffset.UtcNow);
 
     private ClusterCatalog CreateCatalog()
     {

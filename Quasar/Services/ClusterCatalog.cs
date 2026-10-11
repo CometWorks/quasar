@@ -122,7 +122,7 @@ public sealed class ClusterCatalog : IDisposable
                 {
                     current.DisplayName = displayName;
                     current.ShutdownGracePeriodSeconds = settings.ShutdownGracePeriodSeconds;
-                }, cancellationToken, preserveShutdownProof: true), cancellationToken);
+                }, cancellationToken, preserveProof: true), cancellationToken);
     }
 
     public Task<ClusterDefinition> SetGatewayAsync(string uniqueName,
@@ -164,7 +164,16 @@ public sealed class ClusterCatalog : IDisposable
             cluster.HostCommandUrl = host.CommandUrl;
             cluster.HostCommandTokenEnvironmentVariable = host.TokenEnvironmentVariable;
             cluster.GatewayUrl = host.Deployment.Attachment.GatewayUrl;
-        }, token);
+        }, token, activationProof: NotStartedSinceActivation);
+
+    // The Host activates a Gateway with goal Off and a fresh start generation, so after a clean Down or on a
+    // first deployment nothing runs yet. A restore gets no proof: its Registry state comes from a backup.
+    private static ClusterActivationProof? NotStartedSinceActivation(ClusterDefinition before) =>
+        before.PendingRestoreHash is not null ? null
+        : before.HasCleanShutdownProof() ? new(string.Empty, before.ShutdownProof!.CleanShutdownAt)
+        : before.HasActivationProof() ? before.ActivationProof
+        : before.Gateway is null ? new(string.Empty, null)
+        : null;
 
     internal async Task RecordPreparationAsync(ClusterDefinition expected, ClusterPreparationRequest request,
         ClusterDeploymentRequest deployment, CancellationToken token)
@@ -266,6 +275,7 @@ public sealed class ClusterCatalog : IDisposable
                 current.GoalState = requested;
                 current.UpdatedAtUtc = DateTimeOffset.UtcNow;
                 current.ShutdownProof = null;
+                current.ActivationProof = null;
                 if (requested == DedicatedServerGoalState.On && current.Gateway is not null)
                     current.Gateway = current.Gateway with { StartGeneration = Guid.NewGuid(), Recover = false };
             }
@@ -502,21 +512,26 @@ public sealed class ClusterCatalog : IDisposable
         _ => UpdateCoreAsync(uniqueName, update, cancellationToken), cancellationToken);
 
     private async Task<ClusterDefinition> UpdateCoreAsync(string uniqueName, Action<ClusterDefinition> update,
-        CancellationToken cancellationToken, bool preserveShutdownProof = false)
+        CancellationToken cancellationToken, bool preserveProof = false,
+        Func<ClusterDefinition, ClusterActivationProof?>? activationProof = null)
     {
         await _writeGate.WaitAsync(cancellationToken);
         try
         {
             ClusterDefinition cluster = GetCluster(uniqueName)
                 ?? throw new KeyNotFoundException($"Unknown cluster '{uniqueName}'.");
-            var cleanProof = preserveShutdownProof && cluster.ShutdownProof?.LifecycleId == cluster.GetLifecycleId()
-                ? cluster.ShutdownProof : null;
+            var cleanProof = preserveProof && cluster.HasCleanShutdownProof() ? cluster.ShutdownProof : null;
+            var activation = activationProof is not null ? activationProof(cluster)
+                : preserveProof && cluster.HasActivationProof() ? cluster.ActivationProof : null;
             update(cluster);
             cluster.UpdatedAtUtc = DateTimeOffset.UtcNow;
             cluster.ShutdownProof = null;
+            cluster.ActivationProof = null;
             Normalize(cluster);
             if (cleanProof is not null)
                 cluster.ShutdownProof = cleanProof with { LifecycleId = cluster.GetLifecycleId() };
+            if (activation is not null)
+                cluster.ActivationProof = activation with { LifecycleId = cluster.GetLifecycleId() };
             await SaveAsync(cluster, cancellationToken);
             return cluster.Clone();
         }

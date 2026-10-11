@@ -208,8 +208,8 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
                 if (cluster.GoalState != DedicatedServerGoalState.Off || cluster.PendingDeploymentHash is not null
                     || cluster.Gateway?.StartGeneration is null || cluster.ActiveDeployment is null)
                     throw new InvalidOperationException("Gateway recovery requires a managed deployment, goal Off and no incomplete activation.");
-                if (cluster.ShutdownProof?.LifecycleId == cluster.GetLifecycleId())
-                    throw new InvalidOperationException("This deployment already has clean-Down proof; use a normal start.");
+                if (cluster.IsProvenStopped())
+                    throw new InvalidOperationException("This deployment is proven stopped; use a normal start.");
                 var status = (await hosts.GetStatusAsync(cluster, cancellation)).Data;
                 var observed = status.Gateways?.SingleOrDefault(g => g.ClusterId == clusterId);
                 if (!status.GatewayStopFencing || observed?.Observed == HostContract.GatewayObservedState.UnmanagedConflict)
@@ -263,7 +263,7 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             throw new InvalidOperationException("Deployment activation requires goal Off and completed shutdown.");
         if (cluster.ActiveDeployment?.Revision != request.ExpectedRevision)
             throw new InvalidOperationException("Active deployment changed; refresh before activation.");
-        if (!preflight && !restore && cluster.Gateway is not null && cluster.ShutdownProof?.LifecycleId != cluster.GetLifecycleId())
+        if (!preflight && !restore && cluster.Gateway is not null && !cluster.IsProvenStopped())
             throw new InvalidOperationException("Existing deployments require matching clean-Down proof before activation.");
         var hostIds = request.Hosts.Select(h => h.HostId).Order(StringComparer.Ordinal).ToArray();
         if (cluster.ActiveDeployment is { } previous

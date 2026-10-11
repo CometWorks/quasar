@@ -95,7 +95,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
         {
             // Scheduled backups are offline backups: they need a cleanly stopped cluster.
             if (cluster.GoalState != DedicatedServerGoalState.Off || cluster.ActiveDeployment is null
-                || cluster.ShutdownProof?.LifecycleId != cluster.GetLifecycleId() || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }) continue;
+                || !cluster.IsProvenStopped() || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }) continue;
             try
             {
                 rule.LastBackupUtc = List(cluster.UniqueName).Where(b => b.Automatic).Select(b => (DateTimeOffset?)b.CreatedAt).FirstOrDefault();
@@ -131,7 +131,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             || request.SnapshotId == Guid.Empty || cluster.GoalState != DedicatedServerGoalState.Off
             || cluster.ActiveDeployment is null || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
             throw new InvalidOperationException("Backup requires a snapshot ID, goal Off and a complete managed deployment.");
-        bool clean = cluster.ShutdownProof?.LifecycleId == cluster.GetLifecycleId();
+        bool clean = cluster.IsProvenStopped();
         if (!clean && !request.AllowCrashConsistent)
             throw new InvalidOperationException("Clean-Down proof is absent; explicitly request a crash-consistent backup.");
         string destination = Path.Combine(Root(cluster.UniqueName), request.SnapshotId.ToString("N"));

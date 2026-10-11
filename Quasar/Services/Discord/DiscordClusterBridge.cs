@@ -26,7 +26,7 @@ public sealed class DiscordClusterBridge(
             _observations.TryGetValue(cluster.UniqueName, out var observation);
             var status = observation != null && DateTimeOffset.UtcNow - observation.At <= TimeSpan.FromSeconds(15)
                 ? observation.Status : null;
-            var stopped = cluster.GoalState == DedicatedServerGoalState.Off && cluster.ShutdownProof?.LifecycleId == cluster.GetLifecycleId();
+            var stopped = cluster.GoalState == DedicatedServerGoalState.Off && cluster.IsProvenStopped();
             yield return new("cluster:" + cluster.UniqueName, cluster.UniqueName,
                 status?.Phase is Admin.ClusterPhase.Serving or Admin.ClusterPhase.Degraded,
                 status?.Counts.ConnectedClients ?? (stopped ? 0 : (int?)null),
@@ -72,7 +72,7 @@ public sealed class DiscordClusterBridge(
             try
             {
                 var cluster = RequireCluster(settings);
-                if (cluster.GoalState == DedicatedServerGoalState.Off && cluster.ShutdownProof?.LifecycleId == cluster.GetLifecycleId())
+                if (cluster.GoalState == DedicatedServerGoalState.Off && cluster.IsProvenStopped())
                 {
                     if (_observations.TryRemove(settings.UniqueName, out var stopped) && stopped.Status.Phase != Admin.ClusterPhase.Down
                         && settings.EnableServerNotifications)
