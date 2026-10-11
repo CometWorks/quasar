@@ -17,10 +17,13 @@ The approved visual overhaul now extends across the core workspace. Migrated sur
 
 - Native responsive shell, navigation, theme selector, notification/auth/power
   entry points, and shutdown overlay, with the current Quasar logo. The sidebar
-  is 160px wide on desktop and in the mobile drawer, with 14px navigation labels
-  and the shortened “Hosts” link. The top app bar stays docked while the page
-  scrolls. Its 65px height matches the sidebar branding row; long branding text
-  is ellipsized with the full text available on hover. Navigation controls stay
+  is 240px wide on desktop and in the mobile drawer, with 16px navigation labels,
+  22px icons, larger click targets, and the shortened “Hosts” link. The logo,
+  title, and subtitle stay docked at the top while the sidebar scrolls. The
+  default subtitle is “Control plane”; saved custom subtitles remain unchanged.
+  The top app bar stays docked while the page scrolls. Its 65px height matches
+  the sidebar branding row; long branding text is ellipsized with the full text
+  available on hover. Navigation controls stay
   vertically centered, and anchor scrolling leaves room for the docked bar.
 - Native appearance form with all 29 fields in both palettes, presets, custom
   branding, separate mode-specific logo uploads, favicon, draft preview, save,
