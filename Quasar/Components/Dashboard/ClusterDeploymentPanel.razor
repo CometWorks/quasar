@@ -72,9 +72,9 @@
         @if (Current.Update is { } update)
         {
             <p class="quasar-text quasar-type-body1">Update @update.Id: @update.Phase</p>
-            @if (update.BackupRequired)
+            @if (update.BackupRequired || update.Backup is not null)
             {
-                <span class="quasar-text quasar-type-caption">Pre-migration backup ID: @update.Id. Keep this backup until the updated cluster has been checked. Restoring it requires a newly prepared deployment with rotated runtime credentials.</span>
+                <span class="quasar-text quasar-type-caption">Pre-update backup ID: @update.Id. Keep this backup until the updated cluster has been checked. Restoring it requires a newly prepared deployment with rotated runtime credentials.</span>
             }
             @if (update.LastError is not null) { <MudAlert Severity="Severity.Warning">@update.LastError</MudAlert> }
             @if (update.Phase != ClusterUpdatePhase.Complete)
