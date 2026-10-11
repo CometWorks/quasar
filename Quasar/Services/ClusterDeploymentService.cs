@@ -183,7 +183,7 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             && ClusterUpdatePreparationService.RequiresProfileMigration(cluster, request.Revision))
             throw new InvalidOperationException("Apply a staged profile through the managed update workflow so Quasar backs up the stopped cluster before migration.");
         if (!restore && cluster.QueuedContentUpdates is not null)
-            throw new InvalidOperationException("Remove queued mod/plugin changes before activating a deployment. Pinned content preparation is not supported yet.");
+            throw new InvalidOperationException("Stage queued mod/plugin changes before activating a deployment, or remove the queue to apply only the prepared deployment.");
         if (!update && cluster.Update is { Phase: not ClusterUpdatePhase.Complete })
             throw new InvalidOperationException("A managed update owns this cluster lifecycle.");
         if (request.Hosts is null || request.Hosts.Length is < 1 or > 64

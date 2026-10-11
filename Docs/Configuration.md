@@ -1355,17 +1355,30 @@ but returns only the requested cluster's observations. Results use the normal ad
 pending request: Workshop timestamps for mods and source manifest commits for plugins.
 Later checks do not silently change those targets. Queuing again replaces the request
 with the currently observed changes. The targets appear under **Maintenance → Pending
-update**, with application explicitly blocked until upstream pinned-content preparation
-exists. They are requested versions, not downloaded or frozen bytes. Remove queued
-content changes to apply a prepared configuration/release update on its own. Queuing
+update**. Select **Stage queued content updates** to run the existing managed profile
+preparation against the active profile. This requires configuration-edit permission
+as well as cluster-manage access. It restages the whole profile, including its settings,
+complete resolved mod list and plugin selection; review profile edits before staging.
+Quasar checks queued Workshop timestamps before and after downloading and checks each
+queued plugin commit against Magnetar's export. An unavailable item, moved timestamp,
+removed selection or different exported commit fails staging and keeps the queue.
+Refresh observations and queue again when upstream targets change; historical Workshop
+downloads are not supported. Successful preparation on every Host atomically clears
+the matching queue and records the candidate. Then select **Apply pending update** for
+the existing backed-up, full-downtime activation workflow. Staging the active profile
+through the profile selector or `config-profile-preparation` API performs the same checks.
+Unprepared targets remain blocked. Remove queued content changes to apply a prepared
+configuration/release update on its own. Queuing
 and removing content preserve clean-shutdown proof and never contact Hosts. Stale
 observations from another active deployment cannot be queued.
 
 Changes appear in the bell and reach each authorized browser push subscription, with a link
 to the affected cluster's content panel. Checks do not download mod/plugin payloads, change
-deployment pins, restart nodes, block player admission or apply updates. Content preparation,
-activation and rolling replacement remain unavailable pending the upstream pin/preparation
-contracts described in the [content update plan](https://git.cometworks.se/CometWorks/clustering-plan/src/branch/main/Plan/ClusterContentUpdatesPlan.md).
+deployment pins, restart nodes, block player admission or apply updates. Managed profile
+preparation freezes downloaded byte inventories and plugin bundles using the released
+Magnetar export and cluster profile-migration contracts. Rolling replacement and a pooled
+versioned content cache remain outside this full-downtime workflow; see the
+[content update plan](https://git.cometworks.se/CometWorks/clustering-plan/src/branch/main/Plan/ClusterContentUpdatesPlan.md).
 
 ## Cluster release staging and selection (Linux)
 

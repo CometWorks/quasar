@@ -27,7 +27,7 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
             throw new InvalidOperationException("Update requires an operation ID and a complete managed deployment.");
         if (cluster.Update is { Phase: not ClusterUpdatePhase.Complete }) throw new InvalidOperationException("An update is already in progress.");
         if (cluster.QueuedContentUpdates is not null)
-            throw new InvalidOperationException("Queued mod/plugin updates cannot be applied until pinned content preparation is supported. Remove the queued content changes to apply only the prepared deployment.");
+            throw new InvalidOperationException("Queued mod/plugin updates must be staged before applying. Stage the active profile to prepare the queued content, or remove the queue to apply only the prepared deployment.");
         if (cluster.GoalState == DedicatedServerGoalState.Off && cluster.Gateway is not null
             && cluster.ShutdownProof?.LifecycleId != cluster.GetLifecycleId())
             throw new InvalidOperationException("This stopped cluster has no clean shutdown proof. Recover the stopped cluster after an unclean shutdown before starting an update.");

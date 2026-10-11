@@ -4,8 +4,14 @@
 
 Quasar observes common-plugin manifest commits and Workshop mod timestamps. The cluster
 content panel, bell and browser push expose changes even when the package is current.
-An observation alone does not deploy content: edit or select a config profile and stage
-it to freeze the exact bytes. See [configuration](Configuration.md#cluster-content-update-observations)
+An observation alone does not deploy content: queue the observed changes, then choose
+**Maintenance → Stage queued content updates** to restage the active profile and freeze
+the exact bytes. Staging validates queued Workshop timestamps before and after downloading
+and matches queued plugin commits to Magnetar's export. It clears the matching queue only
+after every Host prepares successfully. Upstream changes or failed preparation keep the
+queue and block application. Staging includes the whole profile, including settings and
+any other selected content; **Apply pending update** uses backed-up full-cluster downtime.
+See [configuration](Configuration.md#cluster-content-update-observations)
 and the [maintained plan](https://git.cometworks.se/CometWorks/clustering-plan/src/branch/main/Plan/ClusterContentUpdatesPlan.md).
 
 ## Staged profile changes (cluster 0.1.0 beta)
@@ -105,7 +111,11 @@ runtime itself does not lock an archive or moved hub pin for an entire run.
 Managed Quasar updates therefore keep activation behind the existing
 verified full-downtime workflow and never restage active content in place.
 
-### Content update hookup audit: Cluster 1.1.9
+### Historical content update hookup audit: Cluster 1.1.9
+
+The managed profile path and queued-content staging above now connect byte freezing,
+Host transfer and stopped-world migration. The following audit records the older release's
+gaps. A pooled versioned cache and historical-version retrieval remain separate work.
 
 Checked the published `v1.1.9` source at
 [`2463d7b12546664c18eb316a2fa092b8e51b79aa`](https://github.com/CometWorks/cluster/tree/2463d7b12546664c18eb316a2fa092b8e51b79aa).
@@ -134,8 +144,8 @@ including replacements. Imported environment settings cannot re-enable Workshop
 downloads on recycle. Cluster 1.1.10 managed preparation rejects modded seeds until
 verified local payload staging exists. Existing modded deployments without local mod
 payloads cannot be recycled under this Host behavior and need migration before upgrade.
-Queued content application remains blocked until preparation and activation are
-verified across Hosts.
+Queued content application requires successful managed profile preparation across Hosts;
+the current staging action supplies that verification before enabling the update workflow.
 
 Schema-2 dependency snapshots now include common/compatibility bundles and resolved
 native assets. The upstream CLI accepts `DIRECT_TRANSPORT_BINARIES` and

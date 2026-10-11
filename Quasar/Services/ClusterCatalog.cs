@@ -214,7 +214,7 @@ public sealed class ClusterCatalog : IDisposable
 
     internal async Task RecordSelectedReleasePreparationAsync(ClusterDefinition expected,
         ClusterDeploymentRequest deployment, CancellationToken token, string? preparedProfileId = null,
-        string? preparedProfileSha256 = null)
+        string? preparedProfileSha256 = null, ClusterContentUpdateQueue? preparedContentUpdates = null)
     {
         await _writeGate.WaitAsync(token);
         try
@@ -225,6 +225,11 @@ public sealed class ClusterCatalog : IDisposable
                 || current.ActiveDeployment?.Revision != expected.ActiveDeployment?.Revision
                 || JsonSerializer.Serialize(current.PreparedDeployment, JsonOptions) != JsonSerializer.Serialize(deployment, JsonOptions))
                 throw new InvalidOperationException("Cluster inputs changed during preparation. Prepare the selected release again.");
+            if (preparedContentUpdates is not null
+                && (current.ActiveDeployment?.Revision != preparedContentUpdates.DeploymentRevision
+                    || JsonSerializer.Serialize(current.QueuedContentUpdates, JsonOptions)
+                        != JsonSerializer.Serialize(preparedContentUpdates, JsonOptions)))
+                throw new InvalidOperationException("Queued content changed during preparation. Stage it again.");
             if (preparedProfileId is not null)
             {
                 if (preparedProfileSha256 is null || preparedProfileSha256.Length != 64
@@ -238,6 +243,7 @@ public sealed class ClusterCatalog : IDisposable
             current.PreparedForSelectedRelease = true;
             if (preparedProfileId is not null)
                 current.PreparedProfile = new(preparedProfileId, deployment.Revision, preparedProfileSha256);
+            if (preparedContentUpdates is not null) current.QueuedContentUpdates = null;
             await SaveAsync(current, token);
         }
         finally { _writeGate.Release(); }

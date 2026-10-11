@@ -53,6 +53,47 @@ public sealed class ClusterDeploymentTests : IDisposable
         Assert.Equal(proof, catalog.GetCluster("demo")!.ShutdownProof);
     }
 
+    [Fact]
+    public async Task PreparedContentClearsOnlyTheVerifiedQueueAndUnblocksTheUpdate()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var deployments = Service(catalog, handler);
+        await deployments.ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var cluster = catalog.GetCluster("demo")!;
+        var snapshot = new ClusterContentSnapshot("demo", cluster.ActiveDeployment!.Revision, DateTimeOffset.UtcNow, [],
+            [new("plugin", "plugin", "Plugin", new string('a', 40), null, new string('b', 40), DateTimeOffset.UtcNow, null, null)], null, null);
+        cluster = await catalog.QueueContentUpdatesAsync("demo", snapshot);
+        var queued = cluster.QueuedContentUpdates!;
+        var candidate = Request() with { ExpectedRevision = cluster.ActiveDeployment!.Revision, Revision = "candidate" };
+        var preparation = new ClusterPreparationRequest(new string('a', 64), "{}", "http://gateway.test", []);
+        await catalog.RecordPreparationAsync(cluster, preparation, candidate, default);
+        var changed = queued with { Items = [queued.Items[0] with { TargetVersion = new string('c', 40) }] };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.RecordSelectedReleasePreparationAsync(
+            catalog.GetCluster("demo")!, candidate, default, preparedContentUpdates: changed));
+        Assert.NotNull(catalog.GetCluster("demo")!.QueuedContentUpdates);
+        Assert.False(catalog.GetCluster("demo")!.PreparedForSelectedRelease);
+        // Queue arrays reconstructed by reload must compare by durable content.
+        using var reloaded = Catalog();
+        await reloaded.RecordSelectedReleasePreparationAsync(reloaded.GetCluster("demo")!, candidate, default,
+            preparedContentUpdates: queued);
+        cluster = reloaded.GetCluster("demo")!;
+        Assert.Null(cluster.QueuedContentUpdates);
+        Assert.True(cluster.HasPreparedUpdate);
+        Assert.True(cluster.PreparedForSelectedRelease);
+        Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);
+        Assert.Equal("revision", cluster.ActiveDeployment!.Revision);
+        Assert.Equal(2, handler.Applied.Count);
+        using var persisted = Catalog();
+        Assert.Null(persisted.GetCluster("demo")!.QueuedContentUpdates);
+        handler.Revision = "candidate";
+        using var updates = new ClusterUpdateService(persisted, Service(persisted, handler), null!, null!,
+            new ClusterOperationStore(Path.Combine(root, "content-update-operations")), NullLogger<ClusterUpdateService>.Instance);
+        await updates.BeginAsync("demo", new(Guid.NewGuid(), candidate), "prepared-content", "test", default);
+        Assert.Equal(ClusterUpdatePhase.Stopping, persisted.GetCluster("demo")!.Update!.Phase);
+    }
+
     [Theory]
     [InlineData("active", "candidate", true)]
     [InlineData("active", "active", false)]
