@@ -176,6 +176,13 @@ public sealed class ClusterReconciler : BackgroundService
                 return;
             }
             ClusterApi.EnsureGatewayCanStop(prior);
+            if (await DirtyShutdownAsync(cluster, prior, cancellationToken) is { } dirty)
+            {
+                Set(cluster, ClusterReconcileState.ConfigurationRequired, current.Observed, prior.Phase,
+                    "shutdown_recovery_required", $"{dirty} Set the goal Off, then in Maintenance → Recovery, "
+                    + "recover the stopped cluster after an unclean shutdown.");
+                return;
+            }
             if (!host.GatewayStopFencing || current.ProcessId is null || current.LaunchedAt is null)
                 throw new InvalidOperationException("Warm start requires a fenced Gateway stop.");
             var fence = new HostContract.GatewayStopFence(current.ProcessId.Value, current.LaunchedAt.Value);
@@ -218,7 +225,8 @@ public sealed class ClusterReconciler : BackgroundService
             // The Host shuts its clusters down cleanly at machine shutdown or logout, and a restarted
             // Gateway stays Down. Start the next generation, as Stop and Start would, but only once the
             // Host has restarted: until then it is still going down and must not launch anything.
-            if (gateway.LastCleanShutdown is { } clean && !(clean < gateway.ShutdownStarted) && host.StartedAt > clean)
+            if (gateway.LastCleanShutdown is { } clean && !(clean < gateway.ShutdownStarted) && host.StartedAt > clean
+                && await DirtyShutdownAsync(cluster, gateway, cancellationToken) is null)
             {
                 await _catalog.RecordNextStartGenerationAsync(cluster, cancellationToken);
                 Set(cluster, ClusterReconcileState.Converging, hostGateway.Observed, gateway.Phase, null,
@@ -285,6 +293,15 @@ public sealed class ClusterReconciler : BackgroundService
         if (!string.Equals(gateway.ClusterId, cluster.UniqueName, StringComparison.OrdinalIgnoreCase))
             throw new ClusterGatewayException(System.Net.HttpStatusCode.Conflict,
                 "cluster_identity_mismatch", "Gateway status belongs to a different cluster.");
+        if (await DirtyShutdownAsync(cluster, gateway, cancellationToken) is { } unclean)
+        {
+            if (cluster.ShutdownProof is not null)
+                await _catalog.RecordShutdownProofAsync(cluster, null, cancellationToken);
+            Set(cluster, ClusterReconcileState.ConfigurationRequired, hostGateway.Observed, gateway.Phase,
+                "shutdown_recovery_required", $"{unclean} In Maintenance → Recovery, recover the stopped cluster "
+                + "after an unclean shutdown. Clean shutdown was not verified.");
+            return;
+        }
         var stopFence = new HostContract.GatewayStopFence(hostGateway.ProcessId!.Value, hostGateway.LaunchedAt!.Value);
         await _catalog.RecordShutdownProofAsync(cluster,
             new(cluster.GetLifecycleId(), gateway.LastCleanShutdown!.Value, stopFence), cancellationToken);
@@ -324,6 +341,25 @@ public sealed class ClusterReconciler : BackgroundService
         && current.ConfigRevision == desired.ConfigRevision
         && current.RunRoot == desired.RunRoot
         && current.Ports.SequenceEqual(desired.Ports);
+
+    private async Task<string?> DirtyShutdownAsync(ClusterDefinition cluster, Admin.ClusterStatus status,
+        CancellationToken cancellationToken) =>
+        DirtyShutdown(status, (await _gatewayClient.GetSnapshotsAsync(cluster, cancellationToken)).Data);
+
+    // The Gateway sets the same clean-shutdown marker after an emergency or forced stop. Only the
+    // CleanShutdown snapshot recorded with it, keyed by the marker's ticks, lists what was left dirty.
+    // Null means nothing was; a missing snapshot cannot prove that.
+    internal static string? DirtyShutdown(Admin.ClusterStatus status, Admin.SnapshotSummary[] snapshots)
+    {
+        long? ticks = status.LastCleanShutdown?.UtcTicks;
+        Admin.SnapshotSummary? shutdown = snapshots.FirstOrDefault(snapshot =>
+            snapshot.Kind == Admin.AdminSnapshotKind.CleanShutdown && snapshot.ClusterTime == ticks);
+        if (shutdown is null)
+            return "The Gateway has no shutdown snapshot for its last shutdown, so it cannot prove nothing was left dirty.";
+        if (shutdown.Dirty.Length == 0) return null;
+        return "The last cluster shutdown left unsaved state: " + string.Join(", ", shutdown.Dirty.Take(12))
+            + (shutdown.Dirty.Length > 12 ? $" and {shutdown.Dirty.Length - 12} more." : ".");
+    }
 
     private static bool HasShutdownProof(ClusterDefinition cluster) =>
         cluster.ShutdownProof?.LifecycleId == cluster.GetLifecycleId();
